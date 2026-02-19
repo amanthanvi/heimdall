@@ -293,10 +293,9 @@ func withStubDaemon(t *testing.T, server *cliTestDaemon) {
 	loadConfigFn = func(config.LoadOptions) (config.Config, config.LoadReport, error) {
 		return config.DefaultConfig(), config.LoadReport{}, nil
 	}
-	ensureDaemonFn = func(ctx context.Context, _ *config.Config) (*grpc.ClientConn, error) {
-		return grpc.DialContext(
-			ctx,
-			"bufnet",
+	ensureDaemonFn = func(_ context.Context, _ *config.Config) (*grpc.ClientConn, error) {
+		return grpc.NewClient(
+			"passthrough:///bufnet",
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 				return listener.Dial()

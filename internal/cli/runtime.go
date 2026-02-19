@@ -88,16 +88,6 @@ func withDaemonClients(cmdCtx context.Context, deps commandDeps, fn func(context
 	return mapCommandError(fn(ctx, clients))
 }
 
-func outputValue(w io.Writer, asJSON bool, value any) error {
-	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(value)
-	}
-	_, err := fmt.Fprintln(w, value)
-	return err
-}
-
 func printJSON(w io.Writer, value any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -256,21 +246,6 @@ func setEnvForCommand(key, value string) func() {
 	}
 }
 
-func normalizeLines(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	lines := strings.Split(raw, "\n")
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		value := strings.TrimSpace(line)
-		if value == "" {
-			continue
-		}
-		out = append(out, value)
-	}
-	return out
-}
 
 func wipeBytes(buf []byte) {
 	for i := range buf {

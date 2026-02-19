@@ -389,17 +389,13 @@ func newGRPCHarness(t *testing.T, opts ...harnessOption) *grpcHarness {
 		_ = server.Serve(listener)
 	}()
 
-	dialer := func(ctx context.Context, _ string) (net.Conn, error) {
+	dialer := func(_ context.Context, _ string) (net.Conn, error) {
 		return listener.Dial()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	conn, err := grpcpkg.DialContext(
-		ctx,
-		"bufnet",
+	conn, err := grpcpkg.NewClient(
+		"passthrough:///bufnet",
 		grpcpkg.WithContextDialer(dialer),
 		grpcpkg.WithTransportCredentials(insecure.NewCredentials()),
-		grpcpkg.WithBlock(),
 	)
 	require.NoError(t, err)
 

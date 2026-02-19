@@ -182,7 +182,7 @@ func (r *auditRepository) AppendWithTip(ctx context.Context, event *AuditEvent, 
 	if err != nil {
 		return fmt.Errorf("append audit event with tip: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO audit_events(

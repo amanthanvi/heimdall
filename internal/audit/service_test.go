@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 	"sync"
 	"testing"
@@ -440,8 +439,3 @@ func newAuditTestStore(t *testing.T) (*storage.Store, *memguard.LockedBuffer) {
 	return store, vmk
 }
 
-func mustExec(t *testing.T, db *sql.DB, query string, args ...any) {
-	t.Helper()
-	_, err := db.Exec(query, args...)
-	require.NoError(t, err)
-}

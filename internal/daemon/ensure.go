@@ -10,6 +10,7 @@ import (
 
 	"github.com/amanthanvi/heimdall/internal/config"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -72,22 +73,30 @@ func EnsureDaemonWithOptions(ctx context.Context, cfg *config.Config, opts Ensur
 }
 
 func dialDaemon(ctx context.Context, socketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
-	dialCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	dialer := func(ctx context.Context, _ string) (net.Conn, error) {
 		var netDialer net.Dialer
 		return netDialer.DialContext(ctx, "unix", socketPath)
 	}
-	conn, err := grpc.DialContext(
-		dialCtx,
-		"unix://"+socketPath,
+	conn, err := grpc.NewClient(
+		"unix:"+socketPath,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(dialer),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return nil, err
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	conn.Connect()
+	for {
+		s := conn.GetState()
+		if s == connectivity.Ready {
+			break
+		}
+		if !conn.WaitForStateChange(dialCtx, s) {
+			_ = conn.Close()
+			return nil, dialCtx.Err()
+		}
 	}
 	return conn, nil
 }

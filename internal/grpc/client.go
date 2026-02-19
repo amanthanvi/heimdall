@@ -8,6 +8,7 @@ import (
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	grpcpkg "google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -34,23 +35,32 @@ func NewClient(socketPath string) (*Client, error) {
 		return nil, fmt.Errorf("new grpc client: socket path is required")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), clientDialTimeout)
-	defer cancel()
-
 	dialer := func(ctx context.Context, _ string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "unix", socketPath)
 	}
 
-	conn, err := grpcpkg.DialContext(
-		ctx,
-		"unix://"+socketPath,
+	conn, err := grpcpkg.NewClient(
+		"unix:"+socketPath,
 		grpcpkg.WithTransportCredentials(insecure.NewCredentials()),
 		grpcpkg.WithContextDialer(dialer),
-		grpcpkg.WithBlock(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("new grpc client: dial: %w", err)
+		return nil, fmt.Errorf("new grpc client: create: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), clientDialTimeout)
+	defer cancel()
+	conn.Connect()
+	for {
+		s := conn.GetState()
+		if s == connectivity.Ready {
+			break
+		}
+		if !conn.WaitForStateChange(ctx, s) {
+			_ = conn.Close()
+			return nil, fmt.Errorf("new grpc client: dial: %w", ctx.Err())
+		}
 	}
 
 	return &Client{

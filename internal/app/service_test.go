@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"database/sql"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -390,9 +389,3 @@ func newAppTestStore(t *testing.T) (*storage.Store, *memguard.LockedBuffer) {
 	return store, vmk
 }
 
-func mustCount(t *testing.T, db *sql.DB, query string, args ...any) int {
-	t.Helper()
-	var count int
-	require.NoError(t, db.QueryRow(query, args...).Scan(&count))
-	return count
-}

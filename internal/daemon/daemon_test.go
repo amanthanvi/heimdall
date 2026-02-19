@@ -15,6 +15,7 @@ import (
 	"github.com/amanthanvi/heimdall/internal/crypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -276,17 +277,29 @@ func TestConcurrentClientsTenConnectionsHandled(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn, err := grpc.DialContext(
-				ctx,
-				"unix://"+d.DaemonSocketPath(),
+			conn, err := grpc.NewClient(
+				"unix:"+d.DaemonSocketPath(),
 				grpc.WithTransportCredentials(insecure.NewCredentials()),
-				grpc.WithBlock(),
-				grpc.WithTimeout(500*time.Millisecond),
 			)
 			if err != nil {
 				errCh <- err
 				return
 			}
+			dialCtx, dialCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+			conn.Connect()
+			for {
+				s := conn.GetState()
+				if s == connectivity.Ready {
+					break
+				}
+				if !conn.WaitForStateChange(dialCtx, s) {
+					dialCancel()
+					_ = conn.Close()
+					errCh <- dialCtx.Err()
+					return
+				}
+			}
+			dialCancel()
 			_ = conn.Close()
 		}()
 	}
