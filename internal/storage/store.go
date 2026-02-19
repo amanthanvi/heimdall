@@ -106,6 +106,13 @@ func (s *Store) DB() *sql.DB {
 	return s.db
 }
 
+func (s *Store) Path() string {
+	if s == nil {
+		return ""
+	}
+	return s.path
+}
+
 func configureSQLite(db *sql.DB) error {
 	pragmas := []string{pragmaJournalModeWAL, pragmaForeignKeysOn, pragmaBusyTimeout, pragmaWALAutocheckpoint0}
 	for _, stmt := range pragmas {

@@ -34,6 +34,7 @@ const (
 type daemonState interface {
 	IsLocked() bool
 	HasLiveVMK() bool
+	Unlock(passphrase []byte) error
 	Lock() error
 	LastPeerPID() int
 	RegisterSigningSession(id string)
@@ -61,6 +62,7 @@ func (realClock) Now() time.Time {
 func methodTier(fullMethod string) authTier {
 	switch fullMethod {
 	case v1.VaultService_Status_FullMethodName,
+		v1.VaultService_Unlock_FullMethodName,
 		v1.VaultService_Lock_FullMethodName,
 		v1.VersionService_GetVersion_FullMethodName:
 		return tier0

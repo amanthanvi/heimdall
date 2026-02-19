@@ -34,6 +34,8 @@ type ServerConfig struct {
 	Daemon             daemonState
 	Store              *storage.Store
 	AuditService       *auditpkg.Service
+	KeyAgent           keyAgent
+	PasskeyEnroller    passkeyEnroller
 	Version            VersionInfo
 	Clock              clock
 	ReauthTTL          time.Duration
@@ -422,8 +424,19 @@ func (s *Server) ListEvents(ctx context.Context, req *v1.ListEventsRequest) (*v1
 	return &v1.ListEventsResponse{Events: out}, nil
 }
 
-func (s *Server) CreateBackup(context.Context, *v1.CreateBackupRequest) (*v1.CreateBackupResponse, error) {
-	return &v1.CreateBackupResponse{Accepted: true}, nil
+func (s *Server) CreateBackup(ctx context.Context, req *v1.CreateBackupRequest) (*v1.CreateBackupResponse, error) {
+	backupSvc := app.NewBackupService(s.cfg.Store)
+	_, err := backupSvc.Create(ctx, app.BackupCreateRequest{
+		OutputPath: req.GetOutputPath(),
+		Passphrase: []byte(req.GetPassphrase()),
+	})
+	if err != nil {
+		return nil, mapAppError("create backup", err)
+	}
+	return &v1.CreateBackupResponse{
+		Accepted:   true,
+		OutputPath: req.GetOutputPath(),
+	}, nil
 }
 
 func (s *Server) RecordSessionStart(ctx context.Context, req *v1.RecordSessionStartRequest) (*v1.RecordSessionStartResponse, error) {

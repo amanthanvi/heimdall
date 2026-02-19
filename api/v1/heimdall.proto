@@ -7,6 +7,7 @@ option go_package = "github.com/amanthanvi/heimdall/api/v1;v1";
 service VaultService {
   rpc Status(StatusRequest) returns (StatusResponse);
   rpc Lock(LockRequest) returns (LockResponse);
+  rpc Unlock(UnlockRequest) returns (UnlockResponse);
 }
 
 service VersionService {
@@ -14,10 +15,15 @@ service VersionService {
 }
 
 service HostService {
+  rpc CreateHost(CreateHostRequest) returns (CreateHostResponse);
+  rpc GetHost(GetHostRequest) returns (GetHostResponse);
+  rpc UpdateHost(UpdateHostRequest) returns (UpdateHostResponse);
+  rpc DeleteHost(DeleteHostRequest) returns (DeleteHostResponse);
   rpc ListHosts(ListHostsRequest) returns (ListHostsResponse);
 }
 
 service SecretService {
+  rpc CreateSecret(CreateSecretRequest) returns (CreateSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
   rpc GetSecretValue(GetSecretValueRequest) returns (GetSecretValueResponse);
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
@@ -26,11 +32,22 @@ service SecretService {
 }
 
 service KeyService {
+  rpc GenerateKey(GenerateKeyRequest) returns (GenerateKeyResponse);
+  rpc ImportKey(ImportKeyRequest) returns (ImportKeyResponse);
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse);
+  rpc ShowKey(ShowKeyRequest) returns (ShowKeyResponse);
+  rpc DeleteKey(DeleteKeyRequest) returns (DeleteKeyResponse);
+  rpc RotateKey(RotateKeyRequest) returns (RotateKeyResponse);
   rpc ExportKey(ExportKeyRequest) returns (ExportKeyResponse);
+  rpc AgentAdd(AgentAddRequest) returns (AgentAddResponse);
+  rpc AgentRemove(AgentRemoveRequest) returns (AgentRemoveResponse);
 }
 
 service PasskeyService {
+  rpc Enroll(EnrollPasskeyRequest) returns (EnrollPasskeyResponse);
   rpc ListPasskeys(ListPasskeysRequest) returns (ListPasskeysResponse);
+  rpc RemovePasskey(RemovePasskeyRequest) returns (RemovePasskeyResponse);
+  rpc TestPasskey(TestPasskeyRequest) returns (TestPasskeyResponse);
 }
 
 service ConnectService {
@@ -39,10 +56,12 @@ service ConnectService {
 
 service AuditService {
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc VerifyChain(VerifyChainRequest) returns (VerifyChainResponse);
 }
 
 service BackupService {
   rpc CreateBackup(CreateBackupRequest) returns (CreateBackupResponse);
+  rpc RestoreBackup(RestoreBackupRequest) returns (RestoreBackupResponse);
 }
 
 service SessionService {
@@ -66,6 +85,15 @@ message LockRequest {}
 
 message LockResponse {}
 
+message UnlockRequest {
+  string passphrase = 1;
+  string passkey_label = 2;
+}
+
+message UnlockResponse {
+  bool unlocked = 1;
+}
+
 message GetVersionRequest {}
 
 message GetVersionResponse {
@@ -85,10 +113,64 @@ message Host {
   int32 port = 4;
   string user = 5;
   repeated string tags = 6;
+  map<string, string> env_refs = 7;
 }
+
+message CreateHostRequest {
+  string name = 1;
+  string address = 2;
+  int32 port = 3;
+  string user = 4;
+  repeated string tags = 5;
+  string group = 6;
+  map<string, string> env_refs = 7;
+}
+
+message CreateHostResponse {
+  Host host = 1;
+}
+
+message GetHostRequest {
+  string name = 1;
+}
+
+message GetHostResponse {
+  Host host = 1;
+}
+
+message UpdateHostRequest {
+  string name = 1;
+  string new_name = 2;
+  string address = 3;
+  int32 port = 4;
+  string user = 5;
+  repeated string tags = 6;
+  bool clear_tags = 7;
+  map<string, string> env_refs = 8;
+}
+
+message UpdateHostResponse {
+  Host host = 1;
+}
+
+message DeleteHostRequest {
+  string name = 1;
+}
+
+message DeleteHostResponse {}
 
 message ListHostsResponse {
   repeated Host hosts = 1;
+}
+
+message CreateSecretRequest {
+  string name = 1;
+  bytes value = 2;
+  string reveal_policy = 3;
+}
+
+message CreateSecretResponse {
+  SecretMeta secret = 1;
 }
 
 message ListSecretsRequest {}
@@ -139,6 +221,61 @@ message DownloadChunk {
   bool eof = 2;
 }
 
+message KeyMeta {
+  string id = 1;
+  string name = 2;
+  string key_type = 3;
+  string public_key = 4;
+  string status = 5;
+}
+
+message GenerateKeyRequest {
+  string name = 1;
+  string key_type = 2;
+}
+
+message GenerateKeyResponse {
+  KeyMeta key = 1;
+}
+
+message ImportKeyRequest {
+  string name = 1;
+  bytes private_key = 2;
+  bytes passphrase = 3;
+}
+
+message ImportKeyResponse {
+  KeyMeta key = 1;
+}
+
+message ListKeysRequest {}
+
+message ListKeysResponse {
+  repeated KeyMeta keys = 1;
+}
+
+message ShowKeyRequest {
+  string name = 1;
+}
+
+message ShowKeyResponse {
+  KeyMeta key = 1;
+}
+
+message DeleteKeyRequest {
+  string name = 1;
+}
+
+message DeleteKeyResponse {}
+
+message RotateKeyRequest {
+  string name = 1;
+}
+
+message RotateKeyResponse {
+  KeyMeta key = 1;
+}
+
 message ExportKeyRequest {
   string name = 1;
 }
@@ -150,6 +287,22 @@ message ExportKeyResponse {
   bytes private_key = 4;
 }
 
+message AgentAddRequest {
+  string name = 1;
+  string session_id = 2;
+  int64 ttl_seconds = 3;
+}
+
+message AgentAddResponse {
+  string fingerprint = 1;
+}
+
+message AgentRemoveRequest {
+  string fingerprint = 1;
+}
+
+message AgentRemoveResponse {}
+
 message ListPasskeysRequest {}
 
 message PasskeyMeta {
@@ -160,6 +313,31 @@ message PasskeyMeta {
 
 message ListPasskeysResponse {
   repeated PasskeyMeta passkeys = 1;
+}
+
+message EnrollPasskeyRequest {
+  string label = 1;
+  string user_name = 2;
+}
+
+message EnrollPasskeyResponse {
+  PasskeyMeta passkey = 1;
+}
+
+message RemovePasskeyRequest {
+  string label = 1;
+}
+
+message RemovePasskeyResponse {}
+
+message TestPasskeyRequest {
+  string label = 1;
+  bytes auth_data = 2;
+  bytes signature = 3;
+}
+
+message TestPasskeyResponse {
+  bool ok = 1;
 }
 
 message ForwardSpec {
@@ -208,10 +386,34 @@ message ListEventsResponse {
   repeated AuditEvent events = 1;
 }
 
-message CreateBackupRequest {}
+message VerifyChainRequest {}
+
+message VerifyChainResponse {
+  bool valid = 1;
+  int32 event_count = 2;
+  string chain_tip = 3;
+  string error = 4;
+}
+
+message CreateBackupRequest {
+  string output_path = 1;
+  string passphrase = 2;
+  bool overwrite = 3;
+}
 
 message CreateBackupResponse {
   bool accepted = 1;
+  string output_path = 2;
+}
+
+message RestoreBackupRequest {
+  string input_path = 1;
+  string passphrase = 2;
+  bool overwrite = 3;
+}
+
+message RestoreBackupResponse {
+  bool restored = 1;
 }
 
 message RecordSessionStartRequest {

@@ -1,9 +1,8 @@
 package cli
 
 import (
-	"encoding/json"
-	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -14,7 +13,32 @@ type BuildInfo struct {
 	BuildTime string `json:"build_time"`
 }
 
+type GlobalOptions struct {
+	JSON    bool
+	Quiet   bool
+	NoColor bool
+	Timeout time.Duration
+	Yes     bool
+}
+
+type commandDeps struct {
+	out     io.Writer
+	errOut  io.Writer
+	build   BuildInfo
+	globals *GlobalOptions
+}
+
 func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
+	globals := &GlobalOptions{
+		Timeout: 10 * time.Second,
+	}
+	deps := commandDeps{
+		out:     out,
+		errOut:  out,
+		build:   build,
+		globals: globals,
+	}
+
 	cmd := &cobra.Command{
 		Use:           "heimdall",
 		Short:         "Heimdall CLI",
@@ -23,30 +47,33 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 	}
 	cmd.SetOut(out)
 	cmd.SetErr(out)
+	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageErrorf("%v", err)
+	})
 
-	cmd.AddCommand(newVersionCommand(out, build))
+	cmd.PersistentFlags().BoolVar(&globals.JSON, "json", false, "Output machine-readable JSON")
+	cmd.PersistentFlags().BoolVar(&globals.Quiet, "quiet", false, "Suppress non-essential output")
+	cmd.PersistentFlags().BoolVar(&globals.NoColor, "no-color", false, "Disable ANSI color output")
+	cmd.PersistentFlags().DurationVar(&globals.Timeout, "timeout", globals.Timeout, "Command timeout (for daemon RPCs)")
+	cmd.PersistentFlags().BoolVarP(&globals.Yes, "yes", "y", false, "Automatic yes to prompts and confirmations")
+
+	cmd.AddCommand(
+		newVersionCommand(deps),
+		newStatusCommand(deps),
+		newDoctorCommand(deps),
+		newVaultCommand(deps),
+		newHostCommand(deps),
+		newSecretCommand(deps),
+		newKeyCommand(deps),
+		newPasskeyCommand(deps),
+		newConnectCommand(deps),
+		newBackupCommand(deps),
+		newAuditCommand(deps),
+		newImportCommand(deps),
+		newExportCommand(deps),
+		newDebugCommand(deps),
+	)
+
 	cmd.InitDefaultCompletionCmd()
-	return cmd
-}
-
-func newVersionCommand(out io.Writer, build BuildInfo) *cobra.Command {
-	var asJSON bool
-
-	cmd := &cobra.Command{
-		Use:   "version",
-		Short: "Print build version information",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if asJSON {
-				enc := json.NewEncoder(out)
-				enc.SetIndent("", "  ")
-				return enc.Encode(build)
-			}
-
-			_, err := fmt.Fprintf(out, "version=%s commit=%s build_time=%s\n", build.Version, build.Commit, build.BuildTime)
-			return err
-		},
-	}
-
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Print version as JSON")
 	return cmd
 }

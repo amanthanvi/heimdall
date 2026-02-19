@@ -32,23 +32,8 @@ func NewHostService(hosts storage.HostRepository, sessions storage.SessionReposi
 }
 
 func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*storage.Host, error) {
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("%w: host name is required", ErrValidation)
-	}
-	if !hostNamePattern.MatchString(req.Name) {
-		return nil, fmt.Errorf("%w: host name format is invalid", ErrValidation)
-	}
-	if strings.TrimSpace(req.Address) == "" {
-		return nil, fmt.Errorf("%w: host address is required", ErrValidation)
-	}
-	if strings.HasPrefix(req.Address, "-") || !hostAddressPattern.MatchString(req.Address) {
-		return nil, fmt.Errorf("%w: host address contains invalid characters", ErrValidation)
-	}
-	if req.User != "" && (strings.HasPrefix(req.User, "-") || !sshUserPattern.MatchString(req.User)) {
-		return nil, fmt.Errorf("%w: user contains invalid characters", ErrValidation)
-	}
-	if req.Port < 0 || req.Port > 65535 {
-		return nil, fmt.Errorf("%w: host port must be 1-65535", ErrValidation)
+	if err := validateHostInputs(req.Name, req.Address, req.User, req.Port); err != nil {
+		return nil, err
 	}
 	if req.Port == 0 {
 		req.Port = 22
@@ -73,6 +58,76 @@ func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*stora
 		return nil, fmt.Errorf("create host: %w", err)
 	}
 	return host, nil
+}
+
+func (s *HostService) Get(ctx context.Context, name string) (*storage.Host, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: host name is required", ErrValidation)
+	}
+
+	host, err := s.hosts.Get(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("get host: %w", err)
+	}
+	return host, nil
+}
+
+func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*storage.Host, error) {
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: host name is required", ErrValidation)
+	}
+
+	host, err := s.hosts.Get(ctx, req.Name)
+	if err != nil {
+		return nil, fmt.Errorf("update host: load existing host: %w", err)
+	}
+
+	if nextName := strings.TrimSpace(req.NewName); nextName != "" {
+		host.Name = nextName
+	}
+	if req.Address != nil {
+		host.Address = strings.TrimSpace(*req.Address)
+	}
+	if req.Port != nil {
+		host.Port = *req.Port
+	}
+	if req.User != nil {
+		host.User = strings.TrimSpace(*req.User)
+	}
+	if req.Tags != nil {
+		host.Tags = dedupeStrings(*req.Tags)
+	}
+	if req.EnvRefs != nil {
+		host.EnvRefs = cloneStringMap(req.EnvRefs)
+	}
+
+	if err := validateHostInputs(host.Name, host.Address, host.User, host.Port); err != nil {
+		return nil, err
+	}
+	if host.Port == 0 {
+		host.Port = 22
+	}
+
+	if err := s.hosts.Update(ctx, host); err != nil {
+		if isDuplicateError(err) {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateName, host.Name)
+		}
+		return nil, fmt.Errorf("update host: %w", err)
+	}
+	return host, nil
+}
+
+func (s *HostService) Delete(ctx context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("%w: host name is required", ErrValidation)
+	}
+	if err := s.hosts.Delete(ctx, name); err != nil {
+		return fmt.Errorf("delete host: %w", err)
+	}
+	return nil
 }
 
 func (s *HostService) List(ctx context.Context, req ListHostsRequest) ([]storage.Host, error) {
@@ -113,10 +168,12 @@ func (s *HostService) Import(ctx context.Context, sshConfigPath string) ([]stora
 	defer file.Close()
 
 	type pendingHost struct {
-		name    string
-		address string
-		user    string
-		port    int
+		name        string
+		address     string
+		user        string
+		port        int
+		proxyJump   string
+		identityRef string
 	}
 
 	var (
@@ -129,11 +186,20 @@ func (s *HostService) Import(ctx context.Context, sshConfigPath string) ([]stora
 			current = pendingHost{}
 			return
 		}
+		envRefs := map[string]string{}
+		if current.proxyJump != "" {
+			envRefs["proxy_jump"] = current.proxyJump
+		}
+		if current.identityRef != "" {
+			envRefs["identity_ref"] = current.identityRef
+		}
+
 		host, createErr := s.Create(ctx, CreateHostRequest{
 			Name:    current.name,
 			Address: current.address,
 			User:    current.user,
 			Port:    current.port,
+			EnvRefs: envRefs,
 		})
 		if createErr != nil {
 			warnings = append(warnings, ImportWarning{
@@ -177,6 +243,10 @@ func (s *HostService) Import(ctx context.Context, sshConfigPath string) ([]stora
 			current.address = value
 		case "user":
 			current.user = value
+		case "proxyjump":
+			current.proxyJump = value
+		case "identityfile":
+			current.identityRef = value
 		case "port":
 			parsed, parseErr := strconv.Atoi(value)
 			if parseErr != nil {
@@ -260,6 +330,33 @@ func hostMatchesSearch(host storage.Host, query string) bool {
 		}
 	}
 	return false
+}
+
+func validateHostInputs(name, address, user string, port int) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("%w: host name is required", ErrValidation)
+	}
+	if !hostNamePattern.MatchString(name) {
+		return fmt.Errorf("%w: host name format is invalid", ErrValidation)
+	}
+
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return fmt.Errorf("%w: host address is required", ErrValidation)
+	}
+	if strings.HasPrefix(address, "-") || !hostAddressPattern.MatchString(address) {
+		return fmt.Errorf("%w: host address contains invalid characters", ErrValidation)
+	}
+
+	user = strings.TrimSpace(user)
+	if user != "" && (strings.HasPrefix(user, "-") || !sshUserPattern.MatchString(user)) {
+		return fmt.Errorf("%w: user contains invalid characters", ErrValidation)
+	}
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("%w: host port must be 1-65535", ErrValidation)
+	}
+	return nil
 }
 
 func dedupeStrings(values []string) []string {

@@ -499,6 +499,13 @@ func (d *testDaemon) HasLiveVMK() bool {
 	return !d.IsLocked()
 }
 
+func (d *testDaemon) Unlock(_ []byte) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.locked = false
+	return nil
+}
+
 func (d *testDaemon) Lock() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

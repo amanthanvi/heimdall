@@ -136,3 +136,29 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Keep `PLAN.md` updated as each subsection completes
 - [x] `done` Commit and push logical units on `main`
 - [ ] `todo` Final report with changed files, commands, validation, risks/TODOs
+
+## Batch 5 Scope (Sections 11, 14, 13 + final gRPC expansion)
+- Extend Section 6 surface first: fill proto service gaps and implement daemon gRPC handlers for all missing RPCs.
+- Implement Section 11 CLI command tree as thin gRPC wrappers (daemonless exceptions only).
+- Implement Section 14 import/export/backup flows (JSON metadata import/export + encrypted backup create/restore).
+- Implement Section 13 TUI core screens with Bubble Tea MVU (`lock`, `hosts`, `secrets`, `keys`).
+- Implement debug diagnostics bundle (`internal/debug`) with sanitized output.
+- Validate at each subsection boundary (`go test -race ./...`, `go vet ./...`).
+
+## Batch 5 Live Checklist
+- [ ] `todo` Proto: extend `api/v1/heimdall.proto` with missing RPCs/messages
+- [ ] `todo` Proto: regenerate stubs (`protoc --go_out=. ... api/v1/heimdall.proto`)
+- [ ] `todo` gRPC server: implement all new RPC handlers and wire dependencies cleanly
+- [ ] `todo` CLI: add global flags + exit code model + root plumbing
+- [ ] `todo` CLI: implement `status`, `doctor`, `vault`, `host`, `secret`, `key`, `passkey`, `connect`
+- [ ] `todo` CLI: implement `backup`, `audit`, `import`, `export`, `debug bundle`
+- [ ] `todo` App/Backup: implement WAL checkpointed encrypted backup create/restore with manifest checksums
+- [ ] `todo` App/ImportExport: add JSON export/import metadata flow and extend SSH import if needed
+- [ ] `todo` TUI: implement practical Bubble Tea screens and command entry point
+- [ ] `todo` Tests: add/update table-driven tests for new RPCs + CLI/TUI/import/export/backup/debug paths
+- [ ] `todo` Validate full gate (`go test -race ./...` then `go vet ./...`)
+
+## Batch 5 Progress Log
+- [x] `done` Context prime complete: AGENTS + sections 11/13/14 (plan + TDD) reviewed.
+- [x] `done` Gap audit complete: proto/server/cli/tui/debug/import-export-backup baseline mapped.
+- [ ] `in_progress` Implementing Batch 5 in build order (proto/server -> CLI -> section 14 -> section 13 -> debug -> full validation).

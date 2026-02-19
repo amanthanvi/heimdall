@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	VaultService_Status_FullMethodName = "/heimdall.v1.VaultService/Status"
 	VaultService_Lock_FullMethodName   = "/heimdall.v1.VaultService/Lock"
+	VaultService_Unlock_FullMethodName = "/heimdall.v1.VaultService/Unlock"
 )
 
 // VaultServiceClient is the client API for VaultService service.
@@ -29,6 +30,7 @@ const (
 type VaultServiceClient interface {
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	Lock(ctx context.Context, in *LockRequest, opts ...grpc.CallOption) (*LockResponse, error)
+	Unlock(ctx context.Context, in *UnlockRequest, opts ...grpc.CallOption) (*UnlockResponse, error)
 }
 
 type vaultServiceClient struct {
@@ -59,12 +61,23 @@ func (c *vaultServiceClient) Lock(ctx context.Context, in *LockRequest, opts ...
 	return out, nil
 }
 
+func (c *vaultServiceClient) Unlock(ctx context.Context, in *UnlockRequest, opts ...grpc.CallOption) (*UnlockResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnlockResponse)
+	err := c.cc.Invoke(ctx, VaultService_Unlock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VaultServiceServer is the server API for VaultService service.
 // All implementations must embed UnimplementedVaultServiceServer
 // for forward compatibility.
 type VaultServiceServer interface {
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
 	Lock(context.Context, *LockRequest) (*LockResponse, error)
+	Unlock(context.Context, *UnlockRequest) (*UnlockResponse, error)
 	mustEmbedUnimplementedVaultServiceServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedVaultServiceServer) Status(context.Context, *StatusRequest) (
 }
 func (UnimplementedVaultServiceServer) Lock(context.Context, *LockRequest) (*LockResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Lock not implemented")
+}
+func (UnimplementedVaultServiceServer) Unlock(context.Context, *UnlockRequest) (*UnlockResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Unlock not implemented")
 }
 func (UnimplementedVaultServiceServer) mustEmbedUnimplementedVaultServiceServer() {}
 func (UnimplementedVaultServiceServer) testEmbeddedByValue()                      {}
@@ -138,6 +154,24 @@ func _VaultService_Lock_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VaultService_Unlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnlockRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VaultServiceServer).Unlock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VaultService_Unlock_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VaultServiceServer).Unlock(ctx, req.(*UnlockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // VaultService_ServiceDesc is the grpc.ServiceDesc for VaultService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var VaultService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Lock",
 			Handler:    _VaultService_Lock_Handler,
+		},
+		{
+			MethodName: "Unlock",
+			Handler:    _VaultService_Unlock_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -261,13 +299,21 @@ var VersionService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	HostService_ListHosts_FullMethodName = "/heimdall.v1.HostService/ListHosts"
+	HostService_CreateHost_FullMethodName = "/heimdall.v1.HostService/CreateHost"
+	HostService_GetHost_FullMethodName    = "/heimdall.v1.HostService/GetHost"
+	HostService_UpdateHost_FullMethodName = "/heimdall.v1.HostService/UpdateHost"
+	HostService_DeleteHost_FullMethodName = "/heimdall.v1.HostService/DeleteHost"
+	HostService_ListHosts_FullMethodName  = "/heimdall.v1.HostService/ListHosts"
 )
 
 // HostServiceClient is the client API for HostService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type HostServiceClient interface {
+	CreateHost(ctx context.Context, in *CreateHostRequest, opts ...grpc.CallOption) (*CreateHostResponse, error)
+	GetHost(ctx context.Context, in *GetHostRequest, opts ...grpc.CallOption) (*GetHostResponse, error)
+	UpdateHost(ctx context.Context, in *UpdateHostRequest, opts ...grpc.CallOption) (*UpdateHostResponse, error)
+	DeleteHost(ctx context.Context, in *DeleteHostRequest, opts ...grpc.CallOption) (*DeleteHostResponse, error)
 	ListHosts(ctx context.Context, in *ListHostsRequest, opts ...grpc.CallOption) (*ListHostsResponse, error)
 }
 
@@ -277,6 +323,46 @@ type hostServiceClient struct {
 
 func NewHostServiceClient(cc grpc.ClientConnInterface) HostServiceClient {
 	return &hostServiceClient{cc}
+}
+
+func (c *hostServiceClient) CreateHost(ctx context.Context, in *CreateHostRequest, opts ...grpc.CallOption) (*CreateHostResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateHostResponse)
+	err := c.cc.Invoke(ctx, HostService_CreateHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hostServiceClient) GetHost(ctx context.Context, in *GetHostRequest, opts ...grpc.CallOption) (*GetHostResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetHostResponse)
+	err := c.cc.Invoke(ctx, HostService_GetHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hostServiceClient) UpdateHost(ctx context.Context, in *UpdateHostRequest, opts ...grpc.CallOption) (*UpdateHostResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateHostResponse)
+	err := c.cc.Invoke(ctx, HostService_UpdateHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hostServiceClient) DeleteHost(ctx context.Context, in *DeleteHostRequest, opts ...grpc.CallOption) (*DeleteHostResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteHostResponse)
+	err := c.cc.Invoke(ctx, HostService_DeleteHost_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *hostServiceClient) ListHosts(ctx context.Context, in *ListHostsRequest, opts ...grpc.CallOption) (*ListHostsResponse, error) {
@@ -293,6 +379,10 @@ func (c *hostServiceClient) ListHosts(ctx context.Context, in *ListHostsRequest,
 // All implementations must embed UnimplementedHostServiceServer
 // for forward compatibility.
 type HostServiceServer interface {
+	CreateHost(context.Context, *CreateHostRequest) (*CreateHostResponse, error)
+	GetHost(context.Context, *GetHostRequest) (*GetHostResponse, error)
+	UpdateHost(context.Context, *UpdateHostRequest) (*UpdateHostResponse, error)
+	DeleteHost(context.Context, *DeleteHostRequest) (*DeleteHostResponse, error)
 	ListHosts(context.Context, *ListHostsRequest) (*ListHostsResponse, error)
 	mustEmbedUnimplementedHostServiceServer()
 }
@@ -304,6 +394,18 @@ type HostServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedHostServiceServer struct{}
 
+func (UnimplementedHostServiceServer) CreateHost(context.Context, *CreateHostRequest) (*CreateHostResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateHost not implemented")
+}
+func (UnimplementedHostServiceServer) GetHost(context.Context, *GetHostRequest) (*GetHostResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetHost not implemented")
+}
+func (UnimplementedHostServiceServer) UpdateHost(context.Context, *UpdateHostRequest) (*UpdateHostResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateHost not implemented")
+}
+func (UnimplementedHostServiceServer) DeleteHost(context.Context, *DeleteHostRequest) (*DeleteHostResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteHost not implemented")
+}
 func (UnimplementedHostServiceServer) ListHosts(context.Context, *ListHostsRequest) (*ListHostsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListHosts not implemented")
 }
@@ -326,6 +428,78 @@ func RegisterHostServiceServer(s grpc.ServiceRegistrar, srv HostServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&HostService_ServiceDesc, srv)
+}
+
+func _HostService_CreateHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateHostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServiceServer).CreateHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HostService_CreateHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServiceServer).CreateHost(ctx, req.(*CreateHostRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HostService_GetHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetHostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServiceServer).GetHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HostService_GetHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServiceServer).GetHost(ctx, req.(*GetHostRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HostService_UpdateHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateHostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServiceServer).UpdateHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HostService_UpdateHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServiceServer).UpdateHost(ctx, req.(*UpdateHostRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HostService_DeleteHost_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteHostRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServiceServer).DeleteHost(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HostService_DeleteHost_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServiceServer).DeleteHost(ctx, req.(*DeleteHostRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _HostService_ListHosts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -354,6 +528,22 @@ var HostService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*HostServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "CreateHost",
+			Handler:    _HostService_CreateHost_Handler,
+		},
+		{
+			MethodName: "GetHost",
+			Handler:    _HostService_GetHost_Handler,
+		},
+		{
+			MethodName: "UpdateHost",
+			Handler:    _HostService_UpdateHost_Handler,
+		},
+		{
+			MethodName: "DeleteHost",
+			Handler:    _HostService_DeleteHost_Handler,
+		},
+		{
 			MethodName: "ListHosts",
 			Handler:    _HostService_ListHosts_Handler,
 		},
@@ -363,6 +553,7 @@ var HostService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	SecretService_CreateSecret_FullMethodName       = "/heimdall.v1.SecretService/CreateSecret"
 	SecretService_ListSecrets_FullMethodName        = "/heimdall.v1.SecretService/ListSecrets"
 	SecretService_GetSecretValue_FullMethodName     = "/heimdall.v1.SecretService/GetSecretValue"
 	SecretService_DeleteSecret_FullMethodName       = "/heimdall.v1.SecretService/DeleteSecret"
@@ -374,6 +565,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SecretServiceClient interface {
+	CreateSecret(ctx context.Context, in *CreateSecretRequest, opts ...grpc.CallOption) (*CreateSecretResponse, error)
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
 	GetSecretValue(ctx context.Context, in *GetSecretValueRequest, opts ...grpc.CallOption) (*GetSecretValueResponse, error)
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error)
@@ -387,6 +579,16 @@ type secretServiceClient struct {
 
 func NewSecretServiceClient(cc grpc.ClientConnInterface) SecretServiceClient {
 	return &secretServiceClient{cc}
+}
+
+func (c *secretServiceClient) CreateSecret(ctx context.Context, in *CreateSecretRequest, opts ...grpc.CallOption) (*CreateSecretResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateSecretResponse)
+	err := c.cc.Invoke(ctx, SecretService_CreateSecret_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *secretServiceClient) ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error) {
@@ -455,6 +657,7 @@ type SecretService_DownloadFileSecretClient = grpc.ServerStreamingClient[Downloa
 // All implementations must embed UnimplementedSecretServiceServer
 // for forward compatibility.
 type SecretServiceServer interface {
+	CreateSecret(context.Context, *CreateSecretRequest) (*CreateSecretResponse, error)
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
 	GetSecretValue(context.Context, *GetSecretValueRequest) (*GetSecretValueResponse, error)
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error)
@@ -470,6 +673,9 @@ type SecretServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedSecretServiceServer struct{}
 
+func (UnimplementedSecretServiceServer) CreateSecret(context.Context, *CreateSecretRequest) (*CreateSecretResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSecret not implemented")
+}
 func (UnimplementedSecretServiceServer) ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSecrets not implemented")
 }
@@ -504,6 +710,24 @@ func RegisterSecretServiceServer(s grpc.ServiceRegistrar, srv SecretServiceServe
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&SecretService_ServiceDesc, srv)
+}
+
+func _SecretService_CreateSecret_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateSecretRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecretServiceServer).CreateSecret(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SecretService_CreateSecret_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecretServiceServer).CreateSecret(ctx, req.(*CreateSecretRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _SecretService_ListSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -586,6 +810,10 @@ var SecretService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*SecretServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "CreateSecret",
+			Handler:    _SecretService_CreateSecret_Handler,
+		},
+		{
 			MethodName: "ListSecrets",
 			Handler:    _SecretService_ListSecrets_Handler,
 		},
@@ -614,14 +842,30 @@ var SecretService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	KeyService_ExportKey_FullMethodName = "/heimdall.v1.KeyService/ExportKey"
+	KeyService_GenerateKey_FullMethodName = "/heimdall.v1.KeyService/GenerateKey"
+	KeyService_ImportKey_FullMethodName   = "/heimdall.v1.KeyService/ImportKey"
+	KeyService_ListKeys_FullMethodName    = "/heimdall.v1.KeyService/ListKeys"
+	KeyService_ShowKey_FullMethodName     = "/heimdall.v1.KeyService/ShowKey"
+	KeyService_DeleteKey_FullMethodName   = "/heimdall.v1.KeyService/DeleteKey"
+	KeyService_RotateKey_FullMethodName   = "/heimdall.v1.KeyService/RotateKey"
+	KeyService_ExportKey_FullMethodName   = "/heimdall.v1.KeyService/ExportKey"
+	KeyService_AgentAdd_FullMethodName    = "/heimdall.v1.KeyService/AgentAdd"
+	KeyService_AgentRemove_FullMethodName = "/heimdall.v1.KeyService/AgentRemove"
 )
 
 // KeyServiceClient is the client API for KeyService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type KeyServiceClient interface {
+	GenerateKey(ctx context.Context, in *GenerateKeyRequest, opts ...grpc.CallOption) (*GenerateKeyResponse, error)
+	ImportKey(ctx context.Context, in *ImportKeyRequest, opts ...grpc.CallOption) (*ImportKeyResponse, error)
+	ListKeys(ctx context.Context, in *ListKeysRequest, opts ...grpc.CallOption) (*ListKeysResponse, error)
+	ShowKey(ctx context.Context, in *ShowKeyRequest, opts ...grpc.CallOption) (*ShowKeyResponse, error)
+	DeleteKey(ctx context.Context, in *DeleteKeyRequest, opts ...grpc.CallOption) (*DeleteKeyResponse, error)
+	RotateKey(ctx context.Context, in *RotateKeyRequest, opts ...grpc.CallOption) (*RotateKeyResponse, error)
 	ExportKey(ctx context.Context, in *ExportKeyRequest, opts ...grpc.CallOption) (*ExportKeyResponse, error)
+	AgentAdd(ctx context.Context, in *AgentAddRequest, opts ...grpc.CallOption) (*AgentAddResponse, error)
+	AgentRemove(ctx context.Context, in *AgentRemoveRequest, opts ...grpc.CallOption) (*AgentRemoveResponse, error)
 }
 
 type keyServiceClient struct {
@@ -630,6 +874,66 @@ type keyServiceClient struct {
 
 func NewKeyServiceClient(cc grpc.ClientConnInterface) KeyServiceClient {
 	return &keyServiceClient{cc}
+}
+
+func (c *keyServiceClient) GenerateKey(ctx context.Context, in *GenerateKeyRequest, opts ...grpc.CallOption) (*GenerateKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenerateKeyResponse)
+	err := c.cc.Invoke(ctx, KeyService_GenerateKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyServiceClient) ImportKey(ctx context.Context, in *ImportKeyRequest, opts ...grpc.CallOption) (*ImportKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ImportKeyResponse)
+	err := c.cc.Invoke(ctx, KeyService_ImportKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyServiceClient) ListKeys(ctx context.Context, in *ListKeysRequest, opts ...grpc.CallOption) (*ListKeysResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListKeysResponse)
+	err := c.cc.Invoke(ctx, KeyService_ListKeys_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyServiceClient) ShowKey(ctx context.Context, in *ShowKeyRequest, opts ...grpc.CallOption) (*ShowKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ShowKeyResponse)
+	err := c.cc.Invoke(ctx, KeyService_ShowKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyServiceClient) DeleteKey(ctx context.Context, in *DeleteKeyRequest, opts ...grpc.CallOption) (*DeleteKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteKeyResponse)
+	err := c.cc.Invoke(ctx, KeyService_DeleteKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyServiceClient) RotateKey(ctx context.Context, in *RotateKeyRequest, opts ...grpc.CallOption) (*RotateKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RotateKeyResponse)
+	err := c.cc.Invoke(ctx, KeyService_RotateKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *keyServiceClient) ExportKey(ctx context.Context, in *ExportKeyRequest, opts ...grpc.CallOption) (*ExportKeyResponse, error) {
@@ -642,11 +946,39 @@ func (c *keyServiceClient) ExportKey(ctx context.Context, in *ExportKeyRequest, 
 	return out, nil
 }
 
+func (c *keyServiceClient) AgentAdd(ctx context.Context, in *AgentAddRequest, opts ...grpc.CallOption) (*AgentAddResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentAddResponse)
+	err := c.cc.Invoke(ctx, KeyService_AgentAdd_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *keyServiceClient) AgentRemove(ctx context.Context, in *AgentRemoveRequest, opts ...grpc.CallOption) (*AgentRemoveResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentRemoveResponse)
+	err := c.cc.Invoke(ctx, KeyService_AgentRemove_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KeyServiceServer is the server API for KeyService service.
 // All implementations must embed UnimplementedKeyServiceServer
 // for forward compatibility.
 type KeyServiceServer interface {
+	GenerateKey(context.Context, *GenerateKeyRequest) (*GenerateKeyResponse, error)
+	ImportKey(context.Context, *ImportKeyRequest) (*ImportKeyResponse, error)
+	ListKeys(context.Context, *ListKeysRequest) (*ListKeysResponse, error)
+	ShowKey(context.Context, *ShowKeyRequest) (*ShowKeyResponse, error)
+	DeleteKey(context.Context, *DeleteKeyRequest) (*DeleteKeyResponse, error)
+	RotateKey(context.Context, *RotateKeyRequest) (*RotateKeyResponse, error)
 	ExportKey(context.Context, *ExportKeyRequest) (*ExportKeyResponse, error)
+	AgentAdd(context.Context, *AgentAddRequest) (*AgentAddResponse, error)
+	AgentRemove(context.Context, *AgentRemoveRequest) (*AgentRemoveResponse, error)
 	mustEmbedUnimplementedKeyServiceServer()
 }
 
@@ -657,8 +989,32 @@ type KeyServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedKeyServiceServer struct{}
 
+func (UnimplementedKeyServiceServer) GenerateKey(context.Context, *GenerateKeyRequest) (*GenerateKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GenerateKey not implemented")
+}
+func (UnimplementedKeyServiceServer) ImportKey(context.Context, *ImportKeyRequest) (*ImportKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ImportKey not implemented")
+}
+func (UnimplementedKeyServiceServer) ListKeys(context.Context, *ListKeysRequest) (*ListKeysResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListKeys not implemented")
+}
+func (UnimplementedKeyServiceServer) ShowKey(context.Context, *ShowKeyRequest) (*ShowKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ShowKey not implemented")
+}
+func (UnimplementedKeyServiceServer) DeleteKey(context.Context, *DeleteKeyRequest) (*DeleteKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteKey not implemented")
+}
+func (UnimplementedKeyServiceServer) RotateKey(context.Context, *RotateKeyRequest) (*RotateKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RotateKey not implemented")
+}
 func (UnimplementedKeyServiceServer) ExportKey(context.Context, *ExportKeyRequest) (*ExportKeyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportKey not implemented")
+}
+func (UnimplementedKeyServiceServer) AgentAdd(context.Context, *AgentAddRequest) (*AgentAddResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AgentAdd not implemented")
+}
+func (UnimplementedKeyServiceServer) AgentRemove(context.Context, *AgentRemoveRequest) (*AgentRemoveResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AgentRemove not implemented")
 }
 func (UnimplementedKeyServiceServer) mustEmbedUnimplementedKeyServiceServer() {}
 func (UnimplementedKeyServiceServer) testEmbeddedByValue()                    {}
@@ -681,6 +1037,114 @@ func RegisterKeyServiceServer(s grpc.ServiceRegistrar, srv KeyServiceServer) {
 	s.RegisterService(&KeyService_ServiceDesc, srv)
 }
 
+func _KeyService_GenerateKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GenerateKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).GenerateKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_GenerateKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).GenerateKey(ctx, req.(*GenerateKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyService_ImportKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).ImportKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_ImportKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).ImportKey(ctx, req.(*ImportKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyService_ListKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListKeysRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).ListKeys(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_ListKeys_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).ListKeys(ctx, req.(*ListKeysRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyService_ShowKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ShowKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).ShowKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_ShowKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).ShowKey(ctx, req.(*ShowKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyService_DeleteKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).DeleteKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_DeleteKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).DeleteKey(ctx, req.(*DeleteKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyService_RotateKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RotateKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).RotateKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_RotateKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).RotateKey(ctx, req.(*RotateKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _KeyService_ExportKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExportKeyRequest)
 	if err := dec(in); err != nil {
@@ -699,6 +1163,42 @@ func _KeyService_ExportKey_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KeyService_AgentAdd_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentAddRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).AgentAdd(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_AgentAdd_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).AgentAdd(ctx, req.(*AgentAddRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KeyService_AgentRemove_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentRemoveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KeyServiceServer).AgentRemove(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KeyService_AgentRemove_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KeyServiceServer).AgentRemove(ctx, req.(*AgentRemoveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KeyService_ServiceDesc is the grpc.ServiceDesc for KeyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -707,8 +1207,40 @@ var KeyService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*KeyServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "GenerateKey",
+			Handler:    _KeyService_GenerateKey_Handler,
+		},
+		{
+			MethodName: "ImportKey",
+			Handler:    _KeyService_ImportKey_Handler,
+		},
+		{
+			MethodName: "ListKeys",
+			Handler:    _KeyService_ListKeys_Handler,
+		},
+		{
+			MethodName: "ShowKey",
+			Handler:    _KeyService_ShowKey_Handler,
+		},
+		{
+			MethodName: "DeleteKey",
+			Handler:    _KeyService_DeleteKey_Handler,
+		},
+		{
+			MethodName: "RotateKey",
+			Handler:    _KeyService_RotateKey_Handler,
+		},
+		{
 			MethodName: "ExportKey",
 			Handler:    _KeyService_ExportKey_Handler,
+		},
+		{
+			MethodName: "AgentAdd",
+			Handler:    _KeyService_AgentAdd_Handler,
+		},
+		{
+			MethodName: "AgentRemove",
+			Handler:    _KeyService_AgentRemove_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -716,14 +1248,20 @@ var KeyService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PasskeyService_ListPasskeys_FullMethodName = "/heimdall.v1.PasskeyService/ListPasskeys"
+	PasskeyService_Enroll_FullMethodName        = "/heimdall.v1.PasskeyService/Enroll"
+	PasskeyService_ListPasskeys_FullMethodName  = "/heimdall.v1.PasskeyService/ListPasskeys"
+	PasskeyService_RemovePasskey_FullMethodName = "/heimdall.v1.PasskeyService/RemovePasskey"
+	PasskeyService_TestPasskey_FullMethodName   = "/heimdall.v1.PasskeyService/TestPasskey"
 )
 
 // PasskeyServiceClient is the client API for PasskeyService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PasskeyServiceClient interface {
+	Enroll(ctx context.Context, in *EnrollPasskeyRequest, opts ...grpc.CallOption) (*EnrollPasskeyResponse, error)
 	ListPasskeys(ctx context.Context, in *ListPasskeysRequest, opts ...grpc.CallOption) (*ListPasskeysResponse, error)
+	RemovePasskey(ctx context.Context, in *RemovePasskeyRequest, opts ...grpc.CallOption) (*RemovePasskeyResponse, error)
+	TestPasskey(ctx context.Context, in *TestPasskeyRequest, opts ...grpc.CallOption) (*TestPasskeyResponse, error)
 }
 
 type passkeyServiceClient struct {
@@ -732,6 +1270,16 @@ type passkeyServiceClient struct {
 
 func NewPasskeyServiceClient(cc grpc.ClientConnInterface) PasskeyServiceClient {
 	return &passkeyServiceClient{cc}
+}
+
+func (c *passkeyServiceClient) Enroll(ctx context.Context, in *EnrollPasskeyRequest, opts ...grpc.CallOption) (*EnrollPasskeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnrollPasskeyResponse)
+	err := c.cc.Invoke(ctx, PasskeyService_Enroll_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *passkeyServiceClient) ListPasskeys(ctx context.Context, in *ListPasskeysRequest, opts ...grpc.CallOption) (*ListPasskeysResponse, error) {
@@ -744,11 +1292,34 @@ func (c *passkeyServiceClient) ListPasskeys(ctx context.Context, in *ListPasskey
 	return out, nil
 }
 
+func (c *passkeyServiceClient) RemovePasskey(ctx context.Context, in *RemovePasskeyRequest, opts ...grpc.CallOption) (*RemovePasskeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemovePasskeyResponse)
+	err := c.cc.Invoke(ctx, PasskeyService_RemovePasskey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *passkeyServiceClient) TestPasskey(ctx context.Context, in *TestPasskeyRequest, opts ...grpc.CallOption) (*TestPasskeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestPasskeyResponse)
+	err := c.cc.Invoke(ctx, PasskeyService_TestPasskey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PasskeyServiceServer is the server API for PasskeyService service.
 // All implementations must embed UnimplementedPasskeyServiceServer
 // for forward compatibility.
 type PasskeyServiceServer interface {
+	Enroll(context.Context, *EnrollPasskeyRequest) (*EnrollPasskeyResponse, error)
 	ListPasskeys(context.Context, *ListPasskeysRequest) (*ListPasskeysResponse, error)
+	RemovePasskey(context.Context, *RemovePasskeyRequest) (*RemovePasskeyResponse, error)
+	TestPasskey(context.Context, *TestPasskeyRequest) (*TestPasskeyResponse, error)
 	mustEmbedUnimplementedPasskeyServiceServer()
 }
 
@@ -759,8 +1330,17 @@ type PasskeyServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedPasskeyServiceServer struct{}
 
+func (UnimplementedPasskeyServiceServer) Enroll(context.Context, *EnrollPasskeyRequest) (*EnrollPasskeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Enroll not implemented")
+}
 func (UnimplementedPasskeyServiceServer) ListPasskeys(context.Context, *ListPasskeysRequest) (*ListPasskeysResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListPasskeys not implemented")
+}
+func (UnimplementedPasskeyServiceServer) RemovePasskey(context.Context, *RemovePasskeyRequest) (*RemovePasskeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemovePasskey not implemented")
+}
+func (UnimplementedPasskeyServiceServer) TestPasskey(context.Context, *TestPasskeyRequest) (*TestPasskeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestPasskey not implemented")
 }
 func (UnimplementedPasskeyServiceServer) mustEmbedUnimplementedPasskeyServiceServer() {}
 func (UnimplementedPasskeyServiceServer) testEmbeddedByValue()                        {}
@@ -783,6 +1363,24 @@ func RegisterPasskeyServiceServer(s grpc.ServiceRegistrar, srv PasskeyServiceSer
 	s.RegisterService(&PasskeyService_ServiceDesc, srv)
 }
 
+func _PasskeyService_Enroll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnrollPasskeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PasskeyServiceServer).Enroll(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PasskeyService_Enroll_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PasskeyServiceServer).Enroll(ctx, req.(*EnrollPasskeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PasskeyService_ListPasskeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPasskeysRequest)
 	if err := dec(in); err != nil {
@@ -801,6 +1399,42 @@ func _PasskeyService_ListPasskeys_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PasskeyService_RemovePasskey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemovePasskeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PasskeyServiceServer).RemovePasskey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PasskeyService_RemovePasskey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PasskeyServiceServer).RemovePasskey(ctx, req.(*RemovePasskeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PasskeyService_TestPasskey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestPasskeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PasskeyServiceServer).TestPasskey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PasskeyService_TestPasskey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PasskeyServiceServer).TestPasskey(ctx, req.(*TestPasskeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PasskeyService_ServiceDesc is the grpc.ServiceDesc for PasskeyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -809,8 +1443,20 @@ var PasskeyService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*PasskeyServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "Enroll",
+			Handler:    _PasskeyService_Enroll_Handler,
+		},
+		{
 			MethodName: "ListPasskeys",
 			Handler:    _PasskeyService_ListPasskeys_Handler,
+		},
+		{
+			MethodName: "RemovePasskey",
+			Handler:    _PasskeyService_RemovePasskey_Handler,
+		},
+		{
+			MethodName: "TestPasskey",
+			Handler:    _PasskeyService_TestPasskey_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -920,7 +1566,8 @@ var ConnectService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	AuditService_ListEvents_FullMethodName = "/heimdall.v1.AuditService/ListEvents"
+	AuditService_ListEvents_FullMethodName  = "/heimdall.v1.AuditService/ListEvents"
+	AuditService_VerifyChain_FullMethodName = "/heimdall.v1.AuditService/VerifyChain"
 )
 
 // AuditServiceClient is the client API for AuditService service.
@@ -928,6 +1575,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AuditServiceClient interface {
 	ListEvents(ctx context.Context, in *ListEventsRequest, opts ...grpc.CallOption) (*ListEventsResponse, error)
+	VerifyChain(ctx context.Context, in *VerifyChainRequest, opts ...grpc.CallOption) (*VerifyChainResponse, error)
 }
 
 type auditServiceClient struct {
@@ -948,11 +1596,22 @@ func (c *auditServiceClient) ListEvents(ctx context.Context, in *ListEventsReque
 	return out, nil
 }
 
+func (c *auditServiceClient) VerifyChain(ctx context.Context, in *VerifyChainRequest, opts ...grpc.CallOption) (*VerifyChainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyChainResponse)
+	err := c.cc.Invoke(ctx, AuditService_VerifyChain_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuditServiceServer is the server API for AuditService service.
 // All implementations must embed UnimplementedAuditServiceServer
 // for forward compatibility.
 type AuditServiceServer interface {
 	ListEvents(context.Context, *ListEventsRequest) (*ListEventsResponse, error)
+	VerifyChain(context.Context, *VerifyChainRequest) (*VerifyChainResponse, error)
 	mustEmbedUnimplementedAuditServiceServer()
 }
 
@@ -965,6 +1624,9 @@ type UnimplementedAuditServiceServer struct{}
 
 func (UnimplementedAuditServiceServer) ListEvents(context.Context, *ListEventsRequest) (*ListEventsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListEvents not implemented")
+}
+func (UnimplementedAuditServiceServer) VerifyChain(context.Context, *VerifyChainRequest) (*VerifyChainResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method VerifyChain not implemented")
 }
 func (UnimplementedAuditServiceServer) mustEmbedUnimplementedAuditServiceServer() {}
 func (UnimplementedAuditServiceServer) testEmbeddedByValue()                      {}
@@ -1005,6 +1667,24 @@ func _AuditService_ListEvents_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuditService_VerifyChain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyChainRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuditServiceServer).VerifyChain(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuditService_VerifyChain_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuditServiceServer).VerifyChain(ctx, req.(*VerifyChainRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuditService_ServiceDesc is the grpc.ServiceDesc for AuditService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1016,13 +1696,18 @@ var AuditService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ListEvents",
 			Handler:    _AuditService_ListEvents_Handler,
 		},
+		{
+			MethodName: "VerifyChain",
+			Handler:    _AuditService_VerifyChain_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "api/v1/heimdall.proto",
 }
 
 const (
-	BackupService_CreateBackup_FullMethodName = "/heimdall.v1.BackupService/CreateBackup"
+	BackupService_CreateBackup_FullMethodName  = "/heimdall.v1.BackupService/CreateBackup"
+	BackupService_RestoreBackup_FullMethodName = "/heimdall.v1.BackupService/RestoreBackup"
 )
 
 // BackupServiceClient is the client API for BackupService service.
@@ -1030,6 +1715,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BackupServiceClient interface {
 	CreateBackup(ctx context.Context, in *CreateBackupRequest, opts ...grpc.CallOption) (*CreateBackupResponse, error)
+	RestoreBackup(ctx context.Context, in *RestoreBackupRequest, opts ...grpc.CallOption) (*RestoreBackupResponse, error)
 }
 
 type backupServiceClient struct {
@@ -1050,11 +1736,22 @@ func (c *backupServiceClient) CreateBackup(ctx context.Context, in *CreateBackup
 	return out, nil
 }
 
+func (c *backupServiceClient) RestoreBackup(ctx context.Context, in *RestoreBackupRequest, opts ...grpc.CallOption) (*RestoreBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreBackupResponse)
+	err := c.cc.Invoke(ctx, BackupService_RestoreBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BackupServiceServer is the server API for BackupService service.
 // All implementations must embed UnimplementedBackupServiceServer
 // for forward compatibility.
 type BackupServiceServer interface {
 	CreateBackup(context.Context, *CreateBackupRequest) (*CreateBackupResponse, error)
+	RestoreBackup(context.Context, *RestoreBackupRequest) (*RestoreBackupResponse, error)
 	mustEmbedUnimplementedBackupServiceServer()
 }
 
@@ -1067,6 +1764,9 @@ type UnimplementedBackupServiceServer struct{}
 
 func (UnimplementedBackupServiceServer) CreateBackup(context.Context, *CreateBackupRequest) (*CreateBackupResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateBackup not implemented")
+}
+func (UnimplementedBackupServiceServer) RestoreBackup(context.Context, *RestoreBackupRequest) (*RestoreBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreBackup not implemented")
 }
 func (UnimplementedBackupServiceServer) mustEmbedUnimplementedBackupServiceServer() {}
 func (UnimplementedBackupServiceServer) testEmbeddedByValue()                       {}
@@ -1107,6 +1807,24 @@ func _BackupService_CreateBackup_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BackupService_RestoreBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BackupServiceServer).RestoreBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BackupService_RestoreBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BackupServiceServer).RestoreBackup(ctx, req.(*RestoreBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BackupService_ServiceDesc is the grpc.ServiceDesc for BackupService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1117,6 +1835,10 @@ var BackupService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateBackup",
 			Handler:    _BackupService_CreateBackup_Handler,
+		},
+		{
+			MethodName: "RestoreBackup",
+			Handler:    _BackupService_RestoreBackup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
