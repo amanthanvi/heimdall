@@ -94,3 +94,45 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Keep `PLAN.md` updated during implementation
 - [x] `done` Validate full repo after each section (`go test -race ./...`, `go vet ./...`)
 - [x] `done` Commit and push logical units on `main`
+
+## Batch 4 Scope (Sections 6, 8, 10)
+- Implement Section 6 (`api/v1`, `internal/grpc`) with TDD-first gRPC API + client package
+- Implement Section 8 (`internal/ssh`) with TDD-first command builder, binary checks, known_hosts, executor
+- Implement Section 10 (`internal/agent`) with TDD-first SSH agent server + daemon signing constraints
+- Build order: Section 6 first, then Section 8, then Section 10
+- Validate each section with `go test -race ./...` and `go vet ./...`
+
+## Section 6 — gRPC API (`api/v1`, `internal/grpc`)
+- [x] `done` Add proto definitions for all required services and RPCs (no `ConnectService.Execute`)
+- [x] `done` Generate Go stubs with `protoc` + go plugins
+- [x] `done` Implement gRPC server registration + service handlers
+- [x] `done` Implement unary interceptors (auth tiers, audit hook, per-tier PID rate limit)
+- [x] `done` Implement re-auth cache (PID+start-time key, TTL, lock-clear)
+- [x] `done` Implement error model helpers (`google.rpc.ErrorInfo` with required metadata)
+- [x] `done` Implement streaming file secret RPCs (upload/download chunking)
+- [x] `done` Implement client wrapper with typed service clients
+- [x] `done` Add Section 6 tests first, then satisfy all tests
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Section 8 — SSH Integration (`internal/ssh`)
+- [ ] `todo` Add Section 8 tests first for builder/known_hosts/executor/binary checks/validation
+- [ ] `todo` Implement SSH binary detection + ProxyJump version support checks
+- [ ] `todo` Implement command builder (`SSHCommand`) including identity, jump, forwards, known_hosts policy
+- [ ] `todo` Implement forward spec parser/validator with strict address and port checks
+- [ ] `todo` Implement known_hosts manager (trust/check/file path behavior)
+- [ ] `todo` Implement process executor (signal relay, exit code propagation, cleanup, zombie prevention)
+- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Section 10 — SSH Agent (`internal/agent`)
+- [ ] `todo` Add Section 10 tests first for agent protocol, TTL expiry, lock behavior, external fallback
+- [ ] `todo` Implement `agent.Agent` compatible server with socket lifecycle and 0600 permissions
+- [ ] `todo` Implement key add/remove/remove-all/sign/list flows with TTL eviction
+- [ ] `todo` Enforce daemon lock/session semantics (`IsLocked`, `CanSign`) without killing sessions
+- [ ] `todo` Implement external `ssh-add` fallback via secure temp file + immediate cleanup
+- [ ] `todo` Integrate daemon agent socket path `${RUNTIME_DIR}/heimdall/agent.sock`
+- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Batch 4 Finalization
+- [ ] `todo` Keep `PLAN.md` updated as each subsection completes
+- [ ] `todo` Commit and push logical units on `main`
+- [ ] `todo` Final report with changed files, commands, validation, risks/TODOs

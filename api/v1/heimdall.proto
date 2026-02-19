@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package heimdall.v1;
+
+option go_package = "github.com/amanthanvi/heimdall/api/v1;v1";
+
+service VaultService {
+  rpc Status(StatusRequest) returns (StatusResponse);
+  rpc Lock(LockRequest) returns (LockResponse);
+}
+
+service VersionService {
+  rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+}
+
+service HostService {
+  rpc ListHosts(ListHostsRequest) returns (ListHostsResponse);
+}
+
+service SecretService {
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  rpc GetSecretValue(GetSecretValueRequest) returns (GetSecretValueResponse);
+  rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
+  rpc UploadFileSecret(stream UploadChunk) returns (UploadFileSecretResponse);
+  rpc DownloadFileSecret(DownloadRequest) returns (stream DownloadChunk);
+}
+
+service KeyService {
+  rpc ExportKey(ExportKeyRequest) returns (ExportKeyResponse);
+}
+
+service PasskeyService {
+  rpc ListPasskeys(ListPasskeysRequest) returns (ListPasskeysResponse);
+}
+
+service ConnectService {
+  rpc Plan(PlanConnectRequest) returns (PlanConnectResponse);
+}
+
+service AuditService {
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+}
+
+service BackupService {
+  rpc CreateBackup(CreateBackupRequest) returns (CreateBackupResponse);
+}
+
+service SessionService {
+  rpc RecordSessionStart(RecordSessionStartRequest) returns (RecordSessionStartResponse);
+  rpc RecordSessionEnd(RecordSessionEndRequest) returns (RecordSessionEndResponse);
+}
+
+service ReauthService {
+  rpc VerifyAssertion(VerifyAssertionRequest) returns (VerifyAssertionResponse);
+  rpc VerifyPassphrase(VerifyPassphraseRequest) returns (VerifyPassphraseResponse);
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  bool locked = 1;
+  bool has_live_vmk = 2;
+}
+
+message LockRequest {}
+
+message LockResponse {}
+
+message GetVersionRequest {}
+
+message GetVersionResponse {
+  string version = 1;
+  string commit = 2;
+  string build_time = 3;
+}
+
+message ListHostsRequest {
+  bool names_only = 1;
+}
+
+message Host {
+  string id = 1;
+  string name = 2;
+  string address = 3;
+  int32 port = 4;
+  string user = 5;
+  repeated string tags = 6;
+}
+
+message ListHostsResponse {
+  repeated Host hosts = 1;
+}
+
+message ListSecretsRequest {}
+
+message SecretMeta {
+  string id = 1;
+  string name = 2;
+  string reveal_policy = 3;
+  int64 size_bytes = 4;
+}
+
+message ListSecretsResponse {
+  repeated SecretMeta secrets = 1;
+}
+
+message GetSecretValueRequest {
+  string name = 1;
+}
+
+message GetSecretValueResponse {
+  bytes value = 1;
+}
+
+message DeleteSecretRequest {
+  string name = 1;
+}
+
+message DeleteSecretResponse {}
+
+message UploadChunk {
+  string name = 1;
+  string reveal_policy = 2;
+  bytes data = 3;
+  bool eof = 4;
+}
+
+message UploadFileSecretResponse {
+  SecretMeta secret = 1;
+}
+
+message DownloadRequest {
+  string name = 1;
+  int32 chunk_size = 2;
+}
+
+message DownloadChunk {
+  bytes data = 1;
+  bool eof = 2;
+}
+
+message ExportKeyRequest {
+  string name = 1;
+}
+
+message ExportKeyResponse {
+  string name = 1;
+  string key_type = 2;
+  string public_key = 3;
+  bytes private_key = 4;
+}
+
+message ListPasskeysRequest {}
+
+message PasskeyMeta {
+  string id = 1;
+  string label = 2;
+  bool supports_hmac_secret = 3;
+}
+
+message ListPasskeysResponse {
+  repeated PasskeyMeta passkeys = 1;
+}
+
+message ForwardSpec {
+  string mode = 1;
+  string spec = 2;
+}
+
+message PlanConnectRequest {
+  string host_name = 1;
+  string user = 2;
+  int32 port = 3;
+  repeated string jump_hosts = 4;
+  repeated string forwards = 5;
+  string identity_path = 6;
+  string known_hosts = 7;
+  bool print_cmd = 8;
+  bool dry_run = 9;
+}
+
+message SSHCommand {
+  string binary = 1;
+  repeated string args = 2;
+  repeated string redacted_args = 3;
+  repeated string env = 4;
+  repeated string temp_files = 5;
+}
+
+message PlanConnectResponse {
+  SSHCommand command = 1;
+}
+
+message ListEventsRequest {
+  int32 limit = 1;
+}
+
+message AuditEvent {
+  string id = 1;
+  string action = 2;
+  string target_type = 3;
+  string target_id = 4;
+  string result = 5;
+  string details_json = 6;
+}
+
+message ListEventsResponse {
+  repeated AuditEvent events = 1;
+}
+
+message CreateBackupRequest {}
+
+message CreateBackupResponse {
+  bool accepted = 1;
+}
+
+message RecordSessionStartRequest {
+  string host_id = 1;
+  string session_id = 2;
+}
+
+message RecordSessionStartResponse {
+  string session_id = 1;
+}
+
+message RecordSessionEndRequest {
+  string session_id = 1;
+  int32 exit_code = 2;
+}
+
+message RecordSessionEndResponse {}
+
+message VerifyAssertionRequest {
+  string label = 1;
+  bytes auth_data = 2;
+  bytes signature = 3;
+}
+
+message VerifyAssertionResponse {
+  bool ok = 1;
+}
+
+message VerifyPassphraseRequest {
+  string passphrase = 1;
+}
+
+message VerifyPassphraseResponse {
+  bool ok = 1;
+}
