@@ -20,15 +20,15 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 2 — Crypto Module (`internal/crypto`)
-- [ ] `in_progress` Add 18 tests first (KATs, round-trips, auth failures, nonce uniqueness, parameter validation, zeroization)
-- [ ] `todo` Implement `argon2.go`
-- [ ] `todo` Implement `hkdf.go`
-- [ ] `todo` Implement `aead.go`
-- [ ] `todo` Implement `vault_crypto.go`
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`) and commit
+- [x] `done` Add 18 tests first (KATs, round-trips, auth failures, nonce uniqueness, parameter validation, zeroization)
+- [x] `done` Implement `argon2.go`
+- [x] `done` Implement `hkdf.go`
+- [x] `done` Implement `aead.go`
+- [x] `done` Implement `vault_crypto.go`
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 4 — Config & Logging (`internal/config`, `internal/log`)
-- [ ] `todo` Add Section 4 tests first (precedence, TOML parse, validation, policy overrides, redaction, rotation)
+- [ ] `in_progress` Add Section 4 tests first (precedence, TOML parse, validation, policy overrides, redaction, rotation)
 - [ ] `todo` Implement config loading with precedence + policy override (`HEIMDALL_POLICY_FILE` support)
 - [ ] `todo` Implement `slog` redaction handler with sensitive key masking
 - [ ] `todo` Implement lumberjack log rotation defaults (10 MiB, 5 files)
