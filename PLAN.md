@@ -134,5 +134,5 @@ Status key: `todo` | `in_progress` | `done`
 
 ## Batch 4 Finalization
 - [x] `done` Keep `PLAN.md` updated as each subsection completes
-- [ ] `todo` Commit and push logical units on `main`
+- [x] `done` Commit and push logical units on `main`
 - [ ] `todo` Final report with changed files, commands, validation, risks/TODOs
