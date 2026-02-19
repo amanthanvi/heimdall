@@ -1,3 +1,3 @@
 package daemon
 
-// Placeholder package for Section 1 scaffolding.
+// Package daemon implements the Heimdall background lifecycle process.

@@ -76,14 +76,14 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 5 — Daemon Process (`internal/daemon`)
-- [ ] `in_progress` Add Section 5 tests first (socket perms, daemon.info lifecycle, stale detection, signals, timers)
-- [ ] `todo` Implement daemon lifecycle (start/stop/lock), socket runtime paths, daemon.info JSON management
-- [ ] `todo` Implement signal handling, auto-lock timer reset, max-session signing cutoff semantics
-- [ ] `todo` Implement client-side `EnsureDaemon` auto-start and readiness checks
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+- [x] `done` Add Section 5 tests first (socket perms, daemon.info lifecycle, stale detection, signals, timers)
+- [x] `done` Implement daemon lifecycle (start/stop/lock), socket runtime paths, daemon.info JSON management
+- [x] `done` Implement signal handling, auto-lock timer reset, max-session signing cutoff semantics
+- [x] `done` Implement client-side `EnsureDaemon` auto-start and readiness checks
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 7 — Application Services (`internal/app`)
-- [ ] `todo` Add Section 7 tests first (host validation/list filters, secret encrypt/decrypt policy, key operations, connect plan)
+- [ ] `in_progress` Add Section 7 tests first (host validation/list filters, secret encrypt/decrypt policy, key operations, connect plan)
 - [ ] `todo` Implement `HostService` CRUD/list/import path
 - [ ] `todo` Implement `SecretService` create/get-value with reveal policy enforcement (no InjectEnv in daemon)
 - [ ] `todo` Implement `KeyService` generate/import/export/rotate behavior
