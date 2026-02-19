@@ -28,13 +28,13 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 4 — Config & Logging (`internal/config`, `internal/log`)
-- [ ] `in_progress` Add Section 4 tests first (precedence, TOML parse, validation, policy overrides, redaction, rotation)
-- [ ] `todo` Implement config loading with precedence + policy override (`HEIMDALL_POLICY_FILE` support)
-- [ ] `todo` Implement `slog` redaction handler with sensitive key masking
-- [ ] `todo` Implement lumberjack log rotation defaults (10 MiB, 5 files)
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`) and commit
+- [x] `done` Add Section 4 tests first (precedence, TOML parse, validation, policy overrides, redaction, rotation)
+- [x] `done` Implement config loading with precedence + policy override (`HEIMDALL_POLICY_FILE` support)
+- [x] `done` Implement `slog` redaction handler with sensitive key masking
+- [x] `done` Implement lumberjack log rotation defaults (10 MiB, 5 files)
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Finalization
-- [ ] `todo` Ensure `PLAN.md` reflects completed status
-- [ ] `todo` Push commits to `origin/main`
+- [x] `done` Ensure `PLAN.md` reflects completed status
+- [ ] `in_progress` Push commits to `origin/main`
 - [ ] `todo` Final report: changed files, commands run, validation, risks/TODOs
