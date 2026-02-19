@@ -1,8 +1,8 @@
-# Heimdall Batch 1 Plan (Sections 1, 2, 4)
+# Heimdall Implementation Plan
 
 Status key: `todo` | `in_progress` | `done`
 
-## Scope
+## Batch 1 Scope (Completed)
 - Implement Section 1 (scaffolding + build/lint/CI + dependency/version enforcement tests)
 - Implement Section 2 (`internal/crypto`) with TDD-first 18 tests
 - Implement Section 4 (`internal/config`, `internal/log`) with TDD-first test suite
@@ -34,7 +34,30 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Implement lumberjack log rotation defaults (10 MiB, 5 files)
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
-## Finalization
+## Batch 1 Finalization
 - [x] `done` Ensure `PLAN.md` reflects completed status
 - [x] `done` Push commits to `origin/main`
 - [x] `done` Final report: changed files, commands run, validation, risks/TODOs
+
+## Batch 2 Scope (Sections 3, 9)
+- Implement Section 3 (`internal/storage`) with TDD-first 18 tests
+- Implement Section 9 (`internal/fido2`) with TDD-first 15 tests
+- Build order: Section 3 fully complete before Section 9
+- Validate each section with `go test -race ./...` and `go vet ./...`
+
+## Section 3 — Storage Layer (`internal/storage`)
+- [x] `done` Add 18 tests first (migrations, rollback protection, CRUD, WAL, concurrency, timestamps, env_refs)
+- [x] `done` Implement SQLite schema (11 tables) + embedded migrations + version checks
+- [x] `done` Implement repository interfaces: Host, Identity, Secret, Passkey, Audit, Session, Template (+ pending ops)
+- [x] `done` Inject `*crypto.VaultCrypto` into repositories and implement field-level encryption for sensitive fields
+- [x] `done` Configure SQLite pragmas (`journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`, `wal_autocheckpoint=0`)
+- [x] `done` Implement rollback protection helpers (pre-unlock version file check + post-unlock HMAC verification)
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Section 9 — FIDO2 Integration (`internal/fido2`)
+- [ ] `in_progress` Add 15 tests first (nofido2 behavior, mock authenticator, enrollment/unlock/reauth flows)
+- [ ] `todo` Implement `Authenticator` interface and shared types
+- [ ] `todo` Implement `fido2` cgo wrapper (`//go:build fido2`) using libfido2
+- [ ] `todo` Implement `nofido2` stub (`//go:build nofido2`) returning exit code 6 behavior
+- [ ] `todo` Implement enrollment/unlock/reauth flows using storage passkey persistence
+- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
