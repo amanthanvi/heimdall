@@ -24,8 +24,7 @@ import (
 func TestAgentProtocolIdentitiesEmptyWhenNoKeysLoaded(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
-	client := newAgentClient(t, socketPath)
+	server, _, client := newAgentProtocolHarness(t)
 
 	keys, err := client.List()
 	require.NoError(t, err)
@@ -36,11 +35,10 @@ func TestAgentProtocolIdentitiesEmptyWhenNoKeysLoaded(t *testing.T) {
 func TestAgentProtocolAddKeyAndIdentitiesList(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	privatePEM, signer := generateEd25519KeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "ed", PrivateKey: privatePEM, SessionID: "s1"}, time.Hour))
 
-	client := newAgentClient(t, socketPath)
 	keys, err := client.List()
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
@@ -50,11 +48,10 @@ func TestAgentProtocolAddKeyAndIdentitiesList(t *testing.T) {
 func TestAgentProtocolSignRequestProducesValidSignature(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	privatePEM, signer := generateEd25519KeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "ed", PrivateKey: privatePEM, SessionID: "s1"}, time.Hour))
 
-	client := newAgentClient(t, socketPath)
 	payload := []byte("payload")
 	sig, err := client.Sign(signer.PublicKey(), payload)
 	require.NoError(t, err)
@@ -64,7 +61,7 @@ func TestAgentProtocolSignRequestProducesValidSignature(t *testing.T) {
 func TestAgentProtocolRemoveKeyRemovesSpecificKey(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	edPEM, edSigner := generateEd25519KeyPEM(t)
 	rsaPEM, _ := generateRSAKeyPEM(t)
 
@@ -72,7 +69,6 @@ func TestAgentProtocolRemoveKeyRemovesSpecificKey(t *testing.T) {
 	require.NoError(t, server.AddKey(&Identity{Name: "rsa", PrivateKey: rsaPEM, SessionID: "s1"}, time.Hour))
 	require.NoError(t, server.RemoveKey(ssh.FingerprintSHA256(edSigner.PublicKey())))
 
-	client := newAgentClient(t, socketPath)
 	keys, err := client.List()
 	require.NoError(t, err)
 	require.Len(t, keys, 1)
@@ -82,7 +78,7 @@ func TestAgentProtocolRemoveKeyRemovesSpecificKey(t *testing.T) {
 func TestAgentProtocolRemoveAllClearsAllKeys(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	edPEM, _ := generateEd25519KeyPEM(t)
 	rsaPEM, _ := generateRSAKeyPEM(t)
 
@@ -90,7 +86,6 @@ func TestAgentProtocolRemoveAllClearsAllKeys(t *testing.T) {
 	require.NoError(t, server.AddKey(&Identity{Name: "rsa", PrivateKey: rsaPEM, SessionID: "s1"}, time.Hour))
 	require.NoError(t, server.RemoveAll())
 
-	client := newAgentClient(t, socketPath)
 	keys, err := client.List()
 	require.NoError(t, err)
 	require.Empty(t, keys)
@@ -99,11 +94,10 @@ func TestAgentProtocolRemoveAllClearsAllKeys(t *testing.T) {
 func TestAgentTTLExpiryRemovesKeyAfterDuration(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	edPEM, _ := generateEd25519KeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "ed", PrivateKey: edPEM, SessionID: "s1"}, 80*time.Millisecond))
 
-	client := newAgentClient(t, socketPath)
 	require.Eventually(t, func() bool {
 		keys, err := client.List()
 		if err != nil {
@@ -116,11 +110,10 @@ func TestAgentTTLExpiryRemovesKeyAfterDuration(t *testing.T) {
 func TestAgentAutoLockClearsAllKeys(t *testing.T) {
 	t.Parallel()
 
-	server, daemon, socketPath := newAgentHarness(t)
+	server, daemon, client := newAgentProtocolHarness(t)
 	edPEM, _ := generateEd25519KeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "ed", PrivateKey: edPEM, SessionID: "s1"}, time.Hour))
 
-	client := newAgentClient(t, socketPath)
 	daemon.setLocked(true)
 
 	require.Eventually(t, func() bool {
@@ -135,11 +128,10 @@ func TestAgentAutoLockClearsAllKeys(t *testing.T) {
 func TestAgentAutoLockRejectsSigningRequests(t *testing.T) {
 	t.Parallel()
 
-	server, daemon, socketPath := newAgentHarness(t)
+	server, daemon, client := newAgentProtocolHarness(t)
 	edPEM, signer := generateEd25519KeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "ed", PrivateKey: edPEM, SessionID: "s1"}, time.Hour))
 
-	client := newAgentClient(t, socketPath)
 	daemon.setLocked(true)
 	_, err := client.Sign(signer.PublicKey(), []byte("payload"))
 	require.Error(t, err)
@@ -148,7 +140,7 @@ func TestAgentAutoLockRejectsSigningRequests(t *testing.T) {
 func TestAgentSocketUsesRuntimePathAnd0600Permissions(t *testing.T) {
 	t.Parallel()
 
-	_, _, socketPath := newAgentHarness(t)
+	_, _, socketPath := newAgentSocketHarness(t)
 	require.True(t, strings.HasSuffix(socketPath, filepath.Join("heimdall", "agent.sock")))
 	info, err := os.Stat(socketPath)
 	require.NoError(t, err)
@@ -158,7 +150,7 @@ func TestAgentSocketUsesRuntimePathAnd0600Permissions(t *testing.T) {
 func TestExternalAgentFallbackCallsSSHAddWithTempKeyFile(t *testing.T) {
 	t.Parallel()
 
-	server, _, _ := newAgentHarness(t)
+	server, _, _ := newAgentProtocolHarness(t)
 	scriptDir := t.TempDir()
 	argsPath := filepath.Join(scriptDir, "args.txt")
 	scriptPath := writeScript(t, scriptDir, fmt.Sprintf("#!/bin/sh\nprintf '%%s\n' \"$@\" > %s\n", argsPath))
@@ -184,7 +176,7 @@ func TestExternalAgentFallbackCallsSSHAddWithTempKeyFile(t *testing.T) {
 func TestExternalAgentFallbackDeletesTempKeyFileImmediately(t *testing.T) {
 	t.Parallel()
 
-	server, _, _ := newAgentHarness(t)
+	server, _, _ := newAgentProtocolHarness(t)
 	scriptDir := t.TempDir()
 	argsPath := filepath.Join(scriptDir, "args.txt")
 	scriptPath := writeScript(t, scriptDir, fmt.Sprintf("#!/bin/sh\nprintf '%%s\n' \"$@\" > %s\n", argsPath))
@@ -208,11 +200,10 @@ func TestExternalAgentFallbackDeletesTempKeyFileImmediately(t *testing.T) {
 func TestEd25519KeySigningProducesValidSSHSig(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	privatePEM, signer := generateEd25519KeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "ed", PrivateKey: privatePEM, SessionID: "s1"}, time.Hour))
 
-	client := newAgentClient(t, socketPath)
 	msg := []byte("ed25519")
 	sig, err := client.Sign(signer.PublicKey(), msg)
 	require.NoError(t, err)
@@ -222,18 +213,17 @@ func TestEd25519KeySigningProducesValidSSHSig(t *testing.T) {
 func TestRSAKeySigningProducesValidSSHSig(t *testing.T) {
 	t.Parallel()
 
-	server, _, socketPath := newAgentHarness(t)
+	server, _, client := newAgentProtocolHarness(t)
 	privatePEM, signer := generateRSAKeyPEM(t)
 	require.NoError(t, server.AddKey(&Identity{Name: "rsa", PrivateKey: privatePEM, SessionID: "s1"}, time.Hour))
 
-	client := newAgentClient(t, socketPath)
 	msg := []byte("rsa")
 	sig, err := client.Sign(signer.PublicKey(), msg)
 	require.NoError(t, err)
 	require.NoError(t, signer.PublicKey().Verify(msg, sig))
 }
 
-func newAgentHarness(t *testing.T) (*AgentServer, *testDaemon, string) {
+func newAgentSocketHarness(t *testing.T) (*AgentServer, *testDaemon, string) {
 	t.Helper()
 
 	runtimeDir, err := os.MkdirTemp("/tmp", "hd-agent-")
@@ -242,19 +232,43 @@ func newAgentHarness(t *testing.T) (*AgentServer, *testDaemon, string) {
 	socketPath := filepath.Join(runtimeDir, "heimdall", "agent.sock")
 	daemon := &testDaemon{}
 	server := NewServer(daemon)
-	require.NoError(t, server.Start(socketPath))
+	startErr := server.Start(socketPath)
+	if startErr != nil {
+		if strings.Contains(startErr.Error(), "operation not permitted") {
+			t.Skipf("unix socket bind unavailable in sandbox: %v", startErr)
+		}
+		require.NoError(t, startErr)
+	}
 	t.Cleanup(func() {
 		require.NoError(t, server.Stop())
 	})
 	return server, daemon, socketPath
 }
 
-func newAgentClient(t *testing.T, socketPath string) sshagent.ExtendedAgent {
+func newAgentProtocolHarness(t *testing.T) (*AgentServer, *testDaemon, sshagent.ExtendedAgent) {
 	t.Helper()
-	conn, err := net.Dial("unix", socketPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	return sshagent.NewClient(conn)
+
+	daemon := &testDaemon{}
+	server := NewServer(daemon)
+
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = sshagent.ServeAgent(server, serverConn)
+	}()
+
+	client := sshagent.NewClient(clientConn)
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("protocol harness did not stop")
+		}
+	})
+	return server, daemon, client
 }
 
 func generateEd25519KeyPEM(t *testing.T) ([]byte, ssh.Signer) {

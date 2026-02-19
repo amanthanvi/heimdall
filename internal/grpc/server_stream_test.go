@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
@@ -111,7 +112,12 @@ func TestClientLibraryWrapsAllServiceClients(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(baseDir) })
 	tempSocket := filepath.Join(baseDir, "daemon.sock")
 	lis, err := net.Listen("unix", tempSocket)
-	require.NoError(t, err)
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") {
+			t.Skipf("unix socket bind unavailable in sandbox: %v", err)
+		}
+		require.NoError(t, err)
+	}
 	srv := h.server.GRPCServer()
 	go func() {
 		_ = srv.Serve(lis)
