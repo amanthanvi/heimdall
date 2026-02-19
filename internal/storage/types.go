@@ -157,6 +157,7 @@ type PasskeyRepository interface {
 
 type AuditRepository interface {
 	Append(ctx context.Context, event *AuditEvent) error
+	AppendWithTip(ctx context.Context, event *AuditEvent, tip string) error
 	List(ctx context.Context, filter AuditFilter) ([]AuditEvent, error)
 	ChainTip(ctx context.Context) (string, error)
 	SetChainTip(ctx context.Context, tip string) error

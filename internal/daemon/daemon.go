@@ -113,44 +113,9 @@ func (d *Daemon) Start(ctx context.Context) error {
 		return ErrDaemonAlreadyRunning
 	}
 
-	if err := d.prepareStartupState(); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(d.runtimeDir, 0o700); err != nil {
-		return fmt.Errorf("start daemon: create runtime dir: %w", err)
-	}
-	if err := os.Chmod(d.runtimeDir, 0o700); err != nil {
-		return fmt.Errorf("start daemon: set runtime dir permissions: %w", err)
-	}
-
-	if err := validateUNIXSocketPath(d.daemonSocketPath); err != nil {
-		return err
-	}
-	if err := validateUNIXSocketPath(d.agentSocketPath); err != nil {
-		return err
-	}
-
-	_ = removeIfExists(d.daemonSocketPath)
-	_ = removeIfExists(d.agentSocketPath)
-
-	daemonListener, err := net.Listen("unix", d.daemonSocketPath)
-	if err != nil {
-		return fmt.Errorf("start daemon: listen daemon socket: %w", err)
-	}
-	if err := os.Chmod(d.daemonSocketPath, 0o600); err != nil {
-		_ = daemonListener.Close()
-		return fmt.Errorf("start daemon: chmod daemon socket: %w", err)
-	}
-
-	agentListener, err := net.Listen("unix", d.agentSocketPath)
-	if err != nil {
-		_ = daemonListener.Close()
-		return fmt.Errorf("start daemon: listen agent socket: %w", err)
-	}
-	if err := os.Chmod(d.agentSocketPath, 0o600); err != nil {
-		_ = agentListener.Close()
-		_ = daemonListener.Close()
-		return fmt.Errorf("start daemon: chmod agent socket: %w", err)
+	daemonListener, agentListener, startErr := d.startListeners()
+	if startErr != nil {
+		return startErr
 	}
 
 	d.grpcServer = grpc.NewServer()
@@ -320,6 +285,8 @@ func (d *Daemon) CanSign(id string) bool {
 }
 
 func (d *Daemon) SetReloadHook(hook func(context.Context) error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.reloadHook = hook
 }
 
@@ -330,8 +297,11 @@ func (d *Daemon) HandleSignal(sig os.Signal) {
 	case syscall.SIGINT:
 		_ = d.stopInternal(context.Background(), true)
 	case syscall.SIGHUP:
-		if d.reloadHook != nil {
-			_ = d.reloadHook(context.Background())
+		d.mu.RLock()
+		hook := d.reloadHook
+		d.mu.RUnlock()
+		if hook != nil {
+			_ = hook(context.Background())
 		}
 	}
 }
@@ -464,6 +434,53 @@ func (d *Daemon) serveAgentSocket() {
 		}
 		_ = conn.Close()
 	}
+}
+
+// startListeners prepares the startup state, creates the runtime directory,
+// and opens both Unix domain sockets. The runtime directory (0700) is the
+// primary access barrier; socket Chmod to 0600 is defense-in-depth.
+func (d *Daemon) startListeners() (net.Listener, net.Listener, error) {
+	if err := d.prepareStartupState(); err != nil {
+		return nil, nil, err
+	}
+	if err := os.MkdirAll(d.runtimeDir, 0o700); err != nil {
+		return nil, nil, fmt.Errorf("start daemon: create runtime dir: %w", err)
+	}
+	if err := os.Chmod(d.runtimeDir, 0o700); err != nil {
+		return nil, nil, fmt.Errorf("start daemon: set runtime dir permissions: %w", err)
+	}
+
+	if err := validateUNIXSocketPath(d.daemonSocketPath); err != nil {
+		return nil, nil, err
+	}
+	if err := validateUNIXSocketPath(d.agentSocketPath); err != nil {
+		return nil, nil, err
+	}
+
+	_ = removeIfExists(d.daemonSocketPath)
+	_ = removeIfExists(d.agentSocketPath)
+
+	daemonListener, err := net.Listen("unix", d.daemonSocketPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("start daemon: listen daemon socket: %w", err)
+	}
+	if err := os.Chmod(d.daemonSocketPath, 0o600); err != nil {
+		_ = daemonListener.Close()
+		return nil, nil, fmt.Errorf("start daemon: chmod daemon socket: %w", err)
+	}
+
+	agentListener, err := net.Listen("unix", d.agentSocketPath)
+	if err != nil {
+		_ = daemonListener.Close()
+		return nil, nil, fmt.Errorf("start daemon: listen agent socket: %w", err)
+	}
+	if err := os.Chmod(d.agentSocketPath, 0o600); err != nil {
+		_ = agentListener.Close()
+		_ = daemonListener.Close()
+		return nil, nil, fmt.Errorf("start daemon: chmod agent socket: %w", err)
+	}
+
+	return daemonListener, agentListener, nil
 }
 
 func (d *Daemon) capturePeerPID(conn net.Conn) {

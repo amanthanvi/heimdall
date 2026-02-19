@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -91,11 +92,8 @@ func (s *Service) Record(ctx context.Context, event Event) error {
 		CreatedAt:   event.Timestamp,
 	}
 
-	if err := s.repo.Append(ctx, entry); err != nil {
+	if err := s.repo.AppendWithTip(ctx, entry, hash); err != nil {
 		return fmt.Errorf("record audit event: append: %w", err)
-	}
-	if err := s.repo.SetChainTip(ctx, hash); err != nil {
-		return fmt.Errorf("record audit event: set chain tip: %w", err)
 	}
 	s.chainTip = hash
 	return nil
@@ -114,7 +112,8 @@ func (s *Service) Verify(ctx context.Context) (*VerifyResult, error) {
 			return nil, fmt.Errorf("verify audit chain: event %s payload: %w", event.ID, err)
 		}
 		expected := chainHashHex(prev, payload)
-		if event.PrevHash != prev || event.EventHash != expected {
+		if subtle.ConstantTimeCompare([]byte(event.PrevHash), []byte(prev)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(event.EventHash), []byte(expected)) != 1 {
 			return &VerifyResult{
 				Valid:      false,
 				EventCount: len(events),
@@ -129,7 +128,7 @@ func (s *Service) Verify(ctx context.Context) (*VerifyResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("verify audit chain: read chain tip: %w", err)
 	}
-	if storedTip != prev {
+	if subtle.ConstantTimeCompare([]byte(storedTip), []byte(prev)) != 1 {
 		return &VerifyResult{
 			Valid:      false,
 			EventCount: len(events),
@@ -262,12 +261,19 @@ func sanitizeValue(value any) any {
 
 func isSensitiveDetailKey(key string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(key))
-	switch normalized {
-	case "secret", "passphrase", "private_key", "token":
-		return true
-	default:
-		return false
+	for _, pattern := range sensitiveDetailPatterns {
+		if strings.Contains(normalized, pattern) {
+			return true
+		}
 	}
+	return false
+}
+
+var sensitiveDetailPatterns = []string{
+	"secret", "passphrase", "private_key", "token",
+	"password", "credential", "api_key", "access_token",
+	"refresh_token", "secret_key", "ssh_key", "hmac",
+	"kek", "dek", "vmk", "master_key",
 }
 
 func canonicalJSON(v any) ([]byte, error) {
