@@ -13,7 +13,7 @@ const (
 	DefaultArgon2Iterations uint32 = 3
 	DefaultArgon2SaltLen           = 32
 	DefaultArgon2KeyLen     uint32 = 32
-	MinArgon2MemoryKiB      uint32 = 32 * 1024
+	MinArgon2MemoryKiB      uint32 = 64 * 1024
 )
 
 var ErrInvalidArgon2Params = errors.New("invalid argon2 parameters")

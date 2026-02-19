@@ -36,11 +36,12 @@ type EncryptedBlob struct {
 }
 
 type VaultCrypto struct {
-	vmk *memguard.LockedBuffer
+	vmk     *memguard.LockedBuffer
+	vaultID string
 }
 
-func NewVaultCrypto(vmk *memguard.LockedBuffer) *VaultCrypto {
-	return &VaultCrypto{vmk: vmk}
+func NewVaultCrypto(vmk *memguard.LockedBuffer, vaultID string) *VaultCrypto {
+	return &VaultCrypto{vmk: vmk, vaultID: vaultID}
 }
 
 func GenerateVMK() (*memguard.LockedBuffer, error) {
@@ -102,7 +103,7 @@ func UnwrapVMK(kek []byte, wrapped WrappedKey, commitmentTag []byte) (*memguard.
 		return nil, fmt.Errorf("unwrap vmk: %w", err)
 	}
 
-	expectedTag := keyCommitmentTag(plaintext)
+	expectedTag := ComputeCommitmentTag(plaintext)
 	if !hmac.Equal(expectedTag, commitmentTag) {
 		memguard.WipeBytes(plaintext)
 		return nil, ErrCommitmentMismatch
@@ -129,7 +130,7 @@ func (vc *VaultCrypto) EncryptField(entityType, entityID, fieldName string, plai
 		return EncryptedBlob{}, err
 	}
 
-	aad := fieldAssociatedData(entityType, entityID, fieldName)
+	aad := fieldAssociatedData(vc.vaultID, entityType, entityID, fieldName)
 	ciphertext, err := SealXChaCha20Poly1305(dek, nonce, plaintext, aad)
 	if err != nil {
 		return EncryptedBlob{}, fmt.Errorf("encrypt field: %w", err)
@@ -152,7 +153,7 @@ func (vc *VaultCrypto) DecryptField(entityType, entityID, fieldName string, blob
 	}
 	defer memguard.WipeBytes(dek)
 
-	aad := fieldAssociatedData(entityType, entityID, fieldName)
+	aad := fieldAssociatedData(vc.vaultID, entityType, entityID, fieldName)
 	plaintext, err := OpenXChaCha20Poly1305(dek, blob.Nonce, blob.Ciphertext, aad)
 	if err != nil {
 		return nil, err
@@ -190,7 +191,7 @@ func (vc *VaultCrypto) ensureReady() error {
 	return nil
 }
 
-func keyCommitmentTag(vmk []byte) []byte {
+func ComputeCommitmentTag(vmk []byte) []byte {
 	mac := hmac.New(sha256.New, vmk)
 	mac.Write([]byte(keyCommitmentContext))
 	return mac.Sum(nil)
@@ -200,6 +201,6 @@ func wrapAssociatedData(vaultID, methodType string) []byte {
 	return []byte("heimdall-vmk:" + vaultID + ":" + methodType)
 }
 
-func fieldAssociatedData(entityType, entityID, fieldName string) []byte {
-	return []byte("heimdall-field:" + fieldAADVersion + ":" + entityType + ":" + entityID + ":" + fieldName)
+func fieldAssociatedData(vaultID, entityType, entityID, fieldName string) []byte {
+	return []byte("heimdall-field:" + vaultID + ":" + fieldAADVersion + ":" + entityType + ":" + entityID + ":" + fieldName)
 }

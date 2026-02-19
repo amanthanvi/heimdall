@@ -40,6 +40,24 @@ func TestRedactionPasswordField(t *testing.T) {
 	require.Equal(t, "[REDACTED]", out["password"])
 }
 
+func TestRedactionVMKField(t *testing.T) {
+	t.Parallel()
+	out := logSingleField(t, "vmk", "deadbeef")
+	require.Equal(t, "[REDACTED]", out["vmk"])
+}
+
+func TestRedactionKEKField(t *testing.T) {
+	t.Parallel()
+	out := logSingleField(t, "kek", "deadbeef")
+	require.Equal(t, "[REDACTED]", out["kek"])
+}
+
+func TestRedactionDEKField(t *testing.T) {
+	t.Parallel()
+	out := logSingleField(t, "dek", "deadbeef")
+	require.Equal(t, "[REDACTED]", out["dek"])
+}
+
 func TestNonSensitiveFieldsPassThrough(t *testing.T) {
 	t.Parallel()
 	out := logSingleField(t, "host", "db.internal")

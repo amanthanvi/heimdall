@@ -14,7 +14,7 @@ func TestArgon2KAT(t *testing.T) {
 	passphrase := []byte("correct horse battery staple")
 	salt := []byte("0123456789abcdef0123456789abcdef")
 	params := Argon2Params{
-		Memory:      32 * 1024,
+		Memory:      64 * 1024,
 		Iterations:  3,
 		Parallelism: 1,
 		SaltLen:     32,
@@ -23,7 +23,7 @@ func TestArgon2KAT(t *testing.T) {
 
 	got, err := DeriveKEKFromPassphrase(passphrase, salt, params)
 	require.NoError(t, err)
-	require.Equal(t, mustDecodeHex(t, "4b6e46991a5bf2f064c77ede7d1802f0b2e100f0cf518ef755b365a80fd493ab"), got)
+	require.Equal(t, mustDecodeHex(t, "d12ac228e1566ecd9f80cf05621657ee1b5b34e40133438917d7ed334641f455"), got)
 }
 
 func TestXChaCha20Poly1305KAT(t *testing.T) {
@@ -78,7 +78,7 @@ func TestDeriveKEKAndWrapUnwrapRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	salt := []byte("0123456789abcdef0123456789abcdef")
@@ -89,7 +89,7 @@ func TestDeriveKEKAndWrapUnwrapRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedVMK := append([]byte(nil), vmk.Bytes()...)
-	commitment := keyCommitmentTag(expectedVMK)
+	commitment := ComputeCommitmentTag(expectedVMK)
 
 	unwrapped, err := UnwrapVMK(kek, wrapped, commitment)
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestUnwrapVMKWrongKEK(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	goodKEK := bytes.Repeat([]byte{0x42}, 32)
@@ -113,7 +113,7 @@ func TestUnwrapVMKWrongKEK(t *testing.T) {
 	wrapped, err := vc.WrapVMK(goodKEK, "vault-a", "passphrase")
 	require.NoError(t, err)
 
-	_, err = UnwrapVMK(badKEK, wrapped, keyCommitmentTag(vmk.Bytes()))
+	_, err = UnwrapVMK(badKEK, wrapped, ComputeCommitmentTag(vmk.Bytes()))
 	require.ErrorIs(t, err, ErrInvalidKEK)
 }
 
@@ -124,14 +124,14 @@ func TestKeyCommitmentValidatesAfterUnwrap(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	kek := bytes.Repeat([]byte{0x21}, 32)
 	wrapped, err := vc.WrapVMK(kek, "vault-a", "passphrase")
 	require.NoError(t, err)
 
-	unwrapped, err := UnwrapVMK(kek, wrapped, keyCommitmentTag(vmk.Bytes()))
+	unwrapped, err := UnwrapVMK(kek, wrapped, ComputeCommitmentTag(vmk.Bytes()))
 	require.NoError(t, err)
 	t.Cleanup(unwrapped.Destroy)
 }
@@ -143,14 +143,14 @@ func TestKeyCommitmentTamperFails(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	kek := bytes.Repeat([]byte{0x21}, 32)
 	wrapped, err := vc.WrapVMK(kek, "vault-a", "passphrase")
 	require.NoError(t, err)
 
-	tampered := keyCommitmentTag(vmk.Bytes())
+	tampered := ComputeCommitmentTag(vmk.Bytes())
 	tampered[0] ^= 0xff
 
 	_, err = UnwrapVMK(kek, wrapped, tampered)
@@ -164,7 +164,7 @@ func TestPerRecordDEKDeterministic(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	dekA, err := vc.deriveRecordDEK("secret", "entity-1", "value")
@@ -181,7 +181,7 @@ func TestPerRecordDEKDistinct(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	dekA, err := vc.deriveRecordDEK("secret", "entity-1", "value")
@@ -198,7 +198,7 @@ func TestEncryptDecryptFieldRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	blob, err := vc.EncryptField("secret", "entity-1", "value", []byte("super-secret-value"))
@@ -220,8 +220,8 @@ func TestDecryptFieldWrongKeyFails(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk2.Destroy)
 
-	vc1 := NewVaultCrypto(vmk1)
-	vc2 := NewVaultCrypto(vmk2)
+	vc1 := NewVaultCrypto(vmk1, "vault-test")
+	vc2 := NewVaultCrypto(vmk2, "vault-test-2")
 	t.Cleanup(vc1.Destroy)
 	t.Cleanup(vc2.Destroy)
 
@@ -239,7 +239,7 @@ func TestDecryptFieldTamperedADFails(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	blob, err := vc.EncryptField("secret", "entity-1", "value", []byte("super-secret-value"))
@@ -256,7 +256,7 @@ func TestNonceUniquenessAcrossEncryptions(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	const samples = 10000
@@ -299,7 +299,7 @@ func TestDestroyWipesVMKBuffer(t *testing.T) {
 	vmk, err := GenerateVMK()
 	require.NoError(t, err)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	vc.Destroy()
 
 	require.False(t, vmk.IsAlive())
@@ -312,7 +312,7 @@ func TestRecordUpdateUsesFreshNonce(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(vmk.Destroy)
 
-	vc := NewVaultCrypto(vmk)
+	vc := NewVaultCrypto(vmk, "vault-test")
 	t.Cleanup(vc.Destroy)
 
 	first, err := vc.EncryptField("secret", "entity-1", "value", []byte("stable-plaintext"))

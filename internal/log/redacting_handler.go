@@ -13,6 +13,9 @@ var sensitiveFields = map[string]struct{}{
 	"private_key": {},
 	"value":       {},
 	"passphrase":  {},
+	"vmk":         {},
+	"kek":         {},
+	"dek":         {},
 }
 
 type RedactingHandler struct {

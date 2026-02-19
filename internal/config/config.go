@@ -120,18 +120,18 @@ func Load(opts LoadOptions) (Config, LoadReport, error) {
 		return Config{}, report, err
 	}
 
-	if err := applyEnvOverrides(&cfg, opts); err != nil {
-		return Config{}, report, err
-	}
-	if err := applyFlagOverrides(&cfg, opts.Flags); err != nil {
-		return Config{}, report, err
-	}
-
 	policyPath, err := resolvePolicyPath(opts)
 	if err != nil {
 		return Config{}, report, fmt.Errorf("resolve policy path: %w", err)
 	}
 	if err := loadAndApplyFile(policyPath, &cfg, &report.PolicyOverrides); err != nil {
+		return Config{}, report, err
+	}
+
+	if err := applyEnvOverrides(&cfg, opts); err != nil {
+		return Config{}, report, err
+	}
+	if err := applyFlagOverrides(&cfg, opts.Flags); err != nil {
 		return Config{}, report, err
 	}
 
