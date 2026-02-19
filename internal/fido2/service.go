@@ -126,6 +126,11 @@ func (s *Service) UnlockWithPasskey(
 		return nil, authFailedError("passkey assertion failed", err)
 	}
 
+	// Defense-in-depth: verify assertion signature before using HMAC output.
+	if err := VerifyAssertionSignature(enrollment.PublicKeyCOSE, assertion.AuthData, assertion.Signature); err != nil {
+		return nil, authFailedError("passkey unlock signature verification failed", err)
+	}
+
 	kek, err := crypto.DeriveKEKFromHMACSecret(assertion.HMACSecretOutput, vaultSalt)
 	if err != nil {
 		return nil, fmt.Errorf("fido2 unlock: derive kek: %w", err)

@@ -31,6 +31,9 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 	if user == "" {
 		user = host.User
 	}
+	if user != "" && (strings.HasPrefix(user, "-") || !sshUserPattern.MatchString(user)) {
+		return nil, fmt.Errorf("%w: user %q contains invalid characters", ErrValidation, user)
+	}
 	port := opts.Port
 	if port == 0 {
 		port = host.Port
@@ -68,7 +71,8 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 	if opts.KnownHosts != "" {
 		args = append(args, "-o", "UserKnownHostsFile="+opts.KnownHosts)
 	}
-	args = append(args, target)
+	// End-of-options separator prevents target from being parsed as SSH flags.
+	args = append(args, "--", target)
 
 	return &ConnectPlan{
 		Args:         args,

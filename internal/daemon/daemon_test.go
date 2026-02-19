@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/amanthanvi/heimdall/internal/config"
+	"github.com/amanthanvi/heimdall/internal/crypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -141,7 +142,7 @@ func TestSIGTERMGracefulShutdownWipesVMKAndCleansArtifacts(t *testing.T) {
 	d := newTestDaemon(t, nil)
 	ctx := context.Background()
 	require.NoError(t, d.Start(ctx))
-	require.NoError(t, d.Unlock([]byte("passphrase")))
+	unlockWithTestVMK(t, d)
 	require.False(t, d.IsLocked())
 	require.True(t, d.HasLiveVMK())
 
@@ -198,7 +199,7 @@ func TestAutoLockVaultAfterTimeout(t *testing.T) {
 	require.NoError(t, d.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, d.Stop(ctx)) })
 
-	require.NoError(t, d.Unlock([]byte("passphrase")))
+	unlockWithTestVMK(t, d)
 	require.False(t, d.IsLocked())
 
 	require.Eventually(t, d.IsLocked, time.Second, 20*time.Millisecond)
@@ -215,7 +216,7 @@ func TestAutoLockTimerResetsOnOperation(t *testing.T) {
 	require.NoError(t, d.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, d.Stop(ctx)) })
 
-	require.NoError(t, d.Unlock([]byte("passphrase")))
+	unlockWithTestVMK(t, d)
 	time.Sleep(70 * time.Millisecond)
 	d.TouchVaultOperation()
 	time.Sleep(70 * time.Millisecond)
@@ -235,7 +236,7 @@ func TestMaxSessionDurationStopsSigningAfterExpiry(t *testing.T) {
 	require.NoError(t, d.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, d.Stop(ctx)) })
 
-	require.NoError(t, d.Unlock([]byte("passphrase")))
+	unlockWithTestVMK(t, d)
 	d.RegisterSigningSession("session-1")
 	require.True(t, d.CanSign("session-1"))
 
@@ -373,6 +374,13 @@ func newTestDaemonWithConfig(t *testing.T, cfg config.Config, inspector ProcessI
 func newTestDaemonAtPaths(t *testing.T, home, runtime string, inspector ProcessInspector) *Daemon {
 	t.Helper()
 	return newTestDaemonAtPathsAndConfig(t, home, runtime, config.DefaultConfig(), inspector)
+}
+
+func unlockWithTestVMK(t *testing.T, d *Daemon) {
+	t.Helper()
+	vmk, err := crypto.GenerateVMK()
+	require.NoError(t, err)
+	d.SetVMK(vmk)
 }
 
 func newTestDaemonAtPathsAndConfig(t *testing.T, home, runtime string, cfg config.Config, inspector ProcessInspector) *Daemon {

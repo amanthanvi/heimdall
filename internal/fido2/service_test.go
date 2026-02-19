@@ -106,10 +106,13 @@ func TestVaultUnlockUsesHMACSecretOutputForHKDF(t *testing.T) {
 	store, vmk := newFIDO2TestStore(t)
 	defer vmk.Destroy()
 
+	pub, priv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
 	enrollment := &storage.PasskeyEnrollment{
 		Label:              "key-1",
 		CredentialID:       []byte{0xaa, 0xbb},
-		PublicKeyCOSE:      bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize),
+		PublicKeyCOSE:      pub,
 		SupportsHMACSecret: true,
 	}
 	require.NoError(t, store.Passkeys.Create(context.Background(), enrollment))
@@ -124,11 +127,14 @@ func TestVaultUnlockUsesHMACSecretOutputForHKDF(t *testing.T) {
 	wrapped, commitment, expectedVMK := wrappedVMKForKEK(t, expectedKEK)
 	defer expectedVMK.Destroy()
 
+	authData := []byte("unlock-auth-data")
+	sig := ed25519.Sign(priv, authData)
+
 	var captured GetAssertionOpts
 	mock := &mockAuthenticator{
 		getAssertionFn: func(opts GetAssertionOpts) (*Assertion, error) {
 			captured = opts
-			return &Assertion{HMACSecretOutput: hmacOutput, AuthData: []byte("auth"), Signature: bytes.Repeat([]byte{0x01}, ed25519.SignatureSize)}, nil
+			return &Assertion{HMACSecretOutput: hmacOutput, AuthData: authData, Signature: sig}, nil
 		},
 	}
 
@@ -148,10 +154,13 @@ func TestVaultUnlockDerivedKEKSuccessfullyUnwrapsVMK(t *testing.T) {
 	store, vmk := newFIDO2TestStore(t)
 	defer vmk.Destroy()
 
+	pub, priv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
 	enrollment := &storage.PasskeyEnrollment{
 		Label:              "key-2",
 		CredentialID:       []byte{0x90, 0x91},
-		PublicKeyCOSE:      bytes.Repeat([]byte{0x22}, ed25519.PublicKeySize),
+		PublicKeyCOSE:      pub,
 		SupportsHMACSecret: true,
 	}
 	require.NoError(t, store.Passkeys.Create(context.Background(), enrollment))
@@ -166,9 +175,12 @@ func TestVaultUnlockDerivedKEKSuccessfullyUnwrapsVMK(t *testing.T) {
 	wrapped, commitment, expectedVMK := wrappedVMKForKEK(t, kek)
 	defer expectedVMK.Destroy()
 
+	authData := []byte("unlock-vmk-auth")
+	sig := ed25519.Sign(priv, authData)
+
 	mock := &mockAuthenticator{
 		getAssertionFn: func(_ GetAssertionOpts) (*Assertion, error) {
-			return &Assertion{HMACSecretOutput: hmacOutput}, nil
+			return &Assertion{HMACSecretOutput: hmacOutput, AuthData: authData, Signature: sig}, nil
 		},
 	}
 

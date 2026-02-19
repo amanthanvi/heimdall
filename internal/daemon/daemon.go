@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/amanthanvi/heimdall/internal/config"
-	"github.com/amanthanvi/heimdall/internal/crypto"
 	"github.com/awnumar/memguard"
 	"google.golang.org/grpc"
 )
@@ -210,12 +209,26 @@ func (d *Daemon) stopInternal(_ context.Context, immediate bool) error {
 	return stopErr
 }
 
-func (d *Daemon) Unlock(_ []byte) error {
-	vmk, err := crypto.GenerateVMK()
-	if err != nil {
-		return fmt.Errorf("unlock daemon: generate vmk: %w", err)
-	}
+// ErrUnlockNotImplemented is returned when Unlock or UnlockWithPasskey is
+// called on the daemon stub. Production unlock requires:
+// 1. KEK derivation from passphrase (Argon2id) or FIDO2 hmac-secret (HKDF)
+// 2. VMK unwrap (XChaCha20-Poly1305)
+// 3. Commitment tag verification (HMAC-SHA256)
+// This is wired via cmd_daemon_serve.go which provides a real vault.
+var ErrUnlockNotImplemented = fmt.Errorf("unlock: vault credential verification not wired (use daemon serve)")
 
+func (d *Daemon) Unlock(_ []byte) error {
+	return ErrUnlockNotImplemented
+}
+
+func (d *Daemon) UnlockWithPasskey(_ string) error {
+	return ErrUnlockNotImplemented
+}
+
+// SetVMK is called by the daemon serve layer after it has performed proper
+// credential verification (passphrase → KEK → VMK unwrap → commitment check).
+// This is the ONLY path to unlock the daemon.
+func (d *Daemon) SetVMK(vmk *memguard.LockedBuffer) {
 	d.mu.Lock()
 	if d.vmk != nil && d.vmk.IsAlive() {
 		d.vmk.Destroy()
@@ -224,11 +237,6 @@ func (d *Daemon) Unlock(_ []byte) error {
 	d.locked = false
 	d.resetAutoLockTimerLocked()
 	d.mu.Unlock()
-	return nil
-}
-
-func (d *Daemon) UnlockWithPasskey(_ string) error {
-	return d.Unlock(nil)
 }
 
 func (d *Daemon) Lock() error {

@@ -210,6 +210,12 @@ func writeDaemonInfo(path string, info daemonpkg.Info) error {
 	return nil
 }
 
+// deterministicServeVMK returns a fixed VMK for the bootstrap daemon.
+// SECURITY: This is NOT cryptographically secure — the seed is public.
+// It exists only to allow the daemon to open the vault database during
+// development before the full vault-init → passphrase → KEK → VMK unwrap
+// flow is wired. Replace with crypto.GenerateVMK() + proper unwrap once
+// vault initialization stores a wrapped VMK in vault_meta.
 func deterministicServeVMK() *memguard.LockedBuffer {
 	seed := sha256.Sum256([]byte("heimdall.daemon.vmk.v1"))
 	return memguard.NewBufferFromBytes(seed[:])
@@ -244,10 +250,13 @@ func (d *serveDaemonState) HasLiveVMK() bool {
 }
 
 func (d *serveDaemonState) Unlock([]byte) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.locked = false
-	return nil
+	// TODO: implement real credential verification:
+	// 1. Load vault metadata (salt, wrapped VMK, commitment tag)
+	// 2. Derive KEK from passphrase via Argon2id
+	// 3. Unwrap VMK (XChaCha20-Poly1305)
+	// 4. Verify commitment tag (HMAC-SHA256)
+	// 5. Set VMK into VaultCrypto and flip d.locked = false
+	return fmt.Errorf("unlock: vault credential verification not yet wired in daemon serve")
 }
 
 func (d *serveDaemonState) Lock() error {
