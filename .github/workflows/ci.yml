@@ -34,7 +34,7 @@ jobs:
         run: ${{ matrix.install_libfido2 }}
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.10.1
 
