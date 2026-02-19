@@ -115,13 +115,13 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 8 — SSH Integration (`internal/ssh`)
-- [ ] `todo` Add Section 8 tests first for builder/known_hosts/executor/binary checks/validation
-- [ ] `todo` Implement SSH binary detection + ProxyJump version support checks
-- [ ] `todo` Implement command builder (`SSHCommand`) including identity, jump, forwards, known_hosts policy
-- [ ] `todo` Implement forward spec parser/validator with strict address and port checks
-- [ ] `todo` Implement known_hosts manager (trust/check/file path behavior)
-- [ ] `todo` Implement process executor (signal relay, exit code propagation, cleanup, zombie prevention)
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+- [x] `done` Add Section 8 tests first for builder/known_hosts/executor/binary checks/validation
+- [x] `done` Implement SSH binary detection + ProxyJump version support checks
+- [x] `done` Implement command builder (`SSHCommand`) including identity, jump, forwards, known_hosts policy
+- [x] `done` Implement forward spec parser/validator with strict address and port checks
+- [x] `done` Implement known_hosts manager (trust/check/file path behavior)
+- [x] `done` Implement process executor (signal relay, exit code propagation, cleanup, zombie prevention)
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 10 — SSH Agent (`internal/agent`)
 - [ ] `todo` Add Section 10 tests first for agent protocol, TTL expiry, lock behavior, external fallback
