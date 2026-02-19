@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-and-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+            install_libfido2: sudo apt-get update && sudo apt-get install -y libfido2-dev
+          - os: macos-14
+            platform: macos-arm64
+            install_libfido2: brew install libfido2
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install libfido2
+        run: ${{ matrix.install_libfido2 }}
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: Test (race)
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build fido2
+        env:
+          CGO_ENABLED: "1"
+        run: go build -tags fido2 -trimpath ./...
+
+      - name: Build nofido2
+        env:
+          CGO_ENABLED: "0"
+        run: go build -tags nofido2 -trimpath ./...
