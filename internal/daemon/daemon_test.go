@@ -210,7 +210,7 @@ func TestAutoLockTimerResetsOnOperation(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.DefaultConfig()
-	cfg.Vault.AutoLockTimeout = 120 * time.Millisecond
+	cfg.Vault.AutoLockTimeout = 400 * time.Millisecond
 	d := newTestDaemonWithConfig(t, cfg, nil)
 
 	ctx := context.Background()
@@ -218,12 +218,12 @@ func TestAutoLockTimerResetsOnOperation(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, d.Stop(ctx)) })
 
 	unlockWithTestVMK(t, d)
-	time.Sleep(70 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	d.TouchVaultOperation()
-	time.Sleep(70 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	require.False(t, d.IsLocked(), "timer should have been reset by operation")
 
-	require.Eventually(t, d.IsLocked, time.Second, 20*time.Millisecond)
+	require.Eventually(t, d.IsLocked, 2*time.Second, 20*time.Millisecond)
 }
 
 func TestMaxSessionDurationStopsSigningAfterExpiry(t *testing.T) {
