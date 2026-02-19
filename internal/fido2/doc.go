@@ -1,3 +1,4 @@
 package fido2
 
-// Placeholder package for Section 1 scaffolding.
+// Package fido2 contains passkey enrollment, unlock, and re-auth flows with
+// build-tag specific authenticator implementations.

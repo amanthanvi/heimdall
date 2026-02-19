@@ -55,9 +55,9 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 9 — FIDO2 Integration (`internal/fido2`)
-- [ ] `in_progress` Add 15 tests first (nofido2 behavior, mock authenticator, enrollment/unlock/reauth flows)
-- [ ] `todo` Implement `Authenticator` interface and shared types
-- [ ] `todo` Implement `fido2` cgo wrapper (`//go:build fido2`) using libfido2
-- [ ] `todo` Implement `nofido2` stub (`//go:build nofido2`) returning exit code 6 behavior
-- [ ] `todo` Implement enrollment/unlock/reauth flows using storage passkey persistence
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+- [x] `done` Add 15 tests first (nofido2 behavior, mock authenticator, enrollment/unlock/reauth flows)
+- [x] `done` Implement `Authenticator` interface and shared types
+- [x] `done` Implement `fido2` cgo wrapper (`//go:build fido2`) using libfido2
+- [x] `done` Implement `nofido2` stub (`//go:build nofido2`) returning exit code 6 behavior
+- [x] `done` Implement enrollment/unlock/reauth flows using storage passkey persistence
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
