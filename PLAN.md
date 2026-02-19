@@ -124,15 +124,15 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 10 — SSH Agent (`internal/agent`)
-- [ ] `todo` Add Section 10 tests first for agent protocol, TTL expiry, lock behavior, external fallback
-- [ ] `todo` Implement `agent.Agent` compatible server with socket lifecycle and 0600 permissions
-- [ ] `todo` Implement key add/remove/remove-all/sign/list flows with TTL eviction
-- [ ] `todo` Enforce daemon lock/session semantics (`IsLocked`, `CanSign`) without killing sessions
-- [ ] `todo` Implement external `ssh-add` fallback via secure temp file + immediate cleanup
-- [ ] `todo` Integrate daemon agent socket path `${RUNTIME_DIR}/heimdall/agent.sock`
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+- [x] `done` Add Section 10 tests first for agent protocol, TTL expiry, lock behavior, external fallback
+- [x] `done` Implement `agent.Agent` compatible server with socket lifecycle and 0600 permissions
+- [x] `done` Implement key add/remove/remove-all/sign/list flows with TTL eviction
+- [x] `done` Enforce daemon lock/session semantics (`IsLocked`, `CanSign`) without killing sessions
+- [x] `done` Implement external `ssh-add` fallback via secure temp file + immediate cleanup
+- [x] `done` Integrate daemon agent socket path `${RUNTIME_DIR}/heimdall/agent.sock`
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Batch 4 Finalization
-- [ ] `todo` Keep `PLAN.md` updated as each subsection completes
+- [x] `done` Keep `PLAN.md` updated as each subsection completes
 - [ ] `todo` Commit and push logical units on `main`
 - [ ] `todo` Final report with changed files, commands, validation, risks/TODOs
