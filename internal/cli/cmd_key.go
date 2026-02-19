@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/spf13/cobra"
@@ -24,31 +25,21 @@ func newKeyCommand(deps commandDeps) *cobra.Command {
 		newKeyShowCommand(deps),
 		newKeyRemoveCommand(deps),
 		newKeyRotateCommand(deps),
-		newKeyAgentCommand(),
+		newKeyAgentCommand(deps),
 	)
 	return cmd
 }
 
-func newKeyAgentCommand() *cobra.Command {
+func newKeyAgentCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "SSH agent key operations",
 	}
 	cmd.AddCommand(
-		newKeyUnsupportedCommand("add"),
-		newKeyUnsupportedCommand("rm"),
+		newKeyAgentAddCommand(deps),
+		newKeyAgentRemoveCommand(deps),
 	)
 	return cmd
-}
-
-func newKeyUnsupportedCommand(name string) *cobra.Command {
-	return &cobra.Command{
-		Use:   name,
-		Short: fmt.Sprintf("%s key settings (not yet implemented)", name),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is not implemented", cmd.CommandPath()))
-		},
-	}
 }
 
 func newKeyGenerateCommand(deps commandDeps) *cobra.Command {
@@ -81,6 +72,81 @@ func newKeyGenerateCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "Key name")
 	cmd.Flags().StringVar(&keyType, "type", "ed25519", "Key type (ed25519|rsa)")
 	return cmd
+}
+
+func newKeyAgentAddCommand(deps commandDeps) *cobra.Command {
+	var (
+		sessionID string
+		ttl       time.Duration
+	)
+	cmd := &cobra.Command{
+		Use:   "add <name>",
+		Short: "Add a private key to the managed SSH agent",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return usageErrorf("key agent add requires exactly one key name")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if ttl < 0 {
+				return usageErrorf("key agent add --ttl must be >= 0")
+			}
+			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				resp, err := clients.key.AgentAdd(ctx, &v1.AgentAddRequest{
+					Name:       args[0],
+					SessionId:  sessionID,
+					TtlSeconds: int64(ttl / time.Second),
+				})
+				if err != nil {
+					return err
+				}
+				if deps.globals.JSON {
+					return printJSON(deps.out, map[string]any{
+						"name":        args[0],
+						"fingerprint": resp.GetFingerprint(),
+					})
+				}
+				if deps.globals.Quiet {
+					return nil
+				}
+				_, err = fmt.Fprintf(deps.out, "key added to agent: %s (%s)\n", args[0], resp.GetFingerprint())
+				return err
+			})
+		},
+	}
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Optional session ID for signing scope")
+	cmd.Flags().DurationVar(&ttl, "ttl", 0, "Optional key TTL")
+	return cmd
+}
+
+func newKeyAgentRemoveCommand(deps commandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rm <fingerprint>",
+		Short: "Remove a key from the managed SSH agent by fingerprint",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return usageErrorf("key agent rm requires exactly one fingerprint")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				_, err := clients.key.AgentRemove(ctx, &v1.AgentRemoveRequest{Fingerprint: args[0]})
+				if err != nil {
+					return err
+				}
+				if deps.globals.JSON {
+					return printJSON(deps.out, map[string]any{"removed": args[0]})
+				}
+				if deps.globals.Quiet {
+					return nil
+				}
+				_, err = fmt.Fprintf(deps.out, "key removed from agent: %s\n", args[0])
+				return err
+			})
+		},
+	}
 }
 
 func newKeyImportCommand(deps commandDeps) *cobra.Command {

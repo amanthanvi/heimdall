@@ -1,0 +1,65 @@
+version: 2
+
+project_name: heimdall
+
+builds:
+  - id: heimdall
+    main: ./cmd/heimdall
+    binary: heimdall
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/amanthanvi/heimdall/internal/version.Version={{ .Version }}
+      - -X github.com/amanthanvi/heimdall/internal/version.Commit={{ .Commit }}
+      - -X github.com/amanthanvi/heimdall/internal/version.BuildTime={{ .Date }}
+
+archives:
+  - id: standalone
+    builds:
+      - heimdall
+    formats:
+      - binary
+    name_template: "heimdall-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - id: binaries
+    artifacts: archive
+
+nfpms:
+  - id: heimdall-deb
+    package_name: heimdall
+    builds:
+      - heimdall
+    formats:
+      - deb
+    maintainer: Aman Thanvi <amanthanvi2002@gmail.com>
+    description: Secure local SSH vault and workflow CLI.
+    license: MIT
+    bindir: /usr/bin
+
+brews:
+  - name: heimdall
+    ids:
+      - standalone
+    homepage: https://github.com/amanthanvi/heimdall
+    description: Secure local SSH vault and workflow CLI.
+    repository:
+      owner: amanthanvi
+      name: homebrew-tap
+    install: |
+      bin.install "heimdall"
+
+release:
+  draft: true

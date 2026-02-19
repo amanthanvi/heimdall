@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
@@ -19,7 +21,7 @@ func newSecretCommand(deps commandDeps) *cobra.Command {
 		newSecretListCommand(deps),
 		newSecretShowCommand(deps),
 		newSecretRemoveCommand(deps),
-		newSecretUnsupportedCommand("export"),
+		newSecretExportCommand(deps),
 		newSecretEnvCommand(deps),
 		newSecretUnsupportedCommand("set-policy"),
 	)
@@ -173,6 +175,58 @@ func newSecretRemoveCommand(deps commandDeps) *cobra.Command {
 	}
 }
 
+func newSecretExportCommand(deps commandDeps) *cobra.Command {
+	var (
+		outputPath string
+		reauth     bool
+	)
+	cmd := &cobra.Command{
+		Use:   "export <name>",
+		Short: "Export secret value to a file",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return usageErrorf("secret export requires exactly one secret name")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !reauth {
+				return asExitError(ExitCodePermission, fmt.Errorf("secret export requires re-authentication"))
+			}
+			if strings.TrimSpace(outputPath) == "" {
+				return usageErrorf("secret export requires --output")
+			}
+
+			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				resp, err := clients.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: args[0]})
+				if err != nil {
+					return err
+				}
+				if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+					return err
+				}
+				if err := os.WriteFile(outputPath, resp.GetValue(), 0o600); err != nil {
+					return err
+				}
+				if deps.globals.JSON {
+					return printJSON(deps.out, map[string]any{
+						"name":   args[0],
+						"output": outputPath,
+					})
+				}
+				if deps.globals.Quiet {
+					return nil
+				}
+				_, err = fmt.Fprintf(deps.out, "secret exported: %s\n", outputPath)
+				return err
+			})
+		},
+	}
+	cmd.Flags().StringVar(&outputPath, "output", "", "Output path")
+	cmd.Flags().BoolVar(&reauth, "reauth", false, "Confirm re-authentication completed")
+	return cmd
+}
+
 func newSecretEnvCommand(deps commandDeps) *cobra.Command {
 	var envVar string
 	cmd := &cobra.Command{
@@ -214,7 +268,8 @@ func newSecretEnvCommand(deps commandDeps) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&envVar, "var", "", "Environment variable name (default derived from secret)")
+	cmd.Flags().StringVar(&envVar, "env-var", "", "Environment variable name (default derived from secret)")
+	cmd.Flags().StringVar(&envVar, "var", "", "Environment variable name (deprecated alias for --env-var)")
 	return cmd
 }
 

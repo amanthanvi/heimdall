@@ -42,6 +42,7 @@ func EnsureDaemonWithOptions(ctx context.Context, cfg *config.Config, opts Ensur
 		if dialErr == nil {
 			return conn, nil
 		}
+		cleanupStaleRuntimeArtifacts(infoPath, info)
 	}
 
 	starter := opts.Starter
@@ -89,4 +90,10 @@ func dialDaemon(ctx context.Context, socketPath string, timeout time.Duration) (
 		return nil, err
 	}
 	return conn, nil
+}
+
+func cleanupStaleRuntimeArtifacts(infoPath string, info Info) {
+	_ = removeIfExists(info.SocketPath)
+	_ = removeIfExists(info.AgentPath)
+	_ = removeIfExists(infoPath)
 }

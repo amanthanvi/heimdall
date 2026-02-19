@@ -14,11 +14,14 @@ type BuildInfo struct {
 }
 
 type GlobalOptions struct {
-	JSON    bool
-	Quiet   bool
-	NoColor bool
-	Timeout time.Duration
-	Yes     bool
+	JSON        bool
+	Quiet       bool
+	NoColor     bool
+	Timeout     time.Duration
+	Yes         bool
+	VaultPath   string
+	ConfigPath  string
+	Interactive bool
 }
 
 type commandDeps struct {
@@ -56,12 +59,17 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&globals.NoColor, "no-color", false, "Disable ANSI color output")
 	cmd.PersistentFlags().DurationVar(&globals.Timeout, "timeout", globals.Timeout, "Command timeout (for daemon RPCs)")
 	cmd.PersistentFlags().BoolVarP(&globals.Yes, "yes", "y", false, "Automatic yes to prompts and confirmations")
+	cmd.PersistentFlags().StringVar(&globals.VaultPath, "vault", "", "Path to vault database")
+	cmd.PersistentFlags().StringVar(&globals.ConfigPath, "config", "", "Path to config file")
+	cmd.PersistentFlags().BoolVar(&globals.Interactive, "interactive", false, "Force interactive mode")
 
 	cmd.AddCommand(
+		newInitCommand(deps),
 		newVersionCommand(deps),
 		newStatusCommand(deps),
 		newDoctorCommand(deps),
 		newVaultCommand(deps),
+		newDaemonCommand(deps),
 		newHostCommand(deps),
 		newSecretCommand(deps),
 		newKeyCommand(deps),
@@ -71,6 +79,7 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 		newAuditCommand(deps),
 		newImportCommand(deps),
 		newExportCommand(deps),
+		newSSHConfigCommand(deps),
 		newDebugCommand(deps),
 	)
 

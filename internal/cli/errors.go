@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"strings"
 
+	"github.com/amanthanvi/heimdall/internal/daemon"
 	"github.com/amanthanvi/heimdall/internal/ssh"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -21,6 +23,7 @@ const (
 	ExitCodeAuthFailed        = 5
 	ExitCodeDependencyMissing = 6
 	ExitCodeIO                = 7
+	ExitCodeConnection        = 8
 )
 
 type ExitError struct {
@@ -79,10 +82,24 @@ func mapCommandError(err error) error {
 	if errors.Is(err, ssh.ErrDependencyUnavailable) {
 		return asExitError(ExitCodeDependencyMissing, err)
 	}
+	if errors.Is(err, daemon.ErrDaemonStartUnsupported) {
+		return asExitError(ExitCodeDependencyMissing, err)
+	}
 	lower := strings.ToLower(err.Error())
 	if strings.Contains(lower, "requires libfido2") ||
 		strings.Contains(lower, "dependency unavailable") {
 		return asExitError(ExitCodeDependencyMissing, err)
+	}
+	if strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "transport is closing") ||
+		strings.Contains(lower, "broken pipe") {
+		return asExitError(ExitCodeConnection, err)
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return asExitError(ExitCodeConnection, err)
 	}
 
 	if st, ok := grpcstatus.FromError(err); ok {
@@ -105,6 +122,8 @@ func mapCommandError(err error) error {
 				return asExitError(ExitCodeDependencyMissing, err)
 			}
 			return asExitError(ExitCodePermission, err)
+		case codes.Unavailable, codes.DeadlineExceeded:
+			return asExitError(ExitCodeConnection, err)
 		default:
 			return asExitError(ExitCodeGeneric, err)
 		}

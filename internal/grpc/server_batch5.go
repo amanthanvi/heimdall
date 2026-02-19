@@ -26,7 +26,7 @@ type passkeyEnroller interface {
 	Enroll(ctx context.Context, label, userName string) (*storage.PasskeyEnrollment, error)
 }
 
-func (s *Server) Unlock(_ context.Context, req *v1.UnlockRequest) (*v1.UnlockResponse, error) {
+func (s *Server) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.UnlockResponse, error) {
 	if req == nil {
 		return nil, grpcstatus.Error(codes.InvalidArgument, "unlock vault: request is required")
 	}
@@ -54,6 +54,7 @@ func (s *Server) Unlock(_ context.Context, req *v1.UnlockRequest) (*v1.UnlockRes
 	}
 
 	s.reauthCache.clear()
+	s.reauthCache.mark(callerFromContext(ctx, s.cfg.Daemon))
 	return &v1.UnlockResponse{Unlocked: true}, nil
 }
 

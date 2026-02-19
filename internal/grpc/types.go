@@ -21,6 +21,7 @@ const (
 
 	callerPIDMetadataKey       = "x-heimdall-pid"
 	callerStartTimeMetadataKey = "x-heimdall-process-start"
+	callerClientIDMetadataKey  = "x-heimdall-client-id"
 )
 
 type authTier int
@@ -41,11 +42,15 @@ type daemonState interface {
 }
 
 type callerIdentity struct {
+	clientID string
 	pid      int
 	startKey string
 }
 
 func (c callerIdentity) key() string {
+	if c.clientID != "" {
+		return c.clientID
+	}
 	return fmt.Sprintf("%d@%s", c.pid, c.startKey)
 }
 
@@ -93,6 +98,12 @@ func callerFromContext(ctx context.Context, d daemonState) callerIdentity {
 	}
 
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if values := md.Get(callerClientIDMetadataKey); len(values) > 0 {
+			clientID := strings.TrimSpace(values[0])
+			if clientID != "" {
+				caller.clientID = clientID
+			}
+		}
 		if values := md.Get(callerPIDMetadataKey); len(values) > 0 {
 			pid, err := strconv.Atoi(strings.TrimSpace(values[0]))
 			if err == nil && pid > 0 {

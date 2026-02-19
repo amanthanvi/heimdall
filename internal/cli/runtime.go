@@ -17,6 +17,15 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+var (
+	loadConfigFn   = config.Load
+	ensureDaemonFn = func(ctx context.Context, cfg *config.Config) (*grpcpkg.ClientConn, error) {
+		return daemon.EnsureDaemonWithOptions(ctx, cfg, daemon.EnsureOptions{
+			Starter: startDaemonSubprocess,
+		})
+	}
+)
+
 type daemonClients struct {
 	conn    *grpcpkg.ClientConn
 	vault   v1.VaultServiceClient
@@ -31,19 +40,33 @@ type daemonClients struct {
 }
 
 func withDaemonClients(cmdCtx context.Context, deps commandDeps, fn func(context.Context, daemonClients) error) error {
-	timeout := deps.globals.Timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
+	timeout := 10 * time.Second
+	if deps.globals != nil && deps.globals.Timeout > 0 {
+		timeout = deps.globals.Timeout
 	}
 	ctx, cancel := context.WithTimeout(cmdCtx, timeout)
 	defer cancel()
+	restoreEnv := applyPathEnvOverrides(deps.globals)
+	defer restoreEnv()
 
-	cfg, _, err := config.Load(config.LoadOptions{})
+	loadOpts := config.LoadOptions{}
+	if deps.globals != nil {
+		if configPath := strings.TrimSpace(deps.globals.ConfigPath); configPath != "" {
+			loadOpts.ConfigPath = configPath
+		}
+		if vaultPath := strings.TrimSpace(deps.globals.VaultPath); vaultPath != "" {
+			loadOpts.Env = map[string]string{
+				"HEIMDALL_VAULT_PATH": vaultPath,
+			}
+		}
+	}
+
+	cfg, _, err := loadConfigFn(loadOpts)
 	if err != nil {
 		return mapCommandError(fmt.Errorf("load config: %w", err))
 	}
 
-	conn, err := daemon.EnsureDaemonWithOptions(ctx, &cfg, daemon.EnsureOptions{})
+	conn, err := ensureDaemonFn(ctx, &cfg)
 	if err != nil {
 		return mapCommandError(fmt.Errorf("ensure daemon: %w", err))
 	}
@@ -157,13 +180,80 @@ func runSecretEnv(
 
 func attachCallerMetadata(ctx context.Context) context.Context {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return metadata.AppendToOutgoingContext(
-		ctx,
+	pairs := []string{
 		"x-heimdall-pid",
 		fmt.Sprintf("%d", os.Getpid()),
 		"x-heimdall-process-start",
 		now,
+	}
+	if clientID := resolveCallerClientID(); clientID != "" {
+		pairs = append(pairs, "x-heimdall-client-id", clientID)
+	}
+	return metadata.AppendToOutgoingContext(
+		ctx,
+		pairs...,
 	)
+}
+
+func resolveCallerClientID() string {
+	if explicit := strings.TrimSpace(os.Getenv("HEIMDALL_CLIENT_ID")); explicit != "" {
+		return explicit
+	}
+	home, err := resolveHeimdallHomePath()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
+func startDaemonSubprocess(context.Context) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("start daemon subprocess: resolve executable: %w", err)
+	}
+	cmd := exec.Command(executable, "daemon", "serve")
+	cmd.Env = append([]string(nil), os.Environ()...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start daemon subprocess: %w", err)
+	}
+	if err := cmd.Process.Release(); err != nil {
+		return fmt.Errorf("start daemon subprocess: release process: %w", err)
+	}
+	return nil
+}
+
+func applyPathEnvOverrides(globals *GlobalOptions) func() {
+	if globals == nil {
+		return func() {}
+	}
+
+	var restoreFns []func()
+	if vaultPath := strings.TrimSpace(globals.VaultPath); vaultPath != "" {
+		restoreFns = append(restoreFns, setEnvForCommand("HEIMDALL_VAULT_PATH", vaultPath))
+	}
+	if configPath := strings.TrimSpace(globals.ConfigPath); configPath != "" {
+		restoreFns = append(restoreFns, setEnvForCommand("HEIMDALL_CONFIG_PATH", configPath))
+	}
+
+	return func() {
+		for i := len(restoreFns) - 1; i >= 0; i-- {
+			restoreFns[i]()
+		}
+	}
+}
+
+func setEnvForCommand(key, value string) func() {
+	original, hadOriginal := os.LookupEnv(key)
+	_ = os.Setenv(key, value)
+	return func() {
+		if hadOriginal {
+			_ = os.Setenv(key, original)
+			return
+		}
+		_ = os.Unsetenv(key)
+	}
 }
 
 func normalizeLines(raw string) []string {

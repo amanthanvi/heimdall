@@ -76,6 +76,9 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 			if strings.TrimSpace(address) == "" {
 				return usageErrorf("host add requires --addr")
 			}
+			if port < 1 || port > 65535 {
+				return usageErrorf("host add --port must be between 1 and 65535")
+			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				resp, err := clients.host.CreateHost(ctx, &v1.CreateHostRequest{
@@ -106,7 +109,12 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 }
 
 func newHostListCommand(deps commandDeps) *cobra.Command {
-	var namesOnly bool
+	var (
+		namesOnly bool
+		tag       string
+		group     string
+		search    string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "ls",
@@ -120,13 +128,14 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				hosts := filterHosts(resp.GetHosts(), tag, group, search)
 				if deps.globals.JSON {
-					return printJSON(deps.out, resp.GetHosts())
+					return printJSON(deps.out, hosts)
 				}
 				if deps.globals.Quiet {
 					return nil
 				}
-				for _, host := range resp.GetHosts() {
+				for _, host := range hosts {
 					if namesOnly {
 						if _, err := fmt.Fprintln(deps.out, host.GetName()); err != nil {
 							return err
@@ -149,6 +158,9 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&namesOnly, "names-only", false, "Only print host names")
+	cmd.Flags().StringVar(&tag, "tag", "", "Filter by tag")
+	cmd.Flags().StringVar(&group, "group", "", "Filter by group tag")
+	cmd.Flags().StringVar(&search, "search", "", "Case-insensitive search on name/address/user/tags")
 	return cmd
 }
 
@@ -205,13 +217,13 @@ func newHostRemoveCommand(deps commandDeps) *cobra.Command {
 
 func newHostEditCommand(deps commandDeps) *cobra.Command {
 	var (
-		newName string
-		address string
-		port    int32
-		user    string
-		tags    []string
+		newName   string
+		address   string
+		port      int32
+		user      string
+		tags      []string
 		clearTags bool
-		envRefs []string
+		envRefs   []string
 	)
 
 	cmd := &cobra.Command{
@@ -224,6 +236,9 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if port < 0 || port > 65535 {
+				return usageErrorf("host edit --port must be between 1 and 65535 when provided")
+			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				req := &v1.UpdateHostRequest{
 					Name:      args[0],
@@ -256,6 +271,53 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().BoolVar(&clearTags, "clear-tags", false, "Remove all host tags")
 	cmd.Flags().StringSliceVar(&envRefs, "env-ref", nil, "Updated environment reference key=value")
 	return cmd
+}
+
+func filterHosts(hosts []*v1.Host, tag, group, search string) []*v1.Host {
+	if len(hosts) == 0 {
+		return nil
+	}
+
+	wantTag := strings.ToLower(strings.TrimSpace(tag))
+	wantGroup := strings.ToLower(strings.TrimSpace(group))
+	needle := strings.ToLower(strings.TrimSpace(search))
+
+	out := make([]*v1.Host, 0, len(hosts))
+	for _, host := range hosts {
+		if host == nil {
+			continue
+		}
+		if wantTag != "" && !containsTag(host.GetTags(), wantTag) {
+			continue
+		}
+		if wantGroup != "" && !containsTag(host.GetTags(), "group:"+wantGroup) && !containsTag(host.GetTags(), wantGroup) {
+			continue
+		}
+		if needle != "" {
+			haystack := []string{host.GetName(), host.GetAddress(), host.GetUser(), strings.Join(host.GetTags(), " ")}
+			matched := false
+			for _, value := range haystack {
+				if strings.Contains(strings.ToLower(value), needle) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		out = append(out, host)
+	}
+	return out
+}
+
+func containsTag(tags []string, want string) bool {
+	for _, tag := range tags {
+		if strings.ToLower(strings.TrimSpace(tag)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func printHostOutput(deps commandDeps, host *v1.Host) error {

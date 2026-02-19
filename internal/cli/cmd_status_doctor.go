@@ -3,10 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/config"
-	"github.com/amanthanvi/heimdall/internal/daemon"
 	"github.com/amanthanvi/heimdall/internal/ssh"
 	"github.com/spf13/cobra"
 )
@@ -80,7 +80,18 @@ func newDoctorCommand(deps commandDeps) *cobra.Command {
 				})
 			}
 
-			cfg, _, cfgErr := config.Load(config.LoadOptions{})
+			loadOpts := config.LoadOptions{}
+			if deps.globals != nil {
+				if configPath := strings.TrimSpace(deps.globals.ConfigPath); configPath != "" {
+					loadOpts.ConfigPath = configPath
+				}
+				if vaultPath := strings.TrimSpace(deps.globals.VaultPath); vaultPath != "" {
+					loadOpts.Env = map[string]string{
+						"HEIMDALL_VAULT_PATH": vaultPath,
+					}
+				}
+			}
+			cfg, _, cfgErr := loadConfigFn(loadOpts)
 			if cfgErr != nil {
 				checks = append(checks, doctorCheck{
 					Name:    "config",
@@ -88,7 +99,7 @@ func newDoctorCommand(deps commandDeps) *cobra.Command {
 					Message: cfgErr.Error(),
 				})
 			} else {
-				conn, daemonErr := daemon.EnsureDaemon(&cfg)
+				conn, daemonErr := ensureDaemonFn(cmd.Context(), &cfg)
 				if daemonErr != nil {
 					checks = append(checks, doctorCheck{
 						Name:    "daemon",

@@ -44,6 +44,17 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Install static analysis tools
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Staticcheck
+        run: staticcheck ./...
+
+      - name: Govulncheck
+        run: govulncheck ./...
+
       - name: Build fido2
         env:
           CGO_ENABLED: "1"
@@ -53,3 +64,9 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build -tags nofido2 -trimpath ./...
+
+      - name: Integration tests
+        run: go test -tags=integration -race ./internal/integration -count=1
+
+      - name: Benchmark suite
+        run: go test -run='^$' -bench='Benchmark(VaultOpenCold|CLIRoundTrip|KeyDerivation)$' -benchmem ./internal/crypto ./internal/cli

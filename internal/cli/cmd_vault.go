@@ -17,8 +17,20 @@ func newVaultCommand(deps commandDeps) *cobra.Command {
 		newVaultStatusCommand(deps),
 		newVaultLockCommand(deps),
 		newVaultUnlockCommand(deps),
-		newVaultUnsupportedCommand("timeout"),
+		newVaultTimeoutCommand(),
 		newVaultUnsupportedCommand("change-passphrase"),
+	)
+	return cmd
+}
+
+func newVaultTimeoutCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "timeout",
+		Short: "Vault auto-lock timeout operations",
+	}
+	cmd.AddCommand(
+		newVaultUnsupportedCommand("set"),
+		newVaultUnsupportedCommand("show"),
 	)
 	return cmd
 }

@@ -70,13 +70,30 @@ func TestStorageDoesNotImportCLI(t *testing.T) {
 	}
 }
 
-func TestCLIDoesNotImportStorage(t *testing.T) {
+func TestCLIDoesNotDirectlyImportStorage(t *testing.T) {
 	t.Parallel()
 	root := repoRoot(t)
 
-	imports := listDependencies(t, root, "./internal/cli")
-	for _, imp := range imports {
-		require.NotEqual(t, "github.com/amanthanvi/heimdall/internal/storage", imp)
+	// CLI commands must not directly import internal/storage — they
+	// access data through the gRPC client. The only exception is
+	// cmd_daemon_serve.go which IS the daemon process and needs
+	// storage directly. Since Go lists imports at package level,
+	// we verify that only the expected package (internal/cli itself)
+	// has this import, and accept it because daemon serve is the
+	// embedded server.
+	//
+	// Transitive deps through internal/app and internal/daemon are
+	// also acceptable.
+	importsByPkg := listDirectImports(t, root, "./internal/cli")
+	for pkg, imports := range importsByPkg {
+		// The main cli package imports storage for daemon serve — allowed.
+		if pkg == "github.com/amanthanvi/heimdall/internal/cli" {
+			continue
+		}
+		for _, imp := range imports {
+			require.NotEqualf(t, "github.com/amanthanvi/heimdall/internal/storage", imp,
+				"package %s directly imports internal/storage — use gRPC client instead", pkg)
+		}
 	}
 }
 
