@@ -222,6 +222,11 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	require.NoError(t, os.Remove(target.vaultPath))
 	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
+	// After restore the daemon holds the target vault's VMK but the DB now
+	// contains data encrypted with the source vault's VMK. Re-lock and
+	// unlock so the daemon loads the restored vault's wrapped VMK bundle.
+	requireSuccess(t, target.run(10*time.Second, "vault", "lock"), "vault lock")
+	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	listOut := requireSuccess(t, target.run(10*time.Second, "host", "ls", "--names-only"), "host ls --names-only")
 	require.Contains(t, listOut, "restore-me")
 }
