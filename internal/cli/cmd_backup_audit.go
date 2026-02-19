@@ -37,6 +37,9 @@ func newBackupCreateCommand(deps commandDeps) *cobra.Command {
 			if strings.TrimSpace(outputPath) == "" {
 				return usageErrorf("backup create requires --output")
 			}
+			if strings.TrimSpace(passphrase) == "" {
+				return usageErrorf("backup create requires --passphrase")
+			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				resp, err := clients.backup.CreateBackup(ctx, &v1.CreateBackupRequest{
@@ -62,7 +65,7 @@ func newBackupCreateCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&outputPath, "output", "", "Backup output path")
-	cmd.Flags().StringVar(&passphrase, "passphrase", "heimdall-backup", "Backup encryption passphrase")
+	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Backup encryption passphrase (required)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite output path if it exists")
 	return cmd
 }
@@ -82,6 +85,9 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 			}
 			if strings.TrimSpace(inputPath) == "" {
 				return usageErrorf("backup restore requires --from")
+			}
+			if strings.TrimSpace(passphrase) == "" {
+				return usageErrorf("backup restore requires --passphrase")
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
@@ -105,7 +111,7 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&inputPath, "from", "", "Backup input path")
-	cmd.Flags().StringVar(&passphrase, "passphrase", "heimdall-backup", "Backup passphrase")
+	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Backup passphrase (required)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing vault")
 	return cmd
 }
