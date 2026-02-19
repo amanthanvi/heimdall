@@ -13,7 +13,11 @@ import (
 	"github.com/amanthanvi/heimdall/internal/storage"
 )
 
-var hostNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
+var (
+	hostNamePattern    = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
+	hostAddressPattern = regexp.MustCompile(`^[a-zA-Z0-9._:%-]{1,253}$`)
+	sshUserPattern     = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,64}$`)
+)
 
 type HostService struct {
 	hosts    storage.HostRepository
@@ -36,6 +40,12 @@ func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*stora
 	}
 	if strings.TrimSpace(req.Address) == "" {
 		return nil, fmt.Errorf("%w: host address is required", ErrValidation)
+	}
+	if strings.HasPrefix(req.Address, "-") || !hostAddressPattern.MatchString(req.Address) {
+		return nil, fmt.Errorf("%w: host address contains invalid characters", ErrValidation)
+	}
+	if req.User != "" && (strings.HasPrefix(req.User, "-") || !sshUserPattern.MatchString(req.User)) {
+		return nil, fmt.Errorf("%w: user contains invalid characters", ErrValidation)
 	}
 	if req.Port < 0 || req.Port > 65535 {
 		return nil, fmt.Errorf("%w: host port must be 1-65535", ErrValidation)

@@ -20,14 +20,14 @@ const defaultRPID = "heimdall.cli"
 type Service struct {
 	auth     Authenticator
 	passkeys storage.PasskeyRepository
-	audit    storage.AuditRepository
+	audit    AuditRecorder
 	rpID     string
 
 	mu          sync.RWMutex
 	reauthByPID map[int]time.Time
 }
 
-func NewService(auth Authenticator, passkeys storage.PasskeyRepository, audit storage.AuditRepository) *Service {
+func NewService(auth Authenticator, passkeys storage.PasskeyRepository, audit AuditRecorder) *Service {
 	return &Service{
 		auth:        auth,
 		passkeys:    passkeys,
@@ -82,7 +82,7 @@ func (s *Service) Enroll(ctx context.Context, label, userName string) (*storage.
 		return nil, fmt.Errorf("fido2 enroll: persist enrollment: %w", err)
 	}
 
-	s.appendAudit(ctx, &storage.AuditEvent{EventType: "passkey.enroll", Metadata: label})
+	s.recordAudit(ctx, "passkey.enroll", "passkey", label, "success")
 	return enrollment, nil
 }
 
@@ -136,7 +136,7 @@ func (s *Service) UnlockWithPasskey(
 		return nil, authFailedError("vault unlock failed", err)
 	}
 
-	s.appendAudit(ctx, &storage.AuditEvent{EventType: "vault.unlock", Metadata: "method=passkey"})
+	s.recordAudit(ctx, "vault.unlock", "vault", "", "success")
 	return vmk, nil
 }
 
@@ -180,7 +180,7 @@ func (s *Service) Reauthenticate(ctx context.Context, label string, pid int) err
 	s.reauthByPID[pid] = now
 	s.mu.Unlock()
 
-	s.appendAudit(ctx, &storage.AuditEvent{EventType: "auth.reauth", Metadata: fmt.Sprintf("pid=%d", pid)})
+	s.recordAudit(ctx, "passkey.re-auth", "auth", fmt.Sprintf("pid=%d", pid), "success")
 	return nil
 }
 
@@ -198,11 +198,16 @@ func (s *Service) Close() error {
 	return s.auth.Close()
 }
 
-func (s *Service) appendAudit(ctx context.Context, event *storage.AuditEvent) {
-	if s.audit == nil || event == nil {
+func (s *Service) recordAudit(ctx context.Context, action, targetType, targetID, result string) {
+	if s.audit == nil {
 		return
 	}
-	_ = s.audit.Append(ctx, event)
+	_ = s.audit.Record(ctx, AuditEvent{
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		Result:     result,
+	})
 }
 
 func PasskeyCommandUnavailable(command string) error {

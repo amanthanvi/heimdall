@@ -45,6 +45,11 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 	}
 
 	args := []string{"ssh", "-p", strconv.Itoa(port)}
+	for _, jh := range opts.JumpHosts {
+		if strings.HasPrefix(jh, "-") {
+			return nil, fmt.Errorf("%w: jump host %q contains invalid characters", ErrValidation, jh)
+		}
+	}
 	if len(opts.JumpHosts) > 0 {
 		args = append(args, "-J", strings.Join(opts.JumpHosts, ","))
 	}

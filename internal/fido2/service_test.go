@@ -65,7 +65,7 @@ func TestEnrollmentStoresCredentialAndMetadata(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	enrollment, err := svc.Enroll(context.Background(), "yubikey", "aman")
 	require.NoError(t, err)
 	require.NotEmpty(t, enrollment.ID)
@@ -90,7 +90,7 @@ func TestEnrollmentRejectsDuplicateLabel(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	require.NoError(t, func() error {
 		_, err := svc.Enroll(context.Background(), "dup", "aman")
 		return err
@@ -132,7 +132,7 @@ func TestVaultUnlockUsesHMACSecretOutputForHKDF(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	unwrapped, err := svc.UnlockWithPasskey(context.Background(), "key-1", wrapped, commitment, vaultSalt, hmacSalt)
 	require.NoError(t, err)
 	defer unwrapped.Destroy()
@@ -172,7 +172,7 @@ func TestVaultUnlockDerivedKEKSuccessfullyUnwrapsVMK(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	unwrapped, err := svc.UnlockWithPasskey(context.Background(), "key-2", wrapped, commitment, vaultSalt, hmacSalt)
 	require.NoError(t, err)
 	defer unwrapped.Destroy()
@@ -208,7 +208,7 @@ func TestVaultUnlockWrongCredentialIDFailsAssertion(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	_, err := svc.UnlockWithPasskey(context.Background(), "wrong-id", wrapped, commitment, bytes.Repeat([]byte{0x00}, 32), bytes.Repeat([]byte{0x01}, 32))
 	require.True(t, IsExitCode(err, ExitCodeAuthFailed))
 }
@@ -239,7 +239,7 @@ func TestReauthVerifiesAssertionSignatureAgainstStoredPublicKey(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	require.NoError(t, svc.Reauthenticate(context.Background(), "reauth-ok", 1234))
 }
 
@@ -266,7 +266,7 @@ func TestReauthFailedAssertionReturnsAuthError(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	err = svc.Reauthenticate(context.Background(), "reauth-fail", 999)
 	require.True(t, IsExitCode(err, ExitCodeAuthFailed))
 }
@@ -297,7 +297,7 @@ func TestReauthRecordsPIDScopedTimestamp(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	pid := 4242
 	require.NoError(t, svc.Reauthenticate(context.Background(), "reauth-ts", pid))
 
@@ -318,7 +318,7 @@ func TestHMACSecretNotSupportedEnrollmentRecordedFalse(t *testing.T) {
 		},
 	}
 
-	svc := NewService(mock, store.Passkeys, store.Audit)
+	svc := NewService(mock, store.Passkeys, nil)
 	_, err := svc.Enroll(context.Background(), "no-hmac", "aman")
 	require.NoError(t, err)
 
@@ -341,7 +341,7 @@ func TestHMACSecretNotSupportedUnlockFailsWithClearMessage(t *testing.T) {
 	}
 	require.NoError(t, store.Passkeys.Create(context.Background(), enrollment))
 
-	svc := NewService(&mockAuthenticator{}, store.Passkeys, store.Audit)
+	svc := NewService(&mockAuthenticator{}, store.Passkeys, nil)
 	_, err := svc.UnlockWithPasskey(context.Background(), "no-hmac-unlock", crypto.WrappedKey{}, []byte{0x01}, []byte{0x02}, []byte{0x03})
 	require.ErrorIs(t, err, ErrHMACSecretUnsupported)
 	require.Contains(t, err.Error(), "hmac-secret")
