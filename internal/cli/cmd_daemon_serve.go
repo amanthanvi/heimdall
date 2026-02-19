@@ -250,13 +250,14 @@ func (d *serveDaemonState) HasLiveVMK() bool {
 }
 
 func (d *serveDaemonState) Unlock([]byte) error {
-	// TODO: implement real credential verification:
-	// 1. Load vault metadata (salt, wrapped VMK, commitment tag)
-	// 2. Derive KEK from passphrase via Argon2id
-	// 3. Unwrap VMK (XChaCha20-Poly1305)
-	// 4. Verify commitment tag (HMAC-SHA256)
-	// 5. Set VMK into VaultCrypto and flip d.locked = false
-	return fmt.Errorf("unlock: vault credential verification not yet wired in daemon serve")
+	// SECURITY: This accepts any passphrase because the bootstrap daemon uses
+	// deterministicServeVMK (a publicly known, insecure key). Real credential
+	// verification (Argon2id → KEK → VMK unwrap → HMAC commitment check) must
+	// be wired before any production use. See deterministicServeVMK comment.
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.locked = false
+	return nil
 }
 
 func (d *serveDaemonState) Lock() error {
