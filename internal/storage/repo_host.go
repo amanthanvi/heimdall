@@ -114,7 +114,7 @@ func (r *hostRepository) List(ctx context.Context, filter HostFilter) ([]Host, e
 	if err != nil {
 		return nil, fmt.Errorf("list hosts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Host
 	for rows.Next() {
@@ -241,7 +241,7 @@ func (r *hostRepository) tagsByHostID(ctx context.Context, hostID string) ([]str
 	if err != nil {
 		return nil, fmt.Errorf("query host tags: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tags := []string{}
 	for rows.Next() {

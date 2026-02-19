@@ -170,7 +170,7 @@ func (s *TransferService) GenerateSSHConfig(ctx context.Context, outputPath stri
 		if port == 0 {
 			port = 22
 		}
-		builder.WriteString(fmt.Sprintf("  Port %d\n", port))
+		fmt.Fprintf(&builder, "  Port %d\n", port)
 		if jump := strings.TrimSpace(host.EnvRefs["proxy_jump"]); jump != "" {
 			builder.WriteString("  ProxyJump ")
 			builder.WriteString(jump)
@@ -207,7 +207,7 @@ func (s *TransferService) listIdentities(ctx context.Context) ([]storage.Identit
 	if err != nil {
 		return nil, fmt.Errorf("export json: list identities: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []storage.Identity{}
 	for rows.Next() {
@@ -249,7 +249,7 @@ func (s *TransferService) listSecretsForExport(ctx context.Context) ([]secretExp
 	if err != nil {
 		return nil, fmt.Errorf("export json: list secrets: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []secretExportRow{}
 	for rows.Next() {

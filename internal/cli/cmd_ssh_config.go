@@ -101,7 +101,7 @@ func renderSSHConfig(hosts []*v1.Host) string {
 		if port == 0 {
 			port = 22
 		}
-		builder.WriteString(fmt.Sprintf("  Port %d\n", port))
+		fmt.Fprintf(&builder, "  Port %d\n", port)
 
 		envRefs := host.GetEnvRefs()
 		if jump := strings.TrimSpace(envRefs["proxy_jump"]); jump != "" {

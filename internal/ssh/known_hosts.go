@@ -40,7 +40,7 @@ func (m *KnownHostsManager) TrustHost(host, keyType, fingerprint string) error {
 	if err != nil {
 		return fmt.Errorf("trust host: open known_hosts file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := f.WriteString(line); err != nil {
 		return fmt.Errorf("trust host: write entry: %w", err)
 	}
@@ -58,7 +58,7 @@ func (m *KnownHostsManager) CheckHost(host, keyType, fingerprint string) (KnownH
 		}
 		return KnownHostsUnknown, fmt.Errorf("check host: open known_hosts file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	seenHost := false

@@ -321,7 +321,7 @@ func parseSSHConfigFile(path string) ([]parsedSSHHost, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	current := parsedSSHHost{}
 	out := []parsedSSHHost{}

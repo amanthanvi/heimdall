@@ -314,7 +314,7 @@ func columnExists(tx *sql.Tx, table, column string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("query table info %s: %w", table, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var (

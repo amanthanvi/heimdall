@@ -66,7 +66,7 @@ func (r *sessionRepository) ListByHostID(ctx context.Context, hostID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("list session history by host id: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := []SessionHistory{}
 	for rows.Next() {

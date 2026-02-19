@@ -19,7 +19,7 @@ func peerPIDFromConn(conn net.Conn) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("peer pid: unix socket file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	cred, err := unix.GetsockoptUcred(int(file.Fd()), unix.SOL_SOCKET, unix.SO_PEERCRED)
 	if err != nil {

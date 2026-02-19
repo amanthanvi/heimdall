@@ -100,7 +100,7 @@ func (r *auditRepository) List(ctx context.Context, filter AuditFilter) ([]Audit
 	if err != nil {
 		return nil, fmt.Errorf("list audit events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	events := []AuditEvent{}
 	for rows.Next() {

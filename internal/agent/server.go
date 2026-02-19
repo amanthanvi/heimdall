@@ -363,7 +363,7 @@ func (a *AgentServer) acceptLoop() {
 		a.wg.Add(1)
 		go func(c net.Conn) {
 			defer a.wg.Done()
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			_ = sshagent.ServeAgent(a, c)
 		}(conn)
 	}

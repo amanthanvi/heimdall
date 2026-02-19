@@ -68,7 +68,7 @@ func (r *pendingOpRepository) ListIncomplete(ctx context.Context) ([]PendingOp, 
 	if err != nil {
 		return nil, fmt.Errorf("list incomplete pending ops: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := []PendingOp{}
 	for rows.Next() {

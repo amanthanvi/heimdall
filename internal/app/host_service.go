@@ -165,7 +165,7 @@ func (s *HostService) Import(ctx context.Context, sshConfigPath string) ([]stora
 	if err != nil {
 		return nil, nil, fmt.Errorf("import ssh config: open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	type pendingHost struct {
 		name        string

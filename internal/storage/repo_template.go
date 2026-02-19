@@ -81,7 +81,7 @@ func (r *templateRepository) List(ctx context.Context) ([]Template, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list templates: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := []Template{}
 	for rows.Next() {

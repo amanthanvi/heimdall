@@ -69,7 +69,7 @@ func (r *passkeyRepository) GetByCredentialID(ctx context.Context, credentialID 
 	if err != nil {
 		return nil, fmt.Errorf("get passkey by credential id: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		entry, err := scanPasskeyEnrollment(rows)

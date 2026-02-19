@@ -70,7 +70,7 @@ func withDaemonClients(cmdCtx context.Context, deps commandDeps, fn func(context
 	if err != nil {
 		return mapCommandError(fmt.Errorf("ensure daemon: %w", err))
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx = attachCallerMetadata(ctx)
 	clients := daemonClients{

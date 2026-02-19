@@ -180,7 +180,7 @@ func (s *Server) ListKeys(ctx context.Context, _ *v1.ListKeysRequest) (*v1.ListK
 	if err != nil {
 		return nil, grpcstatus.Errorf(codes.Internal, "list keys: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := []*v1.KeyMeta{}
 	for rows.Next() {
@@ -418,7 +418,7 @@ func backupSvcMainDBPath(ctx context.Context, store *storage.Store) (string, err
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var (

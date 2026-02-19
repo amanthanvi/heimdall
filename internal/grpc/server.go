@@ -188,7 +188,7 @@ func (s *Server) ListSecrets(ctx context.Context, _ *v1.ListSecretsRequest) (*v1
 	if err != nil {
 		return nil, grpcstatus.Errorf(codes.Internal, "list secrets: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := []*v1.SecretMeta{}
 	for rows.Next() {
@@ -344,7 +344,7 @@ func (s *Server) ListPasskeys(ctx context.Context, _ *v1.ListPasskeysRequest) (*
 	if err != nil {
 		return nil, grpcstatus.Errorf(codes.Internal, "list passkeys: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	items := []*v1.PasskeyMeta{}
 	for rows.Next() {

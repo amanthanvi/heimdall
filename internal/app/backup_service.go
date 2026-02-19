@@ -236,7 +236,7 @@ func (s *BackupService) mainDBPath(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve vault db path: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var (
@@ -437,7 +437,7 @@ func extractTarGzEntries(payload []byte) (map[string][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extract tar.gz entries: gzip reader: %w", err)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	tr := tar.NewReader(gzReader)
 	entries := map[string][]byte{}
