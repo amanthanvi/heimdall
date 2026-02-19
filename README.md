@@ -6,7 +6,7 @@ Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and bac
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.26+
 - `libfido2` if you build with the `fido2` tag
 
 ### Build
