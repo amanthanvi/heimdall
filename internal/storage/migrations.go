@@ -12,6 +12,7 @@ const (
 	schemaVersionMetaKey    = "schema_version"
 	versionCounterMetaKey   = "version_counter"
 	versionCounterHMACMeta  = "version_counter_hmac"
+	auditChainTipMetaKey    = "audit_chain_tip"
 	rollbackVersionFileName = "vault.version"
 )
 
@@ -145,6 +146,49 @@ var defaultMigrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     4,
+		Description: "add audit hash chain fields",
+		Up: func(tx *sql.Tx) error {
+			type columnSpec struct {
+				name       string
+				definition string
+			}
+
+			columns := []columnSpec{
+				{name: "action", definition: `TEXT NOT NULL DEFAULT ''`},
+				{name: "target_type", definition: `TEXT`},
+				{name: "target_id", definition: `TEXT`},
+				{name: "result", definition: `TEXT NOT NULL DEFAULT ''`},
+				{name: "details_json", definition: `TEXT NOT NULL DEFAULT '{}'`},
+				{name: "prev_hash", definition: `TEXT NOT NULL DEFAULT ''`},
+				{name: "event_hash", definition: `TEXT NOT NULL DEFAULT ''`},
+			}
+			for _, column := range columns {
+				exists, err := columnExists(tx, "audit_events", column.name)
+				if err != nil {
+					return err
+				}
+				if exists {
+					continue
+				}
+				if _, err := tx.Exec(`ALTER TABLE audit_events ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+					return fmt.Errorf("add audit_events.%s: %w", column.name, err)
+				}
+			}
+
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_events_action_created_at ON audit_events(action, created_at)`); err != nil {
+				return fmt.Errorf("create audit action index: %w", err)
+			}
+			if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_audit_events_target_id_created_at ON audit_events(target_id, created_at)`); err != nil {
+				return fmt.Errorf("create audit target index: %w", err)
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO vault_meta(key, value) VALUES(?, '')`, auditChainTipMetaKey); err != nil {
+				return fmt.Errorf("initialize audit chain tip: %w", err)
+			}
+			return nil
+		},
+	},
 }
 
 func DefaultMigrations() []Migration {
@@ -215,6 +259,9 @@ func RunMigrations(db *sql.DB, migrations []Migration) error {
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO vault_meta(key, value) VALUES(?, '')`, versionCounterHMACMeta); err != nil {
 		return fmt.Errorf("ensure version hmac meta: %w", err)
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO vault_meta(key, value) VALUES(?, '')`, auditChainTipMetaKey); err != nil {
+		return fmt.Errorf("ensure audit chain tip meta: %w", err)
 	}
 
 	return nil

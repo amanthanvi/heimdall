@@ -71,11 +71,29 @@ type PasskeyEnrollment struct {
 }
 
 type AuditEvent struct {
-	ID        string
+	ID string
+
+	// Legacy fields kept for compatibility with existing call sites.
 	EventType string
 	Actor     string
 	Metadata  string
-	CreatedAt time.Time
+
+	Action      string
+	TargetType  string
+	TargetID    string
+	Result      string
+	DetailsJSON string
+	PrevHash    string
+	EventHash   string
+	CreatedAt   time.Time
+}
+
+type AuditFilter struct {
+	Action   string
+	TargetID string
+	Since    *time.Time
+	Until    *time.Time
+	Limit    int
 }
 
 type SessionHistory struct {
@@ -139,7 +157,9 @@ type PasskeyRepository interface {
 
 type AuditRepository interface {
 	Append(ctx context.Context, event *AuditEvent) error
-	List(ctx context.Context, limit int) ([]AuditEvent, error)
+	List(ctx context.Context, filter AuditFilter) ([]AuditEvent, error)
+	ChainTip(ctx context.Context) (string, error)
+	SetChainTip(ctx context.Context, tip string) error
 }
 
 type SessionRepository interface {

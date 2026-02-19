@@ -1,3 +1,3 @@
 package audit
 
-// Placeholder package for Section 1 scaffolding.
+// Package audit implements append-only audit events and hash-chain verification.

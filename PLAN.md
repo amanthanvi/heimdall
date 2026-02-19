@@ -61,3 +61,31 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Implement `nofido2` stub (`//go:build nofido2`) returning exit code 6 behavior
 - [x] `done` Implement enrollment/unlock/reauth flows using storage passkey persistence
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Batch 3 Scope (Sections 12, 5, 7)
+- Implement Section 12 (`internal/audit`) with TDD-first hash-chain + verification flow
+- Implement Section 5 (`internal/daemon`) with lifecycle management, socket/info handling, and timers
+- Implement Section 7 (`internal/app`) with Host/Secret/Key/Connect (Plan-only) services
+- Build order: Section 12 fully complete before Section 5, then Section 7
+- Validate each section with `go test -race ./...` and `go vet ./...`
+
+## Section 12 — Audit & History (`internal/audit`)
+- [x] `done` Add Section 12 tests first (hash chain integrity/tamper detection/canonical JSON/concurrency/filtering)
+- [x] `done` Extend storage audit persistence for chain fields and filterable event model
+- [x] `done` Implement audit service `Record`, `Verify`, `List` with mutex serialization and canonical JSON
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Section 5 — Daemon Process (`internal/daemon`)
+- [ ] `in_progress` Add Section 5 tests first (socket perms, daemon.info lifecycle, stale detection, signals, timers)
+- [ ] `todo` Implement daemon lifecycle (start/stop/lock), socket runtime paths, daemon.info JSON management
+- [ ] `todo` Implement signal handling, auto-lock timer reset, max-session signing cutoff semantics
+- [ ] `todo` Implement client-side `EnsureDaemon` auto-start and readiness checks
+- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Section 7 — Application Services (`internal/app`)
+- [ ] `todo` Add Section 7 tests first (host validation/list filters, secret encrypt/decrypt policy, key operations, connect plan)
+- [ ] `todo` Implement `HostService` CRUD/list/import path
+- [ ] `todo` Implement `SecretService` create/get-value with reveal policy enforcement (no InjectEnv in daemon)
+- [ ] `todo` Implement `KeyService` generate/import/export/rotate behavior
+- [ ] `todo` Implement `ConnectService.Plan` only (no Execute)
+- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
