@@ -36,5 +36,5 @@ Status key: `todo` | `in_progress` | `done`
 
 ## Finalization
 - [x] `done` Ensure `PLAN.md` reflects completed status
-- [ ] `in_progress` Push commits to `origin/main`
-- [ ] `todo` Final report: changed files, commands run, validation, risks/TODOs
+- [x] `done` Push commits to `origin/main`
+- [x] `done` Final report: changed files, commands run, validation, risks/TODOs
