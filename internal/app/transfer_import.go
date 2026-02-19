@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/amanthanvi/heimdall/internal/storage"
 )
@@ -19,6 +20,9 @@ func (s *TransferService) importHost(ctx context.Context, hostSvc *HostService, 
 	name := strings.TrimSpace(host.Name)
 	if name == "" {
 		return entityImportCount{}, fmt.Errorf("%w: host name is required", ErrValidation)
+	}
+	if err := validateImportName(name); err != nil {
+		return entityImportCount{}, err
 	}
 
 	existing, err := s.store.Hosts.Get(ctx, name)
@@ -86,6 +90,9 @@ func (s *TransferService) importIdentity(ctx context.Context, identity ExportIde
 	if name == "" {
 		return entityImportCount{}, fmt.Errorf("%w: identity name is required", ErrValidation)
 	}
+	if err := validateImportName(name); err != nil {
+		return entityImportCount{}, err
+	}
 	kind := strings.TrimSpace(identity.Kind)
 	if kind == "" {
 		kind = string(KeyTypeEd25519)
@@ -149,14 +156,24 @@ func (s *TransferService) importIdentity(ctx context.Context, identity ExportIde
 	}
 }
 
+// maxImportSecretSize caps imported secret placeholder allocations
+// to prevent memory exhaustion from crafted JSON with extreme size_bytes.
+const maxImportSecretSize = 1 << 20 // 1 MiB
+
 func (s *TransferService) importSecret(ctx context.Context, secret ExportSecret, mode ConflictMode) (entityImportCount, error) {
 	name := strings.TrimSpace(secret.Name)
 	if name == "" {
 		return entityImportCount{}, fmt.Errorf("%w: secret name is required", ErrValidation)
 	}
+	if err := validateImportName(name); err != nil {
+		return entityImportCount{}, err
+	}
 	size := int(secret.SizeBytes)
 	if size <= 0 {
 		size = 1
+	}
+	if size > maxImportSecretSize {
+		return entityImportCount{}, fmt.Errorf("%w: secret %q size_bytes %d exceeds %d limit", ErrValidation, name, size, maxImportSecretSize)
 	}
 	value := make([]byte, size)
 
@@ -232,6 +249,21 @@ func normalizeConflictMode(mode ConflictMode) (ConflictMode, error) {
 	default:
 		return "", fmt.Errorf("%w: unsupported conflict mode %q", ErrValidation, mode)
 	}
+}
+
+// validateImportName rejects names containing control characters to
+// prevent log injection and terminal escape sequence attacks from
+// crafted import files.
+func validateImportName(name string) error {
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%w: name contains control character U+%04X", ErrValidation, r)
+		}
+	}
+	if len(name) > 255 {
+		return fmt.Errorf("%w: name exceeds 255 character limit", ErrValidation)
+	}
+	return nil
 }
 
 func applyCounts(dst *ImportCounts, src entityImportCount) {

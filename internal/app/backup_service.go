@@ -31,6 +31,19 @@ const (
 	backupKnownHostsFileName = "known_hosts"
 	backupConfigFileName     = "config.toml"
 	backupManifestFileName   = "manifest.json"
+
+	// maxBackupFileSize caps backup file reads to 512 MiB to prevent
+	// memory exhaustion from crafted backup archives.
+	maxBackupFileSize = 512 << 20
+
+	// maxTarEntrySize caps individual tar archive entries during extraction.
+	maxTarEntrySize = 256 << 20
+
+	// Argon2 parameter bounds for untrusted backup envelopes. These
+	// prevent DoS via extreme memory/iteration values in crafted backups.
+	maxBackupArgon2Memory     = 1 << 20 // 1 GiB in KiB units
+	maxBackupArgon2Iterations = 20
+	minBackupArgon2Memory     = 64 << 10 // 64 MiB in KiB units
 )
 
 var backupAAD = []byte("heimdall.backup.v1")
@@ -289,6 +302,14 @@ func encryptBackupPayload(payload, passphrase []byte) ([]byte, error) {
 }
 
 func readBackupPayload(path string, passphrase []byte) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("read backup payload: %w", err)
+	}
+	if info.Size() > maxBackupFileSize {
+		return nil, fmt.Errorf("read backup payload: file exceeds %d MiB limit", maxBackupFileSize>>20)
+	}
+
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read backup payload: %w", err)
@@ -313,12 +334,9 @@ func readBackupPayload(path string, passphrase []byte) ([]byte, error) {
 
 	params := cryptopkg.DefaultArgon2Params()
 	if envelope.Argon2Params.Memory > 0 {
-		params = cryptopkg.Argon2Params{
-			Memory:      envelope.Argon2Params.Memory,
-			Iterations:  envelope.Argon2Params.Iterations,
-			Parallelism: envelope.Argon2Params.Parallelism,
-			SaltLen:     envelope.Argon2Params.SaltLen,
-			KeyLen:      envelope.Argon2Params.KeyLen,
+		params, err = clampBackupArgon2Params(envelope.Argon2Params)
+		if err != nil {
+			return nil, fmt.Errorf("read backup payload: %w", err)
 		}
 	}
 
@@ -333,6 +351,47 @@ func readBackupPayload(path string, passphrase []byte) ([]byte, error) {
 		return nil, fmt.Errorf("read backup payload: passphrase authentication failed: %w", err)
 	}
 	return plaintext, nil
+}
+
+// clampBackupArgon2Params validates and caps Argon2 parameters from
+// untrusted backup envelopes to prevent DoS via extreme values.
+func clampBackupArgon2Params(bp backupArgon2Params) (cryptopkg.Argon2Params, error) {
+	memory := bp.Memory
+	if memory < minBackupArgon2Memory {
+		memory = minBackupArgon2Memory
+	}
+	if memory > maxBackupArgon2Memory {
+		return cryptopkg.Argon2Params{}, fmt.Errorf("argon2 memory %d KiB exceeds safe maximum %d KiB", bp.Memory, maxBackupArgon2Memory)
+	}
+
+	iterations := bp.Iterations
+	if iterations < 1 {
+		iterations = 1
+	}
+	if iterations > maxBackupArgon2Iterations {
+		return cryptopkg.Argon2Params{}, fmt.Errorf("argon2 iterations %d exceeds safe maximum %d", bp.Iterations, maxBackupArgon2Iterations)
+	}
+
+	parallelism := bp.Parallelism
+	if parallelism < 1 {
+		parallelism = 1
+	}
+	if parallelism > 16 {
+		parallelism = 16
+	}
+
+	keyLen := bp.KeyLen
+	if keyLen != 32 {
+		keyLen = 32
+	}
+
+	return cryptopkg.Argon2Params{
+		Memory:      memory,
+		Iterations:  iterations,
+		Parallelism: parallelism,
+		SaltLen:     bp.SaltLen,
+		KeyLen:      keyLen,
+	}, nil
 }
 
 func createTarGzEntries(entries map[string][]byte) ([]byte, error) {
@@ -394,9 +453,15 @@ func extractTarGzEntries(payload []byte) (map[string][]byte, error) {
 		if header.Typeflag != tar.TypeReg {
 			continue
 		}
-		data, err := io.ReadAll(tr)
+		if header.Size > maxTarEntrySize {
+			return nil, fmt.Errorf("extract tar.gz entries: %q exceeds %d MiB entry limit", header.Name, maxTarEntrySize>>20)
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, maxTarEntrySize+1))
 		if err != nil {
 			return nil, fmt.Errorf("extract tar.gz entries: read %q: %w", header.Name, err)
+		}
+		if int64(len(data)) > maxTarEntrySize {
+			return nil, fmt.Errorf("extract tar.gz entries: %q exceeded size limit during read", header.Name)
 		}
 		entries[header.Name] = data
 	}

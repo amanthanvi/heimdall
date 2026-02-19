@@ -337,6 +337,8 @@ func (m Model) updateUnlocked(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.locked = true
 			m.screen = ScreenLock
 			m.err = ""
+			m.pendingSecretName = ""
+			m.clearRevealedSecrets()
 			m.lockInput.Focus()
 			return m, nil
 		case "a":
@@ -572,6 +574,23 @@ func (m Model) renderHostDetailView() string {
 		host.Port,
 		strings.Join(host.Tags, ", "),
 	)
+}
+
+// clearRevealedSecrets resets all secret descriptions back to hidden
+// state, ensuring no revealed values persist when the vault is locked.
+func (m *Model) clearRevealedSecrets() {
+	items := m.secretsList.Items()
+	cleared := make([]list.Item, 0, len(items))
+	for _, item := range items {
+		secret, ok := item.(secretItem)
+		if !ok {
+			cleared = append(cleared, item)
+			continue
+		}
+		secret.description = "Press Enter to reveal (re-auth required)"
+		cleared = append(cleared, secret)
+	}
+	m.secretsList.SetItems(cleared)
 }
 
 func (m *Model) setSecretDescription(name, description string) {
