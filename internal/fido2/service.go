@@ -130,6 +130,7 @@ func (s *Service) UnlockWithPasskey(
 	if err != nil {
 		return nil, fmt.Errorf("fido2 unlock: derive kek: %w", err)
 	}
+	defer memguard.WipeBytes(kek)
 	vmk, err := crypto.UnwrapVMK(kek, wrapped, commitmentTag)
 	if err != nil {
 		return nil, authFailedError("vault unlock failed", err)

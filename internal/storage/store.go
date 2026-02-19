@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/amanthanvi/heimdall/internal/crypto"
+	"github.com/awnumar/memguard"
 	_ "modernc.org/sqlite"
 )
 
@@ -169,25 +170,25 @@ func (s *Store) VerifyRollbackPreUnlock(homeDir string) error {
 	return nil
 }
 
-func (s *Store) SealVersionCounter(ctx context.Context, vmk []byte) error {
-	if len(vmk) == 0 {
-		return fmt.Errorf("seal version counter: vmk is empty")
+func (s *Store) SealVersionCounter(ctx context.Context, vmk *memguard.LockedBuffer) error {
+	if vmk == nil || !vmk.IsAlive() {
+		return fmt.Errorf("seal version counter: vmk is nil or destroyed")
 	}
 	counter, err := s.versionCounter(ctx)
 	if err != nil {
 		return err
 	}
 
-	tag := computeVersionCounterHMAC(vmk, counter)
+	tag := computeVersionCounterHMAC(vmk.Bytes(), counter)
 	if _, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO vault_meta(key, value) VALUES(?, ?)`, versionCounterHMACMeta, hex.EncodeToString(tag)); err != nil {
 		return fmt.Errorf("seal version counter: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) VerifyRollbackPostUnlock(ctx context.Context, vmk []byte) error {
-	if len(vmk) == 0 {
-		return fmt.Errorf("verify rollback post-unlock: vmk is empty")
+func (s *Store) VerifyRollbackPostUnlock(ctx context.Context, vmk *memguard.LockedBuffer) error {
+	if vmk == nil || !vmk.IsAlive() {
+		return fmt.Errorf("verify rollback post-unlock: vmk is nil or destroyed")
 	}
 
 	counter, err := s.versionCounter(ctx)
@@ -200,7 +201,7 @@ func (s *Store) VerifyRollbackPostUnlock(ctx context.Context, vmk []byte) error 
 		return fmt.Errorf("read version counter hmac: %w", err)
 	}
 
-	expected := computeVersionCounterHMAC(vmk, counter)
+	expected := computeVersionCounterHMAC(vmk.Bytes(), counter)
 	storedBytes, err := hex.DecodeString(stored)
 	if err != nil {
 		return fmt.Errorf("decode stored version counter hmac: %w", err)

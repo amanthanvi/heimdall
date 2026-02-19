@@ -120,13 +120,13 @@ func TestRollbackProtectionPostUnlockDetectsTamperedVersionCounter(t *testing.T)
 	store, vmk := newTestStore(t)
 	defer vmk.Destroy()
 
-	err := store.SealVersionCounter(context.Background(), vmk.Bytes())
+	err := store.SealVersionCounter(context.Background(), vmk)
 	require.NoError(t, err)
 
 	_, err = store.DB().Exec(`UPDATE vault_meta SET value = '999' WHERE key = 'version_counter'`)
 	require.NoError(t, err)
 
-	err = store.VerifyRollbackPostUnlock(context.Background(), vmk.Bytes())
+	err = store.VerifyRollbackPostUnlock(context.Background(), vmk)
 	require.ErrorIs(t, err, ErrRollbackDetected)
 }
 

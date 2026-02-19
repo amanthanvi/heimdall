@@ -25,8 +25,6 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 	cmd.SetErr(out)
 
 	cmd.AddCommand(newVersionCommand(out, build))
-	cmd.AddCommand(newPasskeyCommand())
-	cmd.AddCommand(newVaultCommand(out))
 	cmd.InitDefaultCompletionCmd()
 	return cmd
 }
