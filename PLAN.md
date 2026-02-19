@@ -83,9 +83,14 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
 
 ## Section 7 — Application Services (`internal/app`)
-- [ ] `in_progress` Add Section 7 tests first (host validation/list filters, secret encrypt/decrypt policy, key operations, connect plan)
-- [ ] `todo` Implement `HostService` CRUD/list/import path
-- [ ] `todo` Implement `SecretService` create/get-value with reveal policy enforcement (no InjectEnv in daemon)
-- [ ] `todo` Implement `KeyService` generate/import/export/rotate behavior
-- [ ] `todo` Implement `ConnectService.Plan` only (no Execute)
-- [ ] `todo` Validate (`go test -race ./...`, `go vet ./...`)
+- [x] `done` Add Section 7 tests first (host validation/list filters, secret encrypt/decrypt policy, key operations, connect plan)
+- [x] `done` Implement `HostService` CRUD/list/import path
+- [x] `done` Implement `SecretService` create/get-value with reveal policy enforcement (no InjectEnv in daemon)
+- [x] `done` Implement `KeyService` generate/import/export/rotate behavior
+- [x] `done` Implement `ConnectService.Plan` only (no Execute)
+- [x] `done` Validate (`go test -race ./...`, `go vet ./...`)
+
+## Batch 3 Finalization
+- [x] `done` Keep `PLAN.md` updated during implementation
+- [x] `done` Validate full repo after each section (`go test -race ./...`, `go vet ./...`)
+- [x] `done` Commit and push logical units on `main`

@@ -1,3 +1,3 @@
 package app
 
-// Placeholder package for Section 1 scaffolding.
+// Package app contains application-level business services.
