@@ -161,6 +161,24 @@ func (vc *VaultCrypto) DecryptField(entityType, entityID, fieldName string, blob
 	return plaintext, nil
 }
 
+func (vc *VaultCrypto) SetVMK(vmk *memguard.LockedBuffer) {
+	if vc.vmk != nil && vc.vmk.IsAlive() {
+		vc.vmk.Destroy()
+	}
+	vc.vmk = vmk
+}
+
+func GenerateSalt(length int) ([]byte, error) {
+	if length < 16 {
+		return nil, fmt.Errorf("generate salt: length must be >= 16, got %d", length)
+	}
+	salt := make([]byte, length)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, fmt.Errorf("generate salt: %w", err)
+	}
+	return salt, nil
+}
+
 func (vc *VaultCrypto) Destroy() {
 	if vc == nil || vc.vmk == nil {
 		return

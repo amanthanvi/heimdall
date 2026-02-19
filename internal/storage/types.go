@@ -123,6 +123,21 @@ type PendingOp struct {
 	UpdatedAt     time.Time
 }
 
+// WrappedVMKBundle holds the artifacts produced when wrapping the VMK with a
+// passphrase-derived KEK during vault init. All binary fields are hex-encoded
+// for storage in vault_meta's TEXT value column.
+type WrappedVMKBundle struct {
+	Ciphertext    string `json:"ciphertext"`
+	Nonce         string `json:"nonce"`
+	AAD           string `json:"aad"`
+	Argon2Salt    string `json:"argon2_salt"`
+	CommitmentTag string `json:"commitment_tag"`
+	Memory        uint32 `json:"argon2_memory"`
+	Iterations    uint32 `json:"argon2_iterations"`
+	Parallelism   uint8  `json:"argon2_parallelism"`
+	KeyLen        uint32 `json:"argon2_key_len"`
+}
+
 type HostRepository interface {
 	Create(ctx context.Context, host *Host) error
 	Get(ctx context.Context, name string) (*Host, error)

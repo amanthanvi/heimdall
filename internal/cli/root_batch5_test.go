@@ -74,7 +74,7 @@ func TestInitCreatesVaultAndConfig(t *testing.T) {
 	vaultPath := filepath.Join(tmp, "vault.db")
 	configPath := filepath.Join(tmp, "config.toml")
 
-	out, err := runCLI(t, "", "--vault", vaultPath, "--config", configPath, "--yes", "init")
+	out, err := runCLI(t, "", "--vault", vaultPath, "--config", configPath, "--yes", "init", "--passphrase", "test-pass")
 	require.NoError(t, err)
 	require.Contains(t, out, "initialized vault")
 

@@ -2,7 +2,7 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,10 +81,7 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 	_ = os.Remove(daemonSocketPath)
 	_ = os.Remove(agentSocketPath)
 
-	vmk := deterministicServeVMK()
-	defer vmk.Destroy()
-
-	vc := cryptopkg.NewVaultCrypto(vmk, serveVaultID)
+	vc := cryptopkg.NewVaultCrypto(nil, serveVaultID)
 	store, err := storage.Open(vaultPath, serveVaultID, vc)
 	if err != nil {
 		return fmt.Errorf("daemon serve: open storage: %w", err)
@@ -100,7 +97,7 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 		return fmt.Errorf("daemon serve: initialize audit service: %w", err)
 	}
 
-	daemonState := newServeDaemonState(cfg.Daemon.MaxSessionDuration)
+	daemonState := newServeDaemonState(cfg.Daemon.MaxSessionDuration, store, vc)
 	agentServer := agentpkg.NewServer(daemonState)
 	if err := agentServer.Start(agentSocketPath); err != nil {
 		return fmt.Errorf("daemon serve: start agent server: %w", err)
@@ -210,25 +207,16 @@ func writeDaemonInfo(path string, info daemonpkg.Info) error {
 	return nil
 }
 
-// deterministicServeVMK returns a fixed VMK for the bootstrap daemon.
-// SECURITY: This is NOT cryptographically secure — the seed is public.
-// It exists only to allow the daemon to open the vault database during
-// development before the full vault-init → passphrase → KEK → VMK unwrap
-// flow is wired. Replace with crypto.GenerateVMK() + proper unwrap once
-// vault initialization stores a wrapped VMK in vault_meta.
-func deterministicServeVMK() *memguard.LockedBuffer {
-	seed := sha256.Sum256([]byte("heimdall.daemon.vmk.v1"))
-	return memguard.NewBufferFromBytes(seed[:])
-}
-
 type serveDaemonState struct {
 	mu                 sync.RWMutex
 	locked             bool
 	sessions           map[string]time.Time
 	maxSessionDuration time.Duration
+	store              *storage.Store
+	vc                 *cryptopkg.VaultCrypto
 }
 
-func newServeDaemonState(maxSessionDuration time.Duration) *serveDaemonState {
+func newServeDaemonState(maxSessionDuration time.Duration, store *storage.Store, vc *cryptopkg.VaultCrypto) *serveDaemonState {
 	if maxSessionDuration <= 0 {
 		maxSessionDuration = serveMaxSessionWindow
 	}
@@ -236,6 +224,8 @@ func newServeDaemonState(maxSessionDuration time.Duration) *serveDaemonState {
 		locked:             true,
 		sessions:           map[string]time.Time{},
 		maxSessionDuration: maxSessionDuration,
+		store:              store,
+		vc:                 vc,
 	}
 }
 
@@ -249,20 +239,69 @@ func (d *serveDaemonState) HasLiveVMK() bool {
 	return !d.IsLocked()
 }
 
-func (d *serveDaemonState) Unlock([]byte) error {
-	// SECURITY: This accepts any passphrase because the bootstrap daemon uses
-	// deterministicServeVMK (a publicly known, insecure key). Real credential
-	// verification (Argon2id → KEK → VMK unwrap → HMAC commitment check) must
-	// be wired before any production use. See deterministicServeVMK comment.
+func (d *serveDaemonState) Unlock(passphrase []byte) error {
+	bundle, err := d.store.LoadWrappedVMK(context.Background())
+	if err != nil {
+		return fmt.Errorf("unlock: load wrapped vmk: %w", err)
+	}
+
+	argon2Salt, err := hex.DecodeString(bundle.Argon2Salt)
+	if err != nil {
+		return fmt.Errorf("unlock: decode argon2 salt: %w", err)
+	}
+
+	params := cryptopkg.Argon2Params{
+		Memory:      bundle.Memory,
+		Iterations:  bundle.Iterations,
+		Parallelism: bundle.Parallelism,
+		SaltLen:     len(argon2Salt),
+		KeyLen:      bundle.KeyLen,
+	}
+	kek, err := cryptopkg.DeriveKEKFromPassphrase(passphrase, argon2Salt, params)
+	if err != nil {
+		return fmt.Errorf("unlock: derive kek: %w", err)
+	}
+	defer memguard.WipeBytes(kek)
+
+	ciphertext, err := hex.DecodeString(bundle.Ciphertext)
+	if err != nil {
+		return fmt.Errorf("unlock: decode ciphertext: %w", err)
+	}
+	nonce, err := hex.DecodeString(bundle.Nonce)
+	if err != nil {
+		return fmt.Errorf("unlock: decode nonce: %w", err)
+	}
+	aad, err := hex.DecodeString(bundle.AAD)
+	if err != nil {
+		return fmt.Errorf("unlock: decode aad: %w", err)
+	}
+	commitmentTag, err := hex.DecodeString(bundle.CommitmentTag)
+	if err != nil {
+		return fmt.Errorf("unlock: decode commitment tag: %w", err)
+	}
+
+	wrapped := cryptopkg.WrappedKey{
+		Ciphertext: ciphertext,
+		Nonce:      nonce,
+		Salt:       aad,
+	}
+	vmk, err := cryptopkg.UnwrapVMK(kek, wrapped, commitmentTag)
+	if err != nil {
+		return fmt.Errorf("unlock: unwrap vmk: %w", err)
+	}
+
+	d.vc.SetVMK(vmk)
+
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.locked = false
+	d.mu.Unlock()
 	return nil
 }
 
 func (d *serveDaemonState) Lock() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.vc.SetVMK(nil)
 	d.locked = true
 	return nil
 }

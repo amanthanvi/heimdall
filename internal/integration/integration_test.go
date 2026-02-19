@@ -164,7 +164,7 @@ func (h *cliHarness) daemonInfo(t *testing.T) daemonpkg.Info {
 func TestIntegrationLifecycleHostConnectAndLock(t *testing.T) {
 	h := newHarness(t)
 
-	requireSuccess(t, h.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "prod", "--addr", "127.0.0.1", "--user", "root"), "host add --name prod --addr 127.0.0.1 --user root")
 	connectOut := requireSuccess(t, h.run(10*time.Second, "connect", "prod", "--dry-run"), "connect prod --dry-run")
@@ -178,7 +178,7 @@ func TestIntegrationLifecycleHostConnectAndLock(t *testing.T) {
 func TestIntegrationLifecycleSecretShowEnvDelete(t *testing.T) {
 	h := newHarness(t)
 
-	requireSuccess(t, h.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "secret", "add", "--name", "api_token", "--value", "super-secret"), "secret add --name api_token --value super-secret")
 	showOut := requireSuccess(t, h.run(10*time.Second, "secret", "show", "api_token", "--reauth"), "secret show api_token --reauth")
@@ -197,7 +197,7 @@ func TestIntegrationLifecycleKeyGenerateExportDelete(t *testing.T) {
 	h := newHarness(t)
 	exportPath := filepath.Join(h.home, "deploy.key")
 
-	requireSuccess(t, h.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "key", "gen", "--name", "deploy"), "key gen --name deploy")
 	requireSuccess(t, h.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", exportPath), "key export deploy --private --reauth --output <path>")
@@ -212,13 +212,13 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	source := newHarness(t)
 	backupPath := filepath.Join(source.home, "vault.backup")
 
-	requireSuccess(t, source.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, source.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, source.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "restore-me", "--addr", "10.10.10.10", "--user", "ubuntu"), "host add --name restore-me --addr 10.10.10.10 --user ubuntu")
 	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
 	target := newHarness(t)
-	requireSuccess(t, target.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	require.NoError(t, os.Remove(target.vaultPath))
 	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
@@ -229,7 +229,7 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 func TestIntegrationDaemonRestartRequiresUnlockAgain(t *testing.T) {
 	h := newHarness(t)
 
-	requireSuccess(t, h.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "restart-host", "--addr", "127.0.0.1"), "host add --name restart-host --addr 127.0.0.1")
 	requireSuccess(t, h.run(10*time.Second, "daemon", "restart"), "daemon restart")
@@ -244,7 +244,7 @@ func TestIntegrationDaemonRestartRequiresUnlockAgain(t *testing.T) {
 func TestIntegrationDaemonCrashCleansStaleInfoOnNextCommand(t *testing.T) {
 	h := newHarness(t)
 
-	requireSuccess(t, h.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	before := h.daemonInfo(t)
 
@@ -261,7 +261,7 @@ func TestIntegrationDaemonCrashCleansStaleInfoOnNextCommand(t *testing.T) {
 func TestIntegrationConcurrentCLIHostList(t *testing.T) {
 	h := newHarness(t)
 
-	requireSuccess(t, h.run(10*time.Second, "init", "--yes"), "init --yes")
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "parallel-host", "--addr", "127.0.0.1"), "host add --name parallel-host --addr 127.0.0.1")
 

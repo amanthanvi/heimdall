@@ -13,7 +13,7 @@ import (
 
 func BenchmarkVaultOpenCold(b *testing.B) {
 	vaultPath := filepath.Join(b.TempDir(), "vault.db")
-	if err := apppkg.BootstrapVault(vaultPath); err != nil {
+	if err := apppkg.BootstrapVault(vaultPath, []byte("bench-passphrase")); err != nil {
 		b.Fatalf("bootstrap vault: %v", err)
 	}
 

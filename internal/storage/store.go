@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -137,6 +138,31 @@ func ensureDBPermissions(path string) error {
 		}
 	}
 	return nil
+}
+
+const wrappedVMKBundleMetaKey = "wrapped_vmk_bundle"
+
+func (s *Store) StoreWrappedVMK(ctx context.Context, bundle WrappedVMKBundle) error {
+	data, err := json.Marshal(bundle)
+	if err != nil {
+		return fmt.Errorf("store wrapped vmk: marshal: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO vault_meta(key, value) VALUES(?, ?)`, wrappedVMKBundleMetaKey, string(data)); err != nil {
+		return fmt.Errorf("store wrapped vmk: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) LoadWrappedVMK(ctx context.Context) (WrappedVMKBundle, error) {
+	var raw string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM vault_meta WHERE key = ?`, wrappedVMKBundleMetaKey).Scan(&raw); err != nil {
+		return WrappedVMKBundle{}, fmt.Errorf("load wrapped vmk: %w", err)
+	}
+	var bundle WrappedVMKBundle
+	if err := json.Unmarshal([]byte(raw), &bundle); err != nil {
+		return WrappedVMKBundle{}, fmt.Errorf("load wrapped vmk: unmarshal: %w", err)
+	}
+	return bundle, nil
 }
 
 func (s *Store) VerifyRollbackPreUnlock(homeDir string) error {

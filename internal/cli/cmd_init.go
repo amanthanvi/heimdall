@@ -40,6 +40,7 @@ enabled = false
 
 func newInitCommand(deps commandDeps) *cobra.Command {
 	var (
+		passphrase      string
 		passphraseStdin bool
 		importSSHConfig string
 		enrollPasskey   bool
@@ -53,10 +54,18 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 				return usageErrorf("init does not accept positional arguments")
 			}
 
+			var resolvedPassphrase string
 			if passphraseStdin {
-				if err := readPassphraseFromStdin(cmd.InOrStdin()); err != nil {
+				pp, err := readPassphraseFromStdin(cmd.InOrStdin())
+				if err != nil {
 					return err
 				}
+				resolvedPassphrase = pp
+			} else if passphrase != "" {
+				resolvedPassphrase = passphrase
+			}
+			if resolvedPassphrase == "" {
+				return usageErrorf("init requires --passphrase or --passphrase-stdin")
 			}
 
 			if importSSHConfig != "" {
@@ -86,7 +95,7 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 			if err := os.MkdirAll(filepath.Dir(vaultPath), 0o700); err != nil {
 				return mapCommandError(fmt.Errorf("init: create vault directory: %w", err))
 			}
-			if err := app.BootstrapVault(vaultPath); err != nil {
+			if err := app.BootstrapVault(vaultPath, []byte(resolvedPassphrase)); err != nil {
 				return mapCommandError(err)
 			}
 
@@ -127,22 +136,24 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Vault passphrase")
 	cmd.Flags().BoolVar(&passphraseStdin, "passphrase-stdin", false, "Read passphrase from stdin")
 	cmd.Flags().StringVar(&importSSHConfig, "import-ssh-config", "", "Import hosts from an OpenSSH config file after init")
 	cmd.Flags().BoolVar(&enrollPasskey, "enroll-passkey", false, "Run passkey enrollment after initialization")
 	return cmd
 }
 
-func readPassphraseFromStdin(r io.Reader) error {
+func readPassphraseFromStdin(r io.Reader) (string, error) {
 	reader := bufio.NewReader(r)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return mapCommandError(fmt.Errorf("init: read passphrase from stdin: %w", err))
+		return "", mapCommandError(fmt.Errorf("init: read passphrase from stdin: %w", err))
 	}
-	if strings.TrimSpace(line) == "" {
-		return usageErrorf("init --passphrase-stdin requires a non-empty value on stdin")
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", usageErrorf("init --passphrase-stdin requires a non-empty value on stdin")
 	}
-	return nil
+	return trimmed, nil
 }
 
 func writeDefaultConfig(path string, overwrite bool) error {
