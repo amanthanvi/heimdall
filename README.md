@@ -19,6 +19,16 @@ Binary output:
 
 - `dist/heimdall`
 
+## Install with Homebrew
+
+```bash
+brew tap amanthanvi/tap
+brew install amanthanvi/tap/heimdall
+```
+
+Homebrew artifacts are built with the nofido2/static profile for portability.
+If you need FIDO2/passkey features, build from source with `make build` (requires `libfido2`).
+
 ### Initialize and run a basic lifecycle
 
 ```bash

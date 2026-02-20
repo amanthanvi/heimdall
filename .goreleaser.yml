@@ -62,4 +62,4 @@ brews:
       bin.install "heimdall"
 
 release:
-  draft: true
+  draft: false
