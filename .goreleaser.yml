@@ -53,6 +53,7 @@ brews:
   - name: heimdall
     ids:
       - standalone
+    directory: Formula
     homepage: https://github.com/amanthanvi/heimdall
     description: Secure local SSH vault and workflow CLI.
     repository:
