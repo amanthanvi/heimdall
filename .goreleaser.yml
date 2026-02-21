@@ -24,7 +24,7 @@ builds:
 
 archives:
   - id: standalone
-    builds:
+    ids:
       - heimdall
     formats:
       - tar.gz
@@ -40,7 +40,7 @@ sboms:
 nfpms:
   - id: heimdall-deb
     package_name: heimdall
-    builds:
+    ids:
       - heimdall
     formats:
       - deb
