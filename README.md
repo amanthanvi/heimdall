@@ -84,4 +84,5 @@ go test -run='^$' -bench='Benchmark(VaultOpenCold|CLIRoundTrip|KeyDerivation)$' 
 ## Release
 
 - GoReleaser config: `.goreleaser.yml`
+- Homebrew artifacts must be published as `tar.gz` archives containing the `heimdall` binary.
 - Security disclosure policy: `SECURITY.md`

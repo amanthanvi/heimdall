@@ -27,7 +27,7 @@ archives:
     builds:
       - heimdall
     formats:
-      - binary
+      - tar.gz
     name_template: "heimdall-{{ .Os }}-{{ .Arch }}"
 
 checksum:
