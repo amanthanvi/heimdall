@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 	daemonpkg "github.com/amanthanvi/heimdall/internal/daemon"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -232,6 +234,40 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	require.Contains(t, listOut, "restore-me")
 }
 
+func TestIntegrationBackupCreateAfterHostListAndShowRestoresValidSQLite(t *testing.T) {
+	source := newHarness(t)
+	backupPath := filepath.Join(source.home, "vault.backup")
+	exportPath := filepath.Join(source.home, "export.json")
+	privateKeyPath := filepath.Join(source.home, "deploy.key")
+	secretPath := filepath.Join(source.home, "secret.txt")
+
+	requireSuccess(t, source.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
+	requireSuccess(t, source.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "prod", "--addr", "10.0.0.10", "--user", "ubuntu"), "host add --name prod --addr 10.0.0.10 --user ubuntu")
+	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "staging", "--addr", "10.0.0.11", "--user", "root"), "host add --name staging --addr 10.0.0.11 --user root")
+	requireSuccess(t, source.run(10*time.Second, "secret", "add", "--name", "api_token", "--value", "super-secret"), "secret add --name api_token --value super-secret")
+	requireSuccess(t, source.run(10*time.Second, "secret", "export", "api_token", "--reauth", "--output", secretPath), "secret export api_token --reauth --output <path>")
+	requireSuccess(t, source.run(10*time.Second, "key", "gen", "--name", "deploy"), "key gen --name deploy")
+	requireSuccess(t, source.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", privateKeyPath), "key export deploy --private --reauth --output <path>")
+	requireSuccess(t, source.run(10*time.Second, "export", "--format", "json", "--output", exportPath), "export --format json --output <path>")
+	requireSuccess(t, source.run(10*time.Second, "host", "ls", "--json"), "host ls --json")
+	requireSuccess(t, source.run(10*time.Second, "host", "show", "prod", "--json"), "host show prod --json")
+	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
+
+	target := newHarness(t)
+	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
+	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	require.NoError(t, os.Remove(target.vaultPath))
+	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
+	requireSQLiteIntegrityOK(t, target.vaultPath)
+
+	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
+	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	listOut := requireSuccess(t, target.run(10*time.Second, "host", "ls", "--names-only"), "host ls --names-only")
+	require.Contains(t, listOut, "prod")
+	require.Contains(t, listOut, "staging")
+}
+
 func TestIntegrationDaemonRestartRequiresUnlockAgain(t *testing.T) {
 	h := newHarness(t)
 
@@ -292,4 +328,19 @@ func TestIntegrationConcurrentCLIHostList(t *testing.T) {
 	for err := range errCh {
 		require.NoError(t, err)
 	}
+}
+
+func requireSQLiteIntegrityOK(t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	var result string
+	err = db.QueryRow(`PRAGMA integrity_check`).Scan(&result)
+	require.NoError(t, err)
+	require.Equal(t, "ok", result)
 }

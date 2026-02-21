@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -91,17 +92,9 @@ func (s *BackupService) Create(ctx context.Context, req BackupCreateRequest) (*B
 		return nil, fmt.Errorf("%w: backup passphrase is required", ErrValidation)
 	}
 
-	if _, err := s.store.DB().ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		return nil, fmt.Errorf("create backup: wal checkpoint: %w", err)
-	}
-
-	vaultDBPath, err := s.mainDBPath(ctx)
+	vaultDBBytes, err := s.snapshotMainDB(ctx)
 	if err != nil {
 		return nil, err
-	}
-	vaultDBBytes, err := os.ReadFile(vaultDBPath)
-	if err != nil {
-		return nil, fmt.Errorf("create backup: read vault db: %w", err)
 	}
 
 	entries := map[string][]byte{
@@ -164,6 +157,70 @@ func (s *BackupService) Create(ctx context.Context, req BackupCreateRequest) (*B
 	return manifest, nil
 }
 
+func (s *BackupService) snapshotMainDB(ctx context.Context) ([]byte, error) {
+	sourcePath, err := s.mainDBPath(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tempDir, err := os.MkdirTemp("", "heimdall-backup-snapshot-*")
+	if err != nil {
+		return nil, fmt.Errorf("create backup: create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	snapshotPath := filepath.Join(tempDir, "vault.snapshot.db")
+	sourceDB, err := sql.Open("sqlite", sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("create backup: open source db: %w", err)
+	}
+	defer func() { _ = sourceDB.Close() }()
+	sourceDB.SetMaxOpenConns(1)
+	sourceDB.SetMaxIdleConns(1)
+
+	if _, err := sourceDB.ExecContext(ctx, `PRAGMA busy_timeout=5000`); err != nil {
+		return nil, fmt.Errorf("create backup: set busy timeout: %w", err)
+	}
+
+	escapedPath := strings.ReplaceAll(snapshotPath, "'", "''")
+	query := fmt.Sprintf("VACUUM main INTO '%s'", escapedPath)
+	if _, err := sourceDB.ExecContext(ctx, query); err != nil {
+		return nil, fmt.Errorf("create backup: vacuum snapshot: %w", err)
+	}
+
+	snapshotBytes, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		return nil, fmt.Errorf("create backup: read snapshot db: %w", err)
+	}
+	return snapshotBytes, nil
+}
+
+func (s *BackupService) mainDBPath(ctx context.Context) (string, error) {
+	rows, err := s.store.DB().QueryContext(ctx, `PRAGMA database_list`)
+	if err != nil {
+		return "", fmt.Errorf("resolve vault db path: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var (
+			seq  int
+			name string
+			file string
+		)
+		if err := rows.Scan(&seq, &name, &file); err != nil {
+			return "", fmt.Errorf("resolve vault db path: scan row: %w", err)
+		}
+		if name == "main" && strings.TrimSpace(file) != "" {
+			return file, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("resolve vault db path: iterate rows: %w", err)
+	}
+	return "", fmt.Errorf("resolve vault db path: main database not found")
+}
+
 func (s *BackupService) Restore(ctx context.Context, req BackupRestoreRequest) (*BackupManifest, error) {
 	if s == nil || s.store == nil {
 		return nil, fmt.Errorf("restore backup: store is nil")
@@ -224,37 +281,14 @@ func (s *BackupService) Restore(ctx context.Context, req BackupRestoreRequest) (
 	if err := os.MkdirAll(filepath.Dir(req.TargetVaultPath), 0o700); err != nil {
 		return nil, fmt.Errorf("restore backup: create target directory: %w", err)
 	}
+	if err := removeSQLiteSidecars(req.TargetVaultPath); err != nil {
+		return nil, fmt.Errorf("restore backup: remove sidecar files: %w", err)
+	}
 	if err := os.WriteFile(req.TargetVaultPath, vaultDB, 0o600); err != nil {
 		return nil, fmt.Errorf("restore backup: write vault db: %w", err)
 	}
 
 	return &manifest, nil
-}
-
-func (s *BackupService) mainDBPath(ctx context.Context) (string, error) {
-	rows, err := s.store.DB().QueryContext(ctx, `PRAGMA database_list`)
-	if err != nil {
-		return "", fmt.Errorf("resolve vault db path: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	for rows.Next() {
-		var (
-			seq  int
-			name string
-			file string
-		)
-		if err := rows.Scan(&seq, &name, &file); err != nil {
-			return "", fmt.Errorf("resolve vault db path: scan row: %w", err)
-		}
-		if name == "main" && strings.TrimSpace(file) != "" {
-			return file, nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("resolve vault db path: iterate rows: %w", err)
-	}
-	return "", fmt.Errorf("resolve vault db path: main database not found")
 }
 
 func encryptBackupPayload(payload, passphrase []byte) ([]byte, error) {
@@ -472,3 +506,16 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func removeSQLiteSidecars(dbPath string) error {
+	sidecars := []string{
+		dbPath + "-wal",
+		dbPath + "-shm",
+		dbPath + "-journal",
+	}
+	for _, path := range sidecars {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
