@@ -10,6 +10,8 @@ func newVersionCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print build version information",
+		Example: "  heimdall version\n" +
+			"  heimdall --json version",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("version does not accept positional arguments")

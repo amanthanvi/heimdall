@@ -13,6 +13,8 @@ import (
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/config"
+	sshpkg "github.com/amanthanvi/heimdall/internal/ssh"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -59,6 +61,42 @@ func TestRootHasBatchFiveTopLevelCommands(t *testing.T) {
 		_, _, err := cmd.Find([]string{name})
 		require.NoErrorf(t, err, "expected command %q", name)
 	}
+}
+
+func TestAllCommandsHaveExamples(t *testing.T) {
+
+	var out bytes.Buffer
+	root := NewRootCommand(&out, testBuildInfo())
+
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		path := cmd.CommandPath()
+		if path == "heimdall help" || strings.HasPrefix(path, "heimdall help ") {
+			return
+		}
+		if path == "heimdall completion" || strings.HasPrefix(path, "heimdall completion ") {
+			return
+		}
+		if cmd.Name() != "heimdall" {
+			require.NotEmptyf(
+				t,
+				strings.TrimSpace(cmd.Example),
+				"command %q is missing Example text",
+				path,
+			)
+		}
+		for _, child := range cmd.Commands() {
+			walk(child)
+		}
+	}
+
+	walk(root)
+}
+
+func TestUnsupportedCommandsUseReservedMessaging(t *testing.T) {
+	_, err := runCLI(t, "", "host", "test")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reserved for a future release")
 }
 
 func TestUnknownFlagReturnsUsageError(t *testing.T) {
@@ -173,6 +211,29 @@ func TestConnectDryRunPrintsSSHCommand(t *testing.T) {
 	require.Contains(t, out, "10.0.0.1")
 }
 
+func TestConnectExecutionUsesCommandContextWithoutTimeout(t *testing.T) {
+
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{Name: "prod", Address: "10.0.0.1", Port: 22, User: "ubuntu"}},
+	}
+	withStubDaemon(t, server)
+
+	rec := &recordingSSHExecutor{}
+	orig := newSSHCommandExecutor
+	newSSHCommandExecutor = func() sshCommandExecutor { return rec }
+	t.Cleanup(func() {
+		newSSHCommandExecutor = orig
+	})
+
+	_, err := runCLI(t, "", "--timeout", "2s", "connect", "prod")
+	require.NoError(t, err)
+	require.True(t, rec.called)
+	require.NotNil(t, rec.ctx)
+	_, hasDeadline := rec.ctx.Deadline()
+	require.False(t, hasDeadline, "connect execution should not use RPC timeout context")
+	require.Equal(t, "ssh", rec.command.Binary)
+}
+
 func TestQuietSuppressesListOutput(t *testing.T) {
 
 	server := &cliTestDaemon{
@@ -247,6 +308,19 @@ type cliTestDaemon struct {
 	v1.UnimplementedConnectServiceServer
 
 	hosts []*v1.Host
+}
+
+type recordingSSHExecutor struct {
+	called  bool
+	ctx     context.Context
+	command *sshpkg.SSHCommand
+}
+
+func (r *recordingSSHExecutor) Run(ctx context.Context, command *sshpkg.SSHCommand) (int, error) {
+	r.called = true
+	r.ctx = ctx
+	r.command = command
+	return 0, nil
 }
 
 func (d *cliTestDaemon) Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error) {

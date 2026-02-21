@@ -10,6 +10,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type sshCommandExecutor interface {
+	Run(ctx context.Context, command *sshpkg.SSHCommand) (int, error)
+}
+
+var newSSHCommandExecutor = func() sshCommandExecutor {
+	return sshpkg.NewExecutor()
+}
+
 func newConnectCommand(deps commandDeps) *cobra.Command {
 	var (
 		dryRun       bool
@@ -25,6 +33,9 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "connect <host>",
 		Short: "Connect to a host via SSH",
+		Example: "  heimdall connect prod\n" +
+			"  heimdall connect prod --dry-run\n" +
+			"  heimdall connect prod --jump bastion --forward L:8080:localhost:80",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("connect requires exactly one host name")
@@ -73,8 +84,8 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 					return err
 				}
 
-				executor := sshpkg.NewExecutor()
-				exitCode, err := executor.Run(ctx, &sshpkg.SSHCommand{
+				executor := newSSHCommandExecutor()
+				exitCode, err := executor.Run(cmd.Context(), &sshpkg.SSHCommand{
 					Binary:    command.GetBinary(),
 					Args:      append([]string(nil), command.GetArgs()...),
 					Env:       append([]string(nil), command.GetEnv()...),

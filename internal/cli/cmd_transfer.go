@@ -53,6 +53,8 @@ func newImportCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import hosts/keys/secrets metadata",
+		Example: "  heimdall import --format json --from ./export.json\n" +
+			"  heimdall import --format ssh-config --from ~/.ssh/config",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("import does not accept positional arguments")
@@ -83,6 +85,8 @@ func newExportCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export hosts/keys/secrets metadata",
+		Example: "  heimdall export --format json --output ./export.json\n" +
+			"  heimdall --json export --format json --output ./export.json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("export does not accept positional arguments")

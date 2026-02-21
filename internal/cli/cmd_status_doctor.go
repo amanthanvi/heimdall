@@ -15,6 +15,8 @@ func newStatusCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show vault and daemon status",
+		Example: "  heimdall status\n" +
+			"  heimdall --json status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("status does not accept positional arguments")
@@ -53,6 +55,8 @@ func newDoctorCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Run local dependency and daemon health checks",
+		Example: "  heimdall doctor\n" +
+			"  heimdall --json doctor",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("doctor does not accept positional arguments")

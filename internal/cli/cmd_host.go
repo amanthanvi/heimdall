@@ -13,6 +13,9 @@ func newHostCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "host",
 		Short: "Host management",
+		Example: "  heimdall host add --name prod --addr 10.0.0.10 --user ubuntu\n" +
+			"  heimdall host ls\n" +
+			"  heimdall host show prod",
 	}
 	cmd.AddCommand(
 		newHostAddCommand(deps),
@@ -20,19 +23,21 @@ func newHostCommand(deps commandDeps) *cobra.Command {
 		newHostShowCommand(deps),
 		newHostRemoveCommand(deps),
 		newHostEditCommand(deps),
-		newHostUnsupportedCommand("test"),
-		newHostUnsupportedCommand("trust"),
+		newHostUnsupportedCommand("", "test"),
+		newHostUnsupportedCommand("", "trust"),
 		newHostTemplateCommand(),
 	)
 	return cmd
 }
 
-func newHostUnsupportedCommand(name string) *cobra.Command {
+func newHostUnsupportedCommand(scope, name string) *cobra.Command {
+	path := strings.TrimSpace(strings.Join([]string{"host", scope, name}, " "))
 	return &cobra.Command{
-		Use:   name,
-		Short: fmt.Sprintf("%s host settings (not yet implemented)", name),
+		Use:     name,
+		Short:   "Reserved host command (future release)",
+		Example: fmt.Sprintf("  heimdall %s", path),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is not implemented", cmd.CommandPath()))
+			return mapCommandError(fmt.Errorf("%s is reserved for a future release", cmd.CommandPath()))
 		},
 	}
 }
@@ -41,13 +46,15 @@ func newHostTemplateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
 		Short: "Host template operations",
+		Example: "  heimdall host template ls\n" +
+			"  heimdall host template add",
 	}
 	cmd.AddCommand(
-		newHostUnsupportedCommand("add"),
-		newHostUnsupportedCommand("edit"),
-		newHostUnsupportedCommand("rm"),
-		newHostUnsupportedCommand("ls"),
-		newHostUnsupportedCommand("show"),
+		newHostUnsupportedCommand("template", "add"),
+		newHostUnsupportedCommand("template", "edit"),
+		newHostUnsupportedCommand("template", "rm"),
+		newHostUnsupportedCommand("template", "ls"),
+		newHostUnsupportedCommand("template", "show"),
 	)
 	return cmd
 }
@@ -66,6 +73,8 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a host",
+		Example: "  heimdall host add --name prod --addr 10.0.0.10 --user ubuntu\n" +
+			"  heimdall host add --name db --addr 10.0.0.20 --user postgres --tag critical --group infra",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("host add does not accept positional arguments")
@@ -119,6 +128,9 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List hosts",
+		Example: "  heimdall host ls\n" +
+			"  heimdall host ls --names-only\n" +
+			"  heimdall host ls --tag critical --search prod",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("host ls does not accept positional arguments")
@@ -168,6 +180,8 @@ func newHostShowCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <name>",
 		Short: "Show host details",
+		Example: "  heimdall host show prod\n" +
+			"  heimdall --json host show prod",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("host show requires exactly one host name")
@@ -188,8 +202,9 @@ func newHostShowCommand(deps commandDeps) *cobra.Command {
 
 func newHostRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <name>",
-		Short: "Remove a host",
+		Use:     "rm <name>",
+		Short:   "Remove a host",
+		Example: "  heimdall host rm prod",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("host rm requires exactly one host name")
@@ -229,6 +244,8 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit <name>",
 		Short: "Edit an existing host",
+		Example: "  heimdall host edit prod --addr 10.0.0.11 --user root\n" +
+			"  heimdall host edit prod --tag critical --tag ssh",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("host edit requires exactly one host name")

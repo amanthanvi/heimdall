@@ -49,6 +49,9 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a local vault and config",
+		Example: "  heimdall init --yes --passphrase \"dev-pass\"\n" +
+			"  printf \"dev-pass\\n\" | heimdall init --yes --passphrase-stdin\n" +
+			"  heimdall init --yes --passphrase \"dev-pass\" --import-ssh-config ~/.ssh/config",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("init does not accept positional arguments")

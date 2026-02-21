@@ -12,6 +12,9 @@ func newVaultCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "vault",
 		Short: "Vault operations",
+		Example: "  heimdall vault status\n" +
+			"  heimdall vault unlock --passphrase \"dev-pass\"\n" +
+			"  heimdall vault lock",
 	}
 	cmd.AddCommand(
 		newVaultStatusCommand(deps),
@@ -27,6 +30,8 @@ func newVaultTimeoutCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "timeout",
 		Short: "Vault auto-lock timeout operations",
+		Example: "  heimdall vault timeout show\n" +
+			"  heimdall vault timeout set",
 	}
 	cmd.AddCommand(
 		newVaultUnsupportedCommand("set"),
@@ -37,10 +42,11 @@ func newVaultTimeoutCommand() *cobra.Command {
 
 func newVaultUnsupportedCommand(name string) *cobra.Command {
 	return &cobra.Command{
-		Use:   name,
-		Short: fmt.Sprintf("%s vault settings (not yet implemented)", name),
+		Use:     name,
+		Short:   "Reserved vault command (future release)",
+		Example: fmt.Sprintf("  heimdall vault %s", name),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is not implemented", cmd.CommandPath()))
+			return mapCommandError(fmt.Errorf("%s is reserved for a future release", cmd.CommandPath()))
 		},
 	}
 }
@@ -49,6 +55,8 @@ func newVaultStatusCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show vault lock status",
+		Example: "  heimdall vault status\n" +
+			"  heimdall --json vault status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("vault status does not accept positional arguments")
@@ -84,6 +92,8 @@ func newVaultLockCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "lock",
 		Short: "Lock the vault",
+		Example: "  heimdall vault lock\n" +
+			"  heimdall --json vault lock",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("vault lock does not accept positional arguments")
@@ -113,6 +123,8 @@ func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "unlock",
 		Short: "Unlock the vault",
+		Example: "  heimdall vault unlock --passphrase \"dev-pass\"\n" +
+			"  heimdall vault unlock --passkey-label \"macbook-touchid\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("vault unlock does not accept positional arguments")
@@ -123,7 +135,7 @@ func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				_, err := clients.vault.Unlock(ctx, &v1.UnlockRequest{
-					Passphrase:  passphrase,
+					Passphrase:   passphrase,
 					PasskeyLabel: passkeyLabel,
 				})
 				if err != nil {

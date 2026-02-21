@@ -17,6 +17,9 @@ func newDaemonCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Daemon lifecycle commands",
+		Example: "  heimdall daemon status\n" +
+			"  heimdall daemon restart\n" +
+			"  heimdall daemon stop",
 	}
 	cmd.AddCommand(
 		newDaemonStatusCommand(deps),
@@ -33,6 +36,8 @@ func newDaemonStatusCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show daemon status",
+		Example: "  heimdall daemon status\n" +
+			"  heimdall --json daemon status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("daemon status does not accept positional arguments")
@@ -84,6 +89,8 @@ func newDaemonStopCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the running daemon",
+		Example: "  heimdall daemon stop\n" +
+			"  heimdall --json daemon stop",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("daemon stop does not accept positional arguments")
@@ -112,6 +119,8 @@ func newDaemonRestartCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart",
 		Short: "Restart daemon",
+		Example: "  heimdall daemon restart\n" +
+			"  heimdall --json daemon restart",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("daemon restart does not accept positional arguments")

@@ -13,6 +13,9 @@ func newPasskeyCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "passkey",
 		Short: "Passkey management",
+		Example: "  heimdall passkey enroll --label macbook-touchid\n" +
+			"  heimdall passkey ls\n" +
+			"  heimdall passkey test macbook-touchid",
 	}
 	cmd.AddCommand(
 		newPasskeyEnrollCommand(deps),
@@ -31,6 +34,8 @@ func newPasskeyEnrollCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enroll",
 		Short: "Enroll a passkey",
+		Example: "  heimdall passkey enroll --label macbook-touchid\n" +
+			"  heimdall passkey enroll --label yubikey --user aman",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("passkey enroll does not accept positional arguments")
@@ -60,6 +65,8 @@ func newPasskeyListCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List passkeys",
+		Example: "  heimdall passkey ls\n" +
+			"  heimdall --json passkey ls",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("passkey ls does not accept positional arguments")
@@ -89,8 +96,9 @@ func newPasskeyListCommand(deps commandDeps) *cobra.Command {
 
 func newPasskeyRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <label>",
-		Short: "Remove a passkey",
+		Use:     "rm <label>",
+		Short:   "Remove a passkey",
+		Example: "  heimdall passkey rm macbook-touchid",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("passkey rm requires exactly one passkey label")
@@ -118,8 +126,9 @@ func newPasskeyRemoveCommand(deps commandDeps) *cobra.Command {
 
 func newPasskeyTestCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "test <label>",
-		Short: "Test passkey availability",
+		Use:     "test <label>",
+		Short:   "Test passkey availability",
+		Example: "  heimdall passkey test macbook-touchid",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("passkey test requires exactly one passkey label")

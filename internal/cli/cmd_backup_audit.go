@@ -13,6 +13,8 @@ func newBackupCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup",
 		Short: "Backup operations",
+		Example: "  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"",
 	}
 	cmd.AddCommand(
 		newBackupCreateCommand(deps),
@@ -30,6 +32,8 @@ func newBackupCreateCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an encrypted backup",
+		Example: "  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+			"  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\" --overwrite",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("backup create does not accept positional arguments")
@@ -52,7 +56,7 @@ func newBackupCreateCommand(deps commandDeps) *cobra.Command {
 				}
 				if deps.globals.JSON {
 					return printJSON(deps.out, map[string]any{
-						"accepted":   resp.GetAccepted(),
+						"accepted":    resp.GetAccepted(),
 						"output_path": resp.GetOutputPath(),
 					})
 				}
@@ -79,6 +83,8 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Restore from backup",
+		Example: "  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\" --overwrite",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("backup restore does not accept positional arguments")
@@ -120,6 +126,8 @@ func newAuditCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Audit log operations",
+		Example: "  heimdall audit list --limit 50\n" +
+			"  heimdall audit verify",
 	}
 	cmd.AddCommand(
 		newAuditListCommand(deps),
@@ -133,6 +141,8 @@ func newAuditListCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List audit events",
+		Example: "  heimdall audit list\n" +
+			"  heimdall audit list --limit 20",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("audit list does not accept positional arguments")
@@ -173,6 +183,8 @@ func newAuditVerifyCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "verify",
 		Short: "Verify audit hash chain integrity",
+		Example: "  heimdall audit verify\n" +
+			"  heimdall --json audit verify",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("audit verify does not accept positional arguments")

@@ -14,8 +14,9 @@ import (
 
 func newSSHConfigCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ssh-config",
-		Short: "OpenSSH config utilities",
+		Use:     "ssh-config",
+		Short:   "OpenSSH config utilities",
+		Example: "  heimdall ssh-config generate --output ~/.ssh/heimdall_hosts",
 	}
 	cmd.AddCommand(newSSHConfigGenerateCommand(deps))
 	return cmd
@@ -26,6 +27,8 @@ func newSSHConfigGenerateCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate OpenSSH config blocks from vault hosts",
+		Example: "  heimdall ssh-config generate --output ~/.ssh/heimdall_hosts\n" +
+			"  heimdall --json ssh-config generate --output ./ssh_config",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("ssh-config generate does not accept positional arguments")

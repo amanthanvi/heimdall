@@ -13,8 +13,9 @@ import (
 
 func newDebugCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "debug",
-		Short: "Diagnostics helpers",
+		Use:     "debug",
+		Short:   "Diagnostics helpers",
+		Example: "  heimdall debug bundle --output ./heimdall-debug.json",
 	}
 	cmd.AddCommand(newDebugBundleCommand(deps))
 	return cmd
@@ -25,6 +26,8 @@ func newDebugBundleCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bundle",
 		Short: "Collect sanitized diagnostics into a JSON bundle",
+		Example: "  heimdall debug bundle --output ./heimdall-debug.json\n" +
+			"  heimdall --json debug bundle --output ./heimdall-debug.json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("debug bundle does not accept positional arguments")

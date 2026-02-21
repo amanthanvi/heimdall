@@ -34,9 +34,10 @@ const (
 
 func newDaemonServeCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:    "serve",
-		Hidden: true,
-		Short:  "Run daemon server process",
+		Use:     "serve",
+		Hidden:  true,
+		Short:   "Run daemon server process",
+		Example: "  heimdall daemon serve",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("daemon serve does not accept positional arguments")

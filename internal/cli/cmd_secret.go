@@ -15,6 +15,9 @@ func newSecretCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secret",
 		Short: "Secret management",
+		Example: "  heimdall secret add --name api_token --value \"secret\"\n" +
+			"  heimdall secret show api_token --reauth\n" +
+			"  heimdall secret env api_token --env-var API_TOKEN -- sh -c 'echo $API_TOKEN'",
 	}
 	cmd.AddCommand(
 		newSecretAddCommand(deps),
@@ -30,10 +33,11 @@ func newSecretCommand(deps commandDeps) *cobra.Command {
 
 func newSecretUnsupportedCommand(name string) *cobra.Command {
 	return &cobra.Command{
-		Use:   name,
-		Short: fmt.Sprintf("%s secret settings (not yet implemented)", name),
+		Use:     name,
+		Short:   "Reserved secret command (future release)",
+		Example: fmt.Sprintf("  heimdall secret %s", name),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is not implemented", cmd.CommandPath()))
+			return mapCommandError(fmt.Errorf("%s is reserved for a future release", cmd.CommandPath()))
 		},
 	}
 }
@@ -47,6 +51,8 @@ func newSecretAddCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Create a secret",
+		Example: "  heimdall secret add --name api_token --value \"secret\"\n" +
+			"  heimdall secret add --name db_password --value \"p@ss\" --reveal-policy always-reauth",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("secret add does not accept positional arguments")
@@ -81,6 +87,8 @@ func newSecretListCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List secret metadata",
+		Example: "  heimdall secret ls\n" +
+			"  heimdall --json secret ls",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("secret ls does not accept positional arguments")
@@ -113,6 +121,8 @@ func newSecretShowCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Reveal a secret value",
+		Example: "  heimdall secret show api_token --reauth\n" +
+			"  heimdall --json secret show api_token --reauth",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("secret show requires exactly one secret name")
@@ -148,8 +158,9 @@ func newSecretShowCommand(deps commandDeps) *cobra.Command {
 
 func newSecretRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <name>",
-		Short: "Delete a secret",
+		Use:     "rm <name>",
+		Short:   "Delete a secret",
+		Example: "  heimdall secret rm api_token",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("secret rm requires exactly one secret name")
@@ -181,8 +192,9 @@ func newSecretExportCommand(deps commandDeps) *cobra.Command {
 		reauth     bool
 	)
 	cmd := &cobra.Command{
-		Use:   "export <name>",
-		Short: "Export secret value to a file",
+		Use:     "export <name>",
+		Short:   "Export secret value to a file",
+		Example: "  heimdall secret export api_token --reauth --output ./api_token.txt",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("secret export requires exactly one secret name")
@@ -232,6 +244,8 @@ func newSecretEnvCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "env <name> -- <command...>",
 		Short: "Inject a secret into a subprocess environment variable",
+		Example: "  heimdall secret env api_token --env-var API_TOKEN -- sh -c 'echo $API_TOKEN'\n" +
+			"  heimdall secret env db_password -- psql postgresql://localhost/app",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return usageErrorf("secret env requires a secret name and a command after --")

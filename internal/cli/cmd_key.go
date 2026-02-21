@@ -16,6 +16,9 @@ func newKeyCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "key",
 		Short: "SSH key management",
+		Example: "  heimdall key gen --name deploy\n" +
+			"  heimdall key ls\n" +
+			"  heimdall key export deploy --private --reauth --output ./deploy.key",
 	}
 	cmd.AddCommand(
 		newKeyGenerateCommand(deps),
@@ -34,6 +37,8 @@ func newKeyAgentCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "SSH agent key operations",
+		Example: "  heimdall key agent add deploy --ttl 30m\n" +
+			"  heimdall key agent rm SHA256:abc123",
 	}
 	cmd.AddCommand(
 		newKeyAgentAddCommand(deps),
@@ -50,6 +55,8 @@ func newKeyGenerateCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen",
 		Short: "Generate a new key",
+		Example: "  heimdall key gen --name deploy\n" +
+			"  heimdall key gen --name ci-rsa --type rsa",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("key gen does not accept positional arguments")
@@ -82,6 +89,8 @@ func newKeyAgentAddCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Add a private key to the managed SSH agent",
+		Example: "  heimdall key agent add deploy\n" +
+			"  heimdall key agent add deploy --ttl 1h --session-id build-123",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key agent add requires exactly one key name")
@@ -122,8 +131,9 @@ func newKeyAgentAddCommand(deps commandDeps) *cobra.Command {
 
 func newKeyAgentRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <fingerprint>",
-		Short: "Remove a key from the managed SSH agent by fingerprint",
+		Use:     "rm <fingerprint>",
+		Short:   "Remove a key from the managed SSH agent by fingerprint",
+		Example: "  heimdall key agent rm SHA256:abc123",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key agent rm requires exactly one fingerprint")
@@ -158,6 +168,8 @@ func newKeyImportCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import an existing private key",
+		Example: "  heimdall key import --name deploy --from ./deploy.key\n" +
+			"  heimdall key import --name deploy --from ./deploy.enc --passphrase \"key-pass\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("key import does not accept positional arguments")
@@ -201,6 +213,8 @@ func newKeyExportCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "export <name>",
 		Short: "Export key material",
+		Example: "  heimdall key export deploy\n" +
+			"  heimdall key export deploy --private --reauth --output ./deploy.key",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key export requires a key name")
@@ -266,6 +280,8 @@ func newKeyListCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List key metadata",
+		Example: "  heimdall key ls\n" +
+			"  heimdall --json key ls",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("key ls does not accept positional arguments")
@@ -296,6 +312,8 @@ func newKeyShowCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <name>",
 		Short: "Show key metadata",
+		Example: "  heimdall key show deploy\n" +
+			"  heimdall --json key show deploy",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key show requires exactly one key name")
@@ -316,8 +334,9 @@ func newKeyShowCommand(deps commandDeps) *cobra.Command {
 
 func newKeyRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <name>",
-		Short: "Delete a key",
+		Use:     "rm <name>",
+		Short:   "Delete a key",
+		Example: "  heimdall key rm deploy",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key rm requires exactly one key name")
@@ -345,8 +364,9 @@ func newKeyRemoveCommand(deps commandDeps) *cobra.Command {
 
 func newKeyRotateCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rotate <name>",
-		Short: "Rotate a key",
+		Use:     "rotate <name>",
+		Short:   "Rotate a key",
+		Example: "  heimdall key rotate deploy",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key rotate requires exactly one key name")
