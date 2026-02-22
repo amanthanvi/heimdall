@@ -1,6 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
+Current stable release: `v0.1.3`.
 
 ## Quickstart
 
@@ -24,28 +25,30 @@ Binary output:
 ```bash
 brew tap amanthanvi/tap
 brew install amanthanvi/tap/heimdall
+heimdall version
 ```
 
 Homebrew artifacts are built with the nofido2/static profile for portability.
 If you need FIDO2/passkey features, build from source with `make build` (requires `libfido2`).
+The command examples below use the installed `heimdall` binary; when running from source, replace `heimdall` with `./dist/heimdall`.
 
 ### Initialize and run a basic lifecycle
 
 ```bash
 # 1) Initialize local vault + config
-./dist/heimdall init --yes
+heimdall init --yes --passphrase "dev-pass"
 
 # 2) Unlock vault (daemon auto-starts on demand)
-./dist/heimdall vault unlock --passphrase "dev-pass"
+heimdall vault unlock --passphrase "dev-pass"
 
 # 3) Add host metadata
-./dist/heimdall host add --name prod --addr 10.0.0.10 --user ubuntu
+heimdall host add --name prod --addr 10.0.0.10 --user ubuntu
 
 # 4) Preview SSH command without executing
-./dist/heimdall connect prod --dry-run
+heimdall connect prod --dry-run
 
 # 5) Lock vault
-./dist/heimdall vault lock
+heimdall vault lock
 ```
 
 ## Shell Completions
@@ -55,21 +58,21 @@ Generate completions with the built-in Cobra completion command.
 ### Bash
 
 ```bash
-./dist/heimdall completion bash > /usr/local/etc/bash_completion.d/heimdall
+heimdall completion bash > "$(brew --prefix)/etc/bash_completion.d/heimdall"
 ```
 
 ### Zsh
 
 ```bash
 mkdir -p "${HOME}/.zfunc"
-./dist/heimdall completion zsh > "${HOME}/.zfunc/_heimdall"
+heimdall completion zsh > "${HOME}/.zfunc/_heimdall"
 ```
 
 ### Fish
 
 ```bash
 mkdir -p "${HOME}/.config/fish/completions"
-./dist/heimdall completion fish > "${HOME}/.config/fish/completions/heimdall.fish"
+heimdall completion fish > "${HOME}/.config/fish/completions/heimdall.fish"
 ```
 
 ## Validation Commands
@@ -84,5 +87,6 @@ go test -run='^$' -bench='Benchmark(VaultOpenCold|CLIRoundTrip|KeyDerivation)$' 
 ## Release
 
 - GoReleaser config: `.goreleaser.yml`
-- Homebrew artifacts must be published as `tar.gz` archives containing the `heimdall` binary.
+- Homebrew artifacts are `tar.gz` archives named `heimdall-<os>-<arch>.tar.gz` containing the `heimdall` binary.
+- Homebrew formula source of truth: `homebrew-tap/Formula/heimdall.rb`.
 - Security disclosure policy: `SECURITY.md`
