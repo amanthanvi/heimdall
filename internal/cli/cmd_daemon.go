@@ -130,6 +130,9 @@ func newDaemonRestartCommand(deps commandDeps) *cobra.Command {
 				return mapCommandError(err)
 			}
 
+			restoreEnv := applyPathEnvOverrides(deps.globals)
+			defer restoreEnv()
+
 			loadOpts := config.LoadOptions{}
 			if deps.globals != nil {
 				if configPath := strings.TrimSpace(deps.globals.ConfigPath); configPath != "" {

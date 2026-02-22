@@ -234,6 +234,46 @@ func TestConnectExecutionUsesCommandContextWithoutTimeout(t *testing.T) {
 	require.Equal(t, "ssh", rec.command.Binary)
 }
 
+func TestDaemonRestartAppliesPathOverridesForSubprocess(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HEIMDALL_CONFIG_PATH", "")
+	t.Setenv("HEIMDALL_VAULT_PATH", "")
+
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	vaultPath := filepath.Join(t.TempDir(), "vault.db")
+
+	origLoad := loadConfigFn
+	origEnsure := ensureDaemonFn
+	t.Cleanup(func() {
+		loadConfigFn = origLoad
+		ensureDaemonFn = origEnsure
+	})
+
+	loadConfigFn = func(opts config.LoadOptions) (config.Config, config.LoadReport, error) {
+		require.Equal(t, configPath, opts.ConfigPath)
+		require.Equal(t, vaultPath, opts.Env["HEIMDALL_VAULT_PATH"])
+		return config.DefaultConfig(), config.LoadReport{}, nil
+	}
+
+	var seenConfigEnv string
+	var seenVaultEnv string
+	ensureDaemonFn = func(_ context.Context, _ *config.Config) (*grpc.ClientConn, error) {
+		seenConfigEnv = os.Getenv("HEIMDALL_CONFIG_PATH")
+		seenVaultEnv = os.Getenv("HEIMDALL_VAULT_PATH")
+		return grpc.NewClient(
+			"passthrough:///unused",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+	}
+
+	_, err := runCLI(t, "", "--config", configPath, "--vault", vaultPath, "daemon", "restart")
+	require.NoError(t, err)
+	require.Equal(t, configPath, seenConfigEnv)
+	require.Equal(t, vaultPath, seenVaultEnv)
+	require.Equal(t, "", os.Getenv("HEIMDALL_CONFIG_PATH"))
+	require.Equal(t, "", os.Getenv("HEIMDALL_VAULT_PATH"))
+}
+
 func TestQuietSuppressesListOutput(t *testing.T) {
 
 	server := &cliTestDaemon{
