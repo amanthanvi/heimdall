@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/config"
+	daemonpkg "github.com/amanthanvi/heimdall/internal/daemon"
 	sshpkg "github.com/amanthanvi/heimdall/internal/ssh"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
@@ -280,6 +281,75 @@ func TestDaemonRestartAppliesPathOverridesForSubprocess(t *testing.T) {
 	require.Equal(t, vaultPath, seenVaultEnv)
 	require.Equal(t, "", os.Getenv("HEIMDALL_CONFIG_PATH"))
 	require.Equal(t, "", os.Getenv("HEIMDALL_VAULT_PATH"))
+}
+
+func TestEnsureDaemonPathOverridesRestartsWhenInfoPathsMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HEIMDALL_HOME", t.TempDir())
+
+	infoPath, err := resolveDaemonInfoPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(infoPath), 0o700))
+
+	infoBytes, err := json.Marshal(daemonpkg.Info{PID: 12345})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(infoPath, infoBytes, 0o600))
+
+	origStopFn := stopDaemonForPathMismatchFn
+	t.Cleanup(func() {
+		stopDaemonForPathMismatchFn = origStopFn
+	})
+
+	stopCalled := false
+	stopDaemonForPathMismatchFn = func() (bool, error) {
+		stopCalled = true
+		return true, nil
+	}
+
+	err = ensureDaemonPathOverrides(&GlobalOptions{
+		ConfigPath: "/tmp/expected-config.toml",
+		VaultPath:  "/tmp/expected-vault.db",
+	})
+	require.NoError(t, err)
+	require.True(t, stopCalled)
+}
+
+func TestEnsureDaemonPathOverridesKeepsMatchingDaemon(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HEIMDALL_HOME", t.TempDir())
+
+	expectedConfigPath := filepath.Join(t.TempDir(), "config.toml")
+	expectedVaultPath := filepath.Join(t.TempDir(), "vault.db")
+
+	infoPath, err := resolveDaemonInfoPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(infoPath), 0o700))
+
+	infoBytes, err := json.Marshal(daemonpkg.Info{
+		PID:        12345,
+		ConfigPath: expectedConfigPath,
+		VaultPath:  expectedVaultPath,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(infoPath, infoBytes, 0o600))
+
+	origStopFn := stopDaemonForPathMismatchFn
+	t.Cleanup(func() {
+		stopDaemonForPathMismatchFn = origStopFn
+	})
+
+	stopCalled := false
+	stopDaemonForPathMismatchFn = func() (bool, error) {
+		stopCalled = true
+		return true, nil
+	}
+
+	err = ensureDaemonPathOverrides(&GlobalOptions{
+		ConfigPath: expectedConfigPath,
+		VaultPath:  expectedVaultPath,
+	})
+	require.NoError(t, err)
+	require.False(t, stopCalled)
 }
 
 func TestQuietSuppressesListOutput(t *testing.T) {

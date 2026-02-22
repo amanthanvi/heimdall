@@ -52,6 +52,10 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 	if err != nil {
 		return fmt.Errorf("daemon serve: load config: %w", err)
 	}
+	configPath, err := resolveConfigPath(deps.globals)
+	if err != nil {
+		return fmt.Errorf("daemon serve: resolve config path: %w", err)
+	}
 
 	vaultPath, err := resolveVaultPath(deps.globals)
 	if err != nil {
@@ -142,6 +146,8 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 		PID:        os.Getpid(),
 		SocketPath: daemonSocketPath,
 		AgentPath:  agentSocketPath,
+		ConfigPath: configPath,
+		VaultPath:  vaultPath,
 		StartedAt:  time.Now().UTC(),
 	}); err != nil {
 		return err

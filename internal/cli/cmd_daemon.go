@@ -64,6 +64,8 @@ func newDaemonStatusCommand(deps commandDeps) *cobra.Command {
 				"pid":         info.PID,
 				"socket_path": info.SocketPath,
 				"agent_path":  info.AgentPath,
+				"config_path": info.ConfigPath,
+				"vault_path":  info.VaultPath,
 				"started_at":  info.StartedAt.Format(time.RFC3339Nano),
 			}
 			if deps.globals.JSON {
@@ -74,11 +76,12 @@ func newDaemonStatusCommand(deps commandDeps) *cobra.Command {
 			}
 			_, writeErr := fmt.Fprintf(
 				deps.out,
-				"daemon=%s pid=%d socket=%s agent=%s\n",
+				"daemon=%s pid=%d socket=%s agent=%s vault=%s\n",
 				boolToState(running, "running", "stopped"),
 				info.PID,
 				info.SocketPath,
 				info.AgentPath,
+				info.VaultPath,
 			)
 			return mapCommandError(writeErr)
 		},

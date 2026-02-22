@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ var (
 			Starter: startDaemonSubprocess,
 		})
 	}
+	stopDaemonForPathMismatchFn = stopDaemonProcess
 )
 
 type daemonClients struct {
@@ -48,6 +51,9 @@ func withDaemonClients(cmdCtx context.Context, deps commandDeps, fn func(context
 	defer cancel()
 	restoreEnv := applyPathEnvOverrides(deps.globals)
 	defer restoreEnv()
+	if err := ensureDaemonPathOverrides(deps.globals); err != nil {
+		return mapCommandError(fmt.Errorf("ensure daemon path overrides: %w", err))
+	}
 
 	loadOpts := config.LoadOptions{}
 	if deps.globals != nil {
@@ -246,6 +252,52 @@ func setEnvForCommand(key, value string) func() {
 	}
 }
 
+func ensureDaemonPathOverrides(globals *GlobalOptions) error {
+	expectedConfigPath, err := resolveConfigPath(globals)
+	if err != nil {
+		return err
+	}
+	expectedVaultPath, err := resolveVaultPath(globals)
+	if err != nil {
+		return err
+	}
+
+	info, err := readDaemonInfoFile()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	if daemonInfoMatchesExpectedPaths(info, expectedConfigPath, expectedVaultPath) {
+		return nil
+	}
+	_, err = stopDaemonForPathMismatchFn()
+	return err
+}
+
+func daemonInfoMatchesExpectedPaths(info daemon.Info, expectedConfigPath, expectedVaultPath string) bool {
+	if !pathsEqual(info.ConfigPath, expectedConfigPath) {
+		return false
+	}
+	if !pathsEqual(info.VaultPath, expectedVaultPath) {
+		return false
+	}
+	return true
+}
+
+func pathsEqual(leftPath, rightPath string) bool {
+	return normalizePath(leftPath) == normalizePath(rightPath)
+}
+
+func normalizePath(path string) string {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return ""
+	}
+	return filepath.Clean(trimmedPath)
+}
 
 func wipeBytes(buf []byte) {
 	for i := range buf {

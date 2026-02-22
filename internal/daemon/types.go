@@ -16,6 +16,8 @@ type Info struct {
 	PID        int       `json:"pid"`
 	SocketPath string    `json:"socket_path"`
 	AgentPath  string    `json:"agent_path"`
+	ConfigPath string    `json:"config_path,omitempty"`
+	VaultPath  string    `json:"vault_path,omitempty"`
 	StartedAt  time.Time `json:"started_at"`
 }
 
