@@ -45,7 +45,8 @@ func TestExecutorRemovesTempFilesOnSignal(t *testing.T) {
 	require.NoError(t, os.WriteFile(tempFile, []byte("sensitive"), 0o600))
 
 	sigCh := make(chan os.Signal, 1)
-	exec := &Executor{signalCh: sigCh}
+	useProcessGroup := true
+	exec := &Executor{signalCh: sigCh, useProcessGroup: &useProcessGroup}
 
 	done := make(chan int, 1)
 	go func() {
@@ -69,6 +70,33 @@ func TestExecutorRemovesTempFilesOnSignal(t *testing.T) {
 
 	_, statErr := os.Stat(tempFile)
 	require.True(t, os.IsNotExist(statErr))
+}
+
+func TestExecutorNormalizesSignalExitCode(t *testing.T) {
+	t.Parallel()
+
+	sigCh := make(chan os.Signal, 1)
+	useProcessGroup := true
+	exec := &Executor{signalCh: sigCh, useProcessGroup: &useProcessGroup}
+
+	done := make(chan int, 1)
+	go func() {
+		code, _ := exec.Run(t.Context(), &SSHCommand{
+			Binary: "sh",
+			Args:   []string{"-c", "sleep 5"},
+		})
+		done <- code
+	}()
+
+	time.Sleep(120 * time.Millisecond)
+	sigCh <- os.Interrupt
+
+	select {
+	case code := <-done:
+		require.Equal(t, 130, code)
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not terminate after signal")
+	}
 }
 
 func TestExecutorReapsChildProcessToPreventZombie(t *testing.T) {

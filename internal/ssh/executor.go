@@ -10,8 +10,9 @@ import (
 )
 
 type Executor struct {
-	commandFactory func(ctx context.Context, binary string, args ...string) *exec.Cmd
-	signalCh       <-chan os.Signal
+	commandFactory  func(ctx context.Context, binary string, args ...string) *exec.Cmd
+	signalCh        <-chan os.Signal
+	useProcessGroup *bool
 }
 
 func NewExecutor() *Executor {
@@ -40,7 +41,13 @@ func (e *Executor) Run(ctx context.Context, command *SSHCommand) (int, error) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	useProcessGroup := !hasInteractiveStdin(os.Stdin)
+	if e.useProcessGroup != nil {
+		useProcessGroup = *e.useProcessGroup
+	}
+	if useProcessGroup {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 
 	if err := cmd.Start(); err != nil {
 		return 1, fmt.Errorf("run ssh command: start: %w", err)
@@ -68,32 +75,61 @@ func (e *Executor) Run(ctx context.Context, command *SSHCommand) (int, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			sendSignalToProcessGroup(cmd.Process.Pid, syscall.SIGINT)
+			sendSignalToProcess(cmd.Process.Pid, syscall.SIGINT, useProcessGroup)
 			err := <-waitCh
 			if err != nil {
 				if exitErr, ok := err.(*exec.ExitError); ok {
-					return exitErr.ExitCode(), nil
+					return exitCodeFromExitError(exitErr), nil
 				}
 				return 1, fmt.Errorf("run ssh command: wait after cancel: %w", err)
 			}
 			return 0, nil
 		case <-sigCh:
-			sendSignalToProcessGroup(cmd.Process.Pid, syscall.SIGINT)
+			sendSignalToProcess(cmd.Process.Pid, syscall.SIGINT, useProcessGroup)
 		case err := <-waitCh:
 			if err == nil {
 				return 0, nil
 			}
 			if exitErr, ok := err.(*exec.ExitError); ok {
-				return exitErr.ExitCode(), nil
+				return exitCodeFromExitError(exitErr), nil
 			}
 			return 1, fmt.Errorf("run ssh command: wait: %w", err)
 		}
 	}
 }
 
-func sendSignalToProcessGroup(pid int, sig syscall.Signal) {
+func sendSignalToProcess(pid int, sig syscall.Signal, useProcessGroup bool) {
 	if pid <= 0 {
 		return
 	}
-	_ = syscall.Kill(-pid, sig)
+	if useProcessGroup {
+		_ = syscall.Kill(-pid, sig)
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	_ = process.Signal(sig)
+}
+
+func exitCodeFromExitError(exitErr *exec.ExitError) int {
+	if exitErr == nil {
+		return 1
+	}
+	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	return exitErr.ExitCode()
+}
+
+func hasInteractiveStdin(file *os.File) bool {
+	if file == nil {
+		return false
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
