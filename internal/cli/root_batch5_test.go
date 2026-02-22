@@ -100,6 +100,8 @@ func TestBackupRestoreHelpMentionsWorkflowAndReauth(t *testing.T) {
 	require.Contains(t, out, "Recommended workflow")
 	require.Contains(t, out, "--overwrite requires a recent re-authentication window")
 	require.Contains(t, out, "Restart daemon, then unlock the restored vault")
+	require.Contains(t, out, "Restored vault unlock credentials come from the backup source vault")
+	require.Contains(t, out, "source-vault-pass")
 }
 
 func TestUnsupportedCommandsUseReservedMessaging(t *testing.T) {

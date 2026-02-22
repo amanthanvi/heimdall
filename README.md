@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
-Current stable release: `v0.1.6`.
+Current stable release: `v0.1.7`.
 
 ## Quickstart
 
@@ -66,12 +66,13 @@ heimdall --config ./target-config.toml --vault ./target-vault.db backup restore 
 
 # 4) Reopen database handle + unlock restored vault
 heimdall --config ./target-config.toml --vault ./target-vault.db daemon restart
-heimdall --config ./target-config.toml --vault ./target-vault.db vault unlock --passphrase "target-pass"
+heimdall --config ./target-config.toml --vault ./target-vault.db vault unlock --passphrase "source-vault-pass"
 ```
 
 Notes:
 - `backup restore --overwrite` requires a recent re-authentication window.
 - Restoring into an uninitialized target path can fail daemon startup.
+- Restored vault unlock credentials come from the backup source vault.
 
 ## Shell Completions
 

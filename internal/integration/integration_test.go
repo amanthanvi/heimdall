@@ -220,8 +220,8 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
 	target := newHarness(t)
-	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
-	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "target-pass"), "init --yes --passphrase target-pass")
+	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
 	require.NoError(t, os.Remove(target.vaultPath))
 	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
 	// After restore the vault file on disk is replaced, but the daemon's
@@ -229,6 +229,8 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	// so the daemon reopens the restored file, then unlock to derive the
 	// source vault's VMK from the restored wrapped VMK bundle.
 	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
+	wrongPassOut := requireFailure(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
+	require.Contains(t, strings.ToLower(wrongPassOut), "invalid")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	listOut := requireSuccess(t, target.run(10*time.Second, "host", "ls", "--names-only"), "host ls --names-only")
 	require.Contains(t, listOut, "restore-me")
@@ -255,8 +257,8 @@ func TestIntegrationBackupCreateAfterHostListAndShowRestoresValidSQLite(t *testi
 	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
 	target := newHarness(t)
-	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
-	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "target-pass"), "init --yes --passphrase target-pass")
+	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
 	require.NoError(t, os.Remove(target.vaultPath))
 	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
 	requireSQLiteIntegrityOK(t, target.vaultPath)

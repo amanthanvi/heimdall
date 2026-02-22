@@ -15,7 +15,8 @@ func newBackupCommand(deps commandDeps) *cobra.Command {
 		Short: "Backup operations",
 		Example: "  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
 			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
-			"  heimdall daemon restart",
+			"  heimdall daemon restart\n" +
+			"  heimdall vault unlock --passphrase \"source-vault-pass\"",
 	}
 	cmd.AddCommand(
 		newBackupCreateCommand(deps),
@@ -96,11 +97,12 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 			"Notes:",
 			"  - --overwrite requires a recent re-authentication window.",
 			"  - Restoring into an uninitialized target path can fail daemon startup.",
+			"  - Restored vault unlock credentials come from the backup source vault.",
 		}, "\n"),
 		Example: "  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
 			"  heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
 			"  heimdall daemon restart\n" +
-			"  heimdall vault unlock --passphrase \"target-pass\"",
+			"  heimdall vault unlock --passphrase \"source-vault-pass\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("backup restore does not accept positional arguments")
@@ -127,8 +129,17 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 				if deps.globals.Quiet {
 					return nil
 				}
-				_, err = fmt.Fprintf(deps.out, "backup restored: %t\n", resp.GetRestored())
-				return err
+				if _, err := fmt.Fprintf(deps.out, "backup restored: %t\n", resp.GetRestored()); err != nil {
+					return err
+				}
+				if resp.GetRestored() {
+					_, err = fmt.Fprintln(
+						deps.out,
+						"next: run `heimdall daemon restart` then unlock using the source vault passphrase from the backup",
+					)
+					return err
+				}
+				return nil
 			})
 		},
 	}
