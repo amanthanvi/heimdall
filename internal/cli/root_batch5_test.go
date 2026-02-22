@@ -93,6 +93,14 @@ func TestAllCommandsHaveExamples(t *testing.T) {
 	walk(root)
 }
 
+func TestBackupRestoreHelpMentionsWorkflowAndReauth(t *testing.T) {
+	out, err := runCLI(t, "", "backup", "restore", "--help")
+	require.NoError(t, err)
+	require.Contains(t, out, "Recommended workflow")
+	require.Contains(t, out, "--overwrite requires a recent re-authentication window")
+	require.Contains(t, out, "Restart daemon, then unlock the restored vault")
+}
+
 func TestUnsupportedCommandsUseReservedMessaging(t *testing.T) {
 	_, err := runCLI(t, "", "host", "test")
 	require.Error(t, err)

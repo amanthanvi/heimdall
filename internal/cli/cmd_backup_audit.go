@@ -14,7 +14,8 @@ func newBackupCommand(deps commandDeps) *cobra.Command {
 		Use:   "backup",
 		Short: "Backup operations",
 		Example: "  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
-			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"",
+			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+			"  heimdall daemon restart",
 	}
 	cmd.AddCommand(
 		newBackupCreateCommand(deps),
@@ -83,8 +84,23 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Restore from backup",
+		Long: strings.Join([]string{
+			"Restore from backup.",
+			"",
+			"Recommended workflow:",
+			"  1) Initialize and unlock the target vault/config once.",
+			"  2) If replacing an existing target vault, remove that vault file first.",
+			"  3) Run restore with --from and --passphrase.",
+			"  4) Restart daemon, then unlock the restored vault.",
+			"",
+			"Notes:",
+			"  - --overwrite requires a recent re-authentication window.",
+			"  - Restoring into an uninitialized target path can fail daemon startup.",
+		}, "\n"),
 		Example: "  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
-			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\" --overwrite",
+			"  heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+			"  heimdall daemon restart\n" +
+			"  heimdall vault unlock --passphrase \"target-pass\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("backup restore does not accept positional arguments")
@@ -118,7 +134,7 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&inputPath, "from", "", "Backup input path")
 	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Backup passphrase (required)")
-	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing vault")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Allow overwriting existing vault (requires recent re-authentication)")
 	return cmd
 }
 
