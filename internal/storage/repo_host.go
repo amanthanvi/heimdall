@@ -48,10 +48,21 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 	`, host.ID, host.Name, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
 	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("create host: insert host: %w", err)
+		restored, restoreErr := r.restoreSoftDeletedTx(ctx, tx, host, envRefs)
+		if restoreErr != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("create host: restore soft-deleted: %w", restoreErr)
+		}
+		if !restored {
+			_ = tx.Rollback()
+			return fmt.Errorf("create host: insert host: %w", err)
+		}
 	}
 
+	if _, err := tx.ExecContext(ctx, `DELETE FROM host_tags WHERE host_id = ?`, host.ID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("create host: clear tags: %w", err)
+	}
 	for _, tag := range host.Tags {
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO host_tags(host_id, tag) VALUES(?, ?)`, host.ID, tag); err != nil {
 			_ = tx.Rollback()
@@ -64,6 +75,50 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	}
 
 	return nil
+}
+
+func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, host *Host, envRefs sql.NullString) (bool, error) {
+	var (
+		existingID string
+		createdRaw string
+	)
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, created_at
+		FROM hosts
+		WHERE name = ? AND deleted_at IS NOT NULL
+	`, host.Name).Scan(&existingID, &createdRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query deleted host: %w", err)
+	}
+
+	now := nowUTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE hosts
+		SET address = ?, port = ?, user = ?, key_name = ?, identity_file = ?, proxy_jump = ?, env_refs = ?, updated_at = ?, deleted_at = NULL
+		WHERE id = ? AND deleted_at IS NOT NULL
+	`, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(now), existingID)
+	if err != nil {
+		return false, fmt.Errorf("restore deleted host: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("restore deleted host rows affected: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+
+	createdAt, err := parseTime(createdRaw)
+	if err != nil {
+		return false, fmt.Errorf("parse created_at: %w", err)
+	}
+	host.ID = existingID
+	host.CreatedAt = createdAt
+	host.UpdatedAt = now
+	return true, nil
 }
 
 func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {

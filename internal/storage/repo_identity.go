@@ -47,9 +47,71 @@ func (r *identityRepository) Create(ctx context.Context, identity *Identity) err
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 	`, identity.ID, identity.Name, identity.Kind, identity.PublicKey, nullableBytes(blob.Ciphertext), nullableBytes(blob.Nonce), string(identity.Status), fmtTime(identity.CreatedAt), fmtTime(identity.UpdatedAt))
 	if err != nil {
+		restored, restoreErr := r.restoreSoftDeleted(ctx, identity)
+		if restoreErr != nil {
+			return fmt.Errorf("create identity: restore soft-deleted: %w", restoreErr)
+		}
+		if restored {
+			return nil
+		}
 		return fmt.Errorf("create identity: %w", err)
 	}
 	return nil
+}
+
+func (r *identityRepository) restoreSoftDeleted(ctx context.Context, identity *Identity) (bool, error) {
+	var (
+		existingID string
+		createdRaw string
+	)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, created_at
+		FROM identities
+		WHERE name = ? AND deleted_at IS NOT NULL
+	`, identity.Name).Scan(&existingID, &createdRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query deleted identity: %w", err)
+	}
+
+	var ciphertext any
+	var nonce any
+	if len(identity.PrivateKey) > 0 {
+		blob, err := r.vc.EncryptField("identity", existingID, "private_key", identity.PrivateKey)
+		if err != nil {
+			return false, fmt.Errorf("encrypt private key: %w", err)
+		}
+		ciphertext = nullableBytes(blob.Ciphertext)
+		nonce = nullableBytes(blob.Nonce)
+	}
+
+	now := nowUTC()
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE identities
+		SET kind = ?, public_key = ?, private_key_ciphertext = ?, private_key_nonce = ?, status = ?, updated_at = ?, deleted_at = NULL
+		WHERE id = ? AND deleted_at IS NOT NULL
+	`, identity.Kind, identity.PublicKey, ciphertext, nonce, string(identity.Status), fmtTime(now), existingID)
+	if err != nil {
+		return false, fmt.Errorf("restore deleted identity: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("restore deleted identity rows affected: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+
+	createdAt, err := parseTime(createdRaw)
+	if err != nil {
+		return false, fmt.Errorf("parse created_at: %w", err)
+	}
+	identity.ID = existingID
+	identity.CreatedAt = createdAt
+	identity.UpdatedAt = now
+	return true, nil
 }
 
 func (r *identityRepository) Get(ctx context.Context, name string) (*Identity, error) {

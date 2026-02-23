@@ -39,9 +39,60 @@ func (r *passkeyRepository) Create(ctx context.Context, enrollment *PasskeyEnrol
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL)
 	`, enrollment.ID, enrollment.Label, enrollment.CredentialID, enrollment.PublicKeyCOSE, nullableBytes(enrollment.AAGUID), boolToInt(enrollment.SupportsHMACSecret), fmtTime(enrollment.CreatedAt), fmtTime(enrollment.UpdatedAt))
 	if err != nil {
+		restored, restoreErr := r.restoreSoftDeleted(ctx, enrollment)
+		if restoreErr != nil {
+			return fmt.Errorf("create passkey enrollment: restore soft-deleted: %w", restoreErr)
+		}
+		if restored {
+			return nil
+		}
 		return fmt.Errorf("create passkey enrollment: %w", err)
 	}
 	return nil
+}
+
+func (r *passkeyRepository) restoreSoftDeleted(ctx context.Context, enrollment *PasskeyEnrollment) (bool, error) {
+	var (
+		existingID string
+		createdRaw string
+	)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, created_at
+		FROM passkey_enrollments
+		WHERE label = ? AND deleted_at IS NOT NULL
+	`, enrollment.Label).Scan(&existingID, &createdRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query deleted passkey enrollment: %w", err)
+	}
+
+	now := nowUTC()
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE passkey_enrollments
+		SET credential_id = ?, public_key_cose = ?, aaguid = ?, supports_hmac_secret = ?, updated_at = ?, deleted_at = NULL
+		WHERE id = ? AND deleted_at IS NOT NULL
+	`, enrollment.CredentialID, enrollment.PublicKeyCOSE, nullableBytes(enrollment.AAGUID), boolToInt(enrollment.SupportsHMACSecret), fmtTime(now), existingID)
+	if err != nil {
+		return false, fmt.Errorf("restore deleted passkey enrollment: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("restore deleted passkey enrollment rows affected: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+
+	createdAt, err := parseTime(createdRaw)
+	if err != nil {
+		return false, fmt.Errorf("parse created_at: %w", err)
+	}
+	enrollment.ID = existingID
+	enrollment.CreatedAt = createdAt
+	enrollment.UpdatedAt = now
+	return true, nil
 }
 
 func (r *passkeyRepository) GetByLabel(ctx context.Context, label string) (*PasskeyEnrollment, error) {

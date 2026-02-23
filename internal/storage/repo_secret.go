@@ -40,9 +40,64 @@ func (r *secretRepository) Create(ctx context.Context, secret *Secret) error {
 		VALUES(?, ?, ?, ?, ?, ?, NULL)
 	`, secret.ID, secret.Name, blob.Ciphertext, blob.Nonce, fmtTime(secret.CreatedAt), fmtTime(secret.UpdatedAt))
 	if err != nil {
+		restored, restoreErr := r.restoreSoftDeleted(ctx, secret)
+		if restoreErr != nil {
+			return fmt.Errorf("create secret: restore soft-deleted: %w", restoreErr)
+		}
+		if restored {
+			return nil
+		}
 		return fmt.Errorf("create secret: %w", err)
 	}
 	return nil
+}
+
+func (r *secretRepository) restoreSoftDeleted(ctx context.Context, secret *Secret) (bool, error) {
+	var (
+		existingID string
+		createdRaw string
+	)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, created_at
+		FROM secrets
+		WHERE name = ? AND deleted_at IS NOT NULL
+	`, secret.Name).Scan(&existingID, &createdRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query deleted secret: %w", err)
+	}
+
+	blob, err := r.vc.EncryptField("secret", existingID, "value", secret.Value)
+	if err != nil {
+		return false, fmt.Errorf("encrypt value: %w", err)
+	}
+	now := nowUTC()
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE secrets
+		SET value_ciphertext = ?, value_nonce = ?, updated_at = ?, deleted_at = NULL
+		WHERE id = ? AND deleted_at IS NOT NULL
+	`, blob.Ciphertext, blob.Nonce, fmtTime(now), existingID)
+	if err != nil {
+		return false, fmt.Errorf("restore deleted secret: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("restore deleted secret rows affected: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+
+	createdAt, err := parseTime(createdRaw)
+	if err != nil {
+		return false, fmt.Errorf("parse created_at: %w", err)
+	}
+	secret.ID = existingID
+	secret.CreatedAt = createdAt
+	secret.UpdatedAt = now
+	return true, nil
 }
 
 func (r *secretRepository) Get(ctx context.Context, name string) (*Secret, error) {

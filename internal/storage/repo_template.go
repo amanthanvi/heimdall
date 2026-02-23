@@ -32,9 +32,60 @@ func (r *templateRepository) Create(ctx context.Context, template *Template) err
 		VALUES(?, ?, ?, ?, ?, NULL)
 	`, template.ID, template.Name, template.Content, fmtTime(template.CreatedAt), fmtTime(template.UpdatedAt))
 	if err != nil {
+		restored, restoreErr := r.restoreSoftDeleted(ctx, template)
+		if restoreErr != nil {
+			return fmt.Errorf("create template: restore soft-deleted: %w", restoreErr)
+		}
+		if restored {
+			return nil
+		}
 		return fmt.Errorf("create template: %w", err)
 	}
 	return nil
+}
+
+func (r *templateRepository) restoreSoftDeleted(ctx context.Context, template *Template) (bool, error) {
+	var (
+		existingID string
+		createdRaw string
+	)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, created_at
+		FROM templates
+		WHERE name = ? AND deleted_at IS NOT NULL
+	`, template.Name).Scan(&existingID, &createdRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query deleted template: %w", err)
+	}
+
+	now := nowUTC()
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE templates
+		SET content = ?, updated_at = ?, deleted_at = NULL
+		WHERE id = ? AND deleted_at IS NOT NULL
+	`, template.Content, fmtTime(now), existingID)
+	if err != nil {
+		return false, fmt.Errorf("restore deleted template: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("restore deleted template rows affected: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+
+	createdAt, err := parseTime(createdRaw)
+	if err != nil {
+		return false, fmt.Errorf("parse created_at: %w", err)
+	}
+	template.ID = existingID
+	template.CreatedAt = createdAt
+	template.UpdatedAt = now
+	return true, nil
 }
 
 func (r *templateRepository) Get(ctx context.Context, name string) (*Template, error) {
