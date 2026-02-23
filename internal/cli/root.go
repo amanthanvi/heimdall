@@ -32,12 +32,16 @@ type commandDeps struct {
 }
 
 func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
+	return NewRootCommandWithWriters(out, out, build)
+}
+
+func NewRootCommandWithWriters(out io.Writer, errOut io.Writer, build BuildInfo) *cobra.Command {
 	globals := &GlobalOptions{
 		Timeout: 10 * time.Second,
 	}
 	deps := commandDeps{
 		out:     out,
-		errOut:  out,
+		errOut:  errOut,
 		build:   build,
 		globals: globals,
 	}
@@ -50,7 +54,7 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.SetOut(out)
-	cmd.SetErr(out)
+	cmd.SetErr(errOut)
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return usageErrorf("%v", err)
 	})

@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	cmd := cli.NewRootCommand(os.Stdout, cli.BuildInfo{
+	cmd := cli.NewRootCommandWithWriters(os.Stdout, os.Stderr, cli.BuildInfo{
 		Version:   version.Version,
 		Commit:    version.Commit,
 		BuildTime: version.BuildTime,

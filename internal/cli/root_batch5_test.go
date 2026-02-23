@@ -272,6 +272,20 @@ func TestCompletionVaultUnlockPasskeyFlagUsesDynamicLabels(t *testing.T) {
 	require.Contains(t, out, "yubikey")
 }
 
+func TestCompletionDirectiveSummaryGoesToStderr(t *testing.T) {
+	server := &cliTestDaemon{
+		keys: []*v1.KeyMeta{{Name: "deploy"}},
+	}
+	withStubDaemon(t, server)
+
+	stdout, stderr, err := runCLIWithWriters(t, "", "__complete", "host", "add", "--key", "")
+	require.NoError(t, err)
+	require.Contains(t, stdout, "deploy")
+	require.Contains(t, stdout, ":4")
+	require.NotContains(t, stdout, "Completion ended with directive")
+	require.Contains(t, stderr, "Completion ended with directive: ShellCompDirectiveNoFileComp")
+}
+
 func TestGenerateManPagesCreatesFiles(t *testing.T) {
 
 	dir := t.TempDir()
@@ -583,6 +597,20 @@ func runCLI(t *testing.T, stdin string, args ...string) (string, error) {
 	cmd.SetArgs(args)
 	err := cmd.Execute()
 	return out.String(), err
+}
+
+func runCLIWithWriters(t *testing.T, stdin string, args ...string) (string, string, error) {
+	t.Helper()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewRootCommandWithWriters(&out, &errOut, testBuildInfo())
+	if stdin != "" {
+		cmd.SetIn(strings.NewReader(stdin))
+	}
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), errOut.String(), err
 }
 
 func testBuildInfo() BuildInfo {
