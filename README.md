@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
-Current stable release: `v0.1.11`.
+Current stable release: `v0.1.12`.
 
 ## Quickstart
 
@@ -76,6 +76,7 @@ Notes:
 - `backup restore --overwrite` requires a recent re-authentication window.
 - Restoring into an uninitialized target path can fail daemon startup.
 - Restored vault unlock credentials come from the backup source vault.
+- `export/import --format json` is metadata-oriented; use `backup create/restore` to move encrypted private keys and secret values.
 
 ## Shell Completions
 

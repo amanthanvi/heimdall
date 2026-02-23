@@ -314,6 +314,7 @@ func TestConnectDryRunPrintsSSHCommand(t *testing.T) {
 func TestConnectDryRunWithKeyPrintsManagedAgentAuth(t *testing.T) {
 	server := &cliTestDaemon{
 		hosts: []*v1.Host{{Name: "prod", Address: "10.0.0.1", Port: 22, User: "ubuntu"}},
+		keys:  []*v1.KeyMeta{{Name: "deploy"}},
 	}
 	withStubDaemon(t, server)
 
@@ -331,6 +332,25 @@ func TestConnectRejectsConflictingAuthFlags(t *testing.T) {
 	_, err := runCLI(t, "", "connect", "prod", "--key", "deploy", "--identity-file", "~/.ssh/id")
 	require.Error(t, err)
 	require.Equal(t, ExitCodeUsage, exitCode(err))
+}
+
+func TestConnectDryRunWithMissingKeyReturnsNotFound(t *testing.T) {
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{
+			Name:    "prod",
+			Address: "10.0.0.1",
+			Port:    22,
+			User:    "ubuntu",
+			EnvRefs: map[string]string{"key_name": "deploy"},
+		}},
+		keys: []*v1.KeyMeta{},
+	}
+	withStubDaemon(t, server)
+
+	_, err := runCLI(t, "", "connect", "prod", "--dry-run")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeNotFound, exitCode(err))
+	require.Contains(t, err.Error(), `connect: key "deploy" not found in vault`)
 }
 
 func TestConnectWithKeyRegistersSessionLifecycle(t *testing.T) {
@@ -361,6 +381,7 @@ func TestConnectWithKeyRegistersSessionLifecycle(t *testing.T) {
 			Port:    22,
 			User:    "ubuntu",
 		}},
+		keys: []*v1.KeyMeta{{Name: "deploy"}},
 	}
 	withStubDaemon(t, server)
 

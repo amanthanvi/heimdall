@@ -77,6 +77,15 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 				if effectiveKeyName != "" && effectiveIdentityFile != "" {
 					return usageErrorf("connect cannot use --key and --identity-file together")
 				}
+				if effectiveKeyName != "" {
+					known, err := keyExists(ctx, clients.key, effectiveKeyName)
+					if err != nil {
+						return err
+					}
+					if !known {
+						return asExitError(ExitCodeNotFound, fmt.Errorf("connect: key %q not found in vault", effectiveKeyName))
+					}
+				}
 
 				resp, err := clients.connect.Plan(ctx, &v1.PlanConnectRequest{
 					HostName:     hostName,
@@ -209,4 +218,24 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().StringVar(&identityFile, "identity-file", "", "Identity file path")
 	cmd.Flags().StringVar(&knownHosts, "known-hosts", "", "Known hosts file path")
 	return cmd
+}
+
+func keyExists(ctx context.Context, client v1.KeyServiceClient, name string) (bool, error) {
+	if client == nil {
+		return false, fmt.Errorf("connect: key service client is not available")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, nil
+	}
+	resp, err := client.ListKeys(ctx, &v1.ListKeysRequest{})
+	if err != nil {
+		return false, err
+	}
+	for _, meta := range resp.GetKeys() {
+		if strings.TrimSpace(meta.GetName()) == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
