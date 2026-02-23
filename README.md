@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
-Current stable release: `v0.1.14`.
+Current stable release: `v0.1.15`.
 
 ## Quickstart
 
