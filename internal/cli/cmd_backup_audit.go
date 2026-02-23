@@ -10,14 +10,15 @@ import (
 )
 
 func newBackupCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "backup",
-		Short: "Backup operations",
-		Example: "  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
-			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
-			"  heimdall daemon restart\n" +
+	cmd := newGroupCommand(
+		"backup",
+		"Backup operations",
+		"  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n"+
+			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n"+
+			"  heimdall daemon restart\n"+
 			"  heimdall vault unlock --passphrase \"source-vault-pass\"",
-	}
+		map[string]string{},
+	)
 	cmd.AddCommand(
 		newBackupCreateCommand(deps),
 		newBackupRestoreCommand(deps),
@@ -150,12 +151,13 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 }
 
 func newAuditCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "audit",
-		Short: "Audit log operations",
-		Example: "  heimdall audit list --limit 50\n" +
+	cmd := newGroupCommand(
+		"audit",
+		"Audit log operations",
+		"  heimdall audit list --limit 50\n"+
 			"  heimdall audit verify",
-	}
+		map[string]string{},
+	)
 	cmd.AddCommand(
 		newAuditListCommand(deps),
 		newAuditVerifyCommand(deps),

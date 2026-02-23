@@ -44,9 +44,9 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO hosts(id, name, address, port, user, env_refs, created_at, updated_at, deleted_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL)
-	`, host.ID, host.Name, host.Address, host.Port, host.User, envRefs, fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
+		INSERT INTO hosts(id, name, address, port, user, key_name, identity_file, proxy_jump, env_refs, created_at, updated_at, deleted_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	`, host.ID, host.Name, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("create host: insert host: %w", err)
@@ -68,7 +68,7 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 
 func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, address, port, user, env_refs, created_at, updated_at, deleted_at
+		SELECT id, name, address, port, user, key_name, identity_file, proxy_jump, env_refs, created_at, updated_at, deleted_at
 		FROM hosts
 		WHERE name = ? AND deleted_at IS NULL
 	`, name)
@@ -91,7 +91,7 @@ func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {
 
 func (r *hostRepository) List(ctx context.Context, filter HostFilter) ([]Host, error) {
 	query := `
-		SELECT DISTINCT h.id, h.name, h.address, h.port, h.user, h.env_refs, h.created_at, h.updated_at, h.deleted_at
+		SELECT DISTINCT h.id, h.name, h.address, h.port, h.user, h.key_name, h.identity_file, h.proxy_jump, h.env_refs, h.created_at, h.updated_at, h.deleted_at
 		FROM hosts h
 	`
 	args := []any{}
@@ -159,9 +159,9 @@ func (r *hostRepository) Update(ctx context.Context, host *Host) error {
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE hosts
-		SET name = ?, address = ?, port = ?, user = ?, env_refs = ?, updated_at = ?
+		SET name = ?, address = ?, port = ?, user = ?, key_name = ?, identity_file = ?, proxy_jump = ?, env_refs = ?, updated_at = ?
 		WHERE id = ? AND deleted_at IS NULL
-	`, host.Name, host.Address, host.Port, host.User, envRefs, fmtTime(host.UpdatedAt), host.ID)
+	`, host.Name, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(host.UpdatedAt), host.ID)
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("update host: update row: %w", err)
@@ -263,14 +263,17 @@ type hostScanner interface {
 
 func scanHost(scanner hostScanner) (*Host, error) {
 	var (
-		host      Host
-		envRefs   sql.NullString
-		createdAt string
-		updatedAt string
-		deletedAt sql.NullString
+		host         Host
+		keyName      sql.NullString
+		identityFile sql.NullString
+		proxyJump    sql.NullString
+		envRefs      sql.NullString
+		createdAt    string
+		updatedAt    string
+		deletedAt    sql.NullString
 	)
 
-	if err := scanner.Scan(&host.ID, &host.Name, &host.Address, &host.Port, &host.User, &envRefs, &createdAt, &updatedAt, &deletedAt); err != nil {
+	if err := scanner.Scan(&host.ID, &host.Name, &host.Address, &host.Port, &host.User, &keyName, &identityFile, &proxyJump, &envRefs, &createdAt, &updatedAt, &deletedAt); err != nil {
 		return nil, err
 	}
 
@@ -293,5 +296,8 @@ func scanHost(scanner hostScanner) (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
+	host.KeyName = keyName.String
+	host.IdentityFile = identityFile.String
+	host.ProxyJump = proxyJump.String
 	return &host, nil
 }

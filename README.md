@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
-Current stable release: `v0.1.8`.
+Current stable release: `v0.1.9`.
 
 ## Quickstart
 
@@ -42,12 +42,15 @@ heimdall init --yes --passphrase "dev-pass"
 heimdall vault unlock --passphrase "dev-pass"
 
 # 3) Add host metadata
-heimdall host add --name prod --addr 10.0.0.10 --user ubuntu
+heimdall host add --name prod --address 10.0.0.10 --user ubuntu --key deploy
 
 # 4) Preview SSH command without executing
 heimdall connect prod --dry-run
 
-# 5) Lock vault
+# 5) Connect with vault key via managed agent
+heimdall connect prod --key deploy
+
+# 6) Lock vault
 heimdall vault lock
 ```
 
@@ -76,7 +79,32 @@ Notes:
 
 ## Shell Completions
 
-Generate completions with the built-in Cobra completion command.
+Install completions as a first-class setup step:
+
+```bash
+heimdall completion install --shell zsh --verify
+```
+
+After upgrading Heimdall, rerun completion install with `--overwrite` to refresh shell scripts:
+
+```bash
+heimdall completion install --shell zsh --verify --overwrite
+```
+
+You can still generate raw scripts directly with the built-in completion command.
+
+## CLI Command Updates (Breaking)
+
+- `host ls` → `host list`
+- `host rm` → `host remove`
+- `host add --addr` → `host add --address`
+- `key gen` → `key generate`
+- `key ls` → `key list`
+- `key rm` → `key remove`
+- `secret ls` → `secret list`
+- `secret rm` → `secret remove`
+
+Legacy names now return explicit usage errors with the exact replacement command.
 
 ### Bash
 

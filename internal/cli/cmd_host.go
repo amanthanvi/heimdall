@@ -10,71 +10,45 @@ import (
 )
 
 func newHostCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "host",
-		Short: "Host management",
-		Example: "  heimdall host add --name prod --addr 10.0.0.10 --user ubuntu\n" +
-			"  heimdall host ls\n" +
+	cmd := newGroupCommand(
+		"host",
+		"Host management",
+		"  heimdall host add --name prod --address 10.0.0.10 --user ubuntu\n"+
+			"  heimdall host list\n"+
 			"  heimdall host show prod",
-	}
+		map[string]string{
+			"ls": "list",
+			"rm": "remove",
+		},
+	)
 	cmd.AddCommand(
 		newHostAddCommand(deps),
 		newHostListCommand(deps),
 		newHostShowCommand(deps),
 		newHostRemoveCommand(deps),
 		newHostEditCommand(deps),
-		newHostUnsupportedCommand("", "test"),
-		newHostUnsupportedCommand("", "trust"),
-		newHostTemplateCommand(),
-	)
-	return cmd
-}
-
-func newHostUnsupportedCommand(scope, name string) *cobra.Command {
-	path := strings.TrimSpace(strings.Join([]string{"host", scope, name}, " "))
-	return &cobra.Command{
-		Use:     name,
-		Short:   "Reserved host command (future release)",
-		Example: fmt.Sprintf("  heimdall %s", path),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is reserved for a future release", cmd.CommandPath()))
-		},
-	}
-}
-
-func newHostTemplateCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "template",
-		Short: "Host template operations",
-		Example: "  heimdall host template ls\n" +
-			"  heimdall host template add",
-	}
-	cmd.AddCommand(
-		newHostUnsupportedCommand("template", "add"),
-		newHostUnsupportedCommand("template", "edit"),
-		newHostUnsupportedCommand("template", "rm"),
-		newHostUnsupportedCommand("template", "ls"),
-		newHostUnsupportedCommand("template", "show"),
 	)
 	return cmd
 }
 
 func newHostAddCommand(deps commandDeps) *cobra.Command {
 	var (
-		name    string
-		address string
-		port    int32
-		user    string
-		tags    []string
-		group   string
-		envRefs []string
+		name         string
+		address      string
+		port         int32
+		user         string
+		tags         []string
+		group        string
+		keyName      string
+		identityFile string
+		proxyJump    string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a host",
-		Example: "  heimdall host add --name prod --addr 10.0.0.10 --user ubuntu\n" +
-			"  heimdall host add --name db --addr 10.0.0.20 --user postgres --tag critical --group infra",
+		Example: "  heimdall host add --name prod --address 10.0.0.10 --user ubuntu\n" +
+			"  heimdall host add --name db --address 10.0.0.20 --user postgres --key deploy --proxy-jump bastion",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("host add does not accept positional arguments")
@@ -83,13 +57,29 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 				return usageErrorf("host add requires --name")
 			}
 			if strings.TrimSpace(address) == "" {
-				return usageErrorf("host add requires --addr")
+				return usageErrorf("host add requires --address")
 			}
 			if port < 1 || port > 65535 {
 				return usageErrorf("host add --port must be between 1 and 65535")
 			}
+			if strings.TrimSpace(keyName) != "" && strings.TrimSpace(identityFile) != "" {
+				return usageErrorf("host add cannot set both --key and --identity-file")
+			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				envRefs := map[string]string{}
+				if value := strings.TrimSpace(keyName); value != "" {
+					envRefs["key_name"] = value
+				}
+				if value := strings.TrimSpace(identityFile); value != "" {
+					envRefs["identity_ref"] = value
+				}
+				if value := strings.TrimSpace(proxyJump); value != "" {
+					envRefs["proxy_jump"] = value
+				}
+				if len(envRefs) == 0 {
+					envRefs = nil
+				}
 				resp, err := clients.host.CreateHost(ctx, &v1.CreateHostRequest{
 					Name:    name,
 					Address: address,
@@ -97,7 +87,7 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 					User:    user,
 					Tags:    append([]string(nil), tags...),
 					Group:   group,
-					EnvRefs: parseKeyValuePairs(envRefs),
+					EnvRefs: envRefs,
 				})
 				if err != nil {
 					return err
@@ -108,12 +98,14 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "Host name")
-	cmd.Flags().StringVar(&address, "addr", "", "Host address")
+	cmd.Flags().StringVar(&address, "address", "", "Host address")
 	cmd.Flags().Int32Var(&port, "port", 22, "SSH port")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Host tag (repeatable)")
 	cmd.Flags().StringVar(&group, "group", "", "Host group")
-	cmd.Flags().StringSliceVar(&envRefs, "env-ref", nil, "Host environment reference key=value (repeatable)")
+	cmd.Flags().StringVar(&keyName, "key", "", "Default vault key name used by connect")
+	cmd.Flags().StringVar(&identityFile, "identity-file", "", "Default identity file used by connect")
+	cmd.Flags().StringVar(&proxyJump, "proxy-jump", "", "Default SSH ProxyJump used by connect")
 	return cmd
 }
 
@@ -126,14 +118,14 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "ls",
+		Use:   "list",
 		Short: "List hosts",
-		Example: "  heimdall host ls\n" +
-			"  heimdall host ls --names-only\n" +
-			"  heimdall host ls --tag critical --search prod",
+		Example: "  heimdall host list\n" +
+			"  heimdall host list --names-only\n" +
+			"  heimdall host list --tag critical --search prod",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return usageErrorf("host ls does not accept positional arguments")
+				return usageErrorf("host list does not accept positional arguments")
 			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				resp, err := clients.host.ListHosts(ctx, &v1.ListHostsRequest{NamesOnly: namesOnly})
@@ -202,12 +194,12 @@ func newHostShowCommand(deps commandDeps) *cobra.Command {
 
 func newHostRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:     "rm <name>",
+		Use:     "remove <name>",
 		Short:   "Remove a host",
-		Example: "  heimdall host rm prod",
+		Example: "  heimdall host remove prod",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return usageErrorf("host rm requires exactly one host name")
+				return usageErrorf("host remove requires exactly one host name")
 			}
 			return nil
 		},
@@ -232,20 +224,25 @@ func newHostRemoveCommand(deps commandDeps) *cobra.Command {
 
 func newHostEditCommand(deps commandDeps) *cobra.Command {
 	var (
-		newName   string
-		address   string
-		port      int32
-		user      string
-		tags      []string
-		clearTags bool
-		envRefs   []string
+		newName           string
+		address           string
+		port              int32
+		user              string
+		tags              []string
+		clearTags         bool
+		keyName           string
+		identityFile      string
+		proxyJump         string
+		clearKey          bool
+		clearIdentityFile bool
+		clearProxyJump    bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "edit <name>",
 		Short: "Edit an existing host",
-		Example: "  heimdall host edit prod --addr 10.0.0.11 --user root\n" +
-			"  heimdall host edit prod --tag critical --tag ssh",
+		Example: "  heimdall host edit prod --address 10.0.0.11 --user root\n" +
+			"  heimdall host edit prod --key deploy --proxy-jump bastion",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("host edit requires exactly one host name")
@@ -256,14 +253,46 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 			if port < 0 || port > 65535 {
 				return usageErrorf("host edit --port must be between 1 and 65535 when provided")
 			}
+			if strings.TrimSpace(keyName) != "" && strings.TrimSpace(identityFile) != "" {
+				return usageErrorf("host edit cannot set both --key and --identity-file")
+			}
+			if clearKey && strings.TrimSpace(keyName) != "" {
+				return usageErrorf("host edit cannot combine --key and --clear-key")
+			}
+			if clearIdentityFile && strings.TrimSpace(identityFile) != "" {
+				return usageErrorf("host edit cannot combine --identity-file and --clear-identity-file")
+			}
+			if clearProxyJump && strings.TrimSpace(proxyJump) != "" {
+				return usageErrorf("host edit cannot combine --proxy-jump and --clear-proxy-jump")
+			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				envRefs := map[string]string{}
+				if value := strings.TrimSpace(keyName); value != "" {
+					envRefs["key_name"] = value
+				} else if clearKey {
+					envRefs["key_name"] = ""
+				}
+				if value := strings.TrimSpace(identityFile); value != "" {
+					envRefs["identity_ref"] = value
+				} else if clearIdentityFile {
+					envRefs["identity_ref"] = ""
+				}
+				if value := strings.TrimSpace(proxyJump); value != "" {
+					envRefs["proxy_jump"] = value
+				} else if clearProxyJump {
+					envRefs["proxy_jump"] = ""
+				}
+				if len(envRefs) == 0 {
+					envRefs = nil
+				}
+
 				req := &v1.UpdateHostRequest{
 					Name:      args[0],
 					NewName:   newName,
 					Address:   address,
 					Port:      port,
 					ClearTags: clearTags,
-					EnvRefs:   parseKeyValuePairs(envRefs),
+					EnvRefs:   envRefs,
 				}
 				if user != "" {
 					req.User = user
@@ -280,13 +309,18 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&newName, "name", "", "Updated host name")
-	cmd.Flags().StringVar(&address, "addr", "", "Updated host address")
+	cmd.Flags().StringVar(&newName, "new-name", "", "Updated host name")
+	cmd.Flags().StringVar(&address, "address", "", "Updated host address")
 	cmd.Flags().Int32Var(&port, "port", 0, "Updated SSH port")
 	cmd.Flags().StringVar(&user, "user", "", "Updated SSH user")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Updated host tags")
 	cmd.Flags().BoolVar(&clearTags, "clear-tags", false, "Remove all host tags")
-	cmd.Flags().StringSliceVar(&envRefs, "env-ref", nil, "Updated environment reference key=value")
+	cmd.Flags().StringVar(&keyName, "key", "", "Updated default vault key name used by connect")
+	cmd.Flags().StringVar(&identityFile, "identity-file", "", "Updated default identity file used by connect")
+	cmd.Flags().StringVar(&proxyJump, "proxy-jump", "", "Updated default SSH ProxyJump used by connect")
+	cmd.Flags().BoolVar(&clearKey, "clear-key", false, "Clear default connect key")
+	cmd.Flags().BoolVar(&clearIdentityFile, "clear-identity-file", false, "Clear default identity file")
+	cmd.Flags().BoolVar(&clearProxyJump, "clear-proxy-jump", false, "Clear default ProxyJump")
 	return cmd
 }
 
@@ -344,37 +378,29 @@ func printHostOutput(deps commandDeps, host *v1.Host) error {
 	if deps.globals.Quiet {
 		return nil
 	}
+	connectDefaults := []string{}
+	if value := strings.TrimSpace(host.GetEnvRefs()["key_name"]); value != "" {
+		connectDefaults = append(connectDefaults, "key="+value)
+	}
+	if value := strings.TrimSpace(host.GetEnvRefs()["identity_ref"]); value != "" {
+		connectDefaults = append(connectDefaults, "identity_file="+value)
+	}
+	if value := strings.TrimSpace(host.GetEnvRefs()["proxy_jump"]); value != "" {
+		connectDefaults = append(connectDefaults, "proxy_jump="+value)
+	}
+	connectSuffix := ""
+	if len(connectDefaults) > 0 {
+		connectSuffix = " connect=" + strings.Join(connectDefaults, ",")
+	}
 	_, err := fmt.Fprintf(
 		deps.out,
-		"%s %s:%d user=%s tags=%s\n",
+		"%s %s:%d user=%s tags=%s%s\n",
 		host.GetName(),
 		host.GetAddress(),
 		host.GetPort(),
 		host.GetUser(),
 		strings.Join(host.GetTags(), ","),
+		connectSuffix,
 	)
 	return err
-}
-
-func parseKeyValuePairs(values []string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for _, raw := range values {
-		parts := strings.SplitN(raw, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		if key == "" {
-			continue
-		}
-		out[key] = value
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

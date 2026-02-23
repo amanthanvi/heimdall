@@ -13,7 +13,7 @@ import (
 	"github.com/amanthanvi/heimdall/internal/storage"
 )
 
-const exportBundleVersion = 1
+const exportBundleVersion = 2
 
 type TransferService struct {
 	store *storage.Store
@@ -54,13 +54,41 @@ func (s *TransferService) ExportJSON(ctx context.Context) ([]byte, error) {
 	}
 
 	for _, host := range hosts {
+		envRefs := cloneStringMap(host.EnvRefs)
+		keyName := strings.TrimSpace(host.KeyName)
+		if keyName == "" {
+			keyName = strings.TrimSpace(envRefs["key_name"])
+		}
+		identityFile := strings.TrimSpace(host.IdentityFile)
+		if identityFile == "" {
+			identityFile = strings.TrimSpace(envRefs["identity_ref"])
+		}
+		proxyJump := strings.TrimSpace(host.ProxyJump)
+		if proxyJump == "" {
+			proxyJump = strings.TrimSpace(envRefs["proxy_jump"])
+		}
+		if envRefs == nil {
+			envRefs = map[string]string{}
+		}
+		if keyName != "" {
+			envRefs["key_name"] = keyName
+		}
+		if identityFile != "" {
+			envRefs["identity_ref"] = identityFile
+		}
+		if proxyJump != "" {
+			envRefs["proxy_jump"] = proxyJump
+		}
 		bundle.Hosts = append(bundle.Hosts, ExportHost{
-			Name:    host.Name,
-			Address: host.Address,
-			Port:    host.Port,
-			User:    host.User,
-			Tags:    append([]string(nil), host.Tags...),
-			EnvRefs: cloneStringMap(host.EnvRefs),
+			Name:         host.Name,
+			Address:      host.Address,
+			Port:         host.Port,
+			User:         host.User,
+			Tags:         append([]string(nil), host.Tags...),
+			KeyName:      keyName,
+			IdentityFile: identityFile,
+			ProxyJump:    proxyJump,
+			EnvRefs:      envRefs,
 		})
 	}
 	for _, identity := range identities {
@@ -171,12 +199,20 @@ func (s *TransferService) GenerateSSHConfig(ctx context.Context, outputPath stri
 			port = 22
 		}
 		fmt.Fprintf(&builder, "  Port %d\n", port)
-		if jump := strings.TrimSpace(host.EnvRefs["proxy_jump"]); jump != "" {
+		jump := strings.TrimSpace(host.ProxyJump)
+		if jump == "" {
+			jump = strings.TrimSpace(host.EnvRefs["proxy_jump"])
+		}
+		if jump != "" {
 			builder.WriteString("  ProxyJump ")
 			builder.WriteString(jump)
 			builder.WriteByte('\n')
 		}
-		if identity := strings.TrimSpace(host.EnvRefs["identity_ref"]); identity != "" {
+		identity := strings.TrimSpace(host.IdentityFile)
+		if identity == "" {
+			identity = strings.TrimSpace(host.EnvRefs["identity_ref"])
+		}
+		if identity != "" {
 			builder.WriteString("  IdentityFile ")
 			builder.WriteString(identity)
 			builder.WriteByte('\n')

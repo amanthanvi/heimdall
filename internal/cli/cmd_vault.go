@@ -9,46 +9,20 @@ import (
 )
 
 func newVaultCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "vault",
-		Short: "Vault operations",
-		Example: "  heimdall vault status\n" +
-			"  heimdall vault unlock --passphrase \"dev-pass\"\n" +
+	cmd := newGroupCommand(
+		"vault",
+		"Vault operations",
+		"  heimdall vault status\n"+
+			"  heimdall vault unlock --passphrase \"dev-pass\"\n"+
 			"  heimdall vault lock",
-	}
+		map[string]string{},
+	)
 	cmd.AddCommand(
 		newVaultStatusCommand(deps),
 		newVaultLockCommand(deps),
 		newVaultUnlockCommand(deps),
-		newVaultTimeoutCommand(),
-		newVaultUnsupportedCommand("change-passphrase"),
 	)
 	return cmd
-}
-
-func newVaultTimeoutCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "timeout",
-		Short: "Vault auto-lock timeout operations",
-		Example: "  heimdall vault timeout show\n" +
-			"  heimdall vault timeout set",
-	}
-	cmd.AddCommand(
-		newVaultUnsupportedCommand("set"),
-		newVaultUnsupportedCommand("show"),
-	)
-	return cmd
-}
-
-func newVaultUnsupportedCommand(name string) *cobra.Command {
-	return &cobra.Command{
-		Use:     name,
-		Short:   "Reserved vault command (future release)",
-		Example: fmt.Sprintf("  heimdall vault %s", name),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is reserved for a future release", cmd.CommandPath()))
-		},
-	}
 }
 
 func newVaultStatusCommand(deps commandDeps) *cobra.Command {

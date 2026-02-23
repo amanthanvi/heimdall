@@ -14,13 +14,14 @@ import (
 )
 
 func newDaemonCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "daemon",
-		Short: "Daemon lifecycle commands",
-		Example: "  heimdall daemon status\n" +
-			"  heimdall daemon restart\n" +
+	cmd := newGroupCommand(
+		"daemon",
+		"Daemon lifecycle commands",
+		"  heimdall daemon status\n"+
+			"  heimdall daemon restart\n"+
 			"  heimdall daemon stop",
-	}
+		map[string]string{},
+	)
 	cmd.AddCommand(
 		newDaemonStatusCommand(deps),
 		newDaemonStopCommand(deps),

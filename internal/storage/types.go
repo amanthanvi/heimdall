@@ -13,16 +13,19 @@ var (
 )
 
 type Host struct {
-	ID        string
-	Name      string
-	Address   string
-	Port      int
-	User      string
-	EnvRefs   map[string]string
-	Tags      []string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
+	ID           string
+	Name         string
+	Address      string
+	Port         int
+	User         string
+	KeyName      string
+	IdentityFile string
+	ProxyJump    string
+	EnvRefs      map[string]string
+	Tags         []string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    *time.Time
 }
 
 type HostFilter struct {

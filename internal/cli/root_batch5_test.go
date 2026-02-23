@@ -104,10 +104,58 @@ func TestBackupRestoreHelpMentionsWorkflowAndReauth(t *testing.T) {
 	require.Contains(t, out, "source-vault-pass")
 }
 
-func TestUnsupportedCommandsUseReservedMessaging(t *testing.T) {
-	_, err := runCLI(t, "", "host", "test")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "reserved for a future release")
+func TestRemovedPlaceholderCommandsDoNotAppearInHelp(t *testing.T) {
+	out, err := runCLI(t, "", "host", "--help")
+	require.NoError(t, err)
+	require.NotContains(t, out, "test")
+	require.NotContains(t, out, "trust")
+	require.NotContains(t, out, "template")
+}
+
+func TestLegacySubcommandGuidanceReturnsUsageError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "host ls",
+			args: []string{"host", "ls"},
+			want: `use "heimdall host list"`,
+		},
+		{
+			name: "key gen",
+			args: []string{"key", "gen"},
+			want: `use "heimdall key generate"`,
+		},
+		{
+			name: "secret rm",
+			args: []string{"secret", "rm"},
+			want: `use "heimdall secret remove"`,
+		},
+		{
+			name: "passkey ls",
+			args: []string{"passkey", "ls"},
+			want: `use "heimdall passkey list"`,
+		},
+		{
+			name: "key agent rm",
+			args: []string{"key", "agent", "rm"},
+			want: `use "heimdall key agent remove"`,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := runCLI(t, "", tc.args...)
+			require.Error(t, err)
+			require.Equal(t, ExitCodeUsage, exitCode(err))
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
 }
 
 func TestUnknownFlagReturnsUsageError(t *testing.T) {
@@ -183,6 +231,47 @@ func TestCompletionGenerationBashZshFish(t *testing.T) {
 	require.Contains(t, out, "complete -c heimdall")
 }
 
+func TestCompletionInstallWritesScript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "_heimdall")
+	out, err := runCLI(t, "", "completion", "install", "--shell", "zsh", "--path", path, "--verify")
+	require.NoError(t, err)
+	require.Contains(t, out, "completion installed")
+
+	raw, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Contains(t, string(raw), "#compdef heimdall")
+}
+
+func TestCompletionInstallDryRun(t *testing.T) {
+	out, err := runCLI(t, "", "completion", "install", "--shell", "zsh", "--dry-run")
+	require.NoError(t, err)
+	require.Contains(t, out, "completion install dry-run")
+}
+
+func TestCompletionHostAddKeyFlagUsesDynamicKeyNames(t *testing.T) {
+	server := &cliTestDaemon{
+		keys: []*v1.KeyMeta{{Name: "deploy"}, {Name: "ops"}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "__complete", "host", "add", "--key", "")
+	require.NoError(t, err)
+	require.Contains(t, out, "deploy")
+	require.Contains(t, out, "ops")
+}
+
+func TestCompletionVaultUnlockPasskeyFlagUsesDynamicLabels(t *testing.T) {
+	server := &cliTestDaemon{
+		passkeys: []*v1.PasskeyMeta{{Label: "macbook-touchid"}, {Label: "yubikey"}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "__complete", "vault", "unlock", "--passkey-label", "")
+	require.NoError(t, err)
+	require.Contains(t, out, "macbook-touchid")
+	require.Contains(t, out, "yubikey")
+}
+
 func TestGenerateManPagesCreatesFiles(t *testing.T) {
 
 	dir := t.TempDir()
@@ -200,7 +289,7 @@ func TestHostListJSONProducesValidArray(t *testing.T) {
 	}
 	withStubDaemon(t, server)
 
-	out, err := runCLI(t, "", "host", "ls", "--json")
+	out, err := runCLI(t, "", "host", "list", "--json")
 	require.NoError(t, err)
 
 	var payload []map[string]any
@@ -220,6 +309,28 @@ func TestConnectDryRunPrintsSSHCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, "ssh")
 	require.Contains(t, out, "10.0.0.1")
+}
+
+func TestConnectDryRunWithKeyPrintsManagedAgentAuth(t *testing.T) {
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{Name: "prod", Address: "10.0.0.1", Port: 22, User: "ubuntu"}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "connect", "prod", "--dry-run", "--key", "deploy")
+	require.NoError(t, err)
+	require.Contains(t, out, "auth: managed-agent key=deploy")
+}
+
+func TestConnectRejectsConflictingAuthFlags(t *testing.T) {
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{Name: "prod", Address: "10.0.0.1", Port: 22, User: "ubuntu"}},
+	}
+	withStubDaemon(t, server)
+
+	_, err := runCLI(t, "", "connect", "prod", "--key", "deploy", "--identity-file", "~/.ssh/id")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeUsage, exitCode(err))
 }
 
 func TestConnectExecutionUsesCommandContextWithoutTimeout(t *testing.T) {
@@ -361,7 +472,7 @@ func TestQuietSuppressesListOutput(t *testing.T) {
 	}
 	withStubDaemon(t, server)
 
-	out, err := runCLI(t, "", "--quiet", "host", "ls")
+	out, err := runCLI(t, "", "--quiet", "host", "list")
 	require.NoError(t, err)
 	require.Empty(t, strings.TrimSpace(out))
 }
@@ -425,9 +536,13 @@ func exitCode(err error) int {
 type cliTestDaemon struct {
 	v1.UnimplementedVaultServiceServer
 	v1.UnimplementedHostServiceServer
+	v1.UnimplementedKeyServiceServer
+	v1.UnimplementedPasskeyServiceServer
 	v1.UnimplementedConnectServiceServer
 
-	hosts []*v1.Host
+	hosts    []*v1.Host
+	keys     []*v1.KeyMeta
+	passkeys []*v1.PasskeyMeta
 }
 
 type recordingSSHExecutor struct {
@@ -458,6 +573,27 @@ func (d *cliTestDaemon) ListHosts(_ context.Context, req *v1.ListHostsRequest) (
 	return &v1.ListHostsResponse{Hosts: d.hosts}, nil
 }
 
+func (d *cliTestDaemon) GetHost(_ context.Context, req *v1.GetHostRequest) (*v1.GetHostResponse, error) {
+	for _, host := range d.hosts {
+		if host.GetName() == req.GetName() {
+			return &v1.GetHostResponse{Host: host}, nil
+		}
+	}
+	return nil, errors.New("host not found")
+}
+
+func (d *cliTestDaemon) AgentAdd(_ context.Context, req *v1.AgentAddRequest) (*v1.AgentAddResponse, error) {
+	return &v1.AgentAddResponse{Fingerprint: "SHA256:test"}, nil
+}
+
+func (d *cliTestDaemon) ListKeys(_ context.Context, _ *v1.ListKeysRequest) (*v1.ListKeysResponse, error) {
+	return &v1.ListKeysResponse{Keys: d.keys}, nil
+}
+
+func (d *cliTestDaemon) ListPasskeys(_ context.Context, _ *v1.ListPasskeysRequest) (*v1.ListPasskeysResponse, error) {
+	return &v1.ListPasskeysResponse{Passkeys: d.passkeys}, nil
+}
+
 func (d *cliTestDaemon) Plan(_ context.Context, req *v1.PlanConnectRequest) (*v1.PlanConnectResponse, error) {
 	host := "example.com"
 	for _, entry := range d.hosts {
@@ -476,6 +612,8 @@ func withStubDaemon(t *testing.T, server *cliTestDaemon) {
 	grpcServer := grpc.NewServer()
 	v1.RegisterVaultServiceServer(grpcServer, server)
 	v1.RegisterHostServiceServer(grpcServer, server)
+	v1.RegisterKeyServiceServer(grpcServer, server)
+	v1.RegisterPasskeyServiceServer(grpcServer, server)
 	v1.RegisterConnectServiceServer(grpcServer, server)
 
 	go func() {

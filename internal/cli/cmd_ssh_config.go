@@ -107,12 +107,20 @@ func renderSSHConfig(hosts []*v1.Host) string {
 		fmt.Fprintf(&builder, "  Port %d\n", port)
 
 		envRefs := host.GetEnvRefs()
-		if jump := strings.TrimSpace(envRefs["proxy_jump"]); jump != "" {
+		jump := strings.TrimSpace(envRefs["proxy_jump"])
+		if jump == "" {
+			jump = strings.TrimSpace(envRefs["proxyJump"])
+		}
+		if jump != "" {
 			builder.WriteString("  ProxyJump ")
 			builder.WriteString(jump)
 			builder.WriteByte('\n')
 		}
-		if identity := strings.TrimSpace(envRefs["identity_ref"]); identity != "" {
+		identity := strings.TrimSpace(envRefs["identity_ref"])
+		if identity == "" {
+			identity = strings.TrimSpace(envRefs["identityFile"])
+		}
+		if identity != "" {
 			builder.WriteString("  IdentityFile ")
 			builder.WriteString(identity)
 			builder.WriteByte('\n')

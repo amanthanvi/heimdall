@@ -38,18 +38,25 @@ func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*stora
 	if req.Port == 0 {
 		req.Port = 22
 	}
+	keyName, identityFile, proxyJump, err := resolveHostConnectDefaults(req.KeyName, req.IdentityFile, req.ProxyJump, req.EnvRefs)
+	if err != nil {
+		return nil, err
+	}
 
 	tags := append([]string(nil), req.Tags...)
 	if req.Group != "" {
 		tags = append(tags, "group:"+req.Group)
 	}
 	host := &storage.Host{
-		Name:    req.Name,
-		Address: req.Address,
-		Port:    req.Port,
-		User:    req.User,
-		Tags:    dedupeStrings(tags),
-		EnvRefs: cloneStringMap(req.EnvRefs),
+		Name:         req.Name,
+		Address:      req.Address,
+		Port:         req.Port,
+		User:         req.User,
+		KeyName:      keyName,
+		IdentityFile: identityFile,
+		ProxyJump:    proxyJump,
+		Tags:         dedupeStrings(tags),
+		EnvRefs:      canonicalHostEnvRefs(keyName, identityFile, proxyJump, req.EnvRefs),
 	}
 	if err := s.hosts.Create(ctx, host); err != nil {
 		if isDuplicateError(err) {
@@ -99,16 +106,38 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 	if req.Tags != nil {
 		host.Tags = dedupeStrings(*req.Tags)
 	}
+	if req.KeyName != nil {
+		host.KeyName = strings.TrimSpace(*req.KeyName)
+	}
+	if req.IdentityFile != nil {
+		host.IdentityFile = strings.TrimSpace(*req.IdentityFile)
+	}
+	if req.ProxyJump != nil {
+		host.ProxyJump = strings.TrimSpace(*req.ProxyJump)
+	}
+
 	if req.EnvRefs != nil {
-		host.EnvRefs = cloneStringMap(req.EnvRefs)
+		if req.KeyName == nil {
+			host.KeyName = strings.TrimSpace(req.EnvRefs["key_name"])
+		}
+		if req.IdentityFile == nil {
+			host.IdentityFile = strings.TrimSpace(req.EnvRefs["identity_ref"])
+		}
+		if req.ProxyJump == nil {
+			host.ProxyJump = strings.TrimSpace(req.EnvRefs["proxy_jump"])
+		}
 	}
 
 	if err := validateHostInputs(host.Name, host.Address, host.User, host.Port); err != nil {
 		return nil, err
 	}
+	if err := validateHostConnectDefaults(host.KeyName, host.IdentityFile, host.ProxyJump); err != nil {
+		return nil, err
+	}
 	if host.Port == 0 {
 		host.Port = 22
 	}
+	host.EnvRefs = canonicalHostEnvRefs(host.KeyName, host.IdentityFile, host.ProxyJump, host.EnvRefs)
 
 	if err := s.hosts.Update(ctx, host); err != nil {
 		if isDuplicateError(err) {
@@ -195,11 +224,13 @@ func (s *HostService) Import(ctx context.Context, sshConfigPath string) ([]stora
 		}
 
 		host, createErr := s.Create(ctx, CreateHostRequest{
-			Name:    current.name,
-			Address: current.address,
-			User:    current.user,
-			Port:    current.port,
-			EnvRefs: envRefs,
+			Name:         current.name,
+			Address:      current.address,
+			User:         current.user,
+			Port:         current.port,
+			IdentityFile: current.identityRef,
+			ProxyJump:    current.proxyJump,
+			EnvRefs:      envRefs,
 		})
 		if createErr != nil {
 			warnings = append(warnings, ImportWarning{
@@ -383,6 +414,72 @@ func cloneStringMap(input map[string]string) map[string]string {
 	out := make(map[string]string, len(input))
 	for key, value := range input {
 		out[key] = value
+	}
+	return out
+}
+
+func resolveHostConnectDefaults(
+	keyNameRaw string,
+	identityFileRaw string,
+	proxyJumpRaw string,
+	envRefs map[string]string,
+) (string, string, string, error) {
+	keyName := strings.TrimSpace(keyNameRaw)
+	identityFile := strings.TrimSpace(identityFileRaw)
+	proxyJump := strings.TrimSpace(proxyJumpRaw)
+	if keyName == "" {
+		keyName = strings.TrimSpace(envRefs["key_name"])
+	}
+	if identityFile == "" {
+		identityFile = strings.TrimSpace(envRefs["identity_ref"])
+	}
+	if proxyJump == "" {
+		proxyJump = strings.TrimSpace(envRefs["proxy_jump"])
+	}
+	if err := validateHostConnectDefaults(keyName, identityFile, proxyJump); err != nil {
+		return "", "", "", err
+	}
+	return keyName, identityFile, proxyJump, nil
+}
+
+func validateHostConnectDefaults(keyName, identityFile, proxyJump string) error {
+	if keyName != "" && identityFile != "" {
+		return fmt.Errorf("%w: host defaults cannot set both key_name and identity_file", ErrValidation)
+	}
+	if keyName != "" && !hostNamePattern.MatchString(keyName) {
+		return fmt.Errorf("%w: key_name format is invalid", ErrValidation)
+	}
+	if strings.HasPrefix(identityFile, "-") {
+		return fmt.Errorf("%w: identity_file contains invalid characters", ErrValidation)
+	}
+	if strings.HasPrefix(proxyJump, "-") {
+		return fmt.Errorf("%w: proxy_jump contains invalid characters", ErrValidation)
+	}
+	return nil
+}
+
+func canonicalHostEnvRefs(keyName, identityFile, proxyJump string, base map[string]string) map[string]string {
+	out := cloneStringMap(base)
+	if out == nil {
+		out = map[string]string{}
+	}
+	if keyName != "" {
+		out["key_name"] = keyName
+	} else {
+		delete(out, "key_name")
+	}
+	if identityFile != "" {
+		out["identity_ref"] = identityFile
+	} else {
+		delete(out, "identity_ref")
+	}
+	if proxyJump != "" {
+		out["proxy_jump"] = proxyJump
+	} else {
+		delete(out, "proxy_jump")
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

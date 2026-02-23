@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -444,6 +445,74 @@ func TestHostEnvRefsJSONRoundTrip(t *testing.T) {
 	loaded, err := store.Hosts.Get(ctx, host.Name)
 	require.NoError(t, err)
 	require.Equal(t, host.EnvRefs, loaded.EnvRefs)
+}
+
+func TestHostConnectDefaultsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newTestStore(t)
+	defer vmk.Destroy()
+
+	ctx := context.Background()
+	host := &Host{
+		Name:         "connect-defaults-host",
+		Address:      "10.0.0.55",
+		Port:         22,
+		KeyName:      "deploy",
+		IdentityFile: "~/.ssh/id_prod",
+		ProxyJump:    "bastion.internal",
+		EnvRefs: map[string]string{
+			"key_name":     "deploy",
+			"identity_ref": "~/.ssh/id_prod",
+			"proxy_jump":   "bastion.internal",
+		},
+	}
+	require.NoError(t, store.Hosts.Create(ctx, host))
+
+	loaded, err := store.Hosts.Get(ctx, host.Name)
+	require.NoError(t, err)
+	require.Equal(t, host.KeyName, loaded.KeyName)
+	require.Equal(t, host.IdentityFile, loaded.IdentityFile)
+	require.Equal(t, host.ProxyJump, loaded.ProxyJump)
+}
+
+func TestMigrationV5BackfillsHostConnectDefaultsFromEnvRefs(t *testing.T) {
+	t.Parallel()
+
+	db := openRawTestDB(t)
+	defer closeNoErr(t, db)
+
+	require.NoError(t, RunMigrations(db, DefaultMigrations()[:2]))
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	rawEnvRefs, err := json.Marshal(map[string]string{
+		"key_name":     "deploy",
+		"identity_ref": "~/.ssh/id_prod",
+		"proxy_jump":   "bastion.internal",
+	})
+	require.NoError(t, err)
+	_, err = db.Exec(`
+		INSERT INTO hosts(id, name, address, port, user, env_refs, created_at, updated_at, deleted_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	`, "host-1", "prod", "10.0.0.8", 22, "ubuntu", string(rawEnvRefs), now, now)
+	require.NoError(t, err)
+
+	require.NoError(t, RunMigrations(db, DefaultMigrations()))
+
+	var (
+		keyName      sql.NullString
+		identityFile sql.NullString
+		proxyJump    sql.NullString
+	)
+	err = db.QueryRow(`
+		SELECT key_name, identity_file, proxy_jump
+		FROM hosts
+		WHERE id = ?
+	`, "host-1").Scan(&keyName, &identityFile, &proxyJump)
+	require.NoError(t, err)
+	require.Equal(t, "deploy", keyName.String)
+	require.Equal(t, "~/.ssh/id_prod", identityFile.String)
+	require.Equal(t, "bastion.internal", proxyJump.String)
 }
 
 func openRawTestDB(t *testing.T) *sql.DB {

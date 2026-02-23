@@ -22,10 +22,11 @@ func TestJSONExportVersionedFormatIncludesMetadataCollections(t *testing.T) {
 
 	var bundle ExportBundle
 	require.NoError(t, json.Unmarshal(payload, &bundle))
-	require.Equal(t, 1, bundle.Version)
+	require.Equal(t, 2, bundle.Version)
 	require.NotEmpty(t, bundle.Hosts)
 	require.NotEmpty(t, bundle.Identities)
 	require.NotEmpty(t, bundle.Secrets)
+	require.Equal(t, "~/.ssh/id_prod", bundle.Hosts[0].IdentityFile)
 }
 
 func TestJSONExportOmitsEncryptedValues(t *testing.T) {
@@ -49,7 +50,7 @@ func TestJSONImportValidFormatCreatesEntities(t *testing.T) {
 	defer vmk.Destroy()
 
 	bundle := ExportBundle{
-		Version: 1,
+		Version: 2,
 		Hosts: []ExportHost{{
 			Name:    "prod",
 			Address: "10.0.0.20",
@@ -105,7 +106,7 @@ func TestJSONImportConflictResolutionSkipOverwriteRename(t *testing.T) {
 		require.NoError(t, err)
 
 		data := mustMarshalBundle(t, ExportBundle{
-			Version: 1,
+			Version: 2,
 			Hosts: []ExportHost{{
 				Name:    "prod",
 				Address: "10.0.0.99",
@@ -136,7 +137,7 @@ func TestJSONImportConflictResolutionSkipOverwriteRename(t *testing.T) {
 		require.NoError(t, err)
 
 		data := mustMarshalBundle(t, ExportBundle{
-			Version: 1,
+			Version: 2,
 			Hosts: []ExportHost{{
 				Name:    "prod",
 				Address: "10.0.0.99",
@@ -167,7 +168,7 @@ func TestJSONImportConflictResolutionSkipOverwriteRename(t *testing.T) {
 		require.NoError(t, err)
 
 		data := mustMarshalBundle(t, ExportBundle{
-			Version: 1,
+			Version: 2,
 			Hosts: []ExportHost{{
 				Name:    "prod",
 				Address: "10.0.0.99",

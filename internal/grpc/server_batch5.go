@@ -59,15 +59,19 @@ func (s *Server) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.UnlockR
 }
 
 func (s *Server) CreateHost(ctx context.Context, req *v1.CreateHostRequest) (*v1.CreateHostResponse, error) {
+	envRefs := cloneStringMap(req.GetEnvRefs())
 	hostSvc := app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
 	host, err := hostSvc.Create(ctx, app.CreateHostRequest{
-		Name:    req.GetName(),
-		Address: req.GetAddress(),
-		Port:    int(req.GetPort()),
-		User:    req.GetUser(),
-		Tags:    append([]string(nil), req.GetTags()...),
-		Group:   req.GetGroup(),
-		EnvRefs: cloneStringMap(req.GetEnvRefs()),
+		Name:         req.GetName(),
+		Address:      req.GetAddress(),
+		Port:         int(req.GetPort()),
+		User:         req.GetUser(),
+		Tags:         append([]string(nil), req.GetTags()...),
+		Group:        req.GetGroup(),
+		KeyName:      strings.TrimSpace(envRefs["key_name"]),
+		IdentityFile: strings.TrimSpace(envRefs["identity_ref"]),
+		ProxyJump:    strings.TrimSpace(envRefs["proxy_jump"]),
+		EnvRefs:      envRefs,
 	})
 	if err != nil {
 		return nil, mapAppError("create host", err)
@@ -85,10 +89,11 @@ func (s *Server) GetHost(ctx context.Context, req *v1.GetHostRequest) (*v1.GetHo
 }
 
 func (s *Server) UpdateHost(ctx context.Context, req *v1.UpdateHostRequest) (*v1.UpdateHostResponse, error) {
+	envRefs := cloneStringMap(req.GetEnvRefs())
 	updateReq := app.UpdateHostRequest{
 		Name:    req.GetName(),
 		NewName: req.GetNewName(),
-		EnvRefs: cloneStringMap(req.GetEnvRefs()),
+		EnvRefs: envRefs,
 	}
 	if address := strings.TrimSpace(req.GetAddress()); address != "" {
 		updateReq.Address = &address
@@ -107,6 +112,20 @@ func (s *Server) UpdateHost(ctx context.Context, req *v1.UpdateHostRequest) (*v1
 	} else if len(req.GetTags()) > 0 {
 		tags := append([]string(nil), req.GetTags()...)
 		updateReq.Tags = &tags
+	}
+	if envRefs != nil {
+		if value, ok := envRefs["key_name"]; ok {
+			trimmed := strings.TrimSpace(value)
+			updateReq.KeyName = &trimmed
+		}
+		if value, ok := envRefs["identity_ref"]; ok {
+			trimmed := strings.TrimSpace(value)
+			updateReq.IdentityFile = &trimmed
+		}
+		if value, ok := envRefs["proxy_jump"]; ok {
+			trimmed := strings.TrimSpace(value)
+			updateReq.ProxyJump = &trimmed
+		}
 	}
 
 	hostSvc := app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
@@ -396,7 +415,7 @@ func hostToProto(host *storage.Host) *v1.Host {
 		Port:    int32(host.Port),
 		User:    host.User,
 		Tags:    append([]string(nil), host.Tags...),
-		EnvRefs: cloneStringMap(host.EnvRefs),
+		EnvRefs: hostEnvRefs(host),
 	}
 }
 
@@ -446,6 +465,29 @@ func cloneStringMap(input map[string]string) map[string]string {
 	out := make(map[string]string, len(input))
 	for key, value := range input {
 		out[key] = value
+	}
+	return out
+}
+
+func hostEnvRefs(host *storage.Host) map[string]string {
+	out := cloneStringMap(host.EnvRefs)
+	if out == nil {
+		out = map[string]string{}
+	}
+	keyName := strings.TrimSpace(host.KeyName)
+	identityFile := strings.TrimSpace(host.IdentityFile)
+	proxyJump := strings.TrimSpace(host.ProxyJump)
+	if keyName != "" {
+		out["key_name"] = keyName
+	}
+	if identityFile != "" {
+		out["identity_ref"] = identityFile
+	}
+	if proxyJump != "" {
+		out["proxy_jump"] = proxyJump
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

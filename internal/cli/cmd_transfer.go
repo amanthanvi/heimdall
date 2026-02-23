@@ -23,13 +23,18 @@ type exportBundle struct {
 	Secrets    []exportSecret   `json:"secrets"`
 }
 
+const cliExportBundleVersion = 2
+
 type exportHost struct {
-	Name    string            `json:"name"`
-	Address string            `json:"address"`
-	Port    int               `json:"port"`
-	User    string            `json:"user,omitempty"`
-	Tags    []string          `json:"tags,omitempty"`
-	EnvRefs map[string]string `json:"env_refs,omitempty"`
+	Name         string            `json:"name"`
+	Address      string            `json:"address"`
+	Port         int               `json:"port"`
+	User         string            `json:"user,omitempty"`
+	Tags         []string          `json:"tags,omitempty"`
+	KeyName      string            `json:"key_name,omitempty"`
+	IdentityFile string            `json:"identity_file,omitempty"`
+	ProxyJump    string            `json:"proxy_jump,omitempty"`
+	EnvRefs      map[string]string `json:"env_refs,omitempty"`
 }
 
 type exportIdentity struct {
@@ -113,19 +118,26 @@ func newExportCommand(deps commandDeps) *cobra.Command {
 				}
 
 				bundle := exportBundle{
-					Version:    1,
+					Version:    cliExportBundleVersion,
 					Hosts:      []exportHost{},
 					Identities: []exportIdentity{},
 					Secrets:    []exportSecret{},
 				}
 				for _, host := range hostResp.GetHosts() {
+					envRefs := cloneMap(host.GetEnvRefs())
+					keyName := strings.TrimSpace(envRefs["key_name"])
+					identityFile := strings.TrimSpace(envRefs["identity_ref"])
+					proxyJump := strings.TrimSpace(envRefs["proxy_jump"])
 					bundle.Hosts = append(bundle.Hosts, exportHost{
-						Name:    host.GetName(),
-						Address: host.GetAddress(),
-						Port:    int(host.GetPort()),
-						User:    host.GetUser(),
-						Tags:    append([]string(nil), host.GetTags()...),
-						EnvRefs: cloneMap(host.GetEnvRefs()),
+						Name:         host.GetName(),
+						Address:      host.GetAddress(),
+						Port:         int(host.GetPort()),
+						User:         host.GetUser(),
+						Tags:         append([]string(nil), host.GetTags()...),
+						KeyName:      keyName,
+						IdentityFile: identityFile,
+						ProxyJump:    proxyJump,
+						EnvRefs:      envRefs,
 					})
 				}
 				for _, key := range keyResp.GetKeys() {
@@ -192,7 +204,7 @@ func runJSONImport(ctx context.Context, deps commandDeps, fromPath string) error
 	if err := json.Unmarshal(raw, &bundle); err != nil {
 		return mapCommandError(fmt.Errorf("import json: decode bundle: %w", err))
 	}
-	if bundle.Version != 1 {
+	if bundle.Version != cliExportBundleVersion {
 		return usageErrorf("import json: unsupported version %d", bundle.Version)
 	}
 
@@ -206,13 +218,29 @@ func runJSONImport(ctx context.Context, deps commandDeps, fromPath string) error
 
 	return withDaemonClients(ctx, deps, func(ctx context.Context, clients daemonClients) error {
 		for _, host := range bundle.Hosts {
+			envRefs := cloneMap(host.EnvRefs)
+			if envRefs == nil {
+				envRefs = map[string]string{}
+			}
+			if value := strings.TrimSpace(host.KeyName); value != "" {
+				envRefs["key_name"] = value
+			}
+			if value := strings.TrimSpace(host.IdentityFile); value != "" {
+				envRefs["identity_ref"] = value
+			}
+			if value := strings.TrimSpace(host.ProxyJump); value != "" {
+				envRefs["proxy_jump"] = value
+			}
+			if len(envRefs) == 0 {
+				envRefs = nil
+			}
 			_, err := clients.host.CreateHost(ctx, &v1.CreateHostRequest{
 				Name:    host.Name,
 				Address: host.Address,
 				Port:    int32(host.Port),
 				User:    host.User,
 				Tags:    append([]string(nil), host.Tags...),
-				EnvRefs: cloneMap(host.EnvRefs),
+				EnvRefs: envRefs,
 			})
 			if err != nil {
 				if isAlreadyExists(err) {

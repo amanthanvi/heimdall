@@ -35,23 +35,29 @@ const (
 )
 
 type CreateHostRequest struct {
-	Name    string
-	Address string
-	Port    int
-	User    string
-	Tags    []string
-	Group   string
-	EnvRefs map[string]string
+	Name         string
+	Address      string
+	Port         int
+	User         string
+	Tags         []string
+	Group        string
+	KeyName      string
+	IdentityFile string
+	ProxyJump    string
+	EnvRefs      map[string]string
 }
 
 type UpdateHostRequest struct {
-	Name    string
-	NewName string
-	Address *string
-	Port    *int
-	User    *string
-	Tags    *[]string
-	EnvRefs map[string]string
+	Name         string
+	NewName      string
+	Address      *string
+	Port         *int
+	User         *string
+	Tags         *[]string
+	KeyName      *string
+	IdentityFile *string
+	ProxyJump    *string
+	EnvRefs      map[string]string
 }
 
 type ListHostsRequest struct {
@@ -102,6 +108,7 @@ type ConnectOpts struct {
 	Port         int
 	JumpHosts    []string
 	Forwards     []string
+	KeyName      string
 	IdentityPath string
 	KnownHosts   string
 	PrintCmd     bool
@@ -134,12 +141,15 @@ type ExportBundle struct {
 }
 
 type ExportHost struct {
-	Name    string            `json:"name"`
-	Address string            `json:"address"`
-	Port    int               `json:"port"`
-	User    string            `json:"user,omitempty"`
-	Tags    []string          `json:"tags,omitempty"`
-	EnvRefs map[string]string `json:"env_refs,omitempty"`
+	Name         string            `json:"name"`
+	Address      string            `json:"address"`
+	Port         int               `json:"port"`
+	User         string            `json:"user,omitempty"`
+	Tags         []string          `json:"tags,omitempty"`
+	KeyName      string            `json:"key_name,omitempty"`
+	IdentityFile string            `json:"identity_file,omitempty"`
+	ProxyJump    string            `json:"proxy_jump,omitempty"`
+	EnvRefs      map[string]string `json:"env_refs,omitempty"`
 }
 
 type ExportIdentity struct {

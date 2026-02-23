@@ -247,7 +247,7 @@ func (m Model) View() string {
 		return tabs + "\n" + m.secretsList.View()
 	case ScreenKeys:
 		if len(m.keysList.Items()) == 0 {
-			return tabs + "\n" + renderEmptyState("No keys yet.", "Add one with `heimdall key gen --name ...`")
+			return tabs + "\n" + renderEmptyState("No keys yet.", "Add one with `heimdall key generate --name ...`")
 		}
 		return tabs + "\n" + m.keysList.View()
 	case ScreenPasskeys:

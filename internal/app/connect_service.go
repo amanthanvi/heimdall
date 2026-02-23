@@ -27,7 +27,7 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 		return nil, fmt.Errorf("build connect plan: load host: %w", err)
 	}
 
-	user := opts.User
+	user := strings.TrimSpace(opts.User)
 	if user == "" {
 		user = host.User
 	}
@@ -47,14 +47,44 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 		target = user + "@" + host.Address
 	}
 
+	effectiveJumpHosts := append([]string(nil), opts.JumpHosts...)
+	if len(effectiveJumpHosts) == 0 {
+		defaultJump := strings.TrimSpace(host.ProxyJump)
+		if defaultJump == "" {
+			defaultJump = strings.TrimSpace(host.EnvRefs["proxy_jump"])
+		}
+		if defaultJump != "" {
+			effectiveJumpHosts = []string{defaultJump}
+		}
+	}
+
+	effectiveIdentityPath := strings.TrimSpace(opts.IdentityPath)
+	if effectiveIdentityPath == "" {
+		effectiveIdentityPath = strings.TrimSpace(host.IdentityFile)
+	}
+	if effectiveIdentityPath == "" {
+		effectiveIdentityPath = strings.TrimSpace(host.EnvRefs["identity_ref"])
+	}
+
+	effectiveKeyName := strings.TrimSpace(opts.KeyName)
+	if effectiveKeyName == "" {
+		effectiveKeyName = strings.TrimSpace(host.KeyName)
+	}
+	if effectiveKeyName == "" {
+		effectiveKeyName = strings.TrimSpace(host.EnvRefs["key_name"])
+	}
+	if effectiveKeyName != "" && effectiveIdentityPath != "" {
+		return nil, fmt.Errorf("%w: connect defaults set both key and identity file", ErrValidation)
+	}
+
 	args := []string{"ssh", "-p", strconv.Itoa(port)}
-	for _, jh := range opts.JumpHosts {
+	for _, jh := range effectiveJumpHosts {
 		if strings.HasPrefix(jh, "-") {
 			return nil, fmt.Errorf("%w: jump host %q contains invalid characters", ErrValidation, jh)
 		}
 	}
-	if len(opts.JumpHosts) > 0 {
-		args = append(args, "-J", strings.Join(opts.JumpHosts, ","))
+	if len(effectiveJumpHosts) > 0 {
+		args = append(args, "-J", strings.Join(effectiveJumpHosts, ","))
 	}
 
 	for _, forward := range opts.Forwards {
@@ -65,8 +95,8 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 		args = append(args, prefix, spec)
 	}
 
-	if opts.IdentityPath != "" {
-		args = append(args, "-i", opts.IdentityPath, "-o", "IdentitiesOnly=yes")
+	if effectiveIdentityPath != "" {
+		args = append(args, "-i", effectiveIdentityPath, "-o", "IdentitiesOnly=yes")
 	}
 	if opts.KnownHosts != "" {
 		args = append(args, "-o", "UserKnownHostsFile="+opts.KnownHosts)

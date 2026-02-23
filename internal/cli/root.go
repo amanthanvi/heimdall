@@ -45,7 +45,7 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "heimdall",
 		Short:         "Heimdall CLI",
-		Example:       "  heimdall init --yes --passphrase \"dev-pass\"\n  heimdall vault unlock --passphrase \"dev-pass\"\n  heimdall host ls",
+		Example:       "  heimdall init --yes --passphrase \"dev-pass\"\n  heimdall vault unlock --passphrase \"dev-pass\"\n  heimdall host list",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -84,6 +84,6 @@ func NewRootCommand(out io.Writer, build BuildInfo) *cobra.Command {
 		newDebugCommand(deps),
 	)
 
-	cmd.InitDefaultCompletionCmd()
+	initCompletionSupport(cmd, deps)
 	return cmd
 }

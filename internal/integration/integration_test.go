@@ -168,12 +168,12 @@ func TestIntegrationLifecycleHostConnectAndLock(t *testing.T) {
 
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "prod", "--addr", "127.0.0.1", "--user", "root"), "host add --name prod --addr 127.0.0.1 --user root")
+	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "prod", "--address", "127.0.0.1", "--user", "root"), "host add --name prod --address 127.0.0.1 --user root")
 	connectOut := requireSuccess(t, h.run(10*time.Second, "connect", "prod", "--dry-run"), "connect prod --dry-run")
 	require.Contains(t, connectOut, "ssh")
 	requireSuccess(t, h.run(10*time.Second, "vault", "lock"), "vault lock")
 
-	lockedOut := requireFailure(t, h.run(10*time.Second, "host", "ls"), "host ls")
+	lockedOut := requireFailure(t, h.run(10*time.Second, "host", "list"), "host list")
 	require.Contains(t, strings.ToLower(lockedOut), "vault is locked")
 }
 
@@ -192,7 +192,7 @@ func TestIntegrationLifecycleSecretShowEnvDelete(t *testing.T) {
 	)
 	require.Contains(t, envOut, "ok")
 	require.NotContains(t, envOut, "super-secret")
-	requireSuccess(t, h.run(10*time.Second, "secret", "rm", "api_token"), "secret rm api_token")
+	requireSuccess(t, h.run(10*time.Second, "secret", "remove", "api_token"), "secret remove api_token")
 }
 
 func TestIntegrationLifecycleKeyGenerateExportDelete(t *testing.T) {
@@ -201,13 +201,13 @@ func TestIntegrationLifecycleKeyGenerateExportDelete(t *testing.T) {
 
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, h.run(10*time.Second, "key", "gen", "--name", "deploy"), "key gen --name deploy")
+	requireSuccess(t, h.run(10*time.Second, "key", "generate", "--name", "deploy"), "key generate --name deploy")
 	requireSuccess(t, h.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", exportPath), "key export deploy --private --reauth --output <path>")
 	keyBytes, err := os.ReadFile(exportPath)
 	require.NoError(t, err)
 	require.NotEmpty(t, keyBytes)
 	require.Contains(t, string(keyBytes), "PRIVATE KEY")
-	requireSuccess(t, h.run(10*time.Second, "key", "rm", "deploy"), "key rm deploy")
+	requireSuccess(t, h.run(10*time.Second, "key", "remove", "deploy"), "key remove deploy")
 }
 
 func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
@@ -216,7 +216,7 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 
 	requireSuccess(t, source.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, source.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "restore-me", "--addr", "10.10.10.10", "--user", "ubuntu"), "host add --name restore-me --addr 10.10.10.10 --user ubuntu")
+	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "restore-me", "--address", "10.10.10.10", "--user", "ubuntu"), "host add --name restore-me --address 10.10.10.10 --user ubuntu")
 	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
 	target := newHarness(t)
@@ -232,7 +232,7 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	wrongPassOut := requireFailure(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
 	require.Contains(t, strings.ToLower(wrongPassOut), "invalid")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	listOut := requireSuccess(t, target.run(10*time.Second, "host", "ls", "--names-only"), "host ls --names-only")
+	listOut := requireSuccess(t, target.run(10*time.Second, "host", "list", "--names-only"), "host list --names-only")
 	require.Contains(t, listOut, "restore-me")
 }
 
@@ -245,14 +245,14 @@ func TestIntegrationBackupCreateAfterHostListAndShowRestoresValidSQLite(t *testi
 
 	requireSuccess(t, source.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, source.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "prod", "--addr", "10.0.0.10", "--user", "ubuntu"), "host add --name prod --addr 10.0.0.10 --user ubuntu")
-	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "staging", "--addr", "10.0.0.11", "--user", "root"), "host add --name staging --addr 10.0.0.11 --user root")
+	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "prod", "--address", "10.0.0.10", "--user", "ubuntu"), "host add --name prod --address 10.0.0.10 --user ubuntu")
+	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "staging", "--address", "10.0.0.11", "--user", "root"), "host add --name staging --address 10.0.0.11 --user root")
 	requireSuccess(t, source.run(10*time.Second, "secret", "add", "--name", "api_token", "--value", "super-secret"), "secret add --name api_token --value super-secret")
 	requireSuccess(t, source.run(10*time.Second, "secret", "export", "api_token", "--reauth", "--output", secretPath), "secret export api_token --reauth --output <path>")
-	requireSuccess(t, source.run(10*time.Second, "key", "gen", "--name", "deploy"), "key gen --name deploy")
+	requireSuccess(t, source.run(10*time.Second, "key", "generate", "--name", "deploy"), "key generate --name deploy")
 	requireSuccess(t, source.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", privateKeyPath), "key export deploy --private --reauth --output <path>")
 	requireSuccess(t, source.run(10*time.Second, "export", "--format", "json", "--output", exportPath), "export --format json --output <path>")
-	requireSuccess(t, source.run(10*time.Second, "host", "ls", "--json"), "host ls --json")
+	requireSuccess(t, source.run(10*time.Second, "host", "list", "--json"), "host list --json")
 	requireSuccess(t, source.run(10*time.Second, "host", "show", "prod", "--json"), "host show prod --json")
 	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
@@ -265,7 +265,7 @@ func TestIntegrationBackupCreateAfterHostListAndShowRestoresValidSQLite(t *testi
 
 	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	listOut := requireSuccess(t, target.run(10*time.Second, "host", "ls", "--names-only"), "host ls --names-only")
+	listOut := requireSuccess(t, target.run(10*time.Second, "host", "list", "--names-only"), "host list --names-only")
 	require.Contains(t, listOut, "prod")
 	require.Contains(t, listOut, "staging")
 }
@@ -275,13 +275,13 @@ func TestIntegrationDaemonRestartRequiresUnlockAgain(t *testing.T) {
 
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "restart-host", "--addr", "127.0.0.1"), "host add --name restart-host --addr 127.0.0.1")
+	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "restart-host", "--address", "127.0.0.1"), "host add --name restart-host --address 127.0.0.1")
 	requireSuccess(t, h.run(10*time.Second, "daemon", "restart"), "daemon restart")
 
-	lockedOut := requireFailure(t, h.run(10*time.Second, "host", "ls"), "host ls")
+	lockedOut := requireFailure(t, h.run(10*time.Second, "host", "list"), "host list")
 	require.Contains(t, strings.ToLower(lockedOut), "vault is locked")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	listOut := requireSuccess(t, h.run(10*time.Second, "host", "ls", "--names-only"), "host ls --names-only")
+	listOut := requireSuccess(t, h.run(10*time.Second, "host", "list", "--names-only"), "host list --names-only")
 	require.Contains(t, listOut, "restart-host")
 }
 
@@ -307,7 +307,7 @@ func TestIntegrationConcurrentCLIHostList(t *testing.T) {
 
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "parallel-host", "--addr", "127.0.0.1"), "host add --name parallel-host --addr 127.0.0.1")
+	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "parallel-host", "--address", "127.0.0.1"), "host add --name parallel-host --address 127.0.0.1")
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 5)
@@ -315,7 +315,7 @@ func TestIntegrationConcurrentCLIHostList(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res := h.run(10*time.Second, "host", "ls", "--names-only")
+			res := h.run(10*time.Second, "host", "list", "--names-only")
 			if res.err != nil {
 				errCh <- fmt.Errorf("exit=%d output=%s", res.exitCode, res.output)
 				return

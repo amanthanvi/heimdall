@@ -2,9 +2,11 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -189,6 +191,37 @@ var defaultMigrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     5,
+		Description: "add host connect default fields",
+		Up: func(tx *sql.Tx) error {
+			type columnSpec struct {
+				name       string
+				definition string
+			}
+			columns := []columnSpec{
+				{name: "key_name", definition: `TEXT`},
+				{name: "identity_file", definition: `TEXT`},
+				{name: "proxy_jump", definition: `TEXT`},
+			}
+			for _, column := range columns {
+				exists, err := columnExists(tx, "hosts", column.name)
+				if err != nil {
+					return err
+				}
+				if exists {
+					continue
+				}
+				if _, err := tx.Exec(`ALTER TABLE hosts ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+					return fmt.Errorf("add hosts.%s: %w", column.name, err)
+				}
+			}
+			if err := migrateHostConnectDefaultsFromEnvRefs(tx); err != nil {
+				return err
+			}
+			return nil
+		},
+	},
 }
 
 func DefaultMigrations() []Migration {
@@ -340,4 +373,80 @@ func columnExists(tx *sql.Tx, table, column string) (bool, error) {
 
 func nowUTCString() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+func migrateHostConnectDefaultsFromEnvRefs(tx *sql.Tx) error {
+	rows, err := tx.Query(`
+		SELECT id, env_refs, key_name, identity_file, proxy_jump
+		FROM hosts
+	`)
+	if err != nil {
+		return fmt.Errorf("migrate hosts connect defaults: query hosts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type rowData struct {
+		id           string
+		envRefs      sql.NullString
+		keyName      sql.NullString
+		identityFile sql.NullString
+		proxyJump    sql.NullString
+	}
+	entries := make([]rowData, 0)
+	for rows.Next() {
+		var item rowData
+		if err := rows.Scan(&item.id, &item.envRefs, &item.keyName, &item.identityFile, &item.proxyJump); err != nil {
+			return fmt.Errorf("migrate hosts connect defaults: scan row: %w", err)
+		}
+		entries = append(entries, item)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("migrate hosts connect defaults: iterate rows: %w", err)
+	}
+
+	for _, item := range entries {
+		if !item.envRefs.Valid || strings.TrimSpace(item.envRefs.String) == "" {
+			continue
+		}
+		var parsed map[string]string
+		if err := json.Unmarshal([]byte(item.envRefs.String), &parsed); err != nil {
+			continue
+		}
+
+		keyName := strings.TrimSpace(item.keyName.String)
+		identityFile := strings.TrimSpace(item.identityFile.String)
+		proxyJump := strings.TrimSpace(item.proxyJump.String)
+		updated := false
+
+		if keyName == "" {
+			if value := strings.TrimSpace(parsed["key_name"]); value != "" {
+				keyName = value
+				updated = true
+			}
+		}
+		if identityFile == "" {
+			if value := strings.TrimSpace(parsed["identity_ref"]); value != "" {
+				identityFile = value
+				updated = true
+			}
+		}
+		if proxyJump == "" {
+			if value := strings.TrimSpace(parsed["proxy_jump"]); value != "" {
+				proxyJump = value
+				updated = true
+			}
+		}
+		if !updated {
+			continue
+		}
+
+		if _, err := tx.Exec(`
+			UPDATE hosts
+			SET key_name = ?, identity_file = ?, proxy_jump = ?
+			WHERE id = ?
+		`, keyName, identityFile, proxyJump, item.id); err != nil {
+			return fmt.Errorf("migrate hosts connect defaults: update host %s: %w", item.id, err)
+		}
+	}
+	return nil
 }

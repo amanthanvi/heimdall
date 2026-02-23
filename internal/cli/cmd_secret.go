@@ -12,13 +12,17 @@ import (
 )
 
 func newSecretCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "secret",
-		Short: "Secret management",
-		Example: "  heimdall secret add --name api_token --value \"secret\"\n" +
-			"  heimdall secret show api_token --reauth\n" +
+	cmd := newGroupCommand(
+		"secret",
+		"Secret management",
+		"  heimdall secret add --name api_token --value \"secret\"\n"+
+			"  heimdall secret show api_token --reauth\n"+
 			"  heimdall secret env api_token --env-var API_TOKEN -- sh -c 'echo $API_TOKEN'",
-	}
+		map[string]string{
+			"ls": "list",
+			"rm": "remove",
+		},
+	)
 	cmd.AddCommand(
 		newSecretAddCommand(deps),
 		newSecretListCommand(deps),
@@ -26,20 +30,8 @@ func newSecretCommand(deps commandDeps) *cobra.Command {
 		newSecretRemoveCommand(deps),
 		newSecretExportCommand(deps),
 		newSecretEnvCommand(deps),
-		newSecretUnsupportedCommand("set-policy"),
 	)
 	return cmd
-}
-
-func newSecretUnsupportedCommand(name string) *cobra.Command {
-	return &cobra.Command{
-		Use:     name,
-		Short:   "Reserved secret command (future release)",
-		Example: fmt.Sprintf("  heimdall secret %s", name),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return mapCommandError(fmt.Errorf("%s is reserved for a future release", cmd.CommandPath()))
-		},
-	}
 }
 
 func newSecretAddCommand(deps commandDeps) *cobra.Command {
@@ -85,13 +77,13 @@ func newSecretAddCommand(deps commandDeps) *cobra.Command {
 
 func newSecretListCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "ls",
+		Use:   "list",
 		Short: "List secret metadata",
-		Example: "  heimdall secret ls\n" +
-			"  heimdall --json secret ls",
+		Example: "  heimdall secret list\n" +
+			"  heimdall --json secret list",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return usageErrorf("secret ls does not accept positional arguments")
+				return usageErrorf("secret list does not accept positional arguments")
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
@@ -158,12 +150,12 @@ func newSecretShowCommand(deps commandDeps) *cobra.Command {
 
 func newSecretRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:     "rm <name>",
+		Use:     "remove <name>",
 		Short:   "Delete a secret",
-		Example: "  heimdall secret rm api_token",
+		Example: "  heimdall secret remove api_token",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return usageErrorf("secret rm requires exactly one secret name")
+				return usageErrorf("secret remove requires exactly one secret name")
 			}
 			return nil
 		},
@@ -283,7 +275,6 @@ func newSecretEnvCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&envVar, "env-var", "", "Environment variable name (default derived from secret)")
-	cmd.Flags().StringVar(&envVar, "var", "", "Environment variable name (deprecated alias for --env-var)")
 	return cmd
 }
 

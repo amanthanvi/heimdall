@@ -10,13 +10,17 @@ import (
 )
 
 func newPasskeyCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "passkey",
-		Short: "Passkey management",
-		Example: "  heimdall passkey enroll --label macbook-touchid\n" +
-			"  heimdall passkey ls\n" +
+	cmd := newGroupCommand(
+		"passkey",
+		"Passkey management",
+		"  heimdall passkey enroll --label macbook-touchid\n"+
+			"  heimdall passkey list\n"+
 			"  heimdall passkey test macbook-touchid",
-	}
+		map[string]string{
+			"ls": "list",
+			"rm": "remove",
+		},
+	)
 	cmd.AddCommand(
 		newPasskeyEnrollCommand(deps),
 		newPasskeyListCommand(deps),
@@ -63,13 +67,13 @@ func newPasskeyEnrollCommand(deps commandDeps) *cobra.Command {
 
 func newPasskeyListCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "ls",
+		Use:   "list",
 		Short: "List passkeys",
-		Example: "  heimdall passkey ls\n" +
-			"  heimdall --json passkey ls",
+		Example: "  heimdall passkey list\n" +
+			"  heimdall --json passkey list",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return usageErrorf("passkey ls does not accept positional arguments")
+				return usageErrorf("passkey list does not accept positional arguments")
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
@@ -96,12 +100,12 @@ func newPasskeyListCommand(deps commandDeps) *cobra.Command {
 
 func newPasskeyRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:     "rm <label>",
+		Use:     "remove <label>",
 		Short:   "Remove a passkey",
-		Example: "  heimdall passkey rm macbook-touchid",
+		Example: "  heimdall passkey remove macbook-touchid",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return usageErrorf("passkey rm requires exactly one passkey label")
+				return usageErrorf("passkey remove requires exactly one passkey label")
 			}
 			return nil
 		},

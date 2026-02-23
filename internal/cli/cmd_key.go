@@ -13,13 +13,18 @@ import (
 )
 
 func newKeyCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "key",
-		Short: "SSH key management",
-		Example: "  heimdall key gen --name deploy\n" +
-			"  heimdall key ls\n" +
+	cmd := newGroupCommand(
+		"key",
+		"SSH key management",
+		"  heimdall key generate --name deploy\n"+
+			"  heimdall key list\n"+
 			"  heimdall key export deploy --private --reauth --output ./deploy.key",
-	}
+		map[string]string{
+			"gen": "generate",
+			"ls":  "list",
+			"rm":  "remove",
+		},
+	)
 	cmd.AddCommand(
 		newKeyGenerateCommand(deps),
 		newKeyImportCommand(deps),
@@ -34,12 +39,15 @@ func newKeyCommand(deps commandDeps) *cobra.Command {
 }
 
 func newKeyAgentCommand(deps commandDeps) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "agent",
-		Short: "SSH agent key operations",
-		Example: "  heimdall key agent add deploy --ttl 30m\n" +
-			"  heimdall key agent rm SHA256:abc123",
-	}
+	cmd := newGroupCommand(
+		"agent",
+		"SSH agent key operations",
+		"  heimdall key agent add deploy --ttl 30m\n"+
+			"  heimdall key agent remove SHA256:abc123",
+		map[string]string{
+			"rm": "remove",
+		},
+	)
 	cmd.AddCommand(
 		newKeyAgentAddCommand(deps),
 		newKeyAgentRemoveCommand(deps),
@@ -53,16 +61,16 @@ func newKeyGenerateCommand(deps commandDeps) *cobra.Command {
 		keyType string
 	)
 	cmd := &cobra.Command{
-		Use:   "gen",
+		Use:   "generate",
 		Short: "Generate a new key",
-		Example: "  heimdall key gen --name deploy\n" +
-			"  heimdall key gen --name ci-rsa --type rsa",
+		Example: "  heimdall key generate --name deploy\n" +
+			"  heimdall key generate --name ci-rsa --type rsa",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return usageErrorf("key gen does not accept positional arguments")
+				return usageErrorf("key generate does not accept positional arguments")
 			}
 			if strings.TrimSpace(name) == "" {
-				return usageErrorf("key gen requires --name")
+				return usageErrorf("key generate requires --name")
 			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				resp, err := clients.key.GenerateKey(ctx, &v1.GenerateKeyRequest{
@@ -131,12 +139,12 @@ func newKeyAgentAddCommand(deps commandDeps) *cobra.Command {
 
 func newKeyAgentRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:     "rm <fingerprint>",
+		Use:     "remove <fingerprint>",
 		Short:   "Remove a key from the managed SSH agent by fingerprint",
-		Example: "  heimdall key agent rm SHA256:abc123",
+		Example: "  heimdall key agent remove SHA256:abc123",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return usageErrorf("key agent rm requires exactly one fingerprint")
+				return usageErrorf("key agent remove requires exactly one fingerprint")
 			}
 			return nil
 		},
@@ -278,13 +286,13 @@ func newKeyExportCommand(deps commandDeps) *cobra.Command {
 
 func newKeyListCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:   "ls",
+		Use:   "list",
 		Short: "List key metadata",
-		Example: "  heimdall key ls\n" +
-			"  heimdall --json key ls",
+		Example: "  heimdall key list\n" +
+			"  heimdall --json key list",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return usageErrorf("key ls does not accept positional arguments")
+				return usageErrorf("key list does not accept positional arguments")
 			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				resp, err := clients.key.ListKeys(ctx, &v1.ListKeysRequest{})
@@ -334,12 +342,12 @@ func newKeyShowCommand(deps commandDeps) *cobra.Command {
 
 func newKeyRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:     "rm <name>",
+		Use:     "remove <name>",
 		Short:   "Delete a key",
-		Example: "  heimdall key rm deploy",
+		Example: "  heimdall key remove deploy",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return usageErrorf("key rm requires exactly one key name")
+				return usageErrorf("key remove requires exactly one key name")
 			}
 			return nil
 		},

@@ -31,13 +31,20 @@ func (s *TransferService) importHost(ctx context.Context, hostSvc *HostService, 
 	}
 
 	if errors.Is(err, storage.ErrNotFound) {
+		keyName, identityFile, proxyJump, err := resolveHostConnectDefaults(host.KeyName, host.IdentityFile, host.ProxyJump, host.EnvRefs)
+		if err != nil {
+			return entityImportCount{}, fmt.Errorf("import json: host %q connect defaults: %w", name, err)
+		}
 		if _, err := hostSvc.Create(ctx, CreateHostRequest{
-			Name:    name,
-			Address: host.Address,
-			Port:    host.Port,
-			User:    host.User,
-			Tags:    host.Tags,
-			EnvRefs: host.EnvRefs,
+			Name:         name,
+			Address:      host.Address,
+			Port:         host.Port,
+			User:         host.User,
+			Tags:         host.Tags,
+			KeyName:      keyName,
+			IdentityFile: identityFile,
+			ProxyJump:    proxyJump,
+			EnvRefs:      host.EnvRefs,
 		}); err != nil {
 			return entityImportCount{}, fmt.Errorf("import json: create host %q: %w", name, err)
 		}
@@ -48,12 +55,19 @@ func (s *TransferService) importHost(ctx context.Context, hostSvc *HostService, 
 	case ConflictModeSkip:
 		return entityImportCount{skipped: 1}, nil
 	case ConflictModeOverwrite:
+		keyName, identityFile, proxyJump, err := resolveHostConnectDefaults(host.KeyName, host.IdentityFile, host.ProxyJump, host.EnvRefs)
+		if err != nil {
+			return entityImportCount{}, fmt.Errorf("import json: host %q connect defaults: %w", name, err)
+		}
 		existing.Name = name
 		existing.Address = host.Address
 		existing.Port = host.Port
 		existing.User = host.User
+		existing.KeyName = keyName
+		existing.IdentityFile = identityFile
+		existing.ProxyJump = proxyJump
 		existing.Tags = append([]string(nil), host.Tags...)
-		existing.EnvRefs = cloneStringMap(host.EnvRefs)
+		existing.EnvRefs = canonicalHostEnvRefs(keyName, identityFile, proxyJump, host.EnvRefs)
 		if err := s.store.Hosts.Update(ctx, existing); err != nil {
 			return entityImportCount{}, fmt.Errorf("import json: overwrite host %q: %w", name, err)
 		}
@@ -69,13 +83,20 @@ func (s *TransferService) importHost(ctx context.Context, hostSvc *HostService, 
 		if err != nil {
 			return entityImportCount{}, err
 		}
+		keyName, identityFile, proxyJump, err := resolveHostConnectDefaults(host.KeyName, host.IdentityFile, host.ProxyJump, host.EnvRefs)
+		if err != nil {
+			return entityImportCount{}, fmt.Errorf("import json: host %q connect defaults: %w", name, err)
+		}
 		if _, err := hostSvc.Create(ctx, CreateHostRequest{
-			Name:    renamed,
-			Address: host.Address,
-			Port:    host.Port,
-			User:    host.User,
-			Tags:    host.Tags,
-			EnvRefs: host.EnvRefs,
+			Name:         renamed,
+			Address:      host.Address,
+			Port:         host.Port,
+			User:         host.User,
+			Tags:         host.Tags,
+			KeyName:      keyName,
+			IdentityFile: identityFile,
+			ProxyJump:    proxyJump,
+			EnvRefs:      host.EnvRefs,
 		}); err != nil {
 			return entityImportCount{}, fmt.Errorf("import json: create renamed host %q: %w", renamed, err)
 		}

@@ -172,6 +172,7 @@ func (s *Server) ListHosts(ctx context.Context, req *v1.ListHostsRequest) (*v1.L
 			entry.Port = int32(host.Port)
 			entry.User = host.User
 			entry.Tags = append([]string(nil), host.Tags...)
+			entry.EnvRefs = hostEnvRefs(&host)
 		}
 		out = append(out, entry)
 	}

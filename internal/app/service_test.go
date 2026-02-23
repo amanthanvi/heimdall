@@ -335,6 +335,55 @@ func TestConnectServicePlanBuildsJumpAndForwardArgs(t *testing.T) {
 	require.Contains(t, cmd, "-o IdentitiesOnly=yes")
 }
 
+func TestConnectServicePlanUsesHostDefaultIdentityAndProxyJump(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	hostSvc := NewHostService(store.Hosts, store.Sessions)
+	_, err := hostSvc.Create(context.Background(), CreateHostRequest{
+		Name:         "prod-defaults",
+		Address:      "10.0.0.9",
+		User:         "ubuntu",
+		Port:         22,
+		IdentityFile: "~/.ssh/id_prod",
+		ProxyJump:    "bastion.internal",
+	})
+	require.NoError(t, err)
+
+	svc := NewConnectService(store.Hosts)
+	plan, err := svc.Plan(context.Background(), "prod-defaults", ConnectOpts{})
+	require.NoError(t, err)
+
+	cmd := strings.Join(plan.Args, " ")
+	require.Contains(t, cmd, "-J bastion.internal")
+	require.Contains(t, cmd, "-i ~/.ssh/id_prod")
+}
+
+func TestConnectServicePlanRejectsIdentityOverrideWhenHostUsesKeyDefault(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	hostSvc := NewHostService(store.Hosts, store.Sessions)
+	_, err := hostSvc.Create(context.Background(), CreateHostRequest{
+		Name:    "prod-keyed",
+		Address: "10.0.0.10",
+		User:    "ubuntu",
+		Port:    22,
+		KeyName: "deploy",
+	})
+	require.NoError(t, err)
+
+	svc := NewConnectService(store.Hosts)
+	_, err = svc.Plan(context.Background(), "prod-keyed", ConnectOpts{
+		IdentityPath: "~/.ssh/id_override",
+	})
+	require.ErrorIs(t, err, ErrValidation)
+}
+
 func TestSecretEnvCLIFlowSetsEnvAndKeepsSecretOutOfOutput(t *testing.T) {
 	t.Parallel()
 
@@ -388,4 +437,3 @@ func newAppTestStore(t *testing.T) (*storage.Store, *memguard.LockedBuffer) {
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store, vmk
 }
-
