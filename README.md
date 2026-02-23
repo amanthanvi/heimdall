@@ -92,6 +92,8 @@ After upgrading Heimdall, rerun completion install with `--overwrite` to refresh
 heimdall completion install --shell zsh --verify --overwrite
 ```
 
+If completion output ever shows raw directive tokens like `:0` or `:4`, upgrade to `v0.1.14+`, rerun completion install, and restart your shell session.
+
 You can still generate raw scripts directly with the built-in completion command.
 
 ## CLI Command Updates (Breaking)
