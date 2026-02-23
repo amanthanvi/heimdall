@@ -132,8 +132,23 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 				}
 
 				commandEnv := append([]string(nil), command.GetEnv()...)
+				sessionID := ""
 				if effectiveKeyName != "" {
-					sessionID := fmt.Sprintf("connect-%s-%d", hostName, os.Getpid())
+					hostID := strings.TrimSpace(host.GetId())
+					if hostID == "" {
+						return fmt.Errorf("connect: host %q is missing an id", hostName)
+					}
+					sessionID = fmt.Sprintf("connect-%s-%d", hostName, os.Getpid())
+					sessionResp, err := clients.session.RecordSessionStart(ctx, &v1.RecordSessionStartRequest{
+						HostId:    hostID,
+						SessionId: sessionID,
+					})
+					if err != nil {
+						return err
+					}
+					if resolved := strings.TrimSpace(sessionResp.GetSessionId()); resolved != "" {
+						sessionID = resolved
+					}
 					if _, err := clients.key.AgentAdd(ctx, &v1.AgentAddRequest{
 						Name:       effectiveKeyName,
 						SessionId:  sessionID,
@@ -159,6 +174,18 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 					Env:       commandEnv,
 					TempFiles: append([]string(nil), command.GetTempFiles()...),
 				})
+				if sessionID != "" {
+					timeout := 10 * time.Second
+					if deps.globals != nil && deps.globals.Timeout > 0 {
+						timeout = deps.globals.Timeout
+					}
+					sessionCtx, cancel := context.WithTimeout(attachCallerMetadata(context.Background()), timeout)
+					_, _ = clients.session.RecordSessionEnd(sessionCtx, &v1.RecordSessionEndRequest{
+						SessionId: sessionID,
+						ExitCode:  int32(exitCode),
+					})
+					cancel()
+				}
 				if err != nil {
 					return err
 				}

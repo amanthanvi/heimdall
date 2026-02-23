@@ -333,6 +333,56 @@ func TestConnectRejectsConflictingAuthFlags(t *testing.T) {
 	require.Equal(t, ExitCodeUsage, exitCode(err))
 }
 
+func TestConnectWithKeyRegistersSessionLifecycle(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.toml")
+	vaultPath := filepath.Join(home, "vault.db")
+	t.Setenv("HEIMDALL_HOME", home)
+	t.Setenv("HEIMDALL_CONFIG_PATH", configPath)
+	t.Setenv("HEIMDALL_VAULT_PATH", vaultPath)
+
+	infoPath, err := resolveDaemonInfoPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(infoPath), 0o700))
+	rawInfo, err := json.Marshal(daemonpkg.Info{
+		PID:        0,
+		AgentPath:  "/tmp/test-agent.sock",
+		ConfigPath: configPath,
+		VaultPath:  vaultPath,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(infoPath, rawInfo, 0o600))
+
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{
+			Id:      "host-1",
+			Name:    "prod",
+			Address: "10.0.0.1",
+			Port:    22,
+			User:    "ubuntu",
+		}},
+	}
+	withStubDaemon(t, server)
+
+	rec := &recordingSSHExecutor{}
+	orig := newSSHCommandExecutor
+	newSSHCommandExecutor = func() sshCommandExecutor { return rec }
+	t.Cleanup(func() {
+		newSSHCommandExecutor = orig
+	})
+
+	_, err = runCLI(t, "", "connect", "prod", "--key", "deploy")
+	require.NoError(t, err)
+	require.True(t, rec.called)
+	require.Contains(t, rec.command.Env, "SSH_AUTH_SOCK=/tmp/test-agent.sock")
+	require.Len(t, server.sessionStarts, 1)
+	require.Len(t, server.agentAddSessions, 1)
+	require.Equal(t, server.sessionStarts[0], server.agentAddSessions[0])
+	require.Len(t, server.sessionEnds, 1)
+	require.Equal(t, server.sessionStarts[0], server.sessionEnds[0])
+	require.Equal(t, int32(0), server.recordedExitCodes[0])
+}
+
 func TestConnectExecutionUsesCommandContextWithoutTimeout(t *testing.T) {
 
 	server := &cliTestDaemon{
@@ -538,11 +588,16 @@ type cliTestDaemon struct {
 	v1.UnimplementedHostServiceServer
 	v1.UnimplementedKeyServiceServer
 	v1.UnimplementedPasskeyServiceServer
+	v1.UnimplementedSessionServiceServer
 	v1.UnimplementedConnectServiceServer
 
-	hosts    []*v1.Host
-	keys     []*v1.KeyMeta
-	passkeys []*v1.PasskeyMeta
+	hosts             []*v1.Host
+	keys              []*v1.KeyMeta
+	passkeys          []*v1.PasskeyMeta
+	agentAddSessions  []string
+	sessionStarts     []string
+	sessionEnds       []string
+	recordedExitCodes []int32
 }
 
 type recordingSSHExecutor struct {
@@ -583,6 +638,7 @@ func (d *cliTestDaemon) GetHost(_ context.Context, req *v1.GetHostRequest) (*v1.
 }
 
 func (d *cliTestDaemon) AgentAdd(_ context.Context, req *v1.AgentAddRequest) (*v1.AgentAddResponse, error) {
+	d.agentAddSessions = append(d.agentAddSessions, req.GetSessionId())
 	return &v1.AgentAddResponse{Fingerprint: "SHA256:test"}, nil
 }
 
@@ -592,6 +648,21 @@ func (d *cliTestDaemon) ListKeys(_ context.Context, _ *v1.ListKeysRequest) (*v1.
 
 func (d *cliTestDaemon) ListPasskeys(_ context.Context, _ *v1.ListPasskeysRequest) (*v1.ListPasskeysResponse, error) {
 	return &v1.ListPasskeysResponse{Passkeys: d.passkeys}, nil
+}
+
+func (d *cliTestDaemon) RecordSessionStart(_ context.Context, req *v1.RecordSessionStartRequest) (*v1.RecordSessionStartResponse, error) {
+	sessionID := req.GetSessionId()
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = "session-generated"
+	}
+	d.sessionStarts = append(d.sessionStarts, sessionID)
+	return &v1.RecordSessionStartResponse{SessionId: sessionID}, nil
+}
+
+func (d *cliTestDaemon) RecordSessionEnd(_ context.Context, req *v1.RecordSessionEndRequest) (*v1.RecordSessionEndResponse, error) {
+	d.sessionEnds = append(d.sessionEnds, req.GetSessionId())
+	d.recordedExitCodes = append(d.recordedExitCodes, req.GetExitCode())
+	return &v1.RecordSessionEndResponse{}, nil
 }
 
 func (d *cliTestDaemon) Plan(_ context.Context, req *v1.PlanConnectRequest) (*v1.PlanConnectResponse, error) {
@@ -614,6 +685,7 @@ func withStubDaemon(t *testing.T, server *cliTestDaemon) {
 	v1.RegisterHostServiceServer(grpcServer, server)
 	v1.RegisterKeyServiceServer(grpcServer, server)
 	v1.RegisterPasskeyServiceServer(grpcServer, server)
+	v1.RegisterSessionServiceServer(grpcServer, server)
 	v1.RegisterConnectServiceServer(grpcServer, server)
 
 	go func() {
