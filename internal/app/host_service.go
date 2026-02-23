@@ -118,13 +118,19 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 
 	if req.EnvRefs != nil {
 		if req.KeyName == nil {
-			host.KeyName = strings.TrimSpace(req.EnvRefs["key_name"])
+			if value, ok := req.EnvRefs["key_name"]; ok {
+				host.KeyName = strings.TrimSpace(value)
+			}
 		}
 		if req.IdentityFile == nil {
-			host.IdentityFile = strings.TrimSpace(req.EnvRefs["identity_ref"])
+			if value, ok := req.EnvRefs["identity_ref"]; ok {
+				host.IdentityFile = strings.TrimSpace(value)
+			}
 		}
 		if req.ProxyJump == nil {
-			host.ProxyJump = strings.TrimSpace(req.EnvRefs["proxy_jump"])
+			if value, ok := req.EnvRefs["proxy_jump"]; ok {
+				host.ProxyJump = strings.TrimSpace(value)
+			}
 		}
 	}
 

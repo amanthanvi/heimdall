@@ -136,6 +136,34 @@ func TestHostServiceListSortsByNameAndLastConnected(t *testing.T) {
 	require.Equal(t, "alpha", byLast[1].Name)
 }
 
+func TestHostServiceUpdateEnvRefsPatchPreservesUnspecifiedConnectDefaults(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	svc := NewHostService(store.Hosts, store.Sessions)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, CreateHostRequest{
+		Name:      "prod",
+		Address:   "10.0.0.1",
+		KeyName:   "deploy",
+		ProxyJump: "bastion",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "deploy", created.KeyName)
+	require.Equal(t, "bastion", created.ProxyJump)
+
+	updated, err := svc.Update(ctx, UpdateHostRequest{
+		Name:    "prod",
+		EnvRefs: map[string]string{"proxy_jump": ""},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "deploy", updated.KeyName)
+	require.Equal(t, "", updated.ProxyJump)
+}
+
 func TestSecretServiceCreateEncryptsValueOnStore(t *testing.T) {
 	t.Parallel()
 
