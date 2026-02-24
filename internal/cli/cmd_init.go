@@ -21,6 +21,14 @@ known_hosts_policy_default = "tofu"
 forward_agent_default = false
 connect_timeout = "10s"
 
+[ssh_config]
+enabled = false
+path = "~/.ssh/config.d/heimdall.conf"
+auto_sync = true
+
+[audit]
+connection_logging = false
+
 [passkey]
 uv_default = "preferred"
 

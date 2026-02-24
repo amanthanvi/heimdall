@@ -166,18 +166,25 @@ func newAuditCommand(deps commandDeps) *cobra.Command {
 }
 
 func newAuditListCommand(deps commandDeps) *cobra.Command {
-	var limit int32
+	var (
+		limit  int32
+		action string
+	)
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List audit events",
 		Example: "  heimdall audit list\n" +
-			"  heimdall audit list --limit 20",
+			"  heimdall audit list --limit 20\n" +
+			"  heimdall audit list --action connect.start --limit 20",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("audit list does not accept positional arguments")
 			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
-				resp, err := clients.audit.ListEvents(ctx, &v1.ListEventsRequest{Limit: limit})
+				resp, err := clients.audit.ListEvents(ctx, &v1.ListEventsRequest{
+					Limit:  limit,
+					Action: strings.TrimSpace(action),
+				})
 				if err != nil {
 					return err
 				}
@@ -205,6 +212,7 @@ func newAuditListCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().Int32Var(&limit, "limit", 100, "Maximum number of events")
+	cmd.Flags().StringVar(&action, "action", "", "Filter by action type")
 	return cmd
 }
 

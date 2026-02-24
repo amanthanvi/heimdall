@@ -17,12 +17,14 @@ func newDaemonCommand(deps commandDeps) *cobra.Command {
 	cmd := newGroupCommand(
 		"daemon",
 		"Daemon lifecycle commands",
-		"  heimdall daemon status\n"+
+		"  heimdall daemon start\n"+
+			"  heimdall daemon status\n"+
 			"  heimdall daemon restart\n"+
 			"  heimdall daemon stop",
 		map[string]string{},
 	)
 	cmd.AddCommand(
+		newDaemonStartCommand(deps),
 		newDaemonStatusCommand(deps),
 		newDaemonStopCommand(deps),
 		newDaemonRestartCommand(deps),
@@ -32,6 +34,65 @@ func newDaemonCommand(deps commandDeps) *cobra.Command {
 }
 
 // newDaemonServeCommand is defined in cmd_daemon_serve.go
+
+func newDaemonStartCommand(deps commandDeps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "start",
+		Short: "Start daemon",
+		Example: "  heimdall daemon start\n" +
+			"  heimdall --json daemon start",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErrorf("daemon start does not accept positional arguments")
+			}
+			info, err := readDaemonInfoFile()
+			if err == nil && processIsRunning(info.PID) {
+				if deps.globals.JSON {
+					return printJSON(deps.out, map[string]any{"started": false, "running": true})
+				}
+				if deps.globals.Quiet {
+					return nil
+				}
+				_, err = fmt.Fprintln(deps.out, "daemon already running")
+				return mapCommandError(err)
+			}
+
+			restoreEnv := applyPathEnvOverrides(deps.globals)
+			defer restoreEnv()
+
+			loadOpts := config.LoadOptions{}
+			if deps.globals != nil {
+				if configPath := strings.TrimSpace(deps.globals.ConfigPath); configPath != "" {
+					loadOpts.ConfigPath = configPath
+				}
+				if vaultPath := strings.TrimSpace(deps.globals.VaultPath); vaultPath != "" {
+					loadOpts.Env = map[string]string{
+						"HEIMDALL_VAULT_PATH": vaultPath,
+					}
+				}
+			}
+			cfg, _, err := loadConfigFn(loadOpts)
+			if err != nil {
+				return mapCommandError(fmt.Errorf("daemon start: load config: %w", err))
+			}
+
+			conn, err := ensureDaemonFn(context.Background(), &cfg)
+			if err != nil {
+				return mapCommandError(fmt.Errorf("daemon start: %w", err))
+			}
+			_ = conn.Close()
+
+			if deps.globals.JSON {
+				return printJSON(deps.out, map[string]any{"started": true, "running": true})
+			}
+			if deps.globals.Quiet {
+				return nil
+			}
+			_, err = fmt.Fprintln(deps.out, "daemon started")
+			return mapCommandError(err)
+		},
+	}
+}
 
 func newDaemonStatusCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{

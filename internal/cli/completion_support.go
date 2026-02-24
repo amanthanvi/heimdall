@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
+	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
 	"github.com/spf13/cobra"
 )
 
@@ -66,6 +67,8 @@ func registerDynamicCompletions(root *cobra.Command, deps commandDeps) {
 	registerFlagCompletion(root, []string{"key", "generate"}, "type", staticCompletion("ed25519", "rsa"))
 	registerFlagCompletion(root, []string{"import"}, "format", staticCompletion("json", "ssh-config"))
 	registerFlagCompletion(root, []string{"export"}, "format", staticCompletion("json"))
+	registerFlagCompletion(root, []string{"audit", "list"}, "action", staticCompletion(auditpkg.AllActionTypes...))
+	registerFlagCompletion(root, []string{"ssh-config", "enable"}, "path", completeFilesystemPaths())
 }
 
 func registerValidArgs(root *cobra.Command, path []string, fn func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective)) {
@@ -188,6 +191,12 @@ func staticCompletion(values ...string) func(*cobra.Command, []string, string) (
 	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		out := filterCompletionValues(values, toComplete)
 		return out, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func completeFilesystemPaths() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return nil, cobra.ShellCompDirectiveDefault
 	}
 }
 

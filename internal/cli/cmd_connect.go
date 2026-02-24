@@ -157,6 +157,7 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 
 				commandEnv := append([]string(nil), command.GetEnv()...)
 				sessionID := ""
+				sessionStart := time.Time{}
 				if effectiveKeyName != "" {
 					hostID := strings.TrimSpace(host.GetId())
 					if hostID == "" {
@@ -166,6 +167,10 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 					sessionResp, err := clients.session.RecordSessionStart(ctx, &v1.RecordSessionStartRequest{
 						HostId:    hostID,
 						SessionId: sessionID,
+						HostName:  host.GetName(),
+						Address:   host.GetAddress(),
+						User:      firstNonEmpty(strings.TrimSpace(user), strings.TrimSpace(host.GetUser())),
+						KeyName:   effectiveKeyName,
 					})
 					if err != nil {
 						return err
@@ -173,6 +178,7 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 					if resolved := strings.TrimSpace(sessionResp.GetSessionId()); resolved != "" {
 						sessionID = resolved
 					}
+					sessionStart = time.Now().UTC()
 					if _, err := clients.key.AgentAdd(ctx, &v1.AgentAddRequest{
 						Name:       effectiveKeyName,
 						SessionId:  sessionID,
@@ -203,10 +209,17 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 					if deps.globals != nil && deps.globals.Timeout > 0 {
 						timeout = deps.globals.Timeout
 					}
+					durationMs := int64(0)
+					if !sessionStart.IsZero() {
+						durationMs = time.Since(sessionStart).Milliseconds()
+					}
 					sessionCtx, cancel := context.WithTimeout(attachCallerMetadata(context.Background()), timeout)
 					_, _ = clients.session.RecordSessionEnd(sessionCtx, &v1.RecordSessionEndRequest{
-						SessionId: sessionID,
-						ExitCode:  int32(exitCode),
+						SessionId:  sessionID,
+						ExitCode:   int32(exitCode),
+						DurationMs: durationMs,
+						KeyName:    effectiveKeyName,
+						HostId:     host.GetId(),
 					})
 					cancel()
 				}
@@ -253,4 +266,13 @@ func keyExists(ctx context.Context, client v1.KeyServiceClient, name string) (bo
 		}
 	}
 	return false, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
