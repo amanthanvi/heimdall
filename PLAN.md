@@ -175,4 +175,4 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Status command enhancements (key staleness, config sync, audit status)
 - [x] `done` Tests for v0.2.0 feature slices (config/audit/sshconfig/host hooks/CLI/grpc)
 - [x] `done` Full validation gate
-- [ ] `todo` Release tag/tap verification + rollout cleanup
+- [x] `done` Release tag/tap verification + rollout cleanup (`v0.1.23` retained as clean rollout line)
