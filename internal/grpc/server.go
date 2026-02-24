@@ -33,6 +33,7 @@ type ServerConfig struct {
 	Daemon             daemonState
 	Store              *storage.Store
 	AuditService       *auditpkg.Service
+	ConfigPath         string
 	RuntimeConfig      configpkg.Config
 	KeyAgent           keyAgent
 	PasskeyEnroller    passkeyEnroller
@@ -116,22 +117,35 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 }
 
 func (s *Server) newHostService() *app.HostService {
-	hook := s.hostAutoSyncHook()
-	if hook == nil {
-		return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
-	}
-	return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions, hook)
+	return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions, s.hostAutoSyncHook())
 }
 
 func (s *Server) hostAutoSyncHook() func(context.Context) error {
-	if !s.cfg.RuntimeConfig.SSHConfig.Enabled || !s.cfg.RuntimeConfig.SSHConfig.AutoSync {
-		return nil
-	}
-	syncService := sshconfig.NewSyncService(s.cfg.Store.Hosts, s.cfg.RuntimeConfig.SSHConfig)
 	return func(ctx context.Context) error {
+		runtimeCfg := s.currentRuntimeConfig()
+		if !runtimeCfg.SSHConfig.Enabled || !runtimeCfg.SSHConfig.AutoSync {
+			return nil
+		}
+		syncService := sshconfig.NewSyncService(s.cfg.Store.Hosts, runtimeCfg.SSHConfig)
 		_, err := syncService.Sync(ctx)
 		return err
 	}
+}
+
+func (s *Server) currentRuntimeConfig() configpkg.Config {
+	if s == nil {
+		return configpkg.DefaultConfig()
+	}
+	if strings.TrimSpace(s.cfg.ConfigPath) == "" {
+		return s.cfg.RuntimeConfig
+	}
+	cfg, _, err := configpkg.Load(configpkg.LoadOptions{
+		ConfigPath: s.cfg.ConfigPath,
+	})
+	if err != nil {
+		return s.cfg.RuntimeConfig
+	}
+	return cfg
 }
 
 func (s *Server) GRPCServer() *grpc.Server {

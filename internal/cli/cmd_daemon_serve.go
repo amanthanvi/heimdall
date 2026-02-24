@@ -117,6 +117,7 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 		Daemon:        daemonState,
 		Store:         store,
 		AuditService:  auditService,
+		ConfigPath:    configPath,
 		RuntimeConfig: cfg,
 		KeyAgent:      agentServer,
 		Version: grpcpkg.VersionInfo{

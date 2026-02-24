@@ -98,6 +98,7 @@ func newHarness(t *testing.T) *cliHarness {
 
 func (h *cliHarness) env() []string {
 	return []string{
+		"HOME=" + h.home,
 		"HEIMDALL_HOME=" + h.home,
 		"HEIMDALL_VAULT_PATH=" + h.vaultPath,
 		"HEIMDALL_CONFIG_PATH=" + h.config,
@@ -105,6 +106,28 @@ func (h *cliHarness) env() []string {
 		"HEIMDALL_CLIENT_ID=" + h.home,
 		"GOCACHE=" + integrationCache,
 	}
+}
+
+func TestIntegrationSSHConfigEnableAutoSyncOnHostAdd(t *testing.T) {
+	h := newHarness(t)
+	managedPath := filepath.Join(h.home, ".ssh", "config.d", "heimdall.conf")
+
+	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
+	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "prod", "--address", "192.168.1.186", "--user", "kali"), "host add --name prod --address 192.168.1.186 --user kali")
+	requireSuccess(t, h.run(10*time.Second, "ssh-config", "enable", "--path", managedPath), "ssh-config enable --path <managed path>")
+
+	showOut := requireSuccess(t, h.run(10*time.Second, "ssh-config", "show"), "ssh-config show")
+	require.Contains(t, showOut, "Host prod")
+
+	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "staging", "--address", "10.0.0.20", "--user", "ubuntu"), "host add --name staging --address 10.0.0.20 --user ubuntu")
+
+	diffOut := requireSuccess(t, h.run(10*time.Second, "ssh-config", "diff"), "ssh-config diff")
+	require.Contains(t, diffOut, "ssh-config up-to-date")
+
+	fragmentBytes, err := os.ReadFile(managedPath)
+	require.NoError(t, err)
+	require.Contains(t, string(fragmentBytes), "Host staging")
 }
 
 func (h *cliHarness) run(timeout time.Duration, args ...string) cliResult {
