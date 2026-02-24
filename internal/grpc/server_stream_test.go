@@ -38,11 +38,11 @@ func TestSessionServiceRecordStartAndEndCreatesAuditTrail(t *testing.T) {
 	require.NotNil(t, records[0].ExitCode)
 	require.Equal(t, 23, *records[0].ExitCode)
 
-	events, err := h.audit.List(context.Background(), auditpkg.Filter{Action: "session.start", Limit: 10})
+	events, err := h.audit.List(context.Background(), auditpkg.Filter{Action: auditpkg.ActionConnectStart, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 
-	events, err = h.audit.List(context.Background(), auditpkg.Filter{Action: "session.end", Limit: 10})
+	events, err = h.audit.List(context.Background(), auditpkg.Filter{Action: auditpkg.ActionConnectEnd, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 }

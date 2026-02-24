@@ -114,10 +114,11 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 	}()
 
 	server, err := grpcpkg.NewServer(grpcpkg.ServerConfig{
-		Daemon:       daemonState,
-		Store:        store,
-		AuditService: auditService,
-		KeyAgent:     agentServer,
+		Daemon:        daemonState,
+		Store:         store,
+		AuditService:  auditService,
+		RuntimeConfig: cfg,
+		KeyAgent:      agentServer,
 		Version: grpcpkg.VersionInfo{
 			Version:   deps.build.Version,
 			Commit:    deps.build.Commit,

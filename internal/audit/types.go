@@ -33,6 +33,9 @@ const (
 	ActionSystemDaemonStop   = "system.daemon-stop"
 	ActionSystemConfigReload = "system.config-reload"
 	ActionSystemAuthFailure  = "system.auth-failure"
+
+	ActionConnectStart = "connect.start"
+	ActionConnectEnd   = "connect.end"
 )
 
 var AllActionTypes = []string{
@@ -60,6 +63,8 @@ var AllActionTypes = []string{
 	ActionSystemDaemonStop,
 	ActionSystemConfigReload,
 	ActionSystemAuthFailure,
+	ActionConnectStart,
+	ActionConnectEnd,
 }
 
 type Event struct {

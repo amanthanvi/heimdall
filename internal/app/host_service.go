@@ -20,14 +20,16 @@ var (
 )
 
 type HostService struct {
-	hosts    storage.HostRepository
-	sessions storage.SessionRepository
+	hosts          storage.HostRepository
+	sessions       storage.SessionRepository
+	postMutateHook []func(context.Context) error
 }
 
-func NewHostService(hosts storage.HostRepository, sessions storage.SessionRepository) *HostService {
+func NewHostService(hosts storage.HostRepository, sessions storage.SessionRepository, postMutateHook ...func(context.Context) error) *HostService {
 	return &HostService{
-		hosts:    hosts,
-		sessions: sessions,
+		hosts:          hosts,
+		sessions:       sessions,
+		postMutateHook: append([]func(context.Context) error(nil), postMutateHook...),
 	}
 }
 
@@ -64,6 +66,7 @@ func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*stora
 		}
 		return nil, fmt.Errorf("create host: %w", err)
 	}
+	s.runPostMutateHooks(ctx)
 	return host, nil
 }
 
@@ -151,6 +154,7 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 		}
 		return nil, fmt.Errorf("update host: %w", err)
 	}
+	s.runPostMutateHooks(ctx)
 	return host, nil
 }
 
@@ -162,6 +166,7 @@ func (s *HostService) Delete(ctx context.Context, name string) error {
 	if err := s.hosts.Delete(ctx, name); err != nil {
 		return fmt.Errorf("delete host: %w", err)
 	}
+	s.runPostMutateHooks(ctx)
 	return nil
 }
 
@@ -367,6 +372,15 @@ func hostMatchesSearch(host storage.Host, query string) bool {
 		}
 	}
 	return false
+}
+
+func (s *HostService) runPostMutateHooks(ctx context.Context) {
+	for _, hook := range s.postMutateHook {
+		if hook == nil {
+			continue
+		}
+		_ = hook(ctx)
+	}
 }
 
 func validateHostInputs(name, address, user string, port int) error {

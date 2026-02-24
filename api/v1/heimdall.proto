@@ -227,6 +227,7 @@ message KeyMeta {
   string key_type = 3;
   string public_key = 4;
   string status = 5;
+  string created_at = 6;
 }
 
 message GenerateKeyRequest {
@@ -371,6 +372,7 @@ message PlanConnectResponse {
 
 message ListEventsRequest {
   int32 limit = 1;
+  string action = 2;
 }
 
 message AuditEvent {
@@ -419,6 +421,10 @@ message RestoreBackupResponse {
 message RecordSessionStartRequest {
   string host_id = 1;
   string session_id = 2;
+  string host_name = 3;
+  string key_name = 4;
+  string address = 5;
+  string user = 6;
 }
 
 message RecordSessionStartResponse {
@@ -428,6 +434,9 @@ message RecordSessionStartResponse {
 message RecordSessionEndRequest {
   string session_id = 1;
   int32 exit_code = 2;
+  int64 duration_ms = 3;
+  string key_name = 4;
+  string host_id = 5;
 }
 
 message RecordSessionEndResponse {}

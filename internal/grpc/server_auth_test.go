@@ -14,6 +14,7 @@ import (
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/app"
 	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
+	"github.com/amanthanvi/heimdall/internal/config"
 	"github.com/amanthanvi/heimdall/internal/crypto"
 	"github.com/amanthanvi/heimdall/internal/storage"
 	"github.com/awnumar/memguard"
@@ -372,12 +373,15 @@ func newGRPCHarness(t *testing.T, opts ...harnessOption) *grpcHarness {
 
 	auditSvc, err := auditpkg.NewService(store.Audit)
 	require.NoError(t, err)
+	runtimeCfg := config.DefaultConfig()
+	runtimeCfg.Audit.ConnectionLogging = true
 
 	daemon := &testDaemon{locked: false}
 	server, err := NewServer(ServerConfig{
 		Daemon:             daemon,
 		Store:              store,
 		AuditService:       auditSvc,
+		RuntimeConfig:      runtimeCfg,
 		Version:            VersionInfo{Version: "test-version", Commit: "test-commit", BuildTime: "test-build"},
 		Clock:              cfg.clock,
 		PassphraseVerifier: cfg.passphraseVerifier,

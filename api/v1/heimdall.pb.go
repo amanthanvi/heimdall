@@ -1644,6 +1644,7 @@ type KeyMeta struct {
 	KeyType       string                 `protobuf:"bytes,3,opt,name=key_type,json=keyType,proto3" json:"key_type,omitempty"`
 	PublicKey     string                 `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1709,6 +1710,13 @@ func (x *KeyMeta) GetPublicKey() string {
 func (x *KeyMeta) GetStatus() string {
 	if x != nil {
 		return x.Status
+	}
+	return ""
+}
+
+func (x *KeyMeta) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
 	}
 	return ""
 }
@@ -3248,6 +3256,7 @@ func (x *PlanConnectResponse) GetCommand() *SSHCommand {
 type ListEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Limit         int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	Action        string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3287,6 +3296,13 @@ func (x *ListEventsRequest) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *ListEventsRequest) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
 }
 
 type AuditEvent struct {
@@ -3741,6 +3757,10 @@ type RecordSessionStartRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HostId        string                 `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
 	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	HostName      string                 `protobuf:"bytes,3,opt,name=host_name,json=hostName,proto3" json:"host_name,omitempty"`
+	KeyName       string                 `protobuf:"bytes,4,opt,name=key_name,json=keyName,proto3" json:"key_name,omitempty"`
+	Address       string                 `protobuf:"bytes,5,opt,name=address,proto3" json:"address,omitempty"`
+	User          string                 `protobuf:"bytes,6,opt,name=user,proto3" json:"user,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3785,6 +3805,34 @@ func (x *RecordSessionStartRequest) GetHostId() string {
 func (x *RecordSessionStartRequest) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
+	}
+	return ""
+}
+
+func (x *RecordSessionStartRequest) GetHostName() string {
+	if x != nil {
+		return x.HostName
+	}
+	return ""
+}
+
+func (x *RecordSessionStartRequest) GetKeyName() string {
+	if x != nil {
+		return x.KeyName
+	}
+	return ""
+}
+
+func (x *RecordSessionStartRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *RecordSessionStartRequest) GetUser() string {
+	if x != nil {
+		return x.User
 	}
 	return ""
 }
@@ -3837,6 +3885,9 @@ type RecordSessionEndRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	ExitCode      int32                  `protobuf:"varint,2,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	DurationMs    int64                  `protobuf:"varint,3,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	KeyName       string                 `protobuf:"bytes,4,opt,name=key_name,json=keyName,proto3" json:"key_name,omitempty"`
+	HostId        string                 `protobuf:"bytes,5,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3883,6 +3934,27 @@ func (x *RecordSessionEndRequest) GetExitCode() int32 {
 		return x.ExitCode
 	}
 	return 0
+}
+
+func (x *RecordSessionEndRequest) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *RecordSessionEndRequest) GetKeyName() string {
+	if x != nil {
+		return x.KeyName
+	}
+	return ""
+}
+
+func (x *RecordSessionEndRequest) GetHostId() string {
+	if x != nil {
+		return x.HostId
+	}
+	return ""
 }
 
 type RecordSessionEndResponse struct {
@@ -4225,14 +4297,16 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"chunk_size\x18\x02 \x01(\x05R\tchunkSize\"5\n" +
 	"\rDownloadChunk\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x10\n" +
-	"\x03eof\x18\x02 \x01(\bR\x03eof\"\x7f\n" +
+	"\x03eof\x18\x02 \x01(\bR\x03eof\"\x9e\x01\n" +
 	"\aKeyMeta\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
 	"\bkey_type\x18\x03 \x01(\tR\akeyType\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x04 \x01(\tR\tpublicKey\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"C\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\tR\tcreatedAt\"C\n" +
 	"\x12GenerateKeyRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x19\n" +
 	"\bkey_type\x18\x02 \x01(\tR\akeyType\"=\n" +
@@ -4326,9 +4400,10 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"\n" +
 	"temp_files\x18\x05 \x03(\tR\ttempFiles\"H\n" +
 	"\x13PlanConnectResponse\x121\n" +
-	"\acommand\x18\x01 \x01(\v2\x17.heimdall.v1.SSHCommandR\acommand\")\n" +
+	"\acommand\x18\x01 \x01(\v2\x17.heimdall.v1.SSHCommandR\acommand\"A\n" +
 	"\x11ListEventsRequest\x12\x14\n" +
-	"\x05limit\x18\x01 \x01(\x05R\x05limit\"\xad\x01\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\"\xad\x01\n" +
 	"\n" +
 	"AuditEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
@@ -4366,18 +4441,26 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"passphrase\x12\x1c\n" +
 	"\toverwrite\x18\x03 \x01(\bR\toverwrite\"3\n" +
 	"\x15RestoreBackupResponse\x12\x1a\n" +
-	"\brestored\x18\x01 \x01(\bR\brestored\"S\n" +
+	"\brestored\x18\x01 \x01(\bR\brestored\"\xb9\x01\n" +
 	"\x19RecordSessionStartRequest\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x02 \x01(\tR\tsessionId\";\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1b\n" +
+	"\thost_name\x18\x03 \x01(\tR\bhostName\x12\x19\n" +
+	"\bkey_name\x18\x04 \x01(\tR\akeyName\x12\x18\n" +
+	"\aaddress\x18\x05 \x01(\tR\aaddress\x12\x12\n" +
+	"\x04user\x18\x06 \x01(\tR\x04user\";\n" +
 	"\x1aRecordSessionStartResponse\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"U\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xaa\x01\n" +
 	"\x17RecordSessionEndRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1b\n" +
-	"\texit_code\x18\x02 \x01(\x05R\bexitCode\"\x1a\n" +
+	"\texit_code\x18\x02 \x01(\x05R\bexitCode\x12\x1f\n" +
+	"\vduration_ms\x18\x03 \x01(\x03R\n" +
+	"durationMs\x12\x19\n" +
+	"\bkey_name\x18\x04 \x01(\tR\akeyName\x12\x17\n" +
+	"\ahost_id\x18\x05 \x01(\tR\x06hostId\"\x1a\n" +
 	"\x18RecordSessionEndResponse\"i\n" +
 	"\x16VerifyAssertionRequest\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x1b\n" +

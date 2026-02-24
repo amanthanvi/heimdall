@@ -164,6 +164,59 @@ func TestHostServiceUpdateEnvRefsPatchPreservesUnspecifiedConnectDefaults(t *tes
 	require.Equal(t, "", updated.ProxyJump)
 }
 
+func TestHostServicePostMutateHookRunsOnCreateUpdateDelete(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	calls := 0
+	svc := NewHostService(store.Hosts, store.Sessions, func(context.Context) error {
+		calls++
+		return nil
+	})
+	ctx := context.Background()
+
+	_, err := svc.Create(ctx, CreateHostRequest{
+		Name:    "prod",
+		Address: "10.0.0.10",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Update(ctx, UpdateHostRequest{
+		Name: "prod",
+		Tags: &[]string{"critical"},
+	})
+	require.NoError(t, err)
+
+	err = svc.Delete(ctx, "prod")
+	require.NoError(t, err)
+	require.Equal(t, 3, calls)
+}
+
+func TestHostServicePostMutateHookErrorDoesNotFailMutation(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	svc := NewHostService(store.Hosts, store.Sessions, func(context.Context) error {
+		return ErrValidation
+	})
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, CreateHostRequest{
+		Name:    "prod",
+		Address: "10.0.0.10",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "prod", created.Name)
+
+	loaded, err := svc.Get(ctx, "prod")
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.10", loaded.Address)
+}
+
 func TestSecretServiceCreateEncryptsValueOnStore(t *testing.T) {
 	t.Parallel()
 

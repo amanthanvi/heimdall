@@ -60,7 +60,7 @@ func (s *Server) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.UnlockR
 
 func (s *Server) CreateHost(ctx context.Context, req *v1.CreateHostRequest) (*v1.CreateHostResponse, error) {
 	envRefs := cloneStringMap(req.GetEnvRefs())
-	hostSvc := app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
+	hostSvc := s.newHostService()
 	host, err := hostSvc.Create(ctx, app.CreateHostRequest{
 		Name:         req.GetName(),
 		Address:      req.GetAddress(),
@@ -80,7 +80,7 @@ func (s *Server) CreateHost(ctx context.Context, req *v1.CreateHostRequest) (*v1
 }
 
 func (s *Server) GetHost(ctx context.Context, req *v1.GetHostRequest) (*v1.GetHostResponse, error) {
-	hostSvc := app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
+	hostSvc := s.newHostService()
 	host, err := hostSvc.Get(ctx, req.GetName())
 	if err != nil {
 		return nil, mapAppError("get host", err)
@@ -128,7 +128,7 @@ func (s *Server) UpdateHost(ctx context.Context, req *v1.UpdateHostRequest) (*v1
 		}
 	}
 
-	hostSvc := app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
+	hostSvc := s.newHostService()
 	host, err := hostSvc.Update(ctx, updateReq)
 	if err != nil {
 		return nil, mapAppError("update host", err)
@@ -137,7 +137,7 @@ func (s *Server) UpdateHost(ctx context.Context, req *v1.UpdateHostRequest) (*v1
 }
 
 func (s *Server) DeleteHost(ctx context.Context, req *v1.DeleteHostRequest) (*v1.DeleteHostResponse, error) {
-	hostSvc := app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
+	hostSvc := s.newHostService()
 	if err := hostSvc.Delete(ctx, req.GetName()); err != nil {
 		return nil, mapAppError("delete host", err)
 	}
@@ -191,7 +191,7 @@ func (s *Server) ImportKey(ctx context.Context, req *v1.ImportKeyRequest) (*v1.I
 
 func (s *Server) ListKeys(ctx context.Context, _ *v1.ListKeysRequest) (*v1.ListKeysResponse, error) {
 	rows, err := s.cfg.Store.DB().QueryContext(ctx, `
-		SELECT id, name, kind, public_key, status
+		SELECT id, name, kind, public_key, status, created_at
 		FROM identities
 		WHERE deleted_at IS NULL
 		ORDER BY name ASC
@@ -209,8 +209,9 @@ func (s *Server) ListKeys(ctx context.Context, _ *v1.ListKeysRequest) (*v1.ListK
 			kind      string
 			publicKey string
 			status    string
+			createdAt string
 		)
-		if err := rows.Scan(&id, &name, &kind, &publicKey, &status); err != nil {
+		if err := rows.Scan(&id, &name, &kind, &publicKey, &status, &createdAt); err != nil {
 			return nil, grpcstatus.Errorf(codes.Internal, "list keys: %v", err)
 		}
 		items = append(items, &v1.KeyMeta{
@@ -219,6 +220,7 @@ func (s *Server) ListKeys(ctx context.Context, _ *v1.ListKeysRequest) (*v1.ListK
 			KeyType:   kind,
 			PublicKey: publicKey,
 			Status:    status,
+			CreatedAt: createdAt,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -239,6 +241,7 @@ func (s *Server) ShowKey(ctx context.Context, req *v1.ShowKeyRequest) (*v1.ShowK
 			KeyType:   identity.Kind,
 			PublicKey: identity.PublicKey,
 			Status:    string(identity.Status),
+			CreatedAt: identity.CreatedAt.UTC().Format(time.RFC3339Nano),
 		},
 	}, nil
 }

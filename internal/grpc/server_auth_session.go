@@ -30,13 +30,25 @@ func (s *Server) RecordSessionStart(ctx context.Context, req *v1.RecordSessionSt
 	}
 	s.cfg.Daemon.RegisterSigningSession(sessionID)
 
-	if s.cfg.AuditService != nil {
+	if s.cfg.AuditService != nil && s.cfg.RuntimeConfig.Audit.ConnectionLogging {
+		targetID := strings.TrimSpace(req.GetHostId())
+		if targetID == "" {
+			targetID = sessionID
+		}
 		_ = s.cfg.AuditService.Record(ctx, auditpkg.Event{
 			Timestamp:  s.clk.Now(),
-			Action:     "session.start",
+			Action:     auditpkg.ActionConnectStart,
 			TargetType: "host",
-			TargetID:   entry.HostID,
+			TargetID:   targetID,
 			Result:     "success",
+			Details: connectStartDetails{
+				SessionID: sessionID,
+				HostID:    strings.TrimSpace(req.GetHostId()),
+				HostName:  strings.TrimSpace(req.GetHostName()),
+				Address:   strings.TrimSpace(req.GetAddress()),
+				User:      strings.TrimSpace(req.GetUser()),
+				KeyName:   strings.TrimSpace(req.GetKeyName()),
+			},
 		})
 	}
 
@@ -50,16 +62,40 @@ func (s *Server) RecordSessionEnd(ctx context.Context, req *v1.RecordSessionEndR
 		}
 		return nil, grpcstatus.Errorf(codes.Internal, "record session end: %v", err)
 	}
-	if s.cfg.AuditService != nil {
+	if s.cfg.AuditService != nil && s.cfg.RuntimeConfig.Audit.ConnectionLogging {
 		_ = s.cfg.AuditService.Record(ctx, auditpkg.Event{
 			Timestamp:  s.clk.Now(),
-			Action:     "session.end",
+			Action:     auditpkg.ActionConnectEnd,
 			TargetType: "session",
 			TargetID:   req.GetSessionId(),
 			Result:     "success",
+			Details: connectEndDetails{
+				SessionID:  strings.TrimSpace(req.GetSessionId()),
+				HostID:     strings.TrimSpace(req.GetHostId()),
+				ExitCode:   req.GetExitCode(),
+				DurationMS: req.GetDurationMs(),
+				KeyName:    strings.TrimSpace(req.GetKeyName()),
+			},
 		})
 	}
 	return &v1.RecordSessionEndResponse{}, nil
+}
+
+type connectStartDetails struct {
+	SessionID string `json:"session_id,omitempty"`
+	HostID    string `json:"host_id,omitempty"`
+	HostName  string `json:"host_name,omitempty"`
+	Address   string `json:"address,omitempty"`
+	User      string `json:"user,omitempty"`
+	KeyName   string `json:"key_name,omitempty"`
+}
+
+type connectEndDetails struct {
+	SessionID  string `json:"session_id,omitempty"`
+	HostID     string `json:"host_id,omitempty"`
+	ExitCode   int32  `json:"exit_code,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	KeyName    string `json:"key_name,omitempty"`
 }
 
 func (s *Server) VerifyAssertion(ctx context.Context, req *v1.VerifyAssertionRequest) (*v1.VerifyAssertionResponse, error) {

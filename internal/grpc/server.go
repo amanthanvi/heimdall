@@ -13,6 +13,8 @@ import (
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/app"
 	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
+	configpkg "github.com/amanthanvi/heimdall/internal/config"
+	"github.com/amanthanvi/heimdall/internal/sshconfig"
 	"github.com/amanthanvi/heimdall/internal/storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -31,6 +33,7 @@ type ServerConfig struct {
 	Daemon             daemonState
 	Store              *storage.Store
 	AuditService       *auditpkg.Service
+	RuntimeConfig      configpkg.Config
 	KeyAgent           keyAgent
 	PasskeyEnroller    passkeyEnroller
 	Version            VersionInfo
@@ -72,6 +75,9 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = realClock{}
 	}
+	if cfg.RuntimeConfig == (configpkg.Config{}) {
+		cfg.RuntimeConfig = configpkg.DefaultConfig()
+	}
 
 	s := &Server{
 		cfg:         cfg,
@@ -107,6 +113,25 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	v1.RegisterReauthServiceServer(s.grpcServer, s)
 
 	return s, nil
+}
+
+func (s *Server) newHostService() *app.HostService {
+	hook := s.hostAutoSyncHook()
+	if hook == nil {
+		return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
+	}
+	return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions, hook)
+}
+
+func (s *Server) hostAutoSyncHook() func(context.Context) error {
+	if !s.cfg.RuntimeConfig.SSHConfig.Enabled || !s.cfg.RuntimeConfig.SSHConfig.AutoSync {
+		return nil
+	}
+	syncService := sshconfig.NewSyncService(s.cfg.Store.Hosts, s.cfg.RuntimeConfig.SSHConfig)
+	return func(ctx context.Context) error {
+		_, err := syncService.Sync(ctx)
+		return err
+	}
 }
 
 func (s *Server) GRPCServer() *grpc.Server {
@@ -404,7 +429,10 @@ func (s *Server) ListEvents(ctx context.Context, req *v1.ListEventsRequest) (*v1
 		return &v1.ListEventsResponse{}, nil
 	}
 	limit := int(req.GetLimit())
-	events, err := s.cfg.AuditService.List(ctx, auditpkg.Filter{Limit: limit})
+	events, err := s.cfg.AuditService.List(ctx, auditpkg.Filter{
+		Limit:  limit,
+		Action: strings.TrimSpace(req.GetAction()),
+	})
 	if err != nil {
 		return nil, grpcstatus.Errorf(codes.Internal, "list audit events: %v", err)
 	}
