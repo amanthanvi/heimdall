@@ -49,18 +49,33 @@ nfpms:
     license: MIT
     bindir: /usr/bin
 
-brews:
+homebrew_casks:
   - name: heimdall
     ids:
       - standalone
-    directory: Formula
+    binaries:
+      - heimdall
     homepage: https://github.com/amanthanvi/heimdall
     description: Secure local SSH vault and workflow CLI.
+    url:
+      verified: github.com/amanthanvi/heimdall/
     repository:
       owner: amanthanvi
       name: homebrew-tap
-    install: |
-      bin.install "heimdall"
+
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - heimdall
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
 
 release:
   draft: false

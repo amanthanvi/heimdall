@@ -2,6 +2,16 @@
 
 This runbook is the source of truth for cutting a Heimdall release and publishing Homebrew updates.
 
+## GitHub Actions release secrets
+
+Set these repository secrets for `.github/workflows/release.yml`:
+
+- `MACOS_SIGN_P12`
+- `MACOS_SIGN_PASSWORD`
+- `MACOS_NOTARY_KEY`
+- `MACOS_NOTARY_KEY_ID`
+- `MACOS_NOTARY_ISSUER_ID`
+
 ## 1) Preflight validation
 
 Run from the repo root:
@@ -32,19 +42,24 @@ REL_DIR=$(mktemp -d /tmp/heimdall-release-XXXXXX)
 git clone https://github.com/amanthanvi/heimdall.git "$REL_DIR"
 cd "$REL_DIR"
 git checkout vX.Y.Z
+export MACOS_SIGN_P12='<base64-encoded-developer-id-application-p12>'
+export MACOS_SIGN_PASSWORD='<p12-password>'
+export MACOS_NOTARY_KEY='<base64-encoded-app-store-connect-key-p8>'
+export MACOS_NOTARY_KEY_ID='<app-store-connect-key-id>'
+export MACOS_NOTARY_ISSUER_ID='<app-store-connect-issuer-id>'
 GITHUB_TOKEN="$(gh auth token)" goreleaser release --clean
 ```
 
 Expected outcomes:
 - GitHub release is published under `vX.Y.Z`.
 - Release assets include `heimdall-<os>-<arch>.tar.gz`.
-- Homebrew tap formula `Formula/heimdall.rb` is pushed automatically.
+- Homebrew tap cask `Casks/heimdall.rb` is pushed automatically.
 
 ## 4) Verify GitHub release and tap
 
 ```bash
 gh release view vX.Y.Z --repo amanthanvi/heimdall --json url,tagName,isDraft,isPrerelease,publishedAt,assets
-gh api 'repos/amanthanvi/homebrew-tap/commits?path=Formula/heimdall.rb&per_page=1'
+gh api 'repos/amanthanvi/homebrew-tap/commits?path=Casks/heimdall.rb&per_page=1'
 ```
 
 ## 5) Verify Homebrew install/upgrade
@@ -53,8 +68,10 @@ gh api 'repos/amanthanvi/homebrew-tap/commits?path=Formula/heimdall.rb&per_page=
 BREW_TAP_DIR=$(brew --repo amanthanvi/tap)
 cd "$BREW_TAP_DIR"
 git pull --ff-only
-HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade amanthanvi/tap/heimdall || HOMEBREW_NO_AUTO_UPDATE=1 brew install amanthanvi/tap/heimdall
+HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade --cask amanthanvi/tap/heimdall || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask amanthanvi/tap/heimdall
 heimdall version
+codesign -dv --verbose=2 "$(which heimdall)"
+spctl --assess --type execute -vv "$(which heimdall)"
 ```
 
 ## 6) Smoke-check the released binary

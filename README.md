@@ -24,15 +24,15 @@ Binary output:
 
 ```bash
 brew tap amanthanvi/tap
-brew install amanthanvi/tap/heimdall
+brew install --cask amanthanvi/tap/heimdall
 heimdall version
 ```
 
-If you previously installed the `v0.1.17` cask package, migrate once to formula install:
+If you previously installed Heimdall as a formula, migrate once to cask install:
 
 ```bash
-brew uninstall --cask heimdall
-brew install amanthanvi/tap/heimdall
+brew uninstall heimdall
+brew install --cask amanthanvi/tap/heimdall
 ```
 
 Homebrew artifacts are built with the nofido2/static profile for portability.
@@ -162,5 +162,5 @@ go test -run='^$' -bench='Benchmark(VaultOpenCold|CLIRoundTrip|KeyDerivation)$' 
 - Release runbook: `docs/RELEASING.md`
 - GoReleaser config: `.goreleaser.yml`
 - Homebrew artifacts are `tar.gz` archives named `heimdall-<os>-<arch>.tar.gz` containing the `heimdall` binary.
-- Homebrew formula source of truth: `homebrew-tap/Formula/heimdall.rb`.
+- Homebrew cask source of truth: `homebrew-tap/Casks/heimdall.rb`.
 - Security disclosure policy: `SECURITY.md`
