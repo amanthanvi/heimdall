@@ -98,6 +98,18 @@ heimdall ssh-config disable
 - managed SSH config sync state
 - connection audit logging status (`[audit].connection_logging`)
 
+### Interactive TUI
+
+```bash
+heimdall tui
+# alias:
+heimdall ui
+```
+
+Notes:
+- TUI requires an interactive terminal (TTY).
+- Secret reveal inside TUI always requires re-authentication first.
+
 ### Restore backup into a target vault
 
 ```bash
@@ -121,6 +133,7 @@ Notes:
 - Restoring into an uninitialized target path can fail daemon startup.
 - Restored vault unlock credentials come from the backup source vault.
 - `export/import --format json` is metadata-oriented; use `backup create/restore` to move encrypted private keys and secret values.
+- JSON import currently skips identity metadata rehydration into usable private keys.
 
 ## Shell Completions
 
@@ -136,7 +149,7 @@ After upgrading Heimdall, rerun completion install with `--overwrite` to refresh
 heimdall completion install --shell zsh --verify --overwrite
 ```
 
-If completion output ever shows raw directive tokens like `:0` or `:4`, upgrade to `v0.1.16+`, rerun `heimdall completion install --shell zsh --verify --overwrite --update-rc`, and restart your shell session.
+If completion output ever shows raw directive tokens like `:0` or `:4`, reinstall from `v0.2.0+`, rerun `heimdall completion install --shell zsh --verify --overwrite --update-rc`, and restart your shell session.
 
 You can still generate raw scripts directly with the built-in completion command.
 

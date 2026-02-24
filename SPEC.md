@@ -1,4 +1,4 @@
-# SPEC.md — Heimdall v0.1.0
+# SPEC.md — Heimdall v0.2.0
 
 ## 1. Overview
 
@@ -10,11 +10,35 @@
 - **Passkeys** (roaming FIDO2 security keys) to unlock the local vault and re-authorize sensitive actions
 - Local audit logs and session history
 
-Heimdall v0.1.0 is **local-only** and **production-ready**. It MUST NOT require any hosted service, account, or cloud sync.
+Heimdall v0.2.0 is **local-only** and **production-ready**. It MUST NOT require any hosted service, account, or cloud sync.
 
 **License:** MIT
 
 **Module path:** `github.com/amanthanvi/heimdall`
+
+## 1.1 Current Truth Overrides (v0.2.0)
+
+This section is the source of truth when older text below conflicts with current implementation.
+
+- Runtime/language:
+  - Go module target is `go 1.26.0` (`go.mod`).
+  - Daemon process state is persisted in `daemon.info` JSON (not `daemon.pid`).
+- CLI surface (canonical names):
+  - `host list/remove`, `key generate/list/remove`, `secret list/remove`, `passkey list/remove`.
+  - `tui` command is available, with `ui` alias.
+  - `ssh-config` supports `enable`, `disable`, `sync`, `diff`, `show`, `generate`.
+- SSH config behavior:
+  - Heimdall does not modify `~/.ssh/config` by default.
+  - Explicit `heimdall ssh-config enable/disable` manages a single Include directive for a Heimdall-managed fragment.
+- Key import:
+  - Private key import supports OpenSSH + PEM/PKCS#8 parse paths.
+- Import/export scope:
+  - `export/import --format json` is metadata-oriented.
+  - Identity metadata in CLI JSON import is currently reported as skipped (not rehydrated into usable private keys).
+- Status command:
+  - `status` reports key staleness (>365d), managed ssh-config sync state, and audit connection logging state.
+- Historical content:
+  - Legacy v0.1.0 release-planning sections remain for traceability only; current behavior is defined by implemented CLI/docs and this override block.
 
 ---
 
@@ -30,7 +54,7 @@ Heimdall v0.1.0 is **local-only** and **production-ready**. It MUST NOT require 
 
 ### 2.2 Non-goals
 
-Heimdall v0.1.0:
+Heimdall v0.2.0:
 
 - MUST NOT implement multi-device sync, cloud backup, accounts, or hosted services.
 - MUST NOT require a browser-based WebAuthn ceremony as the primary passkey mechanism.
@@ -67,7 +91,7 @@ Release gate requires **both** quality metrics and feature completeness:
 
 ## 3. Assumptions & Constraints
 
-1. Implementation language: **Go >= 1.22**.
+1. Implementation language: **Go 1.26**.
 2. Target platforms:
    - macOS 13+ (arm64 MUST, amd64 SHOULD)
    - Ubuntu 22.04+ / Debian stable (amd64 MUST, arm64 SHOULD)
@@ -104,7 +128,7 @@ Release gate requires **both** quality metrics and feature completeness:
 ### 5.1 Core Principles
 
 1. **Secure-by-default**: risky operations MUST require explicit opt-in flags and/or re-auth.
-2. **No surprises**: Heimdall MUST NOT modify `~/.ssh/config` or `~/.ssh/known_hosts` unless explicitly requested.
+2. **No surprises**: Heimdall MUST NOT modify `~/.ssh/config` by default; managed Include updates happen only via explicit `ssh-config enable/disable` flows.
 3. **Scriptable first**: every interactive flow MUST have a non-interactive equivalent using flags/stdin, with deterministic exit codes.
 4. **Human-friendly**: the TUI provides host/secret selection, fingerprint confirmation, and formatted details.
 5. **Redaction always**: secrets MUST NOT appear in logs, panic traces, or structured outputs unless the explicit command's purpose is to reveal them.
@@ -185,7 +209,7 @@ Heimdall MUST support:
 
 #### Search and listing
 
-`heimdall host ls` MUST support:
+`heimdall host list` MUST support:
 - Filtering by tag (`--tag`) and group (`--group`)
 - Full-text search over name/address/user (`--search`)
 - Sorting by name or last_connected
@@ -200,10 +224,9 @@ Heimdall MUST support:
 
 #### Compatibility with `~/.ssh/config`
 
-- Heimdall MUST NOT modify `~/.ssh/config`.
 - Heimdall MUST allow the user's existing config to apply by default.
 - Heimdall MUST apply per-host overrides via explicit `ssh` flags (`-J`, `-i`, `-p`, `-o Key=Value`).
-- Heimdall MAY offer `--ignore-ssh-config` to run with `ssh -F /dev/null`.
+- Heimdall MAY manage a dedicated include fragment when the operator runs `heimdall ssh-config enable`; this is an explicit opt-in.
 
 #### SSH exit code propagation
 
@@ -255,7 +278,7 @@ Edge cases to handle:
 
 - OpenSSH private key format (import and export)
 - OpenSSH public key format / `authorized_keys` format (import and export)
-- PEM and PKCS#8 formats are NOT supported in v0.1.0
+- PEM and PKCS#8 private key imports are supported
 
 #### Key storage model
 
@@ -272,7 +295,7 @@ Edge cases to handle:
 
 #### SSH agent integration
 
-Heimdall MUST ship a managed SSH agent in v0.1.0:
+Heimdall MUST ship a managed SSH agent:
 
 **Heimdall-managed agent:**
 - Runs within the daemon process (single process, separate Unix socket listener)
@@ -310,7 +333,7 @@ Heimdall MUST ship a managed SSH agent in v0.1.0:
 
 ### 6.5 Passkeys & Re-auth
 
-#### Supported authenticators (v0.1.0)
+#### Supported authenticators (v0.2.0)
 
 - Roaming FIDO2 security keys (USB, NFC where OS supports) via CTAP2 through libfido2
 - Platform authenticators (Touch ID, etc.) explicitly deferred
@@ -357,7 +380,7 @@ Heimdall MUST ship a managed SSH agent in v0.1.0:
 #### Re-auth policy
 
 Actions requiring re-auth:
-- `secret show`, `secret export`, `key export`, `backup create --unencrypted`, `vault change-passphrase`, `passkey rm`, destructive deletes
+- `secret show`, `secret export`, `key export --private`, `passkey remove`, and `backup restore --overwrite`
 
 #### Auth lockout
 
@@ -375,7 +398,7 @@ Heimdall MUST support importing from:
 - **OpenSSH config** (`~/.ssh/config`): core connection directives (see 12.2)
 - **Heimdall JSON** export format
 
-Termius import is NOT supported in v0.1.0 (Termius uses encrypted Electron IndexedDB).
+Termius import is NOT supported (Termius uses encrypted Electron IndexedDB).
 
 #### Export
 
@@ -389,11 +412,10 @@ Termius import is NOT supported in v0.1.0 (Termius uses encrypted Electron Index
 - Archive encrypted with a **separate user-provided passphrase** (not the vault unlock passphrase)
   - Argon2id → key → XChaCha20-Poly1305 wrapping the entire archive
 - MUST include integrity protection (tamper-evident)
-- `--unencrypted` MUST require `--yes` and re-auth
 
 #### Restore
 
-- `heimdall backup restore --from <path>` requires confirmation and re-auth if overwriting existing vault
+- `heimdall backup restore --from <path>` requires explicit overwrite confirmation (`--overwrite`) and a recent re-auth window when replacing an existing vault
 
 ### 6.7 Audit Logging & History
 
@@ -402,7 +424,7 @@ Heimdall MUST maintain local audit logs for:
 - Secret reveal/export/inject
 - Key export/delete/rotate
 - Passkey enroll/remove
-- Host trust/known_hosts changes
+- SSH connection start/end metadata
 - Backup create/restore
 - All gRPC API calls (PID, operation, target)
 
@@ -468,89 +490,92 @@ All commands MUST support:
 
 #### Top-level
 
-- `heimdall init` — Initialize vault (interactive wizard or `--passphrase-stdin`)
-- `heimdall status` — Show vault lock status, daemon status, agent status
-- `heimdall doctor` — Check dependencies, permissions, daemon health, libfido2 availability
-- `heimdall version` — Print version, build info, enabled features
+- `heimdall init` — Initialize vault/config
+- `heimdall status` — Show daemon/vault state + key staleness + ssh-config sync + audit logging state
+- `heimdall doctor` — Check local dependencies and daemon reachability
+- `heimdall version` — Print build metadata
+- `heimdall tui` (`heimdall ui`) — Launch interactive terminal UI
 
 #### Vault
 
 - `heimdall vault status`
-- `heimdall vault unlock [--passphrase-stdin | --passkey <label>]`
+- `heimdall vault unlock [--passphrase | --passphrase-stdin | --passkey-label <label>]`
 - `heimdall vault lock`
-- `heimdall vault timeout set <duration>` / `heimdall vault timeout show`
-- `heimdall vault change-passphrase` (requires re-auth)
 
 #### Daemon
 
+- `heimdall daemon start`
 - `heimdall daemon status`
 - `heimdall daemon stop`
 - `heimdall daemon restart`
 
 #### Hosts
 
-- `heimdall host add --name <name> --addr <addr> [--port N] [--user U] [--tag T]... [--group G]`
+- `heimdall host add --name <name> --address <addr> [--port N] [--user U] [--tag T]... [--group G]`
 - `heimdall host edit <name>`
-- `heimdall host rm <name>`
-- `heimdall host ls [--tag T] [--group G] [--search Q] [--json]`
+- `heimdall host remove <name>`
+- `heimdall host list [--tag T] [--group G] [--search Q] [--json]`
 - `heimdall host show <name>`
-- `heimdall host test <name> [--timeout 5s]`
-- `heimdall host trust <name>`
-- `heimdall host template add|edit|rm|ls|show`
 
 #### Connect
 
-- `heimdall connect <host>` — Interactive host selection if no argument and TTY
+- `heimdall connect <host>`
   - `--jump <host[,host...]>`
   - `--forward <spec>` (repeatable; `L:`, `R:`, `D:` prefixes)
-  - `--pty auto|yes|no`
-  - `--agent-forward yes|no`
-  - `--identity <key-name>`
-  - `--known-hosts strict|tofu|accept-new|off`
+  - `--user <user>` / `--port <port>`
+  - `--key <vault-key-name>` (managed agent auth)
+  - `--identity-file <path>` (local key file auth)
+  - `--known-hosts <path>`
   - `--print-cmd` (print `ssh` command that would be executed)
   - `--dry-run` (validate and print plan without executing)
-  - `--` passthrough extra `ssh` args
 
 #### Keys / Identities
 
-- `heimdall key gen --name <name> [--type ed25519|rsa] [--comment C]`
-- `heimdall key import --from <path>` or `--stdin`
+- `heimdall key generate --name <name> [--type ed25519|rsa]`
+- `heimdall key import --name <name> --from <path> [--passphrase <import-passphrase>]`
 - `heimdall key export <name> --public` or `--private --output <path>` (re-auth required)
-- `heimdall key ls [--json]`
+- `heimdall key list [--json]`
 - `heimdall key show <name>` (metadata + public key)
-- `heimdall key rm <name>`
+- `heimdall key remove <name>`
 - `heimdall key rotate <name>`
 - `heimdall key agent add <name> [--ttl <duration>]`
-- `heimdall key agent rm <name>`
+- `heimdall key agent remove <fingerprint>`
 
 #### Secrets
 
-- `heimdall secret add --name <name> --type token|password|note|file [--value-stdin | --from <path>] [--reveal-policy P]`
-- `heimdall secret ls [--json]`
+- `heimdall secret add --name <name> --value <value> [--reveal-policy P]`
+- `heimdall secret list [--json]`
 - `heimdall secret show <name>` (requires re-auth)
-- `heimdall secret rm <name>`
+- `heimdall secret remove <name>`
 - `heimdall secret export <name> --output <path>` (requires re-auth)
 - `heimdall secret env <name> --env-var <VAR> -- <cmd> [args...]`
-- `heimdall secret set-policy <name> --reveal-policy P`
 
 #### Passkeys
 
-- `heimdall passkey enroll --label <label> [--uv required|preferred|discouraged]`
-- `heimdall passkey ls [--json]`
-- `heimdall passkey rm <label>` (requires re-auth)
+- `heimdall passkey enroll --label <label> [--user <username>]`
+- `heimdall passkey list [--json]`
+- `heimdall passkey remove <label>` (requires re-auth)
 - `heimdall passkey test <label>`
 
 #### Backup / Import / Export
 
-- `heimdall backup create --output <path> [--passphrase-stdin]`
-- `heimdall backup restore --from <path>`
+- `heimdall backup create --output <path> --passphrase <backup-passphrase> [--overwrite]`
+- `heimdall backup restore --from <path> --passphrase <backup-passphrase> [--overwrite]`
 - `heimdall export --format json --output <path>`
 - `heimdall import --format json|ssh-config --from <path>`
-- `heimdall ssh-config generate --output <path>`
+
+#### SSH config
+
+- `heimdall ssh-config enable [--path <path>]`
+- `heimdall ssh-config disable`
+- `heimdall ssh-config sync`
+- `heimdall ssh-config diff`
+- `heimdall ssh-config show`
+- `heimdall ssh-config generate`
 
 #### Audit
 
-- `heimdall audit list [--since <duration>] [--action <action>] [--json]`
+- `heimdall audit list [--limit N] [--action <action>] [--json]`
 - `heimdall audit verify` (verify hash chain integrity)
 
 ### 7.3 Interactive Mode/TUI Behaviors
@@ -565,7 +590,7 @@ TUI MUST:
 - Never render secret values by default
 - Require re-auth before revealing secrets
 - Support `ESC` to cancel safely
-- Not start if stdout is not a TTY (unless forced with `--interactive`)
+- Not start if stdin/stdout are not TTYs
 
 Empty states show contextual onboarding guidance (see 5.2).
 
@@ -577,7 +602,7 @@ Empty states show contextual onboarding guidance (see 5.2).
 
 #### Config file
 
-Format: **TOML** (parsed with `pelletier/go-toml`)
+Format: **TOML** (parsed with `pelletier/go-toml/v2`)
 
 Locations:
 - macOS: `~/Library/Application Support/Heimdall/config.toml`
@@ -593,6 +618,7 @@ Locations:
 - `HEIMDALL_HOME`
 - `HEIMDALL_VAULT_PATH`
 - `HEIMDALL_CONFIG_PATH`
+- `HEIMDALL_POLICY_FILE`
 - `HEIMDALL_NO_COLOR=1`
 - `HEIMDALL_JSON=1`
 
@@ -606,6 +632,14 @@ auto_lock_timeout = "30m"     # duration string
 known_hosts_policy_default = "tofu"  # strict|tofu|accept-new|off
 forward_agent_default = false
 connect_timeout = "10s"
+
+[ssh_config]
+enabled = false
+path = "~/.ssh/config.d/heimdall.conf"
+auto_sync = true
+
+[audit]
+connection_logging = false
 
 [passkey]
 uv_default = "preferred"      # required|preferred|discouraged
@@ -682,21 +716,21 @@ enabled = false
 - MUST verify total socket path length < 104 bytes (macOS limit)
 - MUST NOT use abstract namespace sockets (no filesystem permissions)
 
-#### PID management
+#### Process metadata management
 
-- PID file at `${HEIMDALL_HOME}/daemon.pid`
-- On startup: check if PID file exists and process is alive
-- If stale PID file: remove it, remove stale sockets, start fresh
+- Daemon metadata file at `${RUNTIME_DIR}/heimdall/daemon.info` (JSON)
+- `daemon.info` records daemon pid, socket path, agent path, config path, and vault path
+- On startup: if `daemon.info` exists but process/socket is stale, clean stale sockets + stale metadata and start fresh
 
 #### Startup sequence
 
 1. CLI command requires daemon → check if socket exists and is responsive
-2. If socket exists: verify daemon PID via `SO_PEERCRED` / `getpeereid()` → connect
-3. If socket doesn't exist or stale: CLI forks daemon as child process
-4. Daemon: create socket directory (0700) → create sockets → write PID file → signal ready
-5. CLI: wait for ready signal → verify daemon PID → connect
+2. If socket exists and is healthy: connect
+3. If socket is missing/stale: CLI starts daemon subprocess
+4. Daemon: create socket directory (0700) → create sockets → write `daemon.info` → signal ready
+5. CLI: wait for ready signal and connect
 
-**Race condition prevention:** CLI spawns daemon as child process, then verifies PID via `SO_PEERCRED`. Never connects to a pre-existing socket without PID verification.
+**Race condition prevention:** CLI only trusts daemon socket + `daemon.info` when path and process checks are coherent; stale metadata is discarded before reconnect.
 
 #### Shutdown sequence
 
@@ -704,7 +738,7 @@ enabled = false
 2. Stop accepting new gRPC connections
 3. Wait for active SSH agent signing operations to complete (5s timeout)
 4. Lock vault (zero-wipe VMK via memguard)
-5. Close sockets, remove PID file
+5. Close sockets, remove `daemon.info`
 6. Exit 0
 
 #### Signal handling
@@ -1308,7 +1342,6 @@ Resets on successful authentication. All attempts logged in audit with PID.
 - Key derivation: Argon2id (same parameters as vault)
 - Encryption: XChaCha20-Poly1305 wrapping the entire archive
 - Includes integrity protection via AEAD authentication tag
-- `--unencrypted` requires `--yes` and re-auth
 
 ### 11.12 Telemetry & Vulnerability Disclosure
 
@@ -1324,11 +1357,10 @@ Resets on successful authentication. All attempts logged in audit with PID.
 
 - Shell out to system `ssh` for all connections
 - Generate temporary config snippets for complex forwards (secure temp dir, deleted after use)
-- `--ignore-ssh-config` for fully isolated behavior (`ssh -F /dev/null`)
 
 ### 12.2 SSH Directive Support Matrix
 
-#### Import from `~/.ssh/config` (v0.1.0)
+#### Import from `~/.ssh/config` (v0.2.0)
 
 | Directive | Supported | Maps to |
 |-----------|-----------|---------|

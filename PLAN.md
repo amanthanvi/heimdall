@@ -175,4 +175,12 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Status command enhancements (key staleness, config sync, audit status)
 - [x] `done` Tests for v0.2.0 feature slices (config/audit/sshconfig/host hooks/CLI/grpc)
 - [x] `done` Full validation gate
-- [x] `done` Release tag/tap verification + rollout cleanup (`v0.1.23` retained as clean rollout line)
+- [x] `done` Release/tag cleanup: pruned pre-v0.2.0 releases/tags; `v0.2.0` is the only public line
+
+## Reconciliation Backlog (2026-02-24)
+- [x] `done` Wire TUI command entrypoint (`heimdall tui` + `heimdall ui` alias)
+- [x] `done` Harden zsh completion scripts against leaked directive tokens (`:0`, `:4`) in shell suggestion lists
+- [x] `done` Correct JSON import reporting for identity metadata (explicitly skipped today)
+- [x] `done` Update `SPEC.md` to reflect current v0.2.0 command/config/runtime truth
+- [x] `done` Overhaul user-facing docs (`README.md`, `docs/RELEASING.md`) for current command surface and release line
+- [x] `done` Prune legacy pre-v0.2.0 releases and tags on GitHub

@@ -63,6 +63,27 @@ gh release view vX.Y.Z --repo amanthanvi/heimdall --json url,tagName,isDraft,isP
 gh api 'repos/amanthanvi/homebrew-tap/commits?path=Casks/heimdall.rb&per_page=1'
 ```
 
+## 4.1) Public release-line hygiene (current policy: keep only `v0.2.0`)
+
+```bash
+# list current releases/tags
+gh release list --repo amanthanvi/heimdall --limit 200
+git tag --sort=version:refname
+
+# delete old GitHub releases (example)
+for tag in $(gh release list --repo amanthanvi/heimdall --limit 200 --json tagName --jq '.[].tagName' | grep -v '^v0.2.0$'); do
+  gh release delete "$tag" --repo amanthanvi/heimdall --yes
+done
+
+# delete old local+remote tags (example)
+for tag in $(git tag | grep -v '^v0.2.0$'); do
+  git tag -d "$tag"
+  git push origin ":refs/tags/$tag"
+done
+```
+
+Run this only when explicitly requested; it is destructive and removes historic release metadata.
+
 ## 5) Verify Homebrew install/upgrade
 
 ```bash
