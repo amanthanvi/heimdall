@@ -209,10 +209,10 @@ func runJSONImport(ctx context.Context, deps commandDeps, fromPath string) error
 	}
 
 	type summary struct {
-		Hosts      int `json:"hosts"`
-		Identities int `json:"identities"`
-		Secrets    int `json:"secrets"`
-		Skipped    int `json:"skipped"`
+		HostsImported            int `json:"hosts_imported"`
+		IdentityMetadataSkipped  int `json:"identity_metadata_skipped"`
+		SecretsImported          int `json:"secrets_imported"`
+		Skipped                  int `json:"skipped"`
 	}
 	result := summary{}
 
@@ -249,17 +249,15 @@ func runJSONImport(ctx context.Context, deps commandDeps, fromPath string) error
 				}
 				return err
 			}
-			result.Hosts++
+			result.HostsImported++
 		}
 		for _, identity := range bundle.Identities {
 			if strings.TrimSpace(identity.Name) == "" {
-				continue
-			}
-			if strings.TrimSpace(identity.PublicKey) == "" {
 				result.Skipped++
 				continue
 			}
-			result.Identities++
+			result.IdentityMetadataSkipped++
+			result.Skipped++
 		}
 		for _, secret := range bundle.Secrets {
 			size := secret.SizeBytes
@@ -278,7 +276,7 @@ func runJSONImport(ctx context.Context, deps commandDeps, fromPath string) error
 				}
 				return err
 			}
-			result.Secrets++
+			result.SecretsImported++
 		}
 
 		if deps.globals.JSON {
@@ -289,11 +287,11 @@ func runJSONImport(ctx context.Context, deps commandDeps, fromPath string) error
 		}
 		_, err := fmt.Fprintf(
 			deps.out,
-			"imported json: hosts=%d identities=%d secrets=%d skipped=%d\n",
-			result.Hosts,
-			result.Identities,
-			result.Secrets,
+			"imported json: hosts=%d secrets=%d skipped=%d identity_metadata_skipped=%d\n",
+			result.HostsImported,
+			result.SecretsImported,
 			result.Skipped,
+			result.IdentityMetadataSkipped,
 		)
 		return err
 	})
