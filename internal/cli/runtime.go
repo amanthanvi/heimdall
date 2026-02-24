@@ -36,6 +36,7 @@ type daemonClients struct {
 	secret  v1.SecretServiceClient
 	key     v1.KeyServiceClient
 	passkey v1.PasskeyServiceClient
+	reauth  v1.ReauthServiceClient
 	connect v1.ConnectServiceClient
 	session v1.SessionServiceClient
 	audit   v1.AuditServiceClient
@@ -87,6 +88,7 @@ func withDaemonClients(cmdCtx context.Context, deps commandDeps, fn func(context
 		secret:  v1.NewSecretServiceClient(conn),
 		key:     v1.NewKeyServiceClient(conn),
 		passkey: v1.NewPasskeyServiceClient(conn),
+		reauth:  v1.NewReauthServiceClient(conn),
 		connect: v1.NewConnectServiceClient(conn),
 		session: v1.NewSessionServiceClient(conn),
 		audit:   v1.NewAuditServiceClient(conn),

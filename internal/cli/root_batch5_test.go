@@ -58,10 +58,19 @@ func TestRootHasBatchFiveTopLevelCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	for _, name := range []string{"init", "daemon", "ssh-config", "host", "secret", "key", "backup"} {
+	for _, name := range []string{"init", "daemon", "ssh-config", "host", "secret", "key", "backup", "tui"} {
 		_, _, err := cmd.Find([]string{name})
 		require.NoErrorf(t, err, "expected command %q", name)
 	}
+}
+
+func TestRootIncludesUIAliasForTUI(t *testing.T) {
+	var out bytes.Buffer
+	cmd := NewRootCommand(&out, testBuildInfo())
+
+	found, _, err := cmd.Find([]string{"ui"})
+	require.NoError(t, err)
+	require.Equal(t, "tui", found.Name())
 }
 
 func TestAllCommandsHaveExamples(t *testing.T) {
@@ -246,6 +255,8 @@ func TestCompletionGenerationBashZshFish(t *testing.T) {
 	out, err = runCLI(t, "", "completion", "zsh")
 	require.NoError(t, err)
 	require.Contains(t, out, "#compdef heimdall")
+	require.Contains(t, out, "Skipping leaked directive token")
+	require.Contains(t, out, "Skipping leaked completion summary")
 
 	out, err = runCLI(t, "", "completion", "fish")
 	require.NoError(t, err)

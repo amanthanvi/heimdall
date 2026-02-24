@@ -24,11 +24,34 @@ const (
 
 func initCompletionSupport(root *cobra.Command, deps commandDeps) {
 	root.InitDefaultCompletionCmd()
+	hardenDefaultCompletionCommands(root)
 	completionCmd := findSubcommand(root, "completion")
 	if completionCmd != nil {
 		completionCmd.AddCommand(newCompletionInstallCommand(root, deps))
 	}
 	registerDynamicCompletions(root, deps)
+}
+
+func hardenDefaultCompletionCommands(root *cobra.Command) {
+	completionCmd := findSubcommand(root, "completion")
+	if completionCmd == nil {
+		return
+	}
+	zshCmd := findSubcommand(completionCmd, completionShellZsh)
+	if zshCmd == nil {
+		return
+	}
+	zshCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) != 0 {
+			return usageErrorf("completion zsh does not accept positional arguments")
+		}
+		script, err := generateCompletionScript(root, completionShellZsh)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(script)
+		return err
+	}
 }
 
 func registerDynamicCompletions(root *cobra.Command, deps commandDeps) {
@@ -428,6 +451,7 @@ func generateCompletionScript(root *cobra.Command, shellName string) ([]byte, er
 		if err := root.GenZshCompletion(&buf); err != nil {
 			return nil, fmt.Errorf("completion install: generate zsh completion: %w", err)
 		}
+		return []byte(hardenZSHCompletionScript(buf.String())), nil
 	case completionShellFish:
 		if err := root.GenFishCompletion(&buf, true); err != nil {
 			return nil, fmt.Errorf("completion install: generate fish completion: %w", err)
@@ -436,6 +460,24 @@ func generateCompletionScript(root *cobra.Command, shellName string) ([]byte, er
 		return nil, usageErrorf("unsupported shell %q", shellName)
 	}
 	return buf.Bytes(), nil
+}
+
+func hardenZSHCompletionScript(script string) string {
+	const loopNeedle = "    while IFS='\\n' read -r comp; do\n        # Check if this is an activeHelp statement (i.e., prefixed with $activeHelpMarker)\n"
+	const loopReplacement = "    while IFS='\\n' read -r comp; do\n" +
+		"        if [[ \"$comp\" =~ '^:[0-9]+$' ]]; then\n" +
+		"            __heimdall_debug \"Skipping leaked directive token: ${comp}\"\n" +
+		"            continue\n" +
+		"        fi\n" +
+		"        if [[ \"$comp\" == \"Completion ended with directive:\"* ]]; then\n" +
+		"            __heimdall_debug \"Skipping leaked completion summary: ${comp}\"\n" +
+		"            continue\n" +
+		"        fi\n" +
+		"        # Check if this is an activeHelp statement (i.e., prefixed with $activeHelpMarker)\n"
+	if strings.Contains(script, "Skipping leaked directive token: ${comp}") {
+		return script
+	}
+	return strings.Replace(script, loopNeedle, loopReplacement, 1)
 }
 
 func verifyCompletionInstall(shellName, path string) error {

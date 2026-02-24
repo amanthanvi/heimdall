@@ -85,6 +85,7 @@ func NewRootCommandWithWriters(out io.Writer, errOut io.Writer, build BuildInfo)
 		newImportCommand(deps),
 		newExportCommand(deps),
 		newSSHConfigCommand(deps),
+		newTUICommand(deps),
 		newDebugCommand(deps),
 	)
 
