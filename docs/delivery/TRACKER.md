@@ -1,4 +1,4 @@
-# Delivery Tracker — v0.2.0 Reconciliation
+# Delivery Tracker — v0.2.1 Reconciliation
 
 Status key: `todo` | `in_progress` | `done`
 
@@ -14,8 +14,8 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Planning truth sync: `PLAN.md` reconciled with real backlog
 - [x] `done` Spec truth sync: `SPEC.md` updated for current v0.2.1 behavior
 - [x] `done` Docs refresh: `README.md` + `docs/RELEASING.md` updated
-- [x] `done` GitHub cleanup: pruned pre-v0.2.0 releases and tags (kept `v0.2.0`)
-- [x] `done` Full validation gate complete (`build`, `vet`, `race`, `lint`, `integration`, `bench`)
+- [x] `done` GitHub cleanup: pruned pre-v0.2.1 releases and tags (kept `v0.2.1`)
+- [x] `done` Full validation gate complete (`build`, `vet`, `race`, `lint`, `integration`, `bench`, `govulncheck`, completions, manpages)
 
 ## Commit log (this run)
 
@@ -23,6 +23,7 @@ Status key: `todo` | `in_progress` | `done`
 - `4539b2c` — `fix: report JSON import identity metadata as skipped`
 - `ff92432` — `fix: record connect audit for identity sessions`
 - `e7838b0` — `feat: default-enable connection audit logging`
+- `67ece6b` — `build: harden homebrew cask quarantine handling`
 
 ## Remaining deliverables
 
