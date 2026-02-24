@@ -38,13 +38,13 @@ GITHUB_TOKEN="$(gh auth token)" goreleaser release --clean
 Expected outcomes:
 - GitHub release is published under `vX.Y.Z`.
 - Release assets include `heimdall-<os>-<arch>.tar.gz`.
-- Homebrew tap cask `Casks/heimdall.rb` is pushed automatically.
+- Homebrew tap formula `Formula/heimdall.rb` is pushed automatically.
 
 ## 4) Verify GitHub release and tap
 
 ```bash
 gh release view vX.Y.Z --repo amanthanvi/heimdall --json url,tagName,isDraft,isPrerelease,publishedAt,assets
-gh api 'repos/amanthanvi/homebrew-tap/commits?path=Casks/heimdall.rb&per_page=1'
+gh api 'repos/amanthanvi/homebrew-tap/commits?path=Formula/heimdall.rb&per_page=1'
 ```
 
 ## 5) Verify Homebrew install/upgrade
@@ -53,7 +53,7 @@ gh api 'repos/amanthanvi/homebrew-tap/commits?path=Casks/heimdall.rb&per_page=1'
 BREW_TAP_DIR=$(brew --repo amanthanvi/tap)
 cd "$BREW_TAP_DIR"
 git pull --ff-only
-HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade --cask amanthanvi/tap/heimdall || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask amanthanvi/tap/heimdall
+HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade amanthanvi/tap/heimdall || HOMEBREW_NO_AUTO_UPDATE=1 brew install amanthanvi/tap/heimdall
 heimdall version
 ```
 

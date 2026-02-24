@@ -49,19 +49,18 @@ nfpms:
     license: MIT
     bindir: /usr/bin
 
-homebrew_casks:
+brews:
   - name: heimdall
     ids:
       - standalone
-    binaries:
-      - heimdall
+    directory: Formula
     homepage: https://github.com/amanthanvi/heimdall
     description: Secure local SSH vault and workflow CLI.
-    url:
-      verified: github.com/amanthanvi/heimdall/
     repository:
       owner: amanthanvi
       name: homebrew-tap
+    install: |
+      bin.install "heimdall"
 
 release:
   draft: false
