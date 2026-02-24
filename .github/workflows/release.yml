@@ -47,6 +47,7 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
+          GODEBUG: x509negativeserial=1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
