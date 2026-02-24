@@ -152,6 +152,7 @@ go test -run='^$' -bench='Benchmark(VaultOpenCold|CLIRoundTrip|KeyDerivation)$' 
 
 ## Release
 
+- Release runbook: `docs/RELEASING.md`
 - GoReleaser config: `.goreleaser.yml`
 - Homebrew artifacts are `tar.gz` archives named `heimdall-<os>-<arch>.tar.gz` containing the `heimdall` binary.
 - Homebrew formula source of truth: `homebrew-tap/Formula/heimdall.rb`.
