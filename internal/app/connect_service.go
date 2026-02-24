@@ -13,6 +13,8 @@ type ConnectService struct {
 	hosts storage.HostRepository
 }
 
+const disableIdentityPathSentinel = "__heimdall_disable_identity__"
+
 func NewConnectService(hosts storage.HostRepository) *ConnectService {
 	return &ConnectService{hosts: hosts}
 }
@@ -59,22 +61,15 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 	}
 
 	effectiveIdentityPath := strings.TrimSpace(opts.IdentityPath)
-	if effectiveIdentityPath == "" {
+	disableIdentityDefaults := effectiveIdentityPath == disableIdentityPathSentinel
+	if disableIdentityDefaults {
+		effectiveIdentityPath = ""
+	}
+	if effectiveIdentityPath == "" && !disableIdentityDefaults {
 		effectiveIdentityPath = strings.TrimSpace(host.IdentityFile)
 	}
-	if effectiveIdentityPath == "" {
+	if effectiveIdentityPath == "" && !disableIdentityDefaults {
 		effectiveIdentityPath = strings.TrimSpace(host.EnvRefs["identity_ref"])
-	}
-
-	effectiveKeyName := strings.TrimSpace(opts.KeyName)
-	if effectiveKeyName == "" {
-		effectiveKeyName = strings.TrimSpace(host.KeyName)
-	}
-	if effectiveKeyName == "" {
-		effectiveKeyName = strings.TrimSpace(host.EnvRefs["key_name"])
-	}
-	if effectiveKeyName != "" && effectiveIdentityPath != "" {
-		return nil, fmt.Errorf("%w: connect defaults set both key and identity file", ErrValidation)
 	}
 
 	args := []string{"ssh", "-p", strconv.Itoa(port)}

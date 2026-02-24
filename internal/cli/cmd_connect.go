@@ -21,6 +21,7 @@ var newSSHCommandExecutor = func() sshCommandExecutor {
 }
 
 const defaultConnectKeyTTL = 30 * time.Minute
+const connectDisableIdentityPathSentinel = "__heimdall_disable_identity__"
 
 func newConnectCommand(deps commandDeps) *cobra.Command {
 	var (
@@ -51,6 +52,9 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hostName := args[0]
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				keyExplicit := cmd.Flags().Changed("key")
+				identityExplicit := cmd.Flags().Changed("identity-file")
+
 				hostResp, err := clients.host.GetHost(ctx, &v1.GetHostRequest{Name: hostName})
 				if err != nil {
 					return err
@@ -61,12 +65,23 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 				}
 
 				effectiveKeyName := strings.TrimSpace(keyName)
-				if effectiveKeyName == "" {
+				if !keyExplicit && effectiveKeyName == "" {
 					effectiveKeyName = strings.TrimSpace(host.GetEnvRefs()["key_name"])
 				}
 				effectiveIdentityFile := strings.TrimSpace(identityFile)
-				if effectiveIdentityFile == "" {
+				if !identityExplicit && effectiveIdentityFile == "" {
 					effectiveIdentityFile = strings.TrimSpace(host.GetEnvRefs()["identity_ref"])
+				}
+				planIdentityPath := effectiveIdentityFile
+				if keyExplicit && identityExplicit && effectiveKeyName != "" && effectiveIdentityFile != "" {
+					return usageErrorf("connect cannot use --key and --identity-file together")
+				}
+				if keyExplicit && effectiveKeyName != "" {
+					planIdentityPath = connectDisableIdentityPathSentinel
+					effectiveIdentityFile = ""
+				}
+				if identityExplicit && effectiveIdentityFile != "" {
+					effectiveKeyName = ""
 				}
 				effectiveJumpHosts := append([]string(nil), jumpHosts...)
 				if len(effectiveJumpHosts) == 0 {
@@ -93,7 +108,7 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 					Port:         port,
 					JumpHosts:    effectiveJumpHosts,
 					Forwards:     append([]string(nil), forwards...),
-					IdentityPath: effectiveIdentityFile,
+					IdentityPath: planIdentityPath,
 					KnownHosts:   knownHosts,
 					PrintCmd:     printCmd,
 					DryRun:       dryRun,

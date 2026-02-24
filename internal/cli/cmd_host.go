@@ -16,10 +16,7 @@ func newHostCommand(deps commandDeps) *cobra.Command {
 		"  heimdall host add --name prod --address 10.0.0.10 --user ubuntu\n"+
 			"  heimdall host list\n"+
 			"  heimdall host show prod",
-		map[string]string{
-			"ls": "list",
-			"rm": "remove",
-		},
+		map[string]string{},
 	)
 	cmd.AddCommand(
 		newHostAddCommand(deps),

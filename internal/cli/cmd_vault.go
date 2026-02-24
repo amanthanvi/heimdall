@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"strings"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/spf13/cobra"
@@ -93,23 +97,47 @@ func newVaultLockCommand(deps commandDeps) *cobra.Command {
 func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 	var passphrase string
 	var passkeyLabel string
+	var passphraseStdin bool
 
 	cmd := &cobra.Command{
 		Use:   "unlock",
 		Short: "Unlock the vault",
 		Example: "  heimdall vault unlock --passphrase \"dev-pass\"\n" +
+			"  printf \"dev-pass\\n\" | heimdall vault unlock --passphrase-stdin\n" +
 			"  heimdall vault unlock --passkey-label \"macbook-touchid\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("vault unlock does not accept positional arguments")
 			}
-			if passphrase == "" && passkeyLabel == "" {
-				return usageErrorf("vault unlock requires --passphrase or --passkey-label")
+			authMethods := 0
+			if strings.TrimSpace(passphrase) != "" {
+				authMethods++
+			}
+			if passphraseStdin {
+				authMethods++
+			}
+			if strings.TrimSpace(passkeyLabel) != "" {
+				authMethods++
+			}
+			if authMethods == 0 {
+				return usageErrorf("vault unlock requires exactly one of --passphrase, --passphrase-stdin, or --passkey-label")
+			}
+			if authMethods > 1 {
+				return usageErrorf("vault unlock accepts only one auth method: --passphrase, --passphrase-stdin, or --passkey-label")
+			}
+
+			resolvedPassphrase := passphrase
+			if passphraseStdin {
+				stdinPassphrase, err := readUnlockPassphraseFromStdin(cmd.InOrStdin())
+				if err != nil {
+					return err
+				}
+				resolvedPassphrase = stdinPassphrase
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				_, err := clients.vault.Unlock(ctx, &v1.UnlockRequest{
-					Passphrase:   passphrase,
+					Passphrase:   resolvedPassphrase,
 					PasskeyLabel: passkeyLabel,
 				})
 				if err != nil {
@@ -128,6 +156,20 @@ func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Vault passphrase")
+	cmd.Flags().BoolVar(&passphraseStdin, "passphrase-stdin", false, "Read passphrase from stdin")
 	cmd.Flags().StringVar(&passkeyLabel, "passkey-label", "", "Passkey label for unlock")
 	return cmd
+}
+
+func readUnlockPassphraseFromStdin(reader io.Reader) (string, error) {
+	lineReader := bufio.NewReader(reader)
+	line, err := lineReader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", mapCommandError(fmt.Errorf("vault unlock: read passphrase from stdin: %w", err))
+	}
+	passphrase := strings.TrimSpace(line)
+	if passphrase == "" {
+		return "", usageErrorf("vault unlock --passphrase-stdin requires a non-empty value on stdin")
+	}
+	return passphrase, nil
 }

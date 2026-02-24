@@ -112,38 +112,32 @@ func TestRemovedPlaceholderCommandsDoNotAppearInHelp(t *testing.T) {
 	require.NotContains(t, out, "template")
 }
 
-func TestLegacySubcommandGuidanceReturnsUsageError(t *testing.T) {
+func TestRemovedLegacySubcommandsReturnPlainUsageError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 		args []string
-		want string
 	}{
 		{
 			name: "host ls",
 			args: []string{"host", "ls"},
-			want: `use "heimdall host list"`,
 		},
 		{
 			name: "key gen",
 			args: []string{"key", "gen"},
-			want: `use "heimdall key generate"`,
 		},
 		{
 			name: "secret rm",
 			args: []string{"secret", "rm"},
-			want: `use "heimdall secret remove"`,
 		},
 		{
 			name: "passkey ls",
 			args: []string{"passkey", "ls"},
-			want: `use "heimdall passkey list"`,
 		},
 		{
 			name: "key agent rm",
 			args: []string{"key", "agent", "rm"},
-			want: `use "heimdall key agent remove"`,
 		},
 	}
 
@@ -153,7 +147,8 @@ func TestLegacySubcommandGuidanceReturnsUsageError(t *testing.T) {
 			_, err := runCLI(t, "", tc.args...)
 			require.Error(t, err)
 			require.Equal(t, ExitCodeUsage, exitCode(err))
-			require.Contains(t, err.Error(), tc.want)
+			require.Contains(t, err.Error(), "unknown command")
+			require.NotContains(t, err.Error(), "use \"heimdall")
 		})
 	}
 }
@@ -200,6 +195,32 @@ func TestInitPassphraseStdinRequiresValue(t *testing.T) {
 	_, err := runCLI(t, "\n", "--vault", vaultPath, "--config", configPath, "--yes", "init", "--passphrase-stdin")
 	require.Error(t, err)
 	require.Equal(t, ExitCodeUsage, exitCode(err))
+}
+
+func TestVaultUnlockPassphraseStdin(t *testing.T) {
+	server := &cliTestDaemon{}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "super-secret\n", "vault", "unlock", "--passphrase-stdin")
+	require.NoError(t, err)
+	require.Contains(t, out, "vault unlocked")
+	require.Len(t, server.unlockRequests, 1)
+	require.Equal(t, "super-secret", server.unlockRequests[0].GetPassphrase())
+	require.Empty(t, server.unlockRequests[0].GetPasskeyLabel())
+}
+
+func TestVaultUnlockPassphraseStdinRequiresValue(t *testing.T) {
+	_, err := runCLI(t, "\n", "vault", "unlock", "--passphrase-stdin")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeUsage, exitCode(err))
+	require.Contains(t, err.Error(), "vault unlock --passphrase-stdin requires a non-empty value on stdin")
+}
+
+func TestVaultUnlockRejectsMultipleAuthMethods(t *testing.T) {
+	_, err := runCLI(t, "stdin-secret\n", "vault", "unlock", "--passphrase", "flag-secret", "--passphrase-stdin")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeUsage, exitCode(err))
+	require.Contains(t, err.Error(), "vault unlock accepts only one auth method")
 }
 
 func TestSecretShowRequiresReauth(t *testing.T) {
@@ -365,6 +386,54 @@ func TestConnectDryRunWithMissingKeyReturnsNotFound(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, ExitCodeNotFound, exitCode(err))
 	require.Contains(t, err.Error(), `connect: key "deploy" not found in vault`)
+}
+
+func TestConnectDryRunIdentityFileOverridesHostDefaultKey(t *testing.T) {
+	identityPath := filepath.Join(t.TempDir(), "id_ed25519")
+	require.NoError(t, os.WriteFile(identityPath, []byte("dummy"), 0o600))
+
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{
+			Name:    "prod",
+			Address: "10.0.0.1",
+			Port:    22,
+			User:    "ubuntu",
+			EnvRefs: map[string]string{"key_name": "deploy"},
+		}},
+		keys: []*v1.KeyMeta{{Name: "deploy"}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "connect", "prod", "--dry-run", "--identity-file", identityPath)
+	require.NoError(t, err)
+	require.Contains(t, out, identityPath)
+	require.NotContains(t, out, "auth: managed-agent")
+	require.Len(t, server.planRequests, 1)
+	require.Equal(t, identityPath, server.planRequests[0].GetIdentityPath())
+}
+
+func TestConnectDryRunKeyOverridesHostDefaultIdentityFile(t *testing.T) {
+	identityPath := filepath.Join(t.TempDir(), "id_ed25519")
+	require.NoError(t, os.WriteFile(identityPath, []byte("dummy"), 0o600))
+
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{
+			Name:    "prod",
+			Address: "10.0.0.1",
+			Port:    22,
+			User:    "ubuntu",
+			EnvRefs: map[string]string{"identity_ref": identityPath},
+		}},
+		keys: []*v1.KeyMeta{{Name: "deploy"}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "connect", "prod", "--dry-run", "--key", "deploy")
+	require.NoError(t, err)
+	require.Contains(t, out, "auth: managed-agent key=deploy")
+	require.Len(t, server.planRequests, 1)
+	require.Equal(t, connectDisableIdentityPathSentinel, server.planRequests[0].GetIdentityPath())
+	require.NotContains(t, out, identityPath)
 }
 
 func TestConnectWithKeyRegistersSessionLifecycle(t *testing.T) {
@@ -550,6 +619,74 @@ func TestEnsureDaemonPathOverridesKeepsMatchingDaemon(t *testing.T) {
 	require.False(t, stopCalled)
 }
 
+func TestEnsureDaemonPathOverridesKeepsDaemonWhenNoExplicitPaths(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HEIMDALL_HOME", t.TempDir())
+	t.Setenv("HEIMDALL_CONFIG_PATH", "")
+	t.Setenv("HEIMDALL_VAULT_PATH", "")
+
+	infoPath, err := resolveDaemonInfoPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(infoPath), 0o700))
+
+	infoBytes, err := json.Marshal(daemonpkg.Info{
+		PID:        12345,
+		ConfigPath: "/tmp/custom-config.toml",
+		VaultPath:  "/tmp/custom-vault.db",
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(infoPath, infoBytes, 0o600))
+
+	origStopFn := stopDaemonForPathMismatchFn
+	t.Cleanup(func() {
+		stopDaemonForPathMismatchFn = origStopFn
+	})
+
+	stopCalled := false
+	stopDaemonForPathMismatchFn = func() (bool, error) {
+		stopCalled = true
+		return true, nil
+	}
+
+	err = ensureDaemonPathOverrides(&GlobalOptions{})
+	require.NoError(t, err)
+	require.False(t, stopCalled)
+}
+
+func TestEnsureDaemonPathOverridesRestartsWhenExplicitEnvDiffers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HEIMDALL_HOME", t.TempDir())
+	t.Setenv("HEIMDALL_CONFIG_PATH", "/tmp/expected-config.toml")
+	t.Setenv("HEIMDALL_VAULT_PATH", "/tmp/expected-vault.db")
+
+	infoPath, err := resolveDaemonInfoPath()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(infoPath), 0o700))
+
+	infoBytes, err := json.Marshal(daemonpkg.Info{
+		PID:        12345,
+		ConfigPath: "/tmp/other-config.toml",
+		VaultPath:  "/tmp/other-vault.db",
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(infoPath, infoBytes, 0o600))
+
+	origStopFn := stopDaemonForPathMismatchFn
+	t.Cleanup(func() {
+		stopDaemonForPathMismatchFn = origStopFn
+	})
+
+	stopCalled := false
+	stopDaemonForPathMismatchFn = func() (bool, error) {
+		stopCalled = true
+		return true, nil
+	}
+
+	err = ensureDaemonPathOverrides(&GlobalOptions{})
+	require.NoError(t, err)
+	require.True(t, stopCalled)
+}
+
 func TestQuietSuppressesListOutput(t *testing.T) {
 
 	server := &cliTestDaemon{
@@ -643,6 +780,8 @@ type cliTestDaemon struct {
 	hosts             []*v1.Host
 	keys              []*v1.KeyMeta
 	passkeys          []*v1.PasskeyMeta
+	unlockRequests    []*v1.UnlockRequest
+	planRequests      []*v1.PlanConnectRequest
 	agentAddSessions  []string
 	sessionStarts     []string
 	sessionEnds       []string
@@ -664,6 +803,18 @@ func (r *recordingSSHExecutor) Run(ctx context.Context, command *sshpkg.SSHComma
 
 func (d *cliTestDaemon) Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error) {
 	return &v1.StatusResponse{Locked: false, HasLiveVmk: true}, nil
+}
+
+func (d *cliTestDaemon) Unlock(_ context.Context, req *v1.UnlockRequest) (*v1.UnlockResponse, error) {
+	if req == nil {
+		return nil, errors.New("unlock request is required")
+	}
+	clone := &v1.UnlockRequest{
+		Passphrase:   req.GetPassphrase(),
+		PasskeyLabel: req.GetPasskeyLabel(),
+	}
+	d.unlockRequests = append(d.unlockRequests, clone)
+	return &v1.UnlockResponse{Unlocked: true}, nil
 }
 
 func (d *cliTestDaemon) ListHosts(_ context.Context, req *v1.ListHostsRequest) (*v1.ListHostsResponse, error) {
@@ -715,6 +866,9 @@ func (d *cliTestDaemon) RecordSessionEnd(_ context.Context, req *v1.RecordSessio
 }
 
 func (d *cliTestDaemon) Plan(_ context.Context, req *v1.PlanConnectRequest) (*v1.PlanConnectResponse, error) {
+	if req != nil {
+		d.planRequests = append(d.planRequests, clonePlanConnectRequest(req))
+	}
 	host := "example.com"
 	for _, entry := range d.hosts {
 		if entry.GetName() == req.GetHostName() {
@@ -722,7 +876,36 @@ func (d *cliTestDaemon) Plan(_ context.Context, req *v1.PlanConnectRequest) (*v1
 			break
 		}
 	}
-	return &v1.PlanConnectResponse{Command: &v1.SSHCommand{Binary: "ssh", Args: []string{"-p", "22", host}}}, nil
+	args := []string{"-p", "22"}
+	identityPath := req.GetIdentityPath()
+	if identityPath == connectDisableIdentityPathSentinel {
+		identityPath = ""
+	}
+	if identityPath != "" {
+		args = append(args, "-i", identityPath)
+	}
+	if len(req.GetJumpHosts()) > 0 {
+		args = append(args, "-J", strings.Join(req.GetJumpHosts(), ","))
+	}
+	args = append(args, host)
+	return &v1.PlanConnectResponse{Command: &v1.SSHCommand{Binary: "ssh", Args: args}}, nil
+}
+
+func clonePlanConnectRequest(req *v1.PlanConnectRequest) *v1.PlanConnectRequest {
+	if req == nil {
+		return nil
+	}
+	return &v1.PlanConnectRequest{
+		HostName:     req.GetHostName(),
+		User:         req.GetUser(),
+		Port:         req.GetPort(),
+		JumpHosts:    append([]string(nil), req.GetJumpHosts()...),
+		Forwards:     append([]string(nil), req.GetForwards()...),
+		IdentityPath: req.GetIdentityPath(),
+		KnownHosts:   req.GetKnownHosts(),
+		PrintCmd:     req.GetPrintCmd(),
+		DryRun:       req.GetDryRun(),
+	}
 }
 
 func withStubDaemon(t *testing.T, server *cliTestDaemon) {

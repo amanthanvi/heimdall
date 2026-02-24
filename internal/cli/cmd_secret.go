@@ -18,10 +18,7 @@ func newSecretCommand(deps commandDeps) *cobra.Command {
 		"  heimdall secret add --name api_token --value \"secret\"\n"+
 			"  heimdall secret show api_token --reauth\n"+
 			"  heimdall secret env api_token --env-var API_TOKEN -- sh -c 'echo $API_TOKEN'",
-		map[string]string{
-			"ls": "list",
-			"rm": "remove",
-		},
+		map[string]string{},
 	)
 	cmd.AddCommand(
 		newSecretAddCommand(deps),

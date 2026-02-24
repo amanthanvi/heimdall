@@ -3,4 +3,4 @@ dist/
 *.test
 .DS_Store
 .integration-bin-*/
-heimdall
+/heimdall

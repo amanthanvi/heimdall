@@ -16,10 +16,7 @@ func newPasskeyCommand(deps commandDeps) *cobra.Command {
 		"  heimdall passkey enroll --label macbook-touchid\n"+
 			"  heimdall passkey list\n"+
 			"  heimdall passkey test macbook-touchid",
-		map[string]string{
-			"ls": "list",
-			"rm": "remove",
-		},
+		map[string]string{},
 	)
 	cmd.AddCommand(
 		newPasskeyEnrollCommand(deps),

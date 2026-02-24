@@ -255,15 +255,6 @@ func setEnvForCommand(key, value string) func() {
 }
 
 func ensureDaemonPathOverrides(globals *GlobalOptions) error {
-	expectedConfigPath, err := resolveConfigPath(globals)
-	if err != nil {
-		return err
-	}
-	expectedVaultPath, err := resolveVaultPath(globals)
-	if err != nil {
-		return err
-	}
-
 	info, err := readDaemonInfoFile()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -272,11 +263,48 @@ func ensureDaemonPathOverrides(globals *GlobalOptions) error {
 		return err
 	}
 
+	expectedConfigPath, err := expectedDaemonConfigPath(globals, info)
+	if err != nil {
+		return err
+	}
+	expectedVaultPath, err := expectedDaemonVaultPath(globals, info)
+	if err != nil {
+		return err
+	}
+
 	if daemonInfoMatchesExpectedPaths(info, expectedConfigPath, expectedVaultPath) {
 		return nil
 	}
 	_, err = stopDaemonForPathMismatchFn()
 	return err
+}
+
+func expectedDaemonConfigPath(globals *GlobalOptions, info daemon.Info) (string, error) {
+	if hasExplicitConfigPath(globals) || strings.TrimSpace(info.ConfigPath) == "" {
+		return resolveConfigPath(globals)
+	}
+	return filepath.Clean(info.ConfigPath), nil
+}
+
+func expectedDaemonVaultPath(globals *GlobalOptions, info daemon.Info) (string, error) {
+	if hasExplicitVaultPath(globals) || strings.TrimSpace(info.VaultPath) == "" {
+		return resolveVaultPath(globals)
+	}
+	return filepath.Clean(info.VaultPath), nil
+}
+
+func hasExplicitConfigPath(globals *GlobalOptions) bool {
+	if globals != nil && strings.TrimSpace(globals.ConfigPath) != "" {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv("HEIMDALL_CONFIG_PATH")) != ""
+}
+
+func hasExplicitVaultPath(globals *GlobalOptions) bool {
+	if globals != nil && strings.TrimSpace(globals.VaultPath) != "" {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv("HEIMDALL_VAULT_PATH")) != ""
 }
 
 func daemonInfoMatchesExpectedPaths(info daemon.Info, expectedConfigPath, expectedVaultPath string) bool {

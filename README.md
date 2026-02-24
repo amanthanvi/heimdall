@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
-Current stable release: `v0.1.15`.
+Current stable release: `v0.1.16`.
 
 ## Quickstart
 
@@ -40,6 +40,8 @@ heimdall init --yes --passphrase "dev-pass"
 
 # 2) Unlock vault (daemon auto-starts on demand)
 heimdall vault unlock --passphrase "dev-pass"
+# or:
+printf "dev-pass\n" | heimdall vault unlock --passphrase-stdin
 
 # 3) Add host metadata
 heimdall host add --name prod --address 10.0.0.10 --user ubuntu --key deploy
@@ -52,6 +54,16 @@ heimdall connect prod --key deploy
 
 # 6) Lock vault
 heimdall vault lock
+```
+
+### SSH auth modes
+
+```bash
+# Managed vault key (loaded into Heimdall agent for the session)
+heimdall connect prod --key deploy
+
+# Local SSH key file
+heimdall connect prod --identity-file ~/.ssh/id_ed25519
 ```
 
 ### Restore backup into a target vault
@@ -83,7 +95,7 @@ Notes:
 Install completions as a first-class setup step:
 
 ```bash
-heimdall completion install --shell zsh --verify
+heimdall completion install --shell zsh --verify --update-rc
 ```
 
 After upgrading Heimdall, rerun completion install with `--overwrite` to refresh shell scripts:
@@ -92,7 +104,7 @@ After upgrading Heimdall, rerun completion install with `--overwrite` to refresh
 heimdall completion install --shell zsh --verify --overwrite
 ```
 
-If completion output ever shows raw directive tokens like `:0` or `:4`, upgrade to `v0.1.14+`, rerun completion install, and restart your shell session.
+If completion output ever shows raw directive tokens like `:0` or `:4`, upgrade to `v0.1.16+`, rerun `heimdall completion install --shell zsh --verify --overwrite --update-rc`, and restart your shell session.
 
 You can still generate raw scripts directly with the built-in completion command.
 
@@ -107,7 +119,7 @@ You can still generate raw scripts directly with the built-in completion command
 - `secret ls` → `secret list`
 - `secret rm` → `secret remove`
 
-Legacy names now return explicit usage errors with the exact replacement command.
+Legacy names are removed; use only the new command forms above.
 
 ### Bash
 

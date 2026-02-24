@@ -34,11 +34,23 @@ func main() {
 // formatError returns a user-friendly error message, stripping gRPC
 // protocol details that add noise without helping the operator.
 func formatError(err error) string {
+	var fallback string
 	// Unwrap through ExitError and other wrappers to find gRPC status.
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		if st, ok := grpcstatus.FromError(e); ok {
-			return st.Message()
+			message := strings.TrimSpace(st.Message())
+			if message == "" {
+				continue
+			}
+			if strings.HasPrefix(strings.ToLower(message), "rpc error: code =") {
+				fallback = message
+				continue
+			}
+			return message
 		}
+	}
+	if fallback != "" {
+		return fallback
 	}
 	return err.Error()
 }

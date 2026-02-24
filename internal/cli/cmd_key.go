@@ -19,11 +19,7 @@ func newKeyCommand(deps commandDeps) *cobra.Command {
 		"  heimdall key generate --name deploy\n"+
 			"  heimdall key list\n"+
 			"  heimdall key export deploy --private --reauth --output ./deploy.key",
-		map[string]string{
-			"gen": "generate",
-			"ls":  "list",
-			"rm":  "remove",
-		},
+		map[string]string{},
 	)
 	cmd.AddCommand(
 		newKeyGenerateCommand(deps),
@@ -44,9 +40,7 @@ func newKeyAgentCommand(deps commandDeps) *cobra.Command {
 		"SSH agent key operations",
 		"  heimdall key agent add deploy --ttl 30m\n"+
 			"  heimdall key agent remove SHA256:abc123",
-		map[string]string{
-			"rm": "remove",
-		},
+		map[string]string{},
 	)
 	cmd.AddCommand(
 		newKeyAgentAddCommand(deps),

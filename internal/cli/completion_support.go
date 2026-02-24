@@ -317,8 +317,14 @@ func newCompletionInstallCommand(root *cobra.Command, deps commandDeps) *cobra.C
 			if deps.globals.Quiet {
 				return nil
 			}
-			_, err = fmt.Fprintf(deps.out, "completion installed: shell=%s path=%s\n", shellID, destPath)
-			return err
+			if _, err := fmt.Fprintf(deps.out, "completion installed: shell=%s path=%s\n", shellID, destPath); err != nil {
+				return err
+			}
+			if hint := completionPostInstallHint(shellID, updateRC); hint != "" {
+				_, err := fmt.Fprintln(deps.out, hint)
+				return err
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&shellName, "shell", "", "Shell type (bash|zsh|fish)")
@@ -329,6 +335,25 @@ func newCompletionInstallCommand(root *cobra.Command, deps commandDeps) *cobra.C
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview install path without writing")
 	_ = cmd.RegisterFlagCompletionFunc("shell", staticCompletion(completionShellBash, completionShellZsh, completionShellFish))
 	return cmd
+}
+
+func completionPostInstallHint(shellName string, updatedRC bool) string {
+	switch shellName {
+	case completionShellZsh:
+		if updatedRC {
+			return "next: restart shell (exec zsh)"
+		}
+		return "next: rerun with --update-rc (or add ~/.zfunc to fpath), then restart shell"
+	case completionShellBash:
+		if updatedRC {
+			return "next: restart shell (exec bash)"
+		}
+		return "next: rerun with --update-rc (or source the completion file), then restart shell"
+	case completionShellFish:
+		return "next: restart shell (exec fish)"
+	default:
+		return ""
+	}
 }
 
 func normalizeShellName(value string) string {
