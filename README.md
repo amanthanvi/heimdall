@@ -73,6 +73,31 @@ heimdall connect prod --key deploy
 heimdall connect prod --identity-file ~/.ssh/id_ed25519
 ```
 
+### Managed SSH config
+
+```bash
+# Enable managed fragment and auto-sync
+heimdall ssh-config enable --path ~/.ssh/config.d/heimdall.conf --auto-sync
+
+# Preview and apply updates
+heimdall ssh-config diff
+heimdall ssh-config sync
+
+# Inspect current managed fragment
+heimdall ssh-config show
+
+# Disable managed mode and remove Include from ~/.ssh/config
+heimdall ssh-config disable
+```
+
+### Status checks
+
+`heimdall status` now reports:
+- daemon/vault state
+- key staleness (>365 days old)
+- managed SSH config sync state
+- connection audit logging status (`[audit].connection_logging`)
+
 ### Restore backup into a target vault
 
 ```bash

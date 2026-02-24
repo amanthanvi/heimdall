@@ -146,19 +146,33 @@ Status key: `todo` | `in_progress` | `done`
 - Validate at each subsection boundary (`go test -race ./...`, `go vet ./...`).
 
 ## Batch 5 Live Checklist
-- [ ] `todo` Proto: extend `api/v1/heimdall.proto` with missing RPCs/messages
-- [ ] `todo` Proto: regenerate stubs (`protoc --go_out=. ... api/v1/heimdall.proto`)
-- [ ] `todo` gRPC server: implement all new RPC handlers and wire dependencies cleanly
-- [ ] `todo` CLI: add global flags + exit code model + root plumbing
-- [ ] `todo` CLI: implement `status`, `doctor`, `vault`, `host`, `secret`, `key`, `passkey`, `connect`
-- [ ] `todo` CLI: implement `backup`, `audit`, `import`, `export`, `debug bundle`
-- [ ] `todo` App/Backup: implement WAL checkpointed encrypted backup create/restore with manifest checksums
-- [ ] `todo` App/ImportExport: add JSON export/import metadata flow and extend SSH import if needed
-- [ ] `todo` TUI: implement practical Bubble Tea screens and command entry point
-- [ ] `todo` Tests: add/update table-driven tests for new RPCs + CLI/TUI/import/export/backup/debug paths
-- [ ] `todo` Validate full gate (`go test -race ./...` then `go vet ./...`)
+- [x] `done` Proto: extend `api/v1/heimdall.proto` with missing RPCs/messages
+- [x] `done` Proto: regenerate stubs (`protoc --go_out=. ... api/v1/heimdall.proto`)
+- [x] `done` gRPC server: implement all new RPC handlers and wire dependencies cleanly
+- [x] `done` CLI: add global flags + exit code model + root plumbing
+- [x] `done` CLI: implement `status`, `doctor`, `vault`, `host`, `secret`, `key`, `passkey`, `connect`
+- [x] `done` CLI: implement `backup`, `audit`, `import`, `export`, `debug bundle`
+- [x] `done` App/Backup: implement WAL checkpointed encrypted backup create/restore with manifest checksums
+- [x] `done` App/ImportExport: add JSON export/import metadata flow and extend SSH import if needed
+- [x] `done` TUI: implement practical Bubble Tea screens and command entry point
+- [x] `done` Tests: add/update table-driven tests for new RPCs + CLI/TUI/import/export/backup/debug paths
+- [x] `done` Validate full gate (`go test -race ./...` then `go vet ./...`)
 
 ## Batch 5 Progress Log
 - [x] `done` Context prime complete: AGENTS + sections 11/13/14 (plan + TDD) reviewed.
 - [x] `done` Gap audit complete: proto/server/cli/tui/debug/import-export-backup baseline mapped.
-- [ ] `in_progress` Implementing Batch 5 in build order (proto/server -> CLI -> section 14 -> section 13 -> debug -> full validation).
+- [x] `done` Implemented Batch 5 surface and tests (proto/server/CLI/backup/import-export/tui/debug).
+- [x] `done` Completed full repository validation gate (race tests, vet, integration, benchmark, lint).
+
+## v0.2.0 Scope ("Observable SSH")
+- [x] `done` Config: add AuditConfig and SSHConfigManagedConfig structs
+- [x] `done` Audit: add connect.start/connect.end action types
+- [x] `done` New package: internal/sshconfig/ with fragment generation
+- [x] `done` Include directive manager for ~/.ssh/config
+- [x] `done` Auto-sync hook on host CRUD
+- [x] `done` Connection event recording in daemon + CLI connect
+- [x] `done` ssh-config CLI commands (enable/disable/sync/diff/show)
+- [x] `done` Status command enhancements (key staleness, config sync, audit status)
+- [x] `done` Tests for v0.2.0 feature slices (config/audit/sshconfig/host hooks/CLI/grpc)
+- [x] `done` Full validation gate
+- [ ] `todo` Release tag/tap verification + rollout cleanup
