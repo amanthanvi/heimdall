@@ -24,7 +24,7 @@ Binary output:
 
 ```bash
 brew tap amanthanvi/tap
-brew install amanthanvi/tap/heimdall
+brew install --cask amanthanvi/tap/heimdall
 heimdall version
 ```
 
@@ -155,5 +155,5 @@ go test -run='^$' -bench='Benchmark(VaultOpenCold|CLIRoundTrip|KeyDerivation)$' 
 - Release runbook: `docs/RELEASING.md`
 - GoReleaser config: `.goreleaser.yml`
 - Homebrew artifacts are `tar.gz` archives named `heimdall-<os>-<arch>.tar.gz` containing the `heimdall` binary.
-- Homebrew formula source of truth: `homebrew-tap/Formula/heimdall.rb`.
+- Homebrew cask source of truth: `homebrew-tap/Casks/heimdall.rb`.
 - Security disclosure policy: `SECURITY.md`
