@@ -120,3 +120,51 @@ make completions && make man
 - `status` now prints an explicit remediation hint if connection logging is disabled.
 - `connect --dry-run` help text explicitly documents that dry-run does not emit connect audit events.
 - Full gate passes (`build`, `vet`, `race`, `lint`, `integration`, `bench`, `govulncheck`, completions/man generation).
+
+## Commands run (release + Homebrew verification)
+
+```bash
+git tag -a v0.2.1 -m "v0.2.1"
+git push origin v0.2.1
+gh run watch 22368696538 --repo amanthanvi/heimdall --interval 10
+gh release view v0.2.1 --repo amanthanvi/heimdall --json url,tagName,isDraft,isPrerelease,publishedAt,assets
+gh api 'repos/amanthanvi/homebrew-tap/commits?path=Casks/heimdall.rb&per_page=1'
+gh release list --repo amanthanvi/heimdall --limit 50
+git tag --sort=version:refname
+gh release delete v0.2.0 --repo amanthanvi/heimdall --yes
+git tag -d v0.2.0
+git push origin :refs/tags/v0.2.0
+gh release list --repo amanthanvi/heimdall --limit 20
+git tag --sort=version:refname
+```
+
+```bash
+BREW_TAP_DIR="$(brew --repo amanthanvi/tap)"
+cd "$BREW_TAP_DIR"
+git pull --ff-only
+HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade --cask amanthanvi/tap/heimdall || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask amanthanvi/tap/heimdall
+```
+
+```bash
+# hotfix in homebrew-tap:
+git -C /Users/amanthanvi/GitRepos/homebrew-tap pull --ff-only
+# edit Casks/heimdall.rb to add postflight xattr removal
+committer "fix(cask): remove quarantine attribute after install" Casks/heimdall.rb
+git -C /Users/amanthanvi/GitRepos/homebrew-tap push origin main
+```
+
+```bash
+BREW_TAP_DIR="$(brew --repo amanthanvi/tap)"
+cd "$BREW_TAP_DIR"
+git pull --ff-only
+HOMEBREW_NO_AUTO_UPDATE=1 brew reinstall --cask amanthanvi/tap/heimdall
+xattr -l "$(which heimdall)"
+heimdall version
+```
+
+## Release + Homebrew snapshot
+
+- GitHub release `v0.2.1` published successfully via workflow `22368696538`.
+- Tap cask updated by GoReleaser to `0.2.1` and upgraded locally.
+- Pre-`v0.2.1` release/tag pruned; only `v0.2.1` remains public.
+- Homebrew cask hotfix removes `com.apple.quarantine` on install; installed binary now runs normally and reports `version=0.2.1`.

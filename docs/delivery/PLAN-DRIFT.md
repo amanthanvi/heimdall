@@ -26,6 +26,10 @@
    - Connection auditing was correct but defaulted off for generated/default configs.
    - Updated defaults to `connection_logging=true` and preserved an explicit status hint if manually disabled.
 
+6. **Homebrew cask quarantine drift**
+   - Signed/notarized CLI still triggered Gatekeeper popup in cask installs due quarantine xattr on downloaded binary.
+   - Fixed by adding cask postflight xattr removal (tap hotfix) and mirroring same hook in `.goreleaser.yml` for future generated casks.
+
 ## Current outstanding plan items
 
 - None for this reconciliation batch.

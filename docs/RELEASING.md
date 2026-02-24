@@ -93,8 +93,12 @@ git pull --ff-only
 HOMEBREW_NO_AUTO_UPDATE=1 brew upgrade --cask amanthanvi/tap/heimdall || HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask amanthanvi/tap/heimdall
 heimdall version
 codesign -dv --verbose=2 "$(which heimdall)"
-spctl --assess --type execute -vv "$(which heimdall)"
+xattr -l "$(which heimdall)"
 ```
+
+Notes:
+- `spctl --type execute` can report "`code is valid but does not seem to be an app`" for signed CLI binaries; this is not a reliable acceptance signal for Heimdall.
+- For cask installs, verify `com.apple.quarantine` is absent on `$(which heimdall)` after install/reinstall.
 
 ## 6) Smoke-check the released binary
 

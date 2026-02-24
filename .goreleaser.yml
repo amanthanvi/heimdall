@@ -55,6 +55,12 @@ homebrew_casks:
       - standalone
     binaries:
       - heimdall
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/heimdall"]
+          end
     homepage: https://github.com/amanthanvi/heimdall
     description: Secure local SSH vault and workflow CLI.
     url:
