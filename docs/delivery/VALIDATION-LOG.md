@@ -53,3 +53,43 @@ git tag --sort=version:refname
 - release/tag prune verification:
   - `gh release list`: only `v0.2.0`
   - `git tag`: only `v0.2.0`
+
+## Commands run (continuation)
+
+```bash
+make build
+./dist/heimdall --help
+./dist/heimdall ssh-config --help
+./dist/heimdall tui --help
+./dist/heimdall completion zsh | rg -n "(^:|:0|:4|ShellCompDirective)" || true
+./dist/heimdall host add --help
+./dist/heimdall key generate --help
+./dist/heimdall secret add --help
+./dist/heimdall backup create --help
+./dist/heimdall import --help
+./dist/heimdall secret show --help
+./dist/heimdall secret env --help
+./dist/heimdall backup restore --help
+./dist/heimdall export --help
+./dist/heimdall key import --help
+./dist/heimdall vault unlock --help
+./dist/heimdall key export --help
+# full isolated smoke run in /tmp/heimdall-smoke-p6JbUu (init/unlock/host/key/connect/secret/export/import/backup/restore/ssh-config/completion/status/doctor/lock/daemon stop)
+./dist/heimdall audit list --help
+rg -n "ActionConnect(Start|End)|connect\\.start|connection_logging|RecordConnect|audit.*connect" internal -g'*.go'
+go test -race ./internal/cli -run 'TestConnectWithKeyRegistersSessionLifecycle|TestConnectWithoutKeyRecordsSessionLifecycle|TestConnectExecutionUsesCommandContextWithoutTimeout|TestConnectDryRunPrintsSSHCommand'
+go test -race ./internal/cli
+go build ./...
+make build
+# identity-mode connect audit verification against /tmp/heimdall-smoke-p6JbUu/src/*
+```
+
+## Continuation snapshot
+
+- Added CLI regression coverage so identity-file connects record session lifecycle and emit connect audit events when `[audit].connection_logging=true`.
+- Manual smoke run confirmed:
+  - SSH key import/export round-trip works.
+  - Host defaults for `--key` and `--identity-file` affect connect dry-run as expected.
+  - Backup create/restore succeeds with restore unlock using source-vault passphrase.
+  - Completion install output is clean (no leaked `:0` / `:4` directive tokens).
+  - `connect.start` and `connect.end` now increase for identity-mode connect executions.

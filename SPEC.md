@@ -37,6 +37,8 @@ This section is the source of truth when older text below conflicts with current
   - Identity metadata in CLI JSON import is currently reported as skipped (not rehydrated into usable private keys).
 - Status command:
   - `status` reports key staleness (>365d), managed ssh-config sync state, and audit connection logging state.
+- Connection audit events:
+  - With `[audit].connection_logging = true`, non-dry-run `connect` emits `connect.start` and `connect.end` for both managed-key and identity-file auth modes.
 - Historical content:
   - Legacy v0.1.0 release-planning sections remain for traceability only; current behavior is defined by implemented CLI/docs and this override block.
 

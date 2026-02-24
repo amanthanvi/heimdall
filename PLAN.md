@@ -181,6 +181,7 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Wire TUI command entrypoint (`heimdall tui` + `heimdall ui` alias)
 - [x] `done` Harden zsh completion scripts against leaked directive tokens (`:0`, `:4`) in shell suggestion lists
 - [x] `done` Correct JSON import reporting for identity metadata (explicitly skipped today)
+- [x] `done` Record `connect.start`/`connect.end` audit events for both managed-key and identity-file connect executions when connection logging is enabled
 - [x] `done` Update `SPEC.md` to reflect current v0.2.0 command/config/runtime truth
 - [x] `done` Overhaul user-facing docs (`README.md`, `docs/RELEASING.md`) for current command surface and release line
 - [x] `done` Prune legacy pre-v0.2.0 releases and tags on GitHub

@@ -17,7 +17,11 @@
    - Current policy is to leave only `v0.2.0` public.
    - `PLAN.md` updated with explicit `todo` for release/tag prune.
 
+4. **Connection audit semantics drift**
+   - v0.2.0 scope expected connect lifecycle audit visibility.
+   - Implementation initially emitted connect lifecycle events only for managed-key connects.
+   - Fixed so non-dry-run identity-file connects also record `connect.start`/`connect.end` via session start/end RPCs.
+
 ## Current outstanding plan items
 
-- Prune pre-v0.2.0 releases and tags.
-- Run full validation gate and publish final report evidence.
+- None for this reconciliation batch.

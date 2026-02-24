@@ -498,10 +498,40 @@ func TestConnectWithKeyRegistersSessionLifecycle(t *testing.T) {
 	require.Equal(t, int32(0), server.recordedExitCodes[0])
 }
 
+func TestConnectWithoutKeyRecordsSessionLifecycle(t *testing.T) {
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{
+			Id:      "host-1",
+			Name:    "prod",
+			Address: "10.0.0.1",
+			Port:    22,
+			User:    "ubuntu",
+		}},
+	}
+	withStubDaemon(t, server)
+
+	rec := &recordingSSHExecutor{}
+	orig := newSSHCommandExecutor
+	newSSHCommandExecutor = func() sshCommandExecutor { return rec }
+	t.Cleanup(func() {
+		newSSHCommandExecutor = orig
+	})
+
+	_, err := runCLI(t, "", "connect", "prod")
+	require.NoError(t, err)
+	require.True(t, rec.called)
+	require.Empty(t, server.agentAddSessions)
+	require.Len(t, server.sessionStarts, 1)
+	require.Len(t, server.sessionEnds, 1)
+	require.Equal(t, server.sessionStarts[0], server.sessionEnds[0])
+	require.Equal(t, int32(0), server.recordedExitCodes[0])
+	require.NotContains(t, rec.command.Env, "SSH_AUTH_SOCK=/tmp/test-agent.sock")
+}
+
 func TestConnectExecutionUsesCommandContextWithoutTimeout(t *testing.T) {
 
 	server := &cliTestDaemon{
-		hosts: []*v1.Host{{Name: "prod", Address: "10.0.0.1", Port: 22, User: "ubuntu"}},
+		hosts: []*v1.Host{{Id: "host-1", Name: "prod", Address: "10.0.0.1", Port: 22, User: "ubuntu"}},
 	}
 	withStubDaemon(t, server)
 

@@ -158,11 +158,8 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 				commandEnv := append([]string(nil), command.GetEnv()...)
 				sessionID := ""
 				sessionStart := time.Time{}
-				if effectiveKeyName != "" {
-					hostID := strings.TrimSpace(host.GetId())
-					if hostID == "" {
-						return fmt.Errorf("connect: host %q is missing an id", hostName)
-					}
+				hostID := strings.TrimSpace(host.GetId())
+				if hostID != "" {
 					sessionID = fmt.Sprintf("connect-%s-%d", hostName, os.Getpid())
 					sessionResp, err := clients.session.RecordSessionStart(ctx, &v1.RecordSessionStartRequest{
 						HostId:    hostID,
@@ -179,6 +176,11 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 						sessionID = resolved
 					}
 					sessionStart = time.Now().UTC()
+				}
+				if effectiveKeyName != "" {
+					if hostID == "" {
+						return fmt.Errorf("connect: host %q is missing an id", hostName)
+					}
 					if _, err := clients.key.AgentAdd(ctx, &v1.AgentAddRequest{
 						Name:       effectiveKeyName,
 						SessionId:  sessionID,
@@ -219,7 +221,7 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 						ExitCode:   int32(exitCode),
 						DurationMs: durationMs,
 						KeyName:    effectiveKeyName,
-						HostId:     host.GetId(),
+						HostId:     hostID,
 					})
 					cancel()
 				}

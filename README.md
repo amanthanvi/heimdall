@@ -98,6 +98,9 @@ heimdall ssh-config disable
 - managed SSH config sync state
 - connection audit logging status (`[audit].connection_logging`)
 
+When `[audit].connection_logging = true`, non-dry-run `heimdall connect` executions emit
+`connect.start` and `connect.end` events for both managed-key and identity-file auth modes.
+
 ### Interactive TUI
 
 ```bash

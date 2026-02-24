@@ -36,6 +36,10 @@ This file captures high-impact mismatches that were corrected in `SPEC.md`.
    - Was: host trust-centric events
    - Now: includes SSH connection start/end metadata events
 
+9. **Connection audit mode mismatch**
+   - Was: connect lifecycle events effectively emitted only for managed-key sessions
+   - Now: with `[audit].connection_logging = true`, non-dry-run connect emits `connect.start`/`connect.end` for managed-key and identity-file auth modes
+
 ## Remaining caveat
 
 - `SPEC.md` still contains historical sections for traceability; when any detail conflicts, the “Current Truth Overrides (v0.2.0)” block is authoritative.

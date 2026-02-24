@@ -7,6 +7,7 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` P0 CLI gap: wire `heimdall tui` + `heimdall ui` alias
 - [x] `done` Completion hardening: zsh scripts skip leaked directive tokens
 - [x] `done` Import UX fix: JSON identity metadata reported as skipped
+- [x] `done` Connection audit fix: `connect.start`/`connect.end` now emitted for identity-file and managed-key connects
 - [x] `done` Planning truth sync: `PLAN.md` reconciled with real backlog
 - [x] `done` Spec truth sync: `SPEC.md` updated for current v0.2.0 behavior
 - [x] `done` Docs refresh: `README.md` + `docs/RELEASING.md` updated
