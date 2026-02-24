@@ -6,6 +6,7 @@ This runbook is the source of truth for cutting a Heimdall release and publishin
 
 Set these repository secrets for `.github/workflows/release.yml`:
 
+- `HOMEBREW_TAP_GITHUB_TOKEN` (classic PAT with `repo` scope for `amanthanvi/homebrew-tap`)
 - `MACOS_SIGN_P12`
 - `MACOS_SIGN_PASSWORD`
 - `MACOS_NOTARY_KEY`
