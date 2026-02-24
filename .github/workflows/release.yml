@@ -24,8 +24,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install libfido2
-        run: brew install libfido2
+      - name: Install release dependencies
+        run: brew install libfido2 syft
 
       - name: Validate GoReleaser config
         uses: goreleaser/goreleaser-action@v6
