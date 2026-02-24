@@ -18,6 +18,7 @@ Status key: `todo` | `in_progress` | `done`
 
 - `b21cb39` — `feat: expose tui command and harden zsh completions`
 - `4539b2c` — `fix: report JSON import identity metadata as skipped`
+- `ff92432` — `fix: record connect audit for identity sessions`
 
 ## Remaining deliverables
 
