@@ -76,8 +76,8 @@ heimdall connect prod --identity-file ~/.ssh/id_ed25519
 ### Managed SSH config
 
 ```bash
-# Enable managed fragment and auto-sync
-heimdall ssh-config enable --path ~/.ssh/config.d/heimdall.conf --auto-sync
+# Enable managed fragment (auto-sync is enabled by default)
+heimdall ssh-config enable --path ~/.ssh/config.d/heimdall.conf
 
 # Preview and apply updates
 heimdall ssh-config diff
