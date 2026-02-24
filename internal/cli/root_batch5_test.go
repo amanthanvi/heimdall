@@ -551,6 +551,26 @@ func TestConnectExecutionUsesCommandContextWithoutTimeout(t *testing.T) {
 	require.Equal(t, "ssh", rec.command.Binary)
 }
 
+func TestStatusShowsAuditHintWhenConnectionLoggingDisabled(t *testing.T) {
+	server := &cliTestDaemon{}
+	withStubDaemon(t, server)
+
+	origLoad := loadConfigFn
+	loadConfigFn = func(config.LoadOptions) (config.Config, config.LoadReport, error) {
+		cfg := config.DefaultConfig()
+		cfg.Audit.ConnectionLogging = false
+		return cfg, config.LoadReport{}, nil
+	}
+	t.Cleanup(func() {
+		loadConfigFn = origLoad
+	})
+
+	out, err := runCLI(t, "", "status")
+	require.NoError(t, err)
+	require.Contains(t, out, "audit: connection_logging=disabled")
+	require.Contains(t, out, "hint: enable with [audit].connection_logging=true")
+}
+
 func TestDaemonRestartAppliesPathOverridesForSubprocess(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("HEIMDALL_CONFIG_PATH", "")

@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for vault-backed SSH host, key, secret, and backup workflows.
-Current stable release: `v0.2.0`.
+Current stable release: `v0.2.1`.
 
 ## Quickstart
 
@@ -53,7 +53,7 @@ printf "dev-pass\n" | heimdall vault unlock --passphrase-stdin
 # 3) Add host metadata
 heimdall host add --name prod --address 10.0.0.10 --user ubuntu --key deploy
 
-# 4) Preview SSH command without executing
+# 4) Preview SSH command without executing (dry-run does not emit connect audit events)
 heimdall connect prod --dry-run
 
 # 5) Connect with vault key via managed agent
@@ -96,7 +96,7 @@ heimdall ssh-config disable
 - daemon/vault state
 - key staleness (>365 days old)
 - managed SSH config sync state
-- connection audit logging status (`[audit].connection_logging`)
+- connection audit logging status (`[audit].connection_logging`, enabled by default on new configs)
 
 When `[audit].connection_logging = true`, non-dry-run `heimdall connect` executions emit
 `connect.start` and `connect.end` events for both managed-key and identity-file auth modes.

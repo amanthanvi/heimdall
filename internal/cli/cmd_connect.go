@@ -238,7 +238,7 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print the SSH command without executing")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print the SSH command without executing (no connect audit events)")
 	cmd.Flags().BoolVar(&printCmd, "print-cmd", false, "Print redacted SSH command")
 	cmd.Flags().StringSliceVar(&jumpHosts, "jump", nil, "Jump host (repeatable)")
 	cmd.Flags().StringSliceVar(&forwards, "forward", nil, "Port forward spec, e.g. L:8080:localhost:80")

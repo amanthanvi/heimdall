@@ -183,6 +183,11 @@ func newStatusCommand(deps commandDeps) *cobra.Command {
 				); err != nil {
 					return err
 				}
+				if !cfg.Audit.ConnectionLogging {
+					if _, err := fmt.Fprintln(deps.out, "hint: enable with [audit].connection_logging=true (or HEIMDALL_AUDIT_CONNECTION_LOGGING=true)"); err != nil {
+						return err
+					}
+				}
 				return nil
 			})
 		},

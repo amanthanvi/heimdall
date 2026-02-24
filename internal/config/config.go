@@ -109,7 +109,7 @@ func DefaultConfig() Config {
 			AutoSync: true,
 		},
 		Audit: AuditConfig{
-			ConnectionLogging: false,
+			ConnectionLogging: true,
 		},
 		Passkey: PasskeyConfig{
 			UVDefault: defaultPasskeyUV,

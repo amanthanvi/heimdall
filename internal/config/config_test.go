@@ -64,6 +64,13 @@ auto_lock_timeout = "10m"
 	require.Equal(t, 10*time.Minute, cfg.Vault.AutoLockTimeout)
 }
 
+func TestDefaultConfigEnablesConnectionLogging(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	require.True(t, cfg.Audit.ConnectionLogging)
+}
+
 func TestLoadConfigFromTOMLParsesAllSupportedFields(t *testing.T) {
 	t.Parallel()
 

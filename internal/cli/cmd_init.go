@@ -27,7 +27,7 @@ path = "~/.ssh/config.d/heimdall.conf"
 auto_sync = true
 
 [audit]
-connection_logging = false
+connection_logging = true
 
 [passkey]
 uv_default = "preferred"

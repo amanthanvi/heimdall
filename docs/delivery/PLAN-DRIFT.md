@@ -22,6 +22,10 @@
    - Implementation initially emitted connect lifecycle events only for managed-key connects.
    - Fixed so non-dry-run identity-file connects also record `connect.start`/`connect.end` via session start/end RPCs.
 
+5. **Audit-default ergonomics drift**
+   - Connection auditing was correct but defaulted off for generated/default configs.
+   - Updated defaults to `connection_logging=true` and preserved an explicit status hint if manually disabled.
+
 ## Current outstanding plan items
 
 - None for this reconciliation batch.

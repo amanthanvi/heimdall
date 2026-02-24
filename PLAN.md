@@ -135,7 +135,7 @@ Status key: `todo` | `in_progress` | `done`
 ## Batch 4 Finalization
 - [x] `done` Keep `PLAN.md` updated as each subsection completes
 - [x] `done` Commit and push logical units on `main`
-- [ ] `todo` Final report with changed files, commands, validation, risks/TODOs
+- [x] `done` Final report with changed files, commands, validation, risks/TODOs
 
 ## Batch 5 Scope (Sections 11, 14, 13 + final gRPC expansion)
 - Extend Section 6 surface first: fill proto service gaps and implement daemon gRPC handlers for all missing RPCs.
@@ -182,6 +182,8 @@ Status key: `todo` | `in_progress` | `done`
 - [x] `done` Harden zsh completion scripts against leaked directive tokens (`:0`, `:4`) in shell suggestion lists
 - [x] `done` Correct JSON import reporting for identity metadata (explicitly skipped today)
 - [x] `done` Record `connect.start`/`connect.end` audit events for both managed-key and identity-file connect executions when connection logging is enabled
-- [x] `done` Update `SPEC.md` to reflect current v0.2.0 command/config/runtime truth
+- [x] `done` Enable connection audit logging by default in runtime/default init config and keep explicit status hint when disabled
+- [x] `done` Clarify `connect --dry-run` semantics (no connect audit events emitted)
+- [x] `done` Update `SPEC.md` to reflect current v0.2.1 command/config/runtime truth
 - [x] `done` Overhaul user-facing docs (`README.md`, `docs/RELEASING.md`) for current command surface and release line
 - [x] `done` Prune legacy pre-v0.2.0 releases and tags on GitHub

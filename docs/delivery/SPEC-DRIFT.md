@@ -6,7 +6,7 @@ This file captures high-impact mismatches that were corrected in `SPEC.md`.
 
 1. **Version/runtime mismatch**
    - Was: v0.1.0 framing + Go >=1.22
-   - Now: v0.2.0 framing + Go 1.26
+   - Now: v0.2.1 framing + Go 1.26
 
 2. **Command surface mismatch**
    - Was: legacy aliases (`host ls`, `key gen`, `secret rm`, etc.)
@@ -40,6 +40,10 @@ This file captures high-impact mismatches that were corrected in `SPEC.md`.
    - Was: connect lifecycle events effectively emitted only for managed-key sessions
    - Now: with `[audit].connection_logging = true`, non-dry-run connect emits `connect.start`/`connect.end` for managed-key and identity-file auth modes
 
+10. **Audit default mismatch**
+   - Was: defaults/config templates set `connection_logging = false`
+   - Now: default runtime config and init-generated config set `connection_logging = true`
+
 ## Remaining caveat
 
-- `SPEC.md` still contains historical sections for traceability; when any detail conflicts, the “Current Truth Overrides (v0.2.0)” block is authoritative.
+- None for this reconciliation batch.

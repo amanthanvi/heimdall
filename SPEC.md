@@ -1,4 +1,4 @@
-# SPEC.md — Heimdall v0.2.0
+# SPEC.md — Heimdall v0.2.1
 
 ## 1. Overview
 
@@ -10,13 +10,13 @@
 - **Passkeys** (roaming FIDO2 security keys) to unlock the local vault and re-authorize sensitive actions
 - Local audit logs and session history
 
-Heimdall v0.2.0 is **local-only** and **production-ready**. It MUST NOT require any hosted service, account, or cloud sync.
+Heimdall v0.2.1 is **local-only** and **production-ready**. It MUST NOT require any hosted service, account, or cloud sync.
 
 **License:** MIT
 
 **Module path:** `github.com/amanthanvi/heimdall`
 
-## 1.1 Current Truth Overrides (v0.2.0)
+## 1.1 Current Truth Overrides (v0.2.1)
 
 This section is the source of truth when older text below conflicts with current implementation.
 
@@ -38,7 +38,9 @@ This section is the source of truth when older text below conflicts with current
 - Status command:
   - `status` reports key staleness (>365d), managed ssh-config sync state, and audit connection logging state.
 - Connection audit events:
-  - With `[audit].connection_logging = true`, non-dry-run `connect` emits `connect.start` and `connect.end` for both managed-key and identity-file auth modes.
+  - `[audit].connection_logging` defaults to `true` for newly generated config and default runtime config.
+  - Non-dry-run `connect` emits `connect.start` and `connect.end` for both managed-key and identity-file auth modes.
+  - `connect --dry-run` never emits connection audit events.
 - Historical content:
   - Legacy v0.1.0 release-planning sections remain for traceability only; current behavior is defined by implemented CLI/docs and this override block.
 
@@ -641,7 +643,7 @@ path = "~/.ssh/config.d/heimdall.conf"
 auto_sync = true
 
 [audit]
-connection_logging = false
+connection_logging = true
 
 [passkey]
 uv_default = "preferred"      # required|preferred|discouraged
@@ -1613,24 +1615,24 @@ CI MUST include:
 
 **All of the following MUST pass:**
 
-Quality:
-- [ ] Zero data-loss bugs in test suite
-- [ ] SSH connect overhead <50ms p99 (benchmark)
-- [ ] Vault open <500ms cold (integration test)
-- [ ] Test coverage >80% critical paths
-- [ ] Zero secret redaction violations
-- [ ] `govulncheck` clean
+Quality requirements:
+- Zero data-loss bugs in test suite
+- SSH connect overhead <50ms p99 (benchmark)
+- Vault open <500ms cold (integration test)
+- Test coverage >80% critical paths
+- Zero secret redaction violations
+- `govulncheck` clean
 
-Completeness:
-- [ ] All MUST requirements implemented and tested
-- [ ] All exit codes deterministic (tested)
-- [ ] macOS arm64 + Linux amd64 CI green
-- [ ] Shell completions generated (bash, zsh, fish)
-- [ ] Man pages generated
-- [ ] `--json` stable for all list/show commands
-- [ ] SoftFIDO2 passkey flows pass in CI
-- [ ] Import from SSH config tested
-- [ ] Backup create/restore round-trip tested
+Completeness requirements:
+- All MUST requirements implemented and tested
+- All exit codes deterministic (tested)
+- macOS arm64 + Linux amd64 CI green
+- Shell completions generated (bash, zsh, fish)
+- Man pages generated
+- `--json` stable for all list/show commands
+- SoftFIDO2 passkey flows pass in CI
+- Import from SSH config tested
+- Backup create/restore round-trip tested
 
 ---
 
