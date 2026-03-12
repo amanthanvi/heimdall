@@ -553,12 +553,10 @@ var HostService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	SecretService_CreateSecret_FullMethodName       = "/heimdall.v1.SecretService/CreateSecret"
-	SecretService_ListSecrets_FullMethodName        = "/heimdall.v1.SecretService/ListSecrets"
-	SecretService_GetSecretValue_FullMethodName     = "/heimdall.v1.SecretService/GetSecretValue"
-	SecretService_DeleteSecret_FullMethodName       = "/heimdall.v1.SecretService/DeleteSecret"
-	SecretService_UploadFileSecret_FullMethodName   = "/heimdall.v1.SecretService/UploadFileSecret"
-	SecretService_DownloadFileSecret_FullMethodName = "/heimdall.v1.SecretService/DownloadFileSecret"
+	SecretService_CreateSecret_FullMethodName   = "/heimdall.v1.SecretService/CreateSecret"
+	SecretService_ListSecrets_FullMethodName    = "/heimdall.v1.SecretService/ListSecrets"
+	SecretService_GetSecretValue_FullMethodName = "/heimdall.v1.SecretService/GetSecretValue"
+	SecretService_DeleteSecret_FullMethodName   = "/heimdall.v1.SecretService/DeleteSecret"
 )
 
 // SecretServiceClient is the client API for SecretService service.
@@ -569,8 +567,6 @@ type SecretServiceClient interface {
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
 	GetSecretValue(ctx context.Context, in *GetSecretValueRequest, opts ...grpc.CallOption) (*GetSecretValueResponse, error)
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error)
-	UploadFileSecret(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadChunk, UploadFileSecretResponse], error)
-	DownloadFileSecret(ctx context.Context, in *DownloadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadChunk], error)
 }
 
 type secretServiceClient struct {
@@ -621,38 +617,6 @@ func (c *secretServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecret
 	return out, nil
 }
 
-func (c *secretServiceClient) UploadFileSecret(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[UploadChunk, UploadFileSecretResponse], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SecretService_ServiceDesc.Streams[0], SecretService_UploadFileSecret_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[UploadChunk, UploadFileSecretResponse]{ClientStream: stream}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type SecretService_UploadFileSecretClient = grpc.ClientStreamingClient[UploadChunk, UploadFileSecretResponse]
-
-func (c *secretServiceClient) DownloadFileSecret(ctx context.Context, in *DownloadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DownloadChunk], error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &SecretService_ServiceDesc.Streams[1], SecretService_DownloadFileSecret_FullMethodName, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &grpc.GenericClientStream[DownloadRequest, DownloadChunk]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type SecretService_DownloadFileSecretClient = grpc.ServerStreamingClient[DownloadChunk]
-
 // SecretServiceServer is the server API for SecretService service.
 // All implementations must embed UnimplementedSecretServiceServer
 // for forward compatibility.
@@ -661,8 +625,6 @@ type SecretServiceServer interface {
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
 	GetSecretValue(context.Context, *GetSecretValueRequest) (*GetSecretValueResponse, error)
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error)
-	UploadFileSecret(grpc.ClientStreamingServer[UploadChunk, UploadFileSecretResponse]) error
-	DownloadFileSecret(*DownloadRequest, grpc.ServerStreamingServer[DownloadChunk]) error
 	mustEmbedUnimplementedSecretServiceServer()
 }
 
@@ -684,12 +646,6 @@ func (UnimplementedSecretServiceServer) GetSecretValue(context.Context, *GetSecr
 }
 func (UnimplementedSecretServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSecret not implemented")
-}
-func (UnimplementedSecretServiceServer) UploadFileSecret(grpc.ClientStreamingServer[UploadChunk, UploadFileSecretResponse]) error {
-	return status.Error(codes.Unimplemented, "method UploadFileSecret not implemented")
-}
-func (UnimplementedSecretServiceServer) DownloadFileSecret(*DownloadRequest, grpc.ServerStreamingServer[DownloadChunk]) error {
-	return status.Error(codes.Unimplemented, "method DownloadFileSecret not implemented")
 }
 func (UnimplementedSecretServiceServer) mustEmbedUnimplementedSecretServiceServer() {}
 func (UnimplementedSecretServiceServer) testEmbeddedByValue()                       {}
@@ -784,24 +740,6 @@ func _SecretService_DeleteSecret_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SecretService_UploadFileSecret_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(SecretServiceServer).UploadFileSecret(&grpc.GenericServerStream[UploadChunk, UploadFileSecretResponse]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type SecretService_UploadFileSecretServer = grpc.ClientStreamingServer[UploadChunk, UploadFileSecretResponse]
-
-func _SecretService_DownloadFileSecret_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(DownloadRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(SecretServiceServer).DownloadFileSecret(m, &grpc.GenericServerStream[DownloadRequest, DownloadChunk]{ServerStream: stream})
-}
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type SecretService_DownloadFileSecretServer = grpc.ServerStreamingServer[DownloadChunk]
-
 // SecretService_ServiceDesc is the grpc.ServiceDesc for SecretService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -826,18 +764,7 @@ var SecretService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SecretService_DeleteSecret_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "UploadFileSecret",
-			Handler:       _SecretService_UploadFileSecret_Handler,
-			ClientStreams: true,
-		},
-		{
-			StreamName:    "DownloadFileSecret",
-			Handler:       _SecretService_DownloadFileSecret_Handler,
-			ServerStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "api/v1/heimdall.proto",
 }
 

@@ -60,7 +60,6 @@ func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*stora
 		KnownHostsPolicy: knownHostsPolicy,
 		ForwardAgent:     req.ForwardAgent,
 		Tags:             dedupeStrings(req.Tags),
-		EnvRefs:          cloneStringMap(req.EnvRefs),
 	}
 	if err := s.hosts.Create(ctx, host); err != nil {
 		if isDuplicateError(err) {
@@ -132,10 +131,6 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 	}
 	if req.ForwardAgent != nil {
 		host.ForwardAgent = *req.ForwardAgent
-	}
-
-	if req.EnvRefs != nil {
-		host.EnvRefs = cloneStringMap(req.EnvRefs)
 	}
 
 	if err := validateHostInputs(host.Name, host.Address, host.User, host.Port); err != nil {
@@ -302,41 +297,6 @@ func dedupeStrings(values []string) []string {
 	return out
 }
 
-func cloneStringMap(input map[string]string) map[string]string {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
-
-func resolveHostConnectDefaults(
-	keyNameRaw string,
-	identityFileRaw string,
-	proxyJumpRaw string,
-	envRefs map[string]string,
-) (string, string, string, error) {
-	keyName := strings.TrimSpace(keyNameRaw)
-	identityFile := strings.TrimSpace(identityFileRaw)
-	proxyJump := strings.TrimSpace(proxyJumpRaw)
-	if keyName == "" {
-		keyName = strings.TrimSpace(envRefs["key_name"])
-	}
-	if identityFile == "" {
-		identityFile = strings.TrimSpace(envRefs["identity_ref"])
-	}
-	if proxyJump == "" {
-		proxyJump = strings.TrimSpace(envRefs["proxy_jump"])
-	}
-	if err := validateHostConnectDefaults(keyName, identityFile, proxyJump); err != nil {
-		return "", "", "", err
-	}
-	return keyName, identityFile, proxyJump, nil
-}
-
 func validateHostConnectDefaults(keyName, identityFile, proxyJump string) error {
 	if keyName != "" && identityFile != "" {
 		return fmt.Errorf("%w: host defaults cannot set both key_name and identity_file", ErrValidation)
@@ -361,32 +321,6 @@ func normalizeKnownHostsPolicy(raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: unsupported known_hosts_policy %q", ErrValidation, raw)
 	}
-}
-
-func canonicalHostEnvRefs(keyName, identityFile, proxyJump string, base map[string]string) map[string]string {
-	out := cloneStringMap(base)
-	if out == nil {
-		out = map[string]string{}
-	}
-	if keyName != "" {
-		out["key_name"] = keyName
-	} else {
-		delete(out, "key_name")
-	}
-	if identityFile != "" {
-		out["identity_ref"] = identityFile
-	} else {
-		delete(out, "identity_ref")
-	}
-	if proxyJump != "" {
-		out["proxy_jump"] = proxyJump
-	} else {
-		delete(out, "proxy_jump")
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func isDuplicateError(err error) bool {

@@ -37,8 +37,6 @@ type Store struct {
 	Passkeys   PasskeyRepository
 	Audit      AuditRepository
 	Sessions   SessionRepository
-	Templates  TemplateRepository
-	PendingOps PendingOpRepository
 }
 
 func Open(path, vaultID string, vc *crypto.VaultCrypto) (*Store, error) {
@@ -87,8 +85,6 @@ func Open(path, vaultID string, vc *crypto.VaultCrypto) (*Store, error) {
 	store.Passkeys = &passkeyRepository{db: db, vc: vc}
 	store.Audit = &auditRepository{db: db, vc: vc}
 	store.Sessions = &sessionRepository{db: db, vc: vc}
-	store.Templates = &templateRepository{db: db, vc: vc}
-	store.PendingOps = &pendingOpRepository{db: db, vc: vc}
 
 	return store, nil
 }

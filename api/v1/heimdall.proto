@@ -27,8 +27,6 @@ service SecretService {
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
   rpc GetSecretValue(GetSecretValueRequest) returns (GetSecretValueResponse);
   rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
-  rpc UploadFileSecret(stream UploadChunk) returns (UploadFileSecretResponse);
-  rpc DownloadFileSecret(DownloadRequest) returns (stream DownloadChunk);
 }
 
 service KeyService {
@@ -227,27 +225,6 @@ message DeleteSecretRequest {
 }
 
 message DeleteSecretResponse {}
-
-message UploadChunk {
-  string name = 1;
-  string reveal_policy = 2;
-  bytes data = 3;
-  bool eof = 4;
-}
-
-message UploadFileSecretResponse {
-  SecretMeta secret = 1;
-}
-
-message DownloadRequest {
-  string name = 1;
-  int32 chunk_size = 2;
-}
-
-message DownloadChunk {
-  bytes data = 1;
-  bool eof = 2;
-}
 
 message KeyMeta {
   string id = 1;

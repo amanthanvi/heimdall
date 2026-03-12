@@ -58,7 +58,7 @@ func TestHostServiceCreateRejectsDuplicateName(t *testing.T) {
 	require.ErrorIs(t, err, ErrDuplicateName)
 }
 
-func TestHostServiceCreateDoesNotPromoteConnectDefaultsFromEnvRefs(t *testing.T) {
+func TestHostServiceCreateStoresTypedConnectDefaults(t *testing.T) {
 	t.Parallel()
 
 	store, vmk := newAppTestStore(t)
@@ -68,21 +68,17 @@ func TestHostServiceCreateDoesNotPromoteConnectDefaultsFromEnvRefs(t *testing.T)
 	ctx := context.Background()
 
 	created, err := svc.Create(ctx, CreateHostRequest{
-		Name:    "prod",
-		Address: "10.0.0.1",
-		EnvRefs: map[string]string{
-			"key_name":     "deploy",
-			"identity_ref": "~/.ssh/id_prod",
-			"proxy_jump":   "bastion",
-		},
+		Name:         "prod",
+		Address:      "10.0.0.1",
+		KeyName:      "deploy",
+		ProxyJump:    "bastion",
+		ForwardAgent: true,
 	})
 	require.NoError(t, err)
-	require.Empty(t, created.KeyName)
+	require.Equal(t, "deploy", created.KeyName)
 	require.Empty(t, created.IdentityFile)
-	require.Empty(t, created.ProxyJump)
-	require.Equal(t, "deploy", created.EnvRefs["key_name"])
-	require.Equal(t, "~/.ssh/id_prod", created.EnvRefs["identity_ref"])
-	require.Equal(t, "bastion", created.EnvRefs["proxy_jump"])
+	require.Equal(t, "bastion", created.ProxyJump)
+	require.True(t, created.ForwardAgent)
 }
 
 func TestHostServiceListFiltersByTagAndSearch(t *testing.T) {

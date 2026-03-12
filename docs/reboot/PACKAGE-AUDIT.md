@@ -14,7 +14,7 @@ Status values:
 | Package | Status | Notes |
 | --- | --- | --- |
 | `internal/crypto` | `reuse` | Core derivation, AEAD, HKDF, and wrapped-VMK handling are the security spine. |
-| `internal/storage` | `reuse with boundary cleanup` | Encrypted storage and migrations are useful; host schema and legacy compatibility fields need cleanup over time. |
+| `internal/storage` | `reuse` | Encrypted storage, audit persistence, and the narrowed reboot schema are part of the trusted core. |
 | `internal/audit` | `reuse` | Hash-chain logic and verification behavior fit the reboot directly. |
 | `internal/daemon` | `reuse` | Local daemon lifecycle, socket handling, and `daemon.info` are part of the core runtime. |
 | `internal/grpc` | `reuse with boundary cleanup` | Local transport is kept, but proto mappings and command semantics are being narrowed to the reboot surface. |
@@ -37,5 +37,5 @@ Status values:
 ## Current Audit Summary
 
 - Verified reusable spine: `crypto`, `audit`, `daemon`, `ssh`, `agent`, `fido2`.
-- Reboot focus: `app`, `cli`, host schema, proto contract, integration coverage.
+- Reboot focus: `app`, `cli`, proto contract, integration coverage.
 - Deferred: public transfer workflows only.

@@ -1581,222 +1581,6 @@ func (*DeleteSecretResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{27}
 }
 
-type UploadChunk struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	RevealPolicy  string                 `protobuf:"bytes,2,opt,name=reveal_policy,json=revealPolicy,proto3" json:"reveal_policy,omitempty"`
-	Data          []byte                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
-	Eof           bool                   `protobuf:"varint,4,opt,name=eof,proto3" json:"eof,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadChunk) Reset() {
-	*x = UploadChunk{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[28]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadChunk) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadChunk) ProtoMessage() {}
-
-func (x *UploadChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[28]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadChunk.ProtoReflect.Descriptor instead.
-func (*UploadChunk) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{28}
-}
-
-func (x *UploadChunk) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *UploadChunk) GetRevealPolicy() string {
-	if x != nil {
-		return x.RevealPolicy
-	}
-	return ""
-}
-
-func (x *UploadChunk) GetData() []byte {
-	if x != nil {
-		return x.Data
-	}
-	return nil
-}
-
-func (x *UploadChunk) GetEof() bool {
-	if x != nil {
-		return x.Eof
-	}
-	return false
-}
-
-type UploadFileSecretResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Secret        *SecretMeta            `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadFileSecretResponse) Reset() {
-	*x = UploadFileSecretResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[29]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadFileSecretResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadFileSecretResponse) ProtoMessage() {}
-
-func (x *UploadFileSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[29]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadFileSecretResponse.ProtoReflect.Descriptor instead.
-func (*UploadFileSecretResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{29}
-}
-
-func (x *UploadFileSecretResponse) GetSecret() *SecretMeta {
-	if x != nil {
-		return x.Secret
-	}
-	return nil
-}
-
-type DownloadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	ChunkSize     int32                  `protobuf:"varint,2,opt,name=chunk_size,json=chunkSize,proto3" json:"chunk_size,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DownloadRequest) Reset() {
-	*x = DownloadRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[30]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DownloadRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DownloadRequest) ProtoMessage() {}
-
-func (x *DownloadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[30]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DownloadRequest.ProtoReflect.Descriptor instead.
-func (*DownloadRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{30}
-}
-
-func (x *DownloadRequest) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *DownloadRequest) GetChunkSize() int32 {
-	if x != nil {
-		return x.ChunkSize
-	}
-	return 0
-}
-
-type DownloadChunk struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	Eof           bool                   `protobuf:"varint,2,opt,name=eof,proto3" json:"eof,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DownloadChunk) Reset() {
-	*x = DownloadChunk{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[31]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DownloadChunk) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DownloadChunk) ProtoMessage() {}
-
-func (x *DownloadChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[31]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DownloadChunk.ProtoReflect.Descriptor instead.
-func (*DownloadChunk) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{31}
-}
-
-func (x *DownloadChunk) GetData() []byte {
-	if x != nil {
-		return x.Data
-	}
-	return nil
-}
-
-func (x *DownloadChunk) GetEof() bool {
-	if x != nil {
-		return x.Eof
-	}
-	return false
-}
-
 type KeyMeta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1811,7 +1595,7 @@ type KeyMeta struct {
 
 func (x *KeyMeta) Reset() {
 	*x = KeyMeta{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[32]
+	mi := &file_api_v1_heimdall_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1823,7 +1607,7 @@ func (x *KeyMeta) String() string {
 func (*KeyMeta) ProtoMessage() {}
 
 func (x *KeyMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[32]
+	mi := &file_api_v1_heimdall_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1836,7 +1620,7 @@ func (x *KeyMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyMeta.ProtoReflect.Descriptor instead.
 func (*KeyMeta) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{32}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *KeyMeta) GetId() string {
@@ -1891,7 +1675,7 @@ type GenerateKeyRequest struct {
 
 func (x *GenerateKeyRequest) Reset() {
 	*x = GenerateKeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[33]
+	mi := &file_api_v1_heimdall_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1903,7 +1687,7 @@ func (x *GenerateKeyRequest) String() string {
 func (*GenerateKeyRequest) ProtoMessage() {}
 
 func (x *GenerateKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[33]
+	mi := &file_api_v1_heimdall_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1916,7 +1700,7 @@ func (x *GenerateKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateKeyRequest.ProtoReflect.Descriptor instead.
 func (*GenerateKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{33}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GenerateKeyRequest) GetName() string {
@@ -1942,7 +1726,7 @@ type GenerateKeyResponse struct {
 
 func (x *GenerateKeyResponse) Reset() {
 	*x = GenerateKeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[34]
+	mi := &file_api_v1_heimdall_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1954,7 +1738,7 @@ func (x *GenerateKeyResponse) String() string {
 func (*GenerateKeyResponse) ProtoMessage() {}
 
 func (x *GenerateKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[34]
+	mi := &file_api_v1_heimdall_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1967,7 +1751,7 @@ func (x *GenerateKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateKeyResponse.ProtoReflect.Descriptor instead.
 func (*GenerateKeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{34}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *GenerateKeyResponse) GetKey() *KeyMeta {
@@ -1988,7 +1772,7 @@ type ImportKeyRequest struct {
 
 func (x *ImportKeyRequest) Reset() {
 	*x = ImportKeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[35]
+	mi := &file_api_v1_heimdall_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2000,7 +1784,7 @@ func (x *ImportKeyRequest) String() string {
 func (*ImportKeyRequest) ProtoMessage() {}
 
 func (x *ImportKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[35]
+	mi := &file_api_v1_heimdall_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2013,7 +1797,7 @@ func (x *ImportKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportKeyRequest.ProtoReflect.Descriptor instead.
 func (*ImportKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{35}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ImportKeyRequest) GetName() string {
@@ -2046,7 +1830,7 @@ type ImportKeyResponse struct {
 
 func (x *ImportKeyResponse) Reset() {
 	*x = ImportKeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[36]
+	mi := &file_api_v1_heimdall_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2058,7 +1842,7 @@ func (x *ImportKeyResponse) String() string {
 func (*ImportKeyResponse) ProtoMessage() {}
 
 func (x *ImportKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[36]
+	mi := &file_api_v1_heimdall_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2071,7 +1855,7 @@ func (x *ImportKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportKeyResponse.ProtoReflect.Descriptor instead.
 func (*ImportKeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{36}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ImportKeyResponse) GetKey() *KeyMeta {
@@ -2089,7 +1873,7 @@ type ListKeysRequest struct {
 
 func (x *ListKeysRequest) Reset() {
 	*x = ListKeysRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[37]
+	mi := &file_api_v1_heimdall_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2101,7 +1885,7 @@ func (x *ListKeysRequest) String() string {
 func (*ListKeysRequest) ProtoMessage() {}
 
 func (x *ListKeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[37]
+	mi := &file_api_v1_heimdall_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2114,7 +1898,7 @@ func (x *ListKeysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListKeysRequest.ProtoReflect.Descriptor instead.
 func (*ListKeysRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{37}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{33}
 }
 
 type ListKeysResponse struct {
@@ -2126,7 +1910,7 @@ type ListKeysResponse struct {
 
 func (x *ListKeysResponse) Reset() {
 	*x = ListKeysResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[38]
+	mi := &file_api_v1_heimdall_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2138,7 +1922,7 @@ func (x *ListKeysResponse) String() string {
 func (*ListKeysResponse) ProtoMessage() {}
 
 func (x *ListKeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[38]
+	mi := &file_api_v1_heimdall_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2151,7 +1935,7 @@ func (x *ListKeysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListKeysResponse.ProtoReflect.Descriptor instead.
 func (*ListKeysResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{38}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListKeysResponse) GetKeys() []*KeyMeta {
@@ -2170,7 +1954,7 @@ type ShowKeyRequest struct {
 
 func (x *ShowKeyRequest) Reset() {
 	*x = ShowKeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[39]
+	mi := &file_api_v1_heimdall_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2182,7 +1966,7 @@ func (x *ShowKeyRequest) String() string {
 func (*ShowKeyRequest) ProtoMessage() {}
 
 func (x *ShowKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[39]
+	mi := &file_api_v1_heimdall_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2195,7 +1979,7 @@ func (x *ShowKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowKeyRequest.ProtoReflect.Descriptor instead.
 func (*ShowKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{39}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ShowKeyRequest) GetName() string {
@@ -2214,7 +1998,7 @@ type ShowKeyResponse struct {
 
 func (x *ShowKeyResponse) Reset() {
 	*x = ShowKeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[40]
+	mi := &file_api_v1_heimdall_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2226,7 +2010,7 @@ func (x *ShowKeyResponse) String() string {
 func (*ShowKeyResponse) ProtoMessage() {}
 
 func (x *ShowKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[40]
+	mi := &file_api_v1_heimdall_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2239,7 +2023,7 @@ func (x *ShowKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowKeyResponse.ProtoReflect.Descriptor instead.
 func (*ShowKeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{40}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ShowKeyResponse) GetKey() *KeyMeta {
@@ -2258,7 +2042,7 @@ type DeleteKeyRequest struct {
 
 func (x *DeleteKeyRequest) Reset() {
 	*x = DeleteKeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[41]
+	mi := &file_api_v1_heimdall_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2270,7 +2054,7 @@ func (x *DeleteKeyRequest) String() string {
 func (*DeleteKeyRequest) ProtoMessage() {}
 
 func (x *DeleteKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[41]
+	mi := &file_api_v1_heimdall_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2283,7 +2067,7 @@ func (x *DeleteKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteKeyRequest.ProtoReflect.Descriptor instead.
 func (*DeleteKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{41}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *DeleteKeyRequest) GetName() string {
@@ -2301,7 +2085,7 @@ type DeleteKeyResponse struct {
 
 func (x *DeleteKeyResponse) Reset() {
 	*x = DeleteKeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[42]
+	mi := &file_api_v1_heimdall_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2313,7 +2097,7 @@ func (x *DeleteKeyResponse) String() string {
 func (*DeleteKeyResponse) ProtoMessage() {}
 
 func (x *DeleteKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[42]
+	mi := &file_api_v1_heimdall_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2326,7 +2110,7 @@ func (x *DeleteKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteKeyResponse.ProtoReflect.Descriptor instead.
 func (*DeleteKeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{42}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{38}
 }
 
 type RotateKeyRequest struct {
@@ -2338,7 +2122,7 @@ type RotateKeyRequest struct {
 
 func (x *RotateKeyRequest) Reset() {
 	*x = RotateKeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[43]
+	mi := &file_api_v1_heimdall_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2350,7 +2134,7 @@ func (x *RotateKeyRequest) String() string {
 func (*RotateKeyRequest) ProtoMessage() {}
 
 func (x *RotateKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[43]
+	mi := &file_api_v1_heimdall_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2363,7 +2147,7 @@ func (x *RotateKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateKeyRequest.ProtoReflect.Descriptor instead.
 func (*RotateKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{43}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RotateKeyRequest) GetName() string {
@@ -2382,7 +2166,7 @@ type RotateKeyResponse struct {
 
 func (x *RotateKeyResponse) Reset() {
 	*x = RotateKeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[44]
+	mi := &file_api_v1_heimdall_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2394,7 +2178,7 @@ func (x *RotateKeyResponse) String() string {
 func (*RotateKeyResponse) ProtoMessage() {}
 
 func (x *RotateKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[44]
+	mi := &file_api_v1_heimdall_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2407,7 +2191,7 @@ func (x *RotateKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateKeyResponse.ProtoReflect.Descriptor instead.
 func (*RotateKeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{44}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RotateKeyResponse) GetKey() *KeyMeta {
@@ -2426,7 +2210,7 @@ type ExportKeyRequest struct {
 
 func (x *ExportKeyRequest) Reset() {
 	*x = ExportKeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[45]
+	mi := &file_api_v1_heimdall_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2438,7 +2222,7 @@ func (x *ExportKeyRequest) String() string {
 func (*ExportKeyRequest) ProtoMessage() {}
 
 func (x *ExportKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[45]
+	mi := &file_api_v1_heimdall_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2451,7 +2235,7 @@ func (x *ExportKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportKeyRequest.ProtoReflect.Descriptor instead.
 func (*ExportKeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{45}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ExportKeyRequest) GetName() string {
@@ -2473,7 +2257,7 @@ type ExportKeyResponse struct {
 
 func (x *ExportKeyResponse) Reset() {
 	*x = ExportKeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[46]
+	mi := &file_api_v1_heimdall_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2485,7 +2269,7 @@ func (x *ExportKeyResponse) String() string {
 func (*ExportKeyResponse) ProtoMessage() {}
 
 func (x *ExportKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[46]
+	mi := &file_api_v1_heimdall_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2498,7 +2282,7 @@ func (x *ExportKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportKeyResponse.ProtoReflect.Descriptor instead.
 func (*ExportKeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{46}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ExportKeyResponse) GetName() string {
@@ -2540,7 +2324,7 @@ type AgentAddRequest struct {
 
 func (x *AgentAddRequest) Reset() {
 	*x = AgentAddRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[47]
+	mi := &file_api_v1_heimdall_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2552,7 +2336,7 @@ func (x *AgentAddRequest) String() string {
 func (*AgentAddRequest) ProtoMessage() {}
 
 func (x *AgentAddRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[47]
+	mi := &file_api_v1_heimdall_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2565,7 +2349,7 @@ func (x *AgentAddRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentAddRequest.ProtoReflect.Descriptor instead.
 func (*AgentAddRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{47}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *AgentAddRequest) GetName() string {
@@ -2598,7 +2382,7 @@ type AgentAddResponse struct {
 
 func (x *AgentAddResponse) Reset() {
 	*x = AgentAddResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[48]
+	mi := &file_api_v1_heimdall_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2610,7 +2394,7 @@ func (x *AgentAddResponse) String() string {
 func (*AgentAddResponse) ProtoMessage() {}
 
 func (x *AgentAddResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[48]
+	mi := &file_api_v1_heimdall_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2623,7 +2407,7 @@ func (x *AgentAddResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentAddResponse.ProtoReflect.Descriptor instead.
 func (*AgentAddResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{48}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *AgentAddResponse) GetFingerprint() string {
@@ -2642,7 +2426,7 @@ type AgentRemoveRequest struct {
 
 func (x *AgentRemoveRequest) Reset() {
 	*x = AgentRemoveRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[49]
+	mi := &file_api_v1_heimdall_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2654,7 +2438,7 @@ func (x *AgentRemoveRequest) String() string {
 func (*AgentRemoveRequest) ProtoMessage() {}
 
 func (x *AgentRemoveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[49]
+	mi := &file_api_v1_heimdall_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2667,7 +2451,7 @@ func (x *AgentRemoveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRemoveRequest.ProtoReflect.Descriptor instead.
 func (*AgentRemoveRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{49}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *AgentRemoveRequest) GetFingerprint() string {
@@ -2685,7 +2469,7 @@ type AgentRemoveResponse struct {
 
 func (x *AgentRemoveResponse) Reset() {
 	*x = AgentRemoveResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[50]
+	mi := &file_api_v1_heimdall_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2697,7 +2481,7 @@ func (x *AgentRemoveResponse) String() string {
 func (*AgentRemoveResponse) ProtoMessage() {}
 
 func (x *AgentRemoveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[50]
+	mi := &file_api_v1_heimdall_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2710,7 +2494,7 @@ func (x *AgentRemoveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRemoveResponse.ProtoReflect.Descriptor instead.
 func (*AgentRemoveResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{50}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{46}
 }
 
 type ListPasskeysRequest struct {
@@ -2721,7 +2505,7 @@ type ListPasskeysRequest struct {
 
 func (x *ListPasskeysRequest) Reset() {
 	*x = ListPasskeysRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[51]
+	mi := &file_api_v1_heimdall_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2733,7 +2517,7 @@ func (x *ListPasskeysRequest) String() string {
 func (*ListPasskeysRequest) ProtoMessage() {}
 
 func (x *ListPasskeysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[51]
+	mi := &file_api_v1_heimdall_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2746,7 +2530,7 @@ func (x *ListPasskeysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPasskeysRequest.ProtoReflect.Descriptor instead.
 func (*ListPasskeysRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{51}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{47}
 }
 
 type PasskeyMeta struct {
@@ -2760,7 +2544,7 @@ type PasskeyMeta struct {
 
 func (x *PasskeyMeta) Reset() {
 	*x = PasskeyMeta{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[52]
+	mi := &file_api_v1_heimdall_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2772,7 +2556,7 @@ func (x *PasskeyMeta) String() string {
 func (*PasskeyMeta) ProtoMessage() {}
 
 func (x *PasskeyMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[52]
+	mi := &file_api_v1_heimdall_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2785,7 +2569,7 @@ func (x *PasskeyMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PasskeyMeta.ProtoReflect.Descriptor instead.
 func (*PasskeyMeta) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{52}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *PasskeyMeta) GetId() string {
@@ -2818,7 +2602,7 @@ type ListPasskeysResponse struct {
 
 func (x *ListPasskeysResponse) Reset() {
 	*x = ListPasskeysResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[53]
+	mi := &file_api_v1_heimdall_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2830,7 +2614,7 @@ func (x *ListPasskeysResponse) String() string {
 func (*ListPasskeysResponse) ProtoMessage() {}
 
 func (x *ListPasskeysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[53]
+	mi := &file_api_v1_heimdall_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2843,7 +2627,7 @@ func (x *ListPasskeysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPasskeysResponse.ProtoReflect.Descriptor instead.
 func (*ListPasskeysResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{53}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ListPasskeysResponse) GetPasskeys() []*PasskeyMeta {
@@ -2863,7 +2647,7 @@ type EnrollPasskeyRequest struct {
 
 func (x *EnrollPasskeyRequest) Reset() {
 	*x = EnrollPasskeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[54]
+	mi := &file_api_v1_heimdall_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2875,7 +2659,7 @@ func (x *EnrollPasskeyRequest) String() string {
 func (*EnrollPasskeyRequest) ProtoMessage() {}
 
 func (x *EnrollPasskeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[54]
+	mi := &file_api_v1_heimdall_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2888,7 +2672,7 @@ func (x *EnrollPasskeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnrollPasskeyRequest.ProtoReflect.Descriptor instead.
 func (*EnrollPasskeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{54}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *EnrollPasskeyRequest) GetLabel() string {
@@ -2914,7 +2698,7 @@ type EnrollPasskeyResponse struct {
 
 func (x *EnrollPasskeyResponse) Reset() {
 	*x = EnrollPasskeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[55]
+	mi := &file_api_v1_heimdall_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2926,7 +2710,7 @@ func (x *EnrollPasskeyResponse) String() string {
 func (*EnrollPasskeyResponse) ProtoMessage() {}
 
 func (x *EnrollPasskeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[55]
+	mi := &file_api_v1_heimdall_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2939,7 +2723,7 @@ func (x *EnrollPasskeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnrollPasskeyResponse.ProtoReflect.Descriptor instead.
 func (*EnrollPasskeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{55}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *EnrollPasskeyResponse) GetPasskey() *PasskeyMeta {
@@ -2958,7 +2742,7 @@ type RemovePasskeyRequest struct {
 
 func (x *RemovePasskeyRequest) Reset() {
 	*x = RemovePasskeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[56]
+	mi := &file_api_v1_heimdall_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2970,7 +2754,7 @@ func (x *RemovePasskeyRequest) String() string {
 func (*RemovePasskeyRequest) ProtoMessage() {}
 
 func (x *RemovePasskeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[56]
+	mi := &file_api_v1_heimdall_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2983,7 +2767,7 @@ func (x *RemovePasskeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemovePasskeyRequest.ProtoReflect.Descriptor instead.
 func (*RemovePasskeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{56}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *RemovePasskeyRequest) GetLabel() string {
@@ -3001,7 +2785,7 @@ type RemovePasskeyResponse struct {
 
 func (x *RemovePasskeyResponse) Reset() {
 	*x = RemovePasskeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[57]
+	mi := &file_api_v1_heimdall_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3013,7 +2797,7 @@ func (x *RemovePasskeyResponse) String() string {
 func (*RemovePasskeyResponse) ProtoMessage() {}
 
 func (x *RemovePasskeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[57]
+	mi := &file_api_v1_heimdall_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3026,7 +2810,7 @@ func (x *RemovePasskeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemovePasskeyResponse.ProtoReflect.Descriptor instead.
 func (*RemovePasskeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{57}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{53}
 }
 
 type TestPasskeyRequest struct {
@@ -3040,7 +2824,7 @@ type TestPasskeyRequest struct {
 
 func (x *TestPasskeyRequest) Reset() {
 	*x = TestPasskeyRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[58]
+	mi := &file_api_v1_heimdall_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3052,7 +2836,7 @@ func (x *TestPasskeyRequest) String() string {
 func (*TestPasskeyRequest) ProtoMessage() {}
 
 func (x *TestPasskeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[58]
+	mi := &file_api_v1_heimdall_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3065,7 +2849,7 @@ func (x *TestPasskeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestPasskeyRequest.ProtoReflect.Descriptor instead.
 func (*TestPasskeyRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{58}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *TestPasskeyRequest) GetLabel() string {
@@ -3098,7 +2882,7 @@ type TestPasskeyResponse struct {
 
 func (x *TestPasskeyResponse) Reset() {
 	*x = TestPasskeyResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[59]
+	mi := &file_api_v1_heimdall_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3110,7 +2894,7 @@ func (x *TestPasskeyResponse) String() string {
 func (*TestPasskeyResponse) ProtoMessage() {}
 
 func (x *TestPasskeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[59]
+	mi := &file_api_v1_heimdall_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3123,7 +2907,7 @@ func (x *TestPasskeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestPasskeyResponse.ProtoReflect.Descriptor instead.
 func (*TestPasskeyResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{59}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *TestPasskeyResponse) GetOk() bool {
@@ -3143,7 +2927,7 @@ type ForwardSpec struct {
 
 func (x *ForwardSpec) Reset() {
 	*x = ForwardSpec{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[60]
+	mi := &file_api_v1_heimdall_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3155,7 +2939,7 @@ func (x *ForwardSpec) String() string {
 func (*ForwardSpec) ProtoMessage() {}
 
 func (x *ForwardSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[60]
+	mi := &file_api_v1_heimdall_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3168,7 +2952,7 @@ func (x *ForwardSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardSpec.ProtoReflect.Descriptor instead.
 func (*ForwardSpec) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{60}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ForwardSpec) GetMode() string {
@@ -3208,7 +2992,7 @@ type PlanConnectRequest struct {
 
 func (x *PlanConnectRequest) Reset() {
 	*x = PlanConnectRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[61]
+	mi := &file_api_v1_heimdall_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3220,7 +3004,7 @@ func (x *PlanConnectRequest) String() string {
 func (*PlanConnectRequest) ProtoMessage() {}
 
 func (x *PlanConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[61]
+	mi := &file_api_v1_heimdall_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3233,7 +3017,7 @@ func (x *PlanConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanConnectRequest.ProtoReflect.Descriptor instead.
 func (*PlanConnectRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{61}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *PlanConnectRequest) GetHostName() string {
@@ -3354,7 +3138,7 @@ type SSHCommand struct {
 
 func (x *SSHCommand) Reset() {
 	*x = SSHCommand{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[62]
+	mi := &file_api_v1_heimdall_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3366,7 +3150,7 @@ func (x *SSHCommand) String() string {
 func (*SSHCommand) ProtoMessage() {}
 
 func (x *SSHCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[62]
+	mi := &file_api_v1_heimdall_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3379,7 +3163,7 @@ func (x *SSHCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHCommand.ProtoReflect.Descriptor instead.
 func (*SSHCommand) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{62}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *SSHCommand) GetBinary() string {
@@ -3426,7 +3210,7 @@ type PlanConnectResponse struct {
 
 func (x *PlanConnectResponse) Reset() {
 	*x = PlanConnectResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[63]
+	mi := &file_api_v1_heimdall_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3438,7 +3222,7 @@ func (x *PlanConnectResponse) String() string {
 func (*PlanConnectResponse) ProtoMessage() {}
 
 func (x *PlanConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[63]
+	mi := &file_api_v1_heimdall_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3451,7 +3235,7 @@ func (x *PlanConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanConnectResponse.ProtoReflect.Descriptor instead.
 func (*PlanConnectResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{63}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *PlanConnectResponse) GetCommand() *SSHCommand {
@@ -3471,7 +3255,7 @@ type ListEventsRequest struct {
 
 func (x *ListEventsRequest) Reset() {
 	*x = ListEventsRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[64]
+	mi := &file_api_v1_heimdall_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3483,7 +3267,7 @@ func (x *ListEventsRequest) String() string {
 func (*ListEventsRequest) ProtoMessage() {}
 
 func (x *ListEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[64]
+	mi := &file_api_v1_heimdall_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3496,7 +3280,7 @@ func (x *ListEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListEventsRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{64}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ListEventsRequest) GetLimit() int32 {
@@ -3527,7 +3311,7 @@ type AuditEvent struct {
 
 func (x *AuditEvent) Reset() {
 	*x = AuditEvent{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[65]
+	mi := &file_api_v1_heimdall_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3539,7 +3323,7 @@ func (x *AuditEvent) String() string {
 func (*AuditEvent) ProtoMessage() {}
 
 func (x *AuditEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[65]
+	mi := &file_api_v1_heimdall_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3552,7 +3336,7 @@ func (x *AuditEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEvent.ProtoReflect.Descriptor instead.
 func (*AuditEvent) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{65}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *AuditEvent) GetId() string {
@@ -3606,7 +3390,7 @@ type ListEventsResponse struct {
 
 func (x *ListEventsResponse) Reset() {
 	*x = ListEventsResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[66]
+	mi := &file_api_v1_heimdall_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3618,7 +3402,7 @@ func (x *ListEventsResponse) String() string {
 func (*ListEventsResponse) ProtoMessage() {}
 
 func (x *ListEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[66]
+	mi := &file_api_v1_heimdall_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3631,7 +3415,7 @@ func (x *ListEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListEventsResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{66}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ListEventsResponse) GetEvents() []*AuditEvent {
@@ -3649,7 +3433,7 @@ type VerifyChainRequest struct {
 
 func (x *VerifyChainRequest) Reset() {
 	*x = VerifyChainRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[67]
+	mi := &file_api_v1_heimdall_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3661,7 +3445,7 @@ func (x *VerifyChainRequest) String() string {
 func (*VerifyChainRequest) ProtoMessage() {}
 
 func (x *VerifyChainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[67]
+	mi := &file_api_v1_heimdall_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3674,7 +3458,7 @@ func (x *VerifyChainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyChainRequest.ProtoReflect.Descriptor instead.
 func (*VerifyChainRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{67}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{63}
 }
 
 type VerifyChainResponse struct {
@@ -3689,7 +3473,7 @@ type VerifyChainResponse struct {
 
 func (x *VerifyChainResponse) Reset() {
 	*x = VerifyChainResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[68]
+	mi := &file_api_v1_heimdall_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3701,7 +3485,7 @@ func (x *VerifyChainResponse) String() string {
 func (*VerifyChainResponse) ProtoMessage() {}
 
 func (x *VerifyChainResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[68]
+	mi := &file_api_v1_heimdall_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3714,7 +3498,7 @@ func (x *VerifyChainResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyChainResponse.ProtoReflect.Descriptor instead.
 func (*VerifyChainResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{68}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *VerifyChainResponse) GetValid() bool {
@@ -3756,7 +3540,7 @@ type CreateBackupRequest struct {
 
 func (x *CreateBackupRequest) Reset() {
 	*x = CreateBackupRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[69]
+	mi := &file_api_v1_heimdall_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3768,7 +3552,7 @@ func (x *CreateBackupRequest) String() string {
 func (*CreateBackupRequest) ProtoMessage() {}
 
 func (x *CreateBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[69]
+	mi := &file_api_v1_heimdall_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3781,7 +3565,7 @@ func (x *CreateBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBackupRequest.ProtoReflect.Descriptor instead.
 func (*CreateBackupRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{69}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *CreateBackupRequest) GetOutputPath() string {
@@ -3815,7 +3599,7 @@ type CreateBackupResponse struct {
 
 func (x *CreateBackupResponse) Reset() {
 	*x = CreateBackupResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[70]
+	mi := &file_api_v1_heimdall_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3827,7 +3611,7 @@ func (x *CreateBackupResponse) String() string {
 func (*CreateBackupResponse) ProtoMessage() {}
 
 func (x *CreateBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[70]
+	mi := &file_api_v1_heimdall_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3840,7 +3624,7 @@ func (x *CreateBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBackupResponse.ProtoReflect.Descriptor instead.
 func (*CreateBackupResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{70}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *CreateBackupResponse) GetAccepted() bool {
@@ -3868,7 +3652,7 @@ type RestoreBackupRequest struct {
 
 func (x *RestoreBackupRequest) Reset() {
 	*x = RestoreBackupRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[71]
+	mi := &file_api_v1_heimdall_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3880,7 +3664,7 @@ func (x *RestoreBackupRequest) String() string {
 func (*RestoreBackupRequest) ProtoMessage() {}
 
 func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[71]
+	mi := &file_api_v1_heimdall_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3893,7 +3677,7 @@ func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreBackupRequest.ProtoReflect.Descriptor instead.
 func (*RestoreBackupRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{71}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *RestoreBackupRequest) GetInputPath() string {
@@ -3926,7 +3710,7 @@ type RestoreBackupResponse struct {
 
 func (x *RestoreBackupResponse) Reset() {
 	*x = RestoreBackupResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[72]
+	mi := &file_api_v1_heimdall_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3938,7 +3722,7 @@ func (x *RestoreBackupResponse) String() string {
 func (*RestoreBackupResponse) ProtoMessage() {}
 
 func (x *RestoreBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[72]
+	mi := &file_api_v1_heimdall_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3951,7 +3735,7 @@ func (x *RestoreBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreBackupResponse.ProtoReflect.Descriptor instead.
 func (*RestoreBackupResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{72}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *RestoreBackupResponse) GetRestored() bool {
@@ -3975,7 +3759,7 @@ type RecordSessionStartRequest struct {
 
 func (x *RecordSessionStartRequest) Reset() {
 	*x = RecordSessionStartRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[73]
+	mi := &file_api_v1_heimdall_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3987,7 +3771,7 @@ func (x *RecordSessionStartRequest) String() string {
 func (*RecordSessionStartRequest) ProtoMessage() {}
 
 func (x *RecordSessionStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[73]
+	mi := &file_api_v1_heimdall_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4000,7 +3784,7 @@ func (x *RecordSessionStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordSessionStartRequest.ProtoReflect.Descriptor instead.
 func (*RecordSessionStartRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{73}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *RecordSessionStartRequest) GetHostId() string {
@@ -4054,7 +3838,7 @@ type RecordSessionStartResponse struct {
 
 func (x *RecordSessionStartResponse) Reset() {
 	*x = RecordSessionStartResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[74]
+	mi := &file_api_v1_heimdall_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4066,7 +3850,7 @@ func (x *RecordSessionStartResponse) String() string {
 func (*RecordSessionStartResponse) ProtoMessage() {}
 
 func (x *RecordSessionStartResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[74]
+	mi := &file_api_v1_heimdall_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4079,7 +3863,7 @@ func (x *RecordSessionStartResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordSessionStartResponse.ProtoReflect.Descriptor instead.
 func (*RecordSessionStartResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{74}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *RecordSessionStartResponse) GetSessionId() string {
@@ -4102,7 +3886,7 @@ type RecordSessionEndRequest struct {
 
 func (x *RecordSessionEndRequest) Reset() {
 	*x = RecordSessionEndRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[75]
+	mi := &file_api_v1_heimdall_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4114,7 +3898,7 @@ func (x *RecordSessionEndRequest) String() string {
 func (*RecordSessionEndRequest) ProtoMessage() {}
 
 func (x *RecordSessionEndRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[75]
+	mi := &file_api_v1_heimdall_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4127,7 +3911,7 @@ func (x *RecordSessionEndRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordSessionEndRequest.ProtoReflect.Descriptor instead.
 func (*RecordSessionEndRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{75}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *RecordSessionEndRequest) GetSessionId() string {
@@ -4173,7 +3957,7 @@ type RecordSessionEndResponse struct {
 
 func (x *RecordSessionEndResponse) Reset() {
 	*x = RecordSessionEndResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[76]
+	mi := &file_api_v1_heimdall_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4185,7 +3969,7 @@ func (x *RecordSessionEndResponse) String() string {
 func (*RecordSessionEndResponse) ProtoMessage() {}
 
 func (x *RecordSessionEndResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[76]
+	mi := &file_api_v1_heimdall_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4198,7 +3982,7 @@ func (x *RecordSessionEndResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordSessionEndResponse.ProtoReflect.Descriptor instead.
 func (*RecordSessionEndResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{76}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{72}
 }
 
 type VerifyAssertionRequest struct {
@@ -4212,7 +3996,7 @@ type VerifyAssertionRequest struct {
 
 func (x *VerifyAssertionRequest) Reset() {
 	*x = VerifyAssertionRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[77]
+	mi := &file_api_v1_heimdall_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4224,7 +4008,7 @@ func (x *VerifyAssertionRequest) String() string {
 func (*VerifyAssertionRequest) ProtoMessage() {}
 
 func (x *VerifyAssertionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[77]
+	mi := &file_api_v1_heimdall_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4237,7 +4021,7 @@ func (x *VerifyAssertionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyAssertionRequest.ProtoReflect.Descriptor instead.
 func (*VerifyAssertionRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{77}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *VerifyAssertionRequest) GetLabel() string {
@@ -4270,7 +4054,7 @@ type VerifyAssertionResponse struct {
 
 func (x *VerifyAssertionResponse) Reset() {
 	*x = VerifyAssertionResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[78]
+	mi := &file_api_v1_heimdall_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4282,7 +4066,7 @@ func (x *VerifyAssertionResponse) String() string {
 func (*VerifyAssertionResponse) ProtoMessage() {}
 
 func (x *VerifyAssertionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[78]
+	mi := &file_api_v1_heimdall_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4295,7 +4079,7 @@ func (x *VerifyAssertionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyAssertionResponse.ProtoReflect.Descriptor instead.
 func (*VerifyAssertionResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{78}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *VerifyAssertionResponse) GetOk() bool {
@@ -4314,7 +4098,7 @@ type VerifyPassphraseRequest struct {
 
 func (x *VerifyPassphraseRequest) Reset() {
 	*x = VerifyPassphraseRequest{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[79]
+	mi := &file_api_v1_heimdall_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4326,7 +4110,7 @@ func (x *VerifyPassphraseRequest) String() string {
 func (*VerifyPassphraseRequest) ProtoMessage() {}
 
 func (x *VerifyPassphraseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[79]
+	mi := &file_api_v1_heimdall_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4339,7 +4123,7 @@ func (x *VerifyPassphraseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyPassphraseRequest.ProtoReflect.Descriptor instead.
 func (*VerifyPassphraseRequest) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{79}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *VerifyPassphraseRequest) GetPassphrase() string {
@@ -4358,7 +4142,7 @@ type VerifyPassphraseResponse struct {
 
 func (x *VerifyPassphraseResponse) Reset() {
 	*x = VerifyPassphraseResponse{}
-	mi := &file_api_v1_heimdall_proto_msgTypes[80]
+	mi := &file_api_v1_heimdall_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4370,7 +4154,7 @@ func (x *VerifyPassphraseResponse) String() string {
 func (*VerifyPassphraseResponse) ProtoMessage() {}
 
 func (x *VerifyPassphraseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_v1_heimdall_proto_msgTypes[80]
+	mi := &file_api_v1_heimdall_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4383,7 +4167,7 @@ func (x *VerifyPassphraseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyPassphraseResponse.ProtoReflect.Descriptor instead.
 func (*VerifyPassphraseResponse) Descriptor() ([]byte, []int) {
-	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{80}
+	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *VerifyPassphraseResponse) GetOk() bool {
@@ -4509,21 +4293,7 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"\x05value\x18\x01 \x01(\fR\x05value\")\n" +
 	"\x13DeleteSecretRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\"\x16\n" +
-	"\x14DeleteSecretResponse\"l\n" +
-	"\vUploadChunk\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
-	"\rreveal_policy\x18\x02 \x01(\tR\frevealPolicy\x12\x12\n" +
-	"\x04data\x18\x03 \x01(\fR\x04data\x12\x10\n" +
-	"\x03eof\x18\x04 \x01(\bR\x03eof\"K\n" +
-	"\x18UploadFileSecretResponse\x12/\n" +
-	"\x06secret\x18\x01 \x01(\v2\x17.heimdall.v1.SecretMetaR\x06secret\"D\n" +
-	"\x0fDownloadRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
-	"\n" +
-	"chunk_size\x18\x02 \x01(\x05R\tchunkSize\"5\n" +
-	"\rDownloadChunk\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\x12\x10\n" +
-	"\x03eof\x18\x02 \x01(\bR\x03eof\"\x9e\x01\n" +
+	"\x14DeleteSecretResponse\"\x9e\x01\n" +
 	"\aKeyMeta\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -4722,14 +4492,12 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"UpdateHost\x12\x1e.heimdall.v1.UpdateHostRequest\x1a\x1f.heimdall.v1.UpdateHostResponse\x12M\n" +
 	"\n" +
 	"DeleteHost\x12\x1e.heimdall.v1.DeleteHostRequest\x1a\x1f.heimdall.v1.DeleteHostResponse\x12J\n" +
-	"\tListHosts\x12\x1d.heimdall.v1.ListHostsRequest\x1a\x1e.heimdall.v1.ListHostsResponse2\x8f\x04\n" +
+	"\tListHosts\x12\x1d.heimdall.v1.ListHostsRequest\x1a\x1e.heimdall.v1.ListHostsResponse2\xe6\x02\n" +
 	"\rSecretService\x12S\n" +
 	"\fCreateSecret\x12 .heimdall.v1.CreateSecretRequest\x1a!.heimdall.v1.CreateSecretResponse\x12P\n" +
 	"\vListSecrets\x12\x1f.heimdall.v1.ListSecretsRequest\x1a .heimdall.v1.ListSecretsResponse\x12Y\n" +
 	"\x0eGetSecretValue\x12\".heimdall.v1.GetSecretValueRequest\x1a#.heimdall.v1.GetSecretValueResponse\x12S\n" +
-	"\fDeleteSecret\x12 .heimdall.v1.DeleteSecretRequest\x1a!.heimdall.v1.DeleteSecretResponse\x12U\n" +
-	"\x10UploadFileSecret\x12\x18.heimdall.v1.UploadChunk\x1a%.heimdall.v1.UploadFileSecretResponse(\x01\x12P\n" +
-	"\x12DownloadFileSecret\x12\x1c.heimdall.v1.DownloadRequest\x1a\x1a.heimdall.v1.DownloadChunk0\x012\xb8\x05\n" +
+	"\fDeleteSecret\x12 .heimdall.v1.DeleteSecretRequest\x1a!.heimdall.v1.DeleteSecretResponse2\xb8\x05\n" +
 	"\n" +
 	"KeyService\x12P\n" +
 	"\vGenerateKey\x12\x1f.heimdall.v1.GenerateKeyRequest\x1a .heimdall.v1.GenerateKeyResponse\x12J\n" +
@@ -4774,7 +4542,7 @@ func file_api_v1_heimdall_proto_rawDescGZIP() []byte {
 	return file_api_v1_heimdall_proto_rawDescData
 }
 
-var file_api_v1_heimdall_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
+var file_api_v1_heimdall_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_api_v1_heimdall_proto_goTypes = []any{
 	(*StatusRequest)(nil),              // 0: heimdall.v1.StatusRequest
 	(*StatusResponse)(nil),             // 1: heimdall.v1.StatusResponse
@@ -4804,59 +4572,55 @@ var file_api_v1_heimdall_proto_goTypes = []any{
 	(*GetSecretValueResponse)(nil),     // 25: heimdall.v1.GetSecretValueResponse
 	(*DeleteSecretRequest)(nil),        // 26: heimdall.v1.DeleteSecretRequest
 	(*DeleteSecretResponse)(nil),       // 27: heimdall.v1.DeleteSecretResponse
-	(*UploadChunk)(nil),                // 28: heimdall.v1.UploadChunk
-	(*UploadFileSecretResponse)(nil),   // 29: heimdall.v1.UploadFileSecretResponse
-	(*DownloadRequest)(nil),            // 30: heimdall.v1.DownloadRequest
-	(*DownloadChunk)(nil),              // 31: heimdall.v1.DownloadChunk
-	(*KeyMeta)(nil),                    // 32: heimdall.v1.KeyMeta
-	(*GenerateKeyRequest)(nil),         // 33: heimdall.v1.GenerateKeyRequest
-	(*GenerateKeyResponse)(nil),        // 34: heimdall.v1.GenerateKeyResponse
-	(*ImportKeyRequest)(nil),           // 35: heimdall.v1.ImportKeyRequest
-	(*ImportKeyResponse)(nil),          // 36: heimdall.v1.ImportKeyResponse
-	(*ListKeysRequest)(nil),            // 37: heimdall.v1.ListKeysRequest
-	(*ListKeysResponse)(nil),           // 38: heimdall.v1.ListKeysResponse
-	(*ShowKeyRequest)(nil),             // 39: heimdall.v1.ShowKeyRequest
-	(*ShowKeyResponse)(nil),            // 40: heimdall.v1.ShowKeyResponse
-	(*DeleteKeyRequest)(nil),           // 41: heimdall.v1.DeleteKeyRequest
-	(*DeleteKeyResponse)(nil),          // 42: heimdall.v1.DeleteKeyResponse
-	(*RotateKeyRequest)(nil),           // 43: heimdall.v1.RotateKeyRequest
-	(*RotateKeyResponse)(nil),          // 44: heimdall.v1.RotateKeyResponse
-	(*ExportKeyRequest)(nil),           // 45: heimdall.v1.ExportKeyRequest
-	(*ExportKeyResponse)(nil),          // 46: heimdall.v1.ExportKeyResponse
-	(*AgentAddRequest)(nil),            // 47: heimdall.v1.AgentAddRequest
-	(*AgentAddResponse)(nil),           // 48: heimdall.v1.AgentAddResponse
-	(*AgentRemoveRequest)(nil),         // 49: heimdall.v1.AgentRemoveRequest
-	(*AgentRemoveResponse)(nil),        // 50: heimdall.v1.AgentRemoveResponse
-	(*ListPasskeysRequest)(nil),        // 51: heimdall.v1.ListPasskeysRequest
-	(*PasskeyMeta)(nil),                // 52: heimdall.v1.PasskeyMeta
-	(*ListPasskeysResponse)(nil),       // 53: heimdall.v1.ListPasskeysResponse
-	(*EnrollPasskeyRequest)(nil),       // 54: heimdall.v1.EnrollPasskeyRequest
-	(*EnrollPasskeyResponse)(nil),      // 55: heimdall.v1.EnrollPasskeyResponse
-	(*RemovePasskeyRequest)(nil),       // 56: heimdall.v1.RemovePasskeyRequest
-	(*RemovePasskeyResponse)(nil),      // 57: heimdall.v1.RemovePasskeyResponse
-	(*TestPasskeyRequest)(nil),         // 58: heimdall.v1.TestPasskeyRequest
-	(*TestPasskeyResponse)(nil),        // 59: heimdall.v1.TestPasskeyResponse
-	(*ForwardSpec)(nil),                // 60: heimdall.v1.ForwardSpec
-	(*PlanConnectRequest)(nil),         // 61: heimdall.v1.PlanConnectRequest
-	(*SSHCommand)(nil),                 // 62: heimdall.v1.SSHCommand
-	(*PlanConnectResponse)(nil),        // 63: heimdall.v1.PlanConnectResponse
-	(*ListEventsRequest)(nil),          // 64: heimdall.v1.ListEventsRequest
-	(*AuditEvent)(nil),                 // 65: heimdall.v1.AuditEvent
-	(*ListEventsResponse)(nil),         // 66: heimdall.v1.ListEventsResponse
-	(*VerifyChainRequest)(nil),         // 67: heimdall.v1.VerifyChainRequest
-	(*VerifyChainResponse)(nil),        // 68: heimdall.v1.VerifyChainResponse
-	(*CreateBackupRequest)(nil),        // 69: heimdall.v1.CreateBackupRequest
-	(*CreateBackupResponse)(nil),       // 70: heimdall.v1.CreateBackupResponse
-	(*RestoreBackupRequest)(nil),       // 71: heimdall.v1.RestoreBackupRequest
-	(*RestoreBackupResponse)(nil),      // 72: heimdall.v1.RestoreBackupResponse
-	(*RecordSessionStartRequest)(nil),  // 73: heimdall.v1.RecordSessionStartRequest
-	(*RecordSessionStartResponse)(nil), // 74: heimdall.v1.RecordSessionStartResponse
-	(*RecordSessionEndRequest)(nil),    // 75: heimdall.v1.RecordSessionEndRequest
-	(*RecordSessionEndResponse)(nil),   // 76: heimdall.v1.RecordSessionEndResponse
-	(*VerifyAssertionRequest)(nil),     // 77: heimdall.v1.VerifyAssertionRequest
-	(*VerifyAssertionResponse)(nil),    // 78: heimdall.v1.VerifyAssertionResponse
-	(*VerifyPassphraseRequest)(nil),    // 79: heimdall.v1.VerifyPassphraseRequest
-	(*VerifyPassphraseResponse)(nil),   // 80: heimdall.v1.VerifyPassphraseResponse
+	(*KeyMeta)(nil),                    // 28: heimdall.v1.KeyMeta
+	(*GenerateKeyRequest)(nil),         // 29: heimdall.v1.GenerateKeyRequest
+	(*GenerateKeyResponse)(nil),        // 30: heimdall.v1.GenerateKeyResponse
+	(*ImportKeyRequest)(nil),           // 31: heimdall.v1.ImportKeyRequest
+	(*ImportKeyResponse)(nil),          // 32: heimdall.v1.ImportKeyResponse
+	(*ListKeysRequest)(nil),            // 33: heimdall.v1.ListKeysRequest
+	(*ListKeysResponse)(nil),           // 34: heimdall.v1.ListKeysResponse
+	(*ShowKeyRequest)(nil),             // 35: heimdall.v1.ShowKeyRequest
+	(*ShowKeyResponse)(nil),            // 36: heimdall.v1.ShowKeyResponse
+	(*DeleteKeyRequest)(nil),           // 37: heimdall.v1.DeleteKeyRequest
+	(*DeleteKeyResponse)(nil),          // 38: heimdall.v1.DeleteKeyResponse
+	(*RotateKeyRequest)(nil),           // 39: heimdall.v1.RotateKeyRequest
+	(*RotateKeyResponse)(nil),          // 40: heimdall.v1.RotateKeyResponse
+	(*ExportKeyRequest)(nil),           // 41: heimdall.v1.ExportKeyRequest
+	(*ExportKeyResponse)(nil),          // 42: heimdall.v1.ExportKeyResponse
+	(*AgentAddRequest)(nil),            // 43: heimdall.v1.AgentAddRequest
+	(*AgentAddResponse)(nil),           // 44: heimdall.v1.AgentAddResponse
+	(*AgentRemoveRequest)(nil),         // 45: heimdall.v1.AgentRemoveRequest
+	(*AgentRemoveResponse)(nil),        // 46: heimdall.v1.AgentRemoveResponse
+	(*ListPasskeysRequest)(nil),        // 47: heimdall.v1.ListPasskeysRequest
+	(*PasskeyMeta)(nil),                // 48: heimdall.v1.PasskeyMeta
+	(*ListPasskeysResponse)(nil),       // 49: heimdall.v1.ListPasskeysResponse
+	(*EnrollPasskeyRequest)(nil),       // 50: heimdall.v1.EnrollPasskeyRequest
+	(*EnrollPasskeyResponse)(nil),      // 51: heimdall.v1.EnrollPasskeyResponse
+	(*RemovePasskeyRequest)(nil),       // 52: heimdall.v1.RemovePasskeyRequest
+	(*RemovePasskeyResponse)(nil),      // 53: heimdall.v1.RemovePasskeyResponse
+	(*TestPasskeyRequest)(nil),         // 54: heimdall.v1.TestPasskeyRequest
+	(*TestPasskeyResponse)(nil),        // 55: heimdall.v1.TestPasskeyResponse
+	(*ForwardSpec)(nil),                // 56: heimdall.v1.ForwardSpec
+	(*PlanConnectRequest)(nil),         // 57: heimdall.v1.PlanConnectRequest
+	(*SSHCommand)(nil),                 // 58: heimdall.v1.SSHCommand
+	(*PlanConnectResponse)(nil),        // 59: heimdall.v1.PlanConnectResponse
+	(*ListEventsRequest)(nil),          // 60: heimdall.v1.ListEventsRequest
+	(*AuditEvent)(nil),                 // 61: heimdall.v1.AuditEvent
+	(*ListEventsResponse)(nil),         // 62: heimdall.v1.ListEventsResponse
+	(*VerifyChainRequest)(nil),         // 63: heimdall.v1.VerifyChainRequest
+	(*VerifyChainResponse)(nil),        // 64: heimdall.v1.VerifyChainResponse
+	(*CreateBackupRequest)(nil),        // 65: heimdall.v1.CreateBackupRequest
+	(*CreateBackupResponse)(nil),       // 66: heimdall.v1.CreateBackupResponse
+	(*RestoreBackupRequest)(nil),       // 67: heimdall.v1.RestoreBackupRequest
+	(*RestoreBackupResponse)(nil),      // 68: heimdall.v1.RestoreBackupResponse
+	(*RecordSessionStartRequest)(nil),  // 69: heimdall.v1.RecordSessionStartRequest
+	(*RecordSessionStartResponse)(nil), // 70: heimdall.v1.RecordSessionStartResponse
+	(*RecordSessionEndRequest)(nil),    // 71: heimdall.v1.RecordSessionEndRequest
+	(*RecordSessionEndResponse)(nil),   // 72: heimdall.v1.RecordSessionEndResponse
+	(*VerifyAssertionRequest)(nil),     // 73: heimdall.v1.VerifyAssertionRequest
+	(*VerifyAssertionResponse)(nil),    // 74: heimdall.v1.VerifyAssertionResponse
+	(*VerifyPassphraseRequest)(nil),    // 75: heimdall.v1.VerifyPassphraseRequest
+	(*VerifyPassphraseResponse)(nil),   // 76: heimdall.v1.VerifyPassphraseResponse
 }
 var file_api_v1_heimdall_proto_depIdxs = []int32{
 	9,  // 0: heimdall.v1.CreateHostResponse.host:type_name -> heimdall.v1.Host
@@ -4865,95 +4629,90 @@ var file_api_v1_heimdall_proto_depIdxs = []int32{
 	9,  // 3: heimdall.v1.ListHostsResponse.hosts:type_name -> heimdall.v1.Host
 	22, // 4: heimdall.v1.CreateSecretResponse.secret:type_name -> heimdall.v1.SecretMeta
 	22, // 5: heimdall.v1.ListSecretsResponse.secrets:type_name -> heimdall.v1.SecretMeta
-	22, // 6: heimdall.v1.UploadFileSecretResponse.secret:type_name -> heimdall.v1.SecretMeta
-	32, // 7: heimdall.v1.GenerateKeyResponse.key:type_name -> heimdall.v1.KeyMeta
-	32, // 8: heimdall.v1.ImportKeyResponse.key:type_name -> heimdall.v1.KeyMeta
-	32, // 9: heimdall.v1.ListKeysResponse.keys:type_name -> heimdall.v1.KeyMeta
-	32, // 10: heimdall.v1.ShowKeyResponse.key:type_name -> heimdall.v1.KeyMeta
-	32, // 11: heimdall.v1.RotateKeyResponse.key:type_name -> heimdall.v1.KeyMeta
-	52, // 12: heimdall.v1.ListPasskeysResponse.passkeys:type_name -> heimdall.v1.PasskeyMeta
-	52, // 13: heimdall.v1.EnrollPasskeyResponse.passkey:type_name -> heimdall.v1.PasskeyMeta
-	62, // 14: heimdall.v1.PlanConnectResponse.command:type_name -> heimdall.v1.SSHCommand
-	65, // 15: heimdall.v1.ListEventsResponse.events:type_name -> heimdall.v1.AuditEvent
-	0,  // 16: heimdall.v1.VaultService.Status:input_type -> heimdall.v1.StatusRequest
-	2,  // 17: heimdall.v1.VaultService.Lock:input_type -> heimdall.v1.LockRequest
-	4,  // 18: heimdall.v1.VaultService.Unlock:input_type -> heimdall.v1.UnlockRequest
-	6,  // 19: heimdall.v1.VersionService.GetVersion:input_type -> heimdall.v1.GetVersionRequest
-	10, // 20: heimdall.v1.HostService.CreateHost:input_type -> heimdall.v1.CreateHostRequest
-	12, // 21: heimdall.v1.HostService.GetHost:input_type -> heimdall.v1.GetHostRequest
-	14, // 22: heimdall.v1.HostService.UpdateHost:input_type -> heimdall.v1.UpdateHostRequest
-	16, // 23: heimdall.v1.HostService.DeleteHost:input_type -> heimdall.v1.DeleteHostRequest
-	8,  // 24: heimdall.v1.HostService.ListHosts:input_type -> heimdall.v1.ListHostsRequest
-	19, // 25: heimdall.v1.SecretService.CreateSecret:input_type -> heimdall.v1.CreateSecretRequest
-	21, // 26: heimdall.v1.SecretService.ListSecrets:input_type -> heimdall.v1.ListSecretsRequest
-	24, // 27: heimdall.v1.SecretService.GetSecretValue:input_type -> heimdall.v1.GetSecretValueRequest
-	26, // 28: heimdall.v1.SecretService.DeleteSecret:input_type -> heimdall.v1.DeleteSecretRequest
-	28, // 29: heimdall.v1.SecretService.UploadFileSecret:input_type -> heimdall.v1.UploadChunk
-	30, // 30: heimdall.v1.SecretService.DownloadFileSecret:input_type -> heimdall.v1.DownloadRequest
-	33, // 31: heimdall.v1.KeyService.GenerateKey:input_type -> heimdall.v1.GenerateKeyRequest
-	35, // 32: heimdall.v1.KeyService.ImportKey:input_type -> heimdall.v1.ImportKeyRequest
-	37, // 33: heimdall.v1.KeyService.ListKeys:input_type -> heimdall.v1.ListKeysRequest
-	39, // 34: heimdall.v1.KeyService.ShowKey:input_type -> heimdall.v1.ShowKeyRequest
-	41, // 35: heimdall.v1.KeyService.DeleteKey:input_type -> heimdall.v1.DeleteKeyRequest
-	43, // 36: heimdall.v1.KeyService.RotateKey:input_type -> heimdall.v1.RotateKeyRequest
-	45, // 37: heimdall.v1.KeyService.ExportKey:input_type -> heimdall.v1.ExportKeyRequest
-	47, // 38: heimdall.v1.KeyService.AgentAdd:input_type -> heimdall.v1.AgentAddRequest
-	49, // 39: heimdall.v1.KeyService.AgentRemove:input_type -> heimdall.v1.AgentRemoveRequest
-	54, // 40: heimdall.v1.PasskeyService.Enroll:input_type -> heimdall.v1.EnrollPasskeyRequest
-	51, // 41: heimdall.v1.PasskeyService.ListPasskeys:input_type -> heimdall.v1.ListPasskeysRequest
-	56, // 42: heimdall.v1.PasskeyService.RemovePasskey:input_type -> heimdall.v1.RemovePasskeyRequest
-	58, // 43: heimdall.v1.PasskeyService.TestPasskey:input_type -> heimdall.v1.TestPasskeyRequest
-	61, // 44: heimdall.v1.ConnectService.Plan:input_type -> heimdall.v1.PlanConnectRequest
-	64, // 45: heimdall.v1.AuditService.ListEvents:input_type -> heimdall.v1.ListEventsRequest
-	67, // 46: heimdall.v1.AuditService.VerifyChain:input_type -> heimdall.v1.VerifyChainRequest
-	69, // 47: heimdall.v1.BackupService.CreateBackup:input_type -> heimdall.v1.CreateBackupRequest
-	71, // 48: heimdall.v1.BackupService.RestoreBackup:input_type -> heimdall.v1.RestoreBackupRequest
-	73, // 49: heimdall.v1.SessionService.RecordSessionStart:input_type -> heimdall.v1.RecordSessionStartRequest
-	75, // 50: heimdall.v1.SessionService.RecordSessionEnd:input_type -> heimdall.v1.RecordSessionEndRequest
-	77, // 51: heimdall.v1.ReauthService.VerifyAssertion:input_type -> heimdall.v1.VerifyAssertionRequest
-	79, // 52: heimdall.v1.ReauthService.VerifyPassphrase:input_type -> heimdall.v1.VerifyPassphraseRequest
-	1,  // 53: heimdall.v1.VaultService.Status:output_type -> heimdall.v1.StatusResponse
-	3,  // 54: heimdall.v1.VaultService.Lock:output_type -> heimdall.v1.LockResponse
-	5,  // 55: heimdall.v1.VaultService.Unlock:output_type -> heimdall.v1.UnlockResponse
-	7,  // 56: heimdall.v1.VersionService.GetVersion:output_type -> heimdall.v1.GetVersionResponse
-	11, // 57: heimdall.v1.HostService.CreateHost:output_type -> heimdall.v1.CreateHostResponse
-	13, // 58: heimdall.v1.HostService.GetHost:output_type -> heimdall.v1.GetHostResponse
-	15, // 59: heimdall.v1.HostService.UpdateHost:output_type -> heimdall.v1.UpdateHostResponse
-	17, // 60: heimdall.v1.HostService.DeleteHost:output_type -> heimdall.v1.DeleteHostResponse
-	18, // 61: heimdall.v1.HostService.ListHosts:output_type -> heimdall.v1.ListHostsResponse
-	20, // 62: heimdall.v1.SecretService.CreateSecret:output_type -> heimdall.v1.CreateSecretResponse
-	23, // 63: heimdall.v1.SecretService.ListSecrets:output_type -> heimdall.v1.ListSecretsResponse
-	25, // 64: heimdall.v1.SecretService.GetSecretValue:output_type -> heimdall.v1.GetSecretValueResponse
-	27, // 65: heimdall.v1.SecretService.DeleteSecret:output_type -> heimdall.v1.DeleteSecretResponse
-	29, // 66: heimdall.v1.SecretService.UploadFileSecret:output_type -> heimdall.v1.UploadFileSecretResponse
-	31, // 67: heimdall.v1.SecretService.DownloadFileSecret:output_type -> heimdall.v1.DownloadChunk
-	34, // 68: heimdall.v1.KeyService.GenerateKey:output_type -> heimdall.v1.GenerateKeyResponse
-	36, // 69: heimdall.v1.KeyService.ImportKey:output_type -> heimdall.v1.ImportKeyResponse
-	38, // 70: heimdall.v1.KeyService.ListKeys:output_type -> heimdall.v1.ListKeysResponse
-	40, // 71: heimdall.v1.KeyService.ShowKey:output_type -> heimdall.v1.ShowKeyResponse
-	42, // 72: heimdall.v1.KeyService.DeleteKey:output_type -> heimdall.v1.DeleteKeyResponse
-	44, // 73: heimdall.v1.KeyService.RotateKey:output_type -> heimdall.v1.RotateKeyResponse
-	46, // 74: heimdall.v1.KeyService.ExportKey:output_type -> heimdall.v1.ExportKeyResponse
-	48, // 75: heimdall.v1.KeyService.AgentAdd:output_type -> heimdall.v1.AgentAddResponse
-	50, // 76: heimdall.v1.KeyService.AgentRemove:output_type -> heimdall.v1.AgentRemoveResponse
-	55, // 77: heimdall.v1.PasskeyService.Enroll:output_type -> heimdall.v1.EnrollPasskeyResponse
-	53, // 78: heimdall.v1.PasskeyService.ListPasskeys:output_type -> heimdall.v1.ListPasskeysResponse
-	57, // 79: heimdall.v1.PasskeyService.RemovePasskey:output_type -> heimdall.v1.RemovePasskeyResponse
-	59, // 80: heimdall.v1.PasskeyService.TestPasskey:output_type -> heimdall.v1.TestPasskeyResponse
-	63, // 81: heimdall.v1.ConnectService.Plan:output_type -> heimdall.v1.PlanConnectResponse
-	66, // 82: heimdall.v1.AuditService.ListEvents:output_type -> heimdall.v1.ListEventsResponse
-	68, // 83: heimdall.v1.AuditService.VerifyChain:output_type -> heimdall.v1.VerifyChainResponse
-	70, // 84: heimdall.v1.BackupService.CreateBackup:output_type -> heimdall.v1.CreateBackupResponse
-	72, // 85: heimdall.v1.BackupService.RestoreBackup:output_type -> heimdall.v1.RestoreBackupResponse
-	74, // 86: heimdall.v1.SessionService.RecordSessionStart:output_type -> heimdall.v1.RecordSessionStartResponse
-	76, // 87: heimdall.v1.SessionService.RecordSessionEnd:output_type -> heimdall.v1.RecordSessionEndResponse
-	78, // 88: heimdall.v1.ReauthService.VerifyAssertion:output_type -> heimdall.v1.VerifyAssertionResponse
-	80, // 89: heimdall.v1.ReauthService.VerifyPassphrase:output_type -> heimdall.v1.VerifyPassphraseResponse
-	53, // [53:90] is the sub-list for method output_type
-	16, // [16:53] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	28, // 6: heimdall.v1.GenerateKeyResponse.key:type_name -> heimdall.v1.KeyMeta
+	28, // 7: heimdall.v1.ImportKeyResponse.key:type_name -> heimdall.v1.KeyMeta
+	28, // 8: heimdall.v1.ListKeysResponse.keys:type_name -> heimdall.v1.KeyMeta
+	28, // 9: heimdall.v1.ShowKeyResponse.key:type_name -> heimdall.v1.KeyMeta
+	28, // 10: heimdall.v1.RotateKeyResponse.key:type_name -> heimdall.v1.KeyMeta
+	48, // 11: heimdall.v1.ListPasskeysResponse.passkeys:type_name -> heimdall.v1.PasskeyMeta
+	48, // 12: heimdall.v1.EnrollPasskeyResponse.passkey:type_name -> heimdall.v1.PasskeyMeta
+	58, // 13: heimdall.v1.PlanConnectResponse.command:type_name -> heimdall.v1.SSHCommand
+	61, // 14: heimdall.v1.ListEventsResponse.events:type_name -> heimdall.v1.AuditEvent
+	0,  // 15: heimdall.v1.VaultService.Status:input_type -> heimdall.v1.StatusRequest
+	2,  // 16: heimdall.v1.VaultService.Lock:input_type -> heimdall.v1.LockRequest
+	4,  // 17: heimdall.v1.VaultService.Unlock:input_type -> heimdall.v1.UnlockRequest
+	6,  // 18: heimdall.v1.VersionService.GetVersion:input_type -> heimdall.v1.GetVersionRequest
+	10, // 19: heimdall.v1.HostService.CreateHost:input_type -> heimdall.v1.CreateHostRequest
+	12, // 20: heimdall.v1.HostService.GetHost:input_type -> heimdall.v1.GetHostRequest
+	14, // 21: heimdall.v1.HostService.UpdateHost:input_type -> heimdall.v1.UpdateHostRequest
+	16, // 22: heimdall.v1.HostService.DeleteHost:input_type -> heimdall.v1.DeleteHostRequest
+	8,  // 23: heimdall.v1.HostService.ListHosts:input_type -> heimdall.v1.ListHostsRequest
+	19, // 24: heimdall.v1.SecretService.CreateSecret:input_type -> heimdall.v1.CreateSecretRequest
+	21, // 25: heimdall.v1.SecretService.ListSecrets:input_type -> heimdall.v1.ListSecretsRequest
+	24, // 26: heimdall.v1.SecretService.GetSecretValue:input_type -> heimdall.v1.GetSecretValueRequest
+	26, // 27: heimdall.v1.SecretService.DeleteSecret:input_type -> heimdall.v1.DeleteSecretRequest
+	29, // 28: heimdall.v1.KeyService.GenerateKey:input_type -> heimdall.v1.GenerateKeyRequest
+	31, // 29: heimdall.v1.KeyService.ImportKey:input_type -> heimdall.v1.ImportKeyRequest
+	33, // 30: heimdall.v1.KeyService.ListKeys:input_type -> heimdall.v1.ListKeysRequest
+	35, // 31: heimdall.v1.KeyService.ShowKey:input_type -> heimdall.v1.ShowKeyRequest
+	37, // 32: heimdall.v1.KeyService.DeleteKey:input_type -> heimdall.v1.DeleteKeyRequest
+	39, // 33: heimdall.v1.KeyService.RotateKey:input_type -> heimdall.v1.RotateKeyRequest
+	41, // 34: heimdall.v1.KeyService.ExportKey:input_type -> heimdall.v1.ExportKeyRequest
+	43, // 35: heimdall.v1.KeyService.AgentAdd:input_type -> heimdall.v1.AgentAddRequest
+	45, // 36: heimdall.v1.KeyService.AgentRemove:input_type -> heimdall.v1.AgentRemoveRequest
+	50, // 37: heimdall.v1.PasskeyService.Enroll:input_type -> heimdall.v1.EnrollPasskeyRequest
+	47, // 38: heimdall.v1.PasskeyService.ListPasskeys:input_type -> heimdall.v1.ListPasskeysRequest
+	52, // 39: heimdall.v1.PasskeyService.RemovePasskey:input_type -> heimdall.v1.RemovePasskeyRequest
+	54, // 40: heimdall.v1.PasskeyService.TestPasskey:input_type -> heimdall.v1.TestPasskeyRequest
+	57, // 41: heimdall.v1.ConnectService.Plan:input_type -> heimdall.v1.PlanConnectRequest
+	60, // 42: heimdall.v1.AuditService.ListEvents:input_type -> heimdall.v1.ListEventsRequest
+	63, // 43: heimdall.v1.AuditService.VerifyChain:input_type -> heimdall.v1.VerifyChainRequest
+	65, // 44: heimdall.v1.BackupService.CreateBackup:input_type -> heimdall.v1.CreateBackupRequest
+	67, // 45: heimdall.v1.BackupService.RestoreBackup:input_type -> heimdall.v1.RestoreBackupRequest
+	69, // 46: heimdall.v1.SessionService.RecordSessionStart:input_type -> heimdall.v1.RecordSessionStartRequest
+	71, // 47: heimdall.v1.SessionService.RecordSessionEnd:input_type -> heimdall.v1.RecordSessionEndRequest
+	73, // 48: heimdall.v1.ReauthService.VerifyAssertion:input_type -> heimdall.v1.VerifyAssertionRequest
+	75, // 49: heimdall.v1.ReauthService.VerifyPassphrase:input_type -> heimdall.v1.VerifyPassphraseRequest
+	1,  // 50: heimdall.v1.VaultService.Status:output_type -> heimdall.v1.StatusResponse
+	3,  // 51: heimdall.v1.VaultService.Lock:output_type -> heimdall.v1.LockResponse
+	5,  // 52: heimdall.v1.VaultService.Unlock:output_type -> heimdall.v1.UnlockResponse
+	7,  // 53: heimdall.v1.VersionService.GetVersion:output_type -> heimdall.v1.GetVersionResponse
+	11, // 54: heimdall.v1.HostService.CreateHost:output_type -> heimdall.v1.CreateHostResponse
+	13, // 55: heimdall.v1.HostService.GetHost:output_type -> heimdall.v1.GetHostResponse
+	15, // 56: heimdall.v1.HostService.UpdateHost:output_type -> heimdall.v1.UpdateHostResponse
+	17, // 57: heimdall.v1.HostService.DeleteHost:output_type -> heimdall.v1.DeleteHostResponse
+	18, // 58: heimdall.v1.HostService.ListHosts:output_type -> heimdall.v1.ListHostsResponse
+	20, // 59: heimdall.v1.SecretService.CreateSecret:output_type -> heimdall.v1.CreateSecretResponse
+	23, // 60: heimdall.v1.SecretService.ListSecrets:output_type -> heimdall.v1.ListSecretsResponse
+	25, // 61: heimdall.v1.SecretService.GetSecretValue:output_type -> heimdall.v1.GetSecretValueResponse
+	27, // 62: heimdall.v1.SecretService.DeleteSecret:output_type -> heimdall.v1.DeleteSecretResponse
+	30, // 63: heimdall.v1.KeyService.GenerateKey:output_type -> heimdall.v1.GenerateKeyResponse
+	32, // 64: heimdall.v1.KeyService.ImportKey:output_type -> heimdall.v1.ImportKeyResponse
+	34, // 65: heimdall.v1.KeyService.ListKeys:output_type -> heimdall.v1.ListKeysResponse
+	36, // 66: heimdall.v1.KeyService.ShowKey:output_type -> heimdall.v1.ShowKeyResponse
+	38, // 67: heimdall.v1.KeyService.DeleteKey:output_type -> heimdall.v1.DeleteKeyResponse
+	40, // 68: heimdall.v1.KeyService.RotateKey:output_type -> heimdall.v1.RotateKeyResponse
+	42, // 69: heimdall.v1.KeyService.ExportKey:output_type -> heimdall.v1.ExportKeyResponse
+	44, // 70: heimdall.v1.KeyService.AgentAdd:output_type -> heimdall.v1.AgentAddResponse
+	46, // 71: heimdall.v1.KeyService.AgentRemove:output_type -> heimdall.v1.AgentRemoveResponse
+	51, // 72: heimdall.v1.PasskeyService.Enroll:output_type -> heimdall.v1.EnrollPasskeyResponse
+	49, // 73: heimdall.v1.PasskeyService.ListPasskeys:output_type -> heimdall.v1.ListPasskeysResponse
+	53, // 74: heimdall.v1.PasskeyService.RemovePasskey:output_type -> heimdall.v1.RemovePasskeyResponse
+	55, // 75: heimdall.v1.PasskeyService.TestPasskey:output_type -> heimdall.v1.TestPasskeyResponse
+	59, // 76: heimdall.v1.ConnectService.Plan:output_type -> heimdall.v1.PlanConnectResponse
+	62, // 77: heimdall.v1.AuditService.ListEvents:output_type -> heimdall.v1.ListEventsResponse
+	64, // 78: heimdall.v1.AuditService.VerifyChain:output_type -> heimdall.v1.VerifyChainResponse
+	66, // 79: heimdall.v1.BackupService.CreateBackup:output_type -> heimdall.v1.CreateBackupResponse
+	68, // 80: heimdall.v1.BackupService.RestoreBackup:output_type -> heimdall.v1.RestoreBackupResponse
+	70, // 81: heimdall.v1.SessionService.RecordSessionStart:output_type -> heimdall.v1.RecordSessionStartResponse
+	72, // 82: heimdall.v1.SessionService.RecordSessionEnd:output_type -> heimdall.v1.RecordSessionEndResponse
+	74, // 83: heimdall.v1.ReauthService.VerifyAssertion:output_type -> heimdall.v1.VerifyAssertionResponse
+	76, // 84: heimdall.v1.ReauthService.VerifyPassphrase:output_type -> heimdall.v1.VerifyPassphraseResponse
+	50, // [50:85] is the sub-list for method output_type
+	15, // [15:50] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_api_v1_heimdall_proto_init() }
@@ -4967,7 +4726,7 @@ func file_api_v1_heimdall_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_v1_heimdall_proto_rawDesc), len(file_api_v1_heimdall_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   81,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   11,
 		},

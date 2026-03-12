@@ -24,7 +24,6 @@ type Host struct {
 	ProxyJump        string
 	KnownHostsPolicy string
 	ForwardAgent     bool
-	EnvRefs          map[string]string
 	Tags             []string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -113,25 +112,6 @@ type SessionHistory struct {
 	ExitCode  *int
 }
 
-type Template struct {
-	ID        string
-	Name      string
-	Content   string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
-}
-
-type PendingOp struct {
-	ID            string
-	OperationType string
-	TargetID      string
-	State         string
-	Payload       string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-}
-
 // WrappedVMKBundle holds the artifacts produced when wrapping the VMK with a
 // passphrase-derived KEK during vault init. All binary fields are hex-encoded
 // for storage in vault_meta's TEXT value column.
@@ -191,18 +171,4 @@ type SessionRepository interface {
 	RecordStart(ctx context.Context, entry *SessionHistory) error
 	RecordEnd(ctx context.Context, sessionID string, exitCode int) error
 	ListByHostID(ctx context.Context, hostID string) ([]SessionHistory, error)
-}
-
-type TemplateRepository interface {
-	Create(ctx context.Context, template *Template) error
-	Get(ctx context.Context, name string) (*Template, error)
-	List(ctx context.Context) ([]Template, error)
-	Update(ctx context.Context, template *Template) error
-	Delete(ctx context.Context, name string) error
-}
-
-type PendingOpRepository interface {
-	Create(ctx context.Context, op *PendingOp) error
-	MarkCompleted(ctx context.Context, id string) error
-	ListIncomplete(ctx context.Context) ([]PendingOp, error)
 }

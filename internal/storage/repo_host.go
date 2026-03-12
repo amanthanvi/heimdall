@@ -34,10 +34,6 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	host.CreatedAt = now
 	host.UpdatedAt = now
 
-	envRefs, err := encodeEnvRefs(host.EnvRefs)
-	if err != nil {
-		return err
-	}
 	notesCiphertext, notesNonce, err := r.encryptNotes(host)
 	if err != nil {
 		return err
@@ -49,11 +45,11 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO hosts(id, name, address, port, user, notes_ciphertext, notes_nonce, key_name, identity_file, proxy_jump, known_hosts_policy, forward_agent, env_refs, created_at, updated_at, deleted_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-	`, host.ID, host.Name, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), envRefs, fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
+		INSERT INTO hosts(id, name, address, port, user, notes_ciphertext, notes_nonce, key_name, identity_file, proxy_jump, known_hosts_policy, forward_agent, created_at, updated_at, deleted_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	`, host.ID, host.Name, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
 	if err != nil {
-		restored, restoreErr := r.restoreSoftDeletedTx(ctx, tx, host, envRefs, notesCiphertext, notesNonce)
+		restored, restoreErr := r.restoreSoftDeletedTx(ctx, tx, host, notesCiphertext, notesNonce)
 		if restoreErr != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("create host: restore soft-deleted: %w", restoreErr)
@@ -82,7 +78,7 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	return nil
 }
 
-func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, host *Host, envRefs sql.NullString, notesCiphertext, notesNonce any) (bool, error) {
+func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, host *Host, notesCiphertext, notesNonce any) (bool, error) {
 	var (
 		existingID string
 		createdRaw string
@@ -102,9 +98,9 @@ func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, h
 	now := nowUTC()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE hosts
-		SET address = ?, port = ?, user = ?, notes_ciphertext = ?, notes_nonce = ?, key_name = ?, identity_file = ?, proxy_jump = ?, known_hosts_policy = ?, forward_agent = ?, env_refs = ?, updated_at = ?, deleted_at = NULL
+		SET address = ?, port = ?, user = ?, notes_ciphertext = ?, notes_nonce = ?, key_name = ?, identity_file = ?, proxy_jump = ?, known_hosts_policy = ?, forward_agent = ?, updated_at = ?, deleted_at = NULL
 		WHERE id = ? AND deleted_at IS NOT NULL
-	`, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), envRefs, fmtTime(now), existingID)
+	`, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), fmtTime(now), existingID)
 	if err != nil {
 		return false, fmt.Errorf("restore deleted host: %w", err)
 	}
@@ -128,7 +124,7 @@ func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, h
 
 func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, address, port, user, notes_ciphertext, notes_nonce, key_name, identity_file, proxy_jump, known_hosts_policy, forward_agent, env_refs, created_at, updated_at, deleted_at
+		SELECT id, name, address, port, user, notes_ciphertext, notes_nonce, key_name, identity_file, proxy_jump, known_hosts_policy, forward_agent, created_at, updated_at, deleted_at
 		FROM hosts
 		WHERE name = ? AND deleted_at IS NULL
 	`, name)
@@ -154,7 +150,7 @@ func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {
 
 func (r *hostRepository) List(ctx context.Context, filter HostFilter) ([]Host, error) {
 	query := `
-		SELECT DISTINCT h.id, h.name, h.address, h.port, h.user, h.notes_ciphertext, h.notes_nonce, h.key_name, h.identity_file, h.proxy_jump, h.known_hosts_policy, h.forward_agent, h.env_refs, h.created_at, h.updated_at, h.deleted_at
+		SELECT DISTINCT h.id, h.name, h.address, h.port, h.user, h.notes_ciphertext, h.notes_nonce, h.key_name, h.identity_file, h.proxy_jump, h.known_hosts_policy, h.forward_agent, h.created_at, h.updated_at, h.deleted_at
 		FROM hosts h
 	`
 	args := []any{}
@@ -213,10 +209,6 @@ func (r *hostRepository) Update(ctx context.Context, host *Host) error {
 	}
 
 	host.UpdatedAt = nowUTC()
-	envRefs, err := encodeEnvRefs(host.EnvRefs)
-	if err != nil {
-		return err
-	}
 	notesCiphertext, notesNonce, err := r.encryptNotes(host)
 	if err != nil {
 		return err
@@ -229,9 +221,9 @@ func (r *hostRepository) Update(ctx context.Context, host *Host) error {
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE hosts
-		SET name = ?, address = ?, port = ?, user = ?, notes_ciphertext = ?, notes_nonce = ?, key_name = ?, identity_file = ?, proxy_jump = ?, known_hosts_policy = ?, forward_agent = ?, env_refs = ?, updated_at = ?
+		SET name = ?, address = ?, port = ?, user = ?, notes_ciphertext = ?, notes_nonce = ?, key_name = ?, identity_file = ?, proxy_jump = ?, known_hosts_policy = ?, forward_agent = ?, updated_at = ?
 		WHERE id = ? AND deleted_at IS NULL
-	`, host.Name, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), envRefs, fmtTime(host.UpdatedAt), host.ID)
+	`, host.Name, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), fmtTime(host.UpdatedAt), host.ID)
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("update host: update row: %w", err)
@@ -333,21 +325,20 @@ type hostScanner interface {
 
 func scanHost(scanner hostScanner) (*Host, error) {
 	var (
-		host               Host
-		notesCiphertext    []byte
-		notesNonce         []byte
-		keyName            sql.NullString
-		identityFile       sql.NullString
-		proxyJump          sql.NullString
-		knownHostsPolicy   sql.NullString
-		forwardAgent       int64
-		envRefs            sql.NullString
-		createdAt          string
-		updatedAt          string
-		deletedAt          sql.NullString
+		host             Host
+		notesCiphertext  []byte
+		notesNonce       []byte
+		keyName          sql.NullString
+		identityFile     sql.NullString
+		proxyJump        sql.NullString
+		knownHostsPolicy sql.NullString
+		forwardAgent     int64
+		createdAt        string
+		updatedAt        string
+		deletedAt        sql.NullString
 	)
 
-	if err := scanner.Scan(&host.ID, &host.Name, &host.Address, &host.Port, &host.User, &notesCiphertext, &notesNonce, &keyName, &identityFile, &proxyJump, &knownHostsPolicy, &forwardAgent, &envRefs, &createdAt, &updatedAt, &deletedAt); err != nil {
+	if err := scanner.Scan(&host.ID, &host.Name, &host.Address, &host.Port, &host.User, &notesCiphertext, &notesNonce, &keyName, &identityFile, &proxyJump, &knownHostsPolicy, &forwardAgent, &createdAt, &updatedAt, &deletedAt); err != nil {
 		return nil, err
 	}
 
@@ -363,10 +354,6 @@ func scanHost(scanner hostScanner) (*Host, error) {
 	host.UpdatedAt = parsedUpdatedAt
 
 	host.DeletedAt, err = parseNullableTime(deletedAt)
-	if err != nil {
-		return nil, err
-	}
-	host.EnvRefs, err = decodeEnvRefs(envRefs)
 	if err != nil {
 		return nil, err
 	}

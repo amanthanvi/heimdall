@@ -46,7 +46,6 @@ type CreateHostRequest struct {
 	ProxyJump        string
 	KnownHostsPolicy string
 	ForwardAgent     bool
-	EnvRefs          map[string]string
 }
 
 type UpdateHostRequest struct {
@@ -64,7 +63,6 @@ type UpdateHostRequest struct {
 	KnownHostsPolicy      *string
 	ClearKnownHostsPolicy bool
 	ForwardAgent          *bool
-	EnvRefs               map[string]string
 }
 
 type ListHostsRequest struct {

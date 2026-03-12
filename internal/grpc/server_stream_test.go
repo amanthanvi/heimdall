@@ -1,9 +1,7 @@
 package grpc
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -45,64 +43,6 @@ func TestSessionServiceRecordStartAndEndCreatesAuditTrail(t *testing.T) {
 	events, err = h.audit.List(context.Background(), auditpkg.Filter{Action: auditpkg.ActionConnectEnd, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, events, 1)
-}
-
-func TestStreamingUploadFileSecretHandles50MiB(t *testing.T) {
-	h := newGRPCHarness(t)
-
-	ctx := callerCtx(1001, "proc-upload")
-	stream, err := h.secret.UploadFileSecret(ctx)
-	require.NoError(t, err)
-
-	payload := bytes.Repeat([]byte("a"), 50*1024*1024)
-	chunkSize := 512 * 1024
-	for offset := 0; offset < len(payload); offset += chunkSize {
-		end := offset + chunkSize
-		if end > len(payload) {
-			end = len(payload)
-		}
-		err := stream.Send(&v1.UploadChunk{
-			Name: "large-secret",
-			Data: payload[offset:end],
-			Eof:  end == len(payload),
-		})
-		require.NoError(t, err)
-	}
-	resp, err := stream.CloseAndRecv()
-	require.NoError(t, err)
-	require.Equal(t, int64(len(payload)), resp.GetSecret().GetSizeBytes())
-
-	stored, err := h.store.Secrets.Get(context.Background(), "large-secret")
-	require.NoError(t, err)
-	require.Equal(t, len(payload), len(stored.Value))
-}
-
-func TestStreamingDownloadFileSecretHandles50MiB(t *testing.T) {
-	h := newGRPCHarness(t)
-	payload := bytes.Repeat([]byte("b"), 50*1024*1024)
-	createSecret(t, h.store, "large-secret", payload)
-
-	ctx := callerCtx(1002, "proc-download")
-	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
-	require.NoError(t, err)
-
-	stream, err := h.secret.DownloadFileSecret(ctx, &v1.DownloadRequest{Name: "large-secret", ChunkSize: 256 * 1024})
-	require.NoError(t, err)
-
-	var got bytes.Buffer
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		require.NoError(t, err)
-		_, err = got.Write(chunk.GetData())
-		require.NoError(t, err)
-		if chunk.GetEof() {
-			break
-		}
-	}
-	require.Equal(t, payload, got.Bytes())
 }
 
 func TestClientLibraryWrapsAllServiceClients(t *testing.T) {

@@ -129,23 +129,3 @@ func TestPasskeyCreateAfterSoftDeleteReusesLabel(t *testing.T) {
 	require.Equal(t, recreated.SupportsHMACSecret, loaded.SupportsHMACSecret)
 	require.Nil(t, loaded.DeletedAt)
 }
-
-func TestTemplateCreateAfterSoftDeleteReusesName(t *testing.T) {
-	t.Parallel()
-
-	store, vmk := newTestStore(t)
-	defer vmk.Destroy()
-
-	ctx := context.Background()
-	original := &Template{Name: "ssh", Content: "Host old"}
-	require.NoError(t, store.Templates.Create(ctx, original))
-	require.NoError(t, store.Templates.Delete(ctx, original.Name))
-
-	recreated := &Template{Name: "ssh", Content: "Host new"}
-	require.NoError(t, store.Templates.Create(ctx, recreated))
-
-	loaded, err := store.Templates.Get(ctx, "ssh")
-	require.NoError(t, err)
-	require.Equal(t, recreated.Content, loaded.Content)
-	require.Nil(t, loaded.DeletedAt)
-}

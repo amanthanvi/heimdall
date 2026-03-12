@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -39,13 +38,14 @@ func TestRunMigrationsAppliesAllSequentially(t *testing.T) {
 		"passkey_enrollments",
 		"audit_events",
 		"session_history",
-		"templates",
-		"pending_ops",
 		"schema_migrations",
 	}
 	for _, table := range expected {
 		require.Truef(t, tableExists(t, db, table), "expected table %s to exist", table)
 	}
+	require.False(t, tableExists(t, db, "templates"))
+	require.False(t, tableExists(t, db, "pending_ops"))
+	require.False(t, tableColumnExists(t, db, "hosts", "env_refs"))
 }
 
 func TestRunMigrationsIsAtomic(t *testing.T) {
@@ -293,26 +293,6 @@ func TestSessionHistoryRecordAndQueryByHostID(t *testing.T) {
 	require.Equal(t, 17, *records[0].ExitCode)
 }
 
-func TestPendingOpsCreateCompleteAndQueryIncomplete(t *testing.T) {
-	t.Parallel()
-
-	store, vmk := newTestStore(t)
-	defer vmk.Destroy()
-
-	ctx := context.Background()
-	op := &PendingOp{OperationType: "backup", TargetID: "vault", Payload: `{"kind":"full"}`}
-	require.NoError(t, store.PendingOps.Create(ctx, op))
-
-	incomplete, err := store.PendingOps.ListIncomplete(ctx)
-	require.NoError(t, err)
-	require.Len(t, incomplete, 1)
-
-	require.NoError(t, store.PendingOps.MarkCompleted(ctx, op.ID))
-	incomplete, err = store.PendingOps.ListIncomplete(ctx)
-	require.NoError(t, err)
-	require.Empty(t, incomplete)
-}
-
 func TestConcurrentReadsWhileWriteWithWAL(t *testing.T) {
 	t.Parallel()
 
@@ -424,29 +404,6 @@ func TestTimestampsAutoPopulatedAndUpdatedAtChanges(t *testing.T) {
 	require.True(t, host.UpdatedAt.After(before))
 }
 
-func TestHostEnvRefsJSONRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	store, vmk := newTestStore(t)
-	defer vmk.Destroy()
-
-	ctx := context.Background()
-	host := &Host{
-		Name:    "env-host",
-		Address: "10.0.0.77",
-		Port:    22,
-		EnvRefs: map[string]string{
-			"DB_PASSWORD": "secret:db-password",
-			"API_TOKEN":   "secret:api-token",
-		},
-	}
-	require.NoError(t, store.Hosts.Create(ctx, host))
-
-	loaded, err := store.Hosts.Get(ctx, host.Name)
-	require.NoError(t, err)
-	require.Equal(t, host.EnvRefs, loaded.EnvRefs)
-}
-
 func TestHostConnectDefaultsRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -461,11 +418,6 @@ func TestHostConnectDefaultsRoundTrip(t *testing.T) {
 		KeyName:      "deploy",
 		IdentityFile: "~/.ssh/id_prod",
 		ProxyJump:    "bastion.internal",
-		EnvRefs: map[string]string{
-			"key_name":     "deploy",
-			"identity_ref": "~/.ssh/id_prod",
-			"proxy_jump":   "bastion.internal",
-		},
 	}
 	require.NoError(t, store.Hosts.Create(ctx, host))
 
@@ -476,43 +428,16 @@ func TestHostConnectDefaultsRoundTrip(t *testing.T) {
 	require.Equal(t, host.ProxyJump, loaded.ProxyJump)
 }
 
-func TestMigrationV5BackfillsHostConnectDefaultsFromEnvRefs(t *testing.T) {
+func TestMigrationsDoNotCreateDeferredTablesOrLegacyEnvRefsColumn(t *testing.T) {
 	t.Parallel()
 
 	db := openRawTestDB(t)
 	defer closeNoErr(t, db)
 
-	require.NoError(t, RunMigrations(db, DefaultMigrations()[:2]))
-
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	rawEnvRefs, err := json.Marshal(map[string]string{
-		"key_name":     "deploy",
-		"identity_ref": "~/.ssh/id_prod",
-		"proxy_jump":   "bastion.internal",
-	})
-	require.NoError(t, err)
-	_, err = db.Exec(`
-		INSERT INTO hosts(id, name, address, port, user, env_refs, created_at, updated_at, deleted_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL)
-	`, "host-1", "prod", "10.0.0.8", 22, "ubuntu", string(rawEnvRefs), now, now)
-	require.NoError(t, err)
-
 	require.NoError(t, RunMigrations(db, DefaultMigrations()))
-
-	var (
-		keyName      sql.NullString
-		identityFile sql.NullString
-		proxyJump    sql.NullString
-	)
-	err = db.QueryRow(`
-		SELECT key_name, identity_file, proxy_jump
-		FROM hosts
-		WHERE id = ?
-	`, "host-1").Scan(&keyName, &identityFile, &proxyJump)
-	require.NoError(t, err)
-	require.Equal(t, "deploy", keyName.String)
-	require.Equal(t, "~/.ssh/id_prod", identityFile.String)
-	require.Equal(t, "bastion.internal", proxyJump.String)
+	require.False(t, tableExists(t, db, "templates"))
+	require.False(t, tableExists(t, db, "pending_ops"))
+	require.False(t, tableColumnExists(t, db, "hosts", "env_refs"))
 }
 
 func openRawTestDB(t *testing.T) *sql.DB {
@@ -542,6 +467,31 @@ func tableExists(t *testing.T, db *sql.DB, table string) bool {
 	err := db.QueryRow(`SELECT COUNT(1) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count)
 	require.NoError(t, err)
 	return count == 1
+}
+
+func tableColumnExists(t *testing.T, db *sql.DB, table, column string) bool {
+	t.Helper()
+
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			typeStr string
+			notNull int
+			dfltVal sql.NullString
+			pk      int
+		)
+		require.NoError(t, rows.Scan(&cid, &name, &typeStr, &notNull, &dfltVal, &pk))
+		if name == column {
+			return true
+		}
+	}
+	require.NoError(t, rows.Err())
+	return false
 }
 
 func newTestVaultCrypto(t *testing.T) (*crypto.VaultCrypto, *memguard.LockedBuffer) {

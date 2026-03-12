@@ -107,9 +107,7 @@ Current rules:
 - `proxy_jump` is a typed default, not hidden in `env_refs`.
 - `known_hosts_policy` is a typed default, not hidden in `env_refs`.
 - `forward_agent` is a typed default, not hidden in `env_refs`.
-- `env_refs` remains a legacy compatibility field in storage and deferred
-  transfer paths, but it is not the source of truth for connection defaults and
-  is not part of the shipped host API contract.
+- `env_refs` does not exist in the rebooted product model or storage schema.
 
 Not yet first-class in this reboot contract:
 
@@ -236,7 +234,7 @@ Required behavior:
 
 - `host add/edit/show/list` round-trip through the canonical host model.
 - `group` is not part of the reboot contract.
-- Hidden connect defaults in `env_refs` are not part of the reboot contract.
+- Hidden connect defaults are not part of the reboot contract.
 
 ### 7.6 `connect`
 

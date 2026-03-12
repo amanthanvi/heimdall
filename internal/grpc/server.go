@@ -1,11 +1,9 @@
 package grpc
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"time"
@@ -19,8 +17,6 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
-
-const defaultDownloadChunkSize = 256 * 1024
 
 type VersionInfo struct {
 	Version   string
@@ -247,90 +243,6 @@ func (s *Server) DeleteSecret(ctx context.Context, req *v1.DeleteSecretRequest) 
 		return nil, grpcstatus.Errorf(codes.Internal, "delete secret: %v", err)
 	}
 	return &v1.DeleteSecretResponse{}, nil
-}
-
-func (s *Server) UploadFileSecret(stream v1.SecretService_UploadFileSecretServer) error {
-	var (
-		name   string
-		policy string
-		buf    bytes.Buffer
-	)
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return grpcstatus.Errorf(codes.Internal, "upload secret: %v", err)
-		}
-		if name == "" {
-			name = strings.TrimSpace(chunk.GetName())
-			policy = strings.TrimSpace(chunk.GetRevealPolicy())
-		}
-		if chunk.GetName() != "" && chunk.GetName() != name {
-			return grpcstatus.Error(codes.InvalidArgument, "secret name changed mid-stream")
-		}
-		if _, err := buf.Write(chunk.GetData()); err != nil {
-			return grpcstatus.Errorf(codes.Internal, "upload secret: %v", err)
-		}
-		if chunk.GetEof() {
-			break
-		}
-	}
-
-	if name == "" {
-		return grpcstatus.Error(codes.InvalidArgument, "secret name is required")
-	}
-	if buf.Len() == 0 {
-		return grpcstatus.Error(codes.InvalidArgument, "secret value is required")
-	}
-
-	secret := &storage.Secret{Name: name, Value: buf.Bytes()}
-	if err := s.cfg.Store.Secrets.Create(stream.Context(), secret); err != nil {
-		return grpcstatus.Errorf(codes.Internal, "upload secret: %v", err)
-	}
-
-	if policy == "" {
-		policy = string(app.RevealPolicyOncePerUnlock)
-	}
-	return stream.SendAndClose(&v1.UploadFileSecretResponse{
-		Secret: &v1.SecretMeta{
-			Id:           secret.ID,
-			Name:         secret.Name,
-			RevealPolicy: policy,
-			SizeBytes:    int64(buf.Len()),
-		},
-	})
-}
-
-func (s *Server) DownloadFileSecret(req *v1.DownloadRequest, stream v1.SecretService_DownloadFileSecretServer) error {
-	secret, err := s.cfg.Store.Secrets.Get(stream.Context(), req.GetName())
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			return grpcstatus.Error(codes.NotFound, "secret not found")
-		}
-		return grpcstatus.Errorf(codes.Internal, "download secret: %v", err)
-	}
-	chunkSize := int(req.GetChunkSize())
-	if chunkSize <= 0 {
-		chunkSize = defaultDownloadChunkSize
-	}
-	if len(secret.Value) == 0 {
-		return stream.Send(&v1.DownloadChunk{Eof: true})
-	}
-	for offset := 0; offset < len(secret.Value); offset += chunkSize {
-		end := offset + chunkSize
-		if end > len(secret.Value) {
-			end = len(secret.Value)
-		}
-		if err := stream.Send(&v1.DownloadChunk{
-			Data: append([]byte(nil), secret.Value[offset:end]...),
-			Eof:  end == len(secret.Value),
-		}); err != nil {
-			return grpcstatus.Errorf(codes.Internal, "download secret: %v", err)
-		}
-	}
-	return nil
 }
 
 func (s *Server) ExportKey(ctx context.Context, req *v1.ExportKeyRequest) (*v1.ExportKeyResponse, error) {

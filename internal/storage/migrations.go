@@ -2,11 +2,9 @@ package storage
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -36,6 +34,13 @@ var defaultMigrations = []Migration{
 					address TEXT NOT NULL,
 					port INTEGER NOT NULL,
 					user TEXT,
+					notes_ciphertext BLOB,
+					notes_nonce BLOB,
+					key_name TEXT,
+					identity_file TEXT,
+					proxy_jump TEXT,
+					known_hosts_policy TEXT NOT NULL DEFAULT '',
+					forward_agent INTEGER NOT NULL DEFAULT 0,
 					created_at TEXT NOT NULL,
 					updated_at TEXT NOT NULL,
 					deleted_at TEXT
@@ -83,6 +88,13 @@ var defaultMigrations = []Migration{
 					event_type TEXT NOT NULL,
 					actor TEXT,
 					metadata TEXT,
+					action TEXT NOT NULL DEFAULT '',
+					target_type TEXT,
+					target_id TEXT,
+					result TEXT NOT NULL DEFAULT '',
+					details_json TEXT NOT NULL DEFAULT '{}',
+					prev_hash TEXT NOT NULL DEFAULT '',
+					event_hash TEXT NOT NULL DEFAULT '',
 					created_at TEXT NOT NULL
 				)`,
 				`CREATE TABLE IF NOT EXISTS session_history (
@@ -93,16 +105,9 @@ var defaultMigrations = []Migration{
 					exit_code INTEGER,
 					FOREIGN KEY(host_id) REFERENCES hosts(id)
 				)`,
-				`CREATE TABLE IF NOT EXISTS templates (
-					id TEXT PRIMARY KEY,
-					name TEXT NOT NULL UNIQUE,
-					content TEXT NOT NULL,
-					created_at TEXT NOT NULL,
-					updated_at TEXT NOT NULL,
-					deleted_at TEXT
-				)`,
 				`INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('` + versionCounterMetaKey + `', '1')`,
 				`INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('` + versionCounterHMACMeta + `', '')`,
+				`INSERT OR IGNORE INTO vault_meta (key, value) VALUES ('` + auditChainTipMetaKey + `', '')`,
 			}
 			for _, stmt := range statements {
 				if _, err := tx.Exec(stmt); err != nil {
@@ -114,37 +119,17 @@ var defaultMigrations = []Migration{
 	},
 	{
 		Version:     2,
-		Description: "add hosts env refs",
+		Description: "reserved for removed host env refs migration",
 		Up: func(tx *sql.Tx) error {
-			ok, err := columnExists(tx, "hosts", "env_refs")
-			if err != nil {
-				return err
-			}
-			if ok {
-				return nil
-			}
-			if _, err := tx.Exec(`ALTER TABLE hosts ADD COLUMN env_refs TEXT`); err != nil {
-				return fmt.Errorf("add hosts.env_refs: %w", err)
-			}
+			_ = tx
 			return nil
 		},
 	},
 	{
 		Version:     3,
-		Description: "add pending operations",
+		Description: "reserved for removed pending operations table",
 		Up: func(tx *sql.Tx) error {
-			_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS pending_ops (
-				id TEXT PRIMARY KEY,
-				operation_type TEXT NOT NULL,
-				target_id TEXT,
-				state TEXT NOT NULL DEFAULT 'pending',
-				payload TEXT,
-				created_at TEXT NOT NULL,
-				updated_at TEXT NOT NULL
-			)`)
-			if err != nil {
-				return fmt.Errorf("create pending_ops: %w", err)
-			}
+			_ = tx
 			return nil
 		},
 	},
@@ -193,32 +178,9 @@ var defaultMigrations = []Migration{
 	},
 	{
 		Version:     5,
-		Description: "add host connect default fields",
+		Description: "reserved for removed host env refs backfill",
 		Up: func(tx *sql.Tx) error {
-			type columnSpec struct {
-				name       string
-				definition string
-			}
-			columns := []columnSpec{
-				{name: "key_name", definition: `TEXT`},
-				{name: "identity_file", definition: `TEXT`},
-				{name: "proxy_jump", definition: `TEXT`},
-			}
-			for _, column := range columns {
-				exists, err := columnExists(tx, "hosts", column.name)
-				if err != nil {
-					return err
-				}
-				if exists {
-					continue
-				}
-				if _, err := tx.Exec(`ALTER TABLE hosts ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
-					return fmt.Errorf("add hosts.%s: %w", column.name, err)
-				}
-			}
-			if err := migrateHostConnectDefaultsFromEnvRefs(tx); err != nil {
-				return err
-			}
+			_ = tx
 			return nil
 		},
 	},
@@ -246,6 +208,28 @@ var defaultMigrations = []Migration{
 				}
 				if _, err := tx.Exec(`ALTER TABLE hosts ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
 					return fmt.Errorf("add hosts.%s: %w", column.name, err)
+				}
+			}
+			return nil
+		},
+	},
+	{
+		Version:     7,
+		Description: "drop reboot-deferred legacy schema",
+		Up: func(tx *sql.Tx) error {
+			for _, table := range []string{"templates", "pending_ops"} {
+				if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
+					return fmt.Errorf("drop %s: %w", table, err)
+				}
+			}
+
+			hasEnvRefs, err := columnExists(tx, "hosts", "env_refs")
+			if err != nil {
+				return err
+			}
+			if hasEnvRefs {
+				if _, err := tx.Exec(`ALTER TABLE hosts DROP COLUMN env_refs`); err != nil {
+					return fmt.Errorf("drop hosts.env_refs: %w", err)
 				}
 			}
 			return nil
@@ -402,80 +386,4 @@ func columnExists(tx *sql.Tx, table, column string) (bool, error) {
 
 func nowUTCString() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
-}
-
-func migrateHostConnectDefaultsFromEnvRefs(tx *sql.Tx) error {
-	rows, err := tx.Query(`
-		SELECT id, env_refs, key_name, identity_file, proxy_jump
-		FROM hosts
-	`)
-	if err != nil {
-		return fmt.Errorf("migrate hosts connect defaults: query hosts: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	type rowData struct {
-		id           string
-		envRefs      sql.NullString
-		keyName      sql.NullString
-		identityFile sql.NullString
-		proxyJump    sql.NullString
-	}
-	entries := make([]rowData, 0)
-	for rows.Next() {
-		var item rowData
-		if err := rows.Scan(&item.id, &item.envRefs, &item.keyName, &item.identityFile, &item.proxyJump); err != nil {
-			return fmt.Errorf("migrate hosts connect defaults: scan row: %w", err)
-		}
-		entries = append(entries, item)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("migrate hosts connect defaults: iterate rows: %w", err)
-	}
-
-	for _, item := range entries {
-		if !item.envRefs.Valid || strings.TrimSpace(item.envRefs.String) == "" {
-			continue
-		}
-		var parsed map[string]string
-		if err := json.Unmarshal([]byte(item.envRefs.String), &parsed); err != nil {
-			continue
-		}
-
-		keyName := strings.TrimSpace(item.keyName.String)
-		identityFile := strings.TrimSpace(item.identityFile.String)
-		proxyJump := strings.TrimSpace(item.proxyJump.String)
-		updated := false
-
-		if keyName == "" {
-			if value := strings.TrimSpace(parsed["key_name"]); value != "" {
-				keyName = value
-				updated = true
-			}
-		}
-		if identityFile == "" {
-			if value := strings.TrimSpace(parsed["identity_ref"]); value != "" {
-				identityFile = value
-				updated = true
-			}
-		}
-		if proxyJump == "" {
-			if value := strings.TrimSpace(parsed["proxy_jump"]); value != "" {
-				proxyJump = value
-				updated = true
-			}
-		}
-		if !updated {
-			continue
-		}
-
-		if _, err := tx.Exec(`
-			UPDATE hosts
-			SET key_name = ?, identity_file = ?, proxy_jump = ?
-			WHERE id = ?
-		`, keyName, identityFile, proxyJump, item.id); err != nil {
-			return fmt.Errorf("migrate hosts connect defaults: update host %s: %w", item.id, err)
-		}
-	}
-	return nil
 }

@@ -482,14 +482,3 @@ func backupSvcMainDBPath(ctx context.Context, store *storage.Store) (string, err
 	}
 	return "", fmt.Errorf("main database path not found")
 }
-
-func cloneStringMap(input map[string]string) map[string]string {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}

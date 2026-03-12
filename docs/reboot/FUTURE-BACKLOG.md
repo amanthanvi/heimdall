@@ -31,7 +31,6 @@ current reboot contract in [SPEC.md](/Users/amanthanvi/GitRepos/heimdall/SPEC.md
 ## Deferred Migration Work
 
 - Importers for earlier Heimdall vault layouts
-- Best-effort migration tooling for old host defaults stored in `env_refs`
 - Portability helpers for legacy JSON transfer bundles
 
 ## Deferred Documentation Work

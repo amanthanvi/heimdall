@@ -33,7 +33,7 @@ Deferred public surfaces:
 - `import`
 - `export`
 - `ssh-config`
-- templates
+- `templates`
 - compliance / reporting
 - repair / salvage
 
@@ -96,8 +96,7 @@ heimdall backup create --output ./vault.backup.hdl --passphrase "backup-pass"
 
 ## Host Defaults
 
-The rebooted host model stores connection defaults as typed fields instead of
-hiding them in `env_refs`.
+The rebooted host model stores connection defaults only as typed fields.
 
 Current typed host defaults:
 
