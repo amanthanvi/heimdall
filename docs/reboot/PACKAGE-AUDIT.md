@@ -30,12 +30,12 @@ Status values:
 | `internal/buildcheck` | `reuse` | Useful guardrails for dependency boundaries. |
 | `internal/integration` | `reuse with boundary cleanup` | Coverage remains valuable, but tests must follow the reboot surface only. |
 | `internal/sshconfig` | `removed` | Deleted from the active tree; managed ssh-config is outside the reboot. |
-| `internal/tui` | `deferred` | Not part of the rebooted product surface. |
-| `internal/debug` | `deferred` | Not part of the rebooted product surface. |
+| `internal/tui` | `removed` | Deleted from the active tree; CLI-first reboot does not ship a TUI. |
+| `internal/debug` | `removed` | Deleted from the active tree; no reboot command depends on debug bundle helpers. |
 | `internal/tools` | `reuse` | Tool pinning and generation support remain useful. |
 
 ## Current Audit Summary
 
 - Verified reusable spine: `crypto`, `audit`, `daemon`, `ssh`, `agent`, `fido2`.
 - Reboot focus: `app`, `cli`, host schema, proto contract, integration coverage.
-- Deferred: `tui`, `debug`, and public transfer workflows.
+- Deferred: public transfer workflows only.
