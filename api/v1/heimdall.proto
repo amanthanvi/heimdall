@@ -113,7 +113,14 @@ message Host {
   int32 port = 4;
   string user = 5;
   repeated string tags = 6;
-  map<string, string> env_refs = 7;
+  reserved 7;
+  reserved "env_refs";
+  string notes = 8;
+  string key_name = 9;
+  string identity_path = 10;
+  string proxy_jump = 11;
+  string known_hosts_policy = 12;
+  bool forward_agent = 13;
 }
 
 message CreateHostRequest {
@@ -122,8 +129,16 @@ message CreateHostRequest {
   int32 port = 3;
   string user = 4;
   repeated string tags = 5;
-  string group = 6;
-  map<string, string> env_refs = 7;
+  reserved 6;
+  reserved "group";
+  reserved 7;
+  reserved "env_refs";
+  string notes = 8;
+  string key_name = 9;
+  string identity_path = 10;
+  string proxy_jump = 11;
+  string known_hosts_policy = 12;
+  bool forward_agent = 13;
 }
 
 message CreateHostResponse {
@@ -146,7 +161,20 @@ message UpdateHostRequest {
   string user = 5;
   repeated string tags = 6;
   bool clear_tags = 7;
-  map<string, string> env_refs = 8;
+  reserved 8;
+  reserved "env_refs";
+  string notes = 9;
+  bool clear_notes = 10;
+  string key_name = 11;
+  bool clear_key_name = 12;
+  string identity_path = 13;
+  bool clear_identity_path = 14;
+  string proxy_jump = 15;
+  bool clear_proxy_jump = 16;
+  string known_hosts_policy = 17;
+  bool clear_known_hosts_policy = 18;
+  bool forward_agent = 19;
+  bool forward_agent_set = 20;
 }
 
 message UpdateHostResponse {
@@ -356,6 +384,12 @@ message PlanConnectRequest {
   string known_hosts = 7;
   bool print_cmd = 8;
   bool dry_run = 9;
+  string known_hosts_policy = 10;
+  bool forward_agent = 11;
+  bool forward_agent_set = 12;
+  bool proxy_jump_none = 13;
+  bool insecure_hostkey = 14;
+  bool ignore_ssh_config = 15;
 }
 
 message SSHCommand {

@@ -22,6 +22,7 @@ const (
 	callerPIDMetadataKey       = "x-heimdall-pid"
 	callerStartTimeMetadataKey = "x-heimdall-process-start"
 	callerClientIDMetadataKey  = "x-heimdall-client-id"
+	auditActionMetadataKey     = "x-heimdall-audit-action"
 )
 
 type authTier int

@@ -222,6 +222,35 @@ var defaultMigrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version:     6,
+		Description: "add canonical host policy fields",
+		Up: func(tx *sql.Tx) error {
+			type columnSpec struct {
+				name       string
+				definition string
+			}
+			columns := []columnSpec{
+				{name: "notes_ciphertext", definition: `BLOB`},
+				{name: "notes_nonce", definition: `BLOB`},
+				{name: "known_hosts_policy", definition: `TEXT NOT NULL DEFAULT ''`},
+				{name: "forward_agent", definition: `INTEGER NOT NULL DEFAULT 0`},
+			}
+			for _, column := range columns {
+				exists, err := columnExists(tx, "hosts", column.name)
+				if err != nil {
+					return err
+				}
+				if exists {
+					continue
+				}
+				if _, err := tx.Exec(`ALTER TABLE hosts ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+					return fmt.Errorf("add hosts.%s: %w", column.name, err)
+				}
+			}
+			return nil
+		},
+	},
 }
 
 func DefaultMigrations() []Migration {

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -27,14 +26,13 @@ const (
 var ErrInvalidConfig = errors.New("invalid config")
 
 type Config struct {
-	Vault     VaultConfig            `toml:"vault"`
-	SSH       SSHConfig              `toml:"ssh"`
-	SSHConfig SSHConfigManagedConfig `toml:"ssh_config"`
-	Audit     AuditConfig            `toml:"audit"`
-	Passkey   PasskeyConfig          `toml:"passkey"`
-	Daemon    DaemonConfig           `toml:"daemon"`
-	Logging   LoggingConfig          `toml:"logging"`
-	Telemetry TelemetryConfig        `toml:"telemetry"`
+	Vault     VaultConfig     `toml:"vault"`
+	SSH       SSHConfig       `toml:"ssh"`
+	Audit     AuditConfig     `toml:"audit"`
+	Passkey   PasskeyConfig   `toml:"passkey"`
+	Daemon    DaemonConfig    `toml:"daemon"`
+	Logging   LoggingConfig   `toml:"logging"`
+	Telemetry TelemetryConfig `toml:"telemetry"`
 }
 
 type VaultConfig struct {
@@ -49,12 +47,6 @@ type SSHConfig struct {
 
 type PasskeyConfig struct {
 	UVDefault string `toml:"uv_default"`
-}
-
-type SSHConfigManagedConfig struct {
-	Enabled  bool   `toml:"enabled"`
-	Path     string `toml:"path"`
-	AutoSync bool   `toml:"auto_sync"`
 }
 
 type AuditConfig struct {
@@ -93,7 +85,6 @@ type LoadReport struct {
 }
 
 func DefaultConfig() Config {
-	managedPath, _ := defaultManagedSSHConfigPath()
 	return Config{
 		Vault: VaultConfig{
 			AutoLockTimeout: defaultAutoLockTimeout,
@@ -102,11 +93,6 @@ func DefaultConfig() Config {
 			KnownHostsPolicyDefault: defaultKnownHostsPolicy,
 			ForwardAgentDefault:     false,
 			ConnectTimeout:          defaultConnectTimeout,
-		},
-		SSHConfig: SSHConfigManagedConfig{
-			Enabled:  false,
-			Path:     managedPath,
-			AutoSync: true,
 		},
 		Audit: AuditConfig{
 			ConnectionLogging: true,
@@ -167,7 +153,6 @@ func Load(opts LoadOptions) (Config, LoadReport, error) {
 type rawConfig struct {
 	Vault     *rawVault     `toml:"vault"`
 	SSH       *rawSSH       `toml:"ssh"`
-	SSHConfig *rawSSHConfig `toml:"ssh_config"`
 	Audit     *rawAudit     `toml:"audit"`
 	Passkey   *rawPasskey   `toml:"passkey"`
 	Daemon    *rawDaemon    `toml:"daemon"`
@@ -187,12 +172,6 @@ type rawSSH struct {
 
 type rawPasskey struct {
 	UVDefault *string `toml:"uv_default"`
-}
-
-type rawSSHConfig struct {
-	Enabled  *bool   `toml:"enabled"`
-	Path     *string `toml:"path"`
-	AutoSync *bool   `toml:"auto_sync"`
 }
 
 type rawAudit struct {
@@ -254,12 +233,6 @@ func applyRawConfig(cfg *Config, raw rawConfig, policyOverrides *[]string) error
 		}
 	}
 
-	if raw.SSHConfig != nil {
-		setBool("ssh_config.enabled", raw.SSHConfig.Enabled, &cfg.SSHConfig.Enabled, policyOverrides)
-		setString("ssh_config.path", raw.SSHConfig.Path, &cfg.SSHConfig.Path, policyOverrides)
-		setBool("ssh_config.auto_sync", raw.SSHConfig.AutoSync, &cfg.SSHConfig.AutoSync, policyOverrides)
-	}
-
 	if raw.Audit != nil {
 		setBool("audit.connection_logging", raw.Audit.ConnectionLogging, &cfg.Audit.ConnectionLogging, policyOverrides)
 	}
@@ -314,23 +287,6 @@ func applyEnvOverrides(cfg *Config, opts LoadOptions) error {
 			return fmt.Errorf("%w: parse HEIMDALL_SSH_CONNECT_TIMEOUT: %v", ErrInvalidConfig, err)
 		}
 		cfg.SSH.ConnectTimeout = d
-	}
-	if value, ok := lookupEnv(opts, "HEIMDALL_SSH_CONFIG_ENABLED"); ok {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("%w: parse HEIMDALL_SSH_CONFIG_ENABLED: %v", ErrInvalidConfig, err)
-		}
-		cfg.SSHConfig.Enabled = parsed
-	}
-	if value, ok := lookupEnv(opts, "HEIMDALL_SSH_CONFIG_PATH"); ok {
-		cfg.SSHConfig.Path = value
-	}
-	if value, ok := lookupEnv(opts, "HEIMDALL_SSH_CONFIG_AUTO_SYNC"); ok {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("%w: parse HEIMDALL_SSH_CONFIG_AUTO_SYNC: %v", ErrInvalidConfig, err)
-		}
-		cfg.SSHConfig.AutoSync = parsed
 	}
 	if value, ok := lookupEnv(opts, "HEIMDALL_AUDIT_CONNECTION_LOGGING"); ok {
 		parsed, err := strconv.ParseBool(value)
@@ -397,9 +353,6 @@ func applyFlagOverrides(cfg *Config, flags FlagOverrides) error {
 func validate(cfg Config) error {
 	if cfg.Vault.AutoLockTimeout <= 0 || cfg.Vault.AutoLockTimeout > 24*time.Hour {
 		return fmt.Errorf("%w: vault.auto_lock_timeout must be > 0 and <= 24h", ErrInvalidConfig)
-	}
-	if strings.TrimSpace(cfg.SSHConfig.Path) == "" {
-		return fmt.Errorf("%w: ssh_config.path must not be empty", ErrInvalidConfig)
 	}
 	return nil
 }
@@ -518,12 +471,4 @@ func defaultConfigPath() (string, error) {
 		configHome = xdgConfigHome
 	}
 	return filepath.Join(configHome, "heimdall", "config.toml"), nil
-}
-
-func defaultManagedSSHConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home: %w", err)
-	}
-	return filepath.Join(home, ".ssh", "config.d", "heimdall.conf"), nil
 }

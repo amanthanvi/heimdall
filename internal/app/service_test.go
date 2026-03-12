@@ -58,7 +58,34 @@ func TestHostServiceCreateRejectsDuplicateName(t *testing.T) {
 	require.ErrorIs(t, err, ErrDuplicateName)
 }
 
-func TestHostServiceListFiltersByTagGroupSearch(t *testing.T) {
+func TestHostServiceCreateDoesNotPromoteConnectDefaultsFromEnvRefs(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	svc := NewHostService(store.Hosts, store.Sessions)
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, CreateHostRequest{
+		Name:    "prod",
+		Address: "10.0.0.1",
+		EnvRefs: map[string]string{
+			"key_name":     "deploy",
+			"identity_ref": "~/.ssh/id_prod",
+			"proxy_jump":   "bastion",
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, created.KeyName)
+	require.Empty(t, created.IdentityFile)
+	require.Empty(t, created.ProxyJump)
+	require.Equal(t, "deploy", created.EnvRefs["key_name"])
+	require.Equal(t, "~/.ssh/id_prod", created.EnvRefs["identity_ref"])
+	require.Equal(t, "bastion", created.EnvRefs["proxy_jump"])
+}
+
+func TestHostServiceListFiltersByTagAndSearch(t *testing.T) {
 	t.Parallel()
 
 	store, vmk := newAppTestStore(t)
@@ -71,14 +98,12 @@ func TestHostServiceListFiltersByTagGroupSearch(t *testing.T) {
 		Name:    "prod-bastion",
 		Address: "10.0.0.1",
 		Tags:    []string{"prod", "ssh"},
-		Group:   "ops",
 	})
 	require.NoError(t, err)
 	_, err = svc.Create(ctx, CreateHostRequest{
 		Name:    "dev-api",
 		Address: "10.0.0.2",
 		Tags:    []string{"dev"},
-		Group:   "eng",
 	})
 	require.NoError(t, err)
 
@@ -86,11 +111,6 @@ func TestHostServiceListFiltersByTagGroupSearch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, byTag, 1)
 	require.Equal(t, "prod-bastion", byTag[0].Name)
-
-	byGroup, err := svc.List(ctx, ListHostsRequest{Group: "ops"})
-	require.NoError(t, err)
-	require.Len(t, byGroup, 1)
-	require.Equal(t, "prod-bastion", byGroup[0].Name)
 
 	bySearch, err := svc.List(ctx, ListHostsRequest{Search: "api"})
 	require.NoError(t, err)
@@ -136,7 +156,7 @@ func TestHostServiceListSortsByNameAndLastConnected(t *testing.T) {
 	require.Equal(t, "alpha", byLast[1].Name)
 }
 
-func TestHostServiceUpdateEnvRefsPatchPreservesUnspecifiedConnectDefaults(t *testing.T) {
+func TestHostServiceUpdatePreservesKeyWhenClearingProxyJump(t *testing.T) {
 	t.Parallel()
 
 	store, vmk := newAppTestStore(t)
@@ -155,9 +175,11 @@ func TestHostServiceUpdateEnvRefsPatchPreservesUnspecifiedConnectDefaults(t *tes
 	require.Equal(t, "deploy", created.KeyName)
 	require.Equal(t, "bastion", created.ProxyJump)
 
+	empty := ""
+
 	updated, err := svc.Update(ctx, UpdateHostRequest{
-		Name:    "prod",
-		EnvRefs: map[string]string{"proxy_jump": ""},
+		Name:      "prod",
+		ProxyJump: &empty,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "deploy", updated.KeyName)

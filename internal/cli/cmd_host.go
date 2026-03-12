@@ -30,15 +30,17 @@ func newHostCommand(deps commandDeps) *cobra.Command {
 
 func newHostAddCommand(deps commandDeps) *cobra.Command {
 	var (
-		name         string
-		address      string
-		port         int32
-		user         string
-		tags         []string
-		group        string
-		keyName      string
-		identityFile string
-		proxyJump    string
+		name             string
+		address          string
+		port             int32
+		user             string
+		tags             []string
+		notes            string
+		keyName          string
+		identityFile     string
+		proxyJump        string
+		knownHostsPolicy string
+		forwardAgent     bool
 	)
 
 	cmd := &cobra.Command{
@@ -64,27 +66,18 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
-				envRefs := map[string]string{}
-				if value := strings.TrimSpace(keyName); value != "" {
-					envRefs["key_name"] = value
-				}
-				if value := strings.TrimSpace(identityFile); value != "" {
-					envRefs["identity_ref"] = value
-				}
-				if value := strings.TrimSpace(proxyJump); value != "" {
-					envRefs["proxy_jump"] = value
-				}
-				if len(envRefs) == 0 {
-					envRefs = nil
-				}
 				resp, err := clients.host.CreateHost(ctx, &v1.CreateHostRequest{
-					Name:    name,
-					Address: address,
-					Port:    port,
-					User:    user,
-					Tags:    append([]string(nil), tags...),
-					Group:   group,
-					EnvRefs: envRefs,
+					Name:             name,
+					Address:          address,
+					Port:             port,
+					User:             user,
+					Tags:             append([]string(nil), tags...),
+					Notes:            notes,
+					KeyName:          keyName,
+					IdentityPath:     identityFile,
+					ProxyJump:        proxyJump,
+					KnownHostsPolicy: knownHostsPolicy,
+					ForwardAgent:     forwardAgent,
 				})
 				if err != nil {
 					return err
@@ -99,10 +92,12 @@ func newHostAddCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().Int32Var(&port, "port", 22, "SSH port")
 	cmd.Flags().StringVar(&user, "user", "", "SSH user")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Host tag (repeatable)")
-	cmd.Flags().StringVar(&group, "group", "", "Host group")
+	cmd.Flags().StringVar(&notes, "notes", "", "Encrypted operator notes")
 	cmd.Flags().StringVar(&keyName, "key", "", "Default vault key name used by connect")
 	cmd.Flags().StringVar(&identityFile, "identity-file", "", "Default identity file used by connect")
 	cmd.Flags().StringVar(&proxyJump, "proxy-jump", "", "Default SSH ProxyJump used by connect")
+	cmd.Flags().StringVar(&knownHostsPolicy, "known-hosts-policy", "", "Default known_hosts policy (tofu|accept-new|strict|off)")
+	cmd.Flags().BoolVar(&forwardAgent, "forward-agent", false, "Default to agent forwarding for this host")
 	return cmd
 }
 
@@ -110,7 +105,6 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 	var (
 		namesOnly bool
 		tag       string
-		group     string
 		search    string
 	)
 
@@ -129,7 +123,7 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				hosts := filterHosts(resp.GetHosts(), tag, group, search)
+				hosts := filterHosts(resp.GetHosts(), tag, search)
 				if deps.globals.JSON {
 					return printJSON(deps.out, hosts)
 				}
@@ -160,7 +154,6 @@ func newHostListCommand(deps commandDeps) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&namesOnly, "names-only", false, "Only print host names")
 	cmd.Flags().StringVar(&tag, "tag", "", "Filter by tag")
-	cmd.Flags().StringVar(&group, "group", "", "Filter by group tag")
 	cmd.Flags().StringVar(&search, "search", "", "Case-insensitive search on name/address/user/tags")
 	return cmd
 }
@@ -221,18 +214,24 @@ func newHostRemoveCommand(deps commandDeps) *cobra.Command {
 
 func newHostEditCommand(deps commandDeps) *cobra.Command {
 	var (
-		newName           string
-		address           string
-		port              int32
-		user              string
-		tags              []string
-		clearTags         bool
-		keyName           string
-		identityFile      string
-		proxyJump         string
-		clearKey          bool
-		clearIdentityFile bool
-		clearProxyJump    bool
+		newName               string
+		address               string
+		port                  int32
+		user                  string
+		tags                  []string
+		clearTags             bool
+		notes                 string
+		clearNotes            bool
+		keyName               string
+		identityFile          string
+		proxyJump             string
+		knownHostsPolicy      string
+		clearKnownHostsPolicy bool
+		clearKey              bool
+		clearIdentityFile     bool
+		clearProxyJump        bool
+		forwardAgent          bool
+		noForwardAgent        bool
 	)
 
 	cmd := &cobra.Command{
@@ -262,40 +261,50 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 			if clearProxyJump && strings.TrimSpace(proxyJump) != "" {
 				return usageErrorf("host edit cannot combine --proxy-jump and --clear-proxy-jump")
 			}
+			if clearNotes && strings.TrimSpace(notes) != "" {
+				return usageErrorf("host edit cannot combine --notes and --clear-notes")
+			}
+			if clearKnownHostsPolicy && strings.TrimSpace(knownHostsPolicy) != "" {
+				return usageErrorf("host edit cannot combine --known-hosts-policy and --clear-known-hosts-policy")
+			}
+			if forwardAgent && noForwardAgent {
+				return usageErrorf("host edit cannot combine --forward-agent and --no-forward-agent")
+			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
-				envRefs := map[string]string{}
-				if value := strings.TrimSpace(keyName); value != "" {
-					envRefs["key_name"] = value
-				} else if clearKey {
-					envRefs["key_name"] = ""
-				}
-				if value := strings.TrimSpace(identityFile); value != "" {
-					envRefs["identity_ref"] = value
-				} else if clearIdentityFile {
-					envRefs["identity_ref"] = ""
-				}
-				if value := strings.TrimSpace(proxyJump); value != "" {
-					envRefs["proxy_jump"] = value
-				} else if clearProxyJump {
-					envRefs["proxy_jump"] = ""
-				}
-				if len(envRefs) == 0 {
-					envRefs = nil
-				}
-
 				req := &v1.UpdateHostRequest{
-					Name:      args[0],
-					NewName:   newName,
-					Address:   address,
-					Port:      port,
-					ClearTags: clearTags,
-					EnvRefs:   envRefs,
+					Name:                   args[0],
+					NewName:                newName,
+					Address:                address,
+					Port:                   port,
+					ClearTags:              clearTags,
+					ClearNotes:             clearNotes,
+					ClearKeyName:           clearKey,
+					ClearIdentityPath:      clearIdentityFile,
+					ClearProxyJump:         clearProxyJump,
+					ClearKnownHostsPolicy:  clearKnownHostsPolicy,
+					ForwardAgent:           forwardAgent,
+					ForwardAgentSet:        forwardAgent || noForwardAgent,
 				}
 				if user != "" {
 					req.User = user
 				}
 				if len(tags) > 0 {
 					req.Tags = append([]string(nil), tags...)
+				}
+				if notes != "" {
+					req.Notes = notes
+				}
+				if keyName != "" {
+					req.KeyName = keyName
+				}
+				if identityFile != "" {
+					req.IdentityPath = identityFile
+				}
+				if proxyJump != "" {
+					req.ProxyJump = proxyJump
+				}
+				if knownHostsPolicy != "" {
+					req.KnownHostsPolicy = knownHostsPolicy
 				}
 				resp, err := clients.host.UpdateHost(ctx, req)
 				if err != nil {
@@ -312,22 +321,27 @@ func newHostEditCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().StringVar(&user, "user", "", "Updated SSH user")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "Updated host tags")
 	cmd.Flags().BoolVar(&clearTags, "clear-tags", false, "Remove all host tags")
+	cmd.Flags().StringVar(&notes, "notes", "", "Updated encrypted operator notes")
+	cmd.Flags().BoolVar(&clearNotes, "clear-notes", false, "Clear operator notes")
 	cmd.Flags().StringVar(&keyName, "key", "", "Updated default vault key name used by connect")
 	cmd.Flags().StringVar(&identityFile, "identity-file", "", "Updated default identity file used by connect")
 	cmd.Flags().StringVar(&proxyJump, "proxy-jump", "", "Updated default SSH ProxyJump used by connect")
+	cmd.Flags().StringVar(&knownHostsPolicy, "known-hosts-policy", "", "Updated default known_hosts policy")
+	cmd.Flags().BoolVar(&clearKnownHostsPolicy, "clear-known-hosts-policy", false, "Clear known_hosts policy override")
 	cmd.Flags().BoolVar(&clearKey, "clear-key", false, "Clear default connect key")
 	cmd.Flags().BoolVar(&clearIdentityFile, "clear-identity-file", false, "Clear default identity file")
 	cmd.Flags().BoolVar(&clearProxyJump, "clear-proxy-jump", false, "Clear default ProxyJump")
+	cmd.Flags().BoolVar(&forwardAgent, "forward-agent", false, "Enable agent forwarding by default for this host")
+	cmd.Flags().BoolVar(&noForwardAgent, "no-forward-agent", false, "Disable agent forwarding by default for this host")
 	return cmd
 }
 
-func filterHosts(hosts []*v1.Host, tag, group, search string) []*v1.Host {
+func filterHosts(hosts []*v1.Host, tag, search string) []*v1.Host {
 	if len(hosts) == 0 {
 		return nil
 	}
 
 	wantTag := strings.ToLower(strings.TrimSpace(tag))
-	wantGroup := strings.ToLower(strings.TrimSpace(group))
 	needle := strings.ToLower(strings.TrimSpace(search))
 
 	out := make([]*v1.Host, 0, len(hosts))
@@ -336,9 +350,6 @@ func filterHosts(hosts []*v1.Host, tag, group, search string) []*v1.Host {
 			continue
 		}
 		if wantTag != "" && !containsTag(host.GetTags(), wantTag) {
-			continue
-		}
-		if wantGroup != "" && !containsTag(host.GetTags(), "group:"+wantGroup) && !containsTag(host.GetTags(), wantGroup) {
 			continue
 		}
 		if needle != "" {
@@ -376,27 +387,38 @@ func printHostOutput(deps commandDeps, host *v1.Host) error {
 		return nil
 	}
 	connectDefaults := []string{}
-	if value := strings.TrimSpace(host.GetEnvRefs()["key_name"]); value != "" {
+	if value := strings.TrimSpace(host.GetKeyName()); value != "" {
 		connectDefaults = append(connectDefaults, "key="+value)
 	}
-	if value := strings.TrimSpace(host.GetEnvRefs()["identity_ref"]); value != "" {
-		connectDefaults = append(connectDefaults, "identity_file="+value)
+	if value := strings.TrimSpace(host.GetIdentityPath()); value != "" {
+		connectDefaults = append(connectDefaults, "identity_path="+value)
 	}
-	if value := strings.TrimSpace(host.GetEnvRefs()["proxy_jump"]); value != "" {
+	if value := strings.TrimSpace(host.GetProxyJump()); value != "" {
 		connectDefaults = append(connectDefaults, "proxy_jump="+value)
+	}
+	if value := strings.TrimSpace(host.GetKnownHostsPolicy()); value != "" {
+		connectDefaults = append(connectDefaults, "known_hosts_policy="+value)
+	}
+	if host.GetForwardAgent() {
+		connectDefaults = append(connectDefaults, "forward_agent=true")
 	}
 	connectSuffix := ""
 	if len(connectDefaults) > 0 {
 		connectSuffix = " connect=" + strings.Join(connectDefaults, ",")
 	}
+	noteSuffix := ""
+	if strings.TrimSpace(host.GetNotes()) != "" {
+		noteSuffix = " notes=set"
+	}
 	_, err := fmt.Fprintf(
 		deps.out,
-		"%s %s:%d user=%s tags=%s%s\n",
+		"%s %s:%d user=%s tags=%s%s%s\n",
 		host.GetName(),
 		host.GetAddress(),
 		host.GetPort(),
 		host.GetUser(),
 		strings.Join(host.GetTags(), ","),
+		noteSuffix,
 		connectSuffix,
 	)
 	return err

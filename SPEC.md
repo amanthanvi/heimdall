@@ -1,1779 +1,419 @@
-# SPEC.md — Heimdall v0.2.1
-
-## 1. Overview
-
-**Heimdall** is a free and open-source, CLI-first terminal application (with a full interactive TUI) for securely managing:
-
-- SSH connections (hosts, jump hosts, port forwards, per-host settings, known_hosts policy)
-- SSH identities/keys (generation, import/export, rotation, agent integration)
-- Access tokens and secrets (API tokens, credentials, environment secrets, secure notes)
-- **Passkeys** (roaming FIDO2 security keys) to unlock the local vault and re-authorize sensitive actions
-- Local audit logs and session history
+# Heimdall Security-Core Reboot Spec
+
+Status: current product contract for this repository.
 
-Heimdall v0.2.1 is **local-only** and **production-ready**. It MUST NOT require any hosted service, account, or cloud sync.
+This spec replaces the earlier broad v0.x contract. If another document in the
+repo conflicts with this file, this file wins. Deferred and historical material
+belongs in [docs/reboot/FUTURE-BACKLOG.md](/Users/amanthanvi/GitRepos/heimdall/docs/reboot/FUTURE-BACKLOG.md)
+or in archival planning docs such as `claude-*` and `docs/v2/*`.
+
+## 1. Product
+
+Heimdall is a local-first Go CLI for a solo operator who wants one trustworthy
+place to manage:
+
+- SSH hosts and connection defaults
+- Vault-backed SSH keys
+- Vault-backed secrets
+- Passkeys for local auth and re-auth
+- Encrypted backups
+- Tamper-evident local audit history
+
+The rebooted product is intentionally CLI-first. The product goal is coherent,
+truthful behavior, not breadth.
 
-**License:** MIT
+## 2. Scope
 
-**Module path:** `github.com/amanthanvi/heimdall`
+The rebooted release ships these top-level commands:
 
-## 1.1 Current Truth Overrides (v0.2.1)
+- `init`
+- `status`
+- `doctor`
+- `vault`
+- `daemon`
+- `host`
+- `connect`
+- `key`
+- `secret`
+- `passkey`
+- `backup`
+- `audit`
+- `version`
 
-This section is the source of truth when older text below conflicts with current implementation.
+The reboot does not promise compatibility with earlier broad specs, docs, or
+half-implemented surfaces.
 
-- Runtime/language:
-  - Go module target is `go 1.26.0` (`go.mod`).
-  - Daemon process state is persisted in `daemon.info` JSON (not `daemon.pid`).
-- CLI surface (canonical names):
-  - `host list/remove`, `key generate/list/remove`, `secret list/remove`, `passkey list/remove`.
-  - `tui` command is available, with `ui` alias.
-  - `ssh-config` supports `enable`, `disable`, `sync`, `diff`, `show`, `generate`.
-- SSH config behavior:
-  - Heimdall does not modify `~/.ssh/config` by default.
-  - Explicit `heimdall ssh-config enable/disable` manages a single Include directive for a Heimdall-managed fragment.
-- Key import:
-  - Private key import supports OpenSSH + PEM/PKCS#8 parse paths.
-- Import/export scope:
-  - `export/import --format json` is metadata-oriented.
-  - Identity metadata in CLI JSON import is currently reported as skipped (not rehydrated into usable private keys).
-- Status command:
-  - `status` reports key staleness (>365d), managed ssh-config sync state, and audit connection logging state.
-- Connection audit events:
-  - `[audit].connection_logging` defaults to `true` for newly generated config and default runtime config.
-  - Non-dry-run `connect` emits `connect.start` and `connect.end` for both managed-key and identity-file auth modes.
-  - `connect --dry-run` never emits connection audit events.
-- Historical content:
-  - Legacy v0.1.0 release-planning sections remain for traceability only; current behavior is defined by implemented CLI/docs and this override block.
+## 3. Non-Goals
 
----
+The following are explicitly out of scope for the rebooted release:
 
-## 2. Goals & Success Metrics
-
-### 2.1 Goals
-
-1. Provide a "Termius-like" outcome and workflow quality for SSH management, while remaining **CLI-first**, scriptable, and open-source.
-2. Provide a secure-by-default local vault for secrets, SSH key material, and metadata with strong encryption-at-rest.
-3. Support cross-platform (macOS, Linux) passkey workflows using **roaming FIDO2 security keys via CTAP2** through **libfido2**, with terminal-native touch/PIN prompts.
-4. Integrate safely with existing OpenSSH tooling without breaking the user's `~/.ssh/config` or existing SSH workflows.
-5. Provide deterministic output formats, exit codes, robust error handling, and strong secret redaction guarantees.
-
-### 2.2 Non-goals
-
-Heimdall v0.2.0:
-
-- MUST NOT implement multi-device sync, cloud backup, accounts, or hosted services.
-- MUST NOT require a browser-based WebAuthn ceremony as the primary passkey mechanism.
-- MUST NOT replace the system SSH client; it MUST preserve compatibility with OpenSSH.
-- MUST NOT support Windows. Only macOS and Linux are supported.
-- MUST NOT attempt guaranteed secure deletion on modern filesystems/SSDs; it MAY do best-effort wiping with clear limitations documented.
-- MUST NOT promise platform authenticator passkeys (Windows Hello, macOS Touch ID) — only roaming FIDO2 keys.
+- Full TUI workflows
+- Public `import` and `export` commands
+- Managed `ssh-config` commands and fragment syncing
+- Templates
+- Compliance and reporting surfaces
+- Repair and salvage workflows
+- Daemonless operation
+- Team and shared-vault workflows
 
-### 2.3 Measurable Success Metrics
+Some internal code for deferred areas may still exist in the repo. That does
+not make those surfaces part of the product contract.
 
-Release gate requires **both** quality metrics and feature completeness:
+## 4. Operating Model
 
-**Quality metrics (hard gate):**
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| SSH connect overhead | <50ms p99 vs raw `ssh` | Benchmark suite in CI |
-| Vault open time (cold) | <500ms | Integration test |
-| Vault open time (warm/daemon) | <50ms | Integration test |
-| Data-loss bugs | 0 | Issue tracker |
-| Test coverage (critical paths) | >80% | CI coverage report |
-| Secret redaction violations | 0 | Structured log audit test |
+Heimdall is local-only and single-operator:
 
-**Feature completeness (hard gate):**
+- One operator controls the workstation and the local vault.
+- The daemon runs on the same machine as the CLI.
+- The CLI is the user-facing contract.
+- The daemon exposes gRPC for local process boundaries, not as a networked
+  multi-user service.
 
-- All MUST requirements implemented and tested
-- All exit codes tested and deterministic
-- All platforms passing CI (macOS arm64, Linux amd64)
-- Shell completions generated (bash, zsh, fish)
-- Man pages generated
-- `--json` output stable for all list/show commands
+## 5. Truth Rules
 
----
+The reboot follows these rules:
 
-## 3. Assumptions & Constraints
+- The public CLI surface must only expose supported workflows.
+- CLI flags that affect persisted host connection defaults must map to typed
+  fields, not hidden side-channel metadata.
+- `connect` planning must have one source of truth: app-layer intent mapped into
+  `internal/ssh` command building.
+- If a feature is deferred, it should be absent or clearly marked deferred. It
+  must not appear as a first-class shipped workflow.
 
-1. Implementation language: **Go 1.26**.
-2. Target platforms:
-   - macOS 13+ (arm64 MUST, amd64 SHOULD)
-   - Ubuntu 22.04+ / Debian stable (amd64 MUST, arm64 SHOULD)
-3. OpenSSH client (`ssh`, `ssh-keygen`, `ssh-agent`, `ssh-add`) is available on all target platforms.
-4. Heimdall is single-user per vault by default.
-5. libfido2 is available or can be packaged for all supported platforms.
-6. cgo is required only for the internal libfido2 wrapper; all other dependencies are pure Go.
-
----
-
-## 4. User Personas & Use Cases
-
-### 4.1 Personas
-
-1. **SRE/Infra Engineer** — Manages dozens/hundreds of hosts, bastions, and port forwards. Needs fast search, tags, groups, templates, and predictable CLI scripting.
-2. **Developer** — Needs quick connect, per-project identities, and secret injection to tools without leaking secrets.
-3. **Security-conscious Operator** — Requires strong local encryption, passkey re-auth for sensitive actions, strict host key policies, and auditability.
+## 6. Canonical Data Model
 
-### 4.2 Primary Use Cases
-
-- Add and manage SSH hosts with tags/groups and per-host settings
-- Connect to hosts with ProxyJump, port forwarding, and identity selection
-- Generate/import/export/rotate SSH keys and integrate with agents
-- Store and retrieve tokens and secrets securely; inject secrets into commands
-- Unlock vault with passphrase or roaming FIDO2 security key; require re-auth for sensitive actions
-- Produce local audit logs and debug bundles without leaking secrets
-- Backup/restore vault contents securely
-- Import hosts from existing `~/.ssh/config`
+### 6.1 Host
 
----
+The canonical persisted host model for the reboot includes:
 
-## 5. UX Principles (CLI/TUI)
+- `name`
+- `address`
+- `port`
+- `user`
+- `tags`
+- `notes`
+- `key_name`
+- `identity_path`
+- `proxy_jump`
+- `known_hosts_policy`
+- `forward_agent`
 
-### 5.1 Core Principles
+Current rules:
 
-1. **Secure-by-default**: risky operations MUST require explicit opt-in flags and/or re-auth.
-2. **No surprises**: Heimdall MUST NOT modify `~/.ssh/config` by default; managed Include updates happen only via explicit `ssh-config enable/disable` flows.
-3. **Scriptable first**: every interactive flow MUST have a non-interactive equivalent using flags/stdin, with deterministic exit codes.
-4. **Human-friendly**: the TUI provides host/secret selection, fingerprint confirmation, and formatted details.
-5. **Redaction always**: secrets MUST NOT appear in logs, panic traces, or structured outputs unless the explicit command's purpose is to reveal them.
-6. **Consistency**: command naming, flag conventions, and output formatting MUST be consistent across subcommands.
+- `name` is the stable operator-facing identifier.
+- `notes` are encrypted at rest.
+- `key_name` and `identity_path` are mutually exclusive defaults for auth.
+- `proxy_jump` is a typed default, not hidden in `env_refs`.
+- `known_hosts_policy` is a typed default, not hidden in `env_refs`.
+- `forward_agent` is a typed default, not hidden in `env_refs`.
+- `env_refs` remains a legacy compatibility field in storage and deferred
+  transfer paths, but it is not the source of truth for connection defaults and
+  is not part of the shipped host API contract.
 
-### 5.2 UX States Checklist
+Not yet first-class in this reboot contract:
 
-| State | Behavior |
-|-------|----------|
-| **Empty** (no hosts/keys/secrets) | TUI shows onboarding: "No hosts yet. Press 'a' to add, 'i' to import from SSH config, or '?' for help." CLI `ls` returns empty JSON array with exit 0. |
-| **Error** (daemon unreachable) | CLI prints "Daemon not running. Starting..." and auto-forks. If auto-fork fails: exit 6 with guidance. |
-| **Error** (vault corrupted) | Diagnostic output: what's wrong, what data may be affected, offer restore from backup or export salvageable data. |
-| **Error** (FIDO device missing) | "Insert security key and touch it. Press Ctrl-C to cancel or enter passphrase instead." Timeout after 30s. |
-| **Permission denied** | "Re-authentication required. Touch security key or enter passphrase." After 3 failures: exponential backoff (5s, 30s, 5 min). |
-| **Degraded** (daemon died mid-session) | Active SSH sessions continue (they're child processes). New vault operations fail with "Daemon unavailable. Restarting..." |
-| **Locked** | TUI shows lock screen with unlock prompt. CLI vault operations return exit 5. |
-| **First run** | Interactive wizard (see 5.3). |
+- Persisted default forwards
+- Persisted host-level secret bindings
 
-### 5.3 First-Run Experience (`heimdall init`)
+Those remain future work and are tracked in
+[docs/reboot/FUTURE-BACKLOG.md](/Users/amanthanvi/GitRepos/heimdall/docs/reboot/FUTURE-BACKLOG.md).
 
-Interactive wizard flow:
-1. Welcome message + version
-2. Prompt for vault passphrase (with confirmation)
-3. Ask: "Enroll a FIDO2 security key for passwordless unlock? (optional)" → If yes, run enrollment flow
-4. Ask: "Import hosts from ~/.ssh/config? (optional)" → If yes, parse and show preview
-5. Create vault, write config, confirm success
+### 6.2 Key
 
-Non-interactive mode: `heimdall init --passphrase-stdin` reads passphrase from stdin, skips optional steps.
+The canonical key metadata includes:
 
-Ctrl-C at any point: clean up partial state, exit 0, print "Setup cancelled. Run `heimdall init` to try again."
+- `name`
+- `key_type`
+- `public_key`
+- `status`
+- timestamps
 
-### 5.4 Vault Corruption Recovery UX
+Heimdall stores private key material encrypted in the vault. Key import supports
+OpenSSH and PEM/PKCS#8 parse paths.
 
-When integrity check fails at startup:
-1. Print diagnostic: "Vault integrity check failed: [specific error from SQLite]"
-2. Show affected scope: "This may affect [N] secrets, [N] hosts, [N] keys"
-3. Offer options:
-   - "Run `heimdall backup restore --from <path>` to restore from a backup"
-   - "Run `heimdall vault repair` to attempt automatic recovery (best-effort)"
-   - "Run `heimdall vault export-salvage --output <path>` to export readable data"
+### 6.3 Secret
 
----
+The canonical secret model includes:
 
-## 6. Functional Requirements
+- `name`
+- encrypted secret bytes
+- `reveal_policy`
+- size metadata
 
-RFC 2119 language: MUST = required, SHOULD = recommended, MAY = optional.
+### 6.4 Passkey
 
-### 6.1 Host & Connection Management
+The canonical passkey model includes:
 
-#### Host records
+- `label`
+- credential id
+- public key material
+- `supports_hmac_secret`
 
-Heimdall MUST support storing SSH host entries with:
-- `name` (unique, 1-128 chars, `[a-zA-Z0-9._-]`)
-- `address` (hostname, FQDN, or IP address)
-- `port` (1-65535, default 22)
-- `user` (optional)
-- `tags` (0..N, each 1-64 chars)
-- `group` (optional, 1-128 chars)
-- `notes` (optional, encrypted, max 10 KiB)
-- `identity_ref` (optional: reference to a managed identity/key)
-- `jump_chain` (0..N host references or raw `user@host:port` entries)
-- `known_hosts_policy` (inherit/strict/tofu/accept-new/off)
-- `agent_forwarding` (inherit/yes/no; default: no)
-- `pty` (inherit/auto/force/disable)
-- `env` (optional: named secret references for `secret env` wrapper usage)
-- `local_forwards`, `remote_forwards`, `dynamic_forwards` (0..N each)
-- `connect_timeout` (optional, default from config)
-- `keepalive` settings (optional)
+### 6.5 Audit Event
 
-Host `name` MUST be stable and used as the primary reference in CLI commands.
+The canonical audit event includes:
 
-#### Tagging, grouping, templates
+- `action`
+- `target_type`
+- `target_id`
+- `result`
+- canonicalized details JSON
+- previous hash
+- event hash
+- timestamp
 
-Heimdall MUST support:
-- Tags for search and filtering
-- Groups for organization
-- Host templates (parameterized settings); a host MAY inherit defaults from a template
+## 7. Command Contracts
 
-#### Search and listing
+### 7.1 `init`
 
-`heimdall host list` MUST support:
-- Filtering by tag (`--tag`) and group (`--group`)
-- Full-text search over name/address/user (`--search`)
-- Sorting by name or last_connected
-- JSON output (`--json`)
+`init` bootstraps a new local vault and config.
 
-### 6.2 SSH Execution & Compatibility
+Contract:
 
-#### Execution strategy
+- Creates the local config and vault paths if they do not already exist.
+- Supports non-interactive initialization with `--yes` and a passphrase.
+- Does not import SSH config.
+- Does not enroll passkeys during init.
+- Leaves the daemon available for follow-on commands.
 
-- Heimdall MUST shell out to the system `ssh` client (OpenSSH) for connections.
-- Heimdall MUST NOT use a pure-Go SSH client as the primary connection mechanism.
+### 7.2 `status`
 
-#### Compatibility with `~/.ssh/config`
+`status` reports current local state for:
 
-- Heimdall MUST allow the user's existing config to apply by default.
-- Heimdall MUST apply per-host overrides via explicit `ssh` flags (`-J`, `-i`, `-p`, `-o Key=Value`).
-- Heimdall MAY manage a dedicated include fragment when the operator runs `heimdall ssh-config enable`; this is an explicit opt-in.
+- daemon reachability
+- vault lock state
+- live VMK state
+- key health summary
+- audit availability
 
-#### SSH exit code propagation
+`status` does not claim ssh-config sync state in the reboot.
 
-- `heimdall connect` MUST propagate the underlying `ssh` process exit code.
-- Internal Heimdall failures (before `ssh` is spawned) MUST use Heimdall exit codes (see 7.1).
+### 7.3 `vault`
 
-#### known_hosts policy
+`vault` manages lock and unlock state.
 
-Heimdall MUST maintain its own managed known_hosts file at `${HEIMDALL_HOME}/ssh/known_hosts`.
+Contract:
 
-Policies:
-- `strict`: MUST require known host key match; unknown hosts MUST fail.
-- `tofu` (trust-on-first-use): Accept after user confirmation in interactive mode; non-interactive MUST fail unless `--yes` or `--accept-new`.
-- `accept-new`: Accept new keys, fail on changed keys.
-- `off`: Disable host key checking; MUST require `--insecure-hostkey` flag with warning.
+- `vault unlock` derives or unwraps key material for the live session.
+- `vault lock` clears live key material and resets re-auth state.
+- Re-auth state is local and time-bounded.
 
-Defaults:
-- Interactive: `tofu` with confirmation prompt
-- Non-interactive: `strict` unless host is already trusted
+### 7.4 `daemon`
 
-#### ProxyJump and forwarding
+`daemon` manages the local background process.
 
-Heimdall MUST support:
-- `ProxyJump` chains via `ssh -J` (comma-separated, per-hop identity/user supported)
-- Local forwards (`-L`), remote forwards (`-R`), dynamic forwards (`-D`)
-- Multiple forwards per session
-- Validation of forward specifications; reject malformed addresses
+Contract:
 
-Edge cases to handle:
-- `IdentitiesOnly yes` MUST be set when specifying identity to avoid "too many authentication failures"
-- Each hop in a ProxyJump chain MAY have a different user and identity
-- `ProxyJump none` MUST be supported to override wildcard config
+- Uses `daemon.info` JSON as the lifecycle record.
+- The runtime socket lives under the runtime directory.
+- Restarting the daemon requires unlocking again.
+- Session expiry stops signing; it does not forcibly kill active SSH sessions.
 
-#### Agent forwarding
+### 7.5 `host`
 
-- MUST default to `no` unless explicitly enabled per-host or per-command.
-- If enabled, set `-A` explicitly and include in `--print-cmd` output.
+`host` is the canonical way to manage connection metadata.
 
-### 6.3 Identity/Key Management
+Required subcommands:
 
-#### Supported key types
+- `host add`
+- `host edit`
+- `host show`
+- `host list`
+- `host remove`
 
-| Type | Status | Default | Min Size |
-|------|--------|---------|----------|
-| Ed25519 | MUST support | **Default** | N/A |
-| RSA | MUST support | Opt-in (`--type rsa`) | 3072-bit |
+Supported persistent defaults on `host add` and `host edit`:
 
-#### Supported key formats
+- `--key`
+- `--identity-file`
+- `--proxy-jump`
+- `--known-hosts-policy`
+- `--forward-agent`
+- `--notes`
+- `--tag`
 
-- OpenSSH private key format (import and export)
-- OpenSSH public key format / `authorized_keys` format (import and export)
-- PEM and PKCS#8 private key imports are supported
+Required behavior:
 
-#### Key storage model
+- `host add/edit/show/list` round-trip through the canonical host model.
+- `group` is not part of the reboot contract.
+- Hidden connect defaults in `env_refs` are not part of the reboot contract.
 
-- Private keys MUST be stored encrypted in the vault.
-- Public keys MAY be stored in plaintext for indexing.
-- Import MUST support encrypted and unencrypted OpenSSH private keys.
-- Export of private keys MUST require explicit `--output` path, re-auth, and restrictive file permissions (0600).
+### 7.6 `connect`
 
-#### Key rotation
+`connect` is a CLI-owned SSH execution workflow.
 
-- Generate a new key for an identity
-- Keep old key as "retired" (optional) or remove explicitly
-- Allow per-host identity reassignment
+Architecture contract:
 
-#### SSH agent integration
+- The app layer plans intent.
+- `ConnectService.Plan` returns a typed command plan.
+- `internal/ssh.CommandBuilder` is the only renderer for the SSH invocation.
+- The CLI executes the local `ssh` process directly.
 
-Heimdall MUST ship a managed SSH agent:
+Behavior contract:
 
-**Heimdall-managed agent:**
-- Runs within the daemon process (single process, separate Unix socket listener)
-- Implements SSH agent protocol via `golang.org/x/crypto/ssh/agent`
-- Unix socket at `${RUNTIME_DIR}/heimdall/agent.sock` (0600)
-- Auto-locks when vault locks or after inactivity timeout
-- Requires vault unlock before serving signing operations
-- Supports `--ttl` for time-limited key loading
+- `connect --dry-run` prints or emits the planned SSH command and does not emit
+  connect audit events.
+- `connect --print-cmd` prints a redacted command form when available.
+- `connect --key <name>` uses the managed agent path from the daemon.
+- `connect --identity-file <path>` uses the local identity file path directly.
+- `connect` rejects simultaneous key and identity-file auth.
+- `connect --ignore-ssh-config` runs `ssh -F /dev/null`.
+- `connect --no-proxy-jump` disables any host default proxy jump.
 
-**External agent fallback:**
-- `heimdall key agent add` MUST support adding keys to an external `ssh-agent` via secure temporary file + `ssh-add`
-- Temporary key file MUST be deleted immediately after `ssh-add` completes
+Known hosts policy values:
 
-### 6.4 Secrets/Tokens Vault
+- `strict`
+- `tofu`
+- `accept-new`
+- `off`
 
-#### Secret types
+Rules:
 
-- `token` (API token, bearer token)
-- `password`
-- `note` (encrypted freeform text, max 1 MiB)
-- `file` (encrypted blob with filename and mime-type metadata, max 50 MiB)
+- `strict` uses `StrictHostKeyChecking=yes`.
+- `tofu` and `accept-new` use `StrictHostKeyChecking=accept-new`.
+- `off` requires `--insecure-hostkey`.
 
-#### Scoped access controls
+### 7.7 `key`
 
-- `reveal_policy`: `always-reauth` (default) | `once-per-unlock` | `no-reauth`
-- `allowed_actions`: `reveal`, `export`, `inject-to-env`
-- `reveal` and `export` MUST require re-auth by default
-- `inject-to-env` SHOULD require re-auth unless configured otherwise
+Required shipped workflows:
 
-#### Safe secret usage
+- `key generate`
+- `key import`
+- `key list`
+- `key show`
+- `key rotate`
+- `key remove`
+- `key export`
+- `key agent add`
+- `key agent remove`
 
-- `heimdall secret env <name> --env-var <VAR_NAME> -- <cmd> [args...]` runs subprocess with secret in specified env var
-- Secret value MUST NOT be printed to stdout/stderr during injection
-- Env var name is user-specified via `--env-var` flag (MUST be documented and stable)
+Rules:
 
-### 6.5 Passkeys & Re-auth
+- Private key export requires re-auth.
+- Managed-agent flows are session-scoped and daemon-mediated.
 
-#### Supported authenticators (v0.2.0)
+### 7.8 `secret`
 
-- Roaming FIDO2 security keys (USB, NFC where OS supports) via CTAP2 through libfido2
-- Platform authenticators (Touch ID, etc.) explicitly deferred
+Required shipped workflows:
 
-#### Cryptographic mechanism
+- `secret add`
+- `secret list`
+- `secret show`
+- `secret env`
+- `secret export`
+- `secret remove`
 
-- For passwordless unlock: FIDO2 `hmac-secret` extension when supported
-- If authenticator doesn't support `hmac-secret`: passkey can be used for re-auth only, not vault unlock
-- Credential algorithm: ES256
+Rules:
 
-#### PIN and touch UX
+- Secret reveal and export require re-auth where configured.
+- `secret env` injects values in the CLI process before subprocess execution.
+- Secrets must never appear in logs or audit details.
 
-- Prompt: "Insert security key and touch it"
-- PIN entry: no echo, no logging, supports macOS Terminal and Linux TTYs
-- Support user presence (UP) at minimum; user verification (UV) when configured
+### 7.9 `passkey`
 
-#### Enrollment (CTAP2 makeCredential)
+Required shipped workflows:
 
-1. User runs `heimdall passkey enroll --label <label>`
-2. Prompt: insert key and touch
-3. PIN prompt if required by authenticator
-4. Create credential with:
-   - RP ID: `heimdall.cli`
-   - User handle: random 32 bytes
-   - Algorithm: ES256
-   - Extensions: request `hmac-secret`
-5. Store: credential ID, public key (COSE), AAGUID, `supports_hmac_secret`, user label
-6. Record audit event
+- `passkey enroll`
+- `passkey list`
+- `passkey remove`
+- `passkey test`
 
-#### Vault unlock with passkey
+Rules:
 
-1. Load enrollment, verify `supports_hmac_secret=true`
-2. `getAssertion` with `hmac-secret` extension and vault-stored salt (32 bytes)
-3. Derive KEK: `HKDF-SHA256(ikm=hmac_secret_output, salt=vault_salt, info="heimdall-vault-kek")`
-4. Unwrap VMK, unlock vault
+- `nofido2` builds must fail passkey operations truthfully.
+- Passkey enrollment and verification remain first-class security features.
 
-#### Re-auth flow
+### 7.10 `backup`
 
-- Perform `getAssertion` with stored credential
-- Verify signature against stored public key
-- Record in-memory re-auth timestamp (PID-scoped, 60s TTL)
-- Falls back to passphrase if passkey unavailable
+Required shipped workflows:
 
-#### Re-auth policy
+- `backup create`
+- `backup restore`
 
-Actions requiring re-auth:
-- `secret show`, `secret export`, `key export --private`, `passkey remove`, and `backup restore --overwrite`
+Rules:
 
-#### Auth lockout
+- Backups are encrypted archives.
+- Restore replaces vault data on disk.
+- After restore, the daemon should be restarted and the restored vault unlocked
+  with the source vault credentials.
+- Restore authentication failures must fail cleanly.
 
-- After 3 consecutive failures: 5-second delay
-- After 5 failures: 30-second delay
-- After 10 failures: 5-minute lockout
-- Resets on successful authentication
-- All attempts logged in audit
+### 7.11 `audit`
 
-### 6.6 Import/Export/Backup/Restore
+Required shipped workflows:
 
-#### Import
+- `audit list`
+- `audit verify`
 
-Heimdall MUST support importing from:
-- **OpenSSH config** (`~/.ssh/config`): core connection directives (see 12.2)
-- **Heimdall JSON** export format
+Rules:
 
-Termius import is NOT supported (Termius uses encrypted Electron IndexedDB).
+- Audit events form a hash chain.
+- `audit verify` must detect tampering.
+- Audit details must redact secrets and sensitive material.
 
-#### Export
+## 8. Reuse Boundary
 
-- `heimdall export --format json --output <path>`: hosts, identity metadata, secret metadata
-- `heimdall ssh-config generate --output <path>`: read-only OpenSSH config snippet rendering
+The reboot treats the existing codebase as infrastructure, not as truth.
 
-#### Backup
+Verified or expected-reuse security/runtime spine:
 
-- `heimdall backup create --output <path>` produces an encrypted archive containing:
-  - Vault DB, managed known_hosts, non-secret configuration, manifest with versions and hashes
-- Archive encrypted with a **separate user-provided passphrase** (not the vault unlock passphrase)
-  - Argon2id → key → XChaCha20-Poly1305 wrapping the entire archive
-- MUST include integrity protection (tamper-evident)
+- `internal/crypto`
+- encrypted-record handling in `internal/storage`
+- rollback protection
+- audit hash-chain logic
+- re-auth cache and lockout handling
+- daemon socket and `daemon.info` lifecycle
+- backup encryption primitives
+- FIDO2 / nofido2 gating
 
-#### Restore
+Product layers subject to reboot-level cleanup:
 
-- `heimdall backup restore --from <path>` requires explicit overwrite confirmation (`--overwrite`) and a recent re-auth window when replacing an existing vault
+- host model and migrations
+- app-layer request/response types
+- gRPC/proto contract
+- CLI help and public command surface
+- onboarding flow
 
-### 6.7 Audit Logging & History
+See [docs/reboot/PACKAGE-AUDIT.md](/Users/amanthanvi/GitRepos/heimdall/docs/reboot/PACKAGE-AUDIT.md)
+for the current package-by-package disposition.
 
-Heimdall MUST maintain local audit logs for:
-- Vault unlock/lock
-- Secret reveal/export/inject
-- Key export/delete/rotate
-- Passkey enroll/remove
-- SSH connection start/end metadata
-- Backup create/restore
-- All gRPC API calls (PID, operation, target)
+## 9. Exit Codes
 
-Audit logs MUST:
-- Be stored in the vault DB (append-only table)
-- Include timestamp, action, target entity ID, outcome, and connecting PID
-- NOT store secret values
-- Be tamper-evident via hash chaining: `hash_i = SHA256(hash_{i-1} || canonical_json(event_i))`
+The CLI uses stable semantic exit codes for common categories:
 
-Connection history (non-sensitive):
-- Host ID, timestamp, duration, exit status, forwarded ports (metadata only)
-- MUST NOT record session contents
+- success
+- usage error
+- not found
+- permission / re-auth required
+- unavailable
+- internal error
 
-### 6.8 Admin/Policy Controls
+The exact numeric mapping lives in the CLI implementation and tests.
 
-Optional read-only policy file at `${HEIMDALL_HOME}/policy.toml` or `$HEIMDALL_POLICY_FILE`.
+## 10. Verification Standard
 
-Policy controls MAY include:
-- Enforcing UV-required re-auth
-- Disallowing `known_hosts_policy=off`
-- Enforcing vault auto-lock timeout maximum
-- Enforcing max session duration maximum
-- Requiring passkey re-auth for all secret reveals
+The reboot is considered truthful only if these workflows work end to end:
 
-Policy MUST override user config. Heimdall MUST report policy overrides (without exposing secrets).
+- `init`
+- `vault unlock`
+- `host add/edit/show/list`
+- `connect --dry-run`
+- `secret env`
+- `passkey enroll/test` when FIDO2 support is available
+- `backup create/restore`
+- `audit list/verify`
 
----
+Verification commands for this repo:
 
-## 7. CLI Specification
-
-### 7.1 Global Flags, Exit Codes, Output Formats
-
-#### Global flags
-
-All commands MUST support:
-- `--help`, `--json`, `--quiet`, `--no-color`
-- `--timeout <duration>` (where applicable)
-- `--vault <path>`, `--config <path>`
-- `--yes` / `-y` (non-interactive confirmation, where applicable)
-- `--interactive` (force prompts/TUI selectors)
-
-#### Output formats
-
-- Human output MUST be stable and readable
-- JSON output MUST be UTF-8, one object per invocation, free of secrets unless the command's purpose is to return them
-
-#### Exit codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Generic error (unexpected) |
-| 2 | CLI usage error (invalid flags/args) |
-| 3 | Not found (missing host/secret/key) |
-| 4 | Permission/policy denied |
-| 5 | Auth failed (vault unlock, passkey assertion) |
-| 6 | Dependency missing/unavailable (ssh, libfido2, daemon) |
-| 7 | IO/storage error (vault corrupted, disk error, migration) |
-| 8 | Network/connection failure |
-| 9+ | `heimdall connect` propagates raw `ssh` exit code |
-
-### 7.2 Commands
-
-#### Top-level
-
-- `heimdall init` — Initialize vault/config
-- `heimdall status` — Show daemon/vault state + key staleness + ssh-config sync + audit logging state
-- `heimdall doctor` — Check local dependencies and daemon reachability
-- `heimdall version` — Print build metadata
-- `heimdall tui` (`heimdall ui`) — Launch interactive terminal UI
-
-#### Vault
-
-- `heimdall vault status`
-- `heimdall vault unlock [--passphrase | --passphrase-stdin | --passkey-label <label>]`
-- `heimdall vault lock`
-
-#### Daemon
-
-- `heimdall daemon start`
-- `heimdall daemon status`
-- `heimdall daemon stop`
-- `heimdall daemon restart`
-
-#### Hosts
-
-- `heimdall host add --name <name> --address <addr> [--port N] [--user U] [--tag T]... [--group G]`
-- `heimdall host edit <name>`
-- `heimdall host remove <name>`
-- `heimdall host list [--tag T] [--group G] [--search Q] [--json]`
-- `heimdall host show <name>`
-
-#### Connect
-
-- `heimdall connect <host>`
-  - `--jump <host[,host...]>`
-  - `--forward <spec>` (repeatable; `L:`, `R:`, `D:` prefixes)
-  - `--user <user>` / `--port <port>`
-  - `--key <vault-key-name>` (managed agent auth)
-  - `--identity-file <path>` (local key file auth)
-  - `--known-hosts <path>`
-  - `--print-cmd` (print `ssh` command that would be executed)
-  - `--dry-run` (validate and print plan without executing)
-
-#### Keys / Identities
-
-- `heimdall key generate --name <name> [--type ed25519|rsa]`
-- `heimdall key import --name <name> --from <path> [--passphrase <import-passphrase>]`
-- `heimdall key export <name> --public` or `--private --output <path>` (re-auth required)
-- `heimdall key list [--json]`
-- `heimdall key show <name>` (metadata + public key)
-- `heimdall key remove <name>`
-- `heimdall key rotate <name>`
-- `heimdall key agent add <name> [--ttl <duration>]`
-- `heimdall key agent remove <fingerprint>`
-
-#### Secrets
-
-- `heimdall secret add --name <name> --value <value> [--reveal-policy P]`
-- `heimdall secret list [--json]`
-- `heimdall secret show <name>` (requires re-auth)
-- `heimdall secret remove <name>`
-- `heimdall secret export <name> --output <path>` (requires re-auth)
-- `heimdall secret env <name> --env-var <VAR> -- <cmd> [args...]`
-
-#### Passkeys
-
-- `heimdall passkey enroll --label <label> [--user <username>]`
-- `heimdall passkey list [--json]`
-- `heimdall passkey remove <label>` (requires re-auth)
-- `heimdall passkey test <label>`
-
-#### Backup / Import / Export
-
-- `heimdall backup create --output <path> --passphrase <backup-passphrase> [--overwrite]`
-- `heimdall backup restore --from <path> --passphrase <backup-passphrase> [--overwrite]`
-- `heimdall export --format json --output <path>`
-- `heimdall import --format json|ssh-config --from <path>`
-
-#### SSH config
-
-- `heimdall ssh-config enable [--path <path>]`
-- `heimdall ssh-config disable`
-- `heimdall ssh-config sync`
-- `heimdall ssh-config diff`
-- `heimdall ssh-config show`
-- `heimdall ssh-config generate`
-
-#### Audit
-
-- `heimdall audit list [--limit N] [--action <action>] [--json]`
-- `heimdall audit verify` (verify hash chain integrity)
-
-### 7.3 Interactive Mode/TUI Behaviors
-
-Heimdall provides a full interactive TUI using **bubbletea** (Charm ecosystem):
-- List view with search/filter for hosts, secrets, keys
-- Detail pane
-- Confirm dialogs for destructive actions
-- TUI handles vault unlock itself (shows lock screen when locked)
-
-TUI MUST:
-- Never render secret values by default
-- Require re-auth before revealing secrets
-- Support `ESC` to cancel safely
-- Not start if stdin/stdout are not TTYs
-
-Empty states show contextual onboarding guidance (see 5.2).
-
-### 7.4 Config Files & Precedence
-
-#### Precedence
-
-**flags > environment variables > config file > defaults**
-
-#### Config file
-
-Format: **TOML** (parsed with `pelletier/go-toml/v2`)
-
-Locations:
-- macOS: `~/Library/Application Support/Heimdall/config.toml`
-- Linux: `${XDG_CONFIG_HOME:-~/.config}/heimdall/config.toml`
-
-#### HEIMDALL_HOME
-
-- macOS: `~/Library/Application Support/Heimdall/`
-- Linux: `${XDG_DATA_HOME:-~/.local/share}/heimdall/`
-
-#### Environment variables
-
-- `HEIMDALL_HOME`
-- `HEIMDALL_VAULT_PATH`
-- `HEIMDALL_CONFIG_PATH`
-- `HEIMDALL_POLICY_FILE`
-- `HEIMDALL_NO_COLOR=1`
-- `HEIMDALL_JSON=1`
-
-#### Config schema
-
-```toml
-[vault]
-auto_lock_timeout = "30m"     # duration string
-
-[ssh]
-known_hosts_policy_default = "tofu"  # strict|tofu|accept-new|off
-forward_agent_default = false
-connect_timeout = "10s"
-
-[ssh_config]
-enabled = false
-path = "~/.ssh/config.d/heimdall.conf"
-auto_sync = true
-
-[audit]
-connection_logging = true
-
-[passkey]
-uv_default = "preferred"      # required|preferred|discouraged
-
-[daemon]
-max_session_duration = "8h"
-socket_dir = ""               # empty = auto ($XDG_RUNTIME_DIR or $TMPDIR)
-
-[logging]
-level = "info"                # debug|info|warn|error
-file = ""                     # empty = $HEIMDALL_HOME/logs/heimdall.log
-max_size_mb = 10
-max_files = 5
-
-[telemetry]
-enabled = false
+```bash
+go test -race ./internal/crypto ./internal/storage ./internal/audit ./internal/daemon ./internal/grpc ./internal/app ./internal/cli ./cmd/heimdall
+go test -race ./internal/integration -count=1 -tags integration
+go test -tags nofido2 -race ./...
+go vet ./...
 ```
 
----
-
-## 8. Architecture
-
-### 8.1 Component Overview
-
-```
-+---------------------+        +---------------------+
-|        CLI          |        |        TUI          |
-| (cobra commands)    |<------>| (bubbletea + huh)   |
-+----------+----------+        +----------+----------+
-           |                              |
-           v                              v
-+--------------------------------------------------+
-|              gRPC Client (Unix socket)            |
-+---------------------------+----------------------+
-                            |
-                            v
-+--------------------------------------------------+
-|                  DAEMON PROCESS                   |
-|                                                   |
-|  +----------------+  +------------------------+   |
-|  | gRPC Server    |  | SSH Agent Server       |   |
-|  | (api/v1/)      |  | (agent protocol)       |   |
-|  | Unix socket    |  | Unix socket            |   |
-|  +-------+--------+  +-----------+------------+   |
-|          |                       |                 |
-|          v                       v                 |
-|  +---------------------------------------------+  |
-|  |           Application Core                   |  |
-|  | (host svc, secret svc, connect svc, policy)  |  |
-|  +---------------------+-----------------------+  |
-|                         |                          |
-|          +--------------+--------------+           |
-|          v              v              v           |
-|  +------------+  +------------+  +-----------+    |
-|  | Storage    |  | Crypto     |  | FIDO2     |    |
-|  | (SQLite)   |  | (AEAD,KDF) |  | (libfido2)|    |
-|  +------------+  +------------+  +-----------+    |
-|                                                   |
-|  VMK held in memguard (mlock, non-GC heap)        |
-+--------------------------------------------------+
-```
-
-### 8.2 Daemon Lifecycle
-
-#### Socket paths and permissions
-
-| Platform | Base Directory | Sockets |
-|----------|---------------|---------|
-| Linux | `$XDG_RUNTIME_DIR/heimdall/` (fallback: `$HEIMDALL_HOME/run/`) | `daemon.sock`, `agent.sock` |
-| macOS | `$TMPDIR/heimdall/` (per-user temp, e.g., `/var/folders/.../T/heimdall/`) | `daemon.sock`, `agent.sock` |
-
-- Socket directory: 0700
-- Socket files: 0600
-- MUST verify total socket path length < 104 bytes (macOS limit)
-- MUST NOT use abstract namespace sockets (no filesystem permissions)
-
-#### Process metadata management
-
-- Daemon metadata file at `${RUNTIME_DIR}/heimdall/daemon.info` (JSON)
-- `daemon.info` records daemon pid, socket path, agent path, config path, and vault path
-- On startup: if `daemon.info` exists but process/socket is stale, clean stale sockets + stale metadata and start fresh
-
-#### Startup sequence
-
-1. CLI command requires daemon → check if socket exists and is responsive
-2. If socket exists and is healthy: connect
-3. If socket is missing/stale: CLI starts daemon subprocess
-4. Daemon: create socket directory (0700) → create sockets → write `daemon.info` → signal ready
-5. CLI: wait for ready signal and connect
-
-**Race condition prevention:** CLI only trusts daemon socket + `daemon.info` when path and process checks are coherent; stale metadata is discarded before reconnect.
-
-#### Shutdown sequence
-
-1. Receive SIGTERM → set graceful shutdown flag
-2. Stop accepting new gRPC connections
-3. Wait for active SSH agent signing operations to complete (5s timeout)
-4. Lock vault (zero-wipe VMK via memguard)
-5. Close sockets, remove `daemon.info`
-6. Exit 0
-
-#### Signal handling
-
-| Signal | Action |
-|--------|--------|
-| SIGTERM | Graceful shutdown (drain + cleanup) |
-| SIGINT | Immediate shutdown (best-effort cleanup) |
-| SIGHUP | Reload config + policy file without restart |
-
-#### Service manager integration
-
-- **Default:** CLI auto-forks daemon on first use
-- **Optional:** Ship `launchd` plist (macOS) and `systemd` unit (Linux) for users who prefer OS-managed daemon
-- `--no-daemon` flag for CLI: bypass daemon, open vault directly in process (single-command mode, slower)
-
-#### Daemonless operations
-
-These commands work without a running daemon:
-- `heimdall version`
-- `heimdall doctor`
-- `heimdall init`
-- `heimdall help`
-- `heimdall daemon status` (reports daemon is not running)
-
-All other commands require the daemon.
-
-### 8.3 Module Boundaries
-
-```
-cmd/heimdall/           — main entrypoint, wiring, command registration
-internal/cli/           — cobra commands, flag parsing, completion, man generation
-internal/app/           — application services (host, secret, connect, key)
-internal/policy/        — policy evaluation, deny reasons
-internal/config/        — config loading (TOML/env/flags), schema validation
-internal/storage/       — SQLite access, migrations, repositories
-internal/crypto/        — KDF, AEAD, key wrapping, blob formats, zeroization
-internal/ssh/           — ssh command planning, known_hosts management, exec
-internal/agent/         — Heimdall SSH agent server (agent protocol)
-internal/fido2/         — Internal libfido2 cgo wrapper, enrollment, assertion, PIN
-internal/daemon/        — Daemon process management, socket lifecycle, signals
-internal/grpc/          — gRPC server, services, interceptors, auth tiers
-internal/audit/         — Audit event creation, hashing, verification
-internal/tui/           — Bubbletea TUI components
-internal/log/           — Structured logging with redaction
-internal/debug/         — Sanitized debug bundle
-api/v1/                 — Protobuf definitions, generated Go code
-```
-
-Dependency rules:
-- `internal/crypto` MUST NOT import `storage`, `ssh`, or `cli`
-- `storage` MUST NOT contain crypto logic beyond calling `internal/crypto`
-- `cli` MUST NOT directly access SQLite; it MUST call via gRPC to the daemon
-- `internal/fido2` MUST NOT import anything except `internal/crypto` and stdlib
-
-### 8.4 Dependency Choices
-
-| Dependency | Package | Rationale |
-|------------|---------|-----------|
-| CLI framework | `spf13/cobra` | Completions, man pages, subcommands |
-| TUI | `charmbracelet/bubbletea` + `lipgloss` + `bubbles` + `huh` | Elm MVU, inline mode, company-backed |
-| SQLite | `modernc.org/sqlite` | Pure Go, no cgo, eliminates C CVE surface |
-| Crypto | `golang.org/x/crypto/argon2`, `chacha20poly1305`, `hkdf` | Standard Go crypto ecosystem |
-| FIDO2 | Internal cgo wrapper around libfido2 | No maintained Go binding exists |
-| SSH agent | `golang.org/x/crypto/ssh/agent` | Standard library, well-tested |
-| Config | `pelletier/go-toml` | TOML parsing |
-| gRPC | `google.golang.org/grpc` + `protobuf` | Standard, Unix socket support |
-| Logging | `log/slog` with custom redaction handler | Stdlib, structured |
-| Memory | `github.com/awnumar/memguard` | mlock, guard pages, non-GC allocation |
-
-### 8.5 cgo Build Strategy
-
-**Only libfido2 requires cgo.** All other dependencies are pure Go.
-
-#### Build matrix
-
-| Platform | Arch | cgo | libfido2 | CI Runner |
-|----------|------|-----|----------|-----------|
-| macOS 13+ | arm64 | **MUST** | Homebrew `libfido2` | GitHub Actions `macos-latest` |
-| macOS 13+ | amd64 | SHOULD | Homebrew `libfido2` | GitHub Actions `macos-13` |
-| Linux (Ubuntu 22.04+) | amd64 | **MUST** | `apt: libfido2-dev` | GitHub Actions `ubuntu-latest` |
-| Linux (Ubuntu 22.04+) | arm64 | SHOULD | Cross-compile or native ARM runner | GitHub Actions (if available) |
-
-#### Build flags
-
-```
-CGO_ENABLED=1
-go build -tags fido2 -trimpath -ldflags="-s -w -X main.version=$(VERSION)"
-```
-
-#### No-FIDO2 build
-
-```
-CGO_ENABLED=0
-go build -tags nofido2 -trimpath
-```
-
-Produces a pure-Go binary without passkey support. Passkey commands fail with exit 6 and guidance.
-
-#### Homebrew formula
-
-```ruby
-depends_on "libfido2"  # runtime dependency (dynamically linked)
-depends_on "go" => :build
-```
-
-#### Linux packages
-
-- apt: `Depends: libfido2-1 (>= 1.14.0)`
-- Document udev rules for device access if required
-
-### 8.6 Cross-platform Considerations
-
-#### File permissions
-
-- Unix: 0700 on home/run directories, 0600 on vault/sockets
-- Verify permissions on startup; warn if too permissive
-
-#### Socket path length
-
-- macOS: 104 bytes max
-- Linux: 108 bytes max
-- MUST validate path length during daemon startup; fail with guidance if exceeded
-
-#### TTY and PIN input
-
-- PIN entry MUST not echo to terminal
-- Use `golang.org/x/term.ReadPassword()` for cross-platform secure input
-
----
-
-## 9. Data Model & Storage
-
-### 9.1 Entity Schemas
-
-All entities have:
-- `id` TEXT PRIMARY KEY (UUID v4)
-- `created_at` TEXT NOT NULL (RFC 3339)
-- `updated_at` TEXT NOT NULL (RFC 3339)
-- `deleted_at` TEXT (nullable tombstone for future sync feasibility)
-
-#### Hosts
-
-```sql
-CREATE TABLE hosts (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
-    address     TEXT NOT NULL,
-    port        INTEGER NOT NULL DEFAULT 22,
-    "user"      TEXT,
-    group_name  TEXT,
-    template_id TEXT REFERENCES templates(id),
-    identity_id TEXT REFERENCES identities(id),
-    jump_chain  TEXT,                          -- JSON array
-    known_hosts_policy TEXT NOT NULL DEFAULT 'inherit',
-    agent_forwarding   TEXT NOT NULL DEFAULT 'inherit',
-    pty         TEXT NOT NULL DEFAULT 'inherit',
-    forwards    TEXT,                          -- JSON array of forward specs
-    notes_enc   BLOB,                         -- encrypted
-    notes_nonce BLOB,
-    connect_timeout TEXT,
-    keepalive_interval INTEGER,
-    keepalive_count    INTEGER,
-    last_connected_at  TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    deleted_at  TEXT
-);
-
-CREATE TABLE host_tags (
-    host_id TEXT NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
-    tag     TEXT NOT NULL,
-    PRIMARY KEY (host_id, tag)
-);
-
-CREATE INDEX idx_hosts_name ON hosts(name);
-CREATE INDEX idx_hosts_group ON hosts(group_name);
-CREATE INDEX idx_host_tags_tag ON host_tags(tag);
-```
-
-#### Identities (SSH Keys)
-
-```sql
-CREATE TABLE identities (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL UNIQUE,
-    key_type        TEXT NOT NULL,              -- 'ed25519' | 'rsa'
-    public_key      TEXT NOT NULL,              -- authorized_keys format
-    private_key_enc BLOB NOT NULL,              -- encrypted
-    private_key_nonce BLOB NOT NULL,
-    fingerprint     TEXT NOT NULL,              -- SHA256
-    status          TEXT NOT NULL DEFAULT 'active', -- 'active' | 'retired'
-    comment         TEXT,
-    rsa_bits        INTEGER,                    -- NULL for ed25519
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL,
-    deleted_at      TEXT
-);
-
-CREATE UNIQUE INDEX idx_identities_name ON identities(name);
-CREATE INDEX idx_identities_fingerprint ON identities(fingerprint);
-```
-
-#### Secrets
-
-```sql
-CREATE TABLE secrets (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL UNIQUE,       -- plaintext for search
-    secret_type     TEXT NOT NULL,              -- 'token' | 'password' | 'note' | 'file'
-    value_enc       BLOB NOT NULL,              -- encrypted
-    value_nonce     BLOB NOT NULL,
-    meta            TEXT,                       -- JSON: {filename, mime_type, size}
-    reveal_policy   TEXT NOT NULL DEFAULT 'always-reauth',
-    allowed_actions TEXT NOT NULL DEFAULT '["reveal","export","inject-to-env"]',
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL,
-    deleted_at      TEXT
-);
-
-CREATE UNIQUE INDEX idx_secrets_name ON secrets(name);
-```
-
-#### Passkey Enrollments
-
-```sql
-CREATE TABLE passkey_enrollments (
-    id                  TEXT PRIMARY KEY,
-    label               TEXT NOT NULL UNIQUE,
-    cred_id             BLOB NOT NULL,
-    public_key_cose     BLOB NOT NULL,
-    aaguid              BLOB,
-    supports_hmac_secret INTEGER NOT NULL DEFAULT 0,
-    uv_policy           TEXT NOT NULL DEFAULT 'preferred',
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL,
-    deleted_at          TEXT
-);
-```
-
-#### Audit Events (append-only)
-
-```sql
-CREATE TABLE audit_events (
-    id          TEXT PRIMARY KEY,
-    ts          TEXT NOT NULL,                  -- RFC 3339 with nanoseconds
-    actor_pid   INTEGER,
-    action      TEXT NOT NULL,
-    target_type TEXT,
-    target_id   TEXT,
-    result      TEXT NOT NULL,                  -- 'success' | 'failure' | 'denied'
-    details     TEXT,                           -- JSON, redacted
-    prev_hash   TEXT,
-    hash        TEXT NOT NULL
-);
-
-CREATE INDEX idx_audit_ts ON audit_events(ts);
-CREATE INDEX idx_audit_action ON audit_events(action);
-```
-
-#### Session History
-
-```sql
-CREATE TABLE session_history (
-    id          TEXT PRIMARY KEY,
-    host_id     TEXT NOT NULL REFERENCES hosts(id),
-    started_at  TEXT NOT NULL,
-    ended_at    TEXT,
-    exit_code   INTEGER,
-    summary     TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    deleted_at  TEXT
-);
-
-CREATE INDEX idx_sessions_host ON session_history(host_id);
-CREATE INDEX idx_sessions_started ON session_history(started_at);
-```
-
-#### Vault Metadata
-
-```sql
-CREATE TABLE vault_meta (
-    key   TEXT PRIMARY KEY,
-    value BLOB NOT NULL
-);
--- Keys: vault_version, schema_version, kdf_type, kdf_params (JSON),
---        salt, encrypted_master_key_blobs (JSON array), hmac_secret_salt,
---        commitment_tag, created_at, audit_chain_root
-```
-
-#### Templates
-
-```sql
-CREATE TABLE templates (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
-    settings    TEXT NOT NULL,                  -- JSON: default host settings
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    deleted_at  TEXT
-);
-```
-
-### 9.2 Vault File/DB Format
-
-- Single SQLite database file (`vault.db`) in `$HEIMDALL_HOME`
-- WAL mode for reliability
-- Plaintext metadata (host names, secret names) for search; sensitive fields encrypted as blobs
-- Each encrypted blob uses a unique nonce and associated data binding: vault ID + entity type + entity ID + field name + schema version
-
-### 9.3 Migration Strategy
-
-- Schema versioned with integer `schema_version` in `vault_meta`
-- Embedded Go migration functions, one per version increment
-- Migrations run automatically on vault open, within a transaction
-- Failed migrations roll back completely; vault remains at previous version
-- Heimdall MUST refuse to open vaults with a newer schema version (exit 7 with guidance: "This vault was created by a newer version of Heimdall. Please upgrade or restore from backup.")
-- Export format includes version and is migratable
-
-### 9.4 Validation Rules & Limits
-
-| Field | Rule |
-|-------|------|
-| Host name | 1-128 chars, `[a-zA-Z0-9._-]`, unique |
-| Secret name | 1-256 chars, `[a-zA-Z0-9._-/]`, unique |
-| Key name | 1-128 chars, `[a-zA-Z0-9._-]`, unique |
-| Passkey label | 1-64 chars, `[a-zA-Z0-9._-]`, unique |
-| Tag | 1-64 chars, `[a-zA-Z0-9._-]` |
-| Group | 1-128 chars, `[a-zA-Z0-9._-/]` |
-| Hostname/address | Valid hostname, FQDN, IPv4, or IPv6 |
-| Port | 1-65535 |
-| Note size | Max 1 MiB |
-| File secret size | Max 50 MiB (configurable) |
-| Max hosts | 10,000 |
-| Max secrets | 50,000 |
-| Max identities | 1,000 |
-
----
-
-## 10. gRPC API Contract
-
-### 10.1 Service Definitions
-
-```protobuf
-syntax = "proto3";
-package heimdall.v1;
-
-service VaultService {
-    rpc Status(StatusRequest) returns (StatusResponse);
-    rpc Unlock(UnlockRequest) returns (UnlockResponse);
-    rpc Lock(LockRequest) returns (LockResponse);
-    rpc ChangePassphrase(ChangePassphraseRequest) returns (ChangePassphraseResponse);
-}
-
-service HostService {
-    rpc Create(CreateHostRequest) returns (Host);
-    rpc Get(GetHostRequest) returns (Host);
-    rpc List(ListHostsRequest) returns (ListHostsResponse);
-    rpc Update(UpdateHostRequest) returns (Host);
-    rpc Delete(DeleteHostRequest) returns (DeleteHostResponse);
-    rpc Test(TestHostRequest) returns (TestHostResponse);
-    rpc Trust(TrustHostRequest) returns (TrustHostResponse);
-}
-
-service SecretService {
-    rpc Create(CreateSecretRequest) returns (SecretMeta);
-    rpc Get(GetSecretRequest) returns (SecretMeta);
-    rpc GetValue(GetSecretValueRequest) returns (SecretValue);  // Tier 2
-    rpc List(ListSecretsRequest) returns (ListSecretsResponse);
-    rpc Delete(DeleteSecretRequest) returns (DeleteSecretResponse);
-    rpc SetPolicy(SetSecretPolicyRequest) returns (SecretMeta);
-}
-
-service KeyService {
-    rpc Generate(GenerateKeyRequest) returns (KeyMeta);
-    rpc Import(ImportKeyRequest) returns (KeyMeta);
-    rpc Export(ExportKeyRequest) returns (ExportKeyResponse);  // Tier 2
-    rpc List(ListKeysRequest) returns (ListKeysResponse);
-    rpc Get(GetKeyRequest) returns (KeyMeta);
-    rpc Delete(DeleteKeyRequest) returns (DeleteKeyResponse);
-    rpc Rotate(RotateKeyRequest) returns (KeyMeta);
-}
-
-service PasskeyService {
-    rpc Enroll(EnrollPasskeyRequest) returns (PasskeyMeta);
-    rpc List(ListPasskeysRequest) returns (ListPasskeysResponse);
-    rpc Remove(RemovePasskeyRequest) returns (RemovePasskeyResponse);  // Tier 2
-    rpc Test(TestPasskeyRequest) returns (TestPasskeyResponse);
-}
-
-service ConnectService {
-    rpc Plan(PlanConnectRequest) returns (ConnectPlan);
-    rpc Execute(ExecuteConnectRequest) returns (ExecuteConnectResponse);
-}
-
-service AuditService {
-    rpc List(ListAuditRequest) returns (ListAuditResponse);
-    rpc Verify(VerifyAuditRequest) returns (VerifyAuditResponse);
-}
-
-service BackupService {
-    rpc Create(CreateBackupRequest) returns (CreateBackupResponse);
-    rpc Restore(RestoreBackupRequest) returns (RestoreBackupResponse);
-}
-```
-
-### 10.2 Authorization Tiers
-
-| Tier | Requirement | Operations |
-|------|-------------|------------|
-| **0** (unauthenticated) | Socket access only | `VaultService.Status`, `VaultService.Lock`, `SecretService.List` (names only), `HostService.List`, `KeyService.List`, `PasskeyService.List`, `AuditService.*` |
-| **1** (unlocked vault) | Vault must be unlocked | `HostService.*`, `SecretService.Create/Get/Delete`, `KeyService.Generate/Import/Get/Delete/Rotate`, `ConnectService.*`, `PasskeyService.Enroll` |
-| **2** (re-auth required) | FIDO2 touch or passphrase | `SecretService.GetValue`, `KeyService.Export`, `PasskeyService.Remove`, `VaultService.ChangePassphrase`, `BackupService.Create` (unencrypted) |
-
-### 10.3 Error Model
-
-gRPC standard status codes with `google.rpc.ErrorInfo` details:
-
-| Heimdall Code | gRPC Status | When |
-|---------------|-------------|------|
-| `VAULT_LOCKED` | `FAILED_PRECONDITION` | Vault not unlocked |
-| `REAUTH_REQUIRED` | `PERMISSION_DENIED` | Tier 2 operation without re-auth |
-| `NOT_FOUND` | `NOT_FOUND` | Entity doesn't exist |
-| `ALREADY_EXISTS` | `ALREADY_EXISTS` | Duplicate name |
-| `POLICY_DENIED` | `PERMISSION_DENIED` | Policy file blocks action |
-| `DEPENDENCY_MISSING` | `UNAVAILABLE` | libfido2, ssh not found |
-| `VAULT_CORRUPTED` | `DATA_LOSS` | Integrity check failed |
-| `RATE_LIMITED` | `RESOURCE_EXHAUSTED` | Rate limit exceeded |
-| `AUTH_LOCKOUT` | `PERMISSION_DENIED` | Too many failed auth attempts |
-
-### 10.4 Rate Limiting
-
-- Per-PID token bucket tracked via `SO_PEERCRED`
-- Tier 2 operations: 10 requests/minute per PID (default)
-- Tier 1 operations: 100 requests/minute per PID
-- Tier 0 operations: 1000 requests/minute per PID
-- Configurable via policy file
-- Exceeding rate returns `RESOURCE_EXHAUSTED` with retry-after hint
-
----
-
-## 11. Security & Privacy
-
-### 11.1 Threat Model
-
-#### Assets
-- Vault contents: secret values, private keys, passkey enrollment metadata
-- Audit logs (integrity-sensitive)
-- Known_hosts trust decisions
-- VMK (in daemon memory)
-
-#### Attackers
-- **Local attacker with filesystem read access** (stolen laptop, malware reading files)
-- **Local attacker with user-level execution** (processes running as same UID)
-- **Remote network attacker** (MITM during SSH TOFU)
-- **Supply chain attacker** (tampered binaries, dependencies)
-
-#### Out of scope (v0.1.0)
-- Kernel-level compromise / root access
-- Hardware attacks against FIDO2 keys
-- Users misusing `--insecure-hostkey`
-
-### 11.2 Cryptography & Key Hierarchy
-
-#### Primitives
-
-| Purpose | Algorithm | Package |
-|---------|-----------|---------|
-| KDF | Argon2id | `golang.org/x/crypto/argon2` |
-| AEAD | XChaCha20-Poly1305 | `golang.org/x/crypto/chacha20poly1305` |
-| Hash | SHA-256 | `crypto/sha256` |
-| Key derivation | HKDF-SHA256 | `golang.org/x/crypto/hkdf` |
-| Commitment | HMAC-SHA256 | `crypto/hmac` |
-
-#### Key hierarchy
-
-1. **Vault Master Key (VMK):** Random 32 bytes, generated at init
-2. **Key Encryption Key (KEK):** Derived from passphrase (Argon2id) or passkey (HKDF of hmac-secret output)
-3. VMK is wrapped by KEK using XChaCha20-Poly1305 with unique nonce and AD containing vault ID + method type
-4. **Data Encryption Keys (DEKs):** Per-record subkeys derived from VMK via HKDF with context = entity type + entity ID + field name
-5. Each encrypted blob uses a fresh random nonce and AD binding: vault ID, entity type, entity ID, field name, schema version
-
-#### Key commitment scheme
-
-After decrypting VMK, verify: `HMAC-SHA256(VMK, "heimdall-key-commitment") == stored_commitment_tag`
-
-This prevents key-commitment attacks where XChaCha20-Poly1305 (which is not inherently key-committing) could decrypt under multiple keys.
-
-#### Argon2id parameters
-
-| Parameter | Default | Constraints |
-|-----------|---------|-------------|
-| Memory | 256 MiB | Min 64 MiB, max 4 GiB |
-| Iterations | 3 | Min 1 |
-| Parallelism | min(4, runtime.NumCPU()) | |
-| Output | 32 bytes | |
-
-Parameters stored in vault metadata. Configurable at init, read-only after.
-
-#### Nonce and salt rules
-
-- Nonces: `crypto/rand`, MUST never repeat for the same AEAD key
-- Argon2id salt: random 32 bytes per vault
-- hmac-secret salt: random 32 bytes per vault, stored in vault metadata
-
-### 11.3 VMK Memory Protection
-
-The VMK MUST be allocated outside Go's GC-managed heap using **memguard**:
-
-- `memguard.NewBufferFromBytes(vmk)` → creates mlock'd, guard-page-protected allocation
-- `prctl(PR_SET_DUMPABLE, 0)` on Linux at daemon startup (prevents ptrace by non-root)
-- `madvise(MADV_DONTDUMP)` to exclude from core dumps
-- On vault lock: `buffer.Destroy()` performs guaranteed zero-wipe
-- On daemon shutdown: `memguard.DestroyAll()`
-- `memguard.CatchInterrupt()` for signal-based cleanup
-
-**Documented limitation:** Go cannot guarantee complete zeroization due to GC copying. memguard mitigates but does not eliminate this. Same trust model as ssh-agent and gpg-agent.
-
-### 11.4 Secret Handling & Redaction
-
-#### Redaction rules
-
-Secrets MUST NOT appear in: logs, panic output, debug bundles, error messages.
-
-Structured redaction via `log/slog` custom handler:
-- Fields named `secret`, `token`, `password`, `private_key`, `value`, `passphrase` → redacted as `[REDACTED]`
-- Developers MUST use dedicated redaction helpers for potentially sensitive strings
-
-#### Terminal output
-
-- `secret show` prints to stdout only (not stderr), raw format by default
-- `--json` for structured output with explicit fields
-- Warn when printing secrets in interactive terminals
-- Prefer `secret env` for safer usage
-
-#### Clipboard
-
-- Deferred for v0.1.0 (cross-platform safety not reliable)
-
-### 11.5 Socket Security
-
-- Socket directory: 0700 before creating sockets
-- Sockets: 0600
-- Validate `SO_PEERCRED` (Linux) / `getpeereid()` (macOS) on every connection
-- Reject connections from different UID than daemon's UID
-- Never use abstract namespace sockets
-- Use per-user runtime directories (`$XDG_RUNTIME_DIR` or `$TMPDIR`), never `/tmp`
-- Go packages: `toolman.org/net/peercred` or `github.com/joeshaw/peercred`
-
-### 11.6 Passkey Implementation (Internal cgo Wrapper)
-
-Heimdall uses a minimal internal cgo wrapper (~500 LOC) around libfido2, exposing only:
-- `fido_dev_open` / `fido_dev_close` — device lifecycle
-- `fido_cred_new` / `fido_cred_set_*` / `fido_dev_make_cred` — credential creation
-- `fido_assert_new` / `fido_assert_set_*` / `fido_dev_get_assert` — assertion
-- `fido_cred_hmac_secret` / `fido_assert_hmac_secret` — hmac-secret extension
-- PIN collection support
-
-Build tag: `fido2` (enabled) / `nofido2` (disabled).
-
-If libfido2 unavailable at runtime: passkey commands fail with exit 6 and guidance. Vault still unlockable with passphrase.
-
-### 11.7 Re-auth Policy
-
-- Re-auth cache: 60 seconds, **PID-scoped**
-  - Bind cache token to connecting socket's PID (via `SO_PEERCRED`)
-  - Session A re-auth does NOT grant session B access
-- Cache in-memory only, cleared on vault lock
-- Configurable down to 0 (always require touch) via policy file
-- Invalidated immediately when auto-lock fires
-
-### 11.8 Auth Lockout
-
-| Consecutive Failures | Delay |
-|---------------------|-------|
-| 3 | 5 seconds |
-| 5 | 30 seconds |
-| 10 | 5 minutes |
-
-Resets on successful authentication. All attempts logged in audit with PID.
-
-### 11.9 Agent Forwarding Policy
-
-- Default: **deny** unless explicitly enabled per-host or per-command
-- When enabled: set `-A` explicitly
-- SHOULD implement `SSH_AGENT_CONSTRAIN_CONFIRM` for forwarded signing requests
-- Log forwarded sign requests with requesting host information
-
-### 11.10 Daemon Startup Race Prevention
-
-1. CLI spawns daemon as child process (not "connect to whatever socket exists")
-2. Wait for daemon to write PID file and create sockets
-3. Verify daemon's PID via `SO_PEERCRED` before sending any data
-4. If PID doesn't match expected child: abort, warn, exit 6
-
-### 11.11 Backup Encryption
-
-- Backup archive encrypted with a **separate user-provided passphrase**
-- Not reusing the vault unlock passphrase
-- Key derivation: Argon2id (same parameters as vault)
-- Encryption: XChaCha20-Poly1305 wrapping the entire archive
-- Includes integrity protection via AEAD authentication tag
-
-### 11.12 Telemetry & Vulnerability Disclosure
-
-- Telemetry: **off by default**. If ever implemented: opt-in, documented, no secrets/hostnames/IDs.
-- `SECURITY.md` with security contact, supported versions, coordinated disclosure expectations
-- Releases document security-relevant changes in changelogs
-
----
-
-## 12. SSH Compatibility
-
-### 12.1 Execution Strategy
-
-- Shell out to system `ssh` for all connections
-- Generate temporary config snippets for complex forwards (secure temp dir, deleted after use)
-
-### 12.2 SSH Directive Support Matrix
-
-#### Import from `~/.ssh/config` (v0.2.0)
-
-| Directive | Supported | Maps to |
-|-----------|-----------|---------|
-| `Host` | YES | `hosts.name` (if simple alias) |
-| `HostName` | YES | `hosts.address` |
-| `Port` | YES | `hosts.port` |
-| `User` | YES | `hosts.user` |
-| `IdentityFile` | YES | Creates/references identity |
-| `ProxyJump` | YES | `hosts.jump_chain` |
-| `LocalForward` | YES | `hosts.forwards` |
-| `RemoteForward` | YES | `hosts.forwards` |
-| `DynamicForward` | YES | `hosts.forwards` |
-| `ForwardAgent` | YES | `hosts.agent_forwarding` |
-| `IdentitiesOnly` | Noted | Applied automatically when identity specified |
-| `Match` blocks | NO | Logged as warning |
-| `Include` | NO | Logged as warning |
-| `ProxyCommand` | NO | Logged as warning |
-| All other directives | NO | Silently skipped |
-
-#### Export via `heimdall ssh-config generate`
-
-Generates valid OpenSSH config blocks for managed hosts. Read-only output.
-
-### 12.3 Key Format Support Matrix
-
-| Type | Generate | Import | Export | SSH Agent |
-|------|----------|--------|--------|-----------|
-| Ed25519 (OpenSSH) | YES (default) | YES | YES | YES |
-| RSA 3072+ (OpenSSH) | YES (`--type rsa`) | YES | YES | YES |
-| RSA < 3072 | NO | YES (warning) | YES | YES |
-| ECDSA | NO | NO | NO | NO |
-| PEM format | NO | NO | NO | N/A |
-| PKCS#8 format | NO | NO | NO | N/A |
-| OpenSSH certificates | NO | NO | NO | Passthrough |
-
-### 12.4 known_hosts Policy & Host Key Pinning
-
-- Heimdall-owned file: `${HEIMDALL_HOME}/ssh/known_hosts`
-- Passed to `ssh` via `-o UserKnownHostsFile=<path>`
-- TOFU: present fingerprint (SHA256), key type, source; prefer OpenSSH's own `StrictHostKeyChecking=ask` in interactive mode
-- If `ssh-keyscan` is used: label fingerprint as **unauthenticated**, require confirmation
-
-### 12.5 ProxyJump Edge Cases
-
-- Handle `IdentitiesOnly yes` automatically when specifying identity (prevents "too many auth" failures)
-- Support per-hop user and identity in jump chains
-- `ProxyJump none` overrides wildcard config
-- Validate that ProxyJump and ProxyCommand are not both specified (ProxyCommand is ignored by OpenSSH in this case)
-- Warn about `CanonicalizeHostname` interactions
-
----
-
-## 13. Reliability & Failure Modes
-
-### 13.1 Performance Targets
-
-- Daemon startup: <200ms (excluding vault unlock KDF cost)
-- Vault unlock (passphrase): 0.5-2.5s depending on hardware
-- Vault unlock (passkey): <1s (hardware-dependent)
-- CLI command round-trip (daemon warm): <50ms
-- `heimdall connect` overhead vs raw `ssh`: <50ms p99
-
-### 13.2 Failure Modes Table
-
-| Failure | Detection | User Impact | Recovery | Data Loss? |
-|---------|-----------|-------------|----------|------------|
-| Daemon crash | Stale socket, PID file | Sessions interrupted, new ops fail | Auto-restart on next CLI command | No (VMK lost, re-auth needed) |
-| Vault corruption | SQLite integrity check | Can't read data | Diagnostic + guided recovery (backup restore or salvage export) | Possible |
-| SQLite WAL corruption | SQLite error codes | Partial writes | WAL replay + checkpoint | Possible (last transaction) |
-| FIDO device disconnected mid-auth | libfido2 error | Auth fails | Retry or fall back to passphrase | No |
-| Disk full | Write error | Can't save | Alert user; read-only operations continue | No |
-| Socket permission changed | Connect error | CLI can't reach daemon | Re-create socket (daemon restart) | No |
-| SSH host key changed | SSH error | Connection refused | User confirmation flow (trust or reject) | No |
-| Import file malformed | Parse error | Partial import | Report per-entry errors, import valid entries | No |
-| libfido2 missing | dlopen error | Passkey commands fail | Exit 6 with install guidance; passphrase still works | No |
-| Daemon restart race | PID mismatch | Potential socket hijack | Abort + warn + exit 6 | No |
-| Rate limit exceeded | Token bucket empty | Operation denied | Wait and retry; `RESOURCE_EXHAUSTED` with retry-after | No |
-| Schema version mismatch | Version check | Can't open vault | Upgrade Heimdall or restore from backup | No |
-
-### 13.3 Crash Recovery
-
-- **SQLite WAL** handles DB consistency for single-statement operations
-- **Application-level write-ahead** for multi-step operations (e.g., key rotation):
-  1. Write intent record (operation type, target entity, timestamp) to `pending_ops` table
-  2. Execute steps
-  3. On completion: delete intent record
-  4. On daemon restart: check `pending_ops`, complete or rollback each pending operation
-- `PRAGMA wal_autocheckpoint=0` — checkpoint only at controlled points
-- WAL file permissions: 0600 (same as vault DB)
-
-#### Rollback attack prevention
-
-- Monotonic version counter stored in vault AND in a separate file (`${HEIMDALL_HOME}/vault.version`)
-- On open: verify DB version >= file version; reject rollbacks
-- HMAC the version: `HMAC-SHA256(VMK, version_counter)` stored alongside
-
-### 13.4 Max Session Duration
-
-- Default: 8 hours (configurable via config and policy)
-- After max duration: daemon stops responding to SSH agent signing requests for that session's keys
-- Existing TCP connections survive (SSH protocol handles this), but no new channels requiring agent forwarding
-- Logged in audit when session is terminated
-
-### 13.5 Vault Rollback Policy
-
-- Heimdall MUST refuse to open vaults with a newer `schema_version`
-- Exit 7 with guidance: "This vault was created by Heimdall vX.Y. Please upgrade or restore from backup."
-- Users SHOULD backup before upgrading (`heimdall backup create`)
-- No reverse migrations in v0.1.0
-
----
-
-## 14. Observability
-
-### 14.1 Logging
-
-- Format: structured JSON (production), human-readable (development, default when TTY)
-- Engine: `log/slog` with custom redaction handler
-- Output: stderr + file (configurable)
-- File location: `${HEIMDALL_HOME}/logs/heimdall.log`
-
-#### Log levels
-
-| Level | Usage |
-|-------|-------|
-| ERROR | Auth failures, corruption, unrecoverable errors |
-| WARN | Stale socket, retry, degraded operation, policy override |
-| INFO | Session start/end, lock/unlock, config reload |
-| DEBUG | gRPC calls, SQL queries, timing (dev only) |
-
-#### Rotation
-
-Built-in rotation:
-- Max file size: 10 MiB (configurable)
-- Max files: 5 (configurable)
-- Rotated files: `heimdall.log.1`, `heimdall.log.2`, etc.
-
-#### Redaction
-
-- Fields `secret`, `token`, `password`, `private_key`, `value`, `passphrase` → `[REDACTED]`
-- Stack traces in logs MUST NOT contain secret values
-- Panic recovery handler strips sensitive data before logging
-
-### 14.2 Audit Log
-
-- Storage: `audit_events` table in vault DB (append-only)
-- Fields: timestamp, action, actor PID, target type/ID, result, details (JSON, redacted)
-- Hash chain: `hash_i = SHA256(hash_{i-1} || canonical_json(event_i))`
-- Chain root stored in `vault_meta` for quick verification
-- Retention: configurable, default 90 days
-- Query: `heimdall audit list --since 7d --action connect --json`
-- Verify: `heimdall audit verify` checks hash chain integrity
-
-### 14.3 Debug Bundle
-
-`heimdall debug bundle --output <path>` collects:
-- Version/build info
-- OS info
-- Dependency checks (ssh, libfido2 versions)
-- Sanitized config (no secrets)
-- Recent audit metadata (redacted)
-- Daemon status and uptime
-- Log tail (last 100 lines, redacted)
-
-MUST NOT include vault contents, private keys, or secret values.
-
----
-
-## 15. Testing & Acceptance Criteria
-
-### 15.1 Platform Support Matrix
-
-| Platform | Arch | Status | CI |
-|----------|------|--------|----|
-| macOS 13+ | arm64 | **MUST** | GitHub Actions `macos-latest` |
-| macOS 13+ | amd64 | SHOULD | GitHub Actions `macos-13` |
-| Ubuntu 22.04+ | amd64 | **MUST** | GitHub Actions `ubuntu-latest` |
-| Ubuntu 22.04+ | arm64 | SHOULD | Native ARM runner (if available) |
-| Fedora 38+ | amd64 | MAY | Manual validation |
-
-### 15.2 Test Layers
-
-1. **Unit tests** — crypto blob encode/decode, KDF validation, policy evaluation, redaction rules, validation rules
-2. **Integration tests** — SQLite migrations, repository CRUD with encryption, agent protocol, gRPC services, daemon lifecycle
-3. **E2E tests** — CLI commands, exit codes, JSON output stability, `connect --dry-run`, host key policy behaviors, import/export round-trips
-4. **Crypto KATs** — Deterministic test vectors for wrapping/unwrapping, AEAD encoding, HKDF derivation
-5. **Fuzzing** — Import format parsers, blob decoding, config parsing, forward spec parsing
-
-CI MUST include:
-- `go test ./...` with race detector
-- `govulncheck`, `staticcheck`
-- Linting and formatting (`gofmt`, `goimports`)
-- Build validation for both `fido2` and `nofido2` tags
-
-### 15.3 FIDO2 Testing
-
-- **CI:** SoftFIDO2 virtual authenticator (`bulwarkid/virtual-fido` or equivalent) for enrollment, unlock, re-auth flows
-- **Pre-release:** Manual YubiKey 5 series validation (enroll, unlock, re-auth, PIN flows)
-- **Unit tests:** Mock the internal cgo wrapper interface for non-FIDO tests
-
-### 15.4 Per-Feature Acceptance Criteria
-
-#### Host Management
-- CRUD operations work via CLI and TUI
-- Names are unique; duplicate rejected with exit 2
-- Import from SSH config produces hosts with correct fields
-- `--json` output is stable and parseable
-- Tags and groups filter correctly
-
-#### SSH Connect
-- `connect` spawns `ssh` with correct flags
-- ProxyJump chains work with multi-hop
-- Port forwarding specs are validated
-- `--print-cmd` shows redacted command
-- `--dry-run` validates without executing
-- Exit code propagates from `ssh`
-
-#### Key Management
-- Ed25519 and RSA generation works
-- Import handles encrypted and unencrypted OpenSSH keys
-- Export private key requires re-auth and creates 0600 file
-- Agent add/remove works with managed agent
-- Key rotation creates new key, retires old
-
-#### Secrets
-- Add/show/rm for all types (token, password, note, file)
-- `secret show` requires re-auth
-- `secret env` injects value without printing
-- File secrets up to 50 MiB
-- Reveal policy enforcement works
-
-#### Passkeys
-- Enroll with SoftFIDO2 succeeds
-- Vault unlock with hmac-secret works
-- Re-auth assertion works
-- Lockout after 3 failures triggers delay
-- Remove requires re-auth
-
-#### Daemon
-- Auto-start on first command
-- Lock after timeout
-- Sessions survive lock
-- Max session duration enforced
-- SIGHUP reloads config
-- Stale socket detected and cleaned
-
-### 15.5 Release Gate
-
-**All of the following MUST pass:**
-
-Quality requirements:
-- Zero data-loss bugs in test suite
-- SSH connect overhead <50ms p99 (benchmark)
-- Vault open <500ms cold (integration test)
-- Test coverage >80% critical paths
-- Zero secret redaction violations
-- `govulncheck` clean
-
-Completeness requirements:
-- All MUST requirements implemented and tested
-- All exit codes deterministic (tested)
-- macOS arm64 + Linux amd64 CI green
-- Shell completions generated (bash, zsh, fish)
-- Man pages generated
-- `--json` stable for all list/show commands
-- SoftFIDO2 passkey flows pass in CI
-- Import from SSH config tested
-- Backup create/restore round-trip tested
-
----
-
-## 16. Packaging & Distribution
-
-### Packaging targets
-
-- Standalone binaries for macOS and Linux (amd64 + arm64)
-- Homebrew formula (macOS + Linux): `depends_on "libfido2"`
-- apt package (Debian/Ubuntu): `Depends: libfido2-1 (>= 1.14.0)`
-- rpm package (Fedora): MAY in v0.1.0
-
-### Supply chain integrity
-
-- Checksums (SHA256) for all release artifacts
-- SBOM (SPDX or CycloneDX)
-- Signed provenance (recommended: SLSA-compatible)
-- Fixed Go toolchain version in CI, `-trimpath`
-
-### Update mechanism
-
-- Package-manager updates only in v0.1.0
-- No self-update mechanism (deferred until signature verification is implemented)
-
----
-
-## 17. Release Plan (v0.1.0)
-
-Release gating criteria (MUST pass):
-
-1. **Security** — vault encryption verified, no secret leaks in logs, re-auth enforced, key commitment verified
-2. **Cross-platform** — install/run on macOS arm64 + Linux amd64; passkey flows work with SoftFIDO2
-3. **SSH parity** — ProxyJump, forwards, identity selection, known_hosts policy validated
-4. **UX/CLI** — completions, man pages, deterministic exit codes, `--json` stable
-5. **Documentation** — README.md, SECURITY.md, SPEC.md finalized, packaging instructions
-
----
-
-## 18. Future Roadmap
-
-Explicitly deferred beyond v0.1.0:
-
-- Multi-device sync (requires separate design and threat model)
-- Platform authenticator passkeys (Touch ID, etc.)
-- Windows support
-- Full encrypted-metadata mode (hiding secret names)
-- Advanced RBAC / multi-user vaults
-- Clipboard support (cross-platform safety)
-- ECDSA / PEM / PKCS#8 key format support
-- OpenSSH certificate management
-- Self-update mechanism with signature verification
-- Termius import
-- `Match` and `Include` directive support in SSH config import
-
----
-
-## 19. Decision Log
-
-| # | Decision | Alternatives Considered | Rationale |
-|---|----------|------------------------|-----------|
-| 1 | Background daemon holds VMK in memory | Per-command unlock, kernel keyring | Same model as ssh-agent/gpg-agent; avoids repeated KDF |
-| 2 | Daemon serializes all vault access (single SQLite writer) | Per-process locking, shared memory | Eliminates concurrency bugs; SQLite single-writer |
-| 3 | Ship managed SSH agent in v0.1.0 | External ssh-agent only | Better UX; auto-lock integration; controlled key lifetime |
-| 4 | Hybrid auto-fork + optional launchd/systemd | Service-only, CLI-only | Best of both: zero-config default, power-user option |
-| 5 | gRPC over Unix domain socket for IPC | REST, raw protobuf, JSON-RPC | Typed contracts, streaming, standard tooling |
-| 6 | User-specified env var via `--env-var` flag | Fixed env var name, multiple env vars | Flexible; avoids name collisions; explicit |
-| 7 | Full bubbletea TUI (Charm ecosystem) | tview, tcell, no TUI | Elm MVU, inline mode, company-backed, huh for forms |
-| 8 | Stale socket detection + auto-restart | Manual restart, always-on service | Zero-friction recovery; user doesn't need to know |
-| 9 | SQLite WAL + application-level write-ahead for multi-step ops | WAL only, external transaction log | Handles both single and multi-step operations correctly |
-| 10 | Internal cgo wrapper for libfido2 (~500 LOC) | go-libfido2 binding, fido2-token CLI | go-libfido2 abandoned; wrapper gives version control |
-| 11 | Single process (gRPC + SSH agent on separate sockets) | Separate daemon processes | Shared VMK; simpler; separate processes = weak isolation anyway |
-| 12 | Propagate raw SSH exit code | Map all to Heimdall codes | Better for scripting; internal failures use Heimdall codes |
-| 13 | Plaintext secret names in SQLite | Encrypted names | Enables search-while-locked, completions; same model as `pass` |
-| 14 | macOS + Linux only (Windows dropped) | Cross-platform with Windows | Reduces scope; libfido2 packaging on Windows unreliable |
-| 15 | Auto-lock default 30 minutes, configurable | Fixed timeout, no auto-lock | Balances security and usability; policy can override |
-| 16 | Stderr + file logging | File only, syslog | Immediate feedback + persistent record |
-| 17 | TUI handles vault unlock (lock screen) | CLI-only unlock | Natural UX; user doesn't leave TUI to unlock |
-| 18 | MIT license | Apache 2.0, GPL | Maximum adoption; simple; no patent clauses needed |
-| 19 | Quality + completeness release gate | Quality only, feature-only | Both dimensions required for production-ready release |
-| 20 | SSH config import only (Termius dropped) | SSH config + Termius JSON | Termius uses encrypted Electron IndexedDB; impractical |
-| 21 | Full dynamic shell completions via daemon | Static completions | Host/secret/key names available for tab-complete |
-| 22 | Sessions survive vault lock | Kill sessions on lock | Matches ssh-agent behavior; less disruptive |
-| 23 | Read-only ssh-config generate command | Write to ~/.ssh/config | Safe; no modification of user's config |
-| 24 | Public versioned gRPC API (api/v1/) | Private/internal API | Enables third-party integrations; stable contract |
-| 25 | modernc.org/sqlite (pure Go) | mattn/go-sqlite3 (cgo) | CVE-2025-6965 (CVSS 9.8), CVE-2025-29087; eliminates C attack surface |
-| 26 | Module path: github.com/amanthanvi/heimdall | — | Owner's namespace |
-| 27 | Key commitment HMAC tag after VMK decryption | No commitment | XChaCha20-Poly1305 is not key-committing; one HMAC fixes it |
-| 28 | PID-scoped re-auth cache via SO_PEERCRED | Global cache | Prevents cross-process cache abuse by same-user malware |
-| 29 | memguard for VMK (non-GC heap, mlock, guard pages) | Regular []byte | Go GC copies/moves data; memguard allocates via mmap outside GC |
-| 30 | TOML config format | YAML, JSON | Simple, human-readable, no whitespace gotchas |
-| 31 | $XDG_RUNTIME_DIR socket paths | /tmp, ~/.heimdall | Per-user, tmpfs, 0700; avoids symlink races |
-| 32 | SIGTERM=graceful, SIGHUP=reload, SIGINT=immediate | Simpler signal handling | Standard daemon pattern; config reload without restart |
-| 33 | gRPC standard status + Heimdall ErrorInfo details | Custom error envelope | Leverages gRPC ecosystem (interceptors, status checks) |
-| 34 | Core SSH directives for import | Full directive parsing | Covers 90% of use cases; avoid parsing complexity |
-| 35 | Per-PID token bucket rate limiting | Global, none | Distinguishes legitimate from malicious callers |
-| 36 | Exponential backoff auth lockout (3/5/10 failures) | No lockout, hard lockout | Balanced: slows attacks without penalizing hardware glitches |
-| 37 | Ed25519 + RSA (3072+) in OpenSSH format only | +ECDSA, +PEM | Covers >95% of keys; minimizes format parsing surface |
-| 38 | SoftFIDO2 virtual authenticator in CI | Mock only, hardware only | Real CTAP2 flow testing; hardware for pre-release |
-| 39 | Built-in log rotation (10MB, 5 files) | External logrotate | Cross-platform, zero-config |
-| 40 | Interactive init wizard with sensible defaults | Minimal, full TUI wizard | Good DX for first-run; non-interactive mode for scripting |
-| 41 | Daemonless: version/doctor/init/help only | Read-only ops, everything | Clear boundary; daemon = required for all data operations |
-| 42 | Helpful TUI onboarding for empty states | Blank, ASCII art | Guides new users without being intrusive |
-| 43 | Diagnostic + guided vault corruption recovery | Error + docs link, auto-repair | Actionable guidance at a critical moment |
-| 44 | macOS arm64 + Linux amd64 MUST; others SHOULD | All 4 MUST | Primary dev + server targets; pragmatic CI budget |
-| 45 | Embedded Go migrations with version table | golang-migrate, raw SQL | No external dependency; transactional; automatic |
-| 46 | 8-hour max session duration (configurable) | No max, 24h | Covers workday; policy can enforce shorter |
-| 47 | Separate passphrase-derived key for backup encryption | Vault passphrase, age format | Independent of vault; backup sits in untrusted storage |
-| 48 | Refuse newer vault versions; recommend backup/restore | Backward compat, no rollback | Clear boundary; no reverse migration complexity |
-
----
-
-## 20. Open Questions & Risks
-
-### Open Questions
-
-1. Should `heimdall vault repair` attempt SQLite integrity repair automatically, or only offer backup restore? (Deferred to implementation spike)
-2. What is the optimal `pending_ops` cleanup strategy for write-ahead intent records? (Deferred to implementation)
-3. Should the gRPC API proto definitions be published as a separate Go module for third-party clients? (Decide at v0.1.0 release)
-4. Should `heimdall doctor` attempt to detect udev rules issues on Linux for FIDO2 device access? (Nice-to-have)
-
-### Risks
-
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Internal libfido2 wrapper takes longer than expected | Medium | Schedule slip | Start with enrollment + unlock; re-auth can follow. Shell out to `fido2-token` as fallback. |
-| modernc.org/sqlite performance differs from mattn | Low | Latency regression | Benchmark early in implementation. Vault operations are small and infrequent. |
-| bubbletea v2 breaks API before stable release | Low | Rework TUI code | Target bubbletea v1 (stable). Migrate to v2 when stable. |
-| SoftFIDO2 doesn't fully replicate hardware behavior | Medium | False positive CI | Manual hardware validation gate before each release. |
-| Socket path length exceeds 104 bytes on macOS | Low | Daemon won't start | Validate at startup; use short paths; document constraint. |
-| memguard interacts poorly with Go runtime in edge cases | Low | Memory issues | Extensive integration testing; memguard is well-tested with Go. |
-
-### Assumptions
-
-- Users have OpenSSH installed on all target platforms
-- libfido2 >= 1.14.0 is packagable for macOS (Homebrew) and Linux (apt/rpm)
-- FIDO2 security keys support at least ES256 and user presence
-- SQLite WAL mode provides sufficient reliability for a single-user vault
-- `$XDG_RUNTIME_DIR` exists on modern Linux systems with systemd
-
----
-
-*Last updated: 2026-02-19*
-*Status: Approved for implementation*
-*DRI: Aman Thanvi (@amanthanvi)*
+## 11. Deferred Work
+
+Deferred and future-facing items are intentionally not part of the rebooted
+contract. They are tracked separately in
+[docs/reboot/FUTURE-BACKLOG.md](/Users/amanthanvi/GitRepos/heimdall/docs/reboot/FUTURE-BACKLOG.md).

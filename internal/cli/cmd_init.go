@@ -21,11 +21,6 @@ known_hosts_policy_default = "tofu"
 forward_agent_default = false
 connect_timeout = "10s"
 
-[ssh_config]
-enabled = false
-path = "~/.ssh/config.d/heimdall.conf"
-auto_sync = true
-
 [audit]
 connection_logging = true
 
@@ -50,16 +45,13 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 	var (
 		passphrase      string
 		passphraseStdin bool
-		importSSHConfig string
-		enrollPasskey   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a local vault and config",
 		Example: "  heimdall init --yes --passphrase \"dev-pass\"\n" +
-			"  printf \"dev-pass\\n\" | heimdall init --yes --passphrase-stdin\n" +
-			"  heimdall init --yes --passphrase \"dev-pass\" --import-ssh-config ~/.ssh/config",
+			"  printf \"dev-pass\\n\" | heimdall init --yes --passphrase-stdin",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("init does not accept positional arguments")
@@ -77,12 +69,6 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 			}
 			if resolvedPassphrase == "" {
 				return usageErrorf("init requires --passphrase or --passphrase-stdin")
-			}
-
-			if importSSHConfig != "" {
-				if _, err := os.Stat(importSSHConfig); err != nil {
-					return mapCommandError(fmt.Errorf("init: validate --import-ssh-config: %w", err))
-				}
 			}
 
 			vaultPath, err := resolveVaultPath(deps.globals)
@@ -119,8 +105,6 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 					"initialized":         true,
 					"vault_path":          vaultPath,
 					"config_path":         configPath,
-					"import_ssh_config":   importSSHConfig != "",
-					"enroll_passkey":      enrollPasskey,
 					"passphrase_provided": passphraseStdin,
 				})
 			}
@@ -134,23 +118,11 @@ func newInitCommand(deps commandDeps) *cobra.Command {
 			if _, err := fmt.Fprintf(deps.out, "wrote config: %s\n", configPath); err != nil {
 				return mapCommandError(err)
 			}
-			if importSSHConfig != "" {
-				if _, err := fmt.Fprintf(deps.out, "queued ssh config import from: %s\n", importSSHConfig); err != nil {
-					return mapCommandError(err)
-				}
-			}
-			if enrollPasskey {
-				if _, err := fmt.Fprintln(deps.out, "passkey enrollment requested (run `heimdall passkey enroll --label <label>` after daemon starts)"); err != nil {
-					return mapCommandError(err)
-				}
-			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Vault passphrase")
 	cmd.Flags().BoolVar(&passphraseStdin, "passphrase-stdin", false, "Read passphrase from stdin")
-	cmd.Flags().StringVar(&importSSHConfig, "import-ssh-config", "", "Import hosts from an OpenSSH config file after init")
-	cmd.Flags().BoolVar(&enrollPasskey, "enroll-passkey", false, "Run passkey enrollment after initialization")
 	return cmd
 }
 

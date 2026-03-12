@@ -58,19 +58,20 @@ func TestRootHasBatchFiveTopLevelCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	for _, name := range []string{"init", "daemon", "ssh-config", "host", "secret", "key", "backup", "tui"} {
+	for _, name := range []string{"init", "status", "doctor", "vault", "daemon", "host", "connect", "secret", "key", "passkey", "backup", "audit", "version"} {
 		_, _, err := cmd.Find([]string{name})
 		require.NoErrorf(t, err, "expected command %q", name)
 	}
 }
 
-func TestRootIncludesUIAliasForTUI(t *testing.T) {
+func TestRootOmitsDeferredCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	found, _, err := cmd.Find([]string{"ui"})
-	require.NoError(t, err)
-	require.Equal(t, "tui", found.Name())
+	for _, name := range []string{"ssh-config", "tui", "ui", "import", "export", "debug"} {
+		_, _, err := cmd.Find([]string{name})
+		require.Error(t, err)
+	}
 }
 
 func TestAllCommandsHaveExamples(t *testing.T) {
@@ -344,6 +345,35 @@ func TestHostListJSONProducesValidArray(t *testing.T) {
 	require.Equal(t, "prod", payload[0]["name"])
 }
 
+func TestHostShowJSONOmitsLegacyEnvRefs(t *testing.T) {
+	server := &cliTestDaemon{
+		hosts: []*v1.Host{{
+			Name:             "prod",
+			Address:          "10.0.0.1",
+			Port:             22,
+			User:             "ubuntu",
+			Tags:             []string{"critical"},
+			Notes:            "primary",
+			KeyName:          "deploy",
+			IdentityPath:     "/tmp/id_prod",
+			ProxyJump:        "bastion",
+			KnownHostsPolicy: "accept-new",
+			ForwardAgent:     true,
+		}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "--json", "host", "show", "prod")
+	require.NoError(t, err)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &payload))
+	require.Equal(t, "prod", payload["name"])
+	require.Equal(t, "deploy", payload["key_name"])
+	require.Equal(t, "bastion", payload["proxy_jump"])
+	require.NotContains(t, payload, "env_refs")
+}
+
 func TestConnectDryRunPrintsSSHCommand(t *testing.T) {
 
 	server := &cliTestDaemon{
@@ -387,7 +417,7 @@ func TestConnectDryRunWithMissingKeyReturnsNotFound(t *testing.T) {
 			Address: "10.0.0.1",
 			Port:    22,
 			User:    "ubuntu",
-			EnvRefs: map[string]string{"key_name": "deploy"},
+			KeyName: "deploy",
 		}},
 		keys: []*v1.KeyMeta{},
 	}
@@ -409,7 +439,7 @@ func TestConnectDryRunIdentityFileOverridesHostDefaultKey(t *testing.T) {
 			Address: "10.0.0.1",
 			Port:    22,
 			User:    "ubuntu",
-			EnvRefs: map[string]string{"key_name": "deploy"},
+			KeyName: "deploy",
 		}},
 		keys: []*v1.KeyMeta{{Name: "deploy"}},
 	}
@@ -429,11 +459,11 @@ func TestConnectDryRunKeyOverridesHostDefaultIdentityFile(t *testing.T) {
 
 	server := &cliTestDaemon{
 		hosts: []*v1.Host{{
-			Name:    "prod",
-			Address: "10.0.0.1",
-			Port:    22,
-			User:    "ubuntu",
-			EnvRefs: map[string]string{"identity_ref": identityPath},
+			Name:         "prod",
+			Address:      "10.0.0.1",
+			Port:         22,
+			User:         "ubuntu",
+			IdentityPath: identityPath,
 		}},
 		keys: []*v1.KeyMeta{{Name: "deploy"}},
 	}
@@ -760,28 +790,10 @@ func TestQuietSuppressesListOutput(t *testing.T) {
 	require.Empty(t, strings.TrimSpace(out))
 }
 
-func TestSSHConfigGenerateWritesOutputFile(t *testing.T) {
-
-	server := &cliTestDaemon{
-		hosts: []*v1.Host{{
-			Name:    "prod",
-			Address: "10.0.0.1",
-			Port:    22,
-			User:    "ubuntu",
-			EnvRefs: map[string]string{"proxy_jump": "bastion", "identity_ref": "~/.ssh/id_ed25519"},
-		}},
-	}
-	withStubDaemon(t, server)
-
-	outputPath := filepath.Join(t.TempDir(), "generated_config")
-	_, err := runCLI(t, "", "ssh-config", "generate", "--output", outputPath)
-	require.NoError(t, err)
-
-	content, err := os.ReadFile(outputPath)
-	require.NoError(t, err)
-	require.Contains(t, string(content), "Host prod")
-	require.Contains(t, string(content), "ProxyJump bastion")
-	require.Contains(t, string(content), "IdentityFile ~/.ssh/id_ed25519")
+func TestSSHConfigCommandIsRemoved(t *testing.T) {
+	_, err := runCLI(t, "", "ssh-config", "generate")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown command "ssh-config"`)
 }
 
 func runCLI(t *testing.T, stdin string, args ...string) (string, error) {

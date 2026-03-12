@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
+	sshpkg "github.com/amanthanvi/heimdall/internal/ssh"
 	"github.com/amanthanvi/heimdall/internal/storage"
 )
 
@@ -44,17 +44,9 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 		port = 22
 	}
 
-	target := host.Address
-	if user != "" {
-		target = user + "@" + host.Address
-	}
-
 	effectiveJumpHosts := append([]string(nil), opts.JumpHosts...)
 	if len(effectiveJumpHosts) == 0 {
 		defaultJump := strings.TrimSpace(host.ProxyJump)
-		if defaultJump == "" {
-			defaultJump = strings.TrimSpace(host.EnvRefs["proxy_jump"])
-		}
 		if defaultJump != "" {
 			effectiveJumpHosts = []string{defaultJump}
 		}
@@ -68,64 +60,49 @@ func (s *ConnectService) Plan(ctx context.Context, hostName string, opts Connect
 	if effectiveIdentityPath == "" && !disableIdentityDefaults {
 		effectiveIdentityPath = strings.TrimSpace(host.IdentityFile)
 	}
-	if effectiveIdentityPath == "" && !disableIdentityDefaults {
-		effectiveIdentityPath = strings.TrimSpace(host.EnvRefs["identity_ref"])
+	sshHost := &sshpkg.Host{
+		Name:             host.Name,
+		Address:          host.Address,
+		Port:             port,
+		User:             user,
+		JumpHosts:        effectiveJumpHosts,
+		IdentityPath:     effectiveIdentityPath,
+		ForwardAgent:     host.ForwardAgent,
+		KnownHostsPolicy: host.KnownHostsPolicy,
 	}
-
-	args := []string{"ssh", "-p", strconv.Itoa(port)}
-	for _, jh := range effectiveJumpHosts {
-		if strings.HasPrefix(jh, "-") {
-			return nil, fmt.Errorf("%w: jump host %q contains invalid characters", ErrValidation, jh)
-		}
+	knownHostsPolicy := host.KnownHostsPolicy
+	if strings.TrimSpace(opts.KnownHostsPolicy) != "" {
+		knownHostsPolicy = strings.TrimSpace(opts.KnownHostsPolicy)
 	}
-	if len(effectiveJumpHosts) > 0 {
-		args = append(args, "-J", strings.Join(effectiveJumpHosts, ","))
+	forwardAgent := host.ForwardAgent
+	if opts.ForwardAgentSet {
+		forwardAgent = opts.ForwardAgent
 	}
-
-	for _, forward := range opts.Forwards {
-		prefix, spec, ok := parseForward(forward)
-		if !ok {
-			return nil, fmt.Errorf("%w: invalid forward %q", ErrValidation, forward)
-		}
-		args = append(args, prefix, spec)
+	builder := &sshpkg.CommandBuilder{}
+	command, err := builder.Build(sshHost, sshpkg.ConnectOpts{
+		User:             user,
+		Port:             port,
+		JumpHosts:        effectiveJumpHosts,
+		ProxyJumpNone:    opts.ProxyJumpNone,
+		Forwards:         append([]string(nil), opts.Forwards...),
+		IdentityPath:     effectiveIdentityPath,
+		ForwardAgent:     forwardAgent,
+		KnownHostsFile:   opts.KnownHosts,
+		KnownHostsPolicy: knownHostsPolicy,
+		InsecureHostKey:  opts.InsecureHostKey,
+		IgnoreSSHConfig:  opts.IgnoreSSHConfig,
+		Env:              nil,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build connect plan: %w", err)
 	}
-
-	if effectiveIdentityPath != "" {
-		args = append(args, "-i", effectiveIdentityPath, "-o", "IdentitiesOnly=yes")
-	}
-	if opts.KnownHosts != "" {
-		args = append(args, "-o", "UserKnownHostsFile="+opts.KnownHosts)
-	}
-	// End-of-options separator prevents target from being parsed as SSH flags.
-	args = append(args, "--", target)
 
 	return &ConnectPlan{
-		Args:         args,
-		RedactedArgs: redactConnectArgs(args),
+		Binary:       command.Binary,
+		Args:         append([]string(nil), command.Args...),
+		RedactedArgs: redactConnectArgs(append([]string{command.Binary}, command.Args...))[1:],
+		Env:          append([]string(nil), command.Env...),
 	}, nil
-}
-
-func parseForward(raw string) (flag string, spec string, ok bool) {
-	parts := strings.SplitN(raw, ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-	mode := strings.ToUpper(strings.TrimSpace(parts[0]))
-	spec = strings.TrimSpace(parts[1])
-	if spec == "" {
-		return "", "", false
-	}
-
-	switch mode {
-	case "L":
-		return "-L", spec, true
-	case "R":
-		return "-R", spec, true
-	case "D":
-		return "-D", spec, true
-	default:
-		return "", "", false
-	}
 }
 
 func redactConnectArgs(args []string) []string {

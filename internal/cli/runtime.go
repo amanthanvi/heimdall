@@ -195,6 +195,14 @@ func attachCallerMetadata(ctx context.Context) context.Context {
 	)
 }
 
+func withAuditAction(ctx context.Context, action string) context.Context {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, "x-heimdall-audit-action", action)
+}
+
 func resolveCallerClientID() string {
 	if explicit := strings.TrimSpace(os.Getenv("HEIMDALL_CLIENT_ID")); explicit != "" {
 		return explicit

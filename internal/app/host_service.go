@@ -1,13 +1,10 @@
 package app
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/amanthanvi/heimdall/internal/storage"
@@ -40,25 +37,30 @@ func (s *HostService) Create(ctx context.Context, req CreateHostRequest) (*stora
 	if req.Port == 0 {
 		req.Port = 22
 	}
-	keyName, identityFile, proxyJump, err := resolveHostConnectDefaults(req.KeyName, req.IdentityFile, req.ProxyJump, req.EnvRefs)
+	keyName := strings.TrimSpace(req.KeyName)
+	identityFile := strings.TrimSpace(req.IdentityFile)
+	proxyJump := strings.TrimSpace(req.ProxyJump)
+	if err := validateHostConnectDefaults(keyName, identityFile, proxyJump); err != nil {
+		return nil, err
+	}
+	knownHostsPolicy, err := normalizeKnownHostsPolicy(req.KnownHostsPolicy)
 	if err != nil {
 		return nil, err
 	}
 
-	tags := append([]string(nil), req.Tags...)
-	if req.Group != "" {
-		tags = append(tags, "group:"+req.Group)
-	}
 	host := &storage.Host{
-		Name:         req.Name,
-		Address:      req.Address,
-		Port:         req.Port,
-		User:         req.User,
-		KeyName:      keyName,
-		IdentityFile: identityFile,
-		ProxyJump:    proxyJump,
-		Tags:         dedupeStrings(tags),
-		EnvRefs:      canonicalHostEnvRefs(keyName, identityFile, proxyJump, req.EnvRefs),
+		Name:             req.Name,
+		Address:          req.Address,
+		Port:             req.Port,
+		User:             req.User,
+		Notes:            strings.TrimSpace(req.Notes),
+		KeyName:          keyName,
+		IdentityFile:     identityFile,
+		ProxyJump:        proxyJump,
+		KnownHostsPolicy: knownHostsPolicy,
+		ForwardAgent:     req.ForwardAgent,
+		Tags:             dedupeStrings(req.Tags),
+		EnvRefs:          cloneStringMap(req.EnvRefs),
 	}
 	if err := s.hosts.Create(ctx, host); err != nil {
 		if isDuplicateError(err) {
@@ -109,6 +111,11 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 	if req.Tags != nil {
 		host.Tags = dedupeStrings(*req.Tags)
 	}
+	if req.ClearNotes {
+		host.Notes = ""
+	} else if req.Notes != nil {
+		host.Notes = strings.TrimSpace(*req.Notes)
+	}
 	if req.KeyName != nil {
 		host.KeyName = strings.TrimSpace(*req.KeyName)
 	}
@@ -118,23 +125,17 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 	if req.ProxyJump != nil {
 		host.ProxyJump = strings.TrimSpace(*req.ProxyJump)
 	}
+	if req.ClearKnownHostsPolicy {
+		host.KnownHostsPolicy = ""
+	} else if req.KnownHostsPolicy != nil {
+		host.KnownHostsPolicy = strings.TrimSpace(*req.KnownHostsPolicy)
+	}
+	if req.ForwardAgent != nil {
+		host.ForwardAgent = *req.ForwardAgent
+	}
 
 	if req.EnvRefs != nil {
-		if req.KeyName == nil {
-			if value, ok := req.EnvRefs["key_name"]; ok {
-				host.KeyName = strings.TrimSpace(value)
-			}
-		}
-		if req.IdentityFile == nil {
-			if value, ok := req.EnvRefs["identity_ref"]; ok {
-				host.IdentityFile = strings.TrimSpace(value)
-			}
-		}
-		if req.ProxyJump == nil {
-			if value, ok := req.EnvRefs["proxy_jump"]; ok {
-				host.ProxyJump = strings.TrimSpace(value)
-			}
-		}
+		host.EnvRefs = cloneStringMap(req.EnvRefs)
 	}
 
 	if err := validateHostInputs(host.Name, host.Address, host.User, host.Port); err != nil {
@@ -143,10 +144,12 @@ func (s *HostService) Update(ctx context.Context, req UpdateHostRequest) (*stora
 	if err := validateHostConnectDefaults(host.KeyName, host.IdentityFile, host.ProxyJump); err != nil {
 		return nil, err
 	}
+	if _, err := normalizeKnownHostsPolicy(host.KnownHostsPolicy); err != nil {
+		return nil, err
+	}
 	if host.Port == 0 {
 		host.Port = 22
 	}
-	host.EnvRefs = canonicalHostEnvRefs(host.KeyName, host.IdentityFile, host.ProxyJump, host.EnvRefs)
 
 	if err := s.hosts.Update(ctx, host); err != nil {
 		if isDuplicateError(err) {
@@ -178,9 +181,6 @@ func (s *HostService) List(ctx context.Context, req ListHostsRequest) ([]storage
 
 	filtered := make([]storage.Host, 0, len(hosts))
 	for _, host := range hosts {
-		if req.Group != "" && !hostMatchesGroup(host, req.Group) {
-			continue
-		}
 		if req.Search != "" && !hostMatchesSearch(host, req.Search) {
 			continue
 		}
@@ -198,120 +198,6 @@ func (s *HostService) List(ctx context.Context, req ListHostsRequest) ([]storage
 	default:
 		return nil, fmt.Errorf("%w: unsupported host sort mode %q", ErrValidation, req.SortBy)
 	}
-}
-
-func (s *HostService) Import(ctx context.Context, sshConfigPath string) ([]storage.Host, []ImportWarning, error) {
-	file, err := os.Open(sshConfigPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("import ssh config: open file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	type pendingHost struct {
-		name        string
-		address     string
-		user        string
-		port        int
-		proxyJump   string
-		identityRef string
-	}
-
-	var (
-		warnings []ImportWarning
-		imported []storage.Host
-		current  pendingHost
-	)
-	flushCurrent := func() {
-		if current.name == "" || current.address == "" {
-			current = pendingHost{}
-			return
-		}
-		envRefs := map[string]string{}
-		if current.proxyJump != "" {
-			envRefs["proxy_jump"] = current.proxyJump
-		}
-		if current.identityRef != "" {
-			envRefs["identity_ref"] = current.identityRef
-		}
-
-		host, createErr := s.Create(ctx, CreateHostRequest{
-			Name:         current.name,
-			Address:      current.address,
-			User:         current.user,
-			Port:         current.port,
-			IdentityFile: current.identityRef,
-			ProxyJump:    current.proxyJump,
-			EnvRefs:      envRefs,
-		})
-		if createErr != nil {
-			warnings = append(warnings, ImportWarning{
-				Message: fmt.Sprintf("skip host %s: %v", current.name, createErr),
-			})
-			current = pendingHost{}
-			return
-		}
-		imported = append(imported, *host)
-		current = pendingHost{}
-	}
-
-	scanner := bufio.NewScanner(file)
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		key := strings.ToLower(fields[0])
-		value := strings.Join(fields[1:], " ")
-
-		switch key {
-		case "host":
-			flushCurrent()
-			if strings.ContainsAny(value, "*?") {
-				warnings = append(warnings, ImportWarning{
-					Line:    lineNo,
-					Message: "wildcard Host entries are skipped",
-				})
-				continue
-			}
-			current.name = value
-		case "hostname":
-			current.address = value
-		case "user":
-			current.user = value
-		case "proxyjump":
-			current.proxyJump = value
-		case "identityfile":
-			current.identityRef = value
-		case "port":
-			parsed, parseErr := strconv.Atoi(value)
-			if parseErr != nil {
-				warnings = append(warnings, ImportWarning{
-					Line:    lineNo,
-					Message: fmt.Sprintf("invalid port %q", value),
-				})
-				continue
-			}
-			current.port = parsed
-		case "match", "include":
-			warnings = append(warnings, ImportWarning{
-				Line:    lineNo,
-				Message: fmt.Sprintf("%s directive skipped", key),
-			})
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("import ssh config: read: %w", err)
-	}
-
-	flushCurrent()
-	return imported, warnings, nil
 }
 
 func (s *HostService) sortByLastConnected(ctx context.Context, hosts []storage.Host) ([]storage.Host, error) {
@@ -339,17 +225,6 @@ func (s *HostService) sortByLastConnected(ctx context.Context, hosts []storage.H
 		sorted = append(sorted, entry.host)
 	}
 	return sorted, nil
-}
-
-func hostMatchesGroup(host storage.Host, group string) bool {
-	want := strings.ToLower(strings.TrimSpace(group))
-	for _, tag := range host.Tags {
-		normalized := strings.ToLower(strings.TrimSpace(tag))
-		if normalized == want || normalized == "group:"+want {
-			return true
-		}
-	}
-	return false
 }
 
 func hostMatchesSearch(host storage.Host, query string) bool {
@@ -476,6 +351,16 @@ func validateHostConnectDefaults(keyName, identityFile, proxyJump string) error 
 		return fmt.Errorf("%w: proxy_jump contains invalid characters", ErrValidation)
 	}
 	return nil
+}
+
+func normalizeKnownHostsPolicy(raw string) (string, error) {
+	policy := strings.ToLower(strings.TrimSpace(raw))
+	switch policy {
+	case "", "tofu", "accept-new", "strict", "off":
+		return policy, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported known_hosts_policy %q", ErrValidation, raw)
+	}
 }
 
 func canonicalHostEnvRefs(keyName, identityFile, proxyJump string, base map[string]string) map[string]string {

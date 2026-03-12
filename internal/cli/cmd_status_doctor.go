@@ -3,15 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/config"
 	"github.com/amanthanvi/heimdall/internal/ssh"
-	"github.com/amanthanvi/heimdall/internal/sshconfig"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -70,63 +67,8 @@ func newStatusCommand(deps commandDeps) *cobra.Command {
 					}
 				}
 
-				sshConfigState := map[string]any{
-					"enabled":   cfg.SSHConfig.Enabled,
-					"path":      cfg.SSHConfig.Path,
-					"auto_sync": cfg.SSHConfig.AutoSync,
-					"in_sync":   false,
-				}
-				if cfg.SSHConfig.Enabled {
-					fragmentPath, _, err := resolveManagedSSHPaths(cfg.SSHConfig.Path)
-					if err != nil {
-						return err
-					}
-					sshConfigState["path"] = fragmentPath
-					if vaultLocked {
-						if _, statErr := os.Stat(fragmentPath); statErr == nil {
-							sshConfigState["exists"] = true
-						} else if os.IsNotExist(statErr) {
-							sshConfigState["exists"] = false
-						} else {
-							return fmt.Errorf("status: stat managed ssh config %s: %w", filepath.Clean(fragmentPath), statErr)
-						}
-					} else {
-						hostResp, hostErr := clients.host.ListHosts(ctx, &v1.ListHostsRequest{})
-						if hostErr != nil {
-							if isVaultLockedRPC(hostErr) {
-								vaultLocked = true
-								if _, statErr := os.Stat(fragmentPath); statErr == nil {
-									sshConfigState["exists"] = true
-								} else if os.IsNotExist(statErr) {
-									sshConfigState["exists"] = false
-								} else {
-									return fmt.Errorf("status: stat managed ssh config %s: %w", filepath.Clean(fragmentPath), statErr)
-								}
-							} else {
-								return hostErr
-							}
-						} else {
-							desired := sshconfig.Generate(protoHostsToStorage(hostResp.GetHosts()))
-							current, readErr := os.ReadFile(fragmentPath)
-							if readErr == nil {
-								sshConfigState["in_sync"] = string(current) == desired
-								sshConfigState["exists"] = true
-							} else if os.IsNotExist(readErr) {
-								sshConfigState["exists"] = false
-								sshConfigState["in_sync"] = false
-							} else {
-								return fmt.Errorf("status: read managed ssh config %s: %w", filepath.Clean(fragmentPath), readErr)
-							}
-							sshConfigState["host_count"] = len(hostResp.GetHosts())
-						}
-					}
-				}
-
 				if !keysAvailable && !vaultLocked {
 					keysAvailable = true
-				}
-				if !keysAvailable {
-					sshConfigState["partial"] = true
 				}
 
 				payload := map[string]any{
@@ -136,7 +78,6 @@ func newStatusCommand(deps commandDeps) *cobra.Command {
 					"key_count":           keyCount,
 					"key_count_available": keysAvailable,
 					"stale_keys":          staleKeys,
-					"ssh_config":          sshConfigState,
 					"audit": map[string]any{
 						"connection_logging": cfg.Audit.ConnectionLogging,
 					},
@@ -165,16 +106,6 @@ func newStatusCommand(deps commandDeps) *cobra.Command {
 					if _, err := fmt.Fprintln(deps.out, "keys: unavailable (vault locked)"); err != nil {
 						return err
 					}
-				}
-				if _, err := fmt.Fprintf(
-					deps.out,
-					"ssh_config: enabled=%t auto_sync=%t in_sync=%t path=%s\n",
-					cfg.SSHConfig.Enabled,
-					cfg.SSHConfig.AutoSync,
-					sshConfigState["in_sync"],
-					sshConfigState["path"],
-				); err != nil {
-					return err
 				}
 				if _, err := fmt.Fprintf(
 					deps.out,

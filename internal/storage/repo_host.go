@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/amanthanvi/heimdall/internal/crypto"
 )
@@ -37,6 +38,10 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	if err != nil {
 		return err
 	}
+	notesCiphertext, notesNonce, err := r.encryptNotes(host)
+	if err != nil {
+		return err
+	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -44,11 +49,11 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO hosts(id, name, address, port, user, key_name, identity_file, proxy_jump, env_refs, created_at, updated_at, deleted_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-	`, host.ID, host.Name, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
+		INSERT INTO hosts(id, name, address, port, user, notes_ciphertext, notes_nonce, key_name, identity_file, proxy_jump, known_hosts_policy, forward_agent, env_refs, created_at, updated_at, deleted_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+	`, host.ID, host.Name, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), envRefs, fmtTime(host.CreatedAt), fmtTime(host.UpdatedAt))
 	if err != nil {
-		restored, restoreErr := r.restoreSoftDeletedTx(ctx, tx, host, envRefs)
+		restored, restoreErr := r.restoreSoftDeletedTx(ctx, tx, host, envRefs, notesCiphertext, notesNonce)
 		if restoreErr != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("create host: restore soft-deleted: %w", restoreErr)
@@ -77,7 +82,7 @@ func (r *hostRepository) Create(ctx context.Context, host *Host) error {
 	return nil
 }
 
-func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, host *Host, envRefs sql.NullString) (bool, error) {
+func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, host *Host, envRefs sql.NullString, notesCiphertext, notesNonce any) (bool, error) {
 	var (
 		existingID string
 		createdRaw string
@@ -97,9 +102,9 @@ func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, h
 	now := nowUTC()
 	result, err := tx.ExecContext(ctx, `
 		UPDATE hosts
-		SET address = ?, port = ?, user = ?, key_name = ?, identity_file = ?, proxy_jump = ?, env_refs = ?, updated_at = ?, deleted_at = NULL
+		SET address = ?, port = ?, user = ?, notes_ciphertext = ?, notes_nonce = ?, key_name = ?, identity_file = ?, proxy_jump = ?, known_hosts_policy = ?, forward_agent = ?, env_refs = ?, updated_at = ?, deleted_at = NULL
 		WHERE id = ? AND deleted_at IS NOT NULL
-	`, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(now), existingID)
+	`, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), envRefs, fmtTime(now), existingID)
 	if err != nil {
 		return false, fmt.Errorf("restore deleted host: %w", err)
 	}
@@ -123,7 +128,7 @@ func (r *hostRepository) restoreSoftDeletedTx(ctx context.Context, tx *sql.Tx, h
 
 func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, address, port, user, key_name, identity_file, proxy_jump, env_refs, created_at, updated_at, deleted_at
+		SELECT id, name, address, port, user, notes_ciphertext, notes_nonce, key_name, identity_file, proxy_jump, known_hosts_policy, forward_agent, env_refs, created_at, updated_at, deleted_at
 		FROM hosts
 		WHERE name = ? AND deleted_at IS NULL
 	`, name)
@@ -141,12 +146,15 @@ func (r *hostRepository) Get(ctx context.Context, name string) (*Host, error) {
 		return nil, err
 	}
 	host.Tags = tags
+	if err := r.decryptNotes(host); err != nil {
+		return nil, err
+	}
 	return host, nil
 }
 
 func (r *hostRepository) List(ctx context.Context, filter HostFilter) ([]Host, error) {
 	query := `
-		SELECT DISTINCT h.id, h.name, h.address, h.port, h.user, h.key_name, h.identity_file, h.proxy_jump, h.env_refs, h.created_at, h.updated_at, h.deleted_at
+		SELECT DISTINCT h.id, h.name, h.address, h.port, h.user, h.notes_ciphertext, h.notes_nonce, h.key_name, h.identity_file, h.proxy_jump, h.known_hosts_policy, h.forward_agent, h.env_refs, h.created_at, h.updated_at, h.deleted_at
 		FROM hosts h
 	`
 	args := []any{}
@@ -182,6 +190,9 @@ func (r *hostRepository) List(ctx context.Context, filter HostFilter) ([]Host, e
 			return nil, err
 		}
 		host.Tags = tags
+		if err := r.decryptNotes(host); err != nil {
+			return nil, err
+		}
 		out = append(out, *host)
 	}
 	if err := rows.Err(); err != nil {
@@ -206,6 +217,10 @@ func (r *hostRepository) Update(ctx context.Context, host *Host) error {
 	if err != nil {
 		return err
 	}
+	notesCiphertext, notesNonce, err := r.encryptNotes(host)
+	if err != nil {
+		return err
+	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -214,9 +229,9 @@ func (r *hostRepository) Update(ctx context.Context, host *Host) error {
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE hosts
-		SET name = ?, address = ?, port = ?, user = ?, key_name = ?, identity_file = ?, proxy_jump = ?, env_refs = ?, updated_at = ?
+		SET name = ?, address = ?, port = ?, user = ?, notes_ciphertext = ?, notes_nonce = ?, key_name = ?, identity_file = ?, proxy_jump = ?, known_hosts_policy = ?, forward_agent = ?, env_refs = ?, updated_at = ?
 		WHERE id = ? AND deleted_at IS NULL
-	`, host.Name, host.Address, host.Port, host.User, host.KeyName, host.IdentityFile, host.ProxyJump, envRefs, fmtTime(host.UpdatedAt), host.ID)
+	`, host.Name, host.Address, host.Port, host.User, notesCiphertext, notesNonce, host.KeyName, host.IdentityFile, host.ProxyJump, host.KnownHostsPolicy, boolToInt(host.ForwardAgent), envRefs, fmtTime(host.UpdatedAt), host.ID)
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("update host: update row: %w", err)
@@ -318,17 +333,21 @@ type hostScanner interface {
 
 func scanHost(scanner hostScanner) (*Host, error) {
 	var (
-		host         Host
-		keyName      sql.NullString
-		identityFile sql.NullString
-		proxyJump    sql.NullString
-		envRefs      sql.NullString
-		createdAt    string
-		updatedAt    string
-		deletedAt    sql.NullString
+		host               Host
+		notesCiphertext    []byte
+		notesNonce         []byte
+		keyName            sql.NullString
+		identityFile       sql.NullString
+		proxyJump          sql.NullString
+		knownHostsPolicy   sql.NullString
+		forwardAgent       int64
+		envRefs            sql.NullString
+		createdAt          string
+		updatedAt          string
+		deletedAt          sql.NullString
 	)
 
-	if err := scanner.Scan(&host.ID, &host.Name, &host.Address, &host.Port, &host.User, &keyName, &identityFile, &proxyJump, &envRefs, &createdAt, &updatedAt, &deletedAt); err != nil {
+	if err := scanner.Scan(&host.ID, &host.Name, &host.Address, &host.Port, &host.User, &notesCiphertext, &notesNonce, &keyName, &identityFile, &proxyJump, &knownHostsPolicy, &forwardAgent, &envRefs, &createdAt, &updatedAt, &deletedAt); err != nil {
 		return nil, err
 	}
 
@@ -354,5 +373,45 @@ func scanHost(scanner hostScanner) (*Host, error) {
 	host.KeyName = keyName.String
 	host.IdentityFile = identityFile.String
 	host.ProxyJump = proxyJump.String
+	host.KnownHostsPolicy = knownHostsPolicy.String
+	host.ForwardAgent = forwardAgent != 0
+	host.Notes = ""
+	host.rawNotesCiphertext = notesCiphertext
+	host.rawNotesNonce = notesNonce
 	return &host, nil
+}
+
+func (r *hostRepository) encryptNotes(host *Host) (any, any, error) {
+	if host == nil {
+		return nil, nil, fmt.Errorf("host notes: host is nil")
+	}
+	if strings.TrimSpace(host.Notes) == "" {
+		return nil, nil, nil
+	}
+	blob, err := r.vc.EncryptField("host", host.ID, "notes", []byte(host.Notes))
+	if err != nil {
+		return nil, nil, fmt.Errorf("encrypt host notes: %w", err)
+	}
+	return nullableBytes(blob.Ciphertext), nullableBytes(blob.Nonce), nil
+}
+
+func (r *hostRepository) decryptNotes(host *Host) error {
+	if host == nil {
+		return fmt.Errorf("decrypt host notes: host is nil")
+	}
+	if len(host.rawNotesCiphertext) == 0 {
+		host.Notes = ""
+		return nil
+	}
+	plaintext, err := r.vc.DecryptField("host", host.ID, "notes", crypto.EncryptedBlob{
+		Ciphertext: host.rawNotesCiphertext,
+		Nonce:      host.rawNotesNonce,
+	})
+	if err != nil {
+		return fmt.Errorf("decrypt host notes: %w", err)
+	}
+	host.Notes = string(plaintext)
+	host.rawNotesCiphertext = nil
+	host.rawNotesNonce = nil
+	return nil
 }

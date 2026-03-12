@@ -83,11 +83,6 @@ known_hosts_policy_default = "strict"
 forward_agent_default = true
 connect_timeout = "20s"
 
-[ssh_config]
-enabled = true
-path = "/tmp/heimdall.conf"
-auto_sync = false
-
 [audit]
 connection_logging = true
 
@@ -116,9 +111,6 @@ enabled = true
 	require.Equal(t, "strict", cfg.SSH.KnownHostsPolicyDefault)
 	require.True(t, cfg.SSH.ForwardAgentDefault)
 	require.Equal(t, 20*time.Second, cfg.SSH.ConnectTimeout)
-	require.True(t, cfg.SSHConfig.Enabled)
-	require.Equal(t, "/tmp/heimdall.conf", cfg.SSHConfig.Path)
-	require.False(t, cfg.SSHConfig.AutoSync)
 	require.True(t, cfg.Audit.ConnectionLogging)
 	require.Equal(t, "required", cfg.Passkey.UVDefault)
 	require.Equal(t, 6*time.Hour, cfg.Daemon.MaxSessionDuration)
@@ -219,15 +211,10 @@ auto_lock_timeout = "1m"
 	require.Equal(t, time.Minute, cfg.Vault.AutoLockTimeout)
 }
 
-func TestLoadConfigAppliesSSHConfigAndAuditEnvOverrides(t *testing.T) {
+func TestLoadConfigAppliesAuditEnvOverrides(t *testing.T) {
 	t.Parallel()
 
 	cfgPath := writeConfigFile(t, `
-[ssh_config]
-enabled = false
-path = "/tmp/original.conf"
-auto_sync = true
-
 [audit]
 connection_logging = false
 `)
@@ -235,29 +222,11 @@ connection_logging = false
 	cfg, _, err := Load(LoadOptions{
 		ConfigPath: cfgPath,
 		Env: map[string]string{
-			"HEIMDALL_SSH_CONFIG_ENABLED":       "true",
-			"HEIMDALL_SSH_CONFIG_PATH":          "/tmp/override.conf",
-			"HEIMDALL_SSH_CONFIG_AUTO_SYNC":     "false",
 			"HEIMDALL_AUDIT_CONNECTION_LOGGING": "true",
 		},
 	})
 	require.NoError(t, err)
-	require.True(t, cfg.SSHConfig.Enabled)
-	require.Equal(t, "/tmp/override.conf", cfg.SSHConfig.Path)
-	require.False(t, cfg.SSHConfig.AutoSync)
 	require.True(t, cfg.Audit.ConnectionLogging)
-}
-
-func TestLoadConfigRejectsEmptyManagedSSHConfigPath(t *testing.T) {
-	t.Parallel()
-
-	cfgPath := writeConfigFile(t, `
-[ssh_config]
-path = ""
-`)
-
-	_, _, err := Load(LoadOptions{ConfigPath: cfgPath})
-	require.ErrorIs(t, err, ErrInvalidConfig)
 }
 
 func writeConfigFile(t *testing.T, contents string) string {

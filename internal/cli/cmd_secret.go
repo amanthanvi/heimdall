@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
+	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
 	"github.com/spf13/cobra"
 )
 
@@ -123,6 +124,7 @@ func newSecretShowCommand(deps commandDeps) *cobra.Command {
 				return asExitError(ExitCodePermission, fmt.Errorf("secret show requires re-authentication"))
 			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				ctx = withAuditAction(ctx, auditpkg.ActionSecretReveal)
 				resp, err := clients.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: args[0]})
 				if err != nil {
 					return err
@@ -199,6 +201,7 @@ func newSecretExportCommand(deps commandDeps) *cobra.Command {
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				ctx = withAuditAction(ctx, auditpkg.ActionSecretExport)
 				resp, err := clients.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: args[0]})
 				if err != nil {
 					return err
@@ -256,6 +259,7 @@ func newSecretEnvCommand(deps commandDeps) *cobra.Command {
 			}
 
 			err := withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				ctx = withAuditAction(ctx, auditpkg.ActionSecretInject)
 				exitCode, err := runSecretEnv(ctx, clients.secret, secretName, envVar, command, nil, deps.out, deps.errOut)
 				if err != nil {
 					return err

@@ -82,11 +82,6 @@ func NewRootCommandWithWriters(out io.Writer, errOut io.Writer, build BuildInfo)
 		newConnectCommand(deps),
 		newBackupCommand(deps),
 		newAuditCommand(deps),
-		newImportCommand(deps),
-		newExportCommand(deps),
-		newSSHConfigCommand(deps),
-		newTUICommand(deps),
-		newDebugCommand(deps),
 	)
 
 	initCompletionSupport(cmd, deps)

@@ -25,15 +25,21 @@ const connectDisableIdentityPathSentinel = "__heimdall_disable_identity__"
 
 func newConnectCommand(deps commandDeps) *cobra.Command {
 	var (
-		dryRun       bool
-		printCmd     bool
-		jumpHosts    []string
-		forwards     []string
-		user         string
-		port         int32
-		keyName      string
-		identityFile string
-		knownHosts   string
+		dryRun           bool
+		printCmd         bool
+		jumpHosts        []string
+		forwards         []string
+		user             string
+		port             int32
+		keyName          string
+		identityFile     string
+		knownHosts       string
+		knownHostsPolicy string
+		forwardAgent     bool
+		noForwardAgent   bool
+		proxyJumpNone    bool
+		insecureHostKey  bool
+		ignoreSSHConfig  bool
 	)
 
 	cmd := &cobra.Command{
@@ -54,6 +60,9 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				keyExplicit := cmd.Flags().Changed("key")
 				identityExplicit := cmd.Flags().Changed("identity-file")
+				if forwardAgent && noForwardAgent {
+					return usageErrorf("connect cannot combine --forward-agent and --no-forward-agent")
+				}
 
 				hostResp, err := clients.host.GetHost(ctx, &v1.GetHostRequest{Name: hostName})
 				if err != nil {
@@ -66,11 +75,11 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 
 				effectiveKeyName := strings.TrimSpace(keyName)
 				if !keyExplicit && effectiveKeyName == "" {
-					effectiveKeyName = strings.TrimSpace(host.GetEnvRefs()["key_name"])
+					effectiveKeyName = strings.TrimSpace(host.GetKeyName())
 				}
 				effectiveIdentityFile := strings.TrimSpace(identityFile)
 				if !identityExplicit && effectiveIdentityFile == "" {
-					effectiveIdentityFile = strings.TrimSpace(host.GetEnvRefs()["identity_ref"])
+					effectiveIdentityFile = strings.TrimSpace(host.GetIdentityPath())
 				}
 				planIdentityPath := effectiveIdentityFile
 				if keyExplicit && identityExplicit && effectiveKeyName != "" && effectiveIdentityFile != "" {
@@ -85,10 +94,15 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 				}
 				effectiveJumpHosts := append([]string(nil), jumpHosts...)
 				if len(effectiveJumpHosts) == 0 {
-					if defaultJump := strings.TrimSpace(host.GetEnvRefs()["proxy_jump"]); defaultJump != "" {
+					if defaultJump := strings.TrimSpace(host.GetProxyJump()); defaultJump != "" {
 						effectiveJumpHosts = []string{defaultJump}
 					}
 				}
+				effectiveKnownHostsPolicy := strings.TrimSpace(knownHostsPolicy)
+				if effectiveKnownHostsPolicy == "" {
+					effectiveKnownHostsPolicy = strings.TrimSpace(host.GetKnownHostsPolicy())
+				}
+				forwardAgentSet := forwardAgent || noForwardAgent
 				if effectiveKeyName != "" && effectiveIdentityFile != "" {
 					return usageErrorf("connect cannot use --key and --identity-file together")
 				}
@@ -103,15 +117,21 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 				}
 
 				resp, err := clients.connect.Plan(ctx, &v1.PlanConnectRequest{
-					HostName:     hostName,
-					User:         user,
-					Port:         port,
-					JumpHosts:    effectiveJumpHosts,
-					Forwards:     append([]string(nil), forwards...),
-					IdentityPath: planIdentityPath,
-					KnownHosts:   knownHosts,
-					PrintCmd:     printCmd,
-					DryRun:       dryRun,
+					HostName:         hostName,
+					User:             user,
+					Port:             port,
+					JumpHosts:        effectiveJumpHosts,
+					Forwards:         append([]string(nil), forwards...),
+					IdentityPath:     planIdentityPath,
+					KnownHosts:       knownHosts,
+					KnownHostsPolicy: effectiveKnownHostsPolicy,
+					ForwardAgent:     forwardAgent,
+					ForwardAgentSet:  forwardAgentSet,
+					ProxyJumpNone:    proxyJumpNone,
+					InsecureHostkey:  insecureHostKey,
+					IgnoreSshConfig:  ignoreSSHConfig,
+					PrintCmd:         printCmd,
+					DryRun:           dryRun,
 				})
 				if err != nil {
 					return err
@@ -247,6 +267,12 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().StringVar(&keyName, "key", "", "Vault key name for managed SSH agent auth")
 	cmd.Flags().StringVar(&identityFile, "identity-file", "", "Identity file path")
 	cmd.Flags().StringVar(&knownHosts, "known-hosts", "", "Known hosts file path")
+	cmd.Flags().StringVar(&knownHostsPolicy, "known-hosts-policy", "", "Known hosts policy override (tofu|accept-new|strict|off)")
+	cmd.Flags().BoolVar(&forwardAgent, "forward-agent", false, "Enable agent forwarding for this connection")
+	cmd.Flags().BoolVar(&noForwardAgent, "no-forward-agent", false, "Disable agent forwarding for this connection")
+	cmd.Flags().BoolVar(&proxyJumpNone, "no-proxy-jump", false, "Disable any host default ProxyJump")
+	cmd.Flags().BoolVar(&insecureHostKey, "insecure-hostkey", false, "Allow known_hosts policy=off for this connection")
+	cmd.Flags().BoolVar(&ignoreSSHConfig, "ignore-ssh-config", false, "Run ssh with -F /dev/null")
 	return cmd
 }
 

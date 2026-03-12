@@ -35,34 +35,40 @@ const (
 )
 
 type CreateHostRequest struct {
-	Name         string
-	Address      string
-	Port         int
-	User         string
-	Tags         []string
-	Group        string
-	KeyName      string
-	IdentityFile string
-	ProxyJump    string
-	EnvRefs      map[string]string
+	Name             string
+	Address          string
+	Port             int
+	User             string
+	Tags             []string
+	Notes            string
+	KeyName          string
+	IdentityFile     string
+	ProxyJump        string
+	KnownHostsPolicy string
+	ForwardAgent     bool
+	EnvRefs          map[string]string
 }
 
 type UpdateHostRequest struct {
-	Name         string
-	NewName      string
-	Address      *string
-	Port         *int
-	User         *string
-	Tags         *[]string
-	KeyName      *string
-	IdentityFile *string
-	ProxyJump    *string
-	EnvRefs      map[string]string
+	Name                  string
+	NewName               string
+	Address               *string
+	Port                  *int
+	User                  *string
+	Tags                  *[]string
+	Notes                 *string
+	ClearNotes            bool
+	KeyName               *string
+	IdentityFile          *string
+	ProxyJump             *string
+	KnownHostsPolicy      *string
+	ClearKnownHostsPolicy bool
+	ForwardAgent          *bool
+	EnvRefs               map[string]string
 }
 
 type ListHostsRequest struct {
 	Tag    string
-	Group  string
 	Search string
 	SortBy string
 }
@@ -104,77 +110,28 @@ type KeyMeta struct {
 }
 
 type ConnectOpts struct {
-	User         string
-	Port         int
-	JumpHosts    []string
-	Forwards     []string
-	KeyName      string
-	IdentityPath string
-	KnownHosts   string
-	PrintCmd     bool
-	DryRun       bool
+	User             string
+	Port             int
+	JumpHosts        []string
+	Forwards         []string
+	KeyName          string
+	IdentityPath     string
+	KnownHosts       string
+	KnownHostsPolicy string
+	ForwardAgent     bool
+	ForwardAgentSet  bool
+	ProxyJumpNone    bool
+	InsecureHostKey  bool
+	IgnoreSSHConfig  bool
+	PrintCmd         bool
+	DryRun           bool
 }
 
 type ConnectPlan struct {
+	Binary       string
 	Args         []string
 	RedactedArgs []string
-}
-
-type ImportWarning struct {
-	Line    int
-	Message string
-}
-
-type ConflictMode string
-
-const (
-	ConflictModeSkip      ConflictMode = "skip"
-	ConflictModeOverwrite ConflictMode = "overwrite"
-	ConflictModeRename    ConflictMode = "rename"
-)
-
-type ExportBundle struct {
-	Version    int              `json:"version"`
-	Hosts      []ExportHost     `json:"hosts"`
-	Identities []ExportIdentity `json:"identities"`
-	Secrets    []ExportSecret   `json:"secrets"`
-}
-
-type ExportHost struct {
-	Name         string            `json:"name"`
-	Address      string            `json:"address"`
-	Port         int               `json:"port"`
-	User         string            `json:"user,omitempty"`
-	Tags         []string          `json:"tags,omitempty"`
-	KeyName      string            `json:"key_name,omitempty"`
-	IdentityFile string            `json:"identity_file,omitempty"`
-	ProxyJump    string            `json:"proxy_jump,omitempty"`
-	EnvRefs      map[string]string `json:"env_refs,omitempty"`
-}
-
-type ExportIdentity struct {
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	PublicKey string `json:"public_key,omitempty"`
-	Status    string `json:"status,omitempty"`
-}
-
-type ExportSecret struct {
-	Name         string       `json:"name"`
-	RevealPolicy RevealPolicy `json:"reveal_policy,omitempty"`
-	SizeBytes    int64        `json:"size_bytes"`
-}
-
-type ImportCounts struct {
-	Created int `json:"created"`
-	Updated int `json:"updated"`
-	Skipped int `json:"skipped"`
-}
-
-type ImportResult struct {
-	Hosts      ImportCounts `json:"hosts"`
-	Identities ImportCounts `json:"identities"`
-	Secrets    ImportCounts `json:"secrets"`
+	Env          []string
 }
 
 type BackupCreateRequest struct {

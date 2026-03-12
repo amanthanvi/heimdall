@@ -6,9 +6,43 @@ import (
 	"strings"
 	"time"
 
+	v1 "github.com/amanthanvi/heimdall/api/v1"
 	"github.com/amanthanvi/heimdall/internal/audit"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
+
+var knownAuditActions = func() map[string]struct{} {
+	out := make(map[string]struct{}, len(audit.AllActionTypes))
+	for _, action := range audit.AllActionTypes {
+		out[action] = struct{}{}
+	}
+	return out
+}()
+
+var grpcMethodAuditActions = map[string]string{
+	v1.VaultService_Unlock_FullMethodName:          audit.ActionVaultUnlock,
+	v1.VaultService_Lock_FullMethodName:            audit.ActionVaultLock,
+	v1.HostService_CreateHost_FullMethodName:       audit.ActionHostCreate,
+	v1.HostService_DeleteHost_FullMethodName:       audit.ActionHostDelete,
+	v1.SecretService_CreateSecret_FullMethodName:   audit.ActionSecretCreate,
+	v1.SecretService_DeleteSecret_FullMethodName:   audit.ActionSecretDelete,
+	v1.KeyService_DeleteKey_FullMethodName:         audit.ActionKeyDelete,
+	v1.KeyService_RotateKey_FullMethodName:         audit.ActionKeyRotate,
+	v1.KeyService_ExportKey_FullMethodName:         audit.ActionKeyExport,
+	v1.KeyService_AgentAdd_FullMethodName:          audit.ActionKeyAgentAdd,
+	v1.PasskeyService_Enroll_FullMethodName:        audit.ActionPasskeyEnroll,
+	v1.PasskeyService_RemovePasskey_FullMethodName: audit.ActionPasskeyRemove,
+	v1.BackupService_CreateBackup_FullMethodName:   audit.ActionBackupCreate,
+	v1.BackupService_RestoreBackup_FullMethodName:  audit.ActionBackupRestore,
+}
+
+var grpcMethodAuditSkips = map[string]struct{}{
+	v1.SessionService_RecordSessionStart_FullMethodName: {},
+	v1.SessionService_RecordSessionEnd_FullMethodName:   {},
+	v1.ReauthService_VerifyAssertion_FullMethodName:     {},
+	v1.ReauthService_VerifyPassphrase_FullMethodName:    {},
+}
 
 func AuthInterceptor(daemon daemonState, cache *reauthCache) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -76,7 +110,10 @@ func AuditInterceptor(auditSvc *audit.Service, clk clock) grpc.UnaryServerInterc
 		if err != nil {
 			result = "error"
 		}
-		action := grpcMethodToAuditAction(info.FullMethod)
+		action, ok := auditActionForMethod(ctx, info.FullMethod)
+		if !ok {
+			return resp, err
+		}
 		_ = auditSvc.Record(ctx, audit.Event{
 			Timestamp: clk.Now(),
 			Action:    action,
@@ -87,6 +124,45 @@ func AuditInterceptor(auditSvc *audit.Service, clk clock) grpc.UnaryServerInterc
 		})
 		return resp, err
 	}
+}
+
+func auditActionForMethod(ctx context.Context, method string) (string, bool) {
+	if shouldSkipAuditMethod(method) {
+		return "", false
+	}
+	if method == v1.SecretService_GetSecretValue_FullMethodName {
+		if action, ok := auditActionFromMetadata(ctx); ok {
+			return action, true
+		}
+	}
+	if action, ok := grpcMethodAuditActions[method]; ok {
+		return action, true
+	}
+	return grpcMethodToAuditAction(method), true
+}
+
+func shouldSkipAuditMethod(method string) bool {
+	_, ok := grpcMethodAuditSkips[method]
+	return ok
+}
+
+func auditActionFromMetadata(ctx context.Context) (string, bool) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", false
+	}
+	for _, value := range md.Get(auditActionMetadataKey) {
+		action := strings.TrimSpace(value)
+		if isKnownAuditAction(action) {
+			return action, true
+		}
+	}
+	return "", false
+}
+
+func isKnownAuditAction(action string) bool {
+	_, ok := knownAuditActions[action]
+	return ok
 }
 
 func RateLimitInterceptor(daemon daemonState, limiter *rateLimiter) grpc.UnaryServerInterceptor {

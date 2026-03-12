@@ -14,7 +14,6 @@ import (
 	"github.com/amanthanvi/heimdall/internal/app"
 	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
 	configpkg "github.com/amanthanvi/heimdall/internal/config"
-	"github.com/amanthanvi/heimdall/internal/sshconfig"
 	"github.com/amanthanvi/heimdall/internal/storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,7 +32,6 @@ type ServerConfig struct {
 	Daemon             daemonState
 	Store              *storage.Store
 	AuditService       *auditpkg.Service
-	ConfigPath         string
 	RuntimeConfig      configpkg.Config
 	KeyAgent           keyAgent
 	PasskeyEnroller    passkeyEnroller
@@ -117,35 +115,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 }
 
 func (s *Server) newHostService() *app.HostService {
-	return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions, s.hostAutoSyncHook())
-}
-
-func (s *Server) hostAutoSyncHook() func(context.Context) error {
-	return func(ctx context.Context) error {
-		runtimeCfg := s.currentRuntimeConfig()
-		if !runtimeCfg.SSHConfig.Enabled || !runtimeCfg.SSHConfig.AutoSync {
-			return nil
-		}
-		syncService := sshconfig.NewSyncService(s.cfg.Store.Hosts, runtimeCfg.SSHConfig)
-		_, err := syncService.Sync(ctx)
-		return err
-	}
-}
-
-func (s *Server) currentRuntimeConfig() configpkg.Config {
-	if s == nil {
-		return configpkg.DefaultConfig()
-	}
-	if strings.TrimSpace(s.cfg.ConfigPath) == "" {
-		return s.cfg.RuntimeConfig
-	}
-	cfg, _, err := configpkg.Load(configpkg.LoadOptions{
-		ConfigPath: s.cfg.ConfigPath,
-	})
-	if err != nil {
-		return s.cfg.RuntimeConfig
-	}
-	return cfg
+	return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
 }
 
 func (s *Server) GRPCServer() *grpc.Server {
@@ -211,7 +181,12 @@ func (s *Server) ListHosts(ctx context.Context, req *v1.ListHostsRequest) (*v1.L
 			entry.Port = int32(host.Port)
 			entry.User = host.User
 			entry.Tags = append([]string(nil), host.Tags...)
-			entry.EnvRefs = hostEnvRefs(&host)
+			entry.Notes = host.Notes
+			entry.KeyName = host.KeyName
+			entry.IdentityPath = host.IdentityFile
+			entry.ProxyJump = host.ProxyJump
+			entry.KnownHostsPolicy = host.KnownHostsPolicy
+			entry.ForwardAgent = host.ForwardAgent
 		}
 		out = append(out, entry)
 	}
@@ -406,34 +381,31 @@ func (s *Server) ListPasskeys(ctx context.Context, _ *v1.ListPasskeysRequest) (*
 
 func (s *Server) Plan(ctx context.Context, req *v1.PlanConnectRequest) (*v1.PlanConnectResponse, error) {
 	plan, err := s.connectSvc.Plan(ctx, req.GetHostName(), app.ConnectOpts{
-		User:         req.GetUser(),
-		Port:         int(req.GetPort()),
-		JumpHosts:    append([]string(nil), req.GetJumpHosts()...),
-		Forwards:     append([]string(nil), req.GetForwards()...),
-		IdentityPath: req.GetIdentityPath(),
-		KnownHosts:   req.GetKnownHosts(),
-		PrintCmd:     req.GetPrintCmd(),
-		DryRun:       req.GetDryRun(),
+		User:             req.GetUser(),
+		Port:             int(req.GetPort()),
+		JumpHosts:        append([]string(nil), req.GetJumpHosts()...),
+		Forwards:         append([]string(nil), req.GetForwards()...),
+		IdentityPath:     req.GetIdentityPath(),
+		KnownHosts:       req.GetKnownHosts(),
+		KnownHostsPolicy: req.GetKnownHostsPolicy(),
+		ForwardAgent:     req.GetForwardAgent(),
+		ForwardAgentSet:  req.GetForwardAgentSet(),
+		ProxyJumpNone:    req.GetProxyJumpNone(),
+		InsecureHostKey:  req.GetInsecureHostkey(),
+		IgnoreSSHConfig:  req.GetIgnoreSshConfig(),
+		PrintCmd:         req.GetPrintCmd(),
+		DryRun:           req.GetDryRun(),
 	})
 	if err != nil {
 		return nil, grpcstatus.Errorf(codes.InvalidArgument, "plan connect: %v", err)
 	}
 
-	binary := "ssh"
-	args := append([]string(nil), plan.Args...)
-	redacted := append([]string(nil), plan.RedactedArgs...)
-	if len(args) > 0 {
-		binary = args[0]
-		args = args[1:]
-	}
-	if len(redacted) > 0 {
-		redacted = redacted[1:]
-	}
 	return &v1.PlanConnectResponse{
 		Command: &v1.SSHCommand{
-			Binary:       binary,
-			Args:         args,
-			RedactedArgs: redacted,
+			Binary:       plan.Binary,
+			Args:         append([]string(nil), plan.Args...),
+			RedactedArgs: append([]string(nil), plan.RedactedArgs...),
+			Env:          append([]string(nil), plan.Env...),
 		},
 	}, nil
 }

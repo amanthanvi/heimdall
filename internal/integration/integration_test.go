@@ -108,26 +108,82 @@ func (h *cliHarness) env() []string {
 	}
 }
 
-func TestIntegrationSSHConfigEnableAutoSyncOnHostAdd(t *testing.T) {
+func TestIntegrationHostDefaultsRoundTripAndConnectPlan(t *testing.T) {
 	h := newHarness(t)
-	managedPath := filepath.Join(h.home, ".ssh", "config.d", "heimdall.conf")
+	identityPath := filepath.Join(h.home, ".ssh", "id_prod")
 
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
-	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "prod", "--address", "192.168.1.186", "--user", "kali"), "host add --name prod --address 192.168.1.186 --user kali")
-	requireSuccess(t, h.run(10*time.Second, "ssh-config", "enable", "--path", managedPath), "ssh-config enable --path <managed path>")
+	requireSuccess(t, h.run(10*time.Second, "key", "generate", "--name", "deploy"), "key generate --name deploy")
+	requireSuccess(
+		t,
+		h.run(
+			10*time.Second,
+			"host", "add",
+			"--name", "prod",
+			"--address", "192.168.1.186",
+			"--user", "kali",
+			"--tag", "critical",
+			"--notes", "primary prod access",
+			"--key", "deploy",
+			"--proxy-jump", "bastion",
+			"--known-hosts-policy", "accept-new",
+			"--forward-agent",
+		),
+		"host add --name prod --address 192.168.1.186 --user kali --tag critical --notes 'primary prod access' --key deploy --proxy-jump bastion --known-hosts-policy accept-new --forward-agent",
+	)
 
-	showOut := requireSuccess(t, h.run(10*time.Second, "ssh-config", "show"), "ssh-config show")
-	require.Contains(t, showOut, "Host prod")
+	showOut := requireSuccess(t, h.run(10*time.Second, "--json", "host", "show", "prod"), "--json host show prod")
+	var created map[string]any
+	require.NoError(t, json.Unmarshal([]byte(showOut), &created))
+	require.Equal(t, "primary prod access", created["notes"])
+	require.Equal(t, "deploy", created["key_name"])
+	require.Equal(t, "bastion", created["proxy_jump"])
+	require.Equal(t, "accept-new", created["known_hosts_policy"])
+	require.Equal(t, true, created["forward_agent"])
 
-	requireSuccess(t, h.run(10*time.Second, "host", "add", "--name", "staging", "--address", "10.0.0.20", "--user", "ubuntu"), "host add --name staging --address 10.0.0.20 --user ubuntu")
+	planOut := requireSuccess(t, h.run(10*time.Second, "--json", "connect", "prod", "--dry-run"), "--json connect prod --dry-run")
+	var initialPlan map[string]any
+	require.NoError(t, json.Unmarshal([]byte(planOut), &initialPlan))
+	initialArgs := strings.Join(stringSliceFromAny(t, initialPlan["args"]), " ")
+	require.Contains(t, initialArgs, "-J bastion")
+	require.Contains(t, initialArgs, "-A")
+	require.Contains(t, initialArgs, "StrictHostKeyChecking=accept-new")
+	require.Equal(t, map[string]any{"mode": "managed-agent", "key": "deploy", "ttl": "30m0s"}, initialPlan["auth"])
 
-	diffOut := requireSuccess(t, h.run(10*time.Second, "ssh-config", "diff"), "ssh-config diff")
-	require.Contains(t, diffOut, "ssh-config up-to-date")
+	requireSuccess(
+		t,
+		h.run(
+			10*time.Second,
+			"host", "edit", "prod",
+			"--identity-file", identityPath,
+			"--clear-key",
+			"--clear-proxy-jump",
+			"--known-hosts-policy", "strict",
+			"--no-forward-agent",
+			"--notes", "break glass",
+		),
+		"host edit prod --identity-file <path> --clear-key --clear-proxy-jump --known-hosts-policy strict --no-forward-agent --notes 'break glass'",
+	)
 
-	fragmentBytes, err := os.ReadFile(managedPath)
-	require.NoError(t, err)
-	require.Contains(t, string(fragmentBytes), "Host staging")
+	editedOut := requireSuccess(t, h.run(10*time.Second, "--json", "host", "show", "prod"), "--json host show prod")
+	var edited map[string]any
+	require.NoError(t, json.Unmarshal([]byte(editedOut), &edited))
+	require.Equal(t, "break glass", edited["notes"])
+	require.Equal(t, identityPath, edited["identity_path"])
+	require.Equal(t, "", optionalStringFromMap(edited, "key_name"))
+	require.Equal(t, "", optionalStringFromMap(edited, "proxy_jump"))
+	require.Equal(t, "strict", edited["known_hosts_policy"])
+	require.False(t, optionalBoolFromMap(edited, "forward_agent"))
+
+	updatedPlanOut := requireSuccess(t, h.run(10*time.Second, "--json", "connect", "prod", "--dry-run"), "--json connect prod --dry-run")
+	var updatedPlan map[string]any
+	require.NoError(t, json.Unmarshal([]byte(updatedPlanOut), &updatedPlan))
+	updatedArgs := strings.Join(stringSliceFromAny(t, updatedPlan["args"]), " ")
+	require.Contains(t, updatedArgs, "-i "+identityPath)
+	require.Contains(t, updatedArgs, "StrictHostKeyChecking=yes")
+	require.NotContains(t, updatedArgs, "-J bastion")
+	require.NotContains(t, updatedArgs, "-A")
 }
 
 func (h *cliHarness) run(timeout time.Duration, args ...string) cliResult {
@@ -259,10 +315,9 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	require.Contains(t, listOut, "restore-me")
 }
 
-func TestIntegrationBackupCreateAfterHostListAndShowRestoresValidSQLite(t *testing.T) {
+func TestIntegrationBackupCreateAfterAuditVerificationRestoresValidSQLite(t *testing.T) {
 	source := newHarness(t)
 	backupPath := filepath.Join(source.home, "vault.backup")
-	exportPath := filepath.Join(source.home, "export.json")
 	privateKeyPath := filepath.Join(source.home, "deploy.key")
 	secretPath := filepath.Join(source.home, "secret.txt")
 
@@ -274,7 +329,11 @@ func TestIntegrationBackupCreateAfterHostListAndShowRestoresValidSQLite(t *testi
 	requireSuccess(t, source.run(10*time.Second, "secret", "export", "api_token", "--reauth", "--output", secretPath), "secret export api_token --reauth --output <path>")
 	requireSuccess(t, source.run(10*time.Second, "key", "generate", "--name", "deploy"), "key generate --name deploy")
 	requireSuccess(t, source.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", privateKeyPath), "key export deploy --private --reauth --output <path>")
-	requireSuccess(t, source.run(10*time.Second, "export", "--format", "json", "--output", exportPath), "export --format json --output <path>")
+	auditListOut := requireSuccess(t, source.run(10*time.Second, "audit", "list", "--limit", "20"), "audit list --limit 20")
+	require.Contains(t, auditListOut, "action=secret.export")
+	require.Contains(t, auditListOut, "action=key.export")
+	auditVerifyOut := requireSuccess(t, source.run(10*time.Second, "audit", "verify"), "audit verify")
+	require.Contains(t, auditVerifyOut, "valid=true")
 	requireSuccess(t, source.run(10*time.Second, "host", "list", "--json"), "host list --json")
 	requireSuccess(t, source.run(10*time.Second, "host", "show", "prod", "--json"), "host show prod --json")
 	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
@@ -368,4 +427,36 @@ func requireSQLiteIntegrityOK(t *testing.T, dbPath string) {
 	err = db.QueryRow(`PRAGMA integrity_check`).Scan(&result)
 	require.NoError(t, err)
 	require.Equal(t, "ok", result)
+}
+
+func stringSliceFromAny(t *testing.T, value any) []string {
+	t.Helper()
+
+	items, ok := value.([]any)
+	require.True(t, ok, "expected []any, got %T", value)
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		require.True(t, ok, "expected string item, got %T", item)
+		out = append(out, text)
+	}
+	return out
+}
+
+func optionalStringFromMap(values map[string]any, key string) string {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return ""
+	}
+	text, _ := value.(string)
+	return text
+}
+
+func optionalBoolFromMap(values map[string]any, key string) bool {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return false
+	}
+	flag, _ := value.(bool)
+	return flag
 }

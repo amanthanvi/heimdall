@@ -88,10 +88,7 @@ func registerDynamicCompletions(root *cobra.Command, deps commandDeps) {
 	registerFlagCompletion(root, []string{"vault", "unlock"}, "passkey-label", passkeyLabels)
 
 	registerFlagCompletion(root, []string{"key", "generate"}, "type", staticCompletion("ed25519", "rsa"))
-	registerFlagCompletion(root, []string{"import"}, "format", staticCompletion("json", "ssh-config"))
-	registerFlagCompletion(root, []string{"export"}, "format", staticCompletion("json"))
 	registerFlagCompletion(root, []string{"audit", "list"}, "action", staticCompletion(auditpkg.AllActionTypes...))
-	registerFlagCompletion(root, []string{"ssh-config", "enable"}, "path", completeFilesystemPaths())
 }
 
 func registerValidArgs(root *cobra.Command, path []string, fn func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective)) {
