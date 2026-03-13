@@ -78,7 +78,6 @@ func NewRootCommandWithWriters(out io.Writer, errOut io.Writer, build BuildInfo)
 		newHostCommand(deps),
 		newSecretCommand(deps),
 		newKeyCommand(deps),
-		newPasskeyCommand(deps),
 		newConnectCommand(deps),
 		newBackupCommand(deps),
 		newAuditCommand(deps),

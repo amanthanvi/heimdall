@@ -18,7 +18,8 @@ func newKeyCommand(deps commandDeps) *cobra.Command {
 		"SSH key management",
 		"  heimdall key generate --name deploy\n"+
 			"  heimdall key list\n"+
-			"  heimdall key export deploy --private --reauth --output ./deploy.key",
+			"  heimdall vault reauth --passphrase \"dev-pass\"\n"+
+			"  heimdall key export deploy --private --output ./deploy.key",
 		map[string]string{},
 	)
 	cmd.AddCommand(
@@ -210,13 +211,13 @@ func newKeyExportCommand(deps commandDeps) *cobra.Command {
 	var (
 		outputPath string
 		private    bool
-		reauth     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "export <name>",
 		Short: "Export key material",
 		Example: "  heimdall key export deploy\n" +
-			"  heimdall key export deploy --private --reauth --output ./deploy.key",
+			"  heimdall vault reauth --passphrase \"dev-pass\"\n" +
+			"  heimdall key export deploy --private --output ./deploy.key",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("key export requires a key name")
@@ -224,30 +225,30 @@ func newKeyExportCommand(deps commandDeps) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if private && !reauth {
-				return asExitError(ExitCodePermission, fmt.Errorf("key export --private requires re-authentication"))
-			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
-				resp, err := clients.key.ExportKey(ctx, &v1.ExportKeyRequest{Name: args[0]})
-				if err != nil {
-					return err
-				}
-
 				if !private {
+					resp, err := clients.key.ShowKey(ctx, &v1.ShowKeyRequest{Name: args[0]})
+					if err != nil {
+						return err
+					}
 					if deps.globals.JSON {
 						return printJSON(deps.out, map[string]any{
-							"name":       resp.GetName(),
-							"key_type":   resp.GetKeyType(),
-							"public_key": resp.GetPublicKey(),
+							"name":       resp.GetKey().GetName(),
+							"key_type":   resp.GetKey().GetKeyType(),
+							"public_key": resp.GetKey().GetPublicKey(),
 						})
 					}
 					if deps.globals.Quiet {
 						return nil
 					}
-					_, err = fmt.Fprintln(deps.out, resp.GetPublicKey())
+					_, err = fmt.Fprintln(deps.out, resp.GetKey().GetPublicKey())
 					return err
 				}
 
+				resp, err := clients.key.ExportKey(ctx, &v1.ExportKeyRequest{Name: args[0]})
+				if err != nil {
+					return err
+				}
 				if strings.TrimSpace(outputPath) == "" {
 					return usageErrorf("key export --private requires --output")
 				}
@@ -274,7 +275,6 @@ func newKeyExportCommand(deps commandDeps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&outputPath, "output", "", "Output path for private key")
 	cmd.Flags().BoolVar(&private, "private", false, "Export private key material")
-	cmd.Flags().BoolVar(&reauth, "reauth", false, "Confirm re-authentication completed")
 	return cmd
 }
 

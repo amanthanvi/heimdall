@@ -91,13 +91,13 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 			"",
 			"Recommended workflow:",
 			"  1) Initialize and unlock the target vault/config once.",
-			"  2) If replacing an existing target vault, remove that vault file first.",
-			"  3) Run restore with --from and --passphrase.",
+			"  2) Run restore with --from and --passphrase.",
+			"  3) If replacing an existing target vault, pass --overwrite after vault reauth.",
 			"  4) Restart daemon, then unlock the restored vault.",
 			"",
 			"Notes:",
 			"  - --overwrite requires a recent re-authentication window.",
-			"  - Restoring into an uninitialized target path can fail daemon startup.",
+			"  - Overwrite restores are staged and applied on the next daemon start/restart.",
 			"  - Restored vault unlock credentials come from the backup source vault.",
 		}, "\n"),
 		Example: "  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
@@ -231,6 +231,10 @@ func newAuditVerifyCommand(deps commandDeps) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				var invalidChainErr error
+				if !resp.GetValid() {
+					invalidChainErr = &ExitError{Code: ExitCodeGeneric}
+				}
 				payload := map[string]any{
 					"valid":       resp.GetValid(),
 					"event_count": resp.GetEventCount(),
@@ -238,10 +242,13 @@ func newAuditVerifyCommand(deps commandDeps) *cobra.Command {
 					"error":       resp.GetError(),
 				}
 				if deps.globals.JSON {
-					return printJSON(deps.out, payload)
+					if err := printJSON(deps.out, payload); err != nil {
+						return err
+					}
+					return invalidChainErr
 				}
 				if deps.globals.Quiet {
-					return nil
+					return invalidChainErr
 				}
 				_, err = fmt.Fprintf(
 					deps.out,
@@ -251,7 +258,10 @@ func newAuditVerifyCommand(deps commandDeps) *cobra.Command {
 					resp.GetChainTip(),
 					resp.GetError(),
 				)
-				return err
+				if err != nil {
+					return err
+				}
+				return invalidChainErr
 			})
 		},
 	}

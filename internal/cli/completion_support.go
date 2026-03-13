@@ -37,6 +37,20 @@ func hardenDefaultCompletionCommands(root *cobra.Command) {
 	if completionCmd == nil {
 		return
 	}
+	bashCmd := findSubcommand(completionCmd, completionShellBash)
+	if bashCmd != nil {
+		bashCmd.RunE = func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErrorf("completion bash does not accept positional arguments")
+			}
+			script, err := generateCompletionScript(root, completionShellBash)
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(script)
+			return err
+		}
+	}
 	zshCmd := findSubcommand(completionCmd, completionShellZsh)
 	if zshCmd == nil {
 		return
@@ -58,37 +72,49 @@ func registerDynamicCompletions(root *cobra.Command, deps commandDeps) {
 	hostNames := completeHostNames(deps)
 	keyNames := completeKeyNames(deps)
 	secretNames := completeSecretNames(deps)
-	passkeyLabels := completePasskeyLabels(deps)
+	knownHostsPolicies := staticCompletion("tofu", "accept-new", "strict", "off")
+
+	registerFlagCompletion(root, []string{}, "vault", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{}, "config", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{"completion", "install"}, "path", completeFilesystemPaths())
 
 	registerValidArgs(root, []string{"connect"}, hostNames)
 	registerFlagCompletion(root, []string{"connect"}, "key", keyNames)
 	registerFlagCompletion(root, []string{"connect"}, "jump", hostNames)
+	registerFlagCompletion(root, []string{"connect"}, "identity-file", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{"connect"}, "known-hosts", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{"connect"}, "known-hosts-policy", knownHostsPolicies)
 
 	registerValidArgs(root, []string{"host", "show"}, hostNames)
 	registerValidArgs(root, []string{"host", "edit"}, hostNames)
 	registerValidArgs(root, []string{"host", "remove"}, hostNames)
 	registerFlagCompletion(root, []string{"host", "add"}, "key", keyNames)
 	registerFlagCompletion(root, []string{"host", "edit"}, "key", keyNames)
+	registerFlagCompletion(root, []string{"host", "add"}, "identity-file", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{"host", "edit"}, "identity-file", completeFilesystemPaths())
 	registerFlagCompletion(root, []string{"host", "add"}, "proxy-jump", hostNames)
 	registerFlagCompletion(root, []string{"host", "edit"}, "proxy-jump", hostNames)
+	registerFlagCompletion(root, []string{"host", "add"}, "known-hosts-policy", knownHostsPolicies)
+	registerFlagCompletion(root, []string{"host", "edit"}, "known-hosts-policy", knownHostsPolicies)
 
 	registerValidArgs(root, []string{"key", "show"}, keyNames)
 	registerValidArgs(root, []string{"key", "remove"}, keyNames)
 	registerValidArgs(root, []string{"key", "rotate"}, keyNames)
 	registerValidArgs(root, []string{"key", "export"}, keyNames)
 	registerValidArgs(root, []string{"key", "agent", "add"}, keyNames)
+	registerFlagCompletion(root, []string{"key", "import"}, "from", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{"key", "export"}, "output", completeFilesystemPaths())
 
 	registerValidArgs(root, []string{"secret", "show"}, secretNames)
 	registerValidArgs(root, []string{"secret", "remove"}, secretNames)
 	registerValidArgs(root, []string{"secret", "export"}, secretNames)
 	registerValidArgs(root, []string{"secret", "env"}, secretNames)
-
-	registerValidArgs(root, []string{"passkey", "remove"}, passkeyLabels)
-	registerValidArgs(root, []string{"passkey", "test"}, passkeyLabels)
-	registerFlagCompletion(root, []string{"vault", "unlock"}, "passkey-label", passkeyLabels)
+	registerFlagCompletion(root, []string{"secret", "export"}, "output", completeFilesystemPaths())
 
 	registerFlagCompletion(root, []string{"key", "generate"}, "type", staticCompletion("ed25519", "rsa"))
 	registerFlagCompletion(root, []string{"audit", "list"}, "action", staticCompletion(auditpkg.AllActionTypes...))
+	registerFlagCompletion(root, []string{"backup", "create"}, "output", completeFilesystemPaths())
+	registerFlagCompletion(root, []string{"backup", "restore"}, "from", completeFilesystemPaths())
 }
 
 func registerValidArgs(root *cobra.Command, path []string, fn func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective)) {
@@ -177,26 +203,6 @@ func completeSecretNames(deps commandDeps) func(*cobra.Command, []string, string
 			out := make([]string, 0, len(resp.GetSecrets()))
 			for _, secret := range resp.GetSecrets() {
 				out = append(out, secret.GetName())
-			}
-			return out, nil
-		})
-		if err != nil {
-			return completionError(err)
-		}
-		return items, directive
-	}
-}
-
-func completePasskeyLabels(deps commandDeps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		items, directive, err := listCompletionNames(deps, toComplete, func(ctx context.Context, clients daemonClients) ([]string, error) {
-			resp, err := clients.passkey.ListPasskeys(ctx, &v1.ListPasskeysRequest{})
-			if err != nil {
-				return nil, err
-			}
-			out := make([]string, 0, len(resp.GetPasskeys()))
-			for _, passkey := range resp.GetPasskeys() {
-				out = append(out, passkey.GetLabel())
 			}
 			return out, nil
 		})
@@ -444,6 +450,7 @@ func generateCompletionScript(root *cobra.Command, shellName string) ([]byte, er
 		if err := root.GenBashCompletion(&buf); err != nil {
 			return nil, fmt.Errorf("completion install: generate bash completion: %w", err)
 		}
+		return []byte(hardenBashCompletionScript(buf.String())), nil
 	case completionShellZsh:
 		if err := root.GenZshCompletion(&buf); err != nil {
 			return nil, fmt.Errorf("completion install: generate zsh completion: %w", err)
@@ -457,6 +464,70 @@ func generateCompletionScript(root *cobra.Command, shellName string) ([]byte, er
 		return nil, usageErrorf("unsupported shell %q", shellName)
 	}
 	return buf.Bytes(), nil
+}
+
+func hardenBashCompletionScript(script string) string {
+	const initNeedle = "__heimdall_init_completion()\n{\n"
+	const compatHelper = "if ! declare -F _get_comp_words_by_ref >/dev/null 2>&1; then\n" +
+		"_get_comp_words_by_ref()\n" +
+		"{\n" +
+		"    local curVar=\"\" prevVar=\"\" wordsVar=\"\" cwordVar=\"\" prevIndex\n" +
+		"    while [[ $# -gt 0 ]]; do\n" +
+		"        case \"$1\" in\n" +
+		"            -n)\n" +
+		"                shift 2\n" +
+		"                ;;\n" +
+		"            -*)\n" +
+		"                shift\n" +
+		"                ;;\n" +
+		"            cur|prev|words|cword)\n" +
+		"                break\n" +
+		"                ;;\n" +
+		"            *)\n" +
+		"                break\n" +
+		"                ;;\n" +
+		"        esac\n" +
+		"    done\n" +
+		"    while [[ $# -gt 0 ]]; do\n" +
+		"        case \"$1\" in\n" +
+		"            cur)\n" +
+		"                curVar=$1\n" +
+		"                ;;\n" +
+		"            prev)\n" +
+		"                prevVar=$1\n" +
+		"                ;;\n" +
+		"            words)\n" +
+		"                wordsVar=$1\n" +
+		"                ;;\n" +
+		"            cword)\n" +
+		"                cwordVar=$1\n" +
+		"                ;;\n" +
+		"        esac\n" +
+		"        shift\n" +
+		"    done\n" +
+		"    if [[ -n ${curVar} ]]; then\n" +
+		"        printf -v \"${curVar}\" '%s' \"${COMP_WORDS[COMP_CWORD]}\"\n" +
+		"    fi\n" +
+		"    if [[ -n ${prevVar} ]]; then\n" +
+		"        prevIndex=$((COMP_CWORD-1))\n" +
+		"        if (( prevIndex < 0 )); then\n" +
+		"            printf -v \"${prevVar}\" '%s' \"\"\n" +
+		"        else\n" +
+		"            printf -v \"${prevVar}\" '%s' \"${COMP_WORDS[prevIndex]}\"\n" +
+		"        fi\n" +
+		"    fi\n" +
+		"    if [[ -n ${wordsVar} ]]; then\n" +
+		"        eval \"${wordsVar}=(\\\"\\${COMP_WORDS[@]}\\\")\"\n" +
+		"    fi\n" +
+		"    if [[ -n ${cwordVar} ]]; then\n" +
+		"        printf -v \"${cwordVar}\" '%s' \"${COMP_CWORD}\"\n" +
+		"    fi\n" +
+		"}\n" +
+		"fi\n\n"
+	if strings.Contains(script, "if ! declare -F _get_comp_words_by_ref >/dev/null 2>&1; then") {
+		return script
+	}
+	return strings.Replace(script, initNeedle, compatHelper+initNeedle, 1)
 }
 
 func hardenZSHCompletionScript(script string) string {

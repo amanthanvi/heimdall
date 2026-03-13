@@ -54,7 +54,6 @@ func (s *Server) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.UnlockR
 	}
 
 	s.reauthCache.clear()
-	s.reauthCache.mark(callerFromContext(ctx, s.cfg.Daemon))
 	return &v1.UnlockResponse{Unlocked: true}, nil
 }
 
@@ -111,7 +110,7 @@ func (s *Server) UpdateHost(ctx context.Context, req *v1.UpdateHostRequest) (*v1
 	}
 
 	if req.GetClearTags() {
-		tags := []string{}
+		tags := append([]string(nil), req.GetTags()...)
 		updateReq.Tags = &tags
 	} else if len(req.GetTags()) > 0 {
 		tags := append([]string(nil), req.GetTags()...)
@@ -162,7 +161,7 @@ func (s *Server) DeleteHost(ctx context.Context, req *v1.DeleteHostRequest) (*v1
 }
 
 func (s *Server) CreateSecret(ctx context.Context, req *v1.CreateSecretRequest) (*v1.CreateSecretResponse, error) {
-	secretSvc := app.NewSecretService(s.cfg.Store.Secrets)
+	secretSvc := s.newSecretService()
 	meta, err := secretSvc.Create(ctx, app.CreateSecretRequest{
 		Name:         req.GetName(),
 		Value:        append([]byte(nil), req.GetValue()...),
@@ -386,17 +385,24 @@ func (s *Server) VerifyChain(ctx context.Context, _ *v1.VerifyChainRequest) (*v1
 
 func (s *Server) RestoreBackup(ctx context.Context, req *v1.RestoreBackupRequest) (*v1.RestoreBackupResponse, error) {
 	backupSvc := app.NewBackupService(s.cfg.Store)
+	ctx = s.withAppReauth(ctx)
 	targetVaultPath, err := backupSvcMainDBPath(ctx, s.cfg.Store)
 	if err != nil {
 		return nil, grpcstatus.Errorf(codes.Internal, "restore backup: %v", err)
 	}
+	if err := app.RemoveBackupRestorePending(targetVaultPath); err != nil {
+		return nil, grpcstatus.Errorf(codes.Internal, "restore backup: %v", err)
+	}
+	restoreTargetPath := app.BackupRestorePendingPath(targetVaultPath)
+	existingTargetPath := targetVaultPath
 
 	_, err = backupSvc.Restore(ctx, app.BackupRestoreRequest{
-		InputPath:       req.GetInputPath(),
-		Passphrase:      []byte(req.GetPassphrase()),
-		TargetVaultPath: targetVaultPath,
-		Confirm:         req.GetOverwrite(),
-		Overwrite:       req.GetOverwrite(),
+		InputPath:          req.GetInputPath(),
+		Passphrase:         []byte(req.GetPassphrase()),
+		TargetVaultPath:    restoreTargetPath,
+		ExistingTargetPath: existingTargetPath,
+		Confirm:            req.GetOverwrite(),
+		Overwrite:          req.GetOverwrite(),
 	})
 	if err != nil {
 		return nil, mapAppError("restore backup", err)

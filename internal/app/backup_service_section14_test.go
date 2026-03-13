@@ -271,6 +271,52 @@ func TestBackupRestoreOverwriteRequiresConfirmationAndReauth(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestBackupRestoreUsesExistingTargetPathForOverwriteChecks(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	backupPath := filepath.Join(t.TempDir(), "vault.hbk")
+	svc := NewBackupService(store)
+	_, err := svc.Create(context.Background(), BackupCreateRequest{
+		OutputPath: backupPath,
+		Passphrase: []byte("correct-pass"),
+		KnownHosts: createKnownHostsFixture(t),
+		ConfigPath: createConfigFixture(t),
+	})
+	require.NoError(t, err)
+
+	existingTargetPath := filepath.Join(t.TempDir(), "existing.db")
+	stagedTargetPath := BackupRestorePendingPath(existingTargetPath)
+	require.NoError(t, os.WriteFile(existingTargetPath, []byte("existing"), 0o600))
+
+	_, err = svc.Restore(context.Background(), BackupRestoreRequest{
+		InputPath:          backupPath,
+		Passphrase:         []byte("correct-pass"),
+		TargetVaultPath:    stagedTargetPath,
+		ExistingTargetPath: existingTargetPath,
+		Overwrite:          false,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--overwrite")
+
+	_, err = svc.Restore(WithReauth(context.Background()), BackupRestoreRequest{
+		InputPath:          backupPath,
+		Passphrase:         []byte("correct-pass"),
+		TargetVaultPath:    stagedTargetPath,
+		ExistingTargetPath: existingTargetPath,
+		Confirm:            true,
+		Overwrite:          true,
+	})
+	require.NoError(t, err)
+	_, err = os.Stat(stagedTargetPath)
+	require.NoError(t, err)
+	raw, err := os.ReadFile(existingTargetPath)
+	require.NoError(t, err)
+	require.Equal(t, "existing", string(raw))
+}
+
 func TestBackupCreateUnencryptedRequiresYesAndReauth(t *testing.T) {
 	t.Parallel()
 

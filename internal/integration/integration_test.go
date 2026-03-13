@@ -262,7 +262,7 @@ func TestIntegrationLifecycleSecretShowEnvDelete(t *testing.T) {
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "secret", "add", "--name", "api_token", "--value", "super-secret"), "secret add --name api_token --value super-secret")
-	showOut := requireSuccess(t, h.run(10*time.Second, "secret", "show", "api_token", "--reauth"), "secret show api_token --reauth")
+	showOut := requireSuccess(t, h.run(10*time.Second, "secret", "show", "api_token"), "secret show api_token")
 	require.Contains(t, showOut, "super-secret")
 	envOut := requireSuccess(
 		t,
@@ -271,6 +271,7 @@ func TestIntegrationLifecycleSecretShowEnvDelete(t *testing.T) {
 	)
 	require.Contains(t, envOut, "ok")
 	require.NotContains(t, envOut, "super-secret")
+	requireSuccess(t, h.run(10*time.Second, "vault", "reauth", "--passphrase", "integration-pass"), "vault reauth --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "secret", "remove", "api_token"), "secret remove api_token")
 }
 
@@ -281,7 +282,8 @@ func TestIntegrationLifecycleKeyGenerateExportDelete(t *testing.T) {
 	requireSuccess(t, h.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, h.run(10*time.Second, "key", "generate", "--name", "deploy"), "key generate --name deploy")
-	requireSuccess(t, h.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", exportPath), "key export deploy --private --reauth --output <path>")
+	requireSuccess(t, h.run(10*time.Second, "vault", "reauth", "--passphrase", "integration-pass"), "vault reauth --passphrase integration-pass")
+	requireSuccess(t, h.run(10*time.Second, "key", "export", "deploy", "--private", "--output", exportPath), "key export deploy --private --output <path>")
 	keyBytes, err := os.ReadFile(exportPath)
 	require.NoError(t, err)
 	require.NotEmpty(t, keyBytes)
@@ -301,12 +303,10 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	target := newHarness(t)
 	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "target-pass"), "init --yes --passphrase target-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
-	require.NoError(t, os.Remove(target.vaultPath))
-	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
-	// After restore the vault file on disk is replaced, but the daemon's
-	// SQLite connection still points to the old (deleted) inode. Restart
-	// so the daemon reopens the restored file, then unlock to derive the
-	// source vault's VMK from the restored wrapped VMK bundle.
+	restoreOut := requireFailure(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
+	require.Contains(t, strings.ToLower(restoreOut), "re-auth")
+	requireSuccess(t, target.run(10*time.Second, "vault", "reauth", "--passphrase", "target-pass"), "vault reauth --passphrase target-pass")
+	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
 	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
 	wrongPassOut := requireFailure(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
 	require.Contains(t, strings.ToLower(wrongPassOut), "invalid")
@@ -326,9 +326,10 @@ func TestIntegrationBackupCreateAfterAuditVerificationRestoresValidSQLite(t *tes
 	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "prod", "--address", "10.0.0.10", "--user", "ubuntu"), "host add --name prod --address 10.0.0.10 --user ubuntu")
 	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "staging", "--address", "10.0.0.11", "--user", "root"), "host add --name staging --address 10.0.0.11 --user root")
 	requireSuccess(t, source.run(10*time.Second, "secret", "add", "--name", "api_token", "--value", "super-secret"), "secret add --name api_token --value super-secret")
-	requireSuccess(t, source.run(10*time.Second, "secret", "export", "api_token", "--reauth", "--output", secretPath), "secret export api_token --reauth --output <path>")
+	requireSuccess(t, source.run(10*time.Second, "secret", "export", "api_token", "--output", secretPath), "secret export api_token --output <path>")
 	requireSuccess(t, source.run(10*time.Second, "key", "generate", "--name", "deploy"), "key generate --name deploy")
-	requireSuccess(t, source.run(10*time.Second, "key", "export", "deploy", "--private", "--reauth", "--output", privateKeyPath), "key export deploy --private --reauth --output <path>")
+	requireSuccess(t, source.run(10*time.Second, "vault", "reauth", "--passphrase", "integration-pass"), "vault reauth --passphrase integration-pass")
+	requireSuccess(t, source.run(10*time.Second, "key", "export", "deploy", "--private", "--output", privateKeyPath), "key export deploy --private --output <path>")
 	auditListOut := requireSuccess(t, source.run(10*time.Second, "audit", "list", "--limit", "20"), "audit list --limit 20")
 	require.Contains(t, auditListOut, "action=secret.export")
 	require.Contains(t, auditListOut, "action=key.export")
@@ -341,11 +342,10 @@ func TestIntegrationBackupCreateAfterAuditVerificationRestoresValidSQLite(t *tes
 	target := newHarness(t)
 	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "target-pass"), "init --yes --passphrase target-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
-	require.NoError(t, os.Remove(target.vaultPath))
-	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
-	requireSQLiteIntegrityOK(t, target.vaultPath)
-
+	requireSuccess(t, target.run(10*time.Second, "vault", "reauth", "--passphrase", "target-pass"), "vault reauth --passphrase target-pass")
+	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
 	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
+	requireSQLiteIntegrityOK(t, target.vaultPath)
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	listOut := requireSuccess(t, target.run(10*time.Second, "host", "list", "--names-only"), "host list --names-only")
 	require.Contains(t, listOut, "prod")

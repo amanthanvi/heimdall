@@ -17,6 +17,7 @@ import (
 	"time"
 
 	agentpkg "github.com/amanthanvi/heimdall/internal/agent"
+	"github.com/amanthanvi/heimdall/internal/app"
 	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
 	"github.com/amanthanvi/heimdall/internal/config"
 	cryptopkg "github.com/amanthanvi/heimdall/internal/crypto"
@@ -60,6 +61,9 @@ func runDaemonServe(ctx context.Context, deps commandDeps) (err error) {
 	vaultPath, err := resolveVaultPath(deps.globals)
 	if err != nil {
 		return fmt.Errorf("daemon serve: resolve vault path: %w", err)
+	}
+	if _, err := app.ApplyBackupRestorePending(vaultPath); err != nil {
+		return fmt.Errorf("daemon serve: apply pending restore: %w", err)
 	}
 	if _, statErr := os.Stat(vaultPath); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {

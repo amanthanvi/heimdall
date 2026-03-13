@@ -235,12 +235,13 @@ func TestSecretCRUDEncryptedRoundTrip(t *testing.T) {
 	defer vmk.Destroy()
 
 	ctx := context.Background()
-	secret := &Secret{Name: "db-password", Value: []byte("super-secret")}
+	secret := &Secret{Name: "db-password", Value: []byte("super-secret"), RevealPolicy: "always-reauth"}
 	require.NoError(t, store.Secrets.Create(ctx, secret))
 
 	loaded, err := store.Secrets.Get(ctx, secret.Name)
 	require.NoError(t, err)
 	require.Equal(t, []byte("super-secret"), loaded.Value)
+	require.Equal(t, "always-reauth", loaded.RevealPolicy)
 
 	var ciphertext []byte
 	err = store.DB().QueryRow(`SELECT value_ciphertext FROM secrets WHERE id = ?`, secret.ID).Scan(&ciphertext)

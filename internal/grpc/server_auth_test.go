@@ -68,14 +68,15 @@ func TestTier1SecretListRequiresUnlockedVault(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
-func TestTier2SecretGetValueRequiresReauth(t *testing.T) {
+func TestTier1SecretGetValueAllowsOncePerUnlockWithoutReauth(t *testing.T) {
 	t.Parallel()
 
 	h := newGRPCHarness(t)
-	createSecret(t, h.store, "api-token", []byte("super-secret"))
+	createSecret(t, h.store, "api-token", []byte("super-secret"), app.RevealPolicyOncePerUnlock)
 
-	_, err := h.secret.GetSecretValue(callerCtx(101, "proc-a"), &v1.GetSecretValueRequest{Name: "api-token"})
-	requirePermissionDenied(t, err)
+	resp, err := h.secret.GetSecretValue(callerCtx(101, "proc-a"), &v1.GetSecretValueRequest{Name: "api-token"})
+	require.NoError(t, err)
+	require.Equal(t, []byte("super-secret"), resp.GetValue())
 }
 
 func TestTier2KeyExportRequiresReauth(t *testing.T) {
@@ -92,7 +93,7 @@ func TestTier2SecretDeleteRequiresReauth(t *testing.T) {
 	t.Parallel()
 
 	h := newGRPCHarness(t)
-	createSecret(t, h.store, "db-pass", []byte("very-secret"))
+	createSecret(t, h.store, "db-pass", []byte("very-secret"), app.RevealPolicyOncePerUnlock)
 
 	_, err := h.secret.DeleteSecret(callerCtx(101, "proc-a"), &v1.DeleteSecretRequest{Name: "db-pass"})
 	requirePermissionDenied(t, err)
@@ -102,7 +103,7 @@ func TestReauthCacheAllowsTier2CallWithinTTL(t *testing.T) {
 	t.Parallel()
 
 	h := newGRPCHarness(t)
-	createSecret(t, h.store, "api-token", []byte("super-secret"))
+	createSecret(t, h.store, "api-token", []byte("super-secret"), app.RevealPolicyAlwaysReauth)
 	ctx := callerCtx(101, "proc-a")
 
 	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
@@ -118,7 +119,7 @@ func TestReauthCacheExpiresAfterTTL(t *testing.T) {
 
 	clk := newFakeClock(time.Date(2026, 2, 19, 12, 0, 0, 0, time.UTC))
 	h := newGRPCHarness(t, withClock(clk))
-	createSecret(t, h.store, "api-token", []byte("super-secret"))
+	createSecret(t, h.store, "api-token", []byte("super-secret"), app.RevealPolicyAlwaysReauth)
 	ctx := callerCtx(101, "proc-a")
 
 	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
@@ -133,7 +134,7 @@ func TestReauthCacheScopedToPIDAndStartTime(t *testing.T) {
 	t.Parallel()
 
 	h := newGRPCHarness(t)
-	createSecret(t, h.store, "api-token", []byte("super-secret"))
+	createSecret(t, h.store, "api-token", []byte("super-secret"), app.RevealPolicyAlwaysReauth)
 
 	ctxA := callerCtx(101, "proc-a")
 	_, err := h.reauth.VerifyPassphrase(ctxA, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
@@ -167,16 +168,16 @@ func TestRateLimitingTier2RejectsAfterTenPerMinute(t *testing.T) {
 
 	h := newGRPCHarness(t)
 	ctx := callerCtx(404, "proc-rate")
-	createSecret(t, h.store, "db-pass", []byte("value"))
+	createIdentity(t, h.store, "deploy-key")
 
 	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
 	require.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		_, err := h.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: "db-pass"})
+		_, err := h.key.ExportKey(ctx, &v1.ExportKeyRequest{Name: "deploy-key"})
 		require.NoError(t, err)
 	}
-	_, err = h.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: "db-pass"})
+	_, err = h.key.ExportKey(ctx, &v1.ExportKeyRequest{Name: "deploy-key"})
 	require.Error(t, err)
 	st, ok := grpcstatus.FromError(err)
 	require.True(t, ok)
@@ -201,6 +202,62 @@ func TestErrorModelContainsRequiredErrorInfoFields(t *testing.T) {
 	require.Equal(t, "false", info.Metadata["reauth_required"])
 	require.NotEmpty(t, info.Metadata["guidance"])
 	require.Equal(t, "VAULT_LOCKED", info.Metadata["error_code"])
+}
+
+func TestTier1SecretGetValueAlwaysReauthRequiresExplicitReauth(t *testing.T) {
+	t.Parallel()
+
+	h := newGRPCHarness(t)
+	createSecret(t, h.store, "always", []byte("s3cr3t"), app.RevealPolicyAlwaysReauth)
+	ctx := callerCtx(101, "proc-a")
+
+	_, err := h.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: "always"})
+	requirePermissionDenied(t, err)
+
+	_, err = h.vault.Unlock(ctx, &v1.UnlockRequest{Passphrase: "ok"})
+	require.NoError(t, err)
+
+	_, err = h.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: "always"})
+	requirePermissionDenied(t, err)
+
+	_, err = h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
+	require.NoError(t, err)
+
+	resp, err := h.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: "always"})
+	require.NoError(t, err)
+	require.Equal(t, []byte("s3cr3t"), resp.GetValue())
+}
+
+func TestListSecretsReturnsStoredRevealPolicy(t *testing.T) {
+	t.Parallel()
+
+	h := newGRPCHarness(t)
+	createSecret(t, h.store, "always", []byte("always-secret"), app.RevealPolicyAlwaysReauth)
+	createSecret(t, h.store, "once", []byte("once-secret"), app.RevealPolicyOncePerUnlock)
+
+	resp, err := h.secret.ListSecrets(callerCtx(101, "proc-a"), &v1.ListSecretsRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetSecrets(), 2)
+	require.Equal(t, string(app.RevealPolicyAlwaysReauth), resp.GetSecrets()[0].GetRevealPolicy())
+	require.Equal(t, string(app.RevealPolicyOncePerUnlock), resp.GetSecrets()[1].GetRevealPolicy())
+}
+
+func TestUpdateHostAllowsReplacingTagsWhenClearTagsAndTagsAreBothSet(t *testing.T) {
+	t.Parallel()
+
+	h := newGRPCHarness(t)
+	createHost(t, h.store, "prod", "10.0.0.1", "ubuntu")
+
+	_, err := h.host.UpdateHost(callerCtx(101, "proc-a"), &v1.UpdateHostRequest{
+		Name:      "prod",
+		ClearTags: true,
+		Tags:      []string{"renamed"},
+	})
+	require.NoError(t, err)
+
+	host, err := h.store.Hosts.Get(context.Background(), "prod")
+	require.NoError(t, err)
+	require.Equal(t, []string{"renamed"}, host.Tags)
 }
 
 func TestConnectServicePlanHasOnlyPlanRPCAndReturnsSSHCommand(t *testing.T) {
@@ -448,9 +505,9 @@ func createHost(t *testing.T, store *storage.Store, name, address, user string) 
 	require.NoError(t, err)
 }
 
-func createSecret(t *testing.T, store *storage.Store, name string, value []byte) {
+func createSecret(t *testing.T, store *storage.Store, name string, value []byte, revealPolicy app.RevealPolicy) {
 	t.Helper()
-	err := store.Secrets.Create(context.Background(), &storage.Secret{Name: name, Value: value})
+	err := store.Secrets.Create(context.Background(), &storage.Secret{Name: name, Value: value, RevealPolicy: string(revealPolicy)})
 	require.NoError(t, err)
 }
 

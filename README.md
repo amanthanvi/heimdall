@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for a solo operator who wants one place to
-manage SSH hosts, vault-backed keys, secrets, passkeys, backups, and a
+manage SSH hosts, vault-backed keys, secrets, backups, and a
 tamper-evident local audit log.
 
 The authoritative product contract is
@@ -22,7 +22,6 @@ Shipped top-level commands:
 - `connect`
 - `key`
 - `secret`
-- `passkey`
 - `backup`
 - `audit`
 - `version`

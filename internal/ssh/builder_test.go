@@ -107,13 +107,15 @@ func TestCommandBuilderKnownHostsStrictProducesExpectedOptions(t *testing.T) {
 	require.Contains(t, joined, "-o UserKnownHostsFile=/tmp/known_hosts")
 }
 
-func TestCommandBuilderKnownHostsOffRejectedWithoutInsecureHostKey(t *testing.T) {
+func TestCommandBuilderKnownHostsOffProducesExpectedOptions(t *testing.T) {
 	t.Parallel()
 
 	builder := &CommandBuilder{}
-	_, err := builder.Build(&Host{Address: "10.0.0.1"}, ConnectOpts{KnownHostsPolicy: "off"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "--insecure-hostkey")
+	cmd, err := builder.Build(&Host{Address: "10.0.0.1"}, ConnectOpts{KnownHostsPolicy: "off"})
+	require.NoError(t, err)
+	joined := strings.Join(cmd.Args, " ")
+	require.Contains(t, joined, "-o StrictHostKeyChecking=no")
+	require.Contains(t, joined, "-o UserKnownHostsFile=/dev/null")
 }
 
 func TestCommandBuilderIgnoreSSHConfigProducesDevNullConfig(t *testing.T) {

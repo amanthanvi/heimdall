@@ -58,12 +58,13 @@ type Identity struct {
 }
 
 type Secret struct {
-	ID        string
-	Name      string
-	Value     []byte
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
+	ID           string
+	Name         string
+	Value        []byte
+	RevealPolicy string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    *time.Time
 }
 
 type PasskeyEnrollment struct {
@@ -147,6 +148,7 @@ type IdentityRepository interface {
 type SecretRepository interface {
 	Create(ctx context.Context, secret *Secret) error
 	Get(ctx context.Context, name string) (*Secret, error)
+	GetMeta(ctx context.Context, name string) (*Secret, error)
 	Update(ctx context.Context, secret *Secret) error
 	Delete(ctx context.Context, name string) error
 }

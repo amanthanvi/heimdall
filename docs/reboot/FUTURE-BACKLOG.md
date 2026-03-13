@@ -9,6 +9,7 @@ current reboot contract in [SPEC.md](/Users/amanthanvi/GitRepos/heimdall/SPEC.md
 - Public `import` and `export` commands
 - Managed `ssh-config` commands and fragment syncing
 - Templates and host templating workflows
+- Hardware-backed passkey enroll, unlock, and re-auth workflows
 - Compliance and reporting output
 - Repair and salvage commands
 - Daemonless operation

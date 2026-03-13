@@ -232,7 +232,12 @@ func (s *BackupService) Restore(ctx context.Context, req BackupRestoreRequest) (
 		return nil, fmt.Errorf("%w: target vault path is required", ErrValidation)
 	}
 
-	if _, err := os.Stat(req.TargetVaultPath); err == nil {
+	existingTargetPath := strings.TrimSpace(req.ExistingTargetPath)
+	if existingTargetPath == "" {
+		existingTargetPath = req.TargetVaultPath
+	}
+
+	if _, err := os.Stat(existingTargetPath); err == nil {
 		if !req.Overwrite {
 			return nil, fmt.Errorf("%w: target vault exists; pass --overwrite", ErrValidation)
 		}

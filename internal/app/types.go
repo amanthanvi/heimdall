@@ -142,11 +142,12 @@ type BackupCreateRequest struct {
 }
 
 type BackupRestoreRequest struct {
-	InputPath       string
-	Passphrase      []byte
-	TargetVaultPath string
-	Confirm         bool
-	Overwrite       bool
+	InputPath          string
+	Passphrase         []byte
+	TargetVaultPath    string
+	ExistingTargetPath string
+	Confirm            bool
+	Overwrite          bool
 }
 
 type BackupManifest struct {

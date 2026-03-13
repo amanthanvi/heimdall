@@ -17,7 +17,8 @@ func newSecretCommand(deps commandDeps) *cobra.Command {
 		"secret",
 		"Secret management",
 		"  heimdall secret add --name api_token --value \"secret\"\n"+
-			"  heimdall secret show api_token --reauth\n"+
+			"  heimdall secret show api_token\n"+
+			"  heimdall vault reauth --passphrase \"dev-pass\"\n"+
 			"  heimdall secret env api_token --env-var API_TOKEN -- sh -c 'echo $API_TOKEN'",
 		map[string]string{},
 	)
@@ -107,12 +108,11 @@ func newSecretListCommand(deps commandDeps) *cobra.Command {
 }
 
 func newSecretShowCommand(deps commandDeps) *cobra.Command {
-	var reauth bool
 	cmd := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Reveal a secret value",
-		Example: "  heimdall secret show api_token --reauth\n" +
-			"  heimdall --json secret show api_token --reauth",
+		Example: "  heimdall secret show api_token\n" +
+			"  heimdall --json secret show api_token",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("secret show requires exactly one secret name")
@@ -120,9 +120,6 @@ func newSecretShowCommand(deps commandDeps) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !reauth {
-				return asExitError(ExitCodePermission, fmt.Errorf("secret show requires re-authentication"))
-			}
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				ctx = withAuditAction(ctx, auditpkg.ActionSecretReveal)
 				resp, err := clients.secret.GetSecretValue(ctx, &v1.GetSecretValueRequest{Name: args[0]})
@@ -143,15 +140,15 @@ func newSecretShowCommand(deps commandDeps) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&reauth, "reauth", false, "Confirm re-authentication completed")
 	return cmd
 }
 
 func newSecretRemoveCommand(deps commandDeps) *cobra.Command {
 	return &cobra.Command{
-		Use:     "remove <name>",
-		Short:   "Delete a secret",
-		Example: "  heimdall secret remove api_token",
+		Use:   "remove <name>",
+		Short: "Delete a secret",
+		Example: "  heimdall vault reauth --passphrase \"dev-pass\"\n" +
+			"  heimdall secret remove api_token",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("secret remove requires exactly one secret name")
@@ -180,12 +177,12 @@ func newSecretRemoveCommand(deps commandDeps) *cobra.Command {
 func newSecretExportCommand(deps commandDeps) *cobra.Command {
 	var (
 		outputPath string
-		reauth     bool
 	)
 	cmd := &cobra.Command{
-		Use:     "export <name>",
-		Short:   "Export secret value to a file",
-		Example: "  heimdall secret export api_token --reauth --output ./api_token.txt",
+		Use:   "export <name>",
+		Short: "Export secret value to a file",
+		Example: "  heimdall vault reauth --passphrase \"dev-pass\"\n" +
+			"  heimdall secret export api_token --output ./api_token.txt",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageErrorf("secret export requires exactly one secret name")
@@ -193,9 +190,6 @@ func newSecretExportCommand(deps commandDeps) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !reauth {
-				return asExitError(ExitCodePermission, fmt.Errorf("secret export requires re-authentication"))
-			}
 			if strings.TrimSpace(outputPath) == "" {
 				return usageErrorf("secret export requires --output")
 			}
@@ -227,7 +221,6 @@ func newSecretExportCommand(deps commandDeps) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&outputPath, "output", "", "Output path")
-	cmd.Flags().BoolVar(&reauth, "reauth", false, "Confirm re-authentication completed")
 	return cmd
 }
 

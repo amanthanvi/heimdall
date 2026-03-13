@@ -271,7 +271,7 @@ func newConnectCommand(deps commandDeps) *cobra.Command {
 	cmd.Flags().BoolVar(&forwardAgent, "forward-agent", false, "Enable agent forwarding for this connection")
 	cmd.Flags().BoolVar(&noForwardAgent, "no-forward-agent", false, "Disable agent forwarding for this connection")
 	cmd.Flags().BoolVar(&proxyJumpNone, "no-proxy-jump", false, "Disable any host default ProxyJump")
-	cmd.Flags().BoolVar(&insecureHostKey, "insecure-hostkey", false, "Allow known_hosts policy=off for this connection")
+	cmd.Flags().BoolVar(&insecureHostKey, "insecure-hostkey", false, "Disable host key verification for this connection")
 	cmd.Flags().BoolVar(&ignoreSSHConfig, "ignore-ssh-config", false, "Run ssh with -F /dev/null")
 	return cmd
 }

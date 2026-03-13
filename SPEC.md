@@ -15,7 +15,6 @@ place to manage:
 - SSH hosts and connection defaults
 - Vault-backed SSH keys
 - Vault-backed secrets
-- Passkeys for local auth and re-auth
 - Encrypted backups
 - Tamper-evident local audit history
 
@@ -35,7 +34,6 @@ The rebooted release ships these top-level commands:
 - `connect`
 - `key`
 - `secret`
-- `passkey`
 - `backup`
 - `audit`
 - `version`
@@ -139,16 +137,7 @@ The canonical secret model includes:
 - `reveal_policy`
 - size metadata
 
-### 6.4 Passkey
-
-The canonical passkey model includes:
-
-- `label`
-- credential id
-- public key material
-- `supports_hmac_secret`
-
-### 6.5 Audit Event
+### 6.4 Audit Event
 
 The canonical audit event includes:
 
@@ -307,21 +296,7 @@ Rules:
 - `secret env` injects values in the CLI process before subprocess execution.
 - Secrets must never appear in logs or audit details.
 
-### 7.9 `passkey`
-
-Required shipped workflows:
-
-- `passkey enroll`
-- `passkey list`
-- `passkey remove`
-- `passkey test`
-
-Rules:
-
-- `nofido2` builds must fail passkey operations truthfully.
-- Passkey enrollment and verification remain first-class security features.
-
-### 7.10 `backup`
+### 7.9 `backup`
 
 Required shipped workflows:
 
@@ -397,7 +372,6 @@ The reboot is considered truthful only if these workflows work end to end:
 - `host add/edit/show/list`
 - `connect --dry-run`
 - `secret env`
-- `passkey enroll/test` when FIDO2 support is available
 - `backup create/restore`
 - `audit list/verify`
 

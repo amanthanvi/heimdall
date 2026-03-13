@@ -18,6 +18,7 @@ func newVaultCommand(deps commandDeps) *cobra.Command {
 		"Vault operations",
 		"  heimdall vault status\n"+
 			"  heimdall vault unlock --passphrase \"dev-pass\"\n"+
+			"  heimdall vault reauth --passphrase \"dev-pass\"\n"+
 			"  heimdall vault lock",
 		map[string]string{},
 	)
@@ -25,6 +26,7 @@ func newVaultCommand(deps commandDeps) *cobra.Command {
 		newVaultStatusCommand(deps),
 		newVaultLockCommand(deps),
 		newVaultUnlockCommand(deps),
+		newVaultReauthCommand(deps),
 	)
 	return cmd
 }
@@ -96,15 +98,13 @@ func newVaultLockCommand(deps commandDeps) *cobra.Command {
 
 func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 	var passphrase string
-	var passkeyLabel string
 	var passphraseStdin bool
 
 	cmd := &cobra.Command{
 		Use:   "unlock",
 		Short: "Unlock the vault",
 		Example: "  heimdall vault unlock --passphrase \"dev-pass\"\n" +
-			"  printf \"dev-pass\\n\" | heimdall vault unlock --passphrase-stdin\n" +
-			"  heimdall vault unlock --passkey-label \"macbook-touchid\"",
+			"  printf \"dev-pass\\n\" | heimdall vault unlock --passphrase-stdin",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErrorf("vault unlock does not accept positional arguments")
@@ -116,14 +116,11 @@ func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 			if passphraseStdin {
 				authMethods++
 			}
-			if strings.TrimSpace(passkeyLabel) != "" {
-				authMethods++
-			}
 			if authMethods == 0 {
-				return usageErrorf("vault unlock requires exactly one of --passphrase, --passphrase-stdin, or --passkey-label")
+				return usageErrorf("vault unlock requires exactly one of --passphrase or --passphrase-stdin")
 			}
 			if authMethods > 1 {
-				return usageErrorf("vault unlock accepts only one auth method: --passphrase, --passphrase-stdin, or --passkey-label")
+				return usageErrorf("vault unlock accepts only one auth method: --passphrase or --passphrase-stdin")
 			}
 
 			resolvedPassphrase := passphrase
@@ -137,8 +134,7 @@ func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
 				_, err := clients.vault.Unlock(ctx, &v1.UnlockRequest{
-					Passphrase:   resolvedPassphrase,
-					PasskeyLabel: passkeyLabel,
+					Passphrase: resolvedPassphrase,
 				})
 				if err != nil {
 					return err
@@ -157,7 +153,64 @@ func newVaultUnlockCommand(deps commandDeps) *cobra.Command {
 
 	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Vault passphrase")
 	cmd.Flags().BoolVar(&passphraseStdin, "passphrase-stdin", false, "Read passphrase from stdin")
-	cmd.Flags().StringVar(&passkeyLabel, "passkey-label", "", "Passkey label for unlock")
+	return cmd
+}
+
+func newVaultReauthCommand(deps commandDeps) *cobra.Command {
+	var passphrase string
+	var passphraseStdin bool
+
+	cmd := &cobra.Command{
+		Use:   "reauth",
+		Short: "Open a recent re-authentication window for sensitive operations",
+		Example: "  heimdall vault reauth --passphrase \"dev-pass\"\n" +
+			"  printf \"dev-pass\\n\" | heimdall vault reauth --passphrase-stdin",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErrorf("vault reauth does not accept positional arguments")
+			}
+			authMethods := 0
+			if strings.TrimSpace(passphrase) != "" {
+				authMethods++
+			}
+			if passphraseStdin {
+				authMethods++
+			}
+			if authMethods == 0 {
+				return usageErrorf("vault reauth requires exactly one of --passphrase or --passphrase-stdin")
+			}
+			if authMethods > 1 {
+				return usageErrorf("vault reauth accepts only one auth method: --passphrase or --passphrase-stdin")
+			}
+
+			resolvedPassphrase := passphrase
+			if passphraseStdin {
+				stdinPassphrase, err := readUnlockPassphraseFromStdin(cmd.InOrStdin())
+				if err != nil {
+					return err
+				}
+				resolvedPassphrase = stdinPassphrase
+			}
+
+			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
+				_, err := clients.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: resolvedPassphrase})
+				if err != nil {
+					return err
+				}
+				if deps.globals.JSON {
+					return printJSON(deps.out, map[string]any{"reauthenticated": true})
+				}
+				if deps.globals.Quiet {
+					return nil
+				}
+				_, err = fmt.Fprintln(deps.out, "vault reauthenticated")
+				return err
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&passphrase, "passphrase", "", "Vault passphrase for re-authentication")
+	cmd.Flags().BoolVar(&passphraseStdin, "passphrase-stdin", false, "Read re-authentication passphrase from stdin")
 	return cmd
 }
 

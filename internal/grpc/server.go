@@ -114,6 +114,20 @@ func (s *Server) newHostService() *app.HostService {
 	return app.NewHostService(s.cfg.Store.Hosts, s.cfg.Store.Sessions)
 }
 
+func (s *Server) newSecretService() *app.SecretService {
+	return app.NewSecretService(s.cfg.Store.Secrets)
+}
+
+func (s *Server) withAppReauth(ctx context.Context) context.Context {
+	if s == nil || s.reauthCache == nil {
+		return ctx
+	}
+	if s.reauthCache.isValid(callerFromContext(ctx, s.cfg.Daemon)) {
+		return app.WithReauth(ctx)
+	}
+	return ctx
+}
+
 func (s *Server) GRPCServer() *grpc.Server {
 	if s == nil {
 		return nil
@@ -191,7 +205,7 @@ func (s *Server) ListHosts(ctx context.Context, req *v1.ListHostsRequest) (*v1.L
 
 func (s *Server) ListSecrets(ctx context.Context, _ *v1.ListSecretsRequest) (*v1.ListSecretsResponse, error) {
 	rows, err := s.cfg.Store.DB().QueryContext(ctx, `
-		SELECT id, name, length(value_ciphertext)
+		SELECT id, name, reveal_policy, length(value_ciphertext)
 		FROM secrets
 		WHERE deleted_at IS NULL
 		ORDER BY name ASC
@@ -204,17 +218,18 @@ func (s *Server) ListSecrets(ctx context.Context, _ *v1.ListSecretsRequest) (*v1
 	items := []*v1.SecretMeta{}
 	for rows.Next() {
 		var (
-			id   string
-			name string
-			size int64
+			id           string
+			name         string
+			revealPolicy string
+			size         int64
 		)
-		if err := rows.Scan(&id, &name, &size); err != nil {
+		if err := rows.Scan(&id, &name, &revealPolicy, &size); err != nil {
 			return nil, grpcstatus.Errorf(codes.Internal, "list secrets: %v", err)
 		}
 		items = append(items, &v1.SecretMeta{
 			Id:           id,
 			Name:         name,
-			RevealPolicy: string(app.RevealPolicyOncePerUnlock),
+			RevealPolicy: revealPolicy,
 			SizeBytes:    size,
 		})
 	}
@@ -225,14 +240,13 @@ func (s *Server) ListSecrets(ctx context.Context, _ *v1.ListSecretsRequest) (*v1
 }
 
 func (s *Server) GetSecretValue(ctx context.Context, req *v1.GetSecretValueRequest) (*v1.GetSecretValueResponse, error) {
-	secret, err := s.cfg.Store.Secrets.Get(ctx, req.GetName())
+	secretSvc := s.newSecretService()
+	ctx = s.withAppReauth(ctx)
+	value, err := secretSvc.GetValue(ctx, req.GetName())
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			return nil, grpcstatus.Error(codes.NotFound, "secret not found")
-		}
-		return nil, grpcstatus.Errorf(codes.Internal, "get secret: %v", err)
+		return nil, mapAppError("get secret", err)
 	}
-	return &v1.GetSecretValueResponse{Value: append([]byte(nil), secret.Value...)}, nil
+	return &v1.GetSecretValueResponse{Value: append([]byte(nil), value...)}, nil
 }
 
 func (s *Server) DeleteSecret(ctx context.Context, req *v1.DeleteSecretRequest) (*v1.DeleteSecretResponse, error) {
@@ -350,6 +364,7 @@ func (s *Server) ListEvents(ctx context.Context, req *v1.ListEventsRequest) (*v1
 
 func (s *Server) CreateBackup(ctx context.Context, req *v1.CreateBackupRequest) (*v1.CreateBackupResponse, error) {
 	backupSvc := app.NewBackupService(s.cfg.Store)
+	ctx = s.withAppReauth(ctx)
 	_, err := backupSvc.Create(ctx, app.BackupCreateRequest{
 		OutputPath: req.GetOutputPath(),
 		Passphrase: []byte(req.GetPassphrase()),

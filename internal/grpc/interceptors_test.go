@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
+	"github.com/amanthanvi/heimdall/internal/app"
 	auditpkg "github.com/amanthanvi/heimdall/internal/audit"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
@@ -33,7 +34,7 @@ func TestAuditInterceptorUsesMetadataOverrideForSecretValueReads(t *testing.T) {
 	t.Parallel()
 
 	h := newGRPCHarness(t)
-	createSecret(t, h.store, "api-token", []byte("super-secret"))
+	createSecret(t, h.store, "api-token", []byte("super-secret"), app.RevealPolicyAlwaysReauth)
 	ctx := callerCtx(101, "proc-a")
 
 	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
@@ -54,7 +55,7 @@ func TestAuditInterceptorFallsBackWhenSecretMetadataOverrideIsInvalid(t *testing
 	t.Parallel()
 
 	h := newGRPCHarness(t)
-	createSecret(t, h.store, "api-token", []byte("super-secret"))
+	createSecret(t, h.store, "api-token", []byte("super-secret"), app.RevealPolicyAlwaysReauth)
 	ctx := callerCtx(101, "proc-a")
 
 	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})

@@ -34,6 +34,9 @@ func (b *CommandBuilder) Build(host *Host, opts ConnectOpts) (*SSHCommand, error
 	}
 	identityPath := firstNonEmpty(opts.IdentityPath, host.IdentityPath)
 	knownHostsPolicy := firstNonEmpty(opts.KnownHostsPolicy, host.KnownHostsPolicy)
+	if opts.InsecureHostKey {
+		knownHostsPolicy = "off"
+	}
 	if knownHostsPolicy == "" {
 		knownHostsPolicy = "tofu"
 	}
@@ -64,7 +67,7 @@ func (b *CommandBuilder) Build(host *Host, opts ConnectOpts) (*SSHCommand, error
 		args = append(args, "-A")
 	}
 
-	policyArgs, err := knownHostsArgs(knownHostsPolicy, opts.KnownHostsFile, opts.InsecureHostKey)
+	policyArgs, err := knownHostsArgs(knownHostsPolicy, opts.KnownHostsFile)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +86,7 @@ func (b *CommandBuilder) Build(host *Host, opts ConnectOpts) (*SSHCommand, error
 	}, nil
 }
 
-func knownHostsArgs(policy, filePath string, insecure bool) ([]string, error) {
+func knownHostsArgs(policy, filePath string) ([]string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(policy))
 	switch normalized {
 	case "strict":
@@ -99,9 +102,6 @@ func knownHostsArgs(policy, filePath string, insecure bool) ([]string, error) {
 		}
 		return out, nil
 	case "off":
-		if !insecure {
-			return nil, fmt.Errorf("known_hosts policy=off requires --insecure-hostkey")
-		}
 		return []string{"-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"}, nil
 	default:
 		return nil, fmt.Errorf("unsupported known_hosts policy %q", policy)

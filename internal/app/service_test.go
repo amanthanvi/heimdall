@@ -287,20 +287,37 @@ func TestSecretServiceGetValueDecryptsAndEnforcesRevealPolicy(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = svc.GetValue(ctx, "once")
-	require.ErrorIs(t, err, ErrReauthRequired)
-
-	value, err = svc.GetValue(WithReauth(ctx), "once")
+	value, err = svc.GetValue(ctx, "once")
 	require.NoError(t, err)
 	require.Equal(t, []byte("once-secret"), value)
 
 	value, err = svc.GetValue(ctx, "once")
 	require.NoError(t, err)
 	require.Equal(t, []byte("once-secret"), value)
+}
 
-	svc.ResetRevealCache()
-	_, err = svc.GetValue(ctx, "once")
+func TestSecretServiceRevealPolicyPersistsAcrossServiceInstances(t *testing.T) {
+	t.Parallel()
+
+	store, vmk := newAppTestStore(t)
+	defer vmk.Destroy()
+
+	ctx := context.Background()
+	creator := NewSecretService(store.Secrets)
+	_, err := creator.Create(ctx, CreateSecretRequest{
+		Name:         "persisted",
+		Value:        []byte("persisted-secret"),
+		RevealPolicy: RevealPolicyAlwaysReauth,
+	})
+	require.NoError(t, err)
+
+	reader := NewSecretService(store.Secrets)
+	_, err = reader.GetValue(ctx, "persisted")
 	require.ErrorIs(t, err, ErrReauthRequired)
+
+	value, err := reader.GetValue(WithReauth(ctx), "persisted")
+	require.NoError(t, err)
+	require.Equal(t, []byte("persisted-secret"), value)
 }
 
 func TestKeyServiceGenerateCreatesEd25519ByDefaultAndRSA3072(t *testing.T) {

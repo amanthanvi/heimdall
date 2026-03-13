@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -58,7 +59,7 @@ func TestRootHasBatchFiveTopLevelCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	for _, name := range []string{"init", "status", "doctor", "vault", "daemon", "host", "connect", "secret", "key", "passkey", "backup", "audit", "version"} {
+	for _, name := range []string{"init", "status", "doctor", "vault", "daemon", "host", "connect", "secret", "key", "backup", "audit", "version"} {
 		_, _, err := cmd.Find([]string{name})
 		require.NoErrorf(t, err, "expected command %q", name)
 	}
@@ -68,7 +69,7 @@ func TestRootOmitsDeferredCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	for _, name := range []string{"ssh-config", "tui", "ui", "import", "export", "debug"} {
+	for _, name := range []string{"passkey", "ssh-config", "tui", "ui", "import", "export", "debug"} {
 		_, _, err := cmd.Find([]string{name})
 		require.Error(t, err)
 	}
@@ -140,10 +141,6 @@ func TestRemovedLegacySubcommandsReturnPlainUsageError(t *testing.T) {
 		{
 			name: "secret rm",
 			args: []string{"secret", "rm"},
-		},
-		{
-			name: "passkey ls",
-			args: []string{"passkey", "ls"},
 		},
 		{
 			name: "key agent rm",
@@ -233,18 +230,68 @@ func TestVaultUnlockRejectsMultipleAuthMethods(t *testing.T) {
 	require.Contains(t, err.Error(), "vault unlock accepts only one auth method")
 }
 
-func TestSecretShowRequiresReauth(t *testing.T) {
+func TestVaultReauthPassphraseStdin(t *testing.T) {
+	server := &cliTestDaemon{}
+	withStubDaemon(t, server)
 
-	_, err := runCLI(t, "", "secret", "show", "api-token")
-	require.Error(t, err)
-	require.Equal(t, ExitCodePermission, exitCode(err))
+	out, err := runCLI(t, "super-secret\n", "vault", "reauth", "--passphrase-stdin")
+	require.NoError(t, err)
+	require.Contains(t, out, "reauthenticated")
+	require.Len(t, server.reauthRequests, 1)
+	require.Equal(t, "super-secret", server.reauthRequests[0].GetPassphrase())
 }
 
-func TestKeyExportPrivateRequiresReauth(t *testing.T) {
+func TestSecretShowUsesDaemonInsteadOfFakeReauthFlag(t *testing.T) {
+	server := &cliTestDaemon{
+		secrets: map[string][]byte{"api-token": []byte("secret-value")},
+	}
+	withStubDaemon(t, server)
 
-	_, err := runCLI(t, "", "key", "export", "deploy", "--private", "--output", "/tmp/ignored")
-	require.Error(t, err)
-	require.Equal(t, ExitCodePermission, exitCode(err))
+	out, err := runCLI(t, "", "secret", "show", "api-token")
+	require.NoError(t, err)
+	require.Contains(t, out, "secret-value")
+}
+
+func TestKeyExportPrivateUsesDaemonInsteadOfFakeReauthFlag(t *testing.T) {
+	server := &cliTestDaemon{
+		keys: []*v1.KeyMeta{{
+			Name:      "deploy",
+			KeyType:   "ed25519",
+			PublicKey: "ssh-ed25519 AAAA",
+		}},
+		exportedKeys: map[string]*v1.ExportKeyResponse{
+			"deploy": {
+				Name:       "deploy",
+				KeyType:    "ed25519",
+				PublicKey:  "ssh-ed25519 AAAA",
+				PrivateKey: []byte("PRIVATE"),
+			},
+		},
+	}
+	withStubDaemon(t, server)
+
+	outputPath := filepath.Join(t.TempDir(), "deploy.key")
+	out, err := runCLI(t, "", "key", "export", "deploy", "--private", "--output", outputPath)
+	require.NoError(t, err)
+	require.Contains(t, out, "key exported to")
+	raw, readErr := os.ReadFile(outputPath)
+	require.NoError(t, readErr)
+	require.Equal(t, "PRIVATE", string(raw))
+}
+
+func TestKeyExportPublicDoesNotRequireReauth(t *testing.T) {
+	server := &cliTestDaemon{
+		keys: []*v1.KeyMeta{{
+			Name:      "deploy",
+			KeyType:   "ed25519",
+			PublicKey: "ssh-ed25519 AAAA",
+		}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "key", "export", "deploy")
+	require.NoError(t, err)
+	require.Contains(t, out, "ssh-ed25519 AAAA")
 }
 
 func TestCompletionGenerationBashZshFish(t *testing.T) {
@@ -252,6 +299,7 @@ func TestCompletionGenerationBashZshFish(t *testing.T) {
 	out, err := runCLI(t, "", "completion", "bash")
 	require.NoError(t, err)
 	require.Contains(t, out, "-F __start_heimdall")
+	require.Contains(t, out, "if ! declare -F _get_comp_words_by_ref >/dev/null 2>&1; then")
 
 	out, err = runCLI(t, "", "completion", "zsh")
 	require.NoError(t, err)
@@ -262,6 +310,34 @@ func TestCompletionGenerationBashZshFish(t *testing.T) {
 	out, err = runCLI(t, "", "completion", "fish")
 	require.NoError(t, err)
 	require.Contains(t, out, "complete -c heimdall")
+}
+
+func TestCompletionBashScriptWorksWithoutBashCompletionHelpers(t *testing.T) {
+	out, err := runCLI(t, "", "completion", "bash")
+	require.NoError(t, err)
+
+	scriptPath := filepath.Join(t.TempDir(), "heimdall.bash")
+	require.NoError(t, os.WriteFile(scriptPath, []byte(out), 0o600))
+
+	cmd := exec.Command(
+		"bash",
+		"-lc",
+		`set -e
+source "$1"
+heimdall() { printf 'restore-me\n:4\n'; }
+COMP_WORDS=(heimdall host show r)
+COMP_CWORD=3
+COMP_LINE="heimdall host show r"
+COMP_POINT=${#COMP_LINE}
+__start_heimdall
+printf '%s\n' "${COMPREPLY[@]}"`,
+		"bash",
+		scriptPath,
+	)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	require.Contains(t, string(output), "restore-me")
+	require.NotContains(t, string(output), "_get_comp_words_by_ref")
 }
 
 func TestCompletionInstallWritesScript(t *testing.T) {
@@ -293,16 +369,10 @@ func TestCompletionHostAddKeyFlagUsesDynamicKeyNames(t *testing.T) {
 	require.Contains(t, out, "ops")
 }
 
-func TestCompletionVaultUnlockPasskeyFlagUsesDynamicLabels(t *testing.T) {
-	server := &cliTestDaemon{
-		passkeys: []*v1.PasskeyMeta{{Label: "macbook-touchid"}, {Label: "yubikey"}},
-	}
-	withStubDaemon(t, server)
-
-	out, err := runCLI(t, "", "__complete", "vault", "unlock", "--passkey-label", "")
+func TestCompletionConnectKnownHostsPolicyFlagUsesStaticPolicies(t *testing.T) {
+	out, err := runCLI(t, "", "__complete", "connect", "prod", "--known-hosts-policy", "a")
 	require.NoError(t, err)
-	require.Contains(t, out, "macbook-touchid")
-	require.Contains(t, out, "yubikey")
+	require.Contains(t, out, "accept-new")
 }
 
 func TestCompletionDirectiveSummaryGoesToStderr(t *testing.T) {
@@ -317,6 +387,27 @@ func TestCompletionDirectiveSummaryGoesToStderr(t *testing.T) {
 	require.Contains(t, stdout, ":4")
 	require.NotContains(t, stdout, "Completion ended with directive")
 	require.Contains(t, stderr, "Completion ended with directive: ShellCompDirectiveNoFileComp")
+}
+
+func TestAuditVerifyReturnsNonZeroWhenChainIsInvalid(t *testing.T) {
+	server := &cliTestDaemon{
+		verifyChainResp: &v1.VerifyChainResponse{
+			Valid:      false,
+			EventCount: 3,
+			ChainTip:   "bad-tip",
+			Error:      "hash mismatch",
+		},
+	}
+	withStubDaemon(t, server)
+
+	stdout, stderr, err := runCLIWithWriters(t, "", "audit", "verify")
+	require.Error(t, err)
+	require.Contains(t, stdout, "valid=false")
+	require.Equal(t, "", stderr)
+
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, ExitCodeGeneric, exitErr.ExitCode())
 }
 
 func TestGenerateManPagesCreatesFiles(t *testing.T) {
@@ -845,20 +936,28 @@ func exitCode(err error) int {
 type cliTestDaemon struct {
 	v1.UnimplementedVaultServiceServer
 	v1.UnimplementedHostServiceServer
+	v1.UnimplementedSecretServiceServer
 	v1.UnimplementedKeyServiceServer
 	v1.UnimplementedPasskeyServiceServer
 	v1.UnimplementedSessionServiceServer
 	v1.UnimplementedConnectServiceServer
+	v1.UnimplementedReauthServiceServer
+	v1.UnimplementedAuditServiceServer
 
 	hosts             []*v1.Host
 	keys              []*v1.KeyMeta
 	passkeys          []*v1.PasskeyMeta
+	secrets           map[string][]byte
+	secretPolicies    map[string]string
+	exportedKeys      map[string]*v1.ExportKeyResponse
 	unlockRequests    []*v1.UnlockRequest
+	reauthRequests    []*v1.VerifyPassphraseRequest
 	planRequests      []*v1.PlanConnectRequest
 	agentAddSessions  []string
 	sessionStarts     []string
 	sessionEnds       []string
 	recordedExitCodes []int32
+	verifyChainResp   *v1.VerifyChainResponse
 }
 
 type recordingSSHExecutor struct {
@@ -890,6 +989,15 @@ func (d *cliTestDaemon) Unlock(_ context.Context, req *v1.UnlockRequest) (*v1.Un
 	return &v1.UnlockResponse{Unlocked: true}, nil
 }
 
+func (d *cliTestDaemon) VerifyPassphrase(_ context.Context, req *v1.VerifyPassphraseRequest) (*v1.VerifyPassphraseResponse, error) {
+	if req == nil {
+		return nil, errors.New("reauth request is required")
+	}
+	clone := &v1.VerifyPassphraseRequest{Passphrase: req.GetPassphrase()}
+	d.reauthRequests = append(d.reauthRequests, clone)
+	return &v1.VerifyPassphraseResponse{Ok: true}, nil
+}
+
 func (d *cliTestDaemon) ListHosts(_ context.Context, req *v1.ListHostsRequest) (*v1.ListHostsResponse, error) {
 	if req.GetNamesOnly() {
 		namesOnly := make([]*v1.Host, 0, len(d.hosts))
@@ -915,8 +1023,57 @@ func (d *cliTestDaemon) AgentAdd(_ context.Context, req *v1.AgentAddRequest) (*v
 	return &v1.AgentAddResponse{Fingerprint: "SHA256:test"}, nil
 }
 
+func (d *cliTestDaemon) ListSecrets(_ context.Context, _ *v1.ListSecretsRequest) (*v1.ListSecretsResponse, error) {
+	items := make([]*v1.SecretMeta, 0, len(d.secrets))
+	for name, value := range d.secrets {
+		policy := "once-per-unlock"
+		if d.secretPolicies != nil && d.secretPolicies[name] != "" {
+			policy = d.secretPolicies[name]
+		}
+		items = append(items, &v1.SecretMeta{
+			Name:         name,
+			RevealPolicy: policy,
+			SizeBytes:    int64(len(value)),
+		})
+	}
+	return &v1.ListSecretsResponse{Secrets: items}, nil
+}
+
+func (d *cliTestDaemon) GetSecretValue(_ context.Context, req *v1.GetSecretValueRequest) (*v1.GetSecretValueResponse, error) {
+	if req == nil {
+		return nil, errors.New("secret request is required")
+	}
+	value, ok := d.secrets[req.GetName()]
+	if !ok {
+		return nil, errors.New("secret not found")
+	}
+	return &v1.GetSecretValueResponse{Value: append([]byte(nil), value...)}, nil
+}
+
 func (d *cliTestDaemon) ListKeys(_ context.Context, _ *v1.ListKeysRequest) (*v1.ListKeysResponse, error) {
 	return &v1.ListKeysResponse{Keys: d.keys}, nil
+}
+
+func (d *cliTestDaemon) ShowKey(_ context.Context, req *v1.ShowKeyRequest) (*v1.ShowKeyResponse, error) {
+	if req == nil {
+		return nil, errors.New("show key request is required")
+	}
+	for _, key := range d.keys {
+		if key.GetName() == req.GetName() {
+			return &v1.ShowKeyResponse{Key: key}, nil
+		}
+	}
+	return nil, errors.New("key not found")
+}
+
+func (d *cliTestDaemon) ExportKey(_ context.Context, req *v1.ExportKeyRequest) (*v1.ExportKeyResponse, error) {
+	if req == nil {
+		return nil, errors.New("export request is required")
+	}
+	if resp, ok := d.exportedKeys[req.GetName()]; ok {
+		return resp, nil
+	}
+	return nil, errors.New("key not found")
 }
 
 func (d *cliTestDaemon) ListPasskeys(_ context.Context, _ *v1.ListPasskeysRequest) (*v1.ListPasskeysResponse, error) {
@@ -964,6 +1121,13 @@ func (d *cliTestDaemon) Plan(_ context.Context, req *v1.PlanConnectRequest) (*v1
 	return &v1.PlanConnectResponse{Command: &v1.SSHCommand{Binary: "ssh", Args: args}}, nil
 }
 
+func (d *cliTestDaemon) VerifyChain(_ context.Context, _ *v1.VerifyChainRequest) (*v1.VerifyChainResponse, error) {
+	if d.verifyChainResp != nil {
+		return d.verifyChainResp, nil
+	}
+	return &v1.VerifyChainResponse{Valid: true, EventCount: 1, ChainTip: "chain-tip"}, nil
+}
+
 func clonePlanConnectRequest(req *v1.PlanConnectRequest) *v1.PlanConnectRequest {
 	if req == nil {
 		return nil
@@ -988,10 +1152,13 @@ func withStubDaemon(t *testing.T, server *cliTestDaemon) {
 	grpcServer := grpc.NewServer()
 	v1.RegisterVaultServiceServer(grpcServer, server)
 	v1.RegisterHostServiceServer(grpcServer, server)
+	v1.RegisterSecretServiceServer(grpcServer, server)
 	v1.RegisterKeyServiceServer(grpcServer, server)
 	v1.RegisterPasskeyServiceServer(grpcServer, server)
 	v1.RegisterSessionServiceServer(grpcServer, server)
 	v1.RegisterConnectServiceServer(grpcServer, server)
+	v1.RegisterReauthServiceServer(grpcServer, server)
+	v1.RegisterAuditServiceServer(grpcServer, server)
 
 	go func() {
 		_ = grpcServer.Serve(listener)

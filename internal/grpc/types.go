@@ -72,8 +72,7 @@ func methodTier(fullMethod string) authTier {
 		v1.VaultService_Lock_FullMethodName,
 		v1.VersionService_GetVersion_FullMethodName:
 		return tier0
-	case v1.SecretService_GetSecretValue_FullMethodName,
-		v1.SecretService_DeleteSecret_FullMethodName,
+	case v1.SecretService_DeleteSecret_FullMethodName,
 		v1.KeyService_ExportKey_FullMethodName:
 		return tier2
 	default:

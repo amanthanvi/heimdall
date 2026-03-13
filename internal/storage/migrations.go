@@ -68,6 +68,7 @@ var defaultMigrations = []Migration{
 					name TEXT NOT NULL UNIQUE,
 					value_ciphertext BLOB NOT NULL,
 					value_nonce BLOB NOT NULL,
+					reveal_policy TEXT NOT NULL DEFAULT 'once-per-unlock',
 					created_at TEXT NOT NULL,
 					updated_at TEXT NOT NULL,
 					deleted_at TEXT
@@ -231,6 +232,23 @@ var defaultMigrations = []Migration{
 				if _, err := tx.Exec(`ALTER TABLE hosts DROP COLUMN env_refs`); err != nil {
 					return fmt.Errorf("drop hosts.env_refs: %w", err)
 				}
+			}
+			return nil
+		},
+	},
+	{
+		Version:     8,
+		Description: "persist secret reveal policy",
+		Up: func(tx *sql.Tx) error {
+			exists, err := columnExists(tx, "secrets", "reveal_policy")
+			if err != nil {
+				return err
+			}
+			if exists {
+				return nil
+			}
+			if _, err := tx.Exec(`ALTER TABLE secrets ADD COLUMN reveal_policy TEXT NOT NULL DEFAULT 'once-per-unlock'`); err != nil {
+				return fmt.Errorf("add secrets.reveal_policy: %w", err)
 			}
 			return nil
 		},
