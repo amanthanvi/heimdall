@@ -524,10 +524,41 @@ func hardenBashCompletionScript(script string) string {
 		"    fi\n" +
 		"}\n" +
 		"fi\n\n"
+	const stateNeedle = "__heimdall_debug()\n{\n"
+	const stateHelper = "commands=()\n" +
+		"command_aliases=()\n" +
+		"flags=()\n" +
+		"two_word_flags=()\n" +
+		"local_nonpersistent_flags=()\n" +
+		"flags_with_completion=()\n" +
+		"flags_completion=()\n" +
+		"must_have_one_flag=()\n" +
+		"must_have_one_noun=()\n" +
+		"noun_aliases=()\n" +
+		"nouns=()\n\n"
 	if strings.Contains(script, "if ! declare -F _get_comp_words_by_ref >/dev/null 2>&1; then") {
-		return script
+		if !strings.Contains(script, "commands=()\ncommand_aliases=()\nflags=()") {
+			script = strings.Replace(script, stateNeedle, stateHelper+stateNeedle, 1)
+		}
+		return hardenBashArrayExpansions(script)
 	}
-	return strings.Replace(script, initNeedle, compatHelper+initNeedle, 1)
+	script = strings.Replace(script, initNeedle, compatHelper+initNeedle, 1)
+	script = strings.Replace(script, stateNeedle, stateHelper+stateNeedle, 1)
+	return hardenBashArrayExpansions(script)
+}
+
+func hardenBashArrayExpansions(script string) string {
+	replacer := strings.NewReplacer(
+		"${commands[@]}", "${commands[@]-}",
+		"${command_aliases[@]}", "${command_aliases[@]-}",
+		"${flags_with_completion[@]}", "${flags_with_completion[@]-}",
+		"${local_nonpersistent_flags[@]}", "${local_nonpersistent_flags[@]-}",
+		"${must_have_one_flag[@]}", "${must_have_one_flag[@]-}",
+		"${must_have_one_noun[@]}", "${must_have_one_noun[@]-}",
+		"${noun_aliases[@]}", "${noun_aliases[@]-}",
+		"${two_word_flags[@]}", "${two_word_flags[@]-}",
+	)
+	return replacer.Replace(script)
 }
 
 func hardenZSHCompletionScript(script string) string {

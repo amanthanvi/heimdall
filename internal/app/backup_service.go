@@ -222,8 +222,8 @@ func (s *BackupService) mainDBPath(ctx context.Context) (string, error) {
 }
 
 func (s *BackupService) Restore(ctx context.Context, req BackupRestoreRequest) (*BackupManifest, error) {
-	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("restore backup: store is nil")
+	if s == nil {
+		return nil, fmt.Errorf("restore backup: service is nil")
 	}
 	if strings.TrimSpace(req.InputPath) == "" {
 		return nil, fmt.Errorf("%w: input path is required", ErrValidation)

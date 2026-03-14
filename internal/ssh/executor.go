@@ -7,7 +7,10 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 )
+
+const signalGracePeriod = 2 * time.Second
 
 type Executor struct {
 	commandFactory  func(ctx context.Context, binary string, args ...string) *exec.Cmd
@@ -72,20 +75,30 @@ func (e *Executor) Run(ctx context.Context, command *SSHCommand) (int, error) {
 		}()
 	}
 
+	var killTimer <-chan time.Time
+	interruptSent := false
+
 	for {
 		select {
 		case <-ctx.Done():
-			sendSignalToProcess(cmd.Process.Pid, syscall.SIGINT, useProcessGroup)
-			err := <-waitCh
-			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					return exitCodeFromExitError(exitErr), nil
-				}
-				return 1, fmt.Errorf("run ssh command: wait after cancel: %w", err)
+			if !interruptSent {
+				sendSignalToProcess(cmd.Process.Pid, syscall.SIGINT, useProcessGroup)
+				interruptSent = true
+				killTimer = time.After(signalGracePeriod)
+				continue
 			}
-			return 0, nil
+			sendSignalToProcess(cmd.Process.Pid, syscall.SIGKILL, useProcessGroup)
 		case <-sigCh:
-			sendSignalToProcess(cmd.Process.Pid, syscall.SIGINT, useProcessGroup)
+			if !interruptSent {
+				sendSignalToProcess(cmd.Process.Pid, syscall.SIGINT, useProcessGroup)
+				interruptSent = true
+				killTimer = time.After(signalGracePeriod)
+				continue
+			}
+			sendSignalToProcess(cmd.Process.Pid, syscall.SIGKILL, useProcessGroup)
+		case <-killTimer:
+			sendSignalToProcess(cmd.Process.Pid, syscall.SIGKILL, useProcessGroup)
+			killTimer = nil
 		case err := <-waitCh:
 			if err == nil {
 				return 0, nil

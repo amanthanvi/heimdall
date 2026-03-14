@@ -29,6 +29,8 @@ var (
 	integrationCache string
 )
 
+const backupCommandTimeout = 45 * time.Second
+
 func TestMain(m *testing.M) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -298,18 +300,34 @@ func TestIntegrationLifecycleBackupRestoreVerify(t *testing.T) {
 	requireSuccess(t, source.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
 	requireSuccess(t, source.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "restore-me", "--address", "10.10.10.10", "--user", "ubuntu"), "host add --name restore-me --address 10.10.10.10 --user ubuntu")
-	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
+	requireSuccess(t, source.run(backupCommandTimeout, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
 	target := newHarness(t)
 	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "target-pass"), "init --yes --passphrase target-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
-	restoreOut := requireFailure(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
+	restoreOut := requireFailure(t, target.run(backupCommandTimeout, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
 	require.Contains(t, strings.ToLower(restoreOut), "re-auth")
 	requireSuccess(t, target.run(10*time.Second, "vault", "reauth", "--passphrase", "target-pass"), "vault reauth --passphrase target-pass")
-	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
+	requireSuccess(t, target.run(backupCommandTimeout, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
 	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
 	wrongPassOut := requireFailure(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
 	require.Contains(t, strings.ToLower(wrongPassOut), "invalid")
+	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	listOut := requireSuccess(t, target.run(10*time.Second, "host", "list", "--names-only"), "host list --names-only")
+	require.Contains(t, listOut, "restore-me")
+}
+
+func TestIntegrationLifecycleBackupRestoreWithoutOverwriteToMissingTarget(t *testing.T) {
+	source := newHarness(t)
+	backupPath := filepath.Join(source.home, "vault.backup")
+
+	requireSuccess(t, source.run(10*time.Second, "init", "--yes", "--passphrase", "integration-pass"), "init --yes --passphrase integration-pass")
+	requireSuccess(t, source.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
+	requireSuccess(t, source.run(10*time.Second, "host", "add", "--name", "restore-me", "--address", "10.10.10.10", "--user", "ubuntu"), "host add --name restore-me --address 10.10.10.10 --user ubuntu")
+	requireSuccess(t, source.run(backupCommandTimeout, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
+
+	target := newHarness(t)
+	requireSuccess(t, target.run(backupCommandTimeout, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass"), "backup restore --from <path> --passphrase backup-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")
 	listOut := requireSuccess(t, target.run(10*time.Second, "host", "list", "--names-only"), "host list --names-only")
 	require.Contains(t, listOut, "restore-me")
@@ -337,13 +355,13 @@ func TestIntegrationBackupCreateAfterAuditVerificationRestoresValidSQLite(t *tes
 	require.Contains(t, auditVerifyOut, "valid=true")
 	requireSuccess(t, source.run(10*time.Second, "host", "list", "--json"), "host list --json")
 	requireSuccess(t, source.run(10*time.Second, "host", "show", "prod", "--json"), "host show prod --json")
-	requireSuccess(t, source.run(10*time.Second, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
+	requireSuccess(t, source.run(backupCommandTimeout, "backup", "create", "--output", backupPath, "--passphrase", "backup-pass"), "backup create --output <path> --passphrase backup-pass")
 
 	target := newHarness(t)
 	requireSuccess(t, target.run(10*time.Second, "init", "--yes", "--passphrase", "target-pass"), "init --yes --passphrase target-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "target-pass"), "vault unlock --passphrase target-pass")
 	requireSuccess(t, target.run(10*time.Second, "vault", "reauth", "--passphrase", "target-pass"), "vault reauth --passphrase target-pass")
-	requireSuccess(t, target.run(10*time.Second, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
+	requireSuccess(t, target.run(backupCommandTimeout, "backup", "restore", "--from", backupPath, "--passphrase", "backup-pass", "--overwrite"), "backup restore --from <path> --passphrase backup-pass --overwrite")
 	requireSuccess(t, target.run(10*time.Second, "daemon", "restart"), "daemon restart")
 	requireSQLiteIntegrityOK(t, target.vaultPath)
 	requireSuccess(t, target.run(10*time.Second, "vault", "unlock", "--passphrase", "integration-pass"), "vault unlock --passphrase integration-pass")

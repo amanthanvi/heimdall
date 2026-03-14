@@ -135,9 +135,6 @@ heimdall connect prod --no-proxy-jump
 ## Backup Restore
 
 ```bash
-heimdall --config ./target-config.toml --vault ./target-vault.db init --yes --passphrase "target-pass"
-heimdall --config ./target-config.toml --vault ./target-vault.db vault unlock --passphrase "target-pass"
-rm -f ./target-vault.db
 heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase "backup-pass"
 heimdall --config ./target-config.toml --vault ./target-vault.db daemon restart
 heimdall --config ./target-config.toml --vault ./target-vault.db vault unlock --passphrase "source-vault-pass"
@@ -147,6 +144,8 @@ Rules:
 
 - Backups are encrypted.
 - Restore replaces the on-disk vault.
+- Plain restore works directly against a target vault path that does not already contain a Heimdall vault.
+- A freshly initialized target vault requires `vault reauth` plus `backup restore --overwrite`.
 - After restore, restart the daemon and unlock with the source vault
   credentials from the backup.
 

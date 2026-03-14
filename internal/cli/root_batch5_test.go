@@ -109,6 +109,9 @@ func TestBackupRestoreHelpMentionsWorkflowAndReauth(t *testing.T) {
 	out, err := runCLI(t, "", "backup", "restore", "--help")
 	require.NoError(t, err)
 	require.Contains(t, out, "Recommended workflow")
+	require.Contains(t, out, "target vault path that does not already contain a Heimdall vault")
+	require.Contains(t, out, "Plain restore runs locally")
+	require.Contains(t, out, "freshly initialized target vault still counts as an existing vault")
 	require.Contains(t, out, "--overwrite requires a recent re-authentication window")
 	require.Contains(t, out, "Restart daemon, then unlock the restored vault")
 	require.Contains(t, out, "Restored vault unlock credentials come from the backup source vault")
@@ -338,6 +341,34 @@ printf '%s\n' "${COMPREPLY[@]}"`,
 	require.NoError(t, err, string(output))
 	require.Contains(t, string(output), "restore-me")
 	require.NotContains(t, string(output), "_get_comp_words_by_ref")
+}
+
+func TestCompletionBashScriptWorksWithNounset(t *testing.T) {
+	out, err := runCLI(t, "", "completion", "bash")
+	require.NoError(t, err)
+
+	scriptPath := filepath.Join(t.TempDir(), "heimdall.bash")
+	require.NoError(t, os.WriteFile(scriptPath, []byte(out), 0o600))
+
+	cmd := exec.Command(
+		"bash",
+		"-lc",
+		`set -euo pipefail
+source "$1"
+heimdall() { printf 'accept-new\n:4\n'; }
+COMP_WORDS=(heimdall connect prod --known-hosts-policy a)
+COMP_CWORD=4
+COMP_LINE="heimdall connect prod --known-hosts-policy a"
+COMP_POINT=${#COMP_LINE}
+__start_heimdall
+printf '%s\n' "${COMPREPLY[@]}"`,
+		"bash",
+		scriptPath,
+	)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	require.Contains(t, string(output), "accept-new")
+	require.NotContains(t, string(output), "unbound variable")
 }
 
 func TestCompletionInstallWritesScript(t *testing.T) {

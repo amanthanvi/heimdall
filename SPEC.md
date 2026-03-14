@@ -307,6 +307,10 @@ Rules:
 
 - Backups are encrypted archives.
 - Restore replaces vault data on disk.
+- Plain restore works directly against a target vault path that does not
+  already contain a Heimdall vault.
+- A freshly initialized target vault counts as an existing vault and therefore
+  requires `--overwrite` after unlock + re-auth.
 - After restore, the daemon should be restarted and the restored vault unlocked
   with the source vault credentials.
 - Restore authentication failures must fail cleanly.

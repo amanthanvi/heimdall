@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	v1 "github.com/amanthanvi/heimdall/api/v1"
+	"github.com/amanthanvi/heimdall/internal/app"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +15,7 @@ func newBackupCommand(deps commandDeps) *cobra.Command {
 		"backup",
 		"Backup operations",
 		"  heimdall backup create --output ./vault.backup.hdl --passphrase \"backup-pass\"\n"+
-			"  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n"+
+			"  heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n"+
 			"  heimdall daemon restart\n"+
 			"  heimdall vault unlock --passphrase \"source-vault-pass\"",
 		map[string]string{},
@@ -90,18 +91,22 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 			"Restore from backup.",
 			"",
 			"Recommended workflow:",
-			"  1) Initialize and unlock the target vault/config once.",
-			"  2) Run restore with --from and --passphrase.",
-			"  3) If replacing an existing target vault, pass --overwrite after vault reauth.",
-			"  4) Restart daemon, then unlock the restored vault.",
+			"  1) Point Heimdall at the target config/vault paths you want to restore into.",
+			"  2) For a plain restore, use a target vault path that does not already contain a Heimdall vault.",
+			"  3) If the target vault already exists, unlock it, re-authenticate, and pass --overwrite.",
+			"  4) Restart daemon, then unlock the restored vault with the source vault passphrase.",
 			"",
 			"Notes:",
+			"  - Plain restore runs locally and does not require daemon access to the target vault first.",
+			"  - A freshly initialized target vault still counts as an existing vault and requires --overwrite.",
 			"  - --overwrite requires a recent re-authentication window.",
 			"  - Overwrite restores are staged and applied on the next daemon start/restart.",
 			"  - Restored vault unlock credentials come from the backup source vault.",
 		}, "\n"),
-		Example: "  heimdall backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
-			"  heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+		Example: "  heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\"\n" +
+			"  heimdall --config ./target-config.toml --vault ./target-vault.db vault unlock --passphrase \"target-pass\"\n" +
+			"  heimdall --config ./target-config.toml --vault ./target-vault.db vault reauth --passphrase \"target-pass\"\n" +
+			"  heimdall --config ./target-config.toml --vault ./target-vault.db backup restore --from ./vault.backup.hdl --passphrase \"backup-pass\" --overwrite\n" +
 			"  heimdall daemon restart\n" +
 			"  heimdall vault unlock --passphrase \"source-vault-pass\"",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -113,6 +118,35 @@ func newBackupRestoreCommand(deps commandDeps) *cobra.Command {
 			}
 			if strings.TrimSpace(passphrase) == "" {
 				return usageErrorf("backup restore requires --passphrase")
+			}
+			if !overwrite {
+				targetVaultPath, err := resolveVaultPath(deps.globals)
+				if err != nil {
+					return mapCommandError(err)
+				}
+				backupSvc := app.NewBackupService(nil)
+				_, err = backupSvc.Restore(cmd.Context(), app.BackupRestoreRequest{
+					InputPath:       inputPath,
+					Passphrase:      []byte(passphrase),
+					TargetVaultPath: targetVaultPath,
+				})
+				if err != nil {
+					return mapCommandError(err)
+				}
+				if deps.globals.JSON {
+					return printJSON(deps.out, map[string]any{"restored": true})
+				}
+				if deps.globals.Quiet {
+					return nil
+				}
+				if _, err := fmt.Fprintf(deps.out, "backup restored: %t\n", true); err != nil {
+					return err
+				}
+				_, err = fmt.Fprintln(
+					deps.out,
+					"next: run `heimdall daemon restart` if the target daemon was already running, then unlock using the source vault passphrase from the backup",
+				)
+				return err
 			}
 
 			return withDaemonClients(cmd.Context(), deps, func(ctx context.Context, clients daemonClients) error {
