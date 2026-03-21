@@ -13,10 +13,13 @@ const (
 	ActionSecretCreate = "secret.create"
 	ActionSecretDelete = "secret.delete"
 
-	ActionKeyExport   = "key.export"
-	ActionKeyDelete   = "key.delete"
-	ActionKeyRotate   = "key.rotate"
-	ActionKeyAgentAdd = "key.agent-add"
+	ActionKeyGenerate    = "key.generate"
+	ActionKeyImport      = "key.import"
+	ActionKeyExport      = "key.export"
+	ActionKeyDelete      = "key.delete"
+	ActionKeyRotate      = "key.rotate"
+	ActionKeyAgentAdd    = "key.agent-add"
+	ActionKeyAgentRemove = "key.agent-remove"
 
 	ActionPasskeyEnroll = "passkey.enroll"
 	ActionPasskeyRemove = "passkey.remove"
@@ -24,6 +27,7 @@ const (
 
 	ActionHostTrust  = "host.trust"
 	ActionHostCreate = "host.create"
+	ActionHostUpdate = "host.update"
 	ActionHostDelete = "host.delete"
 
 	ActionBackupCreate  = "backup.create"
@@ -47,15 +51,19 @@ var AllActionTypes = []string{
 	ActionSecretInject,
 	ActionSecretCreate,
 	ActionSecretDelete,
+	ActionKeyGenerate,
+	ActionKeyImport,
 	ActionKeyExport,
 	ActionKeyDelete,
 	ActionKeyRotate,
 	ActionKeyAgentAdd,
+	ActionKeyAgentRemove,
 	ActionPasskeyEnroll,
 	ActionPasskeyRemove,
 	ActionPasskeyReauth,
 	ActionHostTrust,
 	ActionHostCreate,
+	ActionHostUpdate,
 	ActionHostDelete,
 	ActionBackupCreate,
 	ActionBackupRestore,
