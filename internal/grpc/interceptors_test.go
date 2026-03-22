@@ -29,7 +29,7 @@ func TestAuditInterceptorMapsKeyExportToDomainAction(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []string{
-		auditpkg.ActionPasskeyReauth,
+		auditpkg.ActionPassphraseReauth,
 		auditpkg.ActionKeyExport,
 	}, auditActions(t, h))
 }
@@ -91,7 +91,7 @@ func TestAuditInterceptorUsesMetadataOverrideForSecretValueReads(t *testing.T) {
 	require.Equal(t, []byte("super-secret"), resp.GetValue())
 
 	require.Equal(t, []string{
-		auditpkg.ActionPasskeyReauth,
+		auditpkg.ActionPassphraseReauth,
 		auditpkg.ActionSecretExport,
 	}, auditActions(t, h))
 }
@@ -111,7 +111,7 @@ func TestAuditInterceptorFallsBackWhenSecretMetadataOverrideIsInvalid(t *testing
 	require.NoError(t, err)
 
 	require.Equal(t, []string{
-		auditpkg.ActionPasskeyReauth,
+		auditpkg.ActionPassphraseReauth,
 		"grpc.secretservice.getsecretvalue",
 	}, auditActions(t, h))
 }
@@ -146,7 +146,7 @@ func TestAuditInterceptorSkipsDuplicateSessionAndReauthEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []string{
-		auditpkg.ActionPasskeyReauth,
+		auditpkg.ActionPassphraseReauth,
 		auditpkg.ActionConnectStart,
 		auditpkg.ActionConnectEnd,
 	}, auditActions(t, h))

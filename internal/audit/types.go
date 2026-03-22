@@ -21,10 +21,11 @@ const (
 	ActionKeyAgentAdd    = "key.agent-add"
 	ActionKeyAgentRemove = "key.agent-remove"
 
-	ActionPasskeyEnroll = "passkey.enroll"
-	ActionPasskeyRemove = "passkey.remove"
-	ActionPasskeyTest   = "passkey.test"
-	ActionPasskeyReauth = "passkey.re-auth"
+	ActionPasskeyEnroll    = "passkey.enroll"
+	ActionPasskeyRemove    = "passkey.remove"
+	ActionPasskeyTest      = "passkey.test"
+	ActionPasskeyReauth    = "passkey.re-auth"
+	ActionPassphraseReauth = "passphrase.re-auth"
 
 	ActionHostTrust  = "host.trust"
 	ActionHostCreate = "host.create"
@@ -63,6 +64,7 @@ var AllActionTypes = []string{
 	ActionPasskeyRemove,
 	ActionPasskeyTest,
 	ActionPasskeyReauth,
+	ActionPassphraseReauth,
 	ActionHostTrust,
 	ActionHostCreate,
 	ActionHostUpdate,

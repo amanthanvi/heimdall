@@ -238,6 +238,24 @@ func TestListSecretsReturnsStoredRevealPolicy(t *testing.T) {
 	require.Len(t, resp.GetSecrets(), 2)
 	require.Equal(t, string(app.RevealPolicyAlwaysReauth), resp.GetSecrets()[0].GetRevealPolicy())
 	require.Equal(t, string(app.RevealPolicyOncePerUnlock), resp.GetSecrets()[1].GetRevealPolicy())
+	require.Equal(t, int64(len("always-secret")), resp.GetSecrets()[0].GetSizeBytes())
+	require.Equal(t, int64(len("once-secret")), resp.GetSecrets()[1].GetSizeBytes())
+}
+
+func TestVerifyPassphraseRecordsPassphraseReauthAuditAction(t *testing.T) {
+	t.Parallel()
+
+	h := newGRPCHarness(t)
+	ctx := callerCtx(919, "proc-reauth")
+
+	_, err := h.reauth.VerifyPassphrase(ctx, &v1.VerifyPassphraseRequest{Passphrase: "ok"})
+	require.NoError(t, err)
+
+	events, err := h.audit.List(context.Background(), auditpkg.Filter{})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, auditpkg.ActionPassphraseReauth, events[0].Action)
+	require.Equal(t, "passphrase", events[0].TargetType)
 }
 
 func TestUpdateHostAllowsReplacingTagsWhenClearTagsAndTagsAreBothSet(t *testing.T) {

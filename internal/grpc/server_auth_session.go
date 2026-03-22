@@ -160,8 +160,8 @@ func (s *Server) VerifyPassphrase(ctx context.Context, req *v1.VerifyPassphraseR
 	if s.cfg.AuditService != nil {
 		_ = s.cfg.AuditService.Record(ctx, auditpkg.Event{
 			Timestamp:  s.clk.Now(),
-			Action:     auditpkg.ActionPasskeyReauth,
-			TargetType: "auth",
+			Action:     auditpkg.ActionPassphraseReauth,
+			TargetType: "passphrase",
 			Result:     "success",
 		})
 	}

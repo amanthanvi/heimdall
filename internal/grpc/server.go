@@ -205,7 +205,7 @@ func (s *Server) ListHosts(ctx context.Context, req *v1.ListHostsRequest) (*v1.L
 
 func (s *Server) ListSecrets(ctx context.Context, _ *v1.ListSecretsRequest) (*v1.ListSecretsResponse, error) {
 	rows, err := s.cfg.Store.DB().QueryContext(ctx, `
-		SELECT id, name, reveal_policy, length(value_ciphertext)
+		SELECT id, name, reveal_policy
 		FROM secrets
 		WHERE deleted_at IS NULL
 		ORDER BY name ASC
@@ -221,16 +221,19 @@ func (s *Server) ListSecrets(ctx context.Context, _ *v1.ListSecretsRequest) (*v1
 			id           string
 			name         string
 			revealPolicy string
-			size         int64
 		)
-		if err := rows.Scan(&id, &name, &revealPolicy, &size); err != nil {
+		if err := rows.Scan(&id, &name, &revealPolicy); err != nil {
 			return nil, grpcstatus.Errorf(codes.Internal, "list secrets: %v", err)
+		}
+		secret, err := s.cfg.Store.Secrets.Get(ctx, name)
+		if err != nil {
+			return nil, grpcstatus.Errorf(codes.Internal, "list secrets: load %q: %v", name, err)
 		}
 		items = append(items, &v1.SecretMeta{
 			Id:           id,
 			Name:         name,
 			RevealPolicy: revealPolicy,
-			SizeBytes:    size,
+			SizeBytes:    int64(len(secret.Value)),
 		})
 	}
 	if err := rows.Err(); err != nil {
