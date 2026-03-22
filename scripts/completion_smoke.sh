@@ -46,8 +46,7 @@ printf "%s\n" "${COMPREPLY[@]}"
 echo "zsh completion smoke"
 PATH="${bin_dir}:${PATH}" zsh -fc '
 set -euo pipefail
-autoload -Uz compinit
-compinit -D
+compdef() { :; }
 source "$1"
 whence -w _heimdall | grep -q "function"
 ' zsh "${completion_dir}/_heimdall"
