@@ -22,7 +22,7 @@ Status values:
 | `internal/cli` | `rewrite` | The public surface is being cut back to truthful commands and canonical host/connect behavior. |
 | `internal/ssh` | `reuse` | `CommandBuilder` is the single renderer for SSH execution and should remain the source of truth. |
 | `internal/agent` | `reuse` | Session-scoped signing and agent socket support remain part of managed-key connect flows. |
-| `internal/fido2` | `reuse with boundary cleanup` | Keep the implementation as deferred infrastructure; the rebooted CLI no longer ships passkey enroll/unlock/test until end-to-end wiring exists. |
+| `internal/fido2` | `reuse with boundary cleanup` | Hardware-backed passkey enroll, unlock, test, and daemon-mediated re-auth are part of the rebooted CLI surface; keep tightening device handling and nofido2 parity. |
 | `internal/config` | `reuse with boundary cleanup` | Config loading is retained; stale config sections for deferred features should be removed or ignored. |
 | `internal/log` | `reuse` | Redaction and rotation behavior remain valid. |
 | `internal/policy` | `reuse` | Small supporting package; no reboot-specific concern found so far. |
@@ -38,4 +38,4 @@ Status values:
 
 - Verified reusable spine: `crypto`, `audit`, `daemon`, `ssh`, `agent`, `fido2`.
 - Reboot focus: `app`, `cli`, proto contract, integration coverage.
-- Deferred: public transfer workflows only.
+- Deferred: public transfer workflows and non-passkey product backlog only.

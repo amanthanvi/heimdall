@@ -37,6 +37,7 @@ var grpcMethodAuditActions = map[string]string{
 	v1.KeyService_AgentRemove_FullMethodName:       audit.ActionKeyAgentRemove,
 	v1.PasskeyService_Enroll_FullMethodName:        audit.ActionPasskeyEnroll,
 	v1.PasskeyService_RemovePasskey_FullMethodName: audit.ActionPasskeyRemove,
+	v1.PasskeyService_TestPasskey_FullMethodName:   audit.ActionPasskeyTest,
 	v1.BackupService_CreateBackup_FullMethodName:   audit.ActionBackupCreate,
 	v1.BackupService_RestoreBackup_FullMethodName:  audit.ActionBackupRestore,
 }
@@ -55,7 +56,7 @@ var grpcMethodAuditSkips = map[string]struct{}{
 	v1.AuditService_VerifyChain_FullMethodName:          {},
 	v1.SessionService_RecordSessionStart_FullMethodName: {},
 	v1.SessionService_RecordSessionEnd_FullMethodName:   {},
-	v1.ReauthService_VerifyAssertion_FullMethodName:     {},
+	v1.ReauthService_VerifyPasskey_FullMethodName:       {},
 	v1.ReauthService_VerifyPassphrase_FullMethodName:    {},
 }
 

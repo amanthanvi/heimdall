@@ -1,6 +1,6 @@
 module github.com/amanthanvi/heimdall
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/awnumar/memguard v0.23.0

@@ -55,19 +55,38 @@ func BootstrapVault(path string, passphrase []byte) error {
 	}()
 
 	ctx := context.Background()
-	bundle := storage.WrappedVMKBundle{
-		Ciphertext:    hex.EncodeToString(wrapped.Ciphertext),
-		Nonce:         hex.EncodeToString(wrapped.Nonce),
-		AAD:           hex.EncodeToString(wrapped.Salt),
-		Argon2Salt:    hex.EncodeToString(argon2Salt),
-		CommitmentTag: hex.EncodeToString(commitmentTag),
-		Memory:        params.Memory,
-		Iterations:    params.Iterations,
-		Parallelism:   params.Parallelism,
-		KeyLen:        params.KeyLen,
+	vaultSalt, err := crypto.GenerateSalt(int(params.KeyLen))
+	if err != nil {
+		return fmt.Errorf("bootstrap vault: generate vault salt: %w", err)
 	}
-	if err := store.StoreWrappedVMK(ctx, bundle); err != nil {
-		return fmt.Errorf("bootstrap vault: store wrapped vmk: %w", err)
+	hmacSecretSalt, err := crypto.GenerateSalt(int(params.KeyLen))
+	if err != nil {
+		return fmt.Errorf("bootstrap vault: generate hmac-secret salt: %w", err)
+	}
+
+	material := storage.VaultAuthMaterial{
+		Version:       storage.VaultAuthMaterialVersion2,
+		CommitmentTag: hex.EncodeToString(commitmentTag),
+		Passphrase: storage.PassphraseAuthMaterial{
+			Wrapped: storage.WrappedKeyMaterial{
+				Ciphertext: hex.EncodeToString(wrapped.Ciphertext),
+				Nonce:      hex.EncodeToString(wrapped.Nonce),
+				AAD:        hex.EncodeToString(wrapped.Salt),
+			},
+			Argon2Salt:  hex.EncodeToString(argon2Salt),
+			Memory:      params.Memory,
+			Iterations:  params.Iterations,
+			Parallelism: params.Parallelism,
+			KeyLen:      params.KeyLen,
+		},
+		PasskeyUnlock: storage.PasskeyUnlockMaterial{
+			VaultSalt:      hex.EncodeToString(vaultSalt),
+			HMACSecretSalt: hex.EncodeToString(hmacSecretSalt),
+		},
+		Passkeys: map[string]storage.WrappedKeyMaterial{},
+	}
+	if err := store.StoreVaultAuthMaterial(ctx, material); err != nil {
+		return fmt.Errorf("bootstrap vault: store vault auth material: %w", err)
 	}
 
 	if err := store.SealVersionCounter(ctx, vmk); err != nil {

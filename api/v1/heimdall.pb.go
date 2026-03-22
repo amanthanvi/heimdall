@@ -2538,6 +2538,7 @@ type PasskeyMeta struct {
 	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Label              string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	SupportsHmacSecret bool                   `protobuf:"varint,3,opt,name=supports_hmac_secret,json=supportsHmacSecret,proto3" json:"supports_hmac_secret,omitempty"`
+	UnlockSupported    bool                   `protobuf:"varint,4,opt,name=unlock_supported,json=unlockSupported,proto3" json:"unlock_supported,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -2589,6 +2590,13 @@ func (x *PasskeyMeta) GetLabel() string {
 func (x *PasskeyMeta) GetSupportsHmacSecret() bool {
 	if x != nil {
 		return x.SupportsHmacSecret
+	}
+	return false
+}
+
+func (x *PasskeyMeta) GetUnlockSupported() bool {
+	if x != nil {
+		return x.UnlockSupported
 	}
 	return false
 }
@@ -2816,8 +2824,6 @@ func (*RemovePasskeyResponse) Descriptor() ([]byte, []int) {
 type TestPasskeyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Label         string                 `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
-	AuthData      []byte                 `protobuf:"bytes,2,opt,name=auth_data,json=authData,proto3" json:"auth_data,omitempty"`
-	Signature     []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2857,20 +2863,6 @@ func (x *TestPasskeyRequest) GetLabel() string {
 		return x.Label
 	}
 	return ""
-}
-
-func (x *TestPasskeyRequest) GetAuthData() []byte {
-	if x != nil {
-		return x.AuthData
-	}
-	return nil
-}
-
-func (x *TestPasskeyRequest) GetSignature() []byte {
-	if x != nil {
-		return x.Signature
-	}
-	return nil
 }
 
 type TestPasskeyResponse struct {
@@ -3985,29 +3977,27 @@ func (*RecordSessionEndResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{72}
 }
 
-type VerifyAssertionRequest struct {
+type VerifyPasskeyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Label         string                 `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
-	AuthData      []byte                 `protobuf:"bytes,2,opt,name=auth_data,json=authData,proto3" json:"auth_data,omitempty"`
-	Signature     []byte                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *VerifyAssertionRequest) Reset() {
-	*x = VerifyAssertionRequest{}
+func (x *VerifyPasskeyRequest) Reset() {
+	*x = VerifyPasskeyRequest{}
 	mi := &file_api_v1_heimdall_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *VerifyAssertionRequest) String() string {
+func (x *VerifyPasskeyRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*VerifyAssertionRequest) ProtoMessage() {}
+func (*VerifyPasskeyRequest) ProtoMessage() {}
 
-func (x *VerifyAssertionRequest) ProtoReflect() protoreflect.Message {
+func (x *VerifyPasskeyRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_api_v1_heimdall_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4019,53 +4009,39 @@ func (x *VerifyAssertionRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use VerifyAssertionRequest.ProtoReflect.Descriptor instead.
-func (*VerifyAssertionRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use VerifyPasskeyRequest.ProtoReflect.Descriptor instead.
+func (*VerifyPasskeyRequest) Descriptor() ([]byte, []int) {
 	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{73}
 }
 
-func (x *VerifyAssertionRequest) GetLabel() string {
+func (x *VerifyPasskeyRequest) GetLabel() string {
 	if x != nil {
 		return x.Label
 	}
 	return ""
 }
 
-func (x *VerifyAssertionRequest) GetAuthData() []byte {
-	if x != nil {
-		return x.AuthData
-	}
-	return nil
-}
-
-func (x *VerifyAssertionRequest) GetSignature() []byte {
-	if x != nil {
-		return x.Signature
-	}
-	return nil
-}
-
-type VerifyAssertionResponse struct {
+type VerifyPasskeyResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *VerifyAssertionResponse) Reset() {
-	*x = VerifyAssertionResponse{}
+func (x *VerifyPasskeyResponse) Reset() {
+	*x = VerifyPasskeyResponse{}
 	mi := &file_api_v1_heimdall_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *VerifyAssertionResponse) String() string {
+func (x *VerifyPasskeyResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*VerifyAssertionResponse) ProtoMessage() {}
+func (*VerifyPasskeyResponse) ProtoMessage() {}
 
-func (x *VerifyAssertionResponse) ProtoReflect() protoreflect.Message {
+func (x *VerifyPasskeyResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_api_v1_heimdall_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -4077,12 +4053,12 @@ func (x *VerifyAssertionResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use VerifyAssertionResponse.ProtoReflect.Descriptor instead.
-func (*VerifyAssertionResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use VerifyPasskeyResponse.ProtoReflect.Descriptor instead.
+func (*VerifyPasskeyResponse) Descriptor() ([]byte, []int) {
 	return file_api_v1_heimdall_proto_rawDescGZIP(), []int{74}
 }
 
-func (x *VerifyAssertionResponse) GetOk() bool {
+func (x *VerifyPasskeyResponse) GetOk() bool {
 	if x != nil {
 		return x.Ok
 	}
@@ -4351,11 +4327,12 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"\x12AgentRemoveRequest\x12 \n" +
 	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\"\x15\n" +
 	"\x13AgentRemoveResponse\"\x15\n" +
-	"\x13ListPasskeysRequest\"e\n" +
+	"\x13ListPasskeysRequest\"\x90\x01\n" +
 	"\vPasskeyMeta\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x120\n" +
-	"\x14supports_hmac_secret\x18\x03 \x01(\bR\x12supportsHmacSecret\"L\n" +
+	"\x14supports_hmac_secret\x18\x03 \x01(\bR\x12supportsHmacSecret\x12)\n" +
+	"\x10unlock_supported\x18\x04 \x01(\bR\x0funlockSupported\"L\n" +
 	"\x14ListPasskeysResponse\x124\n" +
 	"\bpasskeys\x18\x01 \x03(\v2\x18.heimdall.v1.PasskeyMetaR\bpasskeys\"I\n" +
 	"\x14EnrollPasskeyRequest\x12\x14\n" +
@@ -4365,11 +4342,9 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"\apasskey\x18\x01 \x01(\v2\x18.heimdall.v1.PasskeyMetaR\apasskey\",\n" +
 	"\x14RemovePasskeyRequest\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\"\x17\n" +
-	"\x15RemovePasskeyResponse\"e\n" +
+	"\x15RemovePasskeyResponse\"L\n" +
 	"\x12TestPasskeyRequest\x12\x14\n" +
-	"\x05label\x18\x01 \x01(\tR\x05label\x12\x1b\n" +
-	"\tauth_data\x18\x02 \x01(\fR\bauthData\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\fR\tsignature\"%\n" +
+	"\x05label\x18\x01 \x01(\tR\x05labelJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04R\tauth_dataR\tsignature\"%\n" +
 	"\x13TestPasskeyResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\"5\n" +
 	"\vForwardSpec\x12\x12\n" +
@@ -4464,12 +4439,10 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"durationMs\x12\x19\n" +
 	"\bkey_name\x18\x04 \x01(\tR\akeyName\x12\x17\n" +
 	"\ahost_id\x18\x05 \x01(\tR\x06hostId\"\x1a\n" +
-	"\x18RecordSessionEndResponse\"i\n" +
-	"\x16VerifyAssertionRequest\x12\x14\n" +
-	"\x05label\x18\x01 \x01(\tR\x05label\x12\x1b\n" +
-	"\tauth_data\x18\x02 \x01(\fR\bauthData\x12\x1c\n" +
-	"\tsignature\x18\x03 \x01(\fR\tsignature\")\n" +
-	"\x17VerifyAssertionResponse\x12\x0e\n" +
+	"\x18RecordSessionEndResponse\",\n" +
+	"\x14VerifyPasskeyRequest\x12\x14\n" +
+	"\x05label\x18\x01 \x01(\tR\x05label\"'\n" +
+	"\x15VerifyPasskeyResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\"9\n" +
 	"\x17VerifyPassphraseRequest\x12\x1e\n" +
 	"\n" +
@@ -4525,9 +4498,9 @@ const file_api_v1_heimdall_proto_rawDesc = "" +
 	"\rRestoreBackup\x12!.heimdall.v1.RestoreBackupRequest\x1a\".heimdall.v1.RestoreBackupResponse2\xd8\x01\n" +
 	"\x0eSessionService\x12e\n" +
 	"\x12RecordSessionStart\x12&.heimdall.v1.RecordSessionStartRequest\x1a'.heimdall.v1.RecordSessionStartResponse\x12_\n" +
-	"\x10RecordSessionEnd\x12$.heimdall.v1.RecordSessionEndRequest\x1a%.heimdall.v1.RecordSessionEndResponse2\xce\x01\n" +
-	"\rReauthService\x12\\\n" +
-	"\x0fVerifyAssertion\x12#.heimdall.v1.VerifyAssertionRequest\x1a$.heimdall.v1.VerifyAssertionResponse\x12_\n" +
+	"\x10RecordSessionEnd\x12$.heimdall.v1.RecordSessionEndRequest\x1a%.heimdall.v1.RecordSessionEndResponse2\xc8\x01\n" +
+	"\rReauthService\x12V\n" +
+	"\rVerifyPasskey\x12!.heimdall.v1.VerifyPasskeyRequest\x1a\".heimdall.v1.VerifyPasskeyResponse\x12_\n" +
 	"\x10VerifyPassphrase\x12$.heimdall.v1.VerifyPassphraseRequest\x1a%.heimdall.v1.VerifyPassphraseResponseB*Z(github.com/amanthanvi/heimdall/api/v1;v1b\x06proto3"
 
 var (
@@ -4617,8 +4590,8 @@ var file_api_v1_heimdall_proto_goTypes = []any{
 	(*RecordSessionStartResponse)(nil), // 70: heimdall.v1.RecordSessionStartResponse
 	(*RecordSessionEndRequest)(nil),    // 71: heimdall.v1.RecordSessionEndRequest
 	(*RecordSessionEndResponse)(nil),   // 72: heimdall.v1.RecordSessionEndResponse
-	(*VerifyAssertionRequest)(nil),     // 73: heimdall.v1.VerifyAssertionRequest
-	(*VerifyAssertionResponse)(nil),    // 74: heimdall.v1.VerifyAssertionResponse
+	(*VerifyPasskeyRequest)(nil),       // 73: heimdall.v1.VerifyPasskeyRequest
+	(*VerifyPasskeyResponse)(nil),      // 74: heimdall.v1.VerifyPasskeyResponse
 	(*VerifyPassphraseRequest)(nil),    // 75: heimdall.v1.VerifyPassphraseRequest
 	(*VerifyPassphraseResponse)(nil),   // 76: heimdall.v1.VerifyPassphraseResponse
 }
@@ -4671,7 +4644,7 @@ var file_api_v1_heimdall_proto_depIdxs = []int32{
 	67, // 45: heimdall.v1.BackupService.RestoreBackup:input_type -> heimdall.v1.RestoreBackupRequest
 	69, // 46: heimdall.v1.SessionService.RecordSessionStart:input_type -> heimdall.v1.RecordSessionStartRequest
 	71, // 47: heimdall.v1.SessionService.RecordSessionEnd:input_type -> heimdall.v1.RecordSessionEndRequest
-	73, // 48: heimdall.v1.ReauthService.VerifyAssertion:input_type -> heimdall.v1.VerifyAssertionRequest
+	73, // 48: heimdall.v1.ReauthService.VerifyPasskey:input_type -> heimdall.v1.VerifyPasskeyRequest
 	75, // 49: heimdall.v1.ReauthService.VerifyPassphrase:input_type -> heimdall.v1.VerifyPassphraseRequest
 	1,  // 50: heimdall.v1.VaultService.Status:output_type -> heimdall.v1.StatusResponse
 	3,  // 51: heimdall.v1.VaultService.Lock:output_type -> heimdall.v1.LockResponse
@@ -4706,7 +4679,7 @@ var file_api_v1_heimdall_proto_depIdxs = []int32{
 	68, // 80: heimdall.v1.BackupService.RestoreBackup:output_type -> heimdall.v1.RestoreBackupResponse
 	70, // 81: heimdall.v1.SessionService.RecordSessionStart:output_type -> heimdall.v1.RecordSessionStartResponse
 	72, // 82: heimdall.v1.SessionService.RecordSessionEnd:output_type -> heimdall.v1.RecordSessionEndResponse
-	74, // 83: heimdall.v1.ReauthService.VerifyAssertion:output_type -> heimdall.v1.VerifyAssertionResponse
+	74, // 83: heimdall.v1.ReauthService.VerifyPasskey:output_type -> heimdall.v1.VerifyPasskeyResponse
 	76, // 84: heimdall.v1.ReauthService.VerifyPassphrase:output_type -> heimdall.v1.VerifyPassphraseResponse
 	50, // [50:85] is the sub-list for method output_type
 	15, // [15:50] is the sub-list for method input_type

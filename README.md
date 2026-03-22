@@ -1,8 +1,8 @@
 # Heimdall
 
 Heimdall is a local-first Go CLI for a solo operator who wants one place to
-manage SSH hosts, vault-backed keys, secrets, backups, and a
-tamper-evident local audit log.
+manage SSH hosts, vault-backed keys, hardware-backed passkeys, secrets,
+backups, and a tamper-evident local audit log.
 
 The authoritative product contract is
 [SPEC.md](/Users/amanthanvi/GitRepos/heimdall/SPEC.md).
@@ -21,6 +21,7 @@ Shipped top-level commands:
 - `host`
 - `connect`
 - `key`
+- `passkey`
 - `secret`
 - `backup`
 - `audit`
@@ -46,7 +47,7 @@ for package disposition.
 
 Prerequisites:
 
-- Go 1.26+
+- Go 1.26.1
 - `libfido2` if building with FIDO2 support
 
 Build the CLI:
@@ -70,6 +71,9 @@ heimdall vault unlock --passphrase "dev-pass"
 
 # 3) Create a managed SSH key
 heimdall key generate --name deploy
+
+# 3.1) Optionally enroll a passkey for unlock and re-auth
+heimdall passkey enroll --label laptop-key
 
 # 4) Add a host with typed connection defaults
 heimdall host add \
@@ -108,6 +112,52 @@ Current typed host defaults:
 - `--tag`
 
 Use `heimdall --json host show <name>` to inspect the persisted host record.
+
+## Passkeys
+
+The rebooted CLI ships public passkey workflows:
+
+- `passkey enroll`
+- `passkey list`
+- `passkey remove`
+- `passkey test`
+- `vault unlock --passkey-label <label>`
+- `vault reauth --passkey-label <label>`
+
+Rules:
+
+- `init` always writes passphrase auth material first; passkey unlock becomes
+  available after enrollment.
+- `passkey enroll` persists the enrollment record and, when the authenticator
+  supports `hmac-secret`, a passkey-wrapped VMK blob for unlock.
+- `passkey list` reports both `hmac_secret` capability and `unlock` support.
+- `passkey remove` deletes both the enrollment and any passkey-wrapped VMK
+  material for that label.
+- `vault unlock --passkey-label` and `vault reauth --passkey-label` use the
+  daemon-side authenticator flow; the CLI never asks for raw assertions.
+- `nofido2` builds keep the same public CLI surface, but hardware-backed
+  commands fail with exit code `6` and explicit `libfido2` guidance.
+
+## Completion
+
+Shell completion is a shipped surface, not an afterthought.
+
+Examples:
+
+```bash
+make completions
+heimdall completion install --shell bash --path ~/.local/share/bash-completion/completions/heimdall --verify --overwrite
+heimdall completion install --shell zsh --path ~/.zfunc/_heimdall --verify --overwrite
+heimdall completion install --shell fish --path ~/.config/fish/completions/heimdall.fish --verify --overwrite
+```
+
+Current guarantees:
+
+- Bash completion is safe under `set -u`.
+- Bash completion does not fail if `compopt` is unavailable or is invoked
+  outside an active completion context.
+- Dynamic completion is available for host, key, secret, and passkey labels.
+- Completion lookups should not add audit noise.
 
 ## Connect Behavior
 

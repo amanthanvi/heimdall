@@ -13,7 +13,7 @@ import (
 func TestNoFIDO2PasskeyCommandsReturnExitCode6WithGuidance(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"enroll", "ls", "rm", "test"} {
+	for _, command := range []string{"enroll", "test", "reauth"} {
 		err := PasskeyCommandUnavailable(command)
 		require.Error(t, err)
 		require.Truef(t, IsExitCode(err, ExitCodeDependencyUnavailable), "command=%s", command)

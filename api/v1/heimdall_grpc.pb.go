@@ -1913,7 +1913,7 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ReauthService_VerifyAssertion_FullMethodName  = "/heimdall.v1.ReauthService/VerifyAssertion"
+	ReauthService_VerifyPasskey_FullMethodName    = "/heimdall.v1.ReauthService/VerifyPasskey"
 	ReauthService_VerifyPassphrase_FullMethodName = "/heimdall.v1.ReauthService/VerifyPassphrase"
 )
 
@@ -1921,7 +1921,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ReauthServiceClient interface {
-	VerifyAssertion(ctx context.Context, in *VerifyAssertionRequest, opts ...grpc.CallOption) (*VerifyAssertionResponse, error)
+	VerifyPasskey(ctx context.Context, in *VerifyPasskeyRequest, opts ...grpc.CallOption) (*VerifyPasskeyResponse, error)
 	VerifyPassphrase(ctx context.Context, in *VerifyPassphraseRequest, opts ...grpc.CallOption) (*VerifyPassphraseResponse, error)
 }
 
@@ -1933,10 +1933,10 @@ func NewReauthServiceClient(cc grpc.ClientConnInterface) ReauthServiceClient {
 	return &reauthServiceClient{cc}
 }
 
-func (c *reauthServiceClient) VerifyAssertion(ctx context.Context, in *VerifyAssertionRequest, opts ...grpc.CallOption) (*VerifyAssertionResponse, error) {
+func (c *reauthServiceClient) VerifyPasskey(ctx context.Context, in *VerifyPasskeyRequest, opts ...grpc.CallOption) (*VerifyPasskeyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(VerifyAssertionResponse)
-	err := c.cc.Invoke(ctx, ReauthService_VerifyAssertion_FullMethodName, in, out, cOpts...)
+	out := new(VerifyPasskeyResponse)
+	err := c.cc.Invoke(ctx, ReauthService_VerifyPasskey_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1957,7 +1957,7 @@ func (c *reauthServiceClient) VerifyPassphrase(ctx context.Context, in *VerifyPa
 // All implementations must embed UnimplementedReauthServiceServer
 // for forward compatibility.
 type ReauthServiceServer interface {
-	VerifyAssertion(context.Context, *VerifyAssertionRequest) (*VerifyAssertionResponse, error)
+	VerifyPasskey(context.Context, *VerifyPasskeyRequest) (*VerifyPasskeyResponse, error)
 	VerifyPassphrase(context.Context, *VerifyPassphraseRequest) (*VerifyPassphraseResponse, error)
 	mustEmbedUnimplementedReauthServiceServer()
 }
@@ -1969,8 +1969,8 @@ type ReauthServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedReauthServiceServer struct{}
 
-func (UnimplementedReauthServiceServer) VerifyAssertion(context.Context, *VerifyAssertionRequest) (*VerifyAssertionResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method VerifyAssertion not implemented")
+func (UnimplementedReauthServiceServer) VerifyPasskey(context.Context, *VerifyPasskeyRequest) (*VerifyPasskeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method VerifyPasskey not implemented")
 }
 func (UnimplementedReauthServiceServer) VerifyPassphrase(context.Context, *VerifyPassphraseRequest) (*VerifyPassphraseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method VerifyPassphrase not implemented")
@@ -1996,20 +1996,20 @@ func RegisterReauthServiceServer(s grpc.ServiceRegistrar, srv ReauthServiceServe
 	s.RegisterService(&ReauthService_ServiceDesc, srv)
 }
 
-func _ReauthService_VerifyAssertion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VerifyAssertionRequest)
+func _ReauthService_VerifyPasskey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyPasskeyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ReauthServiceServer).VerifyAssertion(ctx, in)
+		return srv.(ReauthServiceServer).VerifyPasskey(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ReauthService_VerifyAssertion_FullMethodName,
+		FullMethod: ReauthService_VerifyPasskey_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ReauthServiceServer).VerifyAssertion(ctx, req.(*VerifyAssertionRequest))
+		return srv.(ReauthServiceServer).VerifyPasskey(ctx, req.(*VerifyPasskeyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2040,8 +2040,8 @@ var ReauthService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*ReauthServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "VerifyAssertion",
-			Handler:    _ReauthService_VerifyAssertion_Handler,
+			MethodName: "VerifyPasskey",
+			Handler:    _ReauthService_VerifyPasskey_Handler,
 		},
 		{
 			MethodName: "VerifyPassphrase",

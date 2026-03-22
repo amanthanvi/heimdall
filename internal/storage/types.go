@@ -113,19 +113,37 @@ type SessionHistory struct {
 	ExitCode  *int
 }
 
-// WrappedVMKBundle holds the artifacts produced when wrapping the VMK with a
-// passphrase-derived KEK during vault init. All binary fields are hex-encoded
-// for storage in vault_meta's TEXT value column.
-type WrappedVMKBundle struct {
-	Ciphertext    string `json:"ciphertext"`
-	Nonce         string `json:"nonce"`
-	AAD           string `json:"aad"`
-	Argon2Salt    string `json:"argon2_salt"`
-	CommitmentTag string `json:"commitment_tag"`
-	Memory        uint32 `json:"argon2_memory"`
-	Iterations    uint32 `json:"argon2_iterations"`
-	Parallelism   uint8  `json:"argon2_parallelism"`
-	KeyLen        uint32 `json:"argon2_key_len"`
+const VaultAuthMaterialVersion2 = 2
+
+type WrappedKeyMaterial struct {
+	Ciphertext string `json:"ciphertext"`
+	Nonce      string `json:"nonce"`
+	AAD        string `json:"aad"`
+}
+
+type PassphraseAuthMaterial struct {
+	Wrapped     WrappedKeyMaterial `json:"wrapped"`
+	Argon2Salt  string             `json:"argon2_salt"`
+	Memory      uint32             `json:"argon2_memory"`
+	Iterations  uint32             `json:"argon2_iterations"`
+	Parallelism uint8              `json:"argon2_parallelism"`
+	KeyLen      uint32             `json:"argon2_key_len"`
+}
+
+type PasskeyUnlockMaterial struct {
+	VaultSalt      string `json:"vault_salt"`
+	HMACSecretSalt string `json:"hmac_secret_salt"`
+}
+
+// VaultAuthMaterial persists the unwrap material for the current vault VMK.
+// All binary fields are hex-encoded for storage in vault_meta's TEXT value
+// column.
+type VaultAuthMaterial struct {
+	Version       int                           `json:"version"`
+	CommitmentTag string                        `json:"commitment_tag"`
+	Passphrase    PassphraseAuthMaterial        `json:"passphrase"`
+	PasskeyUnlock PasskeyUnlockMaterial         `json:"passkey_unlock"`
+	Passkeys      map[string]WrappedKeyMaterial `json:"passkeys,omitempty"`
 }
 
 type HostRepository interface {

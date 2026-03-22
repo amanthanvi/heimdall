@@ -94,8 +94,23 @@ func (s *Service) UnlockWithPasskey(
 	vaultSalt []byte,
 	hmacSecretSalt []byte,
 ) (*memguard.LockedBuffer, error) {
+	kek, err := s.DeriveKEK(ctx, label, vaultSalt, hmacSecretSalt)
+	if err != nil {
+		return nil, err
+	}
+	defer memguard.WipeBytes(kek)
+	vmk, err := crypto.UnwrapVMK(kek, wrapped, commitmentTag)
+	if err != nil {
+		return nil, authFailedError("vault unlock failed", err)
+	}
+
+	s.recordAudit(ctx, "vault.unlock", "vault", "", "success")
+	return vmk, nil
+}
+
+func (s *Service) DeriveKEK(ctx context.Context, label string, vaultSalt []byte, hmacSecretSalt []byte) ([]byte, error) {
 	if s == nil || s.auth == nil {
-		return nil, dependencyUnavailableError("vault unlock --passkey")
+		return nil, dependencyUnavailableError("vault unlock --passkey-label")
 	}
 	if s.passkeys == nil {
 		return nil, fmt.Errorf("fido2 unlock: passkey repository is nil")
@@ -126,7 +141,6 @@ func (s *Service) UnlockWithPasskey(
 		return nil, authFailedError("passkey assertion failed", err)
 	}
 
-	// Defense-in-depth: verify assertion signature before using HMAC output.
 	if err := VerifyAssertionSignature(enrollment.PublicKeyCOSE, assertion.AuthData, assertion.Signature); err != nil {
 		return nil, authFailedError("passkey unlock signature verification failed", err)
 	}
@@ -135,14 +149,7 @@ func (s *Service) UnlockWithPasskey(
 	if err != nil {
 		return nil, fmt.Errorf("fido2 unlock: derive kek: %w", err)
 	}
-	defer memguard.WipeBytes(kek)
-	vmk, err := crypto.UnwrapVMK(kek, wrapped, commitmentTag)
-	if err != nil {
-		return nil, authFailedError("vault unlock failed", err)
-	}
-
-	s.recordAudit(ctx, "vault.unlock", "vault", "", "success")
-	return vmk, nil
+	return kek, nil
 }
 
 func (s *Service) Reauthenticate(ctx context.Context, label string, pid int) error {
@@ -189,6 +196,41 @@ func (s *Service) Reauthenticate(ctx context.Context, label string, pid int) err
 	return nil
 }
 
+func (s *Service) Test(ctx context.Context, label string) error {
+	if s == nil || s.auth == nil {
+		return dependencyUnavailableError("passkey test")
+	}
+	if s.passkeys == nil {
+		return fmt.Errorf("fido2 test: passkey repository is nil")
+	}
+
+	enrollment, err := s.passkeys.GetByLabel(ctx, label)
+	if err != nil {
+		return authFailedError("passkey enrollment lookup failed", err)
+	}
+
+	clientDataHash, err := randomBytes(32)
+	if err != nil {
+		return fmt.Errorf("fido2 test: generate client data hash: %w", err)
+	}
+
+	assertion, err := s.auth.GetAssertion(GetAssertionOpts{
+		RPID:           s.rpID,
+		CredentialID:   enrollment.CredentialID,
+		ClientDataHash: clientDataHash,
+		UVPolicy:       "preferred",
+	})
+	if err != nil {
+		return authFailedError("passkey assertion failed", err)
+	}
+	if err := VerifyAssertionSignature(enrollment.PublicKeyCOSE, assertion.AuthData, assertion.Signature); err != nil {
+		return authFailedError("passkey signature verification failed", err)
+	}
+
+	s.recordAudit(ctx, "passkey.test", "passkey", label, "success")
+	return nil
+}
+
 func (s *Service) LastReauthForPID(pid int) (time.Time, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -220,7 +262,7 @@ func PasskeyCommandUnavailable(command string) error {
 }
 
 func VaultUnlockPasskeyUnavailable() error {
-	return dependencyUnavailableError("heimdall vault unlock --passkey")
+	return dependencyUnavailableError("heimdall vault unlock --passkey-label")
 }
 
 func VerifyAssertionSignature(publicKeyCOSE, authData, signature []byte) error {

@@ -98,23 +98,23 @@ type connectEndDetails struct {
 	KeyName    string `json:"key_name,omitempty"`
 }
 
-func (s *Server) VerifyAssertion(ctx context.Context, req *v1.VerifyAssertionRequest) (*v1.VerifyAssertionResponse, error) {
+func (s *Server) VerifyPasskey(ctx context.Context, req *v1.VerifyPasskeyRequest) (*v1.VerifyPasskeyResponse, error) {
 	caller := callerFromContext(ctx, s.cfg.Daemon)
 	if blocked, remaining := s.lockout.check(caller); blocked {
 		return nil, permissionDeniedError("AUTH_LOCKED_OUT", false, false, lockoutGuidance(remaining))
 	}
 
-	enrollment, err := s.cfg.Store.Passkeys.GetByLabel(ctx, req.GetLabel())
-	if err != nil {
-		delay := s.lockout.recordFailure(caller)
-		return nil, permissionDeniedError("AUTH_FAILED", false, false, lockoutGuidance(delay))
+	if strings.TrimSpace(req.GetLabel()) == "" {
+		return nil, grpcstatus.Error(codes.InvalidArgument, "passkey re-auth: label is required")
 	}
-
-	verify := s.cfg.AssertionVerifier
-	if verify == nil {
-		verify = fido2.VerifyAssertionSignature
+	manager := s.cfg.PasskeyManager
+	if manager == nil {
+		return nil, grpcstatus.Error(codes.FailedPrecondition, "passkey re-auth: passkey management is not configured")
 	}
-	if err := verify(enrollment.PublicKeyCOSE, req.GetAuthData(), req.GetSignature()); err != nil {
+	if err := manager.Reauthenticate(ctx, req.GetLabel(), caller.pid); err != nil {
+		if errors.Is(err, fido2.ErrDependencyUnavailable) {
+			return nil, grpcstatus.Errorf(codes.FailedPrecondition, "passkey re-auth: %v", err)
+		}
 		delay := s.lockout.recordFailure(caller)
 		return nil, permissionDeniedError("AUTH_FAILED", false, false, lockoutGuidance(delay))
 	}
@@ -130,7 +130,7 @@ func (s *Server) VerifyAssertion(ctx context.Context, req *v1.VerifyAssertionReq
 			Result:     "success",
 		})
 	}
-	return &v1.VerifyAssertionResponse{Ok: true}, nil
+	return &v1.VerifyPasskeyResponse{Ok: true}, nil
 }
 
 func (s *Server) VerifyPassphrase(ctx context.Context, req *v1.VerifyPassphraseRequest) (*v1.VerifyPassphraseResponse, error) {

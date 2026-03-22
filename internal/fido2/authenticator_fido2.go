@@ -12,45 +12,25 @@ import "C"
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"unsafe"
 )
 
 type cgoAuthenticator struct {
-	mu  sync.Mutex
-	dev *C.fido_dev_t
+	mu         sync.Mutex
+	devicePath string
 }
 
 func NewAuthenticator(devicePath string) (Authenticator, error) {
-	if devicePath == "" {
-		return nil, fmt.Errorf("open fido2 device: device path is required")
-	}
-
 	C.fido_init(0)
-	dev := C.fido_dev_new()
-	if dev == nil {
-		return nil, fmt.Errorf("open fido2 device: allocation failed")
-	}
-
-	cPath := C.CString(devicePath)
-	defer C.free(unsafe.Pointer(cPath))
-
-	rc := C.fido_dev_open(dev, cPath)
-	if rc != C.FIDO_OK {
-		C.fido_dev_free(&dev)
-		return nil, fmt.Errorf("open fido2 device: %s", C.GoString(C.fido_strerr(rc)))
-	}
-
-	return &cgoAuthenticator{dev: dev}, nil
+	return &cgoAuthenticator{devicePath: strings.TrimSpace(devicePath)}, nil
 }
 
 func (a *cgoAuthenticator) MakeCredential(opts MakeCredentialOpts) (*Credential, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.dev == nil {
-		return nil, fmt.Errorf("make credential: device is closed")
-	}
 	if opts.RPID == "" {
 		opts.RPID = defaultRPID
 	}
@@ -129,9 +109,14 @@ func (a *cgoAuthenticator) MakeCredential(opts MakeCredentialOpts) (*Credential,
 		defer C.free(unsafe.Pointer(cPIN))
 	}
 
-	rc = C.fido_dev_make_cred(a.dev, cred, cPIN)
-	if rc != C.FIDO_OK {
-		return nil, fmt.Errorf("make credential: device call failed: %s", C.GoString(C.fido_strerr(rc)))
+	if err := a.withDevice(func(dev *C.fido_dev_t) error {
+		rc = C.fido_dev_make_cred(dev, cred, cPIN)
+		if rc != C.FIDO_OK {
+			return fmt.Errorf("make credential: device call failed: %s", C.GoString(C.fido_strerr(rc)))
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	idPtr := C.fido_cred_id_ptr(cred)
@@ -153,9 +138,6 @@ func (a *cgoAuthenticator) GetAssertion(opts GetAssertionOpts) (*Assertion, erro
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.dev == nil {
-		return nil, fmt.Errorf("get assertion: device is closed")
-	}
 	if opts.RPID == "" {
 		opts.RPID = defaultRPID
 	}
@@ -218,9 +200,14 @@ func (a *cgoAuthenticator) GetAssertion(opts GetAssertionOpts) (*Assertion, erro
 		defer C.free(unsafe.Pointer(cPIN))
 	}
 
-	rc = C.fido_dev_get_assert(a.dev, assertion, cPIN)
-	if rc != C.FIDO_OK {
-		return nil, fmt.Errorf("get assertion: device call failed: %s", C.GoString(C.fido_strerr(rc)))
+	if err := a.withDevice(func(dev *C.fido_dev_t) error {
+		rc = C.fido_dev_get_assert(dev, assertion, cPIN)
+		if rc != C.FIDO_OK {
+			return fmt.Errorf("get assertion: device call failed: %s", C.GoString(C.fido_strerr(rc)))
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	if C.fido_assert_count(assertion) == 0 {
@@ -239,15 +226,65 @@ func (a *cgoAuthenticator) GetAssertion(opts GetAssertionOpts) (*Assertion, erro
 }
 
 func (a *cgoAuthenticator) Close() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.dev == nil {
-		return nil
-	}
-	C.fido_dev_close(a.dev)
-	C.fido_dev_free(&a.dev)
 	return nil
+}
+
+func (a *cgoAuthenticator) withDevice(fn func(*C.fido_dev_t) error) error {
+	path, err := a.resolveDevicePath()
+	if err != nil {
+		return err
+	}
+
+	dev := C.fido_dev_new()
+	if dev == nil {
+		return fmt.Errorf("open fido2 device: allocation failed")
+	}
+	defer func() {
+		C.fido_dev_close(dev)
+		C.fido_dev_free(&dev)
+	}()
+
+	cPath := C.CString(path)
+	defer C.free(unsafe.Pointer(cPath))
+
+	rc := C.fido_dev_open(dev, cPath)
+	if rc != C.FIDO_OK {
+		return fmt.Errorf("open fido2 device: %s", C.GoString(C.fido_strerr(rc)))
+	}
+	return fn(dev)
+}
+
+func (a *cgoAuthenticator) resolveDevicePath() (string, error) {
+	if a.devicePath != "" {
+		return a.devicePath, nil
+	}
+
+	const maxDevices = 16
+	devInfo := C.fido_dev_info_new(C.size_t(maxDevices))
+	if devInfo == nil {
+		return "", fmt.Errorf("open fido2 device: enumerate devices allocation failed")
+	}
+	defer C.fido_dev_info_free(&devInfo, C.size_t(maxDevices))
+
+	var found C.size_t
+	rc := C.fido_dev_info_manifest(devInfo, C.size_t(maxDevices), &found)
+	if rc != C.FIDO_OK {
+		return "", fmt.Errorf("open fido2 device: enumerate devices: %s", C.GoString(C.fido_strerr(rc)))
+	}
+	if found == 0 {
+		return "", fmt.Errorf("open fido2 device: no FIDO2 authenticator detected")
+	}
+
+	info := C.fido_dev_info_ptr(devInfo, 0)
+	if info == nil {
+		return "", fmt.Errorf("open fido2 device: enumerate devices: empty device info")
+	}
+	path := strings.TrimSpace(C.GoString(C.fido_dev_info_path(info)))
+	if path == "" {
+		return "", fmt.Errorf("open fido2 device: selected device path is empty")
+	}
+	a.devicePath = path
+	return path, nil
 }
 
 func uvPolicyToC(policy string) C.fido_opt_t {

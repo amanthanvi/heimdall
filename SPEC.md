@@ -14,6 +14,7 @@ place to manage:
 
 - SSH hosts and connection defaults
 - Vault-backed SSH keys
+- Hardware-backed passkeys for unlock and re-auth
 - Vault-backed secrets
 - Encrypted backups
 - Tamper-evident local audit history
@@ -33,6 +34,7 @@ The rebooted release ships these top-level commands:
 - `host`
 - `connect`
 - `key`
+- `passkey`
 - `secret`
 - `backup`
 - `audit`
@@ -137,7 +139,25 @@ The canonical secret model includes:
 - `reveal_policy`
 - size metadata
 
-### 6.4 Audit Event
+### 6.4 Vault Auth Material
+
+The canonical vault auth-material model is versioned and includes:
+
+- passphrase unwrap material
+- shared rollback / commitment material
+- shared passkey salts
+- per-passkey wrapped VMK blobs
+
+Rules:
+
+- `init` writes v2 auth material with passphrase material and an empty passkey
+  section.
+- Passkey unlock becomes available only after enrollment stores a wrapped VMK
+  blob for that label.
+- Removing a passkey removes both the enrollment metadata and any wrapped VMK
+  blob tied to that label.
+
+### 6.5 Audit Event
 
 The canonical audit event includes:
 
@@ -185,6 +205,9 @@ Contract:
 - `vault unlock` derives or unwraps key material for the live session.
 - `vault lock` clears live key material and resets re-auth state.
 - Re-auth state is local and time-bounded.
+- `vault unlock` supports passphrase input or `--passkey-label <label>`.
+- `vault reauth` supports passphrase input or `--passkey-label <label>`.
+- Passphrase, stdin, and passkey-label auth selectors are mutually exclusive.
 
 ### 7.4 `daemon`
 
@@ -315,6 +338,35 @@ Rules:
   with the source vault credentials.
 - Restore authentication failures must fail cleanly.
 
+### 7.10 `passkey`
+
+Required shipped workflows:
+
+- `passkey enroll`
+- `passkey list`
+- `passkey remove`
+- `passkey test`
+
+Rules:
+
+- `init` writes passphrase-based auth material and an empty passkey section.
+- `passkey enroll` requires an unlocked vault.
+- `passkey enroll` stores both the enrollment record and, when supported, a
+  passkey-wrapped VMK blob for that label.
+- `passkey list` reports whether `hmac-secret` is available and whether unlock
+  is supported for each label.
+- `passkey remove` deletes both the enrollment and any passkey-wrapped VMK blob
+  for that label.
+- `passkey test` exercises the daemon-side authenticator flow without requiring
+  raw assertion material from the CLI.
+- `vault unlock --passkey-label <label>` succeeds only when that label has a
+  supported passkey-wrapped VMK blob.
+- If an authenticator does not support `hmac-secret`, enroll still succeeds for
+  test and re-auth flows, but unlock must fail clearly for that label.
+- `nofido2` builds keep the public passkey CLI surface and fail hardware-backed
+  operations with explicit dependency guidance and semantic unavailable exit
+  behavior.
+
 ### 7.11 `audit`
 
 Required shipped workflows:
@@ -373,6 +425,9 @@ The reboot is considered truthful only if these workflows work end to end:
 
 - `init`
 - `vault unlock`
+- `vault unlock --passkey-label`
+- `vault reauth --passkey-label`
+- `passkey enroll/list/remove/test`
 - `host add/edit/show/list`
 - `connect --dry-run`
 - `secret env`

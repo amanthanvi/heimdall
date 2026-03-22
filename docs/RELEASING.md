@@ -18,10 +18,17 @@ Set these repository secrets for `.github/workflows/release.yml`:
 Run from the repo root:
 
 ```bash
+go version
+make build build-nofido2 completions
 go test -race ./...
 go vet ./...
 go test -tags=integration -race ./internal/integration -count=1
+go test -tags nofido2 -race ./...
 ```
+
+Expected toolchain floor:
+
+- Go `1.26.1`
 
 ## 2) Prepare and push release commit/tag
 
@@ -111,4 +118,10 @@ printf 'dev-pass\n' | heimdall --config "$CFG" --vault "$VAULT" init --yes --pas
 printf 'dev-pass\n' | heimdall --config "$CFG" --vault "$VAULT" vault unlock --passphrase-stdin
 heimdall --config "$CFG" --vault "$VAULT" host list
 heimdall --config "$CFG" --vault "$VAULT" completion install --shell zsh --path "$WORK/_heimdall" --verify --overwrite
+```
+
+Optional passkey smoke check on hardware-enabled builders:
+
+```bash
+heimdall --config "$CFG" --vault "$VAULT" passkey list
 ```

@@ -59,7 +59,7 @@ func TestRootHasBatchFiveTopLevelCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	for _, name := range []string{"init", "status", "doctor", "vault", "daemon", "host", "connect", "secret", "key", "backup", "audit", "version"} {
+	for _, name := range []string{"init", "status", "doctor", "vault", "daemon", "host", "connect", "secret", "key", "passkey", "backup", "audit", "version"} {
 		_, _, err := cmd.Find([]string{name})
 		require.NoErrorf(t, err, "expected command %q", name)
 	}
@@ -69,7 +69,7 @@ func TestRootOmitsDeferredCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := NewRootCommand(&out, testBuildInfo())
 
-	for _, name := range []string{"passkey", "ssh-config", "tui", "ui", "import", "export", "debug"} {
+	for _, name := range []string{"ssh-config", "tui", "ui", "import", "export", "debug"} {
 		_, _, err := cmd.Find([]string{name})
 		require.Error(t, err)
 	}
@@ -233,6 +233,18 @@ func TestVaultUnlockRejectsMultipleAuthMethods(t *testing.T) {
 	require.Contains(t, err.Error(), "vault unlock accepts only one auth method")
 }
 
+func TestVaultUnlockPasskeyLabel(t *testing.T) {
+	server := &cliTestDaemon{}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "vault", "unlock", "--passkey-label", "yubikey")
+	require.NoError(t, err)
+	require.Contains(t, out, "vault unlocked")
+	require.Len(t, server.unlockRequests, 1)
+	require.Empty(t, server.unlockRequests[0].GetPassphrase())
+	require.Equal(t, "yubikey", server.unlockRequests[0].GetPasskeyLabel())
+}
+
 func TestVaultReauthPassphraseStdin(t *testing.T) {
 	server := &cliTestDaemon{}
 	withStubDaemon(t, server)
@@ -242,6 +254,17 @@ func TestVaultReauthPassphraseStdin(t *testing.T) {
 	require.Contains(t, out, "reauthenticated")
 	require.Len(t, server.reauthRequests, 1)
 	require.Equal(t, "super-secret", server.reauthRequests[0].GetPassphrase())
+}
+
+func TestVaultReauthPasskeyLabel(t *testing.T) {
+	server := &cliTestDaemon{}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "vault", "reauth", "--passkey-label", "yubikey")
+	require.NoError(t, err)
+	require.Contains(t, out, "reauthenticated")
+	require.Len(t, server.reauthPasskeyRequests, 1)
+	require.Equal(t, "yubikey", server.reauthPasskeyRequests[0].GetLabel())
 }
 
 func TestSecretShowUsesDaemonInsteadOfFakeReauthFlag(t *testing.T) {
@@ -404,6 +427,55 @@ func TestCompletionConnectKnownHostsPolicyFlagUsesStaticPolicies(t *testing.T) {
 	out, err := runCLI(t, "", "__complete", "connect", "prod", "--known-hosts-policy", "a")
 	require.NoError(t, err)
 	require.Contains(t, out, "accept-new")
+}
+
+func TestCompletionVaultUnlockPasskeyLabelUsesDynamicPasskeys(t *testing.T) {
+	server := &cliTestDaemon{
+		passkeys: []*v1.PasskeyMeta{{Label: "yubikey", SupportsHmacSecret: true, UnlockSupported: true}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "__complete", "vault", "unlock", "--passkey-label", "")
+	require.NoError(t, err)
+	require.Contains(t, out, "yubikey")
+}
+
+func TestPasskeyListOutputsUnlockSupport(t *testing.T) {
+	server := &cliTestDaemon{
+		passkeys: []*v1.PasskeyMeta{{Label: "yubikey", SupportsHmacSecret: true, UnlockSupported: true}},
+	}
+	withStubDaemon(t, server)
+
+	out, err := runCLI(t, "", "passkey", "list")
+	require.NoError(t, err)
+	require.Contains(t, out, "yubikey")
+	require.Contains(t, out, "unlock=true")
+}
+
+func TestPasskeyCommandsReturnDependencyExitCodeInNoFIDO2Build(t *testing.T) {
+	server := &cliTestDaemon{
+		passkeyEnrollErr: errors.New("passkey enrollment requires libfido2; install libfido2 or use passphrase unlock"),
+		passkeyTestErr:   errors.New("passkey test requires libfido2; install libfido2 or use passphrase unlock"),
+		reauthPasskeyErr: errors.New("passkey re-auth requires libfido2; install libfido2 or use passphrase unlock"),
+		vaultUnlockErr:   errors.New("heimdall vault unlock --passkey-label requires libfido2; install libfido2 or use passphrase unlock"),
+	}
+	withStubDaemon(t, server)
+
+	_, err := runCLI(t, "", "passkey", "enroll", "--label", "yubikey")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeDependencyMissing, exitCode(err))
+
+	_, err = runCLI(t, "", "passkey", "test", "yubikey")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeDependencyMissing, exitCode(err))
+
+	_, err = runCLI(t, "", "vault", "reauth", "--passkey-label", "yubikey")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeDependencyMissing, exitCode(err))
+
+	_, err = runCLI(t, "", "vault", "unlock", "--passkey-label", "yubikey")
+	require.Error(t, err)
+	require.Equal(t, ExitCodeDependencyMissing, exitCode(err))
 }
 
 func TestCompletionDirectiveSummaryGoesToStderr(t *testing.T) {
@@ -975,20 +1047,25 @@ type cliTestDaemon struct {
 	v1.UnimplementedReauthServiceServer
 	v1.UnimplementedAuditServiceServer
 
-	hosts             []*v1.Host
-	keys              []*v1.KeyMeta
-	passkeys          []*v1.PasskeyMeta
-	secrets           map[string][]byte
-	secretPolicies    map[string]string
-	exportedKeys      map[string]*v1.ExportKeyResponse
-	unlockRequests    []*v1.UnlockRequest
-	reauthRequests    []*v1.VerifyPassphraseRequest
-	planRequests      []*v1.PlanConnectRequest
-	agentAddSessions  []string
-	sessionStarts     []string
-	sessionEnds       []string
-	recordedExitCodes []int32
-	verifyChainResp   *v1.VerifyChainResponse
+	hosts                 []*v1.Host
+	keys                  []*v1.KeyMeta
+	passkeys              []*v1.PasskeyMeta
+	secrets               map[string][]byte
+	secretPolicies        map[string]string
+	exportedKeys          map[string]*v1.ExportKeyResponse
+	unlockRequests        []*v1.UnlockRequest
+	reauthRequests        []*v1.VerifyPassphraseRequest
+	reauthPasskeyRequests []*v1.VerifyPasskeyRequest
+	planRequests          []*v1.PlanConnectRequest
+	agentAddSessions      []string
+	sessionStarts         []string
+	sessionEnds           []string
+	recordedExitCodes     []int32
+	verifyChainResp       *v1.VerifyChainResponse
+	passkeyEnrollErr      error
+	passkeyTestErr        error
+	reauthPasskeyErr      error
+	vaultUnlockErr        error
 }
 
 type recordingSSHExecutor struct {
@@ -1012,6 +1089,9 @@ func (d *cliTestDaemon) Unlock(_ context.Context, req *v1.UnlockRequest) (*v1.Un
 	if req == nil {
 		return nil, errors.New("unlock request is required")
 	}
+	if req.GetPasskeyLabel() != "" && d.vaultUnlockErr != nil {
+		return nil, d.vaultUnlockErr
+	}
 	clone := &v1.UnlockRequest{
 		Passphrase:   req.GetPassphrase(),
 		PasskeyLabel: req.GetPasskeyLabel(),
@@ -1027,6 +1107,18 @@ func (d *cliTestDaemon) VerifyPassphrase(_ context.Context, req *v1.VerifyPassph
 	clone := &v1.VerifyPassphraseRequest{Passphrase: req.GetPassphrase()}
 	d.reauthRequests = append(d.reauthRequests, clone)
 	return &v1.VerifyPassphraseResponse{Ok: true}, nil
+}
+
+func (d *cliTestDaemon) VerifyPasskey(_ context.Context, req *v1.VerifyPasskeyRequest) (*v1.VerifyPasskeyResponse, error) {
+	if req == nil {
+		return nil, errors.New("passkey reauth request is required")
+	}
+	if d.reauthPasskeyErr != nil {
+		return nil, d.reauthPasskeyErr
+	}
+	clone := &v1.VerifyPasskeyRequest{Label: req.GetLabel()}
+	d.reauthPasskeyRequests = append(d.reauthPasskeyRequests, clone)
+	return &v1.VerifyPasskeyResponse{Ok: true}, nil
 }
 
 func (d *cliTestDaemon) ListHosts(_ context.Context, req *v1.ListHostsRequest) (*v1.ListHostsResponse, error) {
@@ -1109,6 +1201,39 @@ func (d *cliTestDaemon) ExportKey(_ context.Context, req *v1.ExportKeyRequest) (
 
 func (d *cliTestDaemon) ListPasskeys(_ context.Context, _ *v1.ListPasskeysRequest) (*v1.ListPasskeysResponse, error) {
 	return &v1.ListPasskeysResponse{Passkeys: d.passkeys}, nil
+}
+
+func (d *cliTestDaemon) Enroll(_ context.Context, req *v1.EnrollPasskeyRequest) (*v1.EnrollPasskeyResponse, error) {
+	if req == nil {
+		return nil, errors.New("enroll request is required")
+	}
+	if d.passkeyEnrollErr != nil {
+		return nil, d.passkeyEnrollErr
+	}
+	return &v1.EnrollPasskeyResponse{
+		Passkey: &v1.PasskeyMeta{
+			Label:              req.GetLabel(),
+			SupportsHmacSecret: true,
+			UnlockSupported:    true,
+		},
+	}, nil
+}
+
+func (d *cliTestDaemon) RemovePasskey(_ context.Context, req *v1.RemovePasskeyRequest) (*v1.RemovePasskeyResponse, error) {
+	if req == nil {
+		return nil, errors.New("remove passkey request is required")
+	}
+	return &v1.RemovePasskeyResponse{}, nil
+}
+
+func (d *cliTestDaemon) TestPasskey(_ context.Context, req *v1.TestPasskeyRequest) (*v1.TestPasskeyResponse, error) {
+	if req == nil {
+		return nil, errors.New("test passkey request is required")
+	}
+	if d.passkeyTestErr != nil {
+		return nil, d.passkeyTestErr
+	}
+	return &v1.TestPasskeyResponse{Ok: true}, nil
 }
 
 func (d *cliTestDaemon) RecordSessionStart(_ context.Context, req *v1.RecordSessionStartRequest) (*v1.RecordSessionStartResponse, error) {

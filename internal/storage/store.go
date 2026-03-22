@@ -136,29 +136,80 @@ func ensureDBPermissions(path string) error {
 	return nil
 }
 
-const wrappedVMKBundleMetaKey = "wrapped_vmk_bundle"
+const vaultAuthMaterialMetaKey = "wrapped_vmk_bundle"
 
-func (s *Store) StoreWrappedVMK(ctx context.Context, bundle WrappedVMKBundle) error {
-	data, err := json.Marshal(bundle)
-	if err != nil {
-		return fmt.Errorf("store wrapped vmk: marshal: %w", err)
+type legacyWrappedVMKBundle struct {
+	Ciphertext    string `json:"ciphertext"`
+	Nonce         string `json:"nonce"`
+	AAD           string `json:"aad"`
+	Argon2Salt    string `json:"argon2_salt"`
+	CommitmentTag string `json:"commitment_tag"`
+	Memory        uint32 `json:"argon2_memory"`
+	Iterations    uint32 `json:"argon2_iterations"`
+	Parallelism   uint8  `json:"argon2_parallelism"`
+	KeyLen        uint32 `json:"argon2_key_len"`
+}
+
+func (s *Store) StoreVaultAuthMaterial(ctx context.Context, material VaultAuthMaterial) error {
+	if material.Version == 0 {
+		material.Version = VaultAuthMaterialVersion2
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO vault_meta(key, value) VALUES(?, ?)`, wrappedVMKBundleMetaKey, string(data)); err != nil {
-		return fmt.Errorf("store wrapped vmk: %w", err)
+	if material.Passkeys == nil {
+		material.Passkeys = map[string]WrappedKeyMaterial{}
+	}
+	data, err := json.Marshal(material)
+	if err != nil {
+		return fmt.Errorf("store vault auth material: marshal: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO vault_meta(key, value) VALUES(?, ?)`, vaultAuthMaterialMetaKey, string(data)); err != nil {
+		return fmt.Errorf("store vault auth material: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) LoadWrappedVMK(ctx context.Context) (WrappedVMKBundle, error) {
+func (s *Store) LoadVaultAuthMaterial(ctx context.Context) (VaultAuthMaterial, error) {
 	var raw string
-	if err := s.db.QueryRowContext(ctx, `SELECT value FROM vault_meta WHERE key = ?`, wrappedVMKBundleMetaKey).Scan(&raw); err != nil {
-		return WrappedVMKBundle{}, fmt.Errorf("load wrapped vmk: %w", err)
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM vault_meta WHERE key = ?`, vaultAuthMaterialMetaKey).Scan(&raw); err != nil {
+		return VaultAuthMaterial{}, fmt.Errorf("load vault auth material: %w", err)
 	}
-	var bundle WrappedVMKBundle
-	if err := json.Unmarshal([]byte(raw), &bundle); err != nil {
-		return WrappedVMKBundle{}, fmt.Errorf("load wrapped vmk: unmarshal: %w", err)
+
+	var material VaultAuthMaterial
+	if err := json.Unmarshal([]byte(raw), &material); err == nil {
+		if material.Version == 0 && material.Passphrase.Wrapped.Ciphertext != "" {
+			material.Version = VaultAuthMaterialVersion2
+		}
+		if material.Passkeys == nil {
+			material.Passkeys = map[string]WrappedKeyMaterial{}
+		}
+		if material.Version == VaultAuthMaterialVersion2 && material.Passphrase.Wrapped.Ciphertext != "" {
+			return material, nil
+		}
 	}
-	return bundle, nil
+
+	var legacy legacyWrappedVMKBundle
+	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
+		return VaultAuthMaterial{}, fmt.Errorf("load vault auth material: unmarshal: %w", err)
+	}
+	if legacy.Ciphertext == "" {
+		return VaultAuthMaterial{}, fmt.Errorf("load vault auth material: missing passphrase wrap")
+	}
+	return VaultAuthMaterial{
+		Version:       VaultAuthMaterialVersion2,
+		CommitmentTag: legacy.CommitmentTag,
+		Passphrase: PassphraseAuthMaterial{
+			Wrapped: WrappedKeyMaterial{
+				Ciphertext: legacy.Ciphertext,
+				Nonce:      legacy.Nonce,
+				AAD:        legacy.AAD,
+			},
+			Argon2Salt:  legacy.Argon2Salt,
+			Memory:      legacy.Memory,
+			Iterations:  legacy.Iterations,
+			Parallelism: legacy.Parallelism,
+			KeyLen:      legacy.KeyLen,
+		},
+		Passkeys: map[string]WrappedKeyMaterial{},
+	}, nil
 }
 
 func (s *Store) VerifyRollbackPreUnlock(homeDir string) error {

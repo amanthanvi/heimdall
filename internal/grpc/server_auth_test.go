@@ -2,8 +2,6 @@ package grpc
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -280,31 +278,19 @@ func TestConnectServicePlanHasOnlyPlanRPCAndReturnsSSHCommand(t *testing.T) {
 	require.Equal(t, "Plan", v1.ConnectService_ServiceDesc.Methods[0].MethodName)
 }
 
-func TestReauthVerifyAssertionValidatesSignature(t *testing.T) {
+func TestReauthVerifyPasskeyDelegatesToPasskeyManager(t *testing.T) {
 	t.Parallel()
 
-	h := newGRPCHarness(t)
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-
-	err = h.store.Passkeys.Create(context.Background(), &storage.PasskeyEnrollment{
-		Label:         "work-key",
-		CredentialID:  []byte("cred-1"),
-		PublicKeyCOSE: append([]byte(nil), pub...),
-	})
-	require.NoError(t, err)
-
-	authData := []byte("reauth-payload")
-	sig := ed25519.Sign(priv, authData)
+	manager := &testPasskeyManager{}
+	h := newGRPCHarness(t, withPasskeyManager(manager))
 	ctx := callerCtx(707, "proc-assert")
 
-	resp, err := h.reauth.VerifyAssertion(ctx, &v1.VerifyAssertionRequest{
-		Label:     "work-key",
-		AuthData:  authData,
-		Signature: sig,
+	resp, err := h.reauth.VerifyPasskey(ctx, &v1.VerifyPasskeyRequest{
+		Label: "work-key",
 	})
 	require.NoError(t, err)
 	require.True(t, resp.GetOk())
+	require.Equal(t, []string{"work-key"}, manager.reauthLabels)
 }
 
 func TestLockoutProgressionThreeFiveTenFailures(t *testing.T) {
@@ -397,6 +383,7 @@ type harnessOption func(*harnessConfig)
 type harnessConfig struct {
 	clock              *fakeClock
 	passphraseVerifier func(context.Context, string) bool
+	passkeyManager     passkeyManager
 }
 
 func withClock(c *fakeClock) harnessOption {
@@ -405,6 +392,10 @@ func withClock(c *fakeClock) harnessOption {
 
 func withPassphraseVerifier(verifier func(context.Context, string) bool) harnessOption {
 	return func(cfg *harnessConfig) { cfg.passphraseVerifier = verifier }
+}
+
+func withPasskeyManager(manager passkeyManager) harnessOption {
+	return func(cfg *harnessConfig) { cfg.passkeyManager = manager }
 }
 
 func newGRPCHarness(t *testing.T, opts ...harnessOption) *grpcHarness {
@@ -441,6 +432,7 @@ func newGRPCHarness(t *testing.T, opts ...harnessOption) *grpcHarness {
 		RuntimeConfig:      runtimeCfg,
 		Version:            VersionInfo{Version: "test-version", Commit: "test-commit", BuildTime: "test-build"},
 		Clock:              cfg.clock,
+		PasskeyManager:     cfg.passkeyManager,
 		PassphraseVerifier: cfg.passphraseVerifier,
 	})
 	require.NoError(t, err)
@@ -486,6 +478,27 @@ func newGRPCHarness(t *testing.T, opts ...harnessOption) *grpcHarness {
 		vmk.Destroy()
 	})
 	return h
+}
+
+type testPasskeyManager struct {
+	reauthLabels []string
+}
+
+func (m *testPasskeyManager) Enroll(context.Context, string, string) (*storage.PasskeyEnrollment, error) {
+	return nil, nil
+}
+
+func (m *testPasskeyManager) RemovePasskey(context.Context, string) error {
+	return nil
+}
+
+func (m *testPasskeyManager) TestPasskey(context.Context, string) error {
+	return nil
+}
+
+func (m *testPasskeyManager) Reauthenticate(_ context.Context, label string, _ int) error {
+	m.reauthLabels = append(m.reauthLabels, label)
+	return nil
 }
 
 func callerCtx(pid int, processStart string) context.Context {

@@ -22,8 +22,11 @@ type keyAgent interface {
 	RemoveKey(fingerprint string) error
 }
 
-type passkeyEnroller interface {
+type passkeyManager interface {
 	Enroll(ctx context.Context, label, userName string) (*storage.PasskeyEnrollment, error)
+	RemovePasskey(ctx context.Context, label string) error
+	TestPasskey(ctx context.Context, label string) error
+	Reauthenticate(ctx context.Context, label string, pid int) error
 }
 
 func (s *Server) Unlock(ctx context.Context, req *v1.UnlockRequest) (*v1.UnlockResponse, error) {
@@ -326,12 +329,12 @@ func (s *Server) AgentRemove(_ context.Context, req *v1.AgentRemoveRequest) (*v1
 }
 
 func (s *Server) Enroll(ctx context.Context, req *v1.EnrollPasskeyRequest) (*v1.EnrollPasskeyResponse, error) {
-	enroller := s.cfg.PasskeyEnroller
-	if enroller == nil {
+	manager := s.cfg.PasskeyManager
+	if manager == nil {
 		return nil, grpcstatus.Error(codes.FailedPrecondition, "passkey enroll: passkey enrollment is not configured")
 	}
 
-	enrollment, err := enroller.Enroll(ctx, strings.TrimSpace(req.GetLabel()), strings.TrimSpace(req.GetUserName()))
+	enrollment, err := manager.Enroll(ctx, strings.TrimSpace(req.GetLabel()), strings.TrimSpace(req.GetUserName()))
 	if err != nil {
 		return nil, mapAppError("passkey enroll", err)
 	}
@@ -340,28 +343,29 @@ func (s *Server) Enroll(ctx context.Context, req *v1.EnrollPasskeyRequest) (*v1.
 			Id:                 enrollment.ID,
 			Label:              enrollment.Label,
 			SupportsHmacSecret: enrollment.SupportsHMACSecret,
+			UnlockSupported:    enrollment.SupportsHMACSecret,
 		},
 	}, nil
 }
 
 func (s *Server) RemovePasskey(ctx context.Context, req *v1.RemovePasskeyRequest) (*v1.RemovePasskeyResponse, error) {
-	if err := s.cfg.Store.Passkeys.Delete(ctx, req.GetLabel()); err != nil {
+	manager := s.cfg.PasskeyManager
+	if manager == nil {
+		return nil, grpcstatus.Error(codes.FailedPrecondition, "remove passkey: passkey management is not configured")
+	}
+	if err := manager.RemovePasskey(ctx, req.GetLabel()); err != nil {
 		return nil, mapAppError("remove passkey", err)
 	}
 	return &v1.RemovePasskeyResponse{}, nil
 }
 
 func (s *Server) TestPasskey(ctx context.Context, req *v1.TestPasskeyRequest) (*v1.TestPasskeyResponse, error) {
-	enrollment, err := s.cfg.Store.Passkeys.GetByLabel(ctx, req.GetLabel())
-	if err != nil {
+	manager := s.cfg.PasskeyManager
+	if manager == nil {
+		return nil, grpcstatus.Error(codes.FailedPrecondition, "test passkey: passkey management is not configured")
+	}
+	if err := manager.TestPasskey(ctx, req.GetLabel()); err != nil {
 		return nil, mapAppError("test passkey", err)
-	}
-	if len(req.GetAuthData()) == 0 || len(req.GetSignature()) == 0 {
-		return &v1.TestPasskeyResponse{Ok: enrollment.SupportsHMACSecret || len(enrollment.PublicKeyCOSE) > 0}, nil
-	}
-
-	if err := fido2.VerifyAssertionSignature(enrollment.PublicKeyCOSE, req.GetAuthData(), req.GetSignature()); err != nil {
-		return nil, grpcstatus.Errorf(codes.PermissionDenied, "test passkey: %v", err)
 	}
 	return &v1.TestPasskeyResponse{Ok: true}, nil
 }

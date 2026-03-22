@@ -71,6 +71,7 @@ func hardenDefaultCompletionCommands(root *cobra.Command) {
 func registerDynamicCompletions(root *cobra.Command, deps commandDeps) {
 	hostNames := completeHostNames(deps)
 	keyNames := completeKeyNames(deps)
+	passkeyLabels := completePasskeyLabels(deps)
 	secretNames := completeSecretNames(deps)
 	knownHostsPolicies := staticCompletion("tofu", "accept-new", "strict", "off")
 
@@ -110,6 +111,11 @@ func registerDynamicCompletions(root *cobra.Command, deps commandDeps) {
 	registerValidArgs(root, []string{"secret", "export"}, secretNames)
 	registerValidArgs(root, []string{"secret", "env"}, secretNames)
 	registerFlagCompletion(root, []string{"secret", "export"}, "output", completeFilesystemPaths())
+
+	registerValidArgs(root, []string{"passkey", "remove"}, passkeyLabels)
+	registerValidArgs(root, []string{"passkey", "test"}, passkeyLabels)
+	registerFlagCompletion(root, []string{"vault", "unlock"}, "passkey-label", passkeyLabels)
+	registerFlagCompletion(root, []string{"vault", "reauth"}, "passkey-label", passkeyLabels)
 
 	registerFlagCompletion(root, []string{"key", "generate"}, "type", staticCompletion("ed25519", "rsa"))
 	registerFlagCompletion(root, []string{"audit", "list"}, "action", staticCompletion(auditpkg.AllActionTypes...))
@@ -183,6 +189,26 @@ func completeKeyNames(deps commandDeps) func(*cobra.Command, []string, string) (
 			out := make([]string, 0, len(resp.GetKeys()))
 			for _, key := range resp.GetKeys() {
 				out = append(out, key.GetName())
+			}
+			return out, nil
+		})
+		if err != nil {
+			return completionError(err)
+		}
+		return items, directive
+	}
+}
+
+func completePasskeyLabels(deps commandDeps) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		items, directive, err := listCompletionNames(deps, toComplete, func(ctx context.Context, clients daemonClients) ([]string, error) {
+			resp, err := clients.passkey.ListPasskeys(ctx, &v1.ListPasskeysRequest{})
+			if err != nil {
+				return nil, err
+			}
+			out := make([]string, 0, len(resp.GetPasskeys()))
+			for _, passkey := range resp.GetPasskeys() {
+				out = append(out, passkey.GetLabel())
 			}
 			return out, nil
 		})
@@ -524,6 +550,12 @@ func hardenBashCompletionScript(script string) string {
 		"    fi\n" +
 		"}\n" +
 		"fi\n\n"
+	const compoptHelper = "__heimdall_compopt()\n" +
+		"{\n" +
+		"    if type compopt >/dev/null 2>&1; then\n" +
+		"        builtin compopt \"$@\" 2>/dev/null || true\n" +
+		"    fi\n" +
+		"}\n\n"
 	const stateNeedle = "__heimdall_debug()\n{\n"
 	const stateHelper = "commands=()\n" +
 		"command_aliases=()\n" +
@@ -540,10 +572,17 @@ func hardenBashCompletionScript(script string) string {
 		if !strings.Contains(script, "commands=()\ncommand_aliases=()\nflags=()") {
 			script = strings.Replace(script, stateNeedle, stateHelper+stateNeedle, 1)
 		}
+		if !strings.Contains(script, "__heimdall_compopt()\n{") {
+			script = strings.Replace(script, stateNeedle, compoptHelper+stateNeedle, 1)
+		}
+		script = strings.ReplaceAll(script, "compopt ", "__heimdall_compopt ")
+		script = strings.ReplaceAll(script, "builtin __heimdall_compopt ", "builtin compopt ")
 		return hardenBashArrayExpansions(script)
 	}
 	script = strings.Replace(script, initNeedle, compatHelper+initNeedle, 1)
-	script = strings.Replace(script, stateNeedle, stateHelper+stateNeedle, 1)
+	script = strings.Replace(script, stateNeedle, compoptHelper+stateHelper+stateNeedle, 1)
+	script = strings.ReplaceAll(script, "compopt ", "__heimdall_compopt ")
+	script = strings.ReplaceAll(script, "builtin __heimdall_compopt ", "builtin compopt ")
 	return hardenBashArrayExpansions(script)
 }
 

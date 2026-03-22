@@ -68,7 +68,7 @@ service SessionService {
 }
 
 service ReauthService {
-  rpc VerifyAssertion(VerifyAssertionRequest) returns (VerifyAssertionResponse);
+  rpc VerifyPasskey(VerifyPasskeyRequest) returns (VerifyPasskeyResponse);
   rpc VerifyPassphrase(VerifyPassphraseRequest) returns (VerifyPassphraseResponse);
 }
 
@@ -315,6 +315,7 @@ message PasskeyMeta {
   string id = 1;
   string label = 2;
   bool supports_hmac_secret = 3;
+  bool unlock_supported = 4;
 }
 
 message ListPasskeysResponse {
@@ -338,8 +339,10 @@ message RemovePasskeyResponse {}
 
 message TestPasskeyRequest {
   string label = 1;
-  bytes auth_data = 2;
-  bytes signature = 3;
+  reserved 2;
+  reserved "auth_data";
+  reserved 3;
+  reserved "signature";
 }
 
 message TestPasskeyResponse {
@@ -452,13 +455,11 @@ message RecordSessionEndRequest {
 
 message RecordSessionEndResponse {}
 
-message VerifyAssertionRequest {
+message VerifyPasskeyRequest {
   string label = 1;
-  bytes auth_data = 2;
-  bytes signature = 3;
 }
 
-message VerifyAssertionResponse {
+message VerifyPasskeyResponse {
   bool ok = 1;
 }
 

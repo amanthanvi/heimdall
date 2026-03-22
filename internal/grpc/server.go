@@ -30,7 +30,7 @@ type ServerConfig struct {
 	AuditService       *auditpkg.Service
 	RuntimeConfig      configpkg.Config
 	KeyAgent           keyAgent
-	PasskeyEnroller    passkeyEnroller
+	PasskeyManager     passkeyManager
 	Version            VersionInfo
 	Clock              clock
 	ReauthTTL          time.Duration
@@ -276,6 +276,10 @@ func (s *Server) ExportKey(ctx context.Context, req *v1.ExportKeyRequest) (*v1.E
 }
 
 func (s *Server) ListPasskeys(ctx context.Context, _ *v1.ListPasskeysRequest) (*v1.ListPasskeysResponse, error) {
+	authMaterial, err := s.cfg.Store.LoadVaultAuthMaterial(ctx)
+	if err != nil {
+		return nil, grpcstatus.Errorf(codes.Internal, "list passkeys: %v", err)
+	}
 	rows, err := s.cfg.Store.DB().QueryContext(ctx, `
 		SELECT id, label, supports_hmac_secret
 		FROM passkey_enrollments
@@ -297,7 +301,13 @@ func (s *Server) ListPasskeys(ctx context.Context, _ *v1.ListPasskeysRequest) (*
 		if err := rows.Scan(&id, &label, &support); err != nil {
 			return nil, grpcstatus.Errorf(codes.Internal, "list passkeys: %v", err)
 		}
-		items = append(items, &v1.PasskeyMeta{Id: id, Label: label, SupportsHmacSecret: support == 1})
+		_, unlockSupported := authMaterial.Passkeys[label]
+		items = append(items, &v1.PasskeyMeta{
+			Id:                 id,
+			Label:              label,
+			SupportsHmacSecret: support == 1,
+			UnlockSupported:    unlockSupported,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, grpcstatus.Errorf(codes.Internal, "list passkeys: %v", err)
