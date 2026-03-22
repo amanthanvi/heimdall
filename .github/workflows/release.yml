@@ -25,7 +25,7 @@ jobs:
           go-version: "1.26.1"
 
       - name: Install release dependencies
-        run: brew install libfido2 syft
+        run: brew install libfido2 syft fish
 
       - name: Validate GoReleaser config
         uses: goreleaser/goreleaser-action@v6
@@ -36,6 +36,7 @@ jobs:
 
       - name: Preflight tests
         run: |
+          make completion-smoke
           go test -race ./...
           go vet ./...
           go test -tags=integration -race ./internal/integration -count=1

@@ -20,6 +20,7 @@ Run from the repo root:
 ```bash
 go version
 make build build-nofido2 completions
+make completion-smoke
 go test -race ./...
 go vet ./...
 go test -tags=integration -race ./internal/integration -count=1

@@ -9,7 +9,7 @@ LDFLAGS := -X github.com/amanthanvi/heimdall/internal/version.Version=$(VERSION)
 	-X github.com/amanthanvi/heimdall/internal/version.Commit=$(COMMIT) \
 	-X github.com/amanthanvi/heimdall/internal/version.BuildTime=$(BUILD_TIME)
 
-.PHONY: build build-nofido2 test lint generate completions man
+.PHONY: build build-nofido2 test lint generate completions completion-smoke man
 
 build:
 	@mkdir -p $(DIST_DIR)
@@ -33,6 +33,9 @@ completions:
 	go run ./cmd/heimdall completion bash > $(DIST_DIR)/completions/heimdall.bash
 	go run ./cmd/heimdall completion zsh > $(DIST_DIR)/completions/_heimdall
 	go run ./cmd/heimdall completion fish > $(DIST_DIR)/completions/heimdall.fish
+
+completion-smoke:
+	bash ./scripts/completion_smoke.sh
 
 man:
 	@mkdir -p $(DIST_DIR)/man

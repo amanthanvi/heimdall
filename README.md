@@ -146,6 +146,7 @@ Examples:
 
 ```bash
 make completions
+make completion-smoke
 heimdall completion install --shell bash --path ~/.local/share/bash-completion/completions/heimdall --verify --overwrite
 heimdall completion install --shell zsh --path ~/.zfunc/_heimdall --verify --overwrite
 heimdall completion install --shell fish --path ~/.config/fish/completions/heimdall.fish --verify --overwrite
@@ -158,6 +159,8 @@ Current guarantees:
   outside an active completion context.
 - Dynamic completion is available for host, key, secret, and passkey labels.
 - Completion lookups should not add audit noise.
+- `make completion-smoke` sources generated bash, zsh, and fish scripts against
+  a real nofido2 Heimdall binary.
 
 ## Connect Behavior
 

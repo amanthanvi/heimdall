@@ -14,7 +14,7 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-amd64
-            install_libfido2: sudo apt-get update && sudo apt-get install -y libfido2-dev
+            install_libfido2: sudo apt-get update && sudo apt-get install -y libfido2-dev zsh fish
           - os: macos-14
             platform: macos-arm64
             install_libfido2: brew install libfido2
@@ -65,6 +65,10 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build -tags nofido2 -trimpath ./...
+
+      - name: Completion smoke
+        if: runner.os == 'Linux'
+        run: make completion-smoke
 
       - name: Integration tests
         run: go test -tags=integration -race ./internal/integration -count=1
