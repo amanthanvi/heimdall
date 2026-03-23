@@ -71,20 +71,23 @@ gh release view vX.Y.Z --repo amanthanvi/heimdall --json url,tagName,isDraft,isP
 gh api 'repos/amanthanvi/homebrew-tap/commits?path=Casks/heimdall.rb&per_page=1'
 ```
 
-## 4.1) Public release-line hygiene (current policy: keep only `v0.3.0`)
+## 4.1) Public release-line hygiene (keep only the latest stable tag when explicitly requested)
 
 ```bash
 # list current releases/tags
 gh release list --repo amanthanvi/heimdall --limit 200
 git tag --sort=version:refname
 
+# set the stable tag you intend to keep
+LATEST_TAG=vX.Y.Z
+
 # delete old GitHub releases (example)
-for tag in $(gh release list --repo amanthanvi/heimdall --limit 200 --json tagName --jq '.[].tagName' | grep -v '^v0.3.0$'); do
+for tag in $(gh release list --repo amanthanvi/heimdall --limit 200 --json tagName --jq '.[].tagName' | grep -v "^${LATEST_TAG}$"); do
   gh release delete "$tag" --repo amanthanvi/heimdall --yes
 done
 
 # delete old local+remote tags (example)
-for tag in $(git tag | grep -v '^v0.3.0$'); do
+for tag in $(git tag | grep -v "^${LATEST_TAG}$"); do
   git tag -d "$tag"
   git push origin ":refs/tags/$tag"
 done
