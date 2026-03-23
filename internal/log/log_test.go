@@ -3,8 +3,10 @@ package log
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"log/slog"
@@ -105,17 +107,24 @@ func TestLogRotationRetainsMaxFiveFiles(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	files, err := filepath.Glob(filepath.Join(logDir, "heimdall*"))
-	require.NoError(t, err)
+	require.NoError(t, writer.Close())
 
-	backupCount := 0
-	for _, f := range files {
-		if f == logPath {
-			continue
+	var lastBackupCount int
+	require.Eventually(t, func() bool {
+		files, err := filepath.Glob(filepath.Join(logDir, "heimdall*"))
+		require.NoError(t, err)
+
+		lastBackupCount = 0
+		for _, fileName := range files {
+			if fileName == logPath {
+				continue
+			}
+			if _, statErr := os.Stat(fileName); statErr == nil {
+				lastBackupCount++
+			}
 		}
-		backupCount++
-	}
-	require.LessOrEqual(t, backupCount, 5)
+		return lastBackupCount <= 5
+	}, 2*time.Second, 20*time.Millisecond, "expected at most 5 backup logs, saw %d", lastBackupCount)
 }
 
 func logSingleField(t *testing.T, key, value string) map[string]any {
