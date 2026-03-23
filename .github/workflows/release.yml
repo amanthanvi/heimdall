@@ -28,7 +28,7 @@ jobs:
         run: brew install libfido2 syft fish
 
       - name: Validate GoReleaser config
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -42,7 +42,7 @@ jobs:
           go test -tags=integration -race ./internal/integration -count=1
 
       - name: Release
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
