@@ -1,6 +1,0 @@
-dist/
-*.out
-*.test
-.DS_Store
-.integration-bin-*/
-/heimdall
