@@ -1,0 +1,28 @@
+version: 2
+
+project_name: heimdall
+
+builds:
+  - id: heimdall
+    main: ./cmd/heimdall
+    binary: heimdall
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+sboms:
+  - artifacts: archive
+
+release:
+  github:
+    owner: athanvi
+    name: heimdall
+
