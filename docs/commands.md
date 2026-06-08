@@ -13,10 +13,11 @@ Primary commands:
 
 - `heimdall doctor`: passive local diagnostics.
 - `heimdall doctor host <host>`: host-route diagnostics; no network contact unless `--active-probe`.
-- `heimdall doctor windows|wsl|container|forwarding|certs`: focused passive diagnostics.
+- `heimdall doctor windows|wsl|container|forwarding|certs`: focused passive diagnostics; findings are filtered to the requested area (`HD-WIN-*`; `HD-WSL-*` plus `HD-WIN-*` for WSL Mode A; `HD-CONTAINER-*`; `HD-FWD-*`; or `HD-CERT-*`).
 - `heimdall identities`: configured public identity inventory.
 - `heimdall agents`: configured agent inventory.
 - `heimdall contexts`: context listing.
+- `heimdall context add <ctx> --host <host> [--hostname <name>] [--user <user>] [--port <port>] [--identity <identity>] [--agent <agent>] [--identities-only] [--certificate-file <path>] [--forward-agent yes|no|ask] [--proxy-jump <jump>] [--proxy-command <cmd>] [--transport <name>] --dry-run|--yes`: add a spec-style `contexts.<ctx>.routes[]` entry to Heimdall config and print the minimal YAML snippet plus render suggestion.
 - `heimdall config doctor`: strict config validation.
 - `heimdall config render [--write]`: render the Heimdall-owned OpenSSH fragment.
 - `heimdall config diff`: compare current fragment to render output.
@@ -29,7 +30,7 @@ Primary commands:
 - `heimdall wsl bridge doctor`: bridge runtime permission check.
 - `heimdall wsl bridge start --bridge <name>`: foreground session bridge.
 - `heimdall bridge container`: explicit container socket snippet.
-- `heimdall transport add`: transport YAML snippet.
+- `heimdall transport add <name> --type proxy_command --binary <bin> [--arg <arg> ...] --dry-run|--yes`: add an external transport template to Heimdall config.
 - `heimdall transport doctor`: passive transport diagnostics.
 - `heimdall certs`: configured certificate inspection.
 - `heimdall certs refresh <name> [--execute]`: preview or run a configured certificate refresh hook.

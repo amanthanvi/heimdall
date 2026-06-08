@@ -21,7 +21,7 @@ Heimdall is not a vault, SSH client, SSH agent, VPN, transport layer, enterprise
 
 ## Quickstart
 
-Create `~/.config/heimdall/config.yaml`:
+Create `~/.config/heimdall/config.yaml` with the identity and agent references Heimdall may use:
 
 ```yaml
 version: 1
@@ -38,23 +38,13 @@ identities:
     public_key_path: ~/.ssh/id_ed25519_github.pub
     private_key_path_ref: ~/.ssh/id_ed25519_github
     agent_selector: personal
-contexts:
-  github-personal:
-    identity: github-personal
-    agent: personal
-    forwarding:
-      agent: deny
-host_routes:
-  github.com:
-    hostname: github.com
-    user: git
-    context: github-personal
-    identities_only: true
 ```
 
 Run:
 
 ```sh
+heimdall context add github-personal --host github.com --user git --identity github-personal --agent personal --identities-only --dry-run
+heimdall context add github-personal --host github.com --user git --identity github-personal --agent personal --identities-only --yes
 heimdall config doctor
 heimdall doctor
 heimdall config render --write
@@ -63,6 +53,8 @@ heimdall config install-include --yes
 heimdall ssh --context github-personal github.com -T
 heimdall completion bash
 ```
+
+`context add` and `transport add` mutate only Heimdall config, print the minimal YAML snippet they add, and refuse mutation unless `--yes` is present. Review `--dry-run` output first.
 
 `install-include` refuses mutation unless `--yes` is present. Review `--dry-run` output first.
 
