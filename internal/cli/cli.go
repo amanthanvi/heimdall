@@ -191,17 +191,17 @@ func doctorCommand(opts *options) *cobra.Command {
 			return output(opts, report)
 		},
 	})
-	for _, name := range []string{"windows", "wsl", "container", "forwarding", "certs"} {
-		localName := name
+	for _, area := range []string{doctor.AreaWindows, doctor.AreaWSL, doctor.AreaContainer, doctor.AreaForwarding, doctor.AreaCerts} {
+		localArea := area
 		cmd.AddCommand(&cobra.Command{
-			Use:   localName,
-			Short: "Run passive " + localName + " diagnostics",
+			Use:   localArea,
+			Short: "Run passive " + localArea + " diagnostics",
 			RunE: func(cmd *cobra.Command, args []string) error {
 				cfg, err := loadConfig(opts)
 				if err != nil {
 					return err
 				}
-				report, err := doctor.Engine{}.Run(cmd.Context(), cfg, doctor.Options{FragmentPath: opts.fragmentPath, UserSSHConfig: opts.userSSHConfig})
+				report, err := doctor.Engine{}.Run(cmd.Context(), cfg, doctor.Options{Area: localArea, FragmentPath: opts.fragmentPath, UserSSHConfig: opts.userSSHConfig})
 				if err != nil {
 					return err
 				}
@@ -280,15 +280,252 @@ func contextsCommand(opts *options) *cobra.Command {
 
 func contextCommand(opts *options) *cobra.Command {
 	cmd := &cobra.Command{Use: "context", Short: "Manage Heimdall contexts"}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "add",
-		Short: "Print a minimal context YAML snippet",
+	addOpts := &contextAddOptions{}
+	add := &cobra.Command{
+		Use:   "add <context>",
+		Short: "Add a context and host route to Heimdall config",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print("contexts:\n  example:\n    identity: example\n    agent: personal\n    forwarding:\n      agent: deny\n")
-			return nil
+			cfg, err := loadConfig(opts)
+			if err != nil {
+				return err
+			}
+			addOpts.identitiesOnlySet = cmd.Flags().Changed("identities-only")
+			result, err := addContextRoute(cfg, config.ResolvePath(opts.configPath), args[0], *addOpts, shouldApplyMutation(opts))
+			if err != nil {
+				return err
+			}
+			result.Refused = mutationRefused(opts)
+			return outputContextAdd(opts, result)
 		},
-	})
+	}
+	add.Flags().StringVar(&addOpts.host, "host", "", "OpenSSH Host alias for this route")
+	add.Flags().StringVar(&addOpts.hostname, "hostname", "", "OpenSSH HostName for this route")
+	add.Flags().StringVar(&addOpts.user, "user", "", "OpenSSH User for this route")
+	add.Flags().IntVar(&addOpts.port, "port", 0, "OpenSSH Port for this route")
+	add.Flags().StringVar(&addOpts.identity, "identity", "", "context identity selector")
+	add.Flags().StringVar(&addOpts.agent, "agent", "", "context agent selector")
+	add.Flags().BoolVar(&addOpts.identitiesOnly, "identities-only", false, "set IdentitiesOnly for this route")
+	add.Flags().StringVar(&addOpts.certificateFile, "certificate-file", "", "route-specific CertificateFile")
+	add.Flags().StringVar(&addOpts.forwardAgent, "forward-agent", "", "route-specific ForwardAgent value: yes, no, or ask")
+	add.Flags().StringVar(&addOpts.proxyJump, "proxy-jump", "", "route-specific ProxyJump")
+	add.Flags().StringVar(&addOpts.proxyCommand, "proxy-command", "", "route-specific ProxyCommand")
+	add.Flags().StringVar(&addOpts.transport, "transport", "", "configured transport template name")
+	_ = add.MarkFlagRequired("host")
+	cmd.AddCommand(add)
 	return cmd
+}
+
+type contextAddOptions struct {
+	host              string
+	hostname          string
+	user              string
+	port              int
+	identity          string
+	agent             string
+	identitiesOnly    bool
+	identitiesOnlySet bool
+	certificateFile   string
+	forwardAgent      string
+	proxyJump         string
+	proxyCommand      string
+	transport         string
+}
+
+type contextAddResult struct {
+	ConfigPath   string   `json:"config_path" yaml:"config_path"`
+	Context      string   `json:"context" yaml:"context"`
+	Host         string   `json:"host" yaml:"host"`
+	DryRun       bool     `json:"dry_run" yaml:"dry_run"`
+	BackupPath   string   `json:"backup_path,omitempty" yaml:"backup_path,omitempty"`
+	Refused      bool     `json:"refused,omitempty" yaml:"refused,omitempty"`
+	Snippet      string   `json:"snippet" yaml:"snippet"`
+	NextCommands []string `json:"next_commands" yaml:"next_commands"`
+}
+
+func addContextRoute(cfg model.Config, configPath, contextName string, opts contextAddOptions, apply bool) (contextAddResult, error) {
+	if strings.TrimSpace(contextName) == "" {
+		return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("context name cannot be empty")}
+	}
+	if strings.TrimSpace(opts.host) == "" {
+		return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--host is required")}
+	}
+	if opts.port < 0 || opts.port > 65535 {
+		return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--port must be between 0 and 65535")}
+	}
+	if opts.forwardAgent != "" && opts.forwardAgent != "yes" && opts.forwardAgent != "no" && opts.forwardAgent != "ask" {
+		return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--forward-agent must be yes, no, or ask")}
+	}
+
+	cfg = config.Normalize(cfg)
+	if routeExists(cfg, opts.host) {
+		return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("host route %q already exists", opts.host)}
+	}
+
+	ctx, exists := cfg.Contexts[contextName]
+	if exists {
+		if opts.identity != "" && ctx.Identity != "" && ctx.Identity != opts.identity {
+			return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("context %q already uses identity %q", contextName, ctx.Identity)}
+		}
+		if opts.agent != "" && ctx.Agent != "" && ctx.Agent != opts.agent {
+			return contextAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("context %q already uses agent %q", contextName, ctx.Agent)}
+		}
+	}
+	if opts.identity != "" {
+		ctx.Identity = opts.identity
+	}
+	if opts.agent != "" {
+		ctx.Agent = opts.agent
+	}
+	if ctx.Forwarding.Enabled == nil && ctx.Forwarding.Agent == "" {
+		disabled := false
+		ctx.Forwarding.Enabled = &disabled
+	}
+
+	route := model.HostRoute{
+		Host:            opts.host,
+		Hostname:        opts.hostname,
+		User:            opts.user,
+		Port:            opts.port,
+		CertificateFile: opts.certificateFile,
+		ForwardAgent:    opts.forwardAgent,
+		ProxyJump:       opts.proxyJump,
+		ProxyCommand:    opts.proxyCommand,
+		Transport:       opts.transport,
+	}
+	if opts.identitiesOnlySet {
+		route.IdentitiesOnly = &opts.identitiesOnly
+	}
+	ctx.Routes = append(ctx.Routes, route)
+	cfg.Contexts[contextName] = ctx
+
+	if err := config.Validate(cfg); err != nil {
+		return contextAddResult{}, err
+	}
+	backupPath := ""
+	if apply {
+		var err error
+		backupPath, err = config.SaveWithBackup(configPath, cfg)
+		if err != nil {
+			return contextAddResult{}, err
+		}
+	}
+	snippet, err := contextRouteSnippet(contextName, ctx, route)
+	if err != nil {
+		return contextAddResult{}, err
+	}
+	return contextAddResult{
+		ConfigPath:   configPath,
+		Context:      contextName,
+		Host:         opts.host,
+		DryRun:       !apply,
+		BackupPath:   backupPath,
+		Snippet:      snippet,
+		NextCommands: renderSuggestion(configPath),
+	}, nil
+}
+
+func routeExists(cfg model.Config, host string) bool {
+	for _, named := range model.NamedHostRoutes(cfg) {
+		if named.Host == host {
+			return true
+		}
+	}
+	return false
+}
+
+type contextRouteSnippetConfig struct {
+	Contexts map[string]contextRouteSnippetContext `yaml:"contexts"`
+}
+
+type contextRouteSnippetContext struct {
+	Identity   string                         `yaml:"identity,omitempty"`
+	Agent      string                         `yaml:"agent,omitempty"`
+	Routes     []contextRouteSnippetRoute     `yaml:"routes"`
+	Forwarding *contextRouteSnippetForwarding `yaml:"forwarding,omitempty"`
+}
+
+type contextRouteSnippetRoute struct {
+	Host            string `yaml:"host"`
+	Hostname        string `yaml:"hostname,omitempty"`
+	User            string `yaml:"user,omitempty"`
+	Port            int    `yaml:"port,omitempty"`
+	IdentitiesOnly  *bool  `yaml:"identities_only,omitempty"`
+	CertificateFile string `yaml:"certificate_file,omitempty"`
+	ForwardAgent    string `yaml:"forward_agent,omitempty"`
+	ProxyJump       string `yaml:"proxy_jump,omitempty"`
+	ProxyCommand    string `yaml:"proxy_command,omitempty"`
+	Transport       string `yaml:"transport,omitempty"`
+}
+
+type contextRouteSnippetForwarding struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+func contextRouteSnippet(contextName string, ctx model.Context, route model.HostRoute) (string, error) {
+	snippetCtx := contextRouteSnippetContext{
+		Identity: ctx.Identity,
+		Agent:    ctx.Agent,
+		Routes: []contextRouteSnippetRoute{{
+			Host:            route.Host,
+			Hostname:        route.Hostname,
+			User:            route.User,
+			Port:            route.Port,
+			IdentitiesOnly:  route.IdentitiesOnly,
+			CertificateFile: route.CertificateFile,
+			ForwardAgent:    route.ForwardAgent,
+			ProxyJump:       route.ProxyJump,
+			ProxyCommand:    route.ProxyCommand,
+			Transport:       route.Transport,
+		}},
+	}
+	if ctx.Forwarding.Enabled != nil {
+		snippetCtx.Forwarding = &contextRouteSnippetForwarding{Enabled: *ctx.Forwarding.Enabled}
+	} else if ctx.Forwarding.Agent == "allow" {
+		snippetCtx.Forwarding = &contextRouteSnippetForwarding{Enabled: true}
+	} else if ctx.Forwarding.Agent == "deny" {
+		snippetCtx.Forwarding = &contextRouteSnippetForwarding{Enabled: false}
+	}
+	data, err := yaml.Marshal(contextRouteSnippetConfig{Contexts: map[string]contextRouteSnippetContext{contextName: snippetCtx}})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func outputContextAdd(opts *options, result contextAddResult) error {
+	if opts.format == "json" || opts.format == "yaml" {
+		return output(opts, result)
+	}
+	var b strings.Builder
+	if result.DryRun {
+		b.WriteString("dry run; no config changes written\n")
+	} else {
+		b.WriteString("updated " + result.ConfigPath + "\n")
+		if result.BackupPath != "" {
+			b.WriteString("backup: " + result.BackupPath + "\n")
+		}
+	}
+	b.WriteString(result.Snippet)
+	for _, command := range result.NextCommands {
+		b.WriteString("next: " + command + "\n")
+	}
+	if result.Refused {
+		b.WriteString("refusing config mutation without --yes; rerun with --dry-run first, then --yes\n")
+	}
+	level := redact.Level(opts.redaction)
+	if opts.unsafeFullOutput {
+		level = redact.Low
+	}
+	fmt.Print(redact.String(b.String(), level))
+	return nil
+}
+
+func renderSuggestion(configPath string) []string {
+	if configPath == config.DefaultPath() {
+		return []string{"heimdall config render --write"}
+	}
+	return []string{"heimdall --config " + configPath + " config render --write"}
 }
 
 func runCommand(opts *options) *cobra.Command {
@@ -401,7 +638,7 @@ func configCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return output(opts, map[string]any{"valid": true, "routes": len(cfg.HostRoutes)})
+			return output(opts, map[string]any{"valid": true, "routes": len(model.NamedHostRoutes(cfg))})
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
@@ -432,7 +669,11 @@ func configCommand(opts *options) *cobra.Command {
 			if !opts.yes {
 				return codedError{code: exitSecurityRefusal, err: fmt.Errorf("rollback requires --yes after reviewing backup path")}
 			}
-			return openssh.Rollback(opts.userSSHConfig, args[0])
+			targetPath := opts.userSSHConfig
+			if inferred, ok := config.OriginalPathFromBackup(args[0]); ok {
+				targetPath = inferred
+			}
+			return config.RestoreBackup(targetPath, args[0])
 		},
 	})
 	return cmd
@@ -540,14 +781,28 @@ func bridgeCommand(opts *options) *cobra.Command {
 
 func transportCommand(opts *options) *cobra.Command {
 	cmd := &cobra.Command{Use: "transport", Short: "External transport helpers"}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "add",
-		Short: "Print a ProxyCommand transport YAML snippet",
+	addOpts := &transportAddOptions{transportType: "proxy_command"}
+	add := &cobra.Command{
+		Use:   "add <name>",
+		Short: "Add an external transport template to Heimdall config",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print("transports:\n  iroh-ssh:\n    type: proxy_command\n    binary: iroh-ssh\n    args: [\"proxy\", \"%h\"]\n")
-			return nil
+			cfg, err := loadConfig(opts)
+			if err != nil {
+				return err
+			}
+			result, err := addTransport(cfg, config.ResolvePath(opts.configPath), args[0], *addOpts, shouldApplyMutation(opts))
+			if err != nil {
+				return err
+			}
+			result.Refused = mutationRefused(opts)
+			return outputTransportAdd(opts, result)
 		},
-	})
+	}
+	add.Flags().StringVar(&addOpts.transportType, "type", "proxy_command", "transport type: proxy_command")
+	add.Flags().StringVar(&addOpts.binary, "binary", "", "transport binary for proxy_command")
+	add.Flags().StringArrayVar(&addOpts.args, "arg", nil, "transport argument; repeat for each argv entry")
+	cmd.AddCommand(add)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "doctor",
 		Short: "Run transport diagnostics",
@@ -564,6 +819,118 @@ func transportCommand(opts *options) *cobra.Command {
 		},
 	})
 	return cmd
+}
+
+type transportAddOptions struct {
+	transportType string
+	binary        string
+	args          []string
+}
+
+type transportAddResult struct {
+	ConfigPath string `json:"config_path" yaml:"config_path"`
+	Transport  string `json:"transport" yaml:"transport"`
+	DryRun     bool   `json:"dry_run" yaml:"dry_run"`
+	BackupPath string `json:"backup_path,omitempty" yaml:"backup_path,omitempty"`
+	Refused    bool   `json:"refused,omitempty" yaml:"refused,omitempty"`
+	Snippet    string `json:"snippet" yaml:"snippet"`
+}
+
+func addTransport(cfg model.Config, configPath, name string, opts transportAddOptions, apply bool) (transportAddResult, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("transport name cannot be empty")}
+	}
+	transportType := strings.TrimSpace(opts.transportType)
+	if transportType == "" {
+		transportType = "proxy_command"
+	}
+	if transportType != "proxy_command" {
+		return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--type must be proxy_command")}
+	}
+	binary := strings.TrimSpace(opts.binary)
+	if binary == "" {
+		return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--binary is required for proxy_command transports")}
+	}
+	if hasInvalidConfigValue(binary) {
+		return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--binary contains invalid control characters")}
+	}
+	args := make([]string, 0, len(opts.args))
+	for i, arg := range opts.args {
+		if arg == "" {
+			return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--arg #%d cannot be empty", i+1)}
+		}
+		if hasInvalidConfigValue(arg) {
+			return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("--arg #%d contains invalid control characters", i+1)}
+		}
+		args = append(args, arg)
+	}
+
+	cfg = config.Normalize(cfg)
+	if _, exists := cfg.Transports[name]; exists {
+		return transportAddResult{}, codedError{code: exitConfigInvalid, err: fmt.Errorf("transport %q already exists", name)}
+	}
+	tr := model.ExternalTransport{Type: transportType, Binary: binary, Args: args}
+	cfg.Transports[name] = tr
+	if err := config.Validate(cfg); err != nil {
+		return transportAddResult{}, err
+	}
+	backupPath := ""
+	if apply {
+		var err error
+		backupPath, err = config.SaveWithBackup(configPath, cfg)
+		if err != nil {
+			return transportAddResult{}, err
+		}
+	}
+	snippet, err := transportSnippet(name, tr)
+	if err != nil {
+		return transportAddResult{}, err
+	}
+	return transportAddResult{
+		ConfigPath: configPath,
+		Transport:  name,
+		DryRun:     !apply,
+		BackupPath: backupPath,
+		Snippet:    snippet,
+	}, nil
+}
+
+type transportSnippetConfig struct {
+	Transports map[string]model.ExternalTransport `yaml:"transports"`
+}
+
+func transportSnippet(name string, tr model.ExternalTransport) (string, error) {
+	data, err := yaml.Marshal(transportSnippetConfig{Transports: map[string]model.ExternalTransport{name: tr}})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func outputTransportAdd(opts *options, result transportAddResult) error {
+	if opts.format == "json" || opts.format == "yaml" {
+		return output(opts, result)
+	}
+	var b strings.Builder
+	if result.DryRun {
+		b.WriteString("dry run; no config changes written\n")
+	} else {
+		b.WriteString("updated " + result.ConfigPath + "\n")
+		if result.BackupPath != "" {
+			b.WriteString("backup: " + result.BackupPath + "\n")
+		}
+	}
+	b.WriteString(result.Snippet)
+	if result.Refused {
+		b.WriteString("refusing config mutation without --yes; rerun with --dry-run first, then --yes\n")
+	}
+	level := redact.Level(opts.redaction)
+	if opts.unsafeFullOutput {
+		level = redact.Low
+	}
+	fmt.Print(redact.String(b.String(), level))
+	return nil
 }
 
 func certsCommand(opts *options) *cobra.Command {
@@ -689,6 +1056,18 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func shouldApplyMutation(opts *options) bool {
+	return opts.yes && !opts.dryRun
+}
+
+func mutationRefused(opts *options) bool {
+	return !opts.yes && !opts.dryRun
+}
+
+func hasInvalidConfigValue(value string) bool {
+	return strings.ContainsRune(value, '\x00') || strings.ContainsAny(value, "\n\r")
 }
 
 func firstNonEmpty(values ...string) string {

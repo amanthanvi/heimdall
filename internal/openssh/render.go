@@ -27,14 +27,17 @@ func Render(cfg model.Config, opts RenderOptions) ([]byte, error) {
 	}
 	fmt.Fprintln(&buf, ManagedHeader)
 	fmt.Fprintf(&buf, "# Generated at %s\n\n", opts.GeneratedAt.Format(time.RFC3339))
-	hosts := make([]string, 0, len(cfg.HostRoutes))
-	for host := range cfg.HostRoutes {
-		hosts = append(hosts, host)
-	}
-	sort.Strings(hosts)
-	for _, host := range hosts {
-		route := cfg.HostRoutes[host]
-		ctx := cfg.Contexts[route.Context]
+	routes := model.NamedHostRoutes(cfg)
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Host == routes[j].Host {
+			return routes[i].Context < routes[j].Context
+		}
+		return routes[i].Host < routes[j].Host
+	})
+	for _, named := range routes {
+		host := named.Host
+		route := named.Route
+		ctx := cfg.Contexts[named.Context]
 		identityName := firstNonEmpty(route.Identity, ctx.Identity)
 		identity := cfg.Identities[identityName]
 		agentName := firstNonEmpty(route.Agent, ctx.Agent, identity.AgentSelector)
@@ -45,6 +48,9 @@ func Render(cfg model.Config, opts RenderOptions) ([]byte, error) {
 		}
 		if route.User != "" {
 			fmt.Fprintf(&buf, "  User %s\n", quoteValue(route.User))
+		}
+		if route.Port != 0 {
+			fmt.Fprintf(&buf, "  Port %d\n", route.Port)
 		}
 		if endpoint := resolveEndpoint(agent); endpoint != "" {
 			fmt.Fprintf(&buf, "  IdentityAgent %s\n", quoteValue(endpoint))
@@ -63,9 +69,9 @@ func Render(cfg model.Config, opts RenderOptions) ([]byte, error) {
 		}
 		if route.ForwardAgent != "" {
 			fmt.Fprintf(&buf, "  ForwardAgent %s\n", quoteValue(route.ForwardAgent))
-		} else if ctx.Forwarding.Agent == "allow" {
+		} else if forwardingEnabled(ctx.Forwarding) {
 			fmt.Fprintln(&buf, "  ForwardAgent yes")
-		} else if ctx.Forwarding.Agent == "deny" {
+		} else if forwardingDisabled(ctx.Forwarding) {
 			fmt.Fprintln(&buf, "  ForwardAgent no")
 		}
 		if route.ProxyJump != "" {
@@ -120,7 +126,7 @@ func InstallInclude(userConfigPath, fragmentPath string, dryRun bool) (string, e
 		return "", err
 	}
 	if len(current) > 0 {
-		backup := BackupPath(userConfigPath, time.Now().UTC())
+		backup := config.BackupPath(userConfigPath, time.Now().UTC())
 		if err := config.AtomicWrite(backup, current, 0o600); err != nil {
 			return "", err
 		}
@@ -132,15 +138,11 @@ func InstallInclude(userConfigPath, fragmentPath string, dryRun bool) (string, e
 }
 
 func Rollback(userConfigPath, backupPath string) error {
-	data, err := os.ReadFile(backupPath)
-	if err != nil {
-		return err
-	}
-	return config.AtomicWrite(userConfigPath, data, 0o600)
+	return config.RestoreBackup(userConfigPath, backupPath)
 }
 
 func BackupPath(path string, ts time.Time) string {
-	return fmt.Sprintf("%s.heimdall-backup-%s", path, ts.Format("20060102T150405Z"))
+	return config.BackupPath(path, ts)
 }
 
 func hasInclude(configText, fragmentPath string) bool {
@@ -198,6 +200,14 @@ func resolveEndpoint(selector model.AgentSelector) string {
 	default:
 		return ""
 	}
+}
+
+func forwardingEnabled(policy model.ForwardingPolicy) bool {
+	return policy.Agent == "allow" || (policy.Enabled != nil && *policy.Enabled)
+}
+
+func forwardingDisabled(policy model.ForwardingPolicy) bool {
+	return policy.Agent == "deny" || (policy.Enabled != nil && !*policy.Enabled)
 }
 
 func expandPath(path string) string {

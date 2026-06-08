@@ -49,3 +49,48 @@ host_routes:
 		t.Fatal(err)
 	}
 }
+
+func TestValidateSpecStyleContextRoutes(t *testing.T) {
+	cfg, err := Parse([]byte(`
+version: 1
+agents:
+  selectors:
+    personal:
+      kind: openssh
+      socket: env:SSH_AUTH_SOCK
+identities:
+  github:
+    public_key_path: ~/.ssh/id_ed25519.pub
+    private_key_path_ref: ~/.ssh/id_ed25519
+    agent_selector: personal
+contexts:
+  github:
+    identity: github
+    agent: personal
+    routes:
+      - host: github.com
+        user: git
+        identities_only: true
+    forwarding:
+      enabled: false
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Contexts["github"].Routes) != 1 {
+		t.Fatalf("expected nested route, got %#v", cfg.Contexts["github"].Routes)
+	}
+}
+
+func TestValidateRejectsTransportControlCharacters(t *testing.T) {
+	cfg, err := Parse([]byte("version: 1\ntransports:\n  bad:\n    type: proxy_command\n    binary: \"iroh-ssh\\nbad\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected transport control character rejection")
+	}
+}

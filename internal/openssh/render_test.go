@@ -41,6 +41,45 @@ func TestRenderManagedFragment(t *testing.T) {
 	}
 }
 
+func TestRenderSpecStyleContextRoute(t *testing.T) {
+	yes := true
+	forwardingDisabled := false
+	cfg := model.Config{
+		Version:    model.ConfigVersion,
+		Agents:     model.AgentConfig{Selectors: map[string]model.AgentSelector{"personal": {Kind: "openssh", Socket: "/tmp/agent.sock"}}},
+		Identities: map[string]model.Identity{"github": {PrivateKeyPathRef: "/home/me/.ssh/id_ed25519", AgentSelector: "personal"}},
+		Contexts: map[string]model.Context{"github": {
+			Identity: "github",
+			Agent:    "personal",
+			Routes: []model.HostRoute{{
+				Host:           "github.com",
+				User:           "git",
+				Port:           2222,
+				IdentitiesOnly: &yes,
+			}},
+			Forwarding: model.ForwardingPolicy{Enabled: &forwardingDisabled},
+		}},
+	}
+	rendered, err := Render(cfg, RenderOptions{GeneratedAt: time.Unix(0, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(rendered)
+	for _, want := range []string{
+		"Host github.com",
+		"  User git",
+		"  Port 2222",
+		"  IdentityAgent /tmp/agent.sock",
+		"  IdentityFile /home/me/.ssh/id_ed25519",
+		"  IdentitiesOnly yes",
+		"  ForwardAgent no",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+}
+
 func TestInstallIncludeDryRunAndRollback(t *testing.T) {
 	dir := t.TempDir()
 	userConfig := filepath.Join(dir, "config")

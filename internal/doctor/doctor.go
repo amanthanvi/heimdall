@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/athanvi/heimdall/internal/config"
@@ -19,9 +20,18 @@ type Options struct {
 	FragmentPath  string
 	UserSSHConfig string
 	Host          string
+	Area          string
 	ActiveProbe   bool
 	FailOnWarning bool
 }
+
+const (
+	AreaWindows    = "windows"
+	AreaWSL        = "wsl"
+	AreaContainer  = "container"
+	AreaForwarding = "forwarding"
+	AreaCerts      = "certs"
+)
 
 type Report struct {
 	Findings  []model.DiagnosticFinding `json:"findings"`
@@ -62,9 +72,40 @@ func (e Engine) Run(ctx context.Context, cfg model.Config, opts Options) (Report
 		})
 	}
 	if opts.Host != "" && opts.ActiveProbe {
-		findings = append(findings, activeProbe(ctx, runner, opts.Host))
+		findings = append(findings, activeProbe(ctx, runner, cfg, opts.Host)...)
 	}
+	findings = filterFindingsByArea(findings, opts.Area)
 	return Report{Findings: findings, Inventory: inv, Platform: snapshot}, nil
+}
+
+func filterFindingsByArea(findings []model.DiagnosticFinding, area string) []model.DiagnosticFinding {
+	if area == "" {
+		return findings
+	}
+	var out []model.DiagnosticFinding
+	for _, finding := range findings {
+		if findingMatchesArea(finding.ID, area) {
+			out = append(out, finding)
+		}
+	}
+	return out
+}
+
+func findingMatchesArea(id, area string) bool {
+	switch area {
+	case AreaWindows:
+		return strings.HasPrefix(id, "HD-WIN-")
+	case AreaWSL:
+		return strings.HasPrefix(id, "HD-WSL-") || strings.HasPrefix(id, "HD-WIN-")
+	case AreaContainer:
+		return strings.HasPrefix(id, "HD-CONTAINER-")
+	case AreaForwarding:
+		return strings.HasPrefix(id, "HD-FWD-")
+	case AreaCerts:
+		return strings.HasPrefix(id, "HD-CERT-")
+	default:
+		return true
+	}
 }
 
 func configFindings(cfg model.Config, opts Options) []model.DiagnosticFinding {
@@ -103,8 +144,10 @@ func configFindings(cfg model.Config, opts Options) []model.DiagnosticFinding {
 			Autofix:      "explicit",
 		})
 	}
-	for name, route := range cfg.HostRoutes {
-		ctx := cfg.Contexts[route.Context]
+	for _, named := range model.NamedHostRoutes(cfg) {
+		name := named.Host
+		route := named.Route
+		ctx := cfg.Contexts[named.Context]
 		if route.IdentitiesOnly == nil && len(cfg.Identities) > 0 {
 			_ = ctx
 			out = append(out, model.DiagnosticFinding{
@@ -172,11 +215,13 @@ func inventoryFindings(cfg model.Config, inv model.Inventory) []model.Diagnostic
 
 func routeFindings(cfg model.Config, host string) []model.DiagnosticFinding {
 	var out []model.DiagnosticFinding
-	for name, route := range cfg.HostRoutes {
+	for _, named := range model.NamedHostRoutes(cfg) {
+		name := named.Host
+		route := named.Route
 		if host != "" && name != host && route.Hostname != host {
 			continue
 		}
-		ctx := cfg.Contexts[route.Context]
+		ctx := cfg.Contexts[named.Context]
 		identity := cfg.Identities[firstNonEmpty(route.Identity, ctx.Identity)]
 		certPath := firstNonEmpty(route.CertificateFile, identity.CertificatePath)
 		if certPath != "" {
@@ -276,24 +321,232 @@ func transportFindings(ctx context.Context, cfg model.Config) []model.Diagnostic
 	return out
 }
 
-func activeProbe(ctx context.Context, runner openssh.Runner, host string) model.DiagnosticFinding {
+type activeProbeOption struct {
+	key          string
+	display      string
+	id           string
+	risk         string
+	suggestedFix string
+}
+
+var activeProbeOptions = []activeProbeOption{
+	{
+		key:          "identityagent",
+		display:      "IdentityAgent",
+		id:           "HD-ACTIVE-101",
+		risk:         "OpenSSH will ask a different agent socket or pipe to sign for this route.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then inspect earlier Host or Match blocks that set IdentityAgent.",
+	},
+	{
+		key:          "identityfile",
+		display:      "IdentityFile",
+		id:           "HD-ACTIVE-102",
+		risk:         "OpenSSH may offer a different private-key reference than the selected Heimdall identity.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then remove conflicting IdentityFile entries for this host.",
+	},
+	{
+		key:          "certificatefile",
+		display:      "CertificateFile",
+		id:           "HD-ACTIVE-103",
+		risk:         "Certificate-backed authentication may use the wrong certificate or fail before key selection succeeds.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then remove conflicting CertificateFile entries for this host.",
+	},
+	{
+		key:          "identitiesonly",
+		display:      "IdentitiesOnly",
+		id:           "HD-ACTIVE-104",
+		risk:         "OpenSSH identity offering behavior differs from Heimdall's route isolation policy.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then inspect overriding IdentitiesOnly entries.",
+	},
+	{
+		key:          "forwardagent",
+		display:      "ForwardAgent",
+		id:           "HD-ACTIVE-105",
+		risk:         "Agent forwarding delegation differs from the selected Heimdall context.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then remove conflicting ForwardAgent entries for this host.",
+	},
+	{
+		key:          "proxyjump",
+		display:      "ProxyJump",
+		id:           "HD-ACTIVE-106",
+		risk:         "OpenSSH will use a different jump host path than the selected Heimdall route.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then inspect conflicting ProxyJump entries.",
+	},
+	{
+		key:          "proxycommand",
+		display:      "ProxyCommand",
+		id:           "HD-ACTIVE-107",
+		risk:         "OpenSSH will use a different local transport command than the selected Heimdall route.",
+		suggestedFix: "Regenerate and install the Heimdall fragment, then inspect conflicting ProxyCommand entries.",
+	},
+}
+
+func activeProbe(ctx context.Context, runner openssh.Runner, cfg model.Config, host string) []model.DiagnosticFinding {
 	res, err := runner.Run(ctx, "ssh", []string{"-G", host})
 	if err != nil {
-		return model.DiagnosticFinding{
+		evidence := strings.TrimSpace(res.Stderr)
+		if evidence == "" {
+			evidence = err.Error()
+		}
+		return []model.DiagnosticFinding{{
 			ID: "HD-ACTIVE-002", Severity: "warning", Confidence: "medium",
 			Title:        "Active OpenSSH config probe failed",
-			Evidence:     []string{strings.TrimSpace(res.Stderr)},
+			Evidence:     []string{evidence},
 			Risk:         "Effective OpenSSH config could not be evaluated.",
 			SuggestedFix: "Run ssh -G manually and inspect local OpenSSH errors.",
 			Autofix:      "none",
-		}
+		}}
 	}
-	return model.DiagnosticFinding{
+	effective := parseSSHConfigOutput(res.Stdout)
+	out := []model.DiagnosticFinding{{
 		ID: "HD-ACTIVE-003", Severity: "info", Confidence: "high",
 		Title:    "Active OpenSSH config probe completed",
-		Evidence: []string{"ssh -G returned " + fmt.Sprintf("%d", len(strings.Split(res.Stdout, "\n"))) + " lines"},
+		Evidence: []string{fmt.Sprintf("ssh -G returned %d lines", nonEmptyLineCount(res.Stdout)), fmt.Sprintf("parsed %d effective options", len(effective))},
 		Autofix:  "none",
+	}}
+	named, ok := selectedRoute(cfg, host)
+	if !ok {
+		out = append(out, model.DiagnosticFinding{
+			ID: "HD-ACTIVE-004", Severity: "warning", Confidence: "medium",
+			Title:        "No Heimdall route matched active probe host",
+			Evidence:     []string{"host " + host + " was evaluated with ssh -G, but no Heimdall route matched Host or HostName"},
+			Risk:         "Heimdall cannot compare OpenSSH effective config against route intent for this host.",
+			SuggestedFix: "Add a Heimdall route for this host or run doctor against the configured Host alias.",
+			Autofix:      "manual",
+		})
+		return out
 	}
+	expected := openssh.ExpectedRouteOptions(cfg, named)
+	out = append(out, compareActiveProbeOptions(host, named, expected, effective)...)
+	return out
+}
+
+func selectedRoute(cfg model.Config, host string) (model.NamedHostRoute, bool) {
+	routes := model.NamedHostRoutes(cfg)
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Host == routes[j].Host {
+			return routes[i].Context < routes[j].Context
+		}
+		return routes[i].Host < routes[j].Host
+	})
+	for _, named := range routes {
+		if named.Host == host {
+			return named, true
+		}
+	}
+	for _, named := range routes {
+		if named.Route.Hostname == host {
+			return named, true
+		}
+	}
+	return model.NamedHostRoute{}, false
+}
+
+func parseSSHConfigOutput(stdout string) map[string][]string {
+	out := map[string][]string{}
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		key := strings.ToLower(fields[0])
+		value := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+		out[key] = append(out[key], value)
+	}
+	return out
+}
+
+func compareActiveProbeOptions(host string, named model.NamedHostRoute, expected, effective map[string][]string) []model.DiagnosticFinding {
+	var out []model.DiagnosticFinding
+	for _, option := range activeProbeOptions {
+		expectedValues := normalizedOptionValues(option.key, expected[option.key])
+		effectiveValues := normalizedOptionValues(option.key, effective[option.key])
+		if sameValues(expectedValues, effectiveValues) {
+			continue
+		}
+		out = append(out, model.DiagnosticFinding{
+			ID:         option.id,
+			Severity:   "warning",
+			Confidence: "high",
+			Title:      "Effective " + option.display + " differs from Heimdall route",
+			Evidence: []string{
+				"host " + host + " selected Heimdall route " + named.Host + " in context " + named.Context,
+				"expected " + formatOptionValues(option.display, expectedValues),
+				"ssh -G effective " + formatOptionValues(option.display, effectiveValues),
+			},
+			Risk:         option.risk,
+			SuggestedFix: option.suggestedFix,
+			Autofix:      "manual",
+		})
+	}
+	return out
+}
+
+func normalizedOptionValues(option string, values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			first := value[0]
+			last := value[len(value)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		if optionUnsetValue(option, value) {
+			continue
+		}
+		if option == "identitiesonly" || option == "forwardagent" {
+			value = strings.ToLower(value)
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func optionUnsetValue(option, value string) bool {
+	if value == "" {
+		return true
+	}
+	switch option {
+	case "identityagent", "identityfile", "certificatefile", "proxyjump", "proxycommand":
+		return strings.EqualFold(value, "none")
+	default:
+		return false
+	}
+}
+
+func sameValues(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func formatOptionValues(display string, values []string) string {
+	if len(values) == 0 {
+		return display + "=<unset>"
+	}
+	return display + "=" + strings.Join(values, ", ")
+}
+
+func nonEmptyLineCount(text string) int {
+	count := 0
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func SeverityExitCode(findings []model.DiagnosticFinding, failOnWarning bool) int {

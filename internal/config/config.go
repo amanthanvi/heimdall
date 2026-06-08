@@ -9,12 +9,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/athanvi/heimdall/internal/model"
 	"gopkg.in/yaml.v3"
 )
 
-var privateKeyBlock = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
+var (
+	privateKeyBlock = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
+	backupSuffix    = regexp.MustCompile(`\.heimdall-backup-\d{8}T\d{6}Z$`)
+)
 
 type ValidationError struct {
 	Problems []string
@@ -57,10 +61,15 @@ func DefaultUserSSHConfigPath() string {
 	return filepath.Join(home, ".ssh", "config")
 }
 
-func Load(path string) (model.Config, error) {
+func ResolvePath(path string) string {
 	if path == "" {
-		path = DefaultPath()
+		return DefaultPath()
 	}
+	return path
+}
+
+func Load(path string) (model.Config, error) {
+	path = ResolvePath(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -78,6 +87,72 @@ func Load(path string) (model.Config, error) {
 		return model.Config{}, err
 	}
 	return cfg, nil
+}
+
+func Save(path string, cfg model.Config) error {
+	path = ResolvePath(path)
+	if err := Validate(cfg); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(Normalize(cfg))
+	if err != nil {
+		return err
+	}
+	return AtomicWrite(path, data, 0o600)
+}
+
+func SaveWithBackup(path string, cfg model.Config) (string, error) {
+	path = ResolvePath(path)
+	if err := Validate(cfg); err != nil {
+		return "", err
+	}
+	data, err := yaml.Marshal(Normalize(cfg))
+	if err != nil {
+		return "", err
+	}
+	backupPath, err := BackupExistingFile(path)
+	if err != nil {
+		return "", err
+	}
+	if err := AtomicWrite(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return backupPath, nil
+}
+
+func BackupExistingFile(path string) (string, error) {
+	current, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	if len(current) == 0 {
+		return "", nil
+	}
+	backupPath := BackupPath(path, time.Now().UTC())
+	if err := AtomicWrite(backupPath, current, 0o600); err != nil {
+		return "", err
+	}
+	return backupPath, nil
+}
+
+func BackupPath(path string, ts time.Time) string {
+	return fmt.Sprintf("%s.heimdall-backup-%s", path, ts.Format("20060102T150405Z"))
+}
+
+func OriginalPathFromBackup(backupPath string) (string, bool) {
+	original := backupSuffix.ReplaceAllString(backupPath, "")
+	return original, original != backupPath
+}
+
+func RestoreBackup(path, backupPath string) error {
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		return err
+	}
+	return AtomicWrite(path, data, 0o600)
 }
 
 func Parse(data []byte) (model.Config, error) {
@@ -192,25 +267,17 @@ func Validate(cfg model.Config) error {
 			problems = append(problems, fmt.Sprintf("context %q forwarding.agent must be deny, allow, or ask", name))
 		}
 	}
-	for host, route := range cfg.HostRoutes {
-		if host == "" {
+	seenRoutes := map[string]string{}
+	for _, named := range model.NamedHostRoutes(cfg) {
+		if named.Host == "" {
 			problems = append(problems, "host route name cannot be empty")
+			continue
 		}
-		if route.Context != "" {
-			if _, ok := cfg.Contexts[route.Context]; !ok {
-				problems = append(problems, fmt.Sprintf("host route %q references missing context %q", host, route.Context))
-			}
+		if prev, ok := seenRoutes[named.Host]; ok {
+			problems = append(problems, fmt.Sprintf("host route %q is duplicated in %s and %s", named.Host, prev, named.Context))
 		}
-		if route.Identity != "" {
-			if _, ok := cfg.Identities[route.Identity]; !ok {
-				problems = append(problems, fmt.Sprintf("host route %q references missing identity %q", host, route.Identity))
-			}
-		}
-		if route.Transport != "" {
-			if _, ok := cfg.Transports[route.Transport]; !ok {
-				problems = append(problems, fmt.Sprintf("host route %q references missing transport %q", host, route.Transport))
-			}
-		}
+		seenRoutes[named.Host] = named.Context
+		problems = append(problems, validateRoute(cfg, named.Context, named.Host, named.Route)...)
 	}
 	for name, tr := range cfg.Transports {
 		if tr.Type != "proxy_command" && tr.Type != "proxy_jump" {
@@ -222,6 +289,9 @@ func Validate(cfg model.Config) error {
 		for _, arg := range append([]string{tr.Binary}, tr.Args...) {
 			if hasPrivateMaterial(arg) {
 				problems = append(problems, fmt.Sprintf("transport %q contains private key material", name))
+			}
+			if hasControlCharacter(arg) {
+				problems = append(problems, fmt.Sprintf("transport %q contains invalid control characters", name))
 			}
 		}
 	}
@@ -253,8 +323,59 @@ func Validate(cfg model.Config) error {
 	return nil
 }
 
+func validateRoute(cfg model.Config, contextName, host string, route model.HostRoute) []string {
+	var problems []string
+	if host == "" {
+		problems = append(problems, "host route name cannot be empty")
+	}
+	if route.Context != "" {
+		if _, ok := cfg.Contexts[route.Context]; !ok {
+			problems = append(problems, fmt.Sprintf("host route %q references missing context %q", host, route.Context))
+		}
+	} else if contextName != "" {
+		if _, ok := cfg.Contexts[contextName]; !ok {
+			problems = append(problems, fmt.Sprintf("host route %q references missing context %q", host, contextName))
+		}
+	}
+	if route.Identity != "" {
+		if _, ok := cfg.Identities[route.Identity]; !ok {
+			problems = append(problems, fmt.Sprintf("host route %q references missing identity %q", host, route.Identity))
+		}
+	}
+	if route.Agent != "" {
+		if _, ok := cfg.Agents.Selectors[route.Agent]; !ok {
+			problems = append(problems, fmt.Sprintf("host route %q references missing agent %q", host, route.Agent))
+		}
+	}
+	if route.Transport != "" {
+		if _, ok := cfg.Transports[route.Transport]; !ok {
+			problems = append(problems, fmt.Sprintf("host route %q references missing transport %q", host, route.Transport))
+		}
+	}
+	if route.Port < 0 || route.Port > 65535 {
+		problems = append(problems, fmt.Sprintf("host route %q has invalid port %d", host, route.Port))
+	}
+	if route.ForwardAgent != "" && route.ForwardAgent != "yes" && route.ForwardAgent != "no" && route.ForwardAgent != "ask" {
+		problems = append(problems, fmt.Sprintf("host route %q forward_agent must be yes, no, or ask", host))
+	}
+	for _, value := range []string{
+		route.Host, route.Hostname, route.User, route.Context, route.Identity, route.Agent,
+		route.CertificateFile, route.ForwardAgent, route.ProxyJump, route.ProxyCommand, route.Transport,
+	} {
+		if hasPrivateMaterial(value) {
+			problems = append(problems, fmt.Sprintf("host route %q contains private key material", host))
+			break
+		}
+	}
+	return problems
+}
+
 func hasPrivateMaterial(value string) bool {
 	return privateKeyBlock.MatchString(value)
+}
+
+func hasControlCharacter(value string) bool {
+	return strings.ContainsRune(value, '\x00') || strings.ContainsAny(value, "\n\r")
 }
 
 func AtomicWrite(path string, data []byte, perm os.FileMode) error {

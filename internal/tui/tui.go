@@ -60,7 +60,7 @@ func (m modelState) View() string {
 	if m.err != nil {
 		b.WriteString("error: " + m.err.Error() + "\n")
 	}
-	b.WriteString(fmt.Sprintf("routes: %d  contexts: %d  findings: %d\n\n", len(m.cfg.HostRoutes), len(m.cfg.Contexts), len(m.report.Findings)))
+	b.WriteString(fmt.Sprintf("routes: %d  contexts: %d  findings: %d\n\n", len(model.NamedHostRoutes(m.cfg)), len(m.cfg.Contexts), len(m.report.Findings)))
 	if len(m.report.Findings) == 0 {
 		b.WriteString("No findings. Press r to refresh, q to quit.\n")
 		return b.String()
