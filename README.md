@@ -4,7 +4,7 @@ Heimdall is a local-first SSH identity control plane.
 
 It inventories OpenSSH-compatible agents and public identities, renders a Heimdall-owned OpenSSH config fragment, diagnoses identity-routing failures, and launches scoped SSH-aware commands without storing private keys or replacing OpenSSH.
 
-## V1 Scope
+## Implemented V1 Scope
 
 - `heimdall doctor` flagship diagnostics, passive by default.
 - Strict YAML config with unknown-field rejection.
@@ -13,7 +13,7 @@ It inventories OpenSSH-compatible agents and public identities, renders a Heimda
 - Include install with dry-run behavior, backups, and rollback.
 - Scoped `heimdall run` and `heimdall ssh` child environments.
 - External transports through OpenSSH `ProxyCommand`/`ProxyJump`.
-- Modest TUI over the same services as the CLI.
+- Minimal TUI dashboard over the same doctor service as the CLI.
 
 ## Non-Goals
 
@@ -47,24 +47,23 @@ heimdall context add github-personal --host github.com --user git --identity git
 heimdall context add github-personal --host github.com --user git --identity github-personal --agent personal --identities-only --yes
 heimdall config doctor
 heimdall doctor
-heimdall config render --write
-heimdall config install-include --dry-run
-heimdall config install-include --yes
 heimdall ssh --context github-personal github.com -T
+heimdall run --context github-personal -- git ls-remote git@github.com:owner/repo.git
+heimdall config install-include --dry-run
 heimdall completion bash
 ```
 
 `context add` and `transport add` mutate only Heimdall config, print the minimal YAML snippet they add, and refuse mutation unless `--yes` is present. Review `--dry-run` output first.
 
-`install-include` refuses mutation unless `--yes` is present. Review `--dry-run` output first.
+`heimdall run` and `heimdall ssh` render the managed OpenSSH fragment for the scoped child launch and do not require a global Include to be installed. `install-include` is optional for native `ssh` or Git commands run outside Heimdall; it refuses mutation unless `--yes` is present.
 
 ## Security Model
 
 Private key paths are references only. Heimdall may `stat` a private key path for existence and permissions, but it does not read private key bytes. Inventory reads public `.pub` files and certificate files, calls `ssh-add`/`ssh-keygen`, and renders OpenSSH config.
 
-Active host probes require `--active-probe`. By default, `doctor` does not contact hosts, execute transport commands, invoke ProxyCommand, or attempt authentication.
+Active host probes require `--active-probe`. Today that active probe is an `ssh -G <host>` effective-config check; it does not attempt authentication. By default, `doctor` does not contact hosts, execute transport commands, invoke ProxyCommand, or attempt authentication.
 
-Agent sockets and agent forwarding are credential delegation. Scoped launch commands set `SSH_AUTH_SOCK` only for the child process and fail closed when the configured agent is unavailable.
+Agent sockets and agent forwarding are credential delegation. Scoped launch commands set `SSH_AUTH_SOCK` only for the child process and fail closed when the configured agent is unavailable. Before execution they atomically render the managed fragment, set `GIT_SSH_COMMAND=ssh -F <shell-escaped-fragment>` for Git-aware children, pass `-F <fragment>` to direct OpenSSH invocations, and do not rewrite `HOME` or install a global Include.
 
 ## Session Bridge
 
