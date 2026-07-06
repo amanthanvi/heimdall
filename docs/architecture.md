@@ -7,7 +7,7 @@ Heimdall is CLI-first and daemonless by default. Cobra commands and the Bubble T
 - `internal/inventory`: public key, cert, and agent observation.
 - `internal/openssh`: argv-based subprocess runner and generated fragment rendering.
 - `internal/doctor`: evidence-based findings.
-- `internal/launcher`: scoped child environments.
+- `internal/launcher`: scoped child environments; renders the managed OpenSSH fragment for launch and routes children through `GIT_SSH_COMMAND` or `ssh -F`.
 - `internal/platform`: Linux/macOS/Windows/WSL/container probes.
 - `internal/bridge`: isolated session relay, permission checks, TTL cleanup.
 - `internal/certs`: certificate inspection.

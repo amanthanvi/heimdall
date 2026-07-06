@@ -46,4 +46,6 @@ heimdall wsl bridge doctor
 heimdall wsl bridge start --bridge wsl-personal
 ```
 
+`wsl bridge start` runs a foreground bridge only. For a child process with a scoped bridge socket, use `heimdall run --context <ctx> --bridge <bridge> -- <cmd>`. There is no separate `wsl bridge stop` command today; stop a foreground bridge with interrupt or let TTL expiry close it.
+
 The runtime directory must be private. Heimdall refuses broad permissions and removes the session socket on normal shutdown or TTL expiry. It does not modify shell profiles or install a daemon.

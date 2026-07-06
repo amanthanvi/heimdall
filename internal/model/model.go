@@ -171,11 +171,12 @@ type Inventory struct {
 }
 
 type SessionPreview struct {
-	Context  string            `json:"context"`
-	Command  []string          `json:"command"`
-	Env      map[string]string `json:"env"`
-	Warnings []string          `json:"warnings"`
-	Bridge   string            `json:"bridge,omitempty"`
+	Context       string            `json:"context"`
+	Command       []string          `json:"command"`
+	Env           map[string]string `json:"env"`
+	Warnings      []string          `json:"warnings"`
+	Bridge        string            `json:"bridge,omitempty"`
+	SSHConfigPath string            `json:"ssh_config_path,omitempty"`
 }
 
 func firstNonEmpty(values ...string) string {

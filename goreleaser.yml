@@ -6,6 +6,8 @@ builds:
   - id: heimdall
     main: ./cmd/heimdall
     binary: heimdall
+    ldflags:
+      - "-s -w -X github.com/athanvi/heimdall/internal/cli.Version={{ .Version }} -X github.com/athanvi/heimdall/internal/cli.Commit={{ .Commit }} -X github.com/athanvi/heimdall/internal/cli.Date={{ .Date }}"
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 

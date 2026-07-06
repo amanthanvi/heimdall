@@ -73,6 +73,67 @@ func TestWSLConfigureGitPreviewCommandSmoke(t *testing.T) {
 	}
 }
 
+func TestCompatibilityCLIFormsNowImplemented(t *testing.T) {
+	cfg := writeTempConfig(t, "version: 1\n")
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "version command", args: []string{"version"}, want: "heimdall "},
+		{name: "doctor version flag", args: []string{"doctor", "--version"}, want: "heimdall "},
+		{name: "config validate alias", args: []string{"config", "validate"}, want: `"valid": true`},
+		{name: "json alias", args: []string{"doctor", "forwarding", "--json"}, want: `"inventory": {`},
+		{name: "redact alias", args: []string{"doctor", "--redact", "--format", "json"}, want: `"findings":`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := executeArgs(cfg, tt.args...)
+			if err != nil {
+				t.Fatalf("%v should be supported: %v\n%s", tt.args, err, out)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("missing %q in output for %v:\n%s", tt.want, tt.args, out)
+			}
+		})
+	}
+}
+
+func TestJSONAliasRejectsConflictingFormat(t *testing.T) {
+	cfg := writeTempConfig(t, "version: 1\n")
+	_, err := executeArgs(cfg, "doctor", "forwarding", "--json", "--format", "yaml")
+	if err == nil {
+		t.Fatal("expected conflicting --json and --format flags to fail")
+	}
+	if !strings.Contains(err.Error(), "conflicting output format flags") {
+		t.Fatalf("unexpected conflict error: %v", err)
+	}
+
+	if _, err := executeArgs(cfg, "doctor", "forwarding", "--json", "--format", "json"); err != nil {
+		t.Fatalf("--json with --format json should be accepted: %v", err)
+	}
+}
+
+func TestDoctorStrictAliasFailsOnWarnings(t *testing.T) {
+	cfg := writeTempConfig(t, "version: 1\n")
+	dir := t.TempDir()
+	userConfig := filepath.Join(dir, "ssh_config")
+	fragment := filepath.Join(dir, "heimdall.conf")
+	if err := os.WriteFile(userConfig, []byte("# no managed include\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := executeArgs(cfg, "doctor", "--strict", "--format", "json", "--ssh-config", userConfig, "--fragment", fragment)
+	if err == nil {
+		t.Fatal("expected --strict to fail on warning findings")
+	}
+	if code := ExitCode(err); code != 5 {
+		t.Fatalf("expected strict warning exit code 5, got %d: %v", code, err)
+	}
+	if !strings.Contains(out, "HD-CONFIG-002") || !strings.Contains(out, "HD-CONFIG-003") {
+		t.Fatalf("strict doctor missed expected warning findings:\n%s", out)
+	}
+}
+
 func TestDoctorFocusedSubcommandFiltersFindings(t *testing.T) {
 	cfg := writeTempConfig(t, `
 version: 1
@@ -391,6 +452,11 @@ func TestTransportAddRejectsInvalidArgs(t *testing.T) {
 }
 
 func execute(group, cfg string, args ...string) (string, error) {
+	all := append([]string{group}, args...)
+	return executeArgs(cfg, all...)
+}
+
+func executeArgs(cfg string, args ...string) (string, error) {
 	root := NewRootCommand()
 	read, write, err := os.Pipe()
 	if err != nil {
@@ -404,7 +470,6 @@ func execute(group, cfg string, args ...string) (string, error) {
 	root.SetOut(write)
 	root.SetErr(write)
 	all := []string{"--config", cfg}
-	all = append(all, group)
 	all = append(all, args...)
 	root.SetArgs(all)
 	execErr := root.Execute()
