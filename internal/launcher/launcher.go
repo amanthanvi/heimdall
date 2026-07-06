@@ -201,6 +201,10 @@ func plannedBridgeSocket(name, runtimeDir string, br model.Bridge) (string, erro
 	return filepath.Join(runtimeDir, "heimdall-"+name+".sock"), nil
 }
 
+// launchRenderConfig returns a context-scoped config for the managed launch
+// fragment. It intentionally removes routes from other contexts so the child
+// process cannot use IdentityAgent entries outside the selected context. When
+// bridgeEndpoint is set, selected-context routes render through that bridge.
 func launchRenderConfig(cfg model.Config, contextName, bridgeEndpoint string) model.Config {
 	scoped := cfg
 	scoped.HostRoutes = map[string]model.HostRoute{}
@@ -304,6 +308,10 @@ func hasOpenSSHConfigFlag(args []string, routeHosts []string) bool {
 	return false
 }
 
+// sshOptionRegionEnd finds the argv region where ssh client options may appear
+// before the host. Unknown two-character options are treated conservatively as
+// possibly taking one following value; joined forms such as -oFoo=bar are
+// self-contained.
 func sshOptionRegionEnd(args []string, routeHosts []string) int {
 	unknownOptionValue := false
 	for i := 0; i < len(args); i++ {
