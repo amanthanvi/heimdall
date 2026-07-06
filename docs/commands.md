@@ -4,7 +4,7 @@ Global flags:
 
 - `--config <path>`: Heimdall config path.
 - `--format human|json|yaml`: output format.
-- `--json`: alias for `--format json`.
+- `--json`: alias for `--format json`; cannot be combined with `--format` values other than `json`.
 - `--dry-run`: preview intended changes.
 - `--verbose`: verbose diagnostics flag; currently reserved by commands.
 - `--no-color`: disable color output flag; currently reserved by commands.
@@ -12,7 +12,7 @@ Global flags:
 - `--unsafe-full-output`: disable default redaction for local troubleshooting.
 - `--yes`: confirm explicit mutations after review.
 
-Use `--format json` or `--json` for machine-readable output. The CLI does not currently provide `--show-sensitive` or `--show-public-keys` aliases.
+Use `--format json` or `--json` for machine-readable output. `--json --format json` is accepted; `--json --format yaml` and other conflicting combinations are rejected. The CLI does not currently provide `--show-sensitive` or `--show-public-keys` aliases.
 
 Primary commands:
 
