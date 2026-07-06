@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -32,19 +33,28 @@ const (
 	exitSecurityRefusal   = 4
 )
 
+var (
+	Version = "dev"
+	Commit  = ""
+	Date    = ""
+)
+
 type options struct {
 	configPath       string
 	format           string
+	json             bool
 	dryRun           bool
 	verbose          bool
 	noColor          bool
 	redaction        string
+	redact           bool
 	unsafeFullOutput bool
 	yes              bool
 	fragmentPath     string
 	userSSHConfig    string
 	activeProbe      bool
 	failOn           string
+	strict           bool
 	write            bool
 	contextName      string
 	bridgeName       string
@@ -80,13 +90,20 @@ func ExitCode(err error) int {
 
 func NewRootCommand() *cobra.Command {
 	opts := &options{format: "human", redaction: string(redact.Default)}
+	version := versionString(currentVersionInfo())
 	root := &cobra.Command{
-		Use:   "heimdall",
-		Short: "Local-first SSH identity control plane",
-		Long:  "Heimdall inventories SSH identities and agents, renders managed OpenSSH config, diagnoses routing failures, and launches scoped SSH-aware commands without private-key custody.",
+		Use:     "heimdall",
+		Short:   "Local-first SSH identity control plane",
+		Long:    "Heimdall inventories SSH identities and agents, renders managed OpenSSH config, diagnoses routing failures, and launches scoped SSH-aware commands without private-key custody.",
+		Version: version,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return validateOutputFlags(cmd, opts)
+		},
 	}
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.PersistentFlags().StringVar(&opts.configPath, "config", "", "Heimdall config path")
 	root.PersistentFlags().StringVar(&opts.format, "format", "human", "output format: human, json, yaml")
+	root.PersistentFlags().BoolVar(&opts.json, "json", false, "alias for --format json; cannot be combined with --format other than json")
 	root.PersistentFlags().BoolVar(&opts.dryRun, "dry-run", false, "show intended changes without mutating")
 	root.PersistentFlags().BoolVar(&opts.verbose, "verbose", false, "verbose diagnostics")
 	root.PersistentFlags().BoolVar(&opts.noColor, "no-color", false, "disable color output")
@@ -107,6 +124,7 @@ func NewRootCommand() *cobra.Command {
 		transportCommand(opts),
 		certsCommand(opts),
 		tuiCommand(opts),
+		versionCommand(opts),
 		completionCommand(root),
 	)
 	return root
@@ -121,11 +139,8 @@ func loadConfig(opts *options) (model.Config, error) {
 }
 
 func output(opts *options, value any) error {
-	level := redact.Level(opts.redaction)
-	if opts.unsafeFullOutput {
-		level = redact.Low
-	}
-	switch opts.format {
+	level := redactionLevel(opts)
+	switch outputFormat(opts) {
 	case "json":
 		data, err := json.MarshalIndent(value, "", "  ")
 		if err != nil {
@@ -146,8 +161,9 @@ func output(opts *options, value any) error {
 
 func doctorCommand(opts *options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Diagnose SSH identity, agent, config, platform, certificate, and transport routing",
+		Use:     "doctor",
+		Short:   "Diagnose SSH identity, agent, config, platform, certificate, and transport routing",
+		Version: versionString(currentVersionInfo()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig(opts)
 			if err != nil {
@@ -155,7 +171,7 @@ func doctorCommand(opts *options) *cobra.Command {
 			}
 			report, err := doctor.Engine{}.Run(cmd.Context(), cfg, doctor.Options{
 				ConfigPath: opts.configPath, FragmentPath: opts.fragmentPath, UserSSHConfig: opts.userSSHConfig,
-				ActiveProbe: opts.activeProbe, FailOnWarning: opts.failOn == "warning",
+				ActiveProbe: opts.activeProbe, FailOnWarning: doctorFailOnWarning(opts),
 			})
 			if err != nil {
 				return err
@@ -163,7 +179,7 @@ func doctorCommand(opts *options) *cobra.Command {
 			if err := output(opts, report); err != nil {
 				return err
 			}
-			if code := doctor.SeverityExitCode(report.Findings, opts.failOn == "warning"); code != 0 {
+			if code := doctor.SeverityExitCode(report.Findings, doctorFailOnWarning(opts)); code != 0 {
 				return codedError{code: code, err: fmt.Errorf("doctor reported findings")}
 			}
 			return nil
@@ -173,6 +189,8 @@ func doctorCommand(opts *options) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.userSSHConfig, "ssh-config", config.DefaultUserSSHConfigPath(), "user OpenSSH config path")
 	cmd.PersistentFlags().BoolVar(&opts.activeProbe, "active-probe", false, "consent to local active probes such as ssh -G; no auth attempt is made")
 	cmd.PersistentFlags().StringVar(&opts.failOn, "fail-on", "", "exit nonzero on severity: warning")
+	cmd.PersistentFlags().BoolVar(&opts.redact, "redact", false, "alias for --redaction high")
+	cmd.PersistentFlags().BoolVar(&opts.strict, "strict", false, "alias for --fail-on warning")
 	cmd.AddCommand(&cobra.Command{
 		Use:   "host <host>",
 		Short: "Diagnose one host route; passive unless --active-probe is set",
@@ -494,7 +512,7 @@ func contextRouteSnippet(contextName string, ctx model.Context, route model.Host
 }
 
 func outputContextAdd(opts *options, result contextAddResult) error {
-	if opts.format == "json" || opts.format == "yaml" {
+	if outputFormat(opts) == "json" || outputFormat(opts) == "yaml" {
 		return output(opts, result)
 	}
 	var b strings.Builder
@@ -513,10 +531,7 @@ func outputContextAdd(opts *options, result contextAddResult) error {
 	if result.Refused {
 		b.WriteString("refusing config mutation without --yes; rerun with --dry-run first, then --yes\n")
 	}
-	level := redact.Level(opts.redaction)
-	if opts.unsafeFullOutput {
-		level = redact.Low
-	}
+	level := redactionLevel(opts)
 	fmt.Print(redact.String(b.String(), level))
 	return nil
 }
@@ -631,8 +646,9 @@ func configCommand(opts *options) *cobra.Command {
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "doctor",
-		Short: "Validate Heimdall config only",
+		Use:     "doctor",
+		Aliases: []string{"validate"},
+		Short:   "Validate Heimdall config only",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig(opts)
 			if err != nil {
@@ -909,7 +925,7 @@ func transportSnippet(name string, tr model.ExternalTransport) (string, error) {
 }
 
 func outputTransportAdd(opts *options, result transportAddResult) error {
-	if opts.format == "json" || opts.format == "yaml" {
+	if outputFormat(opts) == "json" || outputFormat(opts) == "yaml" {
 		return output(opts, result)
 	}
 	var b strings.Builder
@@ -925,10 +941,7 @@ func outputTransportAdd(opts *options, result transportAddResult) error {
 	if result.Refused {
 		b.WriteString("refusing config mutation without --yes; rerun with --dry-run first, then --yes\n")
 	}
-	level := redact.Level(opts.redaction)
-	if opts.unsafeFullOutput {
-		level = redact.Low
-	}
+	level := redactionLevel(opts)
 	fmt.Print(redact.String(b.String(), level))
 	return nil
 }
@@ -972,6 +985,28 @@ func certsCommand(opts *options) *cobra.Command {
 	refresh.Flags().BoolVar(&opts.execute, "execute", false, "execute the refresh hook; default previews only")
 	cmd.AddCommand(refresh)
 	return cmd
+}
+
+type versionInfo struct {
+	Version string `json:"version" yaml:"version"`
+	Commit  string `json:"commit,omitempty" yaml:"commit,omitempty"`
+	Date    string `json:"date,omitempty" yaml:"date,omitempty"`
+	Dirty   bool   `json:"dirty,omitempty" yaml:"dirty,omitempty"`
+}
+
+func versionCommand(opts *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print Heimdall version information",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			info := currentVersionInfo()
+			if outputFormat(opts) == "human" {
+				fmt.Println(versionString(info))
+				return nil
+			}
+			return output(opts, info)
+		},
+	}
 }
 
 func tuiCommand(opts *options) *cobra.Command {
@@ -1056,6 +1091,85 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func outputFormat(opts *options) string {
+	if opts.json {
+		return "json"
+	}
+	return opts.format
+}
+
+func validateOutputFlags(cmd *cobra.Command, opts *options) error {
+	if opts.json && cmd.Root().PersistentFlags().Changed("format") && opts.format != "json" {
+		return fmt.Errorf("conflicting output format flags: --json and --format=%s", opts.format)
+	}
+	return nil
+}
+
+func redactionLevel(opts *options) redact.Level {
+	if opts.unsafeFullOutput {
+		return redact.Low
+	}
+	if opts.redact {
+		return redact.High
+	}
+	return redact.Level(opts.redaction)
+}
+
+func doctorFailOnWarning(opts *options) bool {
+	return opts.strict || opts.failOn == "warning"
+}
+
+func currentVersionInfo() versionInfo {
+	info := versionInfo{Version: Version, Commit: Commit, Date: Date}
+	if buildInfo, ok := debug.ReadBuildInfo(); ok {
+		if info.Version == "" || info.Version == "dev" {
+			if buildInfo.Main.Version != "" && buildInfo.Main.Version != "(devel)" {
+				info.Version = buildInfo.Main.Version
+			}
+		}
+		for _, setting := range buildInfo.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				if info.Commit == "" {
+					info.Commit = setting.Value
+				}
+			case "vcs.time":
+				if info.Date == "" {
+					info.Date = setting.Value
+				}
+			case "vcs.modified":
+				info.Dirty = setting.Value == "true"
+			}
+		}
+	}
+	if info.Version == "" {
+		info.Version = "dev"
+	}
+	return info
+}
+
+func versionString(info versionInfo) string {
+	var b strings.Builder
+	b.WriteString("heimdall ")
+	b.WriteString(info.Version)
+	if info.Commit != "" {
+		commit := info.Commit
+		if len(commit) > 12 {
+			commit = commit[:12]
+		}
+		b.WriteString(" ")
+		b.WriteString(commit)
+	}
+	if info.Date != "" {
+		b.WriteString(" ")
+		b.WriteString(info.Date)
+	}
+	if info.Dirty {
+		b.WriteString(" dirty")
+	}
+	return b.String()
 }
 
 func shouldApplyMutation(opts *options) bool {
