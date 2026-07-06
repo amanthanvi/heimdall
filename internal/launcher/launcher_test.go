@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/athanvi/heimdall/internal/model"
+	"github.com/athanvi/heimdall/internal/openssh"
 )
 
 func TestPreviewScopesSelectedAgentAndNoAmbientFallback(t *testing.T) {
@@ -276,6 +277,83 @@ func TestRunWritesManagedFragmentAndScopesRoutingEnv(t *testing.T) {
 		if !strings.Contains(envText, want) {
 			t.Fatalf("child env missing %q:\n%s", want, envText)
 		}
+	}
+}
+
+func TestRunWritesManagedFragmentForSelectedContextOnly(t *testing.T) {
+	dir := t.TempDir()
+	fragment := filepath.Join(dir, "ssh_config")
+	envPath := filepath.Join(dir, "child-env.txt")
+	t.Setenv("HEIMDALL_LAUNCHER_HELPER", "1")
+	cfg := model.Config{
+		Version: model.ConfigVersion,
+		Agents: model.AgentConfig{Selectors: map[string]model.AgentSelector{
+			"personal": {Kind: "openssh", Socket: "/tmp/personal.sock"},
+			"work":     {Kind: "openssh", Socket: "/tmp/work.sock"},
+		}},
+		Identities: map[string]model.Identity{
+			"personal": {PublicKeyPath: "/tmp/personal.pub", AgentSelector: "personal"},
+			"work":     {PublicKeyPath: "/tmp/work.pub", AgentSelector: "work"},
+		},
+		Contexts: map[string]model.Context{
+			"personal": {
+				Identity: "personal",
+				Agent:    "personal",
+				Routes:   []model.HostRoute{{Host: "github.com", User: "git"}},
+			},
+			"work": {
+				Identity: "work",
+				Agent:    "work",
+				Routes:   []model.HostRoute{{Host: "work.example", User: "git"}},
+			},
+		},
+	}
+	command := []string{os.Args[0], "-test.run=TestLauncherHelperProcess", "--", envPath}
+	if err := (Launcher{}).RunWithOptions(context.Background(), cfg, "personal", command, Options{SSHConfigPath: fragment}); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := os.ReadFile(fragment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(rendered)
+	for _, want := range []string{"Host github.com", "IdentityAgent /tmp/personal.sock"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("selected context fragment missing %q:\n%s", want, text)
+		}
+	}
+	for _, unexpected := range []string{"Host work.example", "/tmp/work.sock"} {
+		if strings.Contains(text, unexpected) {
+			t.Fatalf("selected context fragment leaked %q:\n%s", unexpected, text)
+		}
+	}
+}
+
+func TestBridgeLaunchRenderConfigUsesBridgeSocket(t *testing.T) {
+	cfg := model.Config{
+		Version: model.ConfigVersion,
+		Agents: model.AgentConfig{Selectors: map[string]model.AgentSelector{
+			"personal": {Kind: "openssh", Socket: "/tmp/personal.sock"},
+		}},
+		Identities: map[string]model.Identity{
+			"personal": {PublicKeyPath: "/tmp/personal.pub", AgentSelector: "personal"},
+		},
+		Contexts: map[string]model.Context{"personal": {
+			Identity: "personal",
+			Agent:    "personal",
+			Routes:   []model.HostRoute{{Host: "github.com", User: "git"}},
+		}},
+	}
+	rendered, err := openssh.Render(launchRenderConfig(cfg, "personal", "/tmp/bridge.sock"), openssh.RenderOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(rendered)
+	if !strings.Contains(text, "IdentityAgent /tmp/bridge.sock") {
+		t.Fatalf("bridge fragment did not route through bridge socket:\n%s", text)
+	}
+	if strings.Contains(text, "/tmp/personal.sock") {
+		t.Fatalf("bridge fragment leaked original agent socket:\n%s", text)
 	}
 }
 

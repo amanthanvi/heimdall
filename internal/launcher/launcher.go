@@ -22,6 +22,8 @@ var ErrNoAgentSocket = errors.New("selected context has no agent socket; refusin
 
 type Launcher struct{}
 
+const launchBridgeAgentName = "__heimdall_launch_bridge"
+
 type Options struct {
 	BridgeName    string
 	RuntimeDir    string
@@ -127,7 +129,11 @@ func (l Launcher) RunWithOptions(ctx context.Context, cfg model.Config, contextN
 		if err := validateSSHConfigPath(opts.SSHConfigPath); err != nil {
 			return err
 		}
-		rendered, err := openssh.Render(cfg, openssh.RenderOptions{})
+		renderCfg := launchRenderConfig(cfg, contextName, "")
+		if opts.BridgeName != "" {
+			renderCfg = launchRenderConfig(cfg, contextName, preview.Env["SSH_AUTH_SOCK"])
+		}
+		rendered, err := openssh.Render(renderCfg, openssh.RenderOptions{})
 		if err != nil {
 			return err
 		}
@@ -193,6 +199,42 @@ func plannedBridgeSocket(name, runtimeDir string, br model.Bridge) (string, erro
 		return "", fmt.Errorf("invalid bridge name")
 	}
 	return filepath.Join(runtimeDir, "heimdall-"+name+".sock"), nil
+}
+
+func launchRenderConfig(cfg model.Config, contextName, bridgeEndpoint string) model.Config {
+	scoped := cfg
+	scoped.HostRoutes = map[string]model.HostRoute{}
+	scoped.Contexts = map[string]model.Context{}
+
+	ctx, ok := cfg.Contexts[contextName]
+	if !ok {
+		return scoped
+	}
+	ctx.Routes = nil
+	if bridgeEndpoint != "" {
+		ctx.Agent = launchBridgeAgentName
+		selectors := make(map[string]model.AgentSelector, len(cfg.Agents.Selectors)+1)
+		for name, selector := range cfg.Agents.Selectors {
+			selectors[name] = selector
+		}
+		selectors[launchBridgeAgentName] = model.AgentSelector{Kind: "openssh", Socket: bridgeEndpoint}
+		scoped.Agents.Selectors = selectors
+	}
+
+	for _, named := range model.NamedHostRoutes(cfg) {
+		if named.Context != contextName {
+			continue
+		}
+		route := named.Route
+		route.Host = firstNonEmpty(route.Host, named.Host)
+		route.Context = ""
+		if bridgeEndpoint != "" {
+			route.Agent = launchBridgeAgentName
+		}
+		ctx.Routes = append(ctx.Routes, route)
+	}
+	scoped.Contexts[contextName] = ctx
+	return scoped
 }
 
 func filteredEnv(env []string, keys ...string) []string {
