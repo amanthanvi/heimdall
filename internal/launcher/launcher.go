@@ -135,7 +135,8 @@ func (l Launcher) RunWithOptions(ctx context.Context, cfg model.Config, contextN
 			return err
 		}
 	}
-	cmd := exec.CommandContext(ctx, preview.Command[0], preview.Command[1:]...)
+	// preview.Command is the explicit local launch argv; no shell is invoked.
+	cmd := exec.CommandContext(ctx, preview.Command[0], preview.Command[1:]...) // #nosec G204
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -289,11 +290,14 @@ func sshOptionRegionEnd(args []string, routeHosts []string) int {
 	return len(args)
 }
 
+const sshOptionsConsumingNext = "BbcDEeFIiJLlmOoPpQRSWw"
+
+// sshOptionConsumesNext is derived from the OpenSSH ssh(1) OPTIONS list.
 func sshOptionConsumesNext(arg string) bool {
 	if len(arg) != 2 {
 		return false
 	}
-	return strings.ContainsRune("BbcDEeFIiJLlmOoPpQRSWw", rune(arg[1]))
+	return strings.ContainsRune(sshOptionsConsumingNext, rune(arg[1]))
 }
 
 func validateSSHConfigPath(path string) error {
