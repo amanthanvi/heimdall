@@ -1,0 +1,10 @@
+schema_version = 1
+name = "homelab"
+revision = 1
+
+[[destinations]]
+id = "dst_a"
+alias = "a"
+host = "a.example.internal"
+port = 70000
+account = "u"

@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://heimdall.invalid/schemas/g02/result.schema.json",
+  "title": "G02 prototype result envelope",
+  "type": "object",
+  "required": ["schema_version", "state", "code", "data", "warnings", "next"],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "state": {"enum": ["succeeded", "failed", "cancelled"]},
+    "code": {"enum": ["PROFILE_OK", "AGENT_OK", "VERSION_OK", "CHILD_EXITED", "CHILD_LAUNCH_FAILED",
+                      "USAGE_ERROR", "SCHEMA_INVALID", "INPUT_TOO_LARGE",
+                      "AGENT_UNAVAILABLE", "AGENT_PROTOCOL_ERROR", "AGENT_REFUSED",
+                      "CANCELLED", "INTERNAL"]},
+    "data": {"type": ["object", "null"]},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "next": {"type": ["object", "null"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"code": {"const": "PROFILE_OK"}}},
+     "then": {"properties": {"state": {"const": "succeeded"}, "data": {"$ref": "#/$defs/profile_data"}}}},
+    {"if": {"properties": {"code": {"const": "AGENT_OK"}}},
+     "then": {"properties": {"state": {"const": "succeeded"}, "data": {"$ref": "#/$defs/agent_data"}}}},
+    {"if": {"properties": {"code": {"const": "VERSION_OK"}}},
+     "then": {"properties": {"state": {"const": "succeeded"}, "data": {"$ref": "#/$defs/version_data"}}}},
+    {"if": {"properties": {"code": {"enum": ["CHILD_EXITED", "CHILD_LAUNCH_FAILED"]}}},
+     "then": {"properties": {"data": {"$ref": "#/$defs/run_data"}}}},
+    {"if": {"properties": {"code": {"enum": ["USAGE_ERROR", "SCHEMA_INVALID", "INPUT_TOO_LARGE",
+                                             "AGENT_UNAVAILABLE", "AGENT_PROTOCOL_ERROR", "AGENT_REFUSED", "INTERNAL"]}}},
+     "then": {"properties": {"state": {"const": "failed"}, "data": {"$ref": "#/$defs/error_data"}}}},
+    {"if": {"properties": {"code": {"const": "CANCELLED"}}},
+     "then": {"properties": {"state": {"const": "cancelled"}}}}
+  ],
+  "$defs": {
+    "destination": {
+      "type": "object",
+      "required": ["id", "alias", "host", "port", "account", "labels"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "alias": {"type": "string", "minLength": 1},
+        "host": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "account": {"type": "string", "minLength": 1},
+        "labels": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "profile_data": {
+      "type": "object",
+      "required": ["profile"],
+      "properties": {
+        "profile": {
+          "type": "object",
+          "required": ["name", "revision", "destinations"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "revision": {"type": "integer", "minimum": 1},
+            "destinations": {"type": "array", "items": {"$ref": "#/$defs/destination"}}
+          }
+        }
+      }
+    },
+    "agent_data": {
+      "type": "object",
+      "required": ["identities"],
+      "properties": {
+        "identities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key_type", "fingerprint", "comment"],
+            "additionalProperties": false,
+            "properties": {
+              "key_type": {"type": "string"},
+              "fingerprint": {"type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"},
+              "comment": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "version_data": {
+      "type": "object",
+      "required": ["name", "version", "candidate", "runtime", "tui_framework", "tui_framework_version"],
+      "properties": {
+        "name": {"const": "heimdall-proto"},
+        "version": {"const": "0.0.0-g02"},
+        "candidate": {"enum": ["go", "rust", "ts"]},
+        "runtime": {"type": "string"},
+        "tui_framework": {"type": "string"},
+        "tui_framework_version": {"type": "string"}
+      }
+    },
+    "run_data": {
+      "type": "object",
+      "required": ["launched", "exit_code", "signal"],
+      "properties": {
+        "launched": {"type": "boolean"},
+        "exit_code": {"type": ["integer", "null"]},
+        "signal": {"type": ["integer", "null"]}
+      }
+    },
+    "error_data": {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["key_path", "message"],
+          "properties": {
+            "key_path": {"type": ["string", "null"]},
+            "message": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

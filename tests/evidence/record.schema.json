@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Heimdall evidence record (plan.md §6.6)",
+  "type": "object",
+  "required": ["case_id", "status", "requirement_ids", "build_commit", "artifact_digest", "environment",
+               "provider_versions", "started_at", "commands_or_harness", "observed_result",
+               "evidence_paths", "limitations"],
+  "properties": {
+    "case_id": {"type": "string", "description": "Acceptance case (A01..A36) or gate probe id (e.g. G02-go-conformance, G03-win-pipe-selection)"},
+    "status": {"enum": ["not_started", "in_progress", "blocked", "implemented_unverified", "verified", "deferred_with_decision"]},
+    "requirement_ids": {"type": "array", "items": {"type": "string", "pattern": "^R-[A-Z]{2}-0[1-8]$"}},
+    "build_commit": {"type": ["string", "null"]},
+    "artifact_digest": {"type": ["string", "null"]},
+    "environment": {"type": ["object", "string", "null"]},
+    "provider_versions": {"type": "array"},
+    "started_at": {"type": ["string", "null"], "description": "RFC 3339 with offset"},
+    "commands_or_harness": {"type": ["string", "array", "null"]},
+    "observed_result": {"type": ["string", "object", "null"], "description": "What actually happened. null if not executed."},
+    "evidence_paths": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "blocked_on": {"type": ["string", "null"], "description": "Required when status=blocked: exact missing platform/input/authority"}
+  },
+  "allOf": [{"if": {"properties": {"status": {"const": "blocked"}}}, "then": {"required": ["blocked_on"]}}]
+}

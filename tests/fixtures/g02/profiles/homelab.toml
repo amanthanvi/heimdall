@@ -1,0 +1,30 @@
+schema_version = 1
+name = "homelab"
+revision = 3
+
+[meta]
+note = "free-form metadata is tolerated and not echoed"
+owner_hint = { team = "personal" }
+
+[[destinations]]
+id = "dst_lab_server"
+alias = "lab-server"
+host = "lab.example.internal"
+port = 22
+account = "aman"
+labels = ["homelab", "fixed-auth"]
+
+[[destinations]]
+id = "dst_nas"
+alias = "nas"
+host = "nas.example.internal"
+account = "admin"
+labels = ["homelab"]
+
+[[destinations]]
+id = "dst_vps_ünïcode"
+alias = "vps-東京"
+host = "vps1.example.invalid"
+port = 2222
+account = "deploy"
+labels = []

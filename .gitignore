@@ -1,0 +1,23 @@
+# build outputs
+prototypes/*/dist/
+prototypes/go/bin/
+prototypes/rust/target/
+prototypes/ts/node_modules/
+node_modules/
+target/
+*.test
+__pycache__/
+.venv/
+.pytest_cache/
+
+# disposable fixture material (generated per run, never committed)
+tests/fixtures/**/runtime/
+tests/fixtures/**/*.key
+tests/fixtures/**/id_*
+!tests/fixtures/**/id_*.pub
+*.keychain-db
+*.pem
+
+# OS / editor
+.DS_Store
+*.swp

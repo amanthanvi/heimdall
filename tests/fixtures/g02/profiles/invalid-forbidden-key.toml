@@ -1,0 +1,10 @@
+schema_version = 1
+name = "homelab"
+revision = 1
+private_key = "HEIMDALL_CANARY_7f3a9c1e_PRIVATE_KEY_MATERIAL"
+
+[[destinations]]
+id = "dst_a"
+alias = "a"
+host = "a.example.internal"
+account = "u"

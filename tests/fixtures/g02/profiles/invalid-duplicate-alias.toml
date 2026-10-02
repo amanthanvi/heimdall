@@ -1,0 +1,15 @@
+schema_version = 1
+name = "homelab"
+revision = 1
+
+[[destinations]]
+id = "dst_a"
+alias = "dup"
+host = "a.example.internal"
+account = "u"
+
+[[destinations]]
+id = "dst_b"
+alias = "dup"
+host = "b.example.internal"
+account = "u"
