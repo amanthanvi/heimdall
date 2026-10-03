@@ -1,0 +1,5 @@
+user second-user
+hostname 192.0.2.99
+port 2202
+identityagent /nonexistent/hm-conflict-agent-2.sock
+proxyjump hm-conflict-jump-2

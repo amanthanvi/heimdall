@@ -1,0 +1,26 @@
+# Inert conflicting-SSH-config fixture (plan.md 6.2). Never connects anywhere:
+# use only with `ssh -G -F <this file> <alias>`. Contains no Match exec, ProxyCommand
+# or Include on purpose. OpenSSH uses the FIRST obtained value for each directive.
+Host conflict-a
+  HostName 192.0.2.10
+  User first-user
+  Port 2201
+  IdentityFile ~/.ssh/hm-conflict-first
+  IdentityAgent /nonexistent/hm-conflict-agent-1.sock
+  ProxyJump hm-conflict-jump-1
+
+Host conflict-a conflict-b
+  HostName 192.0.2.99
+  User second-user
+  Port 2202
+  IdentityFile ~/.ssh/hm-conflict-second
+  IdentityAgent /nonexistent/hm-conflict-agent-2.sock
+  ProxyJump hm-conflict-jump-2
+  ForwardAgent yes
+  StrictHostKeyChecking no
+
+Host conflict-*
+  User wildcard-user
+  Port 2203
+  ControlMaster auto
+  ControlPath /nonexistent/hm-conflict-%C

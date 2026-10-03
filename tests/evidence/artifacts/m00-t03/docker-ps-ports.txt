@@ -1,0 +1,6 @@
+hm-m00t03-bastion 127.0.0.1:61748->22/tcp
+hm-m00t03-ca1 127.0.0.1:61746->22/tcp
+hm-m00t03-ca2 127.0.0.1:61747->22/tcp
+hm-m00t03-enroll 127.0.0.1:61745->22/tcp
+hm-m00t03-fixed 127.0.0.1:61744->22/tcp
+hm-m00t03-target 22/tcp

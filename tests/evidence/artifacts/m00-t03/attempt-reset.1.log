@@ -1,0 +1,13 @@
+[2026-10-03T00:02:32Z] recreating hm-m00t03-fixed
+[2026-10-03T00:02:32Z] recreating hm-m00t03-enroll
+[2026-10-03T00:02:33Z] recreating hm-m00t03-ca1
+[2026-10-03T00:02:33Z] recreating hm-m00t03-ca2
+[2026-10-03T00:02:33Z] recreating hm-m00t03-bastion
+[2026-10-03T00:02:33Z] recreating hm-m00t03-target
+[2026-10-03T00:02:33Z] reset complete; ports:
+  PORT_fixed=61370
+  PORT_enroll=61371
+  PORT_ca1=61372
+  PORT_ca2=61373
+  PORT_bastion=61374
+exit=0

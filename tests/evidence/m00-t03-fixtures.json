@@ -1,0 +1,196 @@
+{
+  "case_id": "M00-T03-fixtures",
+  "status": "in_progress",
+  "requirement_ids": [
+    "R-EN-06",
+    "R-SS-06",
+    "R-CR-05",
+    "R-CR-06",
+    "R-CR-07",
+    "R-SE-04",
+    "R-UX-01",
+    "R-AU-05"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": "base debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1; script sha256 (tests/fixtures/ssh, as run in artifacts/m00-t03/fix): Dockerfile 124bcbe4c4b4ed2c4f0efcca4a39a6e1ea080342ca306db4d0fb6909ce8395d8, entrypoint.sh d3ca2718bda97081b5409dcbaf63b3a6c3645471fa5881668a53f5dcad4ec1bf, lib.sh 380c9afc50bc42474fbcc1eaba0736c0f528d3374522bc41e107fbd3024de0c3, up.sh 16a8156aa66e2497f381fd7a900e783041c3953967021727eb838301023d51f5, down.sh 49ea6b902b003dada834b1ccb627b387998816149a15cc5f927f38e167ca94ad, reset.sh 0492175e5223ef9c6ee3c62e74b30c1fc38801ed0d8cdfcb254f2ba749ee91b0, smoke.sh c7c70db6149ffab18bb5d2ab2ca6d2762a9ab8265b580a6e1db71a210f2874c4, penalty-repro.sh 85f65c3469d79792cfc17e6bff41cb17ae77d33fef685f66c08a47971f3e3a9a, down-failure-case.sh c38d2098d1d50fb6d5fc2c58c56bcba1d1410c4be702b45502b22fc8c8b2730d. CAVEAT: build_commit is the parent HEAD (18bb8df); tests/fixtures/ssh/ and MANIFEST.md are untracked in git, so the evidence binds to the listed per-file digests of the working tree, not to a commit.",
+  "environment": {
+    "host": "macOS 27.0 arm64",
+    "docker": "Docker Desktop, Engine 29.8.1 linux/arm64 (the earlier pre-fix runs under artifacts/m00-t03/*.log saw 29.8.0; Desktop updated between cycles)",
+    "containers": "heimdall-m00-t03-sshd:local on debian@sha256:f324c7ff...",
+    "server": "openssh-server 1:10.0p1-7+deb13u4 (sshd OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6)",
+    "client": "/usr/bin/ssh OpenSSH_10.3p1, LibreSSL 3.3.6",
+    "network": "127.0.0.1 published ports only; internal-only docker network for the bastion target"
+  },
+  "provider_versions": [
+    {
+      "name": "openssh-server (container)",
+      "version": "1:10.0p1-7+deb13u4"
+    },
+    {
+      "name": "ssh client (host)",
+      "version": "OpenSSH_10.3p1"
+    },
+    {
+      "name": "docker engine",
+      "version": "29.8.1 (post-fix runs); 29.8.0 (pre-fix runs)"
+    }
+  ],
+  "started_at": "2026-10-03T19:45:54+00:00",
+  "commands_or_harness": [
+    "tests/fixtures/ssh/up.sh (exit 0)",
+    "tests/fixtures/ssh/smoke.sh x3 consecutive (exit 0, 0, 0; 61 checks each, 61 pass)",
+    "tests/fixtures/ssh/penalty-repro.sh x2 (exit 0, 0: PerSourcePenalties reproduced on default variant, absent on control)",
+    "fault injection: PerSourcePenalties removed from the running ca1/ca2 containers (docker exec sed + kill -HUP of sshd via the in-container pid file), then unmodified smoke.sh x4 (exit 0, 0, 0, 1)",
+    "negative control of the bastion effective-config check logic with an injected ForwardAgent=yes (check would FAIL; logged)",
+    "tests/fixtures/ssh/reset.sh (exit 0), then smoke.sh x2 (exit 0, 0; 61 pass)",
+    "tests/fixtures/ssh/down.sh (exit 0, CLEANUP CONFIRMED, private_keys_overwritten_and_removed=23)",
+    "tests/fixtures/ssh/down-failure-case.sh (exit 0: down.sh exited 1 with CLEANUP INCOMPLETE under an injected unlabelled network)",
+    "/usr/bin/ssh -G -F conflicting-config/ssh_config conflict-a (exit 0, informational; pre-fix artifact)"
+  ],
+  "observed_result": {
+    "verdict_note": "Fixture-readiness record, not a hypothesis probe: per-fixture statuses below are authoritative; the top-level status is deliberately coarse (in_progress = some rows verified, rows 6-18 not). Nothing here verifies Heimdall behavior or any product requirement.",
+    "per_fixture": {
+      "1_fixed_auth": {
+        "status": "verified",
+        "basis": "smoke fixed:* checks (login ok; append to registry and mkdir ~/.ssh denied; registry sha256 unchanged; wrong key rejected; no ~/.ssh key offered), 5 as-shipped smoke runs on the final scripts all pass (3 consecutive, 2 after reset); the independent reviewer fault-injected the pre-fix scripts and the checks failed as expected"
+      },
+      "2_account_enrollable": {
+        "status": "verified",
+        "basis": "smoke enroll:* checks; interrupted-mutation / lost-response half is not exercised (row 14 not_started)"
+      },
+      "3_two_ca_hosts": {
+        "status": "verified",
+        "basis": "smoke ca:* checks incl. p-host1/p-host2 cross-rejection, broad cert on both hosts, expired/not-yet-valid/rogue-CA rejection. Intermittent false failure under default PerSourcePenalties is understood and reproduced; the shipped fixtures set PerSourcePenalties no (see penalty_per_source)"
+      },
+      "4_bastion_internal_target": {
+        "status": "verified",
+        "basis": "ProxyJump portion only: ProxyJump works with ForwardAgent no, target sees no agent, effective config asserted (forwardagent no, proxyjump bastion, identityagent none; negative control shows the assertion fails when ForwardAgent=yes is injected), PermitOpen refusal matched on 'administratively prohibited' with a positive control (permitted target returns the sshd banner), target on one Internal=true network with no ports/egress. The forwarding half of A15 is not_started (needs Heimdall recipe)."
+      },
+      "5_host_key_substitution": {
+        "status": "verified",
+        "basis": "loopback port + HostKeyAlias route only: exit 255 REMOTE HOST IDENTIFICATION HAS CHANGED, StrictHostKeyChecking=ask also fails, known_hosts unchanged, restore ok. Hostname/DNS change and bastion-hop substitution not tested."
+      },
+      "6_conflicting_ssh_config": {
+        "status": "implemented_unverified",
+        "basis": "inert static file, ssh -G observed manually (pre-fix artifacts); not part of smoke.sh"
+      },
+      "7_fake_agent": {
+        "status": "not_started",
+        "basis": "not assessed here; owned and verified by another task"
+      },
+      "8_locked_provider": {
+        "status": "blocked",
+        "blocked_on": "a real FIDO2/sk authenticator or an interactive native OS lock (macOS login keychain/Secure Enclave or Windows Hello); off limits and unavailable here"
+      },
+      "9_replay_oversize_agent_messages": {
+        "status": "not_started"
+      },
+      "10_delayed_issuer": {
+        "status": "not_started"
+      },
+      "11_stale_pipe_socket": {
+        "status": "not_started",
+        "blocked_on_windows_variant": "native Windows host (named pipe); Unix socket variant not_started on this macOS arm64 host"
+      },
+      "12_native_windows_wsl": {
+        "status": "blocked",
+        "blocked_on": "a native Windows host with WSL2; this machine is macOS 27.0 arm64"
+      },
+      "13_to_18": {
+        "status": "not_started",
+        "basis": "rows 13 concurrent environments, 14 response loss, 15 paired runner, 16 limited management client, 17 local container bound to scoped access, 18 Iroh: not built"
+      }
+    },
+    "smoke_discrimination": {
+      "checks_per_run": 61,
+      "final_script_runs": "smoke.sh passed 61/61 on 5 runs against the as-shipped fixtures (3 consecutive, 2 after reset.sh); exit 0 each. Four further runs with default PerSourcePenalties injected into ca1/ca2: 61/61, 61/61, 61/61, then 59/61 (exit 1).",
+      "bastion_effective_config": "was an always-pass check (hard-coded success); now asserts 'forwardagent no', 'proxyjump bastion', 'identityagent none' in ssh -G. Negative control (artifacts .../fix/negctl-effective-config.log): the same assertion logic reports a missing 'forwardagent no' under an injected ForwardAgent=yes. Run through the same logic outside smoke.sh; smoke.sh itself was not run with a failing config.",
+      "bastion_permitopen": "now requires ssh exit != 0 AND 'administratively prohibited' in the client message (ssh -o LogLevel=INFO -W 127.0.0.1:22 bastion; observed 'channel 0: open failed: administratively prohibited: open failed'), plus a positive control that -W hm-m00t03-target:22 yields an SSH-2.0 banner."
+    },
+    "penalty_per_source": {
+      "claim": "OpenSSH >= 9.8 PerSourcePenalties (default on) drops valid connections from the single docker-gateway source after repeated failed authentications, causing a timing-dependent false failure in smoke.sh; fixture sshd sets PerSourcePenalties no.",
+      "status_of_claim": "mechanism and symptom reproduced; original failing run was never retained, so that run's cause is an inference now consistent with the reproduction",
+      "mechanism_repro": "penalty-repro.sh x2 (exit 0 both): default variant: baseline valid login ok, 3 failed auths answered 'Permission denied (publickey)', failed auths 4-8 and all 3 subsequent valid logins dropped (exit 255, empty output), sshd log 'srclimit_penalise ... activating ipv4 penalty of 16 seconds for penalty: failed authentication' and 7 'drop connection #0 ... penalty: failed authentication' lines, recovery after ~20s in both runs. Control variant (PerSourcePenalties no): 8/8 failed auths answered normally, 3/3 valid logins ok, 0 penalty lines.",
+      "smoke_flake_repro": "with default PerSourcePenalties injected in ca1/ca2, the 4th injected smoke.sh run (launched immediately after the 3rd) exited 1: FAIL 'ca:p-host1 cert -> host1 accepted' (exit=255, empty output) and FAIL 'ca:broad cert works on BOTH hosts' (host1 exit=255, host2 exit=0); ca1 log has 'drop connection ... penalty: failed authentication'. Runs started >=11s after the previous run passed. Timing dependent; 1 failure in 4 runs.",
+      "correction": "Earlier text cited attempt-smoke.3-after-reset.log as showing this flake. That file is a clean 60/60 pass (60 PASS lines, no penalty text). The failing run and ca1 excerpt of the original cycle were not retained.",
+      "evidence": [
+        "tests/evidence/artifacts/m00-t03/fix/penalty-repro.1.log",
+        "tests/evidence/artifacts/m00-t03/fix/penalty-repro.2.log",
+        "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.log",
+        "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun.log",
+        "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.log",
+        "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.run1.full.log",
+        "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.run2.full.log",
+        "tests/evidence/artifacts/m00-t03/fix/after-reset-persourcepenalties.txt"
+      ]
+    },
+    "lifecycle": {
+      "up": "exit 0",
+      "reset": "exit 0 (sshd -T shows persourcepenalties no on ca1 and ca2 afterwards, i.e. reset repairs the injected fault)",
+      "down_success_path": "exit 0; 'CLEANUP CONFIRMATION 2026-10-03T19:50:05Z: containers_remaining=0 networks_remaining=0 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=23 problems=0' then CLEANUP CONFIRMED. Independently afterwards: 0 labelled containers, 0 labelled and 0 hm-m00t03* networks, 0 fixture images, runtime/ absent, 0 private key files under tests/fixtures.",
+      "down_failure_branch": "exercised once by fault injection (down-failure-case.sh, exit 0): an unlabelled network named hm-m00t03-internal made down.sh print 'network hm-m00t03-internal exists without our label; left alone', 'networks_remaining=1 problems=1', 'CLEANUP INCOMPLETE' and exit 1; the injected network was then removed by exact name. Other failure causes (container or image removal failing, key disposal failing) remain unexercised.",
+      "published_ports": "docker ps (artifacts/.../fix/docker-ps-ports.txt): only 127.0.0.1:<ephemeral>->22 for fixed, enroll, ca1, ca2, bastion; target publishes nothing; penalty variant containers also published on 127.0.0.1 only and were removed by their trap."
+    },
+    "attempt_history": "Pre-fix history (logs under artifacts/m00-t03/*.log, kept as is): attempt 1 smoke 53 pass / 7 fail, all 7 from faulty checks in smoke.sh (comment matched by grep, wc whitespace, non-isolated wrong-key control), fixed in the script. attempt 2 passed but an immediate rerun failed 2 CA checks intermittently; that failing run and its log were NOT retained (attempt-smoke.3-after-reset.log is a clean pass and does not show it). The attribution to PerSourcePenalties was inference at the time; see penalty_per_source for the later reproduction."
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m00-t03/fix/up.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke.run1.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke.run2.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke.run3.log",
+    "tests/evidence/artifacts/m00-t03/fix/reset.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke.after-reset.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke.after-reset2.log",
+    "tests/evidence/artifacts/m00-t03/fix/down.log",
+    "tests/evidence/artifacts/m00-t03/fix/down-failure-case.log",
+    "tests/evidence/artifacts/m00-t03/fix/penalty-repro.1.log",
+    "tests/evidence/artifacts/m00-t03/fix/penalty-repro.2.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.run1.full.log",
+    "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.run2.full.log",
+    "tests/evidence/artifacts/m00-t03/fix/negctl-effective-config.log",
+    "tests/evidence/artifacts/m00-t03/fix/after-reset-persourcepenalties.txt",
+    "tests/evidence/artifacts/m00-t03/fix/versions.txt",
+    "tests/evidence/artifacts/m00-t03/fix/docker-ps-ports.txt",
+    "tests/evidence/artifacts/m00-t03/fix/networks.txt",
+    "tests/evidence/artifacts/m00-t03/attempt-up.1.log",
+    "tests/evidence/artifacts/m00-t03/attempt-smoke.1.log",
+    "tests/evidence/artifacts/m00-t03/attempt-down.1.log",
+    "tests/evidence/artifacts/m00-t03/attempt-up.2.log",
+    "tests/evidence/artifacts/m00-t03/attempt-smoke.2.log",
+    "tests/evidence/artifacts/m00-t03/attempt-reset.1.log",
+    "tests/evidence/artifacts/m00-t03/attempt-smoke.3-after-reset.log",
+    "tests/evidence/artifacts/m00-t03/attempt-down.2.log",
+    "tests/evidence/artifacts/m00-t03/up.log",
+    "tests/evidence/artifacts/m00-t03/smoke.run1.log",
+    "tests/evidence/artifacts/m00-t03/smoke.run2.log",
+    "tests/evidence/artifacts/m00-t03/smoke.run3.log",
+    "tests/evidence/artifacts/m00-t03/reset.log",
+    "tests/evidence/artifacts/m00-t03/smoke.after-reset.log",
+    "tests/evidence/artifacts/m00-t03/down.log",
+    "tests/evidence/artifacts/m00-t03/versions.txt",
+    "tests/evidence/artifacts/m00-t03/docker-ps-ports.txt",
+    "tests/evidence/artifacts/m00-t03/networks.txt",
+    "tests/evidence/artifacts/m00-t03/conflicting-config-G-conflict-a.txt",
+    "tests/evidence/artifacts/m00-t03/conflicting-config-G-conflict-b.txt",
+    "tests/fixtures/MANIFEST.md"
+  ],
+  "limitations": [
+    "Scope: only fixture rows 1-5 are verified (fixed-auth, account-enrollable, two CA hosts, bastion/ProxyJump half, host-key substitution on the loopback+HostKeyAlias route); per-fixture statuses are in observed_result.per_fixture. This verifies that the controlled targets behave as designed, not any Heimdall behavior or requirement.",
+    "Top-level status is in_progress on purpose because rows 6-18 are implemented_unverified, blocked or not_started; do not read it as 'verified' for the inventory.",
+    "Rows 6-18 (conflicting config observed manually only; fake agent owned elsewhere; locked provider blocked on a real FIDO2/sk authenticator or interactive native OS lock; Windows/WSL blocked on a native Windows host with WSL2; delayed issuer, stale pipe, response-loss, concurrent environments, runner, management client, local container, Iroh not built) are not verified.",
+    "Docker Desktop linux VM on macOS arm64 only: no native Windows, WSL, Linux-host, or amd64 evidence.",
+    "openssh-server version is observed, not pinned (apt floats at build time); the base image is pinned by digest. Docker Engine moved from 29.8.0 (pre-fix runs) to 29.8.1 (post-fix runs).",
+    "Host key substitution tested via loopback port + HostKeyAlias only, not DNS/hostname change or bastion-hop substitution.",
+    "Certificate-expiry-during-session, multiplexing (A23), interrupted mutation, bastion forwarding recipe and managed-credential issuance are not covered.",
+    "Fixture sshd sets PerSourcePenalties no, which differs from default OpenSSH 10 behavior; the default behavior is reproduced by penalty-repro.sh and affects retry policy (a dropped connection shows as silent exit 255 at the fixture client LogLevel ERROR).",
+    "The original intermittent failure of the first cycle was not retained; its cause is inferred from a later reproduction, not observed in that run. The reproduced flake failed in 1 of 4 injected runs, so absence of failures in the 5 as-shipped runs is not proof of absence of every other flake.",
+    "Evidence build binding: build_commit is the parent HEAD 18bb8df but tests/fixtures/ssh/ and MANIFEST.md are untracked (not committed); per-script sha256 digests in artifact_digest identify the exact files run.",
+    "The bastion effective-config check was negative-controlled by re-running its assertion logic with an injected override, not by running smoke.sh against a deliberately broken ssh_config.",
+    "Key disposal is overwrite+unlink; not a guarantee of erasure on APFS/SSD. Keys are valid only for destroyed containers. Penalty variants copy the fixed host key into runtime/penalty/, removed by down.sh.",
+    "Requirement ids listed are those the fixtures support; the record does not claim those requirements are met."
+  ],
+  "blocked_on": null
+}

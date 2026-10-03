@@ -1,0 +1,100 @@
+# same fault injection still in place (ca1/ca2 at default PerSourcePenalties, injected in smoke-with-default-penalties.log); unmodified smoke.sh run again immediately after the previous one
+hm-m00t03-ca1 sshd -T: persourcepenalties crash:90 authfail:5 noauth:1 grace-exceed
+hm-m00t03-ca2 sshd -T: persourcepenalties crash:90 authfail:5 noauth:1 grace-exceed
+# start 2026-10-03T19:48:24Z
+== smoke start 2026-10-03T19:48:24Z
+  recorded_at=2026-10-03T19:45:54Z
+  docker_server=29.8.1
+  base_image=debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  base_image_id=sha256:1c833814c4af76e31f294017972a8090daf873dcf6d260f8e24b8722e98aedac
+  base_preexisting=1
+  fixture_image_id=sha256:518ccd6a87982d29aa820839cfa33418a2ba00c0e8cf19f461bd37ea688e1a47
+  openssh_server_pkg=openssh-server 1:10.0p1-7+deb13u4
+  sshd_version_banner=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026
+  host_ssh=OpenSSH_10.3p1, LibreSSL 3.3.6
+  host_ssh_path=/usr/bin/ssh
+== client config sanity (ssh -G)
+PASS config:stricthostkeychecking true  ssh -G
+PASS config:identitiesonly yes          ssh -G
+PASS config:identityagent none          ssh -G
+PASS config:forwardagent no             ssh -G
+PASS config:batchmode yes               ssh -G
+PASS config:no ~/.ssh identity          1 identityfile entries, none under .ssh
+PASS config:no accept-new/no            grep on runtime/ssh_config
+== published ports are loopback-only
+PASS port:fixed                         127.0.0.1:53178 
+PASS port:enroll                        127.0.0.1:53179 
+PASS port:ca1                           127.0.0.1:53180 
+PASS port:ca2                           127.0.0.1:53181 
+PASS port:bastion                       127.0.0.1:53182 
+PASS port:target unpublished            docker port output=''
+== (a) fixed-auth host: login ok, key registry not writable
+PASS fixed:login                        exit=0 out=fixed root:root 644
+PASS fixed:append-registry-denied       remote exit=1 msg=bash: line 1: /etc/ssh/authorized_keys.d/fixed: Permission denied
+PASS fixed:create-~/.ssh-denied         remote exit=1 msg=mkdir: cannot create directory '/home/fixed/.ssh': Permission denied
+PASS fixed:registry-unchanged           sha256 before=345bbf069b42c72bad8cb0ab4eb38a285dd70b1333ee94f1a43b0681db374725 after=345bbf069b42c72bad8cb0ab4eb38a285dd70b1333ee94f1a43b0681db374725
+== wrong key rejected on fixed-auth
+PASS fixed:other-key-rejected           exit=255 msg=fixed@127.0.0.1: Permission denied (publickey).
+== identity files actually offered (-vv) are only fixture keys
+PASS fixed:no ~/.ssh key offered        debug1: identity file <runtime>/keys/user_fixed type 2;debug1: Will attempt key: <runtime>/keys/user_fixed ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k explicit;debug1: Offering public key: <runtime>/keys/user_fixed ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k explicit;
+== (b) account-enrollable host: add/remove marker key, unrelated lines byte-identical
+PASS enroll:seed-intact                 sha256=57a1eda76b731e9e0ea36b46b33d2b03bf166c774049f4884cf9c998188e9e2b expected=57a1eda76b731e9e0ea36b46b33d2b03bf166c774049f4884cf9c998188e9e2b
+PASS enroll:marker-not-yet-trusted      exit=255
+PASS enroll:append-marker               exit=0
+PASS enroll:marker-login(fresh,no-mux)  exit=0 out=fresh-auth-with-marker-key
+PASS enroll:remove-marker(atomic mv)    exit=0
+PASS enroll:marker-rejected-after-removal exit=255
+PASS enroll:unrelated+concurrent-bytes-identical cmp(seed + admin line, remote) after add+remove
+PASS enroll:owner+mode-preserved        stat=enroll:600
+PASS enroll:restored-sha256             sha256=57a1eda76b731e9e0ea36b46b33d2b03bf166c774049f4884cf9c998188e9e2b expected=57a1eda76b731e9e0ea36b46b33d2b03bf166c774049f4884cf9c998188e9e2b
+== (c) two CA-trusting hosts with different principal mappings
+PASS ca:sign p-host1 cert                Valid: from 2026-10-03T15:47:00 to 2026-10-03T16:48:25  Principals:   p-host1 
+PASS ca:sign p-host2 cert               ok
+PASS ca:sign broad cert                 ok
+PASS ca:bare-key-rejected(no cert)      exit=255
+PASS ca:p-host1 cert -> host1 accepted  exit=0 out=host1-ok
+PASS ca:p-host1 cert -> host2 REJECTED  exit=255 msg=cert@127.0.0.1: Permission denied (publickey).
+PASS ca:p-host2 cert -> host2 accepted  exit=0 out=host2-ok
+PASS ca:p-host2 cert -> host1 REJECTED  exit=255 msg=cert@127.0.0.1: Permission denied (publickey).
+PASS ca:broad cert works on BOTH hosts (scope caveat) host1 exit=0 host2 exit=0 (same CA + broad principals => usable everywhere)
+== certificate validity / issuer failures
+PASS ca:sign expired cert                Valid: from 2026-10-03T13:48:26 to 2026-10-03T14:48:26
+PASS ca:expired cert REJECTED           exit=255 msg=cert@127.0.0.1: Permission denied (publickey).
+PASS ca:server-log shows expiry reason  Failed publickey for cert from 172.18.0.1 port 60244 ssh2: ED25519-CERT SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw ID hm-fixture-expired (serial 1791056906) CA ED25519 SHA256:0BrWQZ9wwSY4lTFFeRgpNxEbzSFwjVoBD0Ui/BovqLM
+PASS ca:sign not-yet-valid cert         ok
+PASS ca:not-yet-valid cert REJECTED     exit=255
+PASS ca:sign rogue-CA cert              ok
+PASS ca:untrusted-issuer cert REJECTED  exit=255
+== (d) bastion + internal-only target
+PASS bastion:ProxyJump to internal target exit=0 out=target-ok hm-m00t03-target agent_sock=unset
+PASS bastion:no agent forwarding reached target agent_sock=unset
+PASS bastion:effective config           wanted forwardagent no / proxyjump bastion / identityagent none; got identityagent none;forwardagent no;proxyjump bastion;
+PASS bastion:PermitOpen blocks other destinations ssh -W 127.0.0.1:22 exit=255 msg=channel 0: open failed: administratively prohibited: open failed stdio forwarding failed
+PASS bastion:PermitOpen allows target (control) banner=SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4
+PASS target:only on internal network    networks=hm-m00t03-internal 
+PASS network:internal flag              Internal=true
+PASS target:no external egress          connect 1.1.1.1:443 exit=1
+PASS target:not directly reachable from host host connect 172.19.0.3:22 exit=124
+PASS target:direct ssh (no jump) fails  exit=255
+== host-key substitution route (fixed-auth host gets a different host key)
+PASS hostkey:baseline login ok          before swap
+PASS hostkey:swap -> hard failure (exit 255) exit=255 msg=@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ @ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @ @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY! Someone could be eavesdropping on you right now (man-in-the-middle attack)! It is also possible that a host key has just been changed. The fingerprint for the ED25519 key sent by the remote host is SHA256:77hFDcfXMWLpRrvbcHvMMCfK/8lWHP9b8/AV96RiviM. Please contact your system administrator. Add correct host key in /Users/amanthanvi/GitRepos/heimdall/tests/fixtures/ssh/runtime/known_hosts to get rid of this message. Offending ED25519 key in /Users/amanthanvi/GitRepos/heimdall/tests/fixtures/ssh/runtime/known_hosts:1 Host key for hm-fixed has changed and you have requested strict checking. Host key verification failed.
+PASS hostkey:failure reason is verification message matched
+PASS hostkey:even StrictHostKeyChecking=ask fails (no accept path) exit=255
+PASS hostkey:known_hosts unmodified     sha256 unchanged
+PASS hostkey:restored -> login ok again after restoring original host key
+== no private material in container images/logs of fixtures
+PASS logs:no private key blocks         grepped fixed container logs
+== smoke end 2026-10-03T19:48:39Z: pass=61 fail=0
+smoke exit=0
+# ca1/ca2 sshd log penalty/drop lines (docker logs --since 5m):
+-- hm-m00t03-ca1
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: 172.18.0.1/32: activating ipv4 penalty of 20 seconds for penalty: failed authentication
+drop connection #0 from [172.18.0.1]:58354 on [172.18.0.4]:22 penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: 172.18.0.1/32: activating ipv4 penalty of 19 seconds for penalty: failed authentication
+drop connection #0 from [172.18.0.1]:60260 on [172.18.0.4]:22 penalty: failed authentication
+-- hm-m00t03-ca2
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication

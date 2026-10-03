@@ -1,0 +1,12 @@
+[2026-10-03T00:09:46Z] removing container hm-m00t03-target
+[2026-10-03T00:09:46Z] removing container hm-m00t03-bastion
+[2026-10-03T00:09:46Z] removing container hm-m00t03-ca2
+[2026-10-03T00:09:46Z] removing container hm-m00t03-ca1
+[2026-10-03T00:09:46Z] removing container hm-m00t03-enroll
+[2026-10-03T00:09:46Z] removing container hm-m00t03-fixed
+[2026-10-03T00:09:46Z] removing network hm-m00t03-edge
+[2026-10-03T00:09:47Z] removing network hm-m00t03-internal
+[2026-10-03T00:09:47Z] removing image heimdall-m00-t03-sshd:local
+CLEANUP CONFIRMATION 2026-10-03T00:09:47Z: containers_remaining=0 networks_remaining=0 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=21 problems=0
+CLEANUP CONFIRMED
+exit=0

@@ -1,0 +1,32 @@
+# ca1/ca2 still at default PerSourcePenalties (injected). Two unmodified smoke.sh runs launched back to back with no gap.
+# run 1 start 2026-10-03T19:48:50Z
+run 1 smoke exit=0
+== smoke end 2026-10-03T19:49:05Z: pass=61 fail=0
+# run 2 start 2026-10-03T19:49:05Z
+run 2 smoke exit=1
+FAIL ca:p-host1 cert -> host1 accepted  exit=255 out=
+FAIL ca:broad cert works on BOTH hosts (scope caveat) host1 exit=255 host2 exit=0 (same CA + broad principals => usable everywhere)
+== smoke end 2026-10-03T19:49:20Z: pass=59 fail=2
+# ca1/ca2 sshd log penalty/drop lines (docker logs --since 5m):
+-- hm-m00t03-ca1
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: 172.18.0.1/32: activating ipv4 penalty of 20 seconds for penalty: failed authentication
+drop connection #0 from [172.18.0.1]:58354 on [172.18.0.4]:22 penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: 172.18.0.1/32: activating ipv4 penalty of 19 seconds for penalty: failed authentication
+drop connection #0 from [172.18.0.1]:60260 on [172.18.0.4]:22 penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: 172.18.0.1/32: activating ipv4 penalty of 20 seconds for penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63864 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63662 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63670 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63674 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63690 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63704 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63710 on [172.18.0.4]:22 penalty: failed authentication
+drop connection #0 from [172.18.0.1]:63718 on [172.18.0.4]:22 penalty: failed authentication
+-- hm-m00t03-ca2
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication
+srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 5 seconds for penalty: failed authentication

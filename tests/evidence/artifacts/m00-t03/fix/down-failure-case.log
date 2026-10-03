@@ -1,0 +1,9 @@
+[2026-10-03T19:50:05Z] injected unlabelled network hm-m00t03-internal; running down.sh (expecting failure)
+  down.sh| [2026-10-03T19:50:05Z] network hm-m00t03-internal exists without our label; left alone
+  down.sh| CLEANUP CONFIRMATION 2026-10-03T19:50:05Z: containers_remaining=0 networks_remaining=1 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=0 problems=1
+  down.sh| CLEANUP INCOMPLETE
+down.sh exit=1
+[2026-10-03T19:50:05Z] removed injected network hm-m00t03-internal
+injected_network_removed=1
+DOWN-FAILURE-CASE OK (down.sh reported failure with exit 1, left the foreign network alone)
+exit=0

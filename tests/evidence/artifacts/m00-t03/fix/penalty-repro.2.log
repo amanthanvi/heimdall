@@ -1,0 +1,79 @@
+== penalty-repro start 2026-10-03T19:47:28Z failed_attempts=8 recovery_poll=60s
+   openssh_server_pkg=openssh-server 1:10.0p1-7+deb13u4;sshd_version_banner=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026;
+== variant: default (container hm-m00t03-penalty-default, 127.0.0.1:53405)
+   sshd -T: persourcepenalties crash:90 authfail:5 noauth:1 grace-exceeded:10 refuseconnection:10 max:600 min:15 max-sources4:65536 max-sources6:65536 overflow:permissive overflow6:permissive;
+   baseline valid login: exit=0 
+   failed-auth #1: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #2: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #3: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #4: exit=255 
+   failed-auth #5: exit=255 
+   failed-auth #6: exit=255 
+   failed-auth #7: exit=255 
+   failed-auth #8: exit=255 
+   valid login after failures #1: exit=255 
+   valid login after failures #2: exit=255 
+   valid login after failures #3: exit=255 
+   recovery polling (valid login every 5s): yes after ~20s
+   -- sshd log excerpt (hm-m00t03-penalty-default): lines matching penalty|drop connection|Failed publickey|Connection (closed|reset)
+   | kex_exchange_identification: Connection closed by remote host
+   | Connection closed by 172.18.0.1 port 56654
+   | srclimit_penalise: ipv4: new 172.18.0.1/32 deferred penalty of 1 seconds for penalty: connections without attempting authentication
+   | Accepted publickey for fixed from 172.18.0.1 port 56658 ssh2: ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k
+   | Failed publickey for fixed from 172.18.0.1 port 56668 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 56668 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 56670 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 56670 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 56680 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 56680 [preauth]
+   | srclimit_penalise: 172.18.0.1/32: activating ipv4 penalty of 16 seconds for penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56694 on [172.18.0.7]:22 penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56702 on [172.18.0.7]:22 penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56718 on [172.18.0.7]:22 penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56732 on [172.18.0.7]:22 penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56736 on [172.18.0.7]:22 penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56748 on [172.18.0.7]:22 penalty: failed authentication
+   | drop connection #0 from [172.18.0.1]:56756 on [172.18.0.7]:22 penalty: failed authentication
+   | Accepted publickey for fixed from 172.18.0.1 port 64952 ssh2: ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k
+   -- penalty/drop lines in full log: 9
+== variant: control (container hm-m00t03-penalty-control, 127.0.0.1:53434)
+   sshd -T: persourcepenalties no;
+   baseline valid login: exit=0 
+   failed-auth #1: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #2: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #3: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #4: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #5: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #6: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #7: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   failed-auth #8: exit=255 fixed@127.0.0.1: Permission denied (publickey).
+   valid login after failures #1: exit=0 
+   valid login after failures #2: exit=0 
+   valid login after failures #3: exit=0 
+   -- sshd log excerpt (hm-m00t03-penalty-control): lines matching penalty|drop connection|Failed publickey|Connection (closed|reset)
+   | kex_exchange_identification: Connection closed by remote host
+   | Connection closed by 172.18.0.1 port 64014
+   | Accepted publickey for fixed from 172.18.0.1 port 64028 ssh2: ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k
+   | Failed publickey for fixed from 172.18.0.1 port 64040 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64040 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64050 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64050 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64052 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64052 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64062 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64062 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64072 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64072 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64076 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64076 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64084 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64084 [preauth]
+   | Failed publickey for fixed from 172.18.0.1 port 64100 ssh2: ED25519 SHA256:nClr317KxCksZzl6JYs0V1CXoWoqzCC4+EtB91+s5Gw
+   | Connection closed by authenticating user fixed 172.18.0.1 port 64100 [preauth]
+   | Accepted publickey for fixed from 172.18.0.1 port 64112 ssh2: ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k
+   | Accepted publickey for fixed from 172.18.0.1 port 64124 ssh2: ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k
+   | Accepted publickey for fixed from 172.18.0.1 port 64130 ssh2: ED25519 SHA256:Zxmo1yROFZRBbrFsSBdjSk/J539nIoPeWypXYKot89k
+   -- penalty/drop lines in full log: 0
+== summary: default_valid_logins_refused_after_failures=3/3 (recovery: yes after ~20s) control_refused=0/3
+== penalty-repro verdict: REPRODUCED (default sshd refuses valid logins after repeated failed auth from one source; PerSourcePenalties no does not) 2026-10-03T19:47:50Z
+exit=0

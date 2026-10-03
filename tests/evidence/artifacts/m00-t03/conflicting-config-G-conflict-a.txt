@@ -1,0 +1,11 @@
+user first-user
+hostname 192.0.2.10
+port 2201
+controlmaster auto
+stricthostkeychecking false
+identityagent /nonexistent/hm-conflict-agent-1.sock
+identityfile ~/.ssh/hm-conflict-first
+identityfile ~/.ssh/hm-conflict-second
+forwardagent yes
+proxyjump hm-conflict-jump-1
+exit=0

@@ -1,0 +1,3 @@
+override='none': missing='nothing' => check would PASS
+override='ForwardAgent=yes': missing=' [forwardagent no]' => check would FAIL
+exit=0
