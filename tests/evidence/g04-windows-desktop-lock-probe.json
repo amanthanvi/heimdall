@@ -1,0 +1,30 @@
+{
+  "case_id": "G04-windows-desktop-lock-availability",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-CR-03",
+    "R-EN-01",
+    "R-EN-04"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "Windows",
+    "required": "native Windows x86-64 host with an interactive user session"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned (PowerShell, not yet implemented): every few seconds record CryptUnprotectData (user scope) of a disposable blob, CredRead of a disposable CRED_PERSIST_SESSION/LOCAL_MACHINE credential, a signature with a disposable TPM (Microsoft Platform Crypto Provider) key, and a signature through a dedicated agent; owner locks with Win+L for >= 60 s; see docs/research/g04-managed-credentials.md section 8.2 P-W1"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "The Windows OpenSSH ssh-agent service is machine-global; a dedicated test agent needs a G03 decision on named-pipe selection."
+  ],
+  "blocked_on": "native Windows x86-64 host with an interactive user session and an owner to press Win+L and unlock (none available on this macOS arm64 machine)"
+}

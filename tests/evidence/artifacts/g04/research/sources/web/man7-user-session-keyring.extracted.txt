@@ -1,0 +1,128 @@
+
+
+ user-session-keyring(7) - Linux manual page
+
+ man7.org > Linux > man-pages
+
+Linux/UNIX system programming training
+
+user-session-keyring(7) — Linux manual page
+
+NAME | DESCRIPTION | NOTES | SEE ALSO | COLOPHON
+
+user-se...keyring(7) Miscellaneous Information Manualuser-se...keyring(7)
+
+NAME         top
+
+ user-session-keyring - per-user default session keyring
+
+DESCRIPTION         top
+
+ The user session keyring is a keyring used to anchor keys on
+ behalf of a user. Each UID the kernel deals with has its own user
+ session keyring that is shared by all processes with that UID.
+ The user session keyring has a name (description) of the form
+ _uid_ses.<UID> where <UID> is the user ID of the corresponding
+ user.
+
+ The user session keyring is associated with the record that the
+ kernel maintains for the UID. It comes into existence upon the
+ first attempt to access either the user session keyring, the
+ user-keyring(7), or the session-keyring(7). The keyring remains
+ pinned in existence so long as there are processes running with
+ that real UID or files opened by those processes remain open.
+ (The keyring can also be pinned indefinitely by linking it into
+ another keyring.)
+
+ The user session keyring is created on demand when a thread
+ requests it or when a thread asks for its session-keyring(7) and
+ that keyring doesn't exist. In the latter case, a user session
+ keyring will be created and, if the session keyring wasn't to be
+ created, the user session keyring will be set as the process's
+ actual session keyring.
+
+ The user session keyring is searched by request_key(2) if the
+ actual session keyring does not exist and is ignored otherwise.
+
+ A special serial number value, KEY_SPEC_USER_SESSION_KEYRING, is
+ defined that can be used in lieu of the actual serial number of
+ the calling process's user session keyring.
+
+ From the keyctl(1) utility, '@us' can be used instead of a numeric
+ key ID in much the same way.
+
+ User session keyrings are independent of clone(2), fork(2),
+ vfork(2), execve(2), and _exit(3) excepting that the keyring is
+ destroyed when the UID record is destroyed when the last process
+ pinning it exits.
+
+ If a user session keyring does not exist when it is accessed, it
+ will be created.
+
+ Rather than relying on the user session keyring, it is strongly
+ recommended—especially if the process is running as root—that a
+ session-keyring(7) be set explicitly, for example by
+ pam_keyinit(8).
+
+NOTES         top
+
+ The user session keyring was added to support situations where a
+ process doesn't have a session keyring, perhaps because it was
+ created via a pathway that didn't involve PAM (e.g., perhaps it
+ was a daemon started by inetd(8)). In such a scenario, the user
+ session keyring acts as a substitute for the session-keyring(7).
+
+SEE ALSO         top
+
+ keyctl(1), keyctl(3), keyrings(7), persistent-keyring(7),
+ process-keyring(7), session-keyring(7), thread-keyring(7),
+ user-keyring(7)
+
+COLOPHON         top
+
+ This page is part of the man-pages (Linux kernel and C library
+ user-space interface documentation) project. Information about
+ the project can be found at 
+ ⟨https://www.kernel.org/doc/man-pages/⟩. If you have a bug report
+ for this manual page, see
+ ⟨https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/tree/CONTRIBUTING⟩.
+ This page was obtained from the tarball man-pages-6.19.tar.gz
+ fetched from
+ ⟨https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/⟩ on
+ 2026-09-09. If you discover any rendering problems in this HTML
+ version of the page, or you believe there is a better or more up-
+ to-date source for the page, or you have corrections or
+ improvements to the information in this COLOPHON (which is not
+ part of the original manual page), send a mail to
+ man-pages@man7.org
+
+Linux man-pages 6.19 2026-06-05 user-se...keyring(7)
+
+Pages that refer to this page:
+ add_key(2), 
+ keyctl(2), 
+ KEYCTL_GET_KEYRING_ID(2const), 
+ KEYCTL_SET_REQKEY_KEYRING(2const), 
+ request_key(2), 
+ keyctl_join_session_keyring(3), 
+ keyctl_session_to_parent(3), 
+ keyrings(7), 
+ keyutils(7), 
+ persistent-keyring(7), 
+ process-keyring(7), 
+ session-keyring(7), 
+ thread-keyring(7), 
+ user-keyring(7), 
+ pam_keyinit(8)
+
+ HTML rendering created 2026-09-09
+ by Michael Kerrisk,
+ author of
+ The Linux Programming Interface.
+
+ For details of in-depth
+ Linux/UNIX system programming training courses
+ that I teach, look here.
+
+ Hosting by jambit GmbH.
+

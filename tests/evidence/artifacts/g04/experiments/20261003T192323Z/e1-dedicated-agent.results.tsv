@@ -1,0 +1,21 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.007 rtt_s=0.030
+FACT	cert	id="g04-e1-192339-36844" principals=p-host1 valid=[from 2026-10-03T19:22:40 to 2026-10-03T19:33:40] ca=ED25519 SHA256:tO1pxPbQCwPTIiMJDVlhfEcA37zTB7yoV/EAJXZdoxc (using ssh-ed25519)
+FACT	kenv_fingerprint	SHA256:v14H5U90PYPcosXR/s5tKrYxlKvdVYa5QERQSMuPLzc
+FACT	ssh_add_output	Identity added: <tmp>/kenv (g04-e1-kenv-192339-36844) Lifetime set to 00:02:00 Certificate added: <tmp>/kenv-cert.pub (g04-e1-192339-36844) Lifetime set to 00:02:00
+CHECK	E1-private-file-deleted	private key file absent after ssh-add	exists=no	PASS
+CHECK	E1a-agent-lists-key-and-cert	rc 0; exactly 2 entries (ED25519 + ED25519-CERT) of K_env	rc=0 entries=2 types=ED25519,ED25519-CERT, matching_fp=2	PASS
+CHECK	E1b-fresh-login	rc 0, output e1-login-ok, exactly 1 new Accepted line with ID g04-e1-192339-36844	rc=0 out=e1-login-ok new_accepted_with_id=1	PASS
+CHECK	E1b-dedicated-agent-signed	dedicated agent debug log shows >=1 new sign request during the login	sign_requests_before=0 after=1	PASS
+CHECK	E1c-no-agent-no-auth	rc 255 and no new Accepted line (no private key file exists)	rc=255 new_accepted=0	PASS
+CHECK	E1d-config-uses-temp-socket	ssh -G: identityagent=<tmp>/agent/agent.sock, one identityfile, identitiesonly yes, controlmaster false, controlpath none (ssh -G omits it when none)	identityagent=<tmp>/agent/agent.sock identityfile_entries=1 identitiesonly=yes controlmaster=false controlpath=<absent>	PASS
+CHECK	E1d-only-temp-agent-used	rc 0; no key/agent path outside <tmp>; no <home> or .ssh path in -vvv; dedicated agent saw a sign request	rc=0 foreign_paths=0 home_or_dotssh_refs=0 sign_requests_delta=1	PASS
+FACT	agent_debug_expiry_lines	debug1: expiring key 'g04-e1-kenv-192339-36844' debug1: expiring key 'g04-e1-kenv-192339-36844'
+CHECK	E1e-lifetime-ends-signing	after -t 120 s: ssh-add -T rc!=0, fresh login rc 255, no Accepted line	ssh-add -l rc=1 (The agent has no identities.); ssh-add -T rc=1; login rc=255 new_accepted=0; agent expiry log lines=2	PASS
+CHECK	E1f-exact-pid-kill	kill_exact terminated; process gone; socket removed	kill=terminated process=gone socket=removed	PASS
+CLEANUP	agent pid=36968	already_exited socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=9	fails=0

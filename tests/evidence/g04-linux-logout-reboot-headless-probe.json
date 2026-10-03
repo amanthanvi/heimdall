@@ -1,0 +1,30 @@
+{
+  "case_id": "G04-linux-logout-reboot-headless-availability",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-EN-04",
+    "R-EN-05",
+    "R-RT-07"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "Linux",
+    "required": "Linux desktop host plus a headless Linux runner (TPM2 present for TPM variants) where the owner can log out and reboot"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned: see docs/research/g04-managed-credentials.md section 8.2 P-L2 (persistent keyring expiry, systemd-creds --user, TPM2-backed key, gnome-keyring after logout)"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Design only."
+  ],
+  "blocked_on": "Linux desktop and headless hosts where the owner can log out and reboot (not available to the agent)"
+}

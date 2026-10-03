@@ -1,0 +1,126 @@
+CLOCK_GETTIME(3)	   Library Functions Manual	      CLOCK_GETTIME(3)
+
+NAME
+     clock_gettime, clock_settime, clock_getres, clock_gettime_nsec_np –
+     get/set date and time
+
+SYNOPSIS
+     #include <time.h>
+
+     int
+     clock_gettime(clockid_t clock_id, struct timespec *tp);
+
+     int
+     clock_settime(clockid_t clock_id, const struct timespec *tp);
+
+     int
+     clock_getres(clockid_t clock_id, struct timespec *tp);
+
+     uint64_t
+     clock_gettime_nsec_np(clockid_t clock_id);
+
+DESCRIPTION
+     The clock_gettime() and clock_settime() functions allow the calling
+     process to retrieve or set the value used by a clock which is specified
+     by clock_id.
+
+     clock_id can be a value from one of 8 predefined values:
+
+     CLOCK_REALTIME	the system's real time (i.e. wall time) clock,
+			expressed as the amount of time since the Epoch.  This
+			is the same as the value returned by gettimeofday(2).
+
+     CLOCK_MONOTONIC	clock that increments monotonically, tracking the time
+			since an arbitrary point, and will continue to
+			increment while the system is asleep.
+
+     CLOCK_MONOTONIC_RAW
+			clock that increments monotonically, tracking the time
+			since an arbitrary point like CLOCK_MONOTONIC.
+			However, this clock is unaffected by frequency or time
+			adjustments.  It should not be compared to other
+			system time sources.
+
+     CLOCK_MONOTONIC_RAW_APPROX
+			like CLOCK_MONOTONIC_RAW, but reads a value cached by
+			the system at context switch.  This can be read
+			faster, but at a loss of accuracy as it may return
+			values that are milliseconds old.
+
+     CLOCK_UPTIME_RAW	clock that increments monotonically, in the same
+			manner as CLOCK_MONOTONIC_RAW, but that does not
+			increment while the system is asleep.  The returned
+			value is identical to the result of
+			mach_absolute_time() after the appropriate
+			mach_timebase conversion is applied.
+
+     CLOCK_UPTIME_RAW_APPROX
+			like CLOCK_UPTIME_RAW, but reads a value cached by the
+			system at context switch.  This can be read faster,
+			but at a loss of accuracy as it may return values that
+			are milliseconds old.
+
+     CLOCK_PROCESS_CPUTIME_ID
+			clock that tracks the amount of CPU (in user- or
+			kernel-mode) used by the calling process.
+
+     CLOCK_THREAD_CPUTIME_ID
+			clock that tracks the amount of CPU (in user- or
+			kernel-mode) used by the calling thread.
+
+     The structure pointed to by tp is defined in <sys/time.h> as:
+
+	   struct timespec {
+	       time_t  tv_sec;	   /* seconds */
+	       long    tv_nsec;    /* and nanoseconds */
+	   };
+
+     Only the CLOCK_REALTIME clock can be set, and only the superuser may do
+     so.
+
+     The resolution of a clock is returned by the clock_getres() call.	This
+     value is placed in a (non-null) *tp.  This value may be smaller than the
+     actual precision of the underlying clock, but represents a lower bound on
+     the resolution.
+
+     As a non-portable extension, the clock_gettime_nsec_np() function will
+     return the clock value in 64-bit nanoseconds.
+
+RETURN VALUES
+     A 0 return value indicates that the call succeeded.  A -1 return value
+     indicates an error occurred, and in this case an error code is stored
+     into the global variable errno.  For clock_gettime_nsec_np() a return
+     value of non-0 indicates success.	A 0 return value indicates an error
+     occurred and an error code is stored in errno.
+
+ERRORS
+     clock_gettime(), clock_settime(), clock_getres(), and
+     clock_gettime_nsec_np() will fail if:
+
+     [EINVAL]		clock_id is not a valid value.
+
+     [EFAULT]		The tp argument address referenced invalid memory.
+
+     In addition, clock_settime() may return the following errors:
+
+     [EPERM]		A user other than the superuser attempted to set the
+			time.
+
+     [EINVAL]		clock_id specifies a clock that isn't settable, tp
+			specifies a nanosecond value less than zero or greater
+			than 1000 million, or a value outside the range of the
+			specified clock.
+
+SEE ALSO
+     date(1), getitimer(2), gettimeofday(2),
+
+HISTORY
+     These functions first appeared in Mac OSX 10.12
+
+STANDARDS
+     The clock_gettime(), clock_settime(), and clock_getres() system calls
+     conform to IEEE Std 1003.1b-1993 (“POSIX.1b”).  clock_gettime_nsec_np()
+     is a non-portable Darwin extension.  The clock IDs CLOCK_MONOTONIC_RAW
+     and CLOCK_UPTIME_RAW are extensions to the POSIX interface.
+
+ macOS 27.0		       January 26, 2016 	      CLOCK_GETTIME(3)

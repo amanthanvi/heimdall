@@ -1,0 +1,327 @@
+[2026-10-03T01:25:48Z] BEGIN enroll-marker-key run_stamp=20261003T011647Z run_id=012548-459
+[2026-10-03T01:25:48Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T01:25:48Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T01:25:48Z] FACT docker_server = 29.8.1
+[2026-10-03T01:25:48Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T01:25:48Z] FACT clock_ca1 = offset_s=0.007 rtt_s=0.034
+[2026-10-03T01:25:48Z] dedicated ssh-agent started: pid=938 ident='Fri Oct 2 21:25:48 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T01:25:48Z] FACT marker_key_fp = SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+[2026-10-03T01:25:48Z] FACT admin_key_fp = SHA256:JSpyVBIpg/XBIrykZuqc5ZEzKi+HwI275FLIGKNSHZc
+[2026-10-03T01:25:48Z] $ (ssh-add -t 900 km) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 900 <tmp>/km
+    | Identity added: <tmp>/km (heimdall-g04-exp-marker-012548-459)
+    | Lifetime set to 00:15:00
+    rc=0 t_start=1790990748.852 t_end=1790990748.860
+[2026-10-03T01:25:48Z] $ (ssh-add -l (<tmp>/agent/agent.sock)) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M heimdall-g04-exp-marker-012548-459 (ED25519)
+    rc=0 t_start=1790990748.879 t_end=1790990748.887
+[2026-10-03T01:25:48Z] FACT agent_contents = 256 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M heimdall-g04-exp-marker-012548-459 (ED25519)
+[2026-10-03T01:25:48Z] $ (verification config (ssh -G)) /usr/bin/ssh -F <tmp>/cfg -G g-enroll
+    | host g-enroll
+    | user enroll
+    | hostname 127.0.0.1
+    | port 52280
+    | addressfamily any
+    | batchmode yes
+    | canonicalizefallbacklocal yes
+    | canonicalizehostname false
+    | checkhostip no
+    | compression no
+    | controlmaster false
+    | enablesshkeysign no
+    | clearallforwardings no
+    | exitonforwardfailure no
+    | fingerprinthash SHA256
+    | forwardx11 no
+    | forwardx11trusted no
+    | gatewayports no
+    | gssapiauthentication no
+    | gssapidelegatecredentials no
+    | hashknownhosts no
+    | hostbasedauthentication no
+    | identitiesonly yes
+    | kbdinteractiveauthentication no
+    | nohostauthenticationforlocalhost no
+    | nohostauthenticationforproxycommand no
+    | passwordauthentication no
+    | permitlocalcommand no
+    | proxyusefdpass no
+    | pubkeyauthentication true
+    | requesttty auto
+    | sessiontype default
+    | stdinnull no
+    | forkafterauthentication no
+    | streamlocalbindunlink no
+    | stricthostkeychecking true
+    | tcpkeepalive yes
+    | tunnel false
+    | verifyhostkeydns false
+    | visualhostkey no
+    | updatehostkeys false
+    | enableescapecommandline no
+    | warnweakcrypto yes
+    | applemultipath no
+    | canonicalizemaxdots 1
+    | connectionattempts 1
+    | forwardx11timeout 1200
+    | numberofpasswordprompts 3
+    | serveralivecountmax 3
+    | serveraliveinterval 0
+    | requiredrsasize 1024
+    | obscurekeystroketiming yes
+    | ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | hostkeyalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | hostkeyalias hm-enroll
+    | hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | identityagent <tmp>/agent/agent.sock
+    | kexalgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
+    | casignaturealgorithms ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | loglevel ERROR
+    | macs umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | securitykeyprovider $SSH_SK_PROVIDER
+    | preferredauthentications publickey
+    | pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | xauthlocation /usr/X11R6/bin/xauth
+    | identityfile <tmp>/km.pub
+    | canonicaldomains none
+    | globalknownhostsfile /dev/null
+    | userknownhostsfile <fixture-runtime>/known_hosts
+    | revokedhostkeys none
+    | logverbose none
+    | channeltimeout none
+    | permitremoteopen any
+    | addkeystoagent false
+    | forwardagent no
+    | connecttimeout 10
+    | tunneldevice any:any
+    | canonicalizePermittedcnames none
+    | controlpersist no
+    | escapechar ~
+    | ipqos ef cs0
+    | rekeylimit 0 0
+    | streamlocalbindmask 0177
+    | syslogfacility USER
+    rc=0 t_start=1790990748.921 t_end=1790990748.930
+[2026-10-03T01:25:48Z] PASS ENR-verification-config | expected: only the marker key; identitiesonly yes; no mux; publickey only; no password/kbd fallback; dedicated agent | observed: identityfile <tmp>/km.pub identitiesonly=yes controlmaster=false controlpath=<absent> preferred=publickey password=no kbd=no identityagent=<tmp>/agent/agent.sock
+[2026-10-03T01:25:49Z] registry fetch (preimage): rc=0 bytes=792 lines=9 sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb err=[]
+[2026-10-03T01:25:49Z] PASS ENR-preimage-is-seed | expected: registry readable via the existing path; equals the fixture seed | observed: rc=0 sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb
+[2026-10-03T01:25:49Z] $ (marker-before-enrollment) /usr/bin/ssh -F <tmp>/cfg -v g-enroll echo marker-fresh-auth
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 12: Applying options for g-enroll
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 52280.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/km.pub: ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+    | debug1: identity file <tmp>/km.pub type 2
+    | debug1: no identity pubkey loaded from <tmp>/km.pub
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:52280 as 'enroll'
+    | debug1: using hostkeyalias: hm-enroll
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:pCcOFHcOCnt1EGJlE3lgq6Jica1QEd9bov647ZETak8
+    | debug1: using hostkeyalias: hm-enroll
+    | debug1: Host 'hm-enroll' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:2
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | debug1: Offering public key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990749.084 t_end=1790990749.123
+[2026-10-03T01:25:49Z] server log hm-m00t03-enroll (marker-before-enrollment), new lines:
+    > Connection from 172.18.0.1 port 60478 on 172.18.0.3 port 22 rdomain ""
+    > Failed publickey for enroll from 172.18.0.1 port 60478 ssh2: ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+    > Connection closed by authenticating user enroll 172.18.0.1 port 60478 [preauth]
+[2026-10-03T01:25:49Z] PASS ENR-marker-before-enrollment | expected: rc 255; exactly one key offered (the marker key); no Accepted line | observed: rc=255 offered_keys=1 offered_marker=1 accepted_marker=0 accepted_any=0
+[2026-10-03T01:25:49Z] $ (add marker key line (CAS on preimage)) /usr/bin/ssh -F <tmp>/admin.cfg g-enroll bash -s -- 9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb < <tmp>/.reg_add.sh
+    | POST sha256=904bab12485f4f5856dff1dba5b52c9efb0b9d1e8c4e7c9aeed6070f0dfe1925 owner_mode=enroll:600
+    rc=0 t_start=1790990749.555 t_end=1790990749.614
+[2026-10-03T01:25:49Z] PASS ENR-add-transaction | expected: rc 0 | observed: rc=0 out=POST sha256=904bab12485f4f5856dff1dba5b52c9efb0b9d1e8c4e7c9aeed6070f0dfe1925 owner_mode=enroll:600
+[2026-10-03T01:25:49Z] registry fetch (after-add): rc=0 bytes=908 lines=10 sha256=904bab12485f4f5856dff1dba5b52c9efb0b9d1e8c4e7c9aeed6070f0dfe1925 err=[]
+[2026-10-03T01:25:49Z] PASS ENR-added-alongside | expected: after-add bytes == preimage + marker line (existing entries untouched) | observed: cmp_rc=0
+[2026-10-03T01:25:49Z] $ (marker-fresh-auth) /usr/bin/ssh -F <tmp>/cfg -v g-enroll echo marker-fresh-auth
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 12: Applying options for g-enroll
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 52280.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/km.pub: ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+    | debug1: identity file <tmp>/km.pub type 2
+    | debug1: no identity pubkey loaded from <tmp>/km.pub
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:52280 as 'enroll'
+    | debug1: using hostkeyalias: hm-enroll
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:pCcOFHcOCnt1EGJlE3lgq6Jica1QEd9bov647ZETak8
+    | debug1: using hostkeyalias: hm-enroll
+    | debug1: Host 'hm-enroll' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:2
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | debug1: Offering public key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | debug1: Server accepts key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:52280) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: /home/enroll/.ssh/authorized_keys:10: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: /home/enroll/.ssh/authorized_keys:10: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo marker-fresh-auth
+    | debug1: pledge: fork
+    | marker-fresh-auth
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 3684, received 3448 bytes, in 0.0 seconds
+    | Bytes per second: sent 2183758.1, received 2043864.8
+    | debug1: Exit status 0
+    rc=0 t_start=1790990749.747 t_end=1790990749.794
+[2026-10-03T01:25:50Z] server log hm-m00t03-enroll (marker-fresh-auth), new lines:
+    > Connection from 172.18.0.1 port 60506 on 172.18.0.3 port 22 rdomain ""
+    > Accepted key ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M found at /home/enroll/.ssh/authorized_keys:10
+    > Postponed publickey for enroll from 172.18.0.1 port 60506 ssh2 [preauth]
+    > Accepted key ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M found at /home/enroll/.ssh/authorized_keys:10
+    > Accepted publickey for enroll from 172.18.0.1 port 60506 ssh2: ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+    > User child is on pid 125
+    > Starting session: command for enroll from 172.18.0.1 port 60506 id 0
+    > Received disconnect from 172.18.0.1 port 60506:11: disconnected by user
+    > Disconnected from user enroll 172.18.0.1 port 60506
+[2026-10-03T01:25:50Z] PASS ENR-marker-fresh-auth | expected: rc 0; exactly one key offered (the marker key); exactly 1 new Accepted line with the marker fingerprint | observed: rc=0 offered_keys=1 offered_marker=1 accepted_marker=1 accepted_any=1
+[2026-10-03T01:25:50Z] registry fetch (existing path still works): rc=0 bytes=908 lines=10 sha256=904bab12485f4f5856dff1dba5b52c9efb0b9d1e8c4e7c9aeed6070f0dfe1925 err=[]
+[2026-10-03T01:25:50Z] PASS ENR-existing-access-survives | expected: pre-existing working key still authenticates | observed: rc=0
+[2026-10-03T01:25:50Z] $ (concurrent admin append) /usr/bin/ssh -F <tmp>/admin.cfg g-enroll printf '%s\n' '# concurrent admin edit g04 012548-459' >> ~/.ssh/authorized_keys
+    rc=0 t_start=1790990750.296 t_end=1790990750.344
+[2026-10-03T01:25:50Z] PASS ENR-concurrent-edit-applied | expected: rc 0 | observed: rc=0
+[2026-10-03T01:25:50Z] $ (remove marker line only) /usr/bin/ssh -F <tmp>/admin.cfg g-enroll bash -s -- heimdall-g04-exp-marker-012548-459 < <tmp>/.reg_rm.sh
+    | POST sha256=99ae48c0631fef666a4992965ae99de717df821782e9b36584285e8b89788d25 owner_mode=enroll:600
+    rc=0 t_start=1790990750.378 t_end=1790990750.433
+[2026-10-03T01:25:50Z] PASS ENR-remove-transaction | expected: rc 0; exactly one marker line matched | observed: rc=0 out=POST sha256=99ae48c0631fef666a4992965ae99de717df821782e9b36584285e8b89788d25 owner_mode=enroll:600
+[2026-10-03T01:25:50Z] registry fetch (after-remove): rc=0 bytes=831 lines=10 sha256=99ae48c0631fef666a4992965ae99de717df821782e9b36584285e8b89788d25 err=[]
+[2026-10-03T01:25:50Z] PASS ENR-unrelated-bytes-identical | expected: after-remove bytes == preimage + concurrent admin line (every unrelated byte and the concurrent edit preserved; marker gone) | observed: cmp_rc=0 marker_present=no pre_lines=9 after_lines=10
+[2026-10-03T01:25:50Z] $ (marker-after-removal) /usr/bin/ssh -F <tmp>/cfg -v g-enroll echo marker-fresh-auth
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 12: Applying options for g-enroll
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 52280.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/km.pub: ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+    | debug1: identity file <tmp>/km.pub type 2
+    | debug1: no identity pubkey loaded from <tmp>/km.pub
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:52280 as 'enroll'
+    | debug1: using hostkeyalias: hm-enroll
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:pCcOFHcOCnt1EGJlE3lgq6Jica1QEd9bov647ZETak8
+    | debug1: using hostkeyalias: hm-enroll
+    | debug1: Host 'hm-enroll' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:2
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | debug1: Offering public key: <tmp>/km.pub ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990750.570 t_end=1790990750.606
+[2026-10-03T01:25:50Z] server log hm-m00t03-enroll (marker-after-removal), new lines:
+    > Connection from 172.18.0.1 port 60546 on 172.18.0.3 port 22 rdomain ""
+    > Failed publickey for enroll from 172.18.0.1 port 60546 ssh2: ED25519 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+    > Connection closed by authenticating user enroll 172.18.0.1 port 60546 [preauth]
+[2026-10-03T01:25:51Z] PASS ENR-marker-after-removal | expected: rc 255; exactly one key offered (the marker key); no Accepted line | observed: rc=255 offered_keys=1 offered_marker=1 accepted_marker=0 accepted_any=0
+[2026-10-03T01:25:51Z] $ (fixture restore: remove concurrent admin line) /usr/bin/ssh -F <tmp>/admin.cfg g-enroll bash -s -- \#\ concurrent\ admin\ edit\ g04\ 012548-459 < <tmp>/.reg_rm.sh
+    | POST sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb owner_mode=enroll:600
+    rc=0 t_start=1790990751.044 t_end=1790990751.101
+[2026-10-03T01:25:51Z] registry fetch (final): rc=0 bytes=792 lines=9 sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb err=[]
+[2026-10-03T01:25:51Z] PASS ENR-seed-restored | expected: sha256 == seed; owner:mode enroll:600; no hm-g04 temp files | observed: sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb owner_mode_tmpcount=[enroll:600 0]
+[2026-10-03T01:25:51Z] cleanup agent pid=938: terminated socket_removed
+[2026-10-03T01:25:51Z] END enroll-marker-key exit=0 checks=12 fails=0

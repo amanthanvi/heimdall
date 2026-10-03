@@ -1,0 +1,14 @@
+context: all fixture containers found Exited(0) with identical FinishedAt 2026-10-03T01:04:27.62Z, RestartCount 0, empty daemon event history (consistent with a Docker Desktop daemon/VM restart; cause not determined). Recreating with reset.sh at 2026-10-03T01:08:05Z
+[2026-10-03T01:08:05Z] recreating hm-m00t03-fixed
+[2026-10-03T01:08:06Z] recreating hm-m00t03-enroll
+[2026-10-03T01:08:06Z] recreating hm-m00t03-ca1
+[2026-10-03T01:08:06Z] recreating hm-m00t03-ca2
+[2026-10-03T01:08:06Z] recreating hm-m00t03-bastion
+[2026-10-03T01:08:06Z] recreating hm-m00t03-target
+[2026-10-03T01:08:06Z] reset complete; ports:
+  PORT_fixed=51780
+  PORT_enroll=51781
+  PORT_ca1=51782
+  PORT_ca2=51783
+  PORT_bastion=51784
+exit=0

@@ -1,0 +1,361 @@
+
+
+Register for part 2 of our Device Identity Webinar Series!
+
+Platform
+Product
+Customers
+Pricing
+Company
+Resources
+
+LoginBook a demo
+
+Docs Menu
+
+Documentation
+Platform
+
+About Smallstep
+
+Overview
+
+Core Concepts
+
+Smallstep API
+
+Release Notes
+
+Add Devices to Smallstep
+
+Build Your Inventory
+
+Connect Google Workspace
+
+Connect Intune (Windows)
+
+Connect Intune (macOS)
+
+Connect Mosyle
+
+Connect Jamf Pro
+
+Connect Workspace One UEM (Windows)
+
+Connect Workspace One UEM (macOS)
+
+Connect Iru
+
+Connect JumpCloud (Windows)
+
+Connect Fleet DM
+
+Configure Devices for Smallstep
+
+Install the Smallstep Agent
+
+Troubleshooting Guide
+
+Configure Browser Certificates
+
+Configure ChromeOS Device Identity Certificates
+
+Configure Enterprise Relay
+
+Add Users to Smallstep
+
+Sync Okta Users
+
+Sync Google Workspace Users
+
+Sync Entra ID Users
+
+Protect
+
+Wireless Networks
+
+Wired Networks
+
+SSH for GitHub
+
+Smallstep for Certificate-Based VPN
+
+Set up certificate-based VPN with Smallstep
+
+Set up strongSwan VPN with Smallstep
+
+Set up F5 VPN with Smallstep
+
+Set up Azure VPN with Smallstep
+
+Set up GlobalProtect VPN with Smallstep
+Products
+
+Smallstep SSH
+
+Introduction
+
+How It Works
+
+Client Quickstart Guide
+
+Host Quickstart Guide
+
+Access Control Guide
+
+Entra ID Quickstart Guide
+
+Google Workspace Quickstart Guide
+
+Okta Quickstart Guide
+
+Okta UID GID Sync Guide
+
+Certificate Manager
+
+Introduction
+
+Getting Started
+
+Basic Cert Operations
+
+Customizing Certificates
+
+Core Concepts
+
+How It Works
+
+Webhook Events
+
+ACME Server
+
+Certs For Humans
+
+Bring Your Own Root
+
+Kubernetes TLS
+
+Registration Authorities
+
+Introduction
+
+ACME for Smallstep Certificate Manager
+
+ACME for Google Certificate Authority Service
+Open Source
+
+Step CLI
+
+Introduction
+
+Installation
+
+The step Command
+
+Basic Crypto Operations
+
+Command Reference
+
+Step CA
+
+Introduction
+
+Installation
+
+Core Concepts
+
+Getting Started
+
+Basic CA Operations
+
+ACME Basics
+
+Configuration
+
+Policies
+
+Provisioners
+
+Templates
+
+Webhooks
+
+Production Considerations
+
+Renewal
+
+Revocation
+
+Registration Authority Mode
+
+Cryptographic Protection
+
+Integrations
+
+Practical Zero Trust
+
+Hello mTLS
+
+Tutorials
+
+Introduction
+
+Configure popular ACME clients to use a private CA
+
+Use Kubernetes cert-manager with step-ca
+
+Issue X.509 host certificates to cloud VMs
+
+Issue X.509 user certificates via your identity provider
+
+Create a CA that uses RSA keys
+
+Import an existing root or intermediate CA into step-ca
+
+Use Keycloak to issue SSH certificates with step-ca
+
+Run an SSH CA and connect to VMs using SSH certificates
+
+Run step-ca in a Docker container
+
+Federate multiple autonomous certificate authorities
+
+step ssh renew
+Back up to step ssh
+
+Name
+
+step ssh renew -- renew a SSH certificate using the SSH CA
+
+Usage
+
+step ssh renew <ssh-cert> <ssh-key> [--out=<file>]
+[--issuer=<name>] [--password-file=<file>] [--force] [--offline]
+[--ca-config=<file>] [--ca-url=<uri>] [--root=<file>]
+[--context=<name>]
+
+Description
+
+step ssh renew command renews an SSH Host Certificate
+using step certificates.
+It writes the new certificate to disk - either overwriting ssh-cert or
+using a new file when the --out=file flag is used. This command cannot
+be used to renew SSH User Certificates.
+
+Positional arguments
+
+ssh-cert
+The ssh certificate to renew.
+
+ssh-key
+The ssh certificate private key.
+
+Options
+
+--out=file, --output-file=file
+The new certificate file. Defaults to overwriting the ssh-cert positional argument
+
+--provisioner=name, --issuer=name
+The provisioner name to use.
+
+--provisioner-password-file=file
+The path to the file containing the password to decrypt the one-time token
+generating key.
+
+--sshpop-cert=chain
+Certificate (chain) in PEM format to store in the 'sshpop' header of a JWT.
+
+--sshpop-key=file
+Private key file, used to sign a JWT, corresponding to the certificate that will
+be stored in the 'sshpop' header.
+
+-f, --force
+Force the overwrite of files without asking.
+
+--offline
+Creates a certificate without contacting the certificate authority. Offline mode
+uses the configuration, certificates, and keys created with step ca init,
+but can accept a different configuration file using --ca-config flag.
+
+--ca-config=file
+The certificate authority configuration file. Defaults to
+$(step path)/config/ca.json
+
+--ca-url=URI
+URI of the targeted Step Certificate Authority.
+
+--root=file
+The path to the PEM file used as the root certificate authority.
+
+--context=name
+The context name to apply for the given command.
+
+Examples
+
+Renew an ssh certificate overwriting the previous one:
+
+$ step ssh renew -f id_ecdsa-cert.pub id_ecdsa
+
+Renew an ssh certificate with a custom out file:
+
+$ step ssh renew -out new-id_ecdsa-cer.pub id_ecdsa-cert.pub id_ecdsa
+
+On this page
+Name
+Usage
+Description
+Positional arguments
+Options
+Examples
+
+Introducing
+Device Identity
+Ensure that only company-owned devices can access your enterprise's most sensitive resources.
+Try now
+
+Device Identity for companies with sensitive resources. Secure corporate Wi-Fi, SaaS Apps, VPNs, and more.
+
+Learn
+Blog
+Documentation
+Data sheets
+Case studies
+Open source
+Support
+
+Get started
+Request demo
+Platform overview
+Integrations
+Status
+
+Legal
+Privacy Preferences
+Privacy Policy
+Terms of use
+Security
+
+Company
+Contact us
+Careers
+Customers
+Partners
+Investors
+Newsroom
+Media kit
+
+Copyright © 2026 Smallstep Labs, Inc. All rights reserved.
+
+Device Identity for companies with sensitive resources. Secure corporate Wi-Fi, SaaS Apps, VPNs, and more.
+
+Learn
+
+Get started
+
+Legal
+
+Company
+
+Copyright © 2026 Smallstep Labs, Inc. All rights reserved.
+
+Device Identity that powers business

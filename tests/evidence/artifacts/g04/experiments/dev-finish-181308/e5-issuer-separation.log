@@ -1,0 +1,150 @@
+[2026-10-03T18:13:20Z] BEGIN e5-issuer-separation run_stamp=dev-finish-181308 run_id=181320-13581
+[2026-10-03T18:13:20Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:13:20Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:13:20Z] FACT docker_server = 29.8.1
+[2026-10-03T18:13:20Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:13:20Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.033
+[2026-10-03T18:13:20Z] dedicated ssh-agent started: pid=13701 ident='Sat Oct 3 14:13:20 2026 /usr/bin/ssh-agent' socket=<tmp>/issuer/agent.sock mode=daemon
+[2026-10-03T18:13:20Z] $ (issuer: ssh-add -t 900 <fixture CA>) env SSH_AUTH_SOCK=<tmp>/issuer/agent.sock /usr/bin/ssh-add -t 900 <fixture-runtime>/keys/user_ca
+    | Identity added: <fixture-runtime>/keys/user_ca (hm-fixture-user-ca-20261003T011639Z-71093)
+    | Lifetime set to 00:15:00
+    rc=0 t_start=1791051200.700 t_end=1791051200.709
+[2026-10-03T18:13:20Z] $ (issuer: ssh-add -L) env SSH_AUTH_SOCK=<tmp>/issuer/agent.sock /usr/bin/ssh-add -L
+    | ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ3u3VVu2ojQFQJo1CggOoo+CK2nNGBTjkShsYzrwX3Q hm-fixture-user-ca-20261003T011639Z-71093
+    rc=0 t_start=1791051200.727 t_end=1791051200.736
+[2026-10-03T18:13:20Z] PASS E5-issuer-holds-ca | expected: issuer agent lists the CA public key once | observed: ca_entries=1
+[2026-10-03T18:13:20Z] dedicated ssh-agent started: pid=13780 ident='Sat Oct 3 14:13:20 2026 /usr/bin/ssh-agent' socket=<tmp>/worker/agent.sock mode=daemon
+[2026-10-03T18:13:20Z] dedicated ssh-agent started: pid=13797 ident='Sat Oct 3 14:13:20 2026 /usr/bin/ssh-agent' socket=<tmp>/child/agent.sock mode=daemon
+[2026-10-03T18:13:20Z] $ (issuer signs g04-e5-parent-181320-13581) env SSH_AUTH_SOCK=<tmp>/issuer/agent.sock /usr/bin/ssh-keygen -U -s <tmp>/scratch/ca.pub -I g04-e5-parent-181320-13581 -n p-host1,p-host2 -V 0x6ac14584:0x6ac14944 <tmp>/worker/kenv.pub
+    | Signed user key <tmp>/worker/kenv-cert.pub: id "g04-e5-parent-181320-13581" serial 0 for p-host1,p-host2 valid from 2026-10-03T14:12:20 to 2026-10-03T14:28:20
+    rc=0 t_start=1791051200.808 t_end=1791051200.819
+[2026-10-03T18:13:20Z] certificate g04-e5-parent-181320-13581: id="g04-e5-parent-181320-13581" principals=p-host1,p-host2 valid=[from 2026-10-03T18:12:20 to 2026-10-03T18:28:20] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T18:13:20Z] $ (issuer signs g04-e5-child-181320-13581) env SSH_AUTH_SOCK=<tmp>/issuer/agent.sock /usr/bin/ssh-keygen -U -s <tmp>/scratch/ca.pub -I g04-e5-child-181320-13581 -n p-host1 -V 0x6ac14584:0x6ac145cf <tmp>/child/kchild.pub
+    | Signed user key <tmp>/child/kchild-cert.pub: id "g04-e5-child-181320-13581" serial 0 for p-host1 valid from 2026-10-03T14:12:20 to 2026-10-03T14:13:35
+    rc=0 t_start=1791051200.848 t_end=1791051200.859
+[2026-10-03T18:13:20Z] certificate g04-e5-child-181320-13581: id="g04-e5-child-181320-13581" principals=p-host1 valid=[from 2026-10-03T18:12:20 to 2026-10-03T18:13:35] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T18:13:20Z] PASS E5-issuer-signs-via-agent | expected: issuer agent signs parent and child certificates with no CA private key file in the issuer dir | observed: parent_rc=0 child_rc=0 issuer_dir_files=agent.sock
+[2026-10-03T18:13:20Z] FACT parent_cert = id="g04-e5-parent-181320-13581" principals=p-host1,p-host2 valid=[from 2026-10-03T18:12:20 to 2026-10-03T18:28:20] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519) valid_before_epoch=1791052100
+[2026-10-03T18:13:20Z] FACT child_cert = id="g04-e5-child-181320-13581" principals=p-host1 valid=[from 2026-10-03T18:12:20 to 2026-10-03T18:13:35] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519) valid_before_epoch=1791051215
+[2026-10-03T18:13:20Z] PASS E5-child-cert-narrower | expected: issued child certificate: principals a strict subset of the parent's, valid_before earlier than the parent's | observed: parent_principals=p-host1,p-host2 child_principals=p-host1 parent_valid_before=1791052100 child_valid_before=1791051215 subset=yes
+[2026-10-03T18:13:20Z] $ (ssh-add -t 900 kenv) env SSH_AUTH_SOCK=<tmp>/worker/agent.sock /usr/bin/ssh-add -t 900 <tmp>/worker/kenv
+    | Identity added: <tmp>/worker/kenv (g04-e5-kenv-181320-13581)
+    | Lifetime set to 00:15:00
+    | Certificate added: <tmp>/worker/kenv-cert.pub (g04-e5-parent-181320-13581)
+    | Lifetime set to 00:15:00
+    rc=0 t_start=1791051200.964 t_end=1791051200.974
+[2026-10-03T18:13:21Z] $ (ssh-add -t 900 kchild) env SSH_AUTH_SOCK=<tmp>/child/agent.sock /usr/bin/ssh-add -t 900 <tmp>/child/kchild
+    | Identity added: <tmp>/child/kchild (g04-e5-kchild-181320-13581)
+    | Lifetime set to 00:15:00
+    | Certificate added: <tmp>/child/kchild-cert.pub (g04-e5-child-181320-13581)
+    | Lifetime set to 00:05:15
+    rc=0 t_start=1791051200.994 t_end=1791051201.005
+[2026-10-03T18:13:21Z] $ (worker env: ssh-add -L) env -i PATH=/usr/bin:/bin HOME=<tmp>/worker SSH_AUTH_SOCK=<tmp>/worker/agent.sock /usr/bin/ssh-add -L
+    | ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINmPpgGoU8JxbgkyTJS2kftQVmXeiLjtn7mbizxcFHwo g04-e5-kenv-181320-13581
+    | ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29tAAAAINPAh4sIhe6CchRNPtyiI9Z0leyxmF0EBLT3Rgd2QQasAAAAINmPpgGoU8JxbgkyTJS2kftQVmXeiLjtn7mbizxcFHwoAAAAAAAAAAAAAAABAAAAGmcwNC1lNS1wYXJlbnQtMTgxMzIwLTEzNTgxAAAAFgAAAAdwLWhvc3QxAAAAB3AtaG9zdDIAAAAAasFFhAAAAABqwUlEAAAAAAAAAIIAAAAVcGVybWl0LVgxMS1mb3J3YXJkaW5nAAAAAAAAABdwZXJtaXQtYWdlbnQtZm9yd2FyZGluZwAAAAAAAAAWcGVybWl0LXBvcnQtZm9yd2FyZGluZwAAAAAAAAAKcGVybWl0LXB0eQAAAAAAAAAOcGVybWl0LXVzZXItcmMAAAAAAAAAAAAAADMAAAALc3NoLWVkMjU1MTkAAAAgne7dVW7aiNAVAmjUKCA6ij4Irac0YFOORKGxjOvBfdAAAABTAAAAC3NzaC1lZDI1NTE5AAAAQEQ5nnG1aDcEpMohG4gSkqw1gwDZ5o793J51GoKCjHTqg/b8elflDSetNHCAuH81WiodpX8FDB7adguJUEm2nAM= g04-e5-kenv-181320-13581
+    rc=0 t_start=1791051201.023 t_end=1791051201.034
+[2026-10-03T18:13:21Z] PASS E5a-ca-absent-from-worker-agent | expected: worker agent lists only K_env and its certificate (2 entries); CA public key absent | observed: rc=0 entries=2 ca_entries=0
+[2026-10-03T18:13:21Z] $ (worker env: try to sign a broad cert via the worker agent) env -i PATH=/usr/bin:/bin HOME=<tmp>/worker SSH_AUTH_SOCK=<tmp>/worker/agent.sock /usr/bin/ssh-keygen -U -s <tmp>/scratch/ca.pub -I g04-e5-forged-181320-13581 -n p-host1,p-host2 -V +1h <tmp>/scratch/x.pub
+    | CA key <tmp>/scratch/ca.pub not found in agent
+    rc=255 t_start=1791051201.066 t_end=1791051201.078
+[2026-10-03T18:13:21Z] PASS E5a-worker-cannot-sign | expected: ssh-keygen -U -s <CA pub> through the worker socket fails; no certificate written | observed: rc=255 certificate_written=no
+[2026-10-03T18:13:21Z] $ (child-ca1-before-child-expiry) /usr/bin/ssh -F <tmp>/child.cfg g-ca1 echo e5-ok
+    | e5-ok
+    rc=0 t_start=1791051201.144 t_end=1791051201.195
+[2026-10-03T18:13:21Z] server log hm-m00t03-ca1 (child-ca1-before-child-expiry), new lines:
+    > Connection from 172.18.0.1 port 59656 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e5-child-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59656 ssh2 [preauth]
+    > Accepted certificate ID "g04-e5-child-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59656 ssh2: ED25519-CERT SHA256:wzkoFmVewAiyLgbrVExY186kQhYGiZ2rEJ8v19NcUnA ID g04-e5-child-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > User child is on pid 844
+    > Starting session: command for cert from 172.18.0.1 port 59656 id 0
+    > Received disconnect from 172.18.0.1 port 59656:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59656
+[2026-10-03T18:13:21Z] PASS E5b-child-ca1-before-child-expiry | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted_with_id=1 accepted_any=1 failed_with_id=0 server_reason=[none logged]
+[2026-10-03T18:13:21Z] $ (child-ca2-principal-not-granted) /usr/bin/ssh -F <tmp>/child.cfg g-ca2 echo e5-ok
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791051201.678 t_end=1791051201.721
+[2026-10-03T18:13:22Z] server log hm-m00t03-ca2 (child-ca2-principal-not-granted), new lines:
+    > Connection from 172.18.0.1 port 62130 on 172.18.0.5 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for cert from 172.18.0.1 port 62130 ssh2: ED25519-CERT SHA256:wzkoFmVewAiyLgbrVExY186kQhYGiZ2rEJ8v19NcUnA ID g04-e5-child-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > Failed publickey for cert from 172.18.0.1 port 62130 ssh2: ED25519 SHA256:wzkoFmVewAiyLgbrVExY186kQhYGiZ2rEJ8v19NcUnA
+    > Connection closed by authenticating user cert 172.18.0.1 port 62130 [preauth]
+[2026-10-03T18:13:22Z] PASS E5b-child-ca2-principal-not-granted | expected: rc 255, no Accepted line, cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted_with_id=0 accepted_any=0 failed_with_id=1 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:13:22Z] $ (parent-ca1) /usr/bin/ssh -F <tmp>/parent.cfg g-ca1 echo e5-ok
+    | e5-ok
+    rc=0 t_start=1791051202.212 t_end=1791051202.264
+[2026-10-03T18:13:22Z] server log hm-m00t03-ca1 (parent-ca1), new lines:
+    > Connection from 172.18.0.1 port 59658 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59658 ssh2 [preauth]
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59658 ssh2: ED25519-CERT SHA256:AYEW8HvuTDDUhBsQmSXd+bdCwDYs9gvl7BQ02Dj1MNk ID g04-e5-parent-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > User child is on pid 848
+    > Starting session: command for cert from 172.18.0.1 port 59658 id 0
+    > Received disconnect from 172.18.0.1 port 59658:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59658
+[2026-10-03T18:13:22Z] PASS E5b-parent-ca1 | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted_with_id=1 accepted_any=1 failed_with_id=0 server_reason=[none logged]
+[2026-10-03T18:13:22Z] $ (parent-ca2) /usr/bin/ssh -F <tmp>/parent.cfg g-ca2 echo e5-ok
+    | e5-ok
+    rc=0 t_start=1791051202.751 t_end=1791051202.802
+[2026-10-03T18:13:23Z] server log hm-m00t03-ca2 (parent-ca2), new lines:
+    > Connection from 172.18.0.1 port 60592 on 172.18.0.5 port 22 rdomain ""
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60592 ssh2 [preauth]
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60592 ssh2: ED25519-CERT SHA256:AYEW8HvuTDDUhBsQmSXd+bdCwDYs9gvl7BQ02Dj1MNk ID g04-e5-parent-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > User child is on pid 74
+    > Starting session: command for cert from 172.18.0.1 port 60592 id 0
+    > Received disconnect from 172.18.0.1 port 60592:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60592
+[2026-10-03T18:13:23Z] PASS E5b-parent-ca2 | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted_with_id=1 accepted_any=1 failed_with_id=0 server_reason=[none logged]
+[2026-10-03T18:13:23Z] waiting 15 s (until epoch 1791051218)
+[2026-10-03T18:13:38Z] $ (child-ca1-after-child-expiry) /usr/bin/ssh -F <tmp>/child.cfg g-ca1 echo e5-ok
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791051218.300 t_end=1791051218.359
+[2026-10-03T18:13:38Z] server log hm-m00t03-ca1 (child-ca1-after-child-expiry), new lines:
+    > Connection from 172.18.0.1 port 57262 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 57262 ssh2: ED25519-CERT SHA256:wzkoFmVewAiyLgbrVExY186kQhYGiZ2rEJ8v19NcUnA ID g04-e5-child-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > Failed publickey for cert from 172.18.0.1 port 57262 ssh2: ED25519 SHA256:wzkoFmVewAiyLgbrVExY186kQhYGiZ2rEJ8v19NcUnA
+    > Connection closed by authenticating user cert 172.18.0.1 port 57262 [preauth]
+[2026-10-03T18:13:38Z] PASS E5b-child-ca1-after-child-expiry | expected: rc 255, no Accepted line, cert presented (Failed line with its ID) and refused with 'Certificate invalid: expired' | observed: rc=255 accepted_with_id=0 accepted_any=0 failed_with_id=1 server_reason=[Certificate invalid: expired]
+[2026-10-03T18:13:38Z] $ (parent-ca1-after-child-expiry) /usr/bin/ssh -F <tmp>/parent.cfg g-ca1 echo e5-ok
+    | e5-ok
+    rc=0 t_start=1791051218.842 t_end=1791051218.889
+[2026-10-03T18:13:39Z] server log hm-m00t03-ca1 (parent-ca1-after-child-expiry), new lines:
+    > Connection from 172.18.0.1 port 57268 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57268 ssh2 [preauth]
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57268 ssh2: ED25519-CERT SHA256:AYEW8HvuTDDUhBsQmSXd+bdCwDYs9gvl7BQ02Dj1MNk ID g04-e5-parent-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > User child is on pid 854
+    > Starting session: command for cert from 172.18.0.1 port 57268 id 0
+    > Received disconnect from 172.18.0.1 port 57268:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57268
+[2026-10-03T18:13:39Z] PASS E5b-parent-ca1-after-child-expiry | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted_with_id=1 accepted_any=1 failed_with_id=0 server_reason=[none logged]
+[2026-10-03T18:13:39Z] $ (parent-ca2-after-child-expiry) /usr/bin/ssh -F <tmp>/parent.cfg g-ca2 echo e5-ok
+    | e5-ok
+    rc=0 t_start=1791051219.373 t_end=1791051219.422
+[2026-10-03T18:13:39Z] server log hm-m00t03-ca2 (parent-ca2-after-child-expiry), new lines:
+    > Connection from 172.18.0.1 port 59892 on 172.18.0.5 port 22 rdomain ""
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59892 ssh2 [preauth]
+    > Accepted certificate ID "g04-e5-parent-181320-13581" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59892 ssh2: ED25519-CERT SHA256:AYEW8HvuTDDUhBsQmSXd+bdCwDYs9gvl7BQ02Dj1MNk ID g04-e5-parent-181320-13581 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > User child is on pid 78
+    > Starting session: command for cert from 172.18.0.1 port 59892 id 0
+    > Received disconnect from 172.18.0.1 port 59892:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59892
+[2026-10-03T18:13:39Z] PASS E5b-parent-ca2-after-child-expiry | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted_with_id=1 accepted_any=1 failed_with_id=0 server_reason=[none logged]
+[2026-10-03T18:13:39Z] PASS E5c-no-ca-material-in-worker-path | expected: no CA private material in worker/child files, agent argv/environment, or the worker command environment | observed: files_scanned=4 ca_body_hits=0 private_key_headers=0 files_deriving_ca_pub=0 agent_process_hits=0 worker_env_hits=0 worker_files=[agent.sock kenv-cert.pub kenv.pub]
+[2026-10-03T18:13:39Z] $ (same-user process that knows the issuer socket path) env -i PATH=/usr/bin:/bin SSH_AUTH_SOCK=<tmp>/issuer/agent.sock /usr/bin/ssh-keygen -U -s <tmp>/scratch/ca.pub -I g04-e5-sameuser-181320-13581 -n p-host1,p-host2 -V +5m <tmp>/scratch/y.pub
+    | Signed user key <tmp>/scratch/y-cert.pub: id "g04-e5-sameuser-181320-13581" serial 0 for p-host1,p-host2 valid from 2026-10-03T14:12:00 to 2026-10-03T14:18:39
+    rc=0 t_start=1791051219.961 t_end=1791051219.972
+[2026-10-03T18:13:40Z] CONFIRMED E5-same-user-boundary | hypothesis: a same-user process with the issuer socket path can obtain signatures (separation is by endpoint only, not an OS boundary) | observed: rc=0 issuer_dir=drwx------ socket=srw------- owner_is_harness_uid=yes
+[2026-10-03T18:13:40Z] cleanup agent pid=13701: terminated socket_removed
+[2026-10-03T18:13:40Z] cleanup agent pid=13780: terminated socket_removed
+[2026-10-03T18:13:40Z] cleanup agent pid=13797: terminated socket_removed
+[2026-10-03T18:13:40Z] END e5-issuer-separation exit=0 checks=13 fails=0

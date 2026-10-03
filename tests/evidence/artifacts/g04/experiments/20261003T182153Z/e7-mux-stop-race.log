@@ -1,0 +1,225 @@
+[2026-10-03T18:35:20Z] BEGIN e7-mux-stop-race run_stamp=20261003T182153Z run_id=183520-60965
+[2026-10-03T18:35:20Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:35:20Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:35:20Z] FACT docker_server = 29.8.1
+[2026-10-03T18:35:20Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:35:20Z] FACT clock_ca1 = offset_s=0.009 rtt_s=0.035
+[2026-10-03T18:35:20Z] dedicated ssh-agent started: pid=61083 ident='Sat Oct 3 14:35:20 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:35:20Z] certificate g04-race-183520-60965: id="g04-race-183520-60965" principals=p-host1 valid=[from 2026-10-03T18:34:20 to 2026-10-03T19:05:20] ca=ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE (using ssh-ed25519)
+[2026-10-03T18:35:20Z] $ (ssh-add -t 1800 kr) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 1800 <tmp>/kr
+    | Identity added: <tmp>/kr (g04-race-k-183520-60965)
+    | Lifetime set to 00:30:00
+    rc=0 t_start=1791052520.944 t_end=1791052520.953
+[2026-10-03T18:35:20Z] FACT iterations = 50
+[2026-10-03T18:35:20Z] FACT control_persist_s = 3
+[2026-10-03T18:35:20Z] FACT delay_ranges_ms = client 0-60, stop 0-40 (uniform, $RANDOM)
+[2026-10-03T18:35:21Z] $ (start master r1) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r1 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052521.027 t_end=1791052521.078
+[2026-10-03T18:35:21Z] master started: pid=61194 lstart='Sat Oct 3 14:35:21 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r1 persist=3
+[2026-10-03T18:35:21Z] $ (start master r2) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r2 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052521.178 t_end=1791052521.233
+[2026-10-03T18:35:21Z] master started: pid=61254 lstart='Sat Oct 3 14:35:21 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r2 persist=3
+[2026-10-03T18:35:21Z] $ (start master r3) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r3 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052521.347 t_end=1791052521.386
+[2026-10-03T18:35:21Z] master started: pid=61316 lstart='Sat Oct 3 14:35:21 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r3 persist=3
+[2026-10-03T18:35:21Z] $ (start master r4) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r4 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052521.486 t_end=1791052521.536
+[2026-10-03T18:35:21Z] master started: pid=61376 lstart='Sat Oct 3 14:35:21 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r4 persist=3
+[2026-10-03T18:35:21Z] $ (start master r5) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r5 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052521.683 t_end=1791052521.735
+[2026-10-03T18:35:21Z] master started: pid=61436 lstart='Sat Oct 3 14:35:21 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r5 persist=3
+[2026-10-03T18:35:21Z] $ (start master r6) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r6 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052521.830 t_end=1791052521.878
+[2026-10-03T18:35:21Z] master started: pid=61498 lstart='Sat Oct 3 14:35:21 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r6 persist=3
+[2026-10-03T18:35:22Z] $ (start master r7) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r7 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052522.026 t_end=1791052522.079
+[2026-10-03T18:35:22Z] master started: pid=61559 lstart='Sat Oct 3 14:35:22 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r7 persist=3
+[2026-10-03T18:35:22Z] $ (start master r8) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r8 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052522.234 t_end=1791052522.286
+[2026-10-03T18:35:22Z] master started: pid=61619 lstart='Sat Oct 3 14:35:22 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r8 persist=3
+[2026-10-03T18:35:22Z] $ (start master r9) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r9 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052522.411 t_end=1791052522.461
+[2026-10-03T18:35:22Z] master started: pid=61682 lstart='Sat Oct 3 14:35:22 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r9 persist=3
+[2026-10-03T18:35:22Z] $ (start master r10) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r10 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052522.592 t_end=1791052522.648
+[2026-10-03T18:35:22Z] master started: pid=61745 lstart='Sat Oct 3 14:35:22 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r10 persist=3
+[2026-10-03T18:35:22Z] $ (start master r11) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r11 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052522.790 t_end=1791052522.844
+[2026-10-03T18:35:22Z] master started: pid=61817 lstart='Sat Oct 3 14:35:22 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r11 persist=3
+[2026-10-03T18:35:23Z] $ (start master r12) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r12 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052522.948 t_end=1791052522.998
+[2026-10-03T18:35:23Z] master started: pid=61885 lstart='Sat Oct 3 14:35:22 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r12 persist=3
+[2026-10-03T18:35:23Z] $ (start master r13) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r13 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052523.139 t_end=1791052523.193
+[2026-10-03T18:35:23Z] master started: pid=61948 lstart='Sat Oct 3 14:35:23 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r13 persist=3
+[2026-10-03T18:35:23Z] $ (start master r14) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r14 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052523.335 t_end=1791052523.385
+[2026-10-03T18:35:23Z] master started: pid=62010 lstart='Sat Oct 3 14:35:23 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r14 persist=3
+[2026-10-03T18:35:23Z] $ (start master r15) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r15 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052523.461 t_end=1791052523.514
+[2026-10-03T18:35:23Z] master started: pid=62070 lstart='Sat Oct 3 14:35:23 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r15 persist=3
+[2026-10-03T18:35:23Z] $ (start master r16) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r16 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052523.640 t_end=1791052523.692
+[2026-10-03T18:35:23Z] master started: pid=62130 lstart='Sat Oct 3 14:35:23 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r16 persist=3
+[2026-10-03T18:35:23Z] $ (start master r17) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r17 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052523.810 t_end=1791052523.860
+[2026-10-03T18:35:23Z] master started: pid=62191 lstart='Sat Oct 3 14:35:23 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r17 persist=3
+[2026-10-03T18:35:24Z] $ (start master r18) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r18 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052523.947 t_end=1791052523.998
+[2026-10-03T18:35:24Z] master started: pid=62251 lstart='Sat Oct 3 14:35:23 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r18 persist=3
+[2026-10-03T18:35:24Z] $ (start master r19) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r19 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052524.077 t_end=1791052524.127
+[2026-10-03T18:35:24Z] master started: pid=62313 lstart='Sat Oct 3 14:35:24 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r19 persist=3
+[2026-10-03T18:35:24Z] $ (start master r20) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r20 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052524.221 t_end=1791052524.274
+[2026-10-03T18:35:24Z] master started: pid=62373 lstart='Sat Oct 3 14:35:24 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r20 persist=3
+[2026-10-03T18:35:24Z] $ (start master r21) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r21 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052524.390 t_end=1791052524.428
+[2026-10-03T18:35:24Z] master started: pid=62435 lstart='Sat Oct 3 14:35:24 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r21 persist=3
+[2026-10-03T18:35:24Z] $ (start master r22) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r22 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052524.551 t_end=1791052524.602
+[2026-10-03T18:35:24Z] master started: pid=62495 lstart='Sat Oct 3 14:35:24 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r22 persist=3
+[2026-10-03T18:35:24Z] $ (start master r23) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r23 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052524.731 t_end=1791052524.782
+[2026-10-03T18:35:24Z] master started: pid=62557 lstart='Sat Oct 3 14:35:24 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r23 persist=3
+[2026-10-03T18:35:24Z] $ (start master r24) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r24 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052524.876 t_end=1791052524.925
+[2026-10-03T18:35:24Z] master started: pid=62619 lstart='Sat Oct 3 14:35:24 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r24 persist=3
+[2026-10-03T18:35:25Z] $ (start master r25) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r25 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052525.006 t_end=1791052525.059
+[2026-10-03T18:35:25Z] master started: pid=62679 lstart='Sat Oct 3 14:35:25 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r25 persist=3
+[2026-10-03T18:35:25Z] $ (start master r26) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r26 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052525.164 t_end=1791052525.217
+[2026-10-03T18:35:25Z] master started: pid=62741 lstart='Sat Oct 3 14:35:25 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r26 persist=3
+[2026-10-03T18:35:25Z] $ (start master r27) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r27 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052525.335 t_end=1791052525.385
+[2026-10-03T18:35:25Z] master started: pid=62801 lstart='Sat Oct 3 14:35:25 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r27 persist=3
+[2026-10-03T18:35:25Z] $ (start master r28) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r28 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052525.504 t_end=1791052525.555
+[2026-10-03T18:35:25Z] master started: pid=62863 lstart='Sat Oct 3 14:35:25 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r28 persist=3
+[2026-10-03T18:35:25Z] $ (start master r29) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r29 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052525.690 t_end=1791052525.741
+[2026-10-03T18:35:25Z] master started: pid=62923 lstart='Sat Oct 3 14:35:25 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r29 persist=3
+[2026-10-03T18:35:25Z] $ (start master r30) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r30 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052525.859 t_end=1791052525.909
+[2026-10-03T18:35:25Z] master started: pid=62983 lstart='Sat Oct 3 14:35:25 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r30 persist=3
+[2026-10-03T18:35:26Z] $ (start master r31) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r31 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.000 t_end=1791052526.038
+[2026-10-03T18:35:26Z] master started: pid=63050 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r31 persist=3
+[2026-10-03T18:35:26Z] $ (start master r32) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r32 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.138 t_end=1791052526.190
+[2026-10-03T18:35:26Z] master started: pid=63110 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r32 persist=3
+[2026-10-03T18:35:26Z] $ (start master r33) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r33 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.323 t_end=1791052526.361
+[2026-10-03T18:35:26Z] master started: pid=63172 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r33 persist=3
+[2026-10-03T18:35:26Z] $ (start master r34) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r34 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.483 t_end=1791052526.535
+[2026-10-03T18:35:26Z] master started: pid=63244 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r34 persist=3
+[2026-10-03T18:35:26Z] $ (start master r35) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r35 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.620 t_end=1791052526.663
+[2026-10-03T18:35:26Z] master started: pid=63305 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r35 persist=3
+[2026-10-03T18:35:26Z] $ (start master r36) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r36 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.739 t_end=1791052526.795
+[2026-10-03T18:35:26Z] master started: pid=63366 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r36 persist=3
+[2026-10-03T18:35:26Z] $ (start master r37) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r37 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052526.888 t_end=1791052526.943
+[2026-10-03T18:35:26Z] master started: pid=63428 lstart='Sat Oct 3 14:35:26 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r37 persist=3
+[2026-10-03T18:35:27Z] $ (start master r38) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r38 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052527.037 t_end=1791052527.091
+[2026-10-03T18:35:27Z] master started: pid=63490 lstart='Sat Oct 3 14:35:27 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r38 persist=3
+[2026-10-03T18:35:27Z] $ (start master r39) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r39 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052527.196 t_end=1791052527.249
+[2026-10-03T18:35:27Z] master started: pid=63550 lstart='Sat Oct 3 14:35:27 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r39 persist=3
+[2026-10-03T18:35:27Z] $ (start master r40) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r40 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052527.368 t_end=1791052527.420
+[2026-10-03T18:35:27Z] master started: pid=63610 lstart='Sat Oct 3 14:35:27 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r40 persist=3
+[2026-10-03T18:35:27Z] $ (start master r41) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r41 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052527.552 t_end=1791052527.604
+[2026-10-03T18:35:27Z] master started: pid=63671 lstart='Sat Oct 3 14:35:27 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r41 persist=3
+[2026-10-03T18:35:27Z] $ (start master r42) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r42 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052527.738 t_end=1791052527.792
+[2026-10-03T18:35:27Z] master started: pid=63731 lstart='Sat Oct 3 14:35:27 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r42 persist=3
+[2026-10-03T18:35:27Z] $ (start master r43) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r43 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052527.924 t_end=1791052527.977
+[2026-10-03T18:35:28Z] master started: pid=63800 lstart='Sat Oct 3 14:35:27 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r43 persist=3
+[2026-10-03T18:35:28Z] $ (start master r44) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r44 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052528.061 t_end=1791052528.109
+[2026-10-03T18:35:28Z] master started: pid=63860 lstart='Sat Oct 3 14:35:28 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r44 persist=3
+[2026-10-03T18:35:28Z] $ (start master r45) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r45 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052528.250 t_end=1791052528.306
+[2026-10-03T18:35:28Z] master started: pid=63920 lstart='Sat Oct 3 14:35:28 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r45 persist=3
+[2026-10-03T18:35:28Z] $ (start master r46) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r46 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052528.426 t_end=1791052528.478
+[2026-10-03T18:35:28Z] master started: pid=63983 lstart='Sat Oct 3 14:35:28 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r46 persist=3
+[2026-10-03T18:35:28Z] $ (start master r47) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r47 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052528.591 t_end=1791052528.636
+[2026-10-03T18:35:28Z] master started: pid=64043 lstart='Sat Oct 3 14:35:28 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r47 persist=3
+[2026-10-03T18:35:28Z] $ (start master r48) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r48 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052528.777 t_end=1791052528.831
+[2026-10-03T18:35:28Z] master started: pid=64103 lstart='Sat Oct 3 14:35:28 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r48 persist=3
+[2026-10-03T18:35:29Z] $ (start master r49) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r49 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052528.959 t_end=1791052529.012
+[2026-10-03T18:35:29Z] master started: pid=64163 lstart='Sat Oct 3 14:35:29 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r49 persist=3
+[2026-10-03T18:35:29Z] $ (start master r50) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r50 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1791052529.101 t_end=1791052529.154
+[2026-10-03T18:35:29Z] master started: pid=64223 lstart='Sat Oct 3 14:35:29 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r50 persist=3
+    race table:
+    iter	delay_client_ms	delay_stop_ms	client_t0	client_t1	client_rc	stop_t0	stop_t1	stop_rc	class	client_err
+    1	31	32	1791052521.149	1791052521.162	0	1791052521.150	1791052521.159	0	admitted_started_before_stop	
+    2	33	2	1791052521.304	1791052521.331	255	1791052521.272	1791052521.282	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    3	20	7	1791052521.446	1791052521.472	255	1791052521.430	1791052521.439	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    4	58	7	1791052521.635	1791052521.667	255	1791052521.580	1791052521.590	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    5	17	12	1791052521.794	1791052521.816	255	1791052521.787	1791052521.796	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+    6	57	27	1791052521.977	1791052522.009	255	1791052521.947	1791052521.958	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    7	60	23	1791052522.184	1791052522.217	255	1791052522.148	1791052522.158	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    8	37	24	1791052522.369	1791052522.395	255	1791052522.357	1791052522.367	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    9	41	19	1791052522.545	1791052522.575	255	1791052522.524	1791052522.534	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    10	54	19	1791052522.747	1791052522.774	255	1791052522.708	1791052522.718	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    11	18	7	1791052522.905	1791052522.932	255	1791052522.892	1791052522.902	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    12	49	6	1791052523.091	1791052523.122	255	1791052523.045	1791052523.055	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    13	54	33	1791052523.292	1791052523.319	255	1791052523.272	1791052523.284	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    14	8	14	1791052523.429	1791052523.441	0	1791052523.438	1791052523.447	0	admitted_started_before_stop	
+    15	37	10	1791052523.591	1791052523.624	255	1791052523.561	1791052523.570	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    16	38	28	1791052523.768	1791052523.795	255	1791052523.763	1791052523.773	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+    17	9	25	1791052523.907	1791052523.921	0	1791052523.923	1791052523.933	0	admitted_started_before_stop	
+    18	8	18	1791052524.041	1791052524.052	0	1791052524.052	1791052524.061	0	admitted_started_before_stop	
+    19	17	13	1791052524.185	1791052524.206	255	1791052524.180	1791052524.190	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+    20	40	21	1791052524.350	1791052524.374	255	1791052524.333	1791052524.343	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    21	43	14	1791052524.507	1791052524.536	255	1791052524.480	1791052524.490	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    22	39	12	1791052524.682	1791052524.715	255	1791052524.652	1791052524.662	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    23	20	0	1791052524.841	1791052524.862	255	1791052524.819	1791052524.829	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    24	15	14	1791052524.979	1791052524.992	0	1791052524.978	1791052524.988	0	admitted_started_during_stop	
+    25	27	2	1791052525.126	1791052525.149	255	1791052525.098	1791052525.108	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    26	37	21	1791052525.293	1791052525.320	255	1791052525.276	1791052525.285	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    27	42	32	1791052525.466	1791052525.489	255	1791052525.460	1791052525.470	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+    28	52	35	1791052525.644	1791052525.674	255	1791052525.632	1791052525.642	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    29	34	27	1791052525.817	1791052525.843	255	1791052525.807	1791052525.817	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+    30	17	3	1791052525.963	1791052525.985	255	1791052525.950	1791052525.959	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    31	9	36	1791052526.084	1791052526.097	0	1791052526.115	1791052526.124	0	admitted_started_before_stop	
+    32	53	32	1791052526.279	1791052526.307	255	1791052526.263	1791052526.274	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    33	43	9	1791052526.443	1791052526.468	255	1791052526.407	1791052526.417	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    34	4	20	1791052526.575	1791052526.588	0	1791052526.596	1791052526.606	0	admitted_started_before_stop	
+    35	0	13	1791052526.699	1791052526.712	0	1791052526.716	1791052526.725	0	admitted_started_before_stop	
+    36	7	33	1791052526.838	1791052526.850	0	1791052526.865	1791052526.874	0	admitted_started_before_stop	
+    37	23	28	1791052527.004	1791052527.017	0	1791052527.014	1791052527.023	0	admitted_started_before_stop	
+    38	29	8	1791052527.156	1791052527.181	255	1791052527.137	1791052527.146	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    39	35	2	1791052527.325	1791052527.352	255	1791052527.288	1791052527.297	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    40	48	8	1791052527.507	1791052527.537	255	1791052527.466	1791052527.476	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    41	46	2	1791052527.691	1791052527.722	255	1791052527.643	1791052527.652	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    42	49	29	1791052527.882	1791052527.908	255	1791052527.864	1791052527.874	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    43	8	0	1791052528.024	1791052528.046	255	1791052528.014	1791052528.024	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+    44	57	23	1791052528.207	1791052528.235	255	1791052528.174	1791052528.183	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    45	33	5	1791052528.381	1791052528.410	255	1791052528.350	1791052528.359	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    46	30	12	1791052528.549	1791052528.576	255	1791052528.527	1791052528.537	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    47	54	20	1791052528.732	1791052528.761	255	1791052528.698	1791052528.708	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    48	46	21	1791052528.915	1791052528.943	255	1791052528.891	1791052528.901	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+    49	8	24	1791052529.059	1791052529.072	0	1791052529.078	1791052529.087	0	admitted_started_before_stop	
+    50	34	38	1791052529.230	1791052529.244	0	1791052529.234	1791052529.244	0	admitted_started_before_stop	
+[2026-10-03T18:35:29Z] FACT race_counts = masters_started=50 admitted_after_stop_returned=0 admitted_started_during_stop=1 admitted_started_before_stop=11 not_admitted=38 (started_after_stop_returned=32 started_during_stop=6 started_before_stop=0; fresh-connection publickey denial=38; other=[none]) stop_rc_nonzero=0
+[2026-10-03T18:35:37Z] FACT masters_after_stop = exited_on_their_own=50 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+[2026-10-03T18:35:37Z] FACT server_accepted = with_race_id=50 any=50 (expected: one per master; clients cannot authenticate)
+[2026-10-03T18:35:37Z] PASS E7R-harness | expected: all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself) | observed: masters=50/50 stop_rc_nonzero=0 accepted_with_id=50 accepted_any=50
+[2026-10-03T18:35:37Z] PASS E7R-post-stop-clients-exercised | expected: at least 5 clients started after the -O stop call returned (otherwise the race says nothing about post-stop admission) | observed: clients_started_after_stop_returned=32 of 50
+[2026-10-03T18:35:37Z] CONFIRMED E7R-no-admission-after-stop-returned | hypothesis: no client that started after -O stop returned (MUX_S_OK received) was admitted through the master | observed: violations=0 of 32 clients that started after stop returned (not admitted: 32); started during stop: admitted=1 not_admitted=6; started before stop: admitted=11 not_admitted=0; masters=50
+[2026-10-03T18:35:38Z] cleanup agent pid=61083: terminated socket_removed
+[2026-10-03T18:35:38Z] END e7-mux-stop-race exit=0 checks=2 fails=0

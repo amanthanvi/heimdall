@@ -1,0 +1,31 @@
+{
+  "case_id": "G04-macos-screen-lock-availability",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-CR-03",
+    "R-EN-04",
+    "R-UX-03"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "macOS",
+    "required": "native macOS host with an interactive console user session; this host (macOS 27.0 26A428 arm64) qualifies once the owner drives the lock"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "tests/native/macos/g04_lock_probe.sh --mode lock [--fixture-runtime tests/fixtures/ssh/runtime]  (owner runs it, locks with Control-Command-Q for >= 60 s, unlocks, presses Enter, answers two questions)"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "The probe's non-lock smoke path was executed by the agent (records g04-macos-lock-probe-smoke-*.json); that proves mechanics and cleanup only, not lock behavior.",
+    "Covers a dedicated ssh-agent, a disposable custom file-based keychain, and optionally fresh SSH logins to the M00-T03 fixture; not the login keychain, data-protection keychain, Secure Enclave, or a launchd-supervised signer."
+  ],
+  "blocked_on": "owner-driven macOS screen lock/unlock cycle (a human at the console of the macOS 27.0 arm64 host must lock and unlock the screen while tests/native/macos/g04_lock_probe.sh --mode lock runs)"
+}

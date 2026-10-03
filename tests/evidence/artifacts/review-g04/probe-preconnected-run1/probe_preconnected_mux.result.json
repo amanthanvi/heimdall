@@ -1,0 +1,91 @@
+{
+  "probe": "review-g04 pre-connected mux control client vs -O stop",
+  "started_at": "2026-10-03T18:57:21Z",
+  "steps": [
+    {
+      "label": "ssh-add key (+cert) -t 600",
+      "rc": 0,
+      "output": "Identity added: <tmp>/k (review-g04-preconn)\nLifetime set to 00:10:00\nCertificate added: <tmp>/k-cert.pub (review-g04-preconn-1791053841)\nLifetime set to 00:05:40",
+      "t_start": 1791053841.937,
+      "t_end": 1791053841.941
+    },
+    {
+      "label": "start master (ControlPersist=10m)",
+      "rc": 0,
+      "output": "",
+      "t_start": 1791053841.964,
+      "t_end": 1791053842.015
+    },
+    {
+      "label": "-O check",
+      "rc": 0,
+      "output": "Master running (pid=3184)",
+      "t_start": 1791053842.015,
+      "t_end": 1791053842.02
+    },
+    {
+      "label": "fresh login after valid_before (control)",
+      "rc": 255,
+      "output": "cert@127.0.0.1: Permission denied (publickey).",
+      "t_start": 1791053886.258,
+      "t_end": 1791053886.297
+    },
+    {
+      "label": "-O stop",
+      "rc": 0,
+      "output": "Stop listening request sent.",
+      "t_start": 1791053886.623,
+      "t_end": 1791053886.629
+    },
+    {
+      "label": "-O check after stop",
+      "rc": 255,
+      "output": "Control socket connect(<tmp>/cm): No such file or directory",
+      "t_start": 1791053887.134,
+      "t_end": 1791053887.141
+    },
+    {
+      "label": "HC1 new client after stop, PubkeyAuthentication=no",
+      "rc": 255,
+      "output": "cert@127.0.0.1: Permission denied (publickey).",
+      "t_start": 1791053887.173,
+      "t_end": 1791053887.193
+    }
+  ],
+  "hypotheses": {
+    "HC2-raw-mux-client-works-before-stop": {
+      "confirmed": true,
+      "observed": "reply=MUX_S_SESSION_OPENED exit=0 out=REVIEW-RAW-MUX-BEFORE-STOP new_accepted=0 new_connections=0 mux_version=4"
+    },
+    "HC1-new-client-after-stop-not-admitted": {
+      "confirmed": true,
+      "observed": "rc=255"
+    },
+    "HP1-preconnected-client-admitted-after-stop": {
+      "confirmed": true,
+      "observed": "request_sent_s_after_stop_returned=2.025 reply=MUX_S_SESSION_OPENED exit=0 stdout=[REVIEW-PRECONNECTED-ADMITTED-AFTER-STOP | cert] error=None new_accepted=0 new_connections=0 cert_valid_before_minus_request_s=-7.7"
+    }
+  },
+  "cleanup": {
+    "master": "already_exited",
+    "agent": "terminated",
+    "tempdir": "removed"
+  },
+  "cert_id": "review-g04-preconn-1791053841",
+  "valid_before_epoch": 1791053881,
+  "fresh_login_after_expiry": {
+    "rc": 255,
+    "expired_lines": 1
+  },
+  "stop": {
+    "rc": 0,
+    "check_rc_after": 255,
+    "socket_after": "removed",
+    "master_running_after": true,
+    "master_comm_after": "ssh: [stopped mux]"
+  },
+  "master_running_after_hp1": false,
+  "master_running_1s_after_preconnected_client_closed": false,
+  "exit": 0,
+  "finished_at": "2026-10-03T18:58:10Z"
+}

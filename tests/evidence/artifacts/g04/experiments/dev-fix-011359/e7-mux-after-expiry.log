@@ -1,0 +1,112 @@
+[2026-10-03T01:14:14Z] BEGIN e7-mux-after-expiry run_stamp=dev-fix-011359 run_id=011414-63716
+[2026-10-03T01:14:14Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T01:14:14Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T01:14:14Z] FACT docker_server = 29.8.1
+[2026-10-03T01:14:14Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T01:14:14Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.034
+[2026-10-03T01:14:14Z] dedicated ssh-agent started: pid=63832 ident='Fri Oct 2 21:14:14 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T01:14:14Z] certificate g04-e7-011414-63716: id="g04-e7-011414-63716" principals=p-host1 valid=[from 2026-10-02T21:13:14 to 2026-10-02T21:14:29] ca=ED25519 SHA256:wuFjPe1mwcB2fKxy4EB1SNwbW6CCc0xF8fc4KXNE+J0 (using ssh-ed25519)
+[2026-10-03T01:14:14Z] certificate g04-e7-p4-011414-63716: id="g04-e7-p4-011414-63716" principals=p-host1 valid=[from 2026-10-02T21:13:14 to 2026-10-02T21:44:14] ca=ED25519 SHA256:wuFjPe1mwcB2fKxy4EB1SNwbW6CCc0xF8fc4KXNE+J0 (using ssh-ed25519)
+[2026-10-03T01:14:14Z] FACT cert_valid_before_epoch = 1790990069
+[2026-10-03T01:14:14Z] FACT control_persist = 10m
+[2026-10-03T01:14:14Z] $ (ssh-add -t 1800 k7) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 1800 <tmp>/k7
+    | Identity added: <tmp>/k7 (g04-e7-k-011414-63716)
+    | Lifetime set to 00:30:00
+    rc=0 t_start=1790990054.385 t_end=1790990054.395
+[2026-10-03T01:14:14Z] $ (start master cm) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/cm -o ControlPersist=10m -N -f g-ca1
+    rc=0 t_start=1790990054.452 t_end=1790990054.513
+[2026-10-03T01:14:14Z] master started: pid=63952 lstart='Fri Oct 2 21:14:14 2026' comm='/usr/bin/ssh' controlpath=<tmp>/cm persist=10m
+[2026-10-03T01:14:14Z] PASS E7-master-authenticated | expected: master started; exactly 1 Accepted line with the short-lived cert ID | observed: master_pid=63952 accepted=1
+[2026-10-03T01:14:14Z] S1 started through the master: pid=64013 ident='Fri Oct 2 21:14:14 2026' remote loop until epoch 1790990129
+[2026-10-03T01:14:16Z] $ (P1 new mux session before expiry) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=<tmp>/cm g-ca1 echo p1-mux-ok
+    | p1-mux-ok
+    rc=0 t_start=1790990056.964 t_end=1790990056.985
+[2026-10-03T01:14:17Z] PASS E7-P1-mux-before-expiry | expected: rc 0 via the master: no new TCP connection, no new Accepted line | observed: rc=0 out=p1-mux-ok new_connections=0 new_accepted=0
+[2026-10-03T01:14:17Z] waiting 22 s (until epoch 1790990079)
+[2026-10-03T01:14:39Z] FACT clock_ca1_phase2 = offset_s=0.016 rtt_s=0.056
+[2026-10-03T01:14:39Z] $ (P2a fresh login after expiry) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=none g-ca1 true
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990079.503 t_end=1790990079.549
+[2026-10-03T01:14:39Z] server log hm-m00t03-ca1 (P2a), new lines:
+    > Connection from 172.18.0.1 port 55900 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 55900 ssh2: ED25519-CERT SHA256:N4qiU6oVhPLUI7tc0bQ/CSqtjUlAYitJMHqha//Sm7s ID g04-e7-011414-63716 (serial 0) CA ED25519 SHA256:wuFjPe1mwcB2fKxy4EB1SNwbW6CCc0xF8fc4KXNE+J0
+    > Failed publickey for cert from 172.18.0.1 port 55900 ssh2: ED25519 SHA256:N4qiU6oVhPLUI7tc0bQ/CSqtjUlAYitJMHqha//Sm7s
+    > Connection closed by authenticating user cert 172.18.0.1 port 55900 [preauth]
+[2026-10-03T01:14:39Z] PASS E7-P2a-fresh-login-rejected | expected: rc 255; server logs 'Certificate invalid: expired' for the cert ID | observed: rc=255 expired_lines=1 failed_with_id=1
+[2026-10-03T01:14:40Z] $ (P2b new mux session after expiry) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=<tmp>/cm g-ca1 echo p2-mux-after-expiry
+    | p2-mux-after-expiry
+    rc=0 t_start=1790990079.998 t_end=1790990080.011
+[2026-10-03T01:14:40Z] server log hm-m00t03-ca1 (P2b), new lines:
+    > Starting session: command for cert from 172.18.0.1 port 65156 id 1
+    > Close session: user cert from 172.18.0.1 port 65156 id 1
+[2026-10-03T01:14:40Z] CONFIRMED H1-mux-admitted-after-expiry | hypothesis: new multiplexed session admitted after valid_before, with no new connection or authentication | observed: rc=0 out=p2-mux-after-expiry new_connections=0 new_accepted=0
+[2026-10-03T01:14:40Z] $ (P2b2 new mux session after expiry, client has no usable authentication) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=<tmp>/cm -o PubkeyAuthentication=no g-ca1 echo p2b2-mux
+    | p2b2-mux
+    rc=0 t_start=1790990080.442 t_end=1790990080.456
+[2026-10-03T01:14:40Z] CONFIRMED H1b-mux-needs-no-client-credential | hypothesis: a client with PubkeyAuthentication=no (cannot authenticate at all) is admitted through the master after expiry | observed: rc=0 out=p2b2-mux
+[2026-10-03T01:14:40Z] PASS E7-P2c-S1-alive-after-expiry | expected: S1 still running and printing heartbeats after valid_before | observed: heartbeats_since_valid_before=3 s1_running=yes
+[2026-10-03T01:14:40Z] $ (P3 ssh -O stop) /usr/bin/ssh -F <tmp>/cfg -S <tmp>/cm -O stop g-ca1
+    | Stop listening request sent.
+    rc=0 t_start=1790990080.502 t_end=1790990080.512
+[2026-10-03T01:14:41Z] FACT P3_stop = rc=0 out=[Stop listening request sent.] master_running_after_stop=yes master_ps_comm_after_stop=[ssh: [stopped mux]] control_socket=removed
+[2026-10-03T01:14:41Z] $ (P3a -O check after stop) /usr/bin/ssh -F <tmp>/cfg -S <tmp>/cm -O check g-ca1
+    | Control socket connect(<tmp>/cm): No such file or directory
+    rc=255 t_start=1790990081.074 t_end=1790990081.086
+[2026-10-03T01:14:41Z] CONFIRMED H2a-check-fails-after-stop | hypothesis: -O check fails after -O stop; control socket removed | observed: stop_rc=0 check_rc=255 check_out=[Control socket connect(<tmp>/cm): No such file or directory] socket=removed
+[2026-10-03T01:14:41Z] $ (P3b new client with the old ControlPath after stop) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=<tmp>/cm g-ca1 echo p3b
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990081.136 t_end=1790990081.181
+[2026-10-03T01:14:41Z] server log hm-m00t03-ca1 (P3b), new lines:
+    > Connection from 172.18.0.1 port 55902 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 55902 ssh2: ED25519-CERT SHA256:N4qiU6oVhPLUI7tc0bQ/CSqtjUlAYitJMHqha//Sm7s ID g04-e7-011414-63716 (serial 0) CA ED25519 SHA256:wuFjPe1mwcB2fKxy4EB1SNwbW6CCc0xF8fc4KXNE+J0
+    > Failed publickey for cert from 172.18.0.1 port 55902 ssh2: ED25519 SHA256:N4qiU6oVhPLUI7tc0bQ/CSqtjUlAYitJMHqha//Sm7s
+    > Connection closed by authenticating user cert 172.18.0.1 port 55902 [preauth]
+[2026-10-03T01:14:41Z] CONFIRMED H2b-new-client-falls-back-to-fresh-auth | hypothesis: after stop, a client with the old ControlPath opens a NEW connection, is rejected (expired), rc 255 | observed: rc=255 out=[cert@127.0.0.1: Permission denied (publickey).] new_connections=1 expired_lines=1 new_accepted=0
+[2026-10-03T01:14:41Z] $ (P3b2 same, client has no usable authentication) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=<tmp>/cm -o PubkeyAuthentication=no g-ca1 echo p3b2
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990081.627 t_end=1790990081.654
+[2026-10-03T01:14:41Z] CONFIRMED H2b2-no-admission-via-master-after-stop | hypothesis: client with PubkeyAuthentication=no is NOT admitted after stop (rc 255) | observed: rc=255 out=[cert@127.0.0.1: Permission denied (publickey).]
+    S1 stdout (remote heartbeat epochs):
+    | 1790990054
+    | 1790990059
+    | 1790990064
+    | 1790990069
+    | 1790990074
+    | 1790990079
+    | 1790990084
+    | 1790990089
+    | 1790990094
+    | 1790990099
+    | 1790990104
+    | 1790990110
+    | 1790990115
+    | 1790990120
+    | 1790990125
+    | S1-END
+    S1 stderr:
+    S1 rc=0
+[2026-10-03T01:15:30Z] CONFIRMED H2c-open-session-continues-after-stop | hypothesis: S1 keeps running >= 30 s after -O stop and ends normally | observed: s1_rc=0 heartbeats_after_stop=9 last_heartbeat_minus_stop_s=44 s1_end_marker=1
+[2026-10-03T01:15:30Z] FACT P3d_master = exited about 0 s (poll granularity 0.5 s) after S1 ended
+[2026-10-03T01:15:30Z] CONFIRMED H2d-master-exits-after-last-session | hypothesis: after -O stop the master exits when its last session ends, despite ControlPersist=10m | observed: exited_within_0s
+[2026-10-03T01:15:30Z] $ (start master cm2) /usr/bin/ssh -F <tmp>/cfg4 -o ControlMaster=yes -o ControlPath=<tmp>/cm2 -o ControlPersist=10m -N -f g-ca1
+    rc=0 t_start=1790990130.718 t_end=1790990130.778
+[2026-10-03T01:15:30Z] master started: pid=67450 lstart='Fri Oct 2 21:15:30 2026' comm='/usr/bin/ssh' controlpath=<tmp>/cm2 persist=10m
+[2026-10-03T01:15:37Z] FACT P4_before_exit = remote cert-owned processes: bash:1 sleep:1 sshd-session:1 ; S2 heartbeats so far: 3
+[2026-10-03T01:15:37Z] $ (P4 ssh -O exit) /usr/bin/ssh -F <tmp>/cfg4 -S <tmp>/cm2 -O exit g-ca1
+    | Exit request sent.
+    rc=0 t_start=1790990137.898 t_end=1790990137.912
+    S2 stdout:
+    | 1790990130
+    | 1790990133
+    | 1790990136
+    S2 stderr:
+    S2 rc=255
+[2026-10-03T01:15:45Z] $ (P4 new client after -O exit (no usable auth)) /usr/bin/ssh -F <tmp>/cfg4 -o ControlMaster=no -o ControlPath=<tmp>/cm2 -o PubkeyAuthentication=no g-ca1 true
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990145.010 t_end=1790990145.037
+[2026-10-03T01:15:45Z] CONFIRMED H3-exit-closes-master-and-sessions | hypothesis: -O exit: master gone, open session S2 terminated (no heartbeats after exit, no normal end), socket removed, later client not admitted | observed: exit_rc=0 master_running_3s_after=no s2_running_3s_after=no s2_rc=255 s2_heartbeats_after_exit=0 s2_normal_end=0 socket=removed new_client_rc=255
+[2026-10-03T01:15:45Z] FACT P4_remote_processes = before -O exit: [bash:1 sleep:1 sshd-session:1 ] ; 7 s after: [bash:1 sleep:1 ]
+[2026-10-03T01:15:45Z] cleanup agent pid=63832: terminated socket_removed
+[2026-10-03T01:15:45Z] END e7-mux-after-expiry exit=0 checks=4 fails=0

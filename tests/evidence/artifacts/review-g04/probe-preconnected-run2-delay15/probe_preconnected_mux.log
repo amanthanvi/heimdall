@@ -1,0 +1,31 @@
+[2026-10-03T18:58:22Z] dedicated agent pid=3989 lstart='Sat Oct 3 14:58:22 2026' comm='/usr/bin/ssh-agent' socket=<tmp>/agent.sock
+[2026-10-03T18:58:22Z] $ (ssh-add key (+cert) -t 600) /usr/bin/ssh-add -t 600 <tmp>/k
+    | Identity added: <tmp>/k (review-g04-preconn)
+    | Lifetime set to 00:10:00
+    | Certificate added: <tmp>/k-cert.pub (review-g04-preconn-1791053902)
+    | Lifetime set to 00:05:40
+    rc=0 t_start=1791053902.914 t_end=1791053902.919
+[2026-10-03T18:58:22Z] $ (start master (ControlPersist=10m)) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/cm -o ControlPersist=10m -N -f g-ca1
+    | 
+    rc=0 t_start=1791053902.941 t_end=1791053902.977
+[2026-10-03T18:58:22Z] $ (-O check) /usr/bin/ssh -F <tmp>/cfg -S <tmp>/cm -O check g-ca1
+    | Master running (pid=4001)
+    rc=0 t_start=1791053902.977 t_end=1791053902.982
+[2026-10-03T18:58:23Z] master pid=4001 lstart='Sat Oct 3 14:58:22 2026' accepted_lines_with_id=1
+[2026-10-03T18:58:23Z] HC2 {'confirmed': True, 'observed': 'reply=MUX_S_SESSION_OPENED exit=0 out=REVIEW-RAW-MUX-BEFORE-STOP new_accepted=0 new_connections=0 mux_version=4'}
+[2026-10-03T18:58:23Z] pre-connected control client: hello exchanged, idle
+[2026-10-03T18:59:07Z] $ (fresh login after valid_before (control)) /usr/bin/ssh -F <tmp>/cfg g-ca1 true
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053947.210 t_end=1791053947.257
+[2026-10-03T18:59:07Z] $ (-O stop) /usr/bin/ssh -F <tmp>/cfg -S <tmp>/cm -O stop g-ca1
+    | Stop listening request sent.
+    rc=0 t_start=1791053947.597 t_end=1791053947.604
+[2026-10-03T18:59:08Z] $ (-O check after stop) /usr/bin/ssh -F <tmp>/cfg -S <tmp>/cm -O check g-ca1
+    | Control socket connect(<tmp>/cm): No such file or directory
+    rc=255 t_start=1791053948.110 t_end=1791053948.124
+[2026-10-03T18:59:08Z] stop: {'rc': 0, 'check_rc_after': 255, 'socket_after': 'removed', 'master_running_after': True, 'master_comm_after': 'ssh: [stopped mux]'}
+[2026-10-03T18:59:08Z] $ (HC1 new client after stop, PubkeyAuthentication=no) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=<tmp>/cm -o PubkeyAuthentication=no g-ca1 echo HC1-ADMITTED
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053948.164 t_end=1791053948.184
+[2026-10-03T18:59:23Z] HP1 {'confirmed': True, 'observed': 'request_sent_s_after_stop_returned=15.026 reply=MUX_S_SESSION_OPENED exit=0 stdout=[REVIEW-PRECONNECTED-ADMITTED-AFTER-STOP | cert] error=None new_accepted=0 new_connections=0 cert_valid_before_minus_request_s=-20.6'}
+[2026-10-03T18:59:24Z] cleanup {'master': 'already_exited', 'agent': 'terminated', 'tempdir': 'removed'} exit=0

@@ -1,0 +1,29 @@
+{
+  "case_id": "G04-linux-desktop-lock-availability",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-CR-03",
+    "R-EN-04"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "Linux",
+    "required": "Linux desktop host (GNOME or KDE) with a graphical session and Secret Service, using a disposable test user (never the owner's real keyring)"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned (not yet implemented): every few seconds record secret-tool lookup of a disposable item, keyctl read of a disposable user-keyring key, and a signature through a dedicated ssh-agent; owner locks the session (loginctl lock-session or desktop shortcut) for >= 60 s; see docs/research/g04-managed-credentials.md section 8.2 P-L1"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Container results cannot stand in for desktop-session evidence."
+  ],
+  "blocked_on": "Linux desktop host with a graphical user session and an owner to lock/unlock it (Docker containers on this Mac are not a desktop session)"
+}

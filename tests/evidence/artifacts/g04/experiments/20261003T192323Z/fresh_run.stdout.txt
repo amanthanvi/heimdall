@@ -1,0 +1,39 @@
+== down-pre start 2026-10-03T19:23:23Z
+== down-pre exit=0 2026-10-03T19:23:24Z
+== up start 2026-10-03T19:23:24Z
+== up exit=0 2026-10-03T19:23:26Z
+== smoke start 2026-10-03T19:23:26Z
+== smoke exit=0 2026-10-03T19:23:39Z
+== run_all start 2026-10-03T19:23:39Z stamp=20261003T192323Z
+== e1_dedicated_agent start 19:23:39Z
+== e1_dedicated_agent exit=0 19:25:44Z
+== e2_cert_expiry start 19:25:44Z
+== e2_cert_expiry exit=0 19:32:30Z
+== e3_principal_scope start 19:32:30Z
+== e3_principal_scope exit=0 19:32:37Z
+== e4_account_ca_principals start 19:32:37Z
+== e4_account_ca_principals exit=0 19:32:41Z
+== enroll_marker_key start 19:32:41Z
+== enroll_marker_key exit=0 19:32:44Z
+== e5_issuer_separation start 19:32:44Z
+== e5_issuer_separation exit=0 19:33:49Z
+== e6_fresh_login_verification start 19:33:49Z
+== e6_fresh_login_verification exit=0 19:33:51Z
+== e7_mux_after_expiry start 19:33:51Z
+== e7_mux_after_expiry exit=0 19:36:50Z
+== e7_mux_preconnected start 19:36:50Z
+== e7_mux_preconnected exit=0 19:37:57Z
+== e7_mux_stop_race start 19:37:57Z
+== e7_mux_stop_race exit=0 19:38:15Z
+== run_all exit=0 2026-10-03T19:38:15Z
+e1_dedicated_agent 0
+e2_cert_expiry 0
+e3_principal_scope 0
+e4_account_ca_principals 0
+enroll_marker_key 0
+e5_issuer_separation 0
+e6_fresh_login_verification 0
+e7_mux_after_expiry 0
+e7_mux_preconnected 0
+e7_mux_stop_race 0
+fresh_run exit=0

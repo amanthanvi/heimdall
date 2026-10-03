@@ -1,0 +1,67 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.008 rtt_s=0.032
+FACT	iterations	50
+FACT	control_persist_s	3
+FACT	delay_ranges_ms	client 0-60, stop 0-40 (uniform, $RANDOM)
+FACT	race_counts	masters_started=50 admitted_after_stop_returned=0 admitted_started_during_stop=1 admitted_started_before_stop=18 not_admitted=31 (started_after_stop_returned=25 started_during_stop=6 started_before_stop=0; fresh-connection publickey denial=31; other=[none]) stop_rc_nonzero=0
+FACT	masters_after_stop	exited_on_their_own=50 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+FACT	server_accepted	with_race_id=50 any=50 (expected: one per master; clients cannot authenticate)
+CHECK	E7R-harness	all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself)	masters=50/50 stop_rc_nonzero=0 accepted_with_id=50 accepted_any=50	PASS
+CHECK	E7R-post-stop-clients-exercised	at least 5 clients started after the -O stop call returned (otherwise the race says nothing about post-stop admission)	clients_started_after_stop_returned=25 of 50	PASS
+OBS	E7R-no-admission-after-stop-returned	no client that started after -O stop returned (MUX_S_OK received) was admitted through the master	violations=0 of 25 clients that started after stop returned (not admitted: 25); started during stop: admitted=1 not_admitted=6; started before stop: admitted=18 not_admitted=0; masters=50	CONFIRMED
+CLEANUP	master pid=63510	not_running
+CLEANUP	master pid=63570	not_running
+CLEANUP	master pid=63630	not_running
+CLEANUP	master pid=63690	not_running
+CLEANUP	master pid=63757	not_running
+CLEANUP	master pid=63819	not_running
+CLEANUP	master pid=63884	not_running
+CLEANUP	master pid=63947	not_running
+CLEANUP	master pid=64007	not_running
+CLEANUP	master pid=64068	not_running
+CLEANUP	master pid=64128	not_running
+CLEANUP	master pid=64188	not_running
+CLEANUP	master pid=64248	not_running
+CLEANUP	master pid=64308	not_running
+CLEANUP	master pid=64368	not_running
+CLEANUP	master pid=64428	not_running
+CLEANUP	master pid=64488	not_running
+CLEANUP	master pid=64548	not_running
+CLEANUP	master pid=64608	not_running
+CLEANUP	master pid=64668	not_running
+CLEANUP	master pid=64728	not_running
+CLEANUP	master pid=64788	not_running
+CLEANUP	master pid=64848	not_running
+CLEANUP	master pid=64908	not_running
+CLEANUP	master pid=64968	not_running
+CLEANUP	master pid=65028	not_running
+CLEANUP	master pid=65093	not_running
+CLEANUP	master pid=65153	not_running
+CLEANUP	master pid=65215	not_running
+CLEANUP	master pid=65275	not_running
+CLEANUP	master pid=65340	not_running
+CLEANUP	master pid=65400	not_running
+CLEANUP	master pid=65460	not_running
+CLEANUP	master pid=65520	not_running
+CLEANUP	master pid=65580	not_running
+CLEANUP	master pid=65640	not_running
+CLEANUP	master pid=65700	not_running
+CLEANUP	master pid=65760	not_running
+CLEANUP	master pid=65820	not_running
+CLEANUP	master pid=65880	not_running
+CLEANUP	master pid=65940	not_running
+CLEANUP	master pid=66000	not_running
+CLEANUP	master pid=66068	not_running
+CLEANUP	master pid=66128	not_running
+CLEANUP	master pid=66190	not_running
+CLEANUP	master pid=66250	not_running
+CLEANUP	master pid=66310	not_running
+CLEANUP	master pid=66370	not_running
+CLEANUP	master pid=66430	not_running
+CLEANUP	master pid=66490	not_running
+CLEANUP	agent pid=63399	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=2	fails=0

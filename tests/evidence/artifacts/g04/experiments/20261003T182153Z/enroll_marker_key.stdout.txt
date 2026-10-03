@@ -1,0 +1,39 @@
+[2026-10-03T18:31:10Z] BEGIN enroll-marker-key run_stamp=20261003T182153Z run_id=183110-52580
+[2026-10-03T18:31:11Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:31:11Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:31:11Z] FACT docker_server = 29.8.1
+[2026-10-03T18:31:11Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:31:11Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.034
+[2026-10-03T18:31:11Z] dedicated ssh-agent started: pid=52706 ident='Sat Oct 3 14:31:11 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:31:11Z] FACT marker_key_fp = SHA256:GDcuePsgdQ/MSIoOOZ2tQncSd5OqlWI6RqLGB1HevGY
+[2026-10-03T18:31:11Z] FACT admin_key_fp = SHA256:YiXRtaFDYIu7ZfsYpxLUaVIIsNwMSuO7W0xIhZy3VAY
+[2026-10-03T18:31:11Z] ssh-add -t 900 km -> rc=0
+[2026-10-03T18:31:11Z] ssh-add -l (<tmp>/agent/agent.sock) -> rc=0
+[2026-10-03T18:31:11Z] FACT agent_contents = 256 SHA256:GDcuePsgdQ/MSIoOOZ2tQncSd5OqlWI6RqLGB1HevGY heimdall-g04-exp-marker-183110-52580 (ED25519)
+[2026-10-03T18:31:11Z] verification config (ssh -G) -> rc=0
+[2026-10-03T18:31:11Z] PASS ENR-verification-config | expected: only the marker key; identitiesonly yes; no mux; publickey only; no password/kbd fallback; dedicated agent | observed: identityfile <tmp>/km.pub identitiesonly=yes controlmaster=false controlpath=<absent> preferred=publickey password=no kbd=no identityagent=<tmp>/agent/agent.sock
+[2026-10-03T18:31:11Z] registry fetch (preimage): rc=0 bytes=792 lines=9 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc err=[]
+[2026-10-03T18:31:11Z] PASS ENR-preimage-is-seed | expected: registry readable via the existing path; equals the fixture seed | observed: rc=0 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc
+[2026-10-03T18:31:11Z] marker-before-enrollment -> rc=255
+[2026-10-03T18:31:11Z] PASS ENR-marker-before-enrollment | expected: rc 255; exactly one key offered (the marker key); no Accepted line | observed: rc=255 offered_keys=1 offered_marker=1 accepted_marker=0 accepted_any=0
+[2026-10-03T18:31:12Z] add marker key line (CAS on preimage) -> rc=0
+[2026-10-03T18:31:12Z] PASS ENR-add-transaction | expected: rc 0 | observed: rc=0 out=POST sha256=b6cd8d94eae31ebc0b52659da4789f3c8bfced08ded3b6dc1ed669b4bbbd7d37 owner_mode=enroll:600
+[2026-10-03T18:31:12Z] registry fetch (after-add): rc=0 bytes=910 lines=10 sha256=b6cd8d94eae31ebc0b52659da4789f3c8bfced08ded3b6dc1ed669b4bbbd7d37 err=[]
+[2026-10-03T18:31:12Z] PASS ENR-added-alongside | expected: after-add bytes == preimage + marker line (existing entries untouched) | observed: cmp_rc=0
+[2026-10-03T18:31:12Z] marker-fresh-auth -> rc=0
+[2026-10-03T18:31:12Z] PASS ENR-marker-fresh-auth | expected: rc 0; exactly one key offered (the marker key); exactly 1 new Accepted line with the marker fingerprint | observed: rc=0 offered_keys=1 offered_marker=1 accepted_marker=1 accepted_any=1
+[2026-10-03T18:31:12Z] registry fetch (existing path still works): rc=0 bytes=910 lines=10 sha256=b6cd8d94eae31ebc0b52659da4789f3c8bfced08ded3b6dc1ed669b4bbbd7d37 err=[]
+[2026-10-03T18:31:12Z] PASS ENR-existing-access-survives | expected: pre-existing working key still authenticates | observed: rc=0
+[2026-10-03T18:31:12Z] concurrent admin append -> rc=0
+[2026-10-03T18:31:12Z] PASS ENR-concurrent-edit-applied | expected: rc 0 | observed: rc=0
+[2026-10-03T18:31:12Z] remove marker line only -> rc=0
+[2026-10-03T18:31:12Z] PASS ENR-remove-transaction | expected: rc 0; exactly one marker line matched | observed: rc=0 out=POST sha256=9d8b75d18d08864bfbdc936a6a50e534136508f04dae0c6f23cd58dd7e421893 owner_mode=enroll:600
+[2026-10-03T18:31:12Z] registry fetch (after-remove): rc=0 bytes=833 lines=10 sha256=9d8b75d18d08864bfbdc936a6a50e534136508f04dae0c6f23cd58dd7e421893 err=[]
+[2026-10-03T18:31:12Z] PASS ENR-unrelated-bytes-identical | expected: after-remove bytes == preimage + concurrent admin line (every unrelated byte and the concurrent edit preserved; marker gone) | observed: cmp_rc=0 marker_present=no pre_lines=9 after_lines=10
+[2026-10-03T18:31:13Z] marker-after-removal -> rc=255
+[2026-10-03T18:31:13Z] PASS ENR-marker-after-removal | expected: rc 255; exactly one key offered (the marker key); no Accepted line | observed: rc=255 offered_keys=1 offered_marker=1 accepted_marker=0 accepted_any=0
+[2026-10-03T18:31:13Z] fixture restore: remove concurrent admin line -> rc=0
+[2026-10-03T18:31:13Z] registry fetch (final): rc=0 bytes=792 lines=9 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc err=[]
+[2026-10-03T18:31:13Z] PASS ENR-seed-restored | expected: sha256 == seed; owner:mode enroll:600; no hm-g04 temp files | observed: sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc owner_mode_tmpcount=[enroll:600 0]
+[2026-10-03T18:31:13Z] cleanup agent pid=52706: terminated socket_removed
+[2026-10-03T18:31:13Z] END enroll-marker-key exit=0 checks=12 fails=0

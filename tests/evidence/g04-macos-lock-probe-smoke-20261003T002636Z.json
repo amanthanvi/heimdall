@@ -1,0 +1,102 @@
+{
+  "case_id": "G04-macos-lock-probe-smoke",
+  "status": "in_progress",
+  "requirement_ids": [],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": "sha256:b7212571fe3d2b3676559ee23c8cfff2491c8c587f27448423e483904abed72e (tests/native/macos/g04_lock_probe.sh as run)",
+  "environment": {
+    "platform": "macOS",
+    "os_version": "27.0",
+    "os_build": "26A428",
+    "arch": "arm64",
+    "hardware_model": "Mac17,6",
+    "bash": "3.2.57(1)-release",
+    "native_host": true,
+    "human_driven_lock": false
+  },
+  "provider_versions": [
+    {
+      "component": "ssh-agent, ssh-add, ssh-keygen, ssh (/usr/bin)",
+      "version": "OpenSSH_10.3p1, LibreSSL 3.3.6"
+    },
+    {
+      "component": "file-based custom keychain via /usr/bin/security",
+      "version": "macOS 27.0 (26A428)"
+    }
+  ],
+  "started_at": "2026-10-03T00:26:36Z",
+  "commands_or_harness": [
+    "tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 30",
+    "setup: security -i (stdin) create-keychain in temp dir; security set-keychain-settings (no auto-lock); security -i (stdin) add-generic-password with a random canary",
+    "setup: HOME=<tmp> /usr/bin/ssh-agent -U -a <tmp>/agent.sock; ssh-keygen -t ed25519; ssh-add -t 14400 <key>; rm <private key file>",
+    "per sample: ssh-add -T <pub>; ssh-keygen -Y sign -f <pub> via the dedicated agent, then -Y check-novalidate; security find-generic-password -w <tmp keychain> (compared in-process, never printed); ioreg IOConsoleLocked and CGSSessionScreenIsLocked only",
+    "fresh SSH login sampling not enabled (no --fixture-runtime)",
+    "cleanup: kill exact dedicated agent PID (comm+lstart re-checked); security delete-keychain <tmp keychain>; compare user search list and default keychain digests; rm -rf <tmp>"
+  ],
+  "observed_result": {
+    "verdict": "inconclusive",
+    "criterion": "Smoke (harness check, screen unlocked, no lock): the dedicated agent signs and the disposable keychain item reads in every sample; with --fixture-runtime also a fresh SSH login to ca1 succeeds in every sample while the ca2 principal-mismatch and ca1 no-agent controls are refused. Validity: completed without interruption or setup failure, cleanup complete, no canary in artifacts.",
+    "summary": "INTERRUPTED before completion. Smoke run, screen unlocked, no lock exercised: dedicated agent signing=available_all_samples; disposable keychain read=available_all_samples; fresh SSH login=not_measured; 5 samples; cleanup_complete=true; canary_scan=clean.",
+    "mode": "smoke",
+    "probe_exit_code": 5,
+    "samples_total": 5,
+    "max_gap_between_samples_s": 3,
+    "interval_s": 2,
+    "lock_window_evidence": "not_applicable",
+    "lock_window_samples": 5,
+    "owner_lock_seconds_observed": null,
+    "outcomes_in_window": {
+      "dedicated_agent_signing": "available_all_samples",
+      "disposable_keychain_read": "available_all_samples",
+      "fresh_ssh_login": "not_measured"
+    },
+    "per_phase_counts": [
+      {
+        "phase": "smoke",
+        "samples": 5,
+        "agent_ok": 5,
+        "keychain_ok": 5,
+        "ssh_ok": 0
+      }
+    ],
+    "ssh_negative_controls": {
+      "ca2_principal_mismatch_rc": null,
+      "ca1_without_agent_rc": null,
+      "certificate": "none"
+    },
+    "owner_attestation": {
+      "screen_locked": "not_asked",
+      "probe_keychain_dialog_seen": "not_asked"
+    },
+    "disposable_keychain_settings": "no-timeout",
+    "cleanup": {
+      "sampler": "stopped",
+      "dedicated_agent": "terminated",
+      "agent_socket": "removed",
+      "keychain_file": "deleted",
+      "user_search_list": "unchanged",
+      "default_keychain": "unchanged",
+      "caffeinate": "terminated",
+      "temp_dir": "removed",
+      "complete": true
+    },
+    "canary_scan_of_artifacts": "clean",
+    "interrupted": true,
+    "setup_notes": "none"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g04/research/lock-probe/20261003T002636Z-smoke/samples.ndjson",
+    "tests/evidence/artifacts/g04/research/lock-probe/20261003T002636Z-smoke/samples.tsv",
+    "tests/evidence/artifacts/g04/research/lock-probe/20261003T002636Z-smoke/run.log"
+  ],
+  "limitations": [
+    "Measures a dedicated, script-started OpenSSH ssh-agent and a disposable file-based custom keychain only. Says nothing about the login keychain, the data-protection keychain, Secure Enclave/CTK keys, 1Password, or a launchd-supervised Heimdall signer.",
+    "Screen lock only. Logout, sleep, reboot and headless operation are separate probes (docs/research/g04-managed-credentials.md).",
+    "ioreg IOConsoleLocked / CGSSessionScreenIsLocked are undocumented IORegistry properties used only as corroboration; owner attestation is recorded separately.",
+    "The disposable keychain has auto-lock disabled (no timeout, no lock-on-sleep), so any lock observed is attributable to OS behavior at screen lock, not to keychain settings.",
+    "On macOS 26.4+ a keychain file may reference a protected entropy file in /var/db/SystemKeys (Apple TN3137); whether delete-keychain removes it cannot be inspected without disabling SIP.",
+    "Status verified means the measurement is valid (lock window established, cleanup complete, no canary in artifacts). Availability itself is reported in observed_result.outcomes_in_window and may be negative.",
+    "Post-hoc correction 2026-10-03 (task M00-T04-G04-fix, after review M00-review-g04): observed_result.verdict and criterion added and requirement_ids ['R-CR-02', 'R-CR-03', 'R-EN-04'] removed, per the gate-probe convention in tests/evidence/README.md (a smoke run is a harness check: no screen lock was exercised and it is not evidence for any product requirement). The verdict was derived from the observations already in this record, using the criterion that g04_lock_probe.sh v2 applies; status and all observations are unchanged. The record was produced by probe v1 (artifact_digest)."
+  ],
+  "blocked_on": null
+}

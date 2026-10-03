@@ -1,0 +1,17 @@
+iter	delay_client_ms	delay_stop_ms	client_t0	client_t1	client_rc	stop_t0	stop_t1	stop_rc	class	client_err
+1	25	33	1791051681.556	1791051681.569	0	1791051681.564	1791051681.574	0	admitted_started_before_stop	
+2	38	29	1791051681.722	1791051681.749	255	1791051681.712	1791051681.722	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+3	7	36	1791051681.856	1791051681.867	0	1791051681.888	1791051681.899	0	admitted_started_before_stop	
+4	46	20	1791051682.049	1791051682.078	255	1791051682.024	1791051682.034	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+5	7	3	1791051682.200	1791051682.224	255	1791051682.196	1791051682.205	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+6	15	32	1791051682.338	1791051682.351	0	1791051682.357	1791051682.367	0	admitted_started_before_stop	
+7	38	14	1791051682.505	1791051682.534	255	1791051682.481	1791051682.490	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+8	27	7	1791051682.661	1791051682.688	255	1791051682.640	1791051682.649	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+9	42	23	1791051682.832	1791051682.859	255	1791051682.814	1791051682.825	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+10	33	7	1791051682.993	1791051683.018	255	1791051682.966	1791051682.975	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+11	54	4	1791051683.170	1791051683.199	255	1791051683.117	1791051683.126	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+12	3	25	1791051683.304	1791051683.315	0	1791051683.331	1791051683.340	0	admitted_started_before_stop	
+13	0	36	1791051683.439	1791051683.450	0	1791051683.479	1791051683.489	0	admitted_started_before_stop	
+14	24	40	1791051683.618	1791051683.633	0	1791051683.634	1791051683.644	0	admitted_started_before_stop	
+15	6	15	1791051683.757	1791051683.769	0	1791051683.767	1791051683.777	0	admitted_started_before_stop	
+16	56	25	1791051683.938	1791051683.969	255	1791051683.907	1791051683.917	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).

@@ -1,0 +1,33 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.007 rtt_s=0.033
+FACT	iterations	16
+FACT	control_persist_s	3
+FACT	delay_ranges_ms	client 0-60, stop 0-40 (uniform, $RANDOM)
+FACT	race_counts	masters_started=16 admitted_after_stop_returned=0 admitted_started_during_stop=0 admitted_started_before_stop=7 not_admitted=9 (started_after_stop_returned=7 started_during_stop=2 started_before_stop=0; fresh-connection publickey denial=9; other=[none]) stop_rc_nonzero=0
+FACT	masters_after_stop	exited_on_their_own=16 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+FACT	server_accepted	with_race_id=16 any=16 (expected: one per master; clients cannot authenticate)
+CHECK	E7R-harness	all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself)	masters=16/16 stop_rc_nonzero=0 accepted_with_id=16 accepted_any=16	PASS
+CHECK	E7R-post-stop-clients-exercised	at least 5 clients started after the -O stop call returned (otherwise the race says nothing about post-stop admission)	clients_started_after_stop_returned=7 of 16	PASS
+OBS	E7R-no-admission-after-stop-returned	no client that started after -O stop returned (MUX_S_OK received) was admitted through the master	violations=0 of 7 clients that started after stop returned (not admitted: 7); started during stop: admitted=0 not_admitted=2; started before stop: admitted=7 not_admitted=0; masters=16	CONFIRMED
+CLEANUP	master pid=30204	not_running
+CLEANUP	master pid=30283	not_running
+CLEANUP	master pid=30343	not_running
+CLEANUP	master pid=30404	not_running
+CLEANUP	master pid=30464	not_running
+CLEANUP	master pid=30524	not_running
+CLEANUP	master pid=30610	not_running
+CLEANUP	master pid=30671	not_running
+CLEANUP	master pid=30731	not_running
+CLEANUP	master pid=30791	not_running
+CLEANUP	master pid=30863	not_running
+CLEANUP	master pid=30923	not_running
+CLEANUP	master pid=30990	not_running
+CLEANUP	master pid=31050	not_running
+CLEANUP	master pid=31110	not_running
+CLEANUP	master pid=31170	not_running
+CLEANUP	agent pid=30076	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=2	fails=0

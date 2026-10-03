@@ -1,0 +1,30 @@
+{
+  "case_id": "G04-macos-logout-availability",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-EN-04",
+    "R-RT-07",
+    "R-AU-06"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "macOS",
+    "required": "native macOS host; owner logs out and back in"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned (not yet implemented): leave a disposable custom keychain and a launchd user agent signer from a temp location across logout; after re-login record whether the signer process survived (expected not), whether the keychain is locked, and what is needed to restore signing; see docs/research/g04-managed-credentials.md section 8.2 P2"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Probe script for this case is not implemented yet; design only."
+  ],
+  "blocked_on": "owner-driven macOS account logout and re-login cycle (cannot be performed by the agent; would also end the agent's own session)"
+}

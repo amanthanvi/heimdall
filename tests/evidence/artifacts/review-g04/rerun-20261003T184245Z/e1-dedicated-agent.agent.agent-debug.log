@@ -1,0 +1,75 @@
+debug1: new_socket: type = SOCKET
+debug2: fd 3 setting O_NONBLOCK
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 25
+debug2: process_add_identity: entering
+debug1: process_add_identity: add ssh-ed25519 SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc "g04-e1-kenv-184300-72995" (life: 120) (confirm: 0) (provider: none) (destination constraints: 0)
+debug1: process_message: socket 1 (fd=4) type 25
+debug2: process_add_identity: entering
+debug1: process_add_identity: add ssh-ed25519-cert-v01@openssh.com SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc "g04-e1-kenv-184300-72995" (life: 120) (confirm: 0) (provider: none) (destination constraints: 0)
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 11
+debug2: process_request_identities: entering
+debug1: process_request_identities: key 0 / 2: ssh-ed25519 SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+debug3: identity_permitted: entering: key ED25519 comment "g04-e1-kenv-184300-72995", 0 socket bindings, 0 constraints
+debug1: process_request_identities: key 1 / 2: ssh-ed25519-cert-v01@openssh.com SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+debug3: identity_permitted: entering: key ED25519-CERT comment "g04-e1-kenv-184300-72995", 0 socket bindings, 0 constraints
+debug2: process_request_identities: replying with 2 allowed of 2 available keys
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 27
+debug2: process_extension: entering
+debug2: process_ext_session_bind: entering
+debug1: process_ext_session_bind: recorded ED25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8 (slot 0 of 16)
+debug1: process_message: socket 1 (fd=4) type 11
+debug2: process_request_identities: entering
+debug1: process_request_identities: key 0 / 2: ssh-ed25519 SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+debug3: identity_permitted: entering: key ED25519 comment "g04-e1-kenv-184300-72995", 1 socket bindings, 0 constraints
+debug1: process_request_identities: key 1 / 2: ssh-ed25519-cert-v01@openssh.com SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+debug3: identity_permitted: entering: key ED25519-CERT comment "g04-e1-kenv-184300-72995", 1 socket bindings, 0 constraints
+debug2: process_request_identities: replying with 2 allowed of 2 available keys
+debug1: process_message: socket 1 (fd=4) type 13
+debug1: process_sign_request2: entering
+debug1: process_sign_request2: good signature
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 27
+debug2: process_extension: entering
+debug2: process_ext_session_bind: entering
+debug1: process_ext_session_bind: recorded ED25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8 (slot 0 of 16)
+debug1: process_message: socket 1 (fd=4) type 11
+debug2: process_request_identities: entering
+debug1: process_request_identities: key 0 / 2: ssh-ed25519 SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+debug3: identity_permitted: entering: key ED25519 comment "g04-e1-kenv-184300-72995", 1 socket bindings, 0 constraints
+debug1: process_request_identities: key 1 / 2: ssh-ed25519-cert-v01@openssh.com SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+debug3: identity_permitted: entering: key ED25519-CERT comment "g04-e1-kenv-184300-72995", 1 socket bindings, 0 constraints
+debug2: process_request_identities: replying with 2 allowed of 2 available keys
+debug1: process_message: socket 1 (fd=4) type 13
+debug1: process_sign_request2: entering
+debug1: process_sign_request2: good signature
+debug1: expiring key 'g04-e1-kenv-184300-72995'
+debug1: expiring key 'g04-e1-kenv-184300-72995'
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 11
+debug2: process_request_identities: entering
+debug2: process_request_identities: replying with 0 allowed of 0 available keys
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 13
+debug1: process_sign_request2: entering
+process_sign_request2: ED25519 key not found
+debug1: new_socket: type = CONNECTION
+debug3: fd 4 is O_NONBLOCK
+debug1: process_message: socket 1 (fd=4) type 27
+debug2: process_extension: entering
+debug2: process_ext_session_bind: entering
+debug1: process_ext_session_bind: recorded ED25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8 (slot 0 of 16)
+debug1: process_message: socket 1 (fd=4) type 11
+debug2: process_request_identities: entering
+debug2: process_request_identities: replying with 0 allowed of 0 available keys
+exiting on signal 15
+debug1: cleanup_socket: cleanup
+debug3: pkcs11_terminate: terminating 0 helpers

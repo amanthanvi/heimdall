@@ -1,0 +1,126 @@
+
+
+Projects/GnomeKeyring/Pam – GNOME Wiki Archive
+
+This site has been retired. For up to date information, see handbook.gnome.org or gitlab.gnome.org.
+
+Projects/GnomeKeyring/Pam
+
+[Home] [TitleIndex] [WordIndex] 
+
+Contents
+
+Gnome Keyring: Automatic Unlocking / PAM
+
+How it Works
+
+Configuring Gnome Keyring's PAM Support
+
+Options of the PAM module
+
+Advanced configuration 
+
+Gnome Keyring: Automatic Unlocking / PAM
+
+Gnome keyring can automatically unlock the 'login' keyring when the user logs in. Other keyrings or key storage may have their unlock passwords stored in the 'login' keyring, and are then automatically unlocked when necessary. 
+
+How it Works
+
+Upon authenticating the user, or logging into the session, the PAM module checks for the GNOME_KEYRING_CONTROL environment variable. If not present it assumes that gnome-keyring-daemon is not running for that session. 
+
+If the auto_start argument is present in the PAM config, it then starts it as a daemon. 
+
+If the only_if argument is present with parameters in the PAM config, then the auto_start argument is considered only if the process is in the list of parameters. For example, auto_start only_if=gdm,xdm will only start the daemon if the process is gdm or xdm. 
+Upon authenticating the user, the PAM module tries to unlock the 'login' keyring with the password entered by the user. 
+If the 'login' keyring does not exist it is created with the user's password. 
+If the 'login' is the first and only keyring it will become the default keyring. 
+
+When the PAM session is closed, if the PAM module started gnome-keyring-daemon it is killed. 
+When the user changes their password, the PAM module changes the password of the 'login' keyring to match. 
+
+Again, here gnome-keyring-daemon is started if necessary. 
+If root changes the password, or /etc/shadow is directly edited then due to the lack of the old password, the 'login' keyring cannot be updated. 
+If the 'login' keyring exists and is unlocked, then when the user is prompted to unlock any other keyring, a check box is presented: "Automatically unlock this on login" 
+This adds an item to the 'login' keyring with the password for the other keyring. 
+Before prompting the user to unlock a keyring, the 'login' keyring is checked to see if the user has stored a password there. 
+
+Configuring Gnome Keyring's PAM Support
+
+This is usually installed by default by a distro or OS distributor. 
+To check if your distro or OS has support for this: 
+
+# grep -rq pam_gnome_keyring.so /etc/pam.* && echo "Have PAM Support"
+To see if a 'login' keyring exists (it's created automatically): 
+
+# test -f ~/.gnome2/keyrings/login.keyring && echo "Have 'login' keyring"
+Beware that if you install configure this yourself, it's possible to lock yourself out of your machine. Make sure you know what you're doing, and how to fix any problems that arise. 
+These instructions are general, and may not work on your machine. You may be able to find more specific instructions on forums for your OS or distro. 
+First figure out where your PAM modules are located. Make note of the directory: 
+
+dirname `locate pam_unix.so`
+Build gnome-keyring with the PAM configure options. Use the PAM module directory as the argument for --with-pam-dir 
+
+# tar -zxvf gnome-keyring-2.*.tar.gz
+# cd gnome-keyring-2.*
+# ./configure --prefix=/usr --sysconfdir=/etc --enable-pam --with-pam-dir=/lib/security
+# make
+# sudo make install
+In /etc/pam.d/gdm, add lines like this at the end of the 'auth', 'session' blocks. The 'session' line below should come towards the end of the other 'session' lines. This allows other modules like the pam systemd module to setup environment variables. 
+
+auth optional pam_gnome_keyring.so
+...
+session optional pam_gnome_keyring.so auto_start
+In /etc/pam.d/gnome-screensaver, add a line like this to the 'auth' block: 
+
+auth optional pam_gnome_keyring.so
+In /etc/pam.d/passwd, add a line like this to the 'password' block: 
+
+password optional pam_gnome_keyring.so
+
+Options of the PAM module
+
+auto_start 
+valid for groups: auth, session, password 
+if present, start the gnome-keyring daemon if it's not already running. In the password case, the daemon will always be started, and will be stopped after the password has been changed unless this option is present (in which case, the daemon will stay). 
+
+only_if= 
+valid for groups: auth, session, password 
+
+parameters: list of services. Example: only_if=gdm,xdm 
+if present and the service running the PAM session is not in the list of parameters, then the PAM module won't do anything (start the gnome-keyring daemon, unlock the keyring, or change they keyring password). 
+
+use_authtok 
+valid for groups: password 
+the PAM module will use the provided new authentication token (new password) and will not request one from the user, even if none is available. 
+Detailed manual 
+
+Advanced configuration
+
+Distributions often integrate the pam_gnome_keyring.so configuration with their common PAM stack (with files such as /etc/pam.d/common-auth). However, some advanced usage of PAM might make it hard to use the PAM module. 
+Issue with sufficient 
+For example, let's consider the case where /etc/pam.d/gdm looks like: 
+
+auth include common-auth
+...
+and /etc/pam.d/common-auth looks like: 
+
+auth sufficient pam_winbind.so
+auth optional pam_gnome_keyring.so
+auth required pam_unix2.so
+The sufficient control value will make PAM return without evaluating the pam_gnome_keyring.so module if the authentication succeeds with pam_winbind.so. In such a case, the substack control value can be used to make sure that the pam_gnome_keyring.so module will have access to the right secret token. substack is only supported on Linux. 
+Potential solution 
+/etc/pam.d/gdm would then be: 
+
+auth include common-auth
+...
+/etc/pam.d/common-auth would look like: 
+
+auth substack real-common-auth
+auth optional pam_gnome_keyring.so
+/etc/pam.d/real-common-auth would look like: 
+
+auth sufficient pam_winbind.so
+auth required pam_unix2.so
+
+2024-10-23 11:37
+

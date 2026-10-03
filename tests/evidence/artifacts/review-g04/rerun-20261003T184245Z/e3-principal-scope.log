@@ -1,0 +1,857 @@
+[2026-10-03T18:51:51Z] BEGIN e3-principal-scope run_stamp=../../review-g04/rerun-20261003T184245Z run_id=185151-85994
+[2026-10-03T18:51:51Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:51:51Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:51:51Z] FACT docker_server = 29.8.1
+[2026-10-03T18:51:51Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:51:51Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.034
+[2026-10-03T18:51:51Z] dedicated ssh-agent started: pid=86120 ident='Sat Oct 3 14:51:51 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:51:51Z] certificate g04-e3-p1-185151-85994: id="g04-e3-p1-185151-85994" principals=p-host1 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] certificate g04-e3-p2-185151-85994: id="g04-e3-p2-185151-85994" principals=p-host2 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] certificate g04-e3-both-185151-85994: id="g04-e3-both-185151-85994" principals=p-host1,p-host2 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] certificate g04-e3-user-185151-85994: id="g04-e3-user-185151-85994" principals=cert valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] certificate g04-e3-rogue-185151-85994: id="g04-e3-rogue-185151-85994" principals=p-host1 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:ZTFq7OrObDXwspXaGjadqj1Z1h0XJ7NIETbeUhJ5gCI (using ssh-ed25519)
+[2026-10-03T18:51:51Z] FACT cert_p1 = id="g04-e3-p1-185151-85994" principals=p-host1 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] FACT cert_p2 = id="g04-e3-p2-185151-85994" principals=p-host2 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] FACT cert_both = id="g04-e3-both-185151-85994" principals=p-host1,p-host2 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] FACT cert_user = id="g04-e3-user-185151-85994" principals=cert valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:51Z] FACT cert_rogue = id="g04-e3-rogue-185151-85994" principals=p-host1 valid=[from 2026-10-03T18:50:51 to 2026-10-03T19:06:51] ca=ED25519 SHA256:ZTFq7OrObDXwspXaGjadqj1Z1h0XJ7NIETbeUhJ5gCI (using ssh-ed25519)
+[2026-10-03T18:51:51Z] $ (ssh-add -t 900 k) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 900 <tmp>/k
+    | Identity added: <tmp>/k (g04-e3-k-185151-85994)
+    | Lifetime set to 00:15:00
+    rc=0 t_start=1791053511.731 t_end=1791053511.740
+[2026-10-03T18:51:51Z] $ (ssh-add -l (<tmp>/agent/agent.sock)) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 g04-e3-k-185151-85994 (ED25519)
+    rc=0 t_start=1791053511.761 t_end=1791053511.770
+[2026-10-03T18:51:51Z] FACT agent_contents = 256 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 g04-e3-k-185151-85994 (ED25519)
+[2026-10-03T18:51:51Z] $ (p1 -> ca1) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/p1.pub g-ca1 echo e3-p1-ca1
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/p1.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/p1.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/p1.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Server accepts key: <tmp>/p1.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64772) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e3-p1-ca1
+    | debug1: pledge: fork
+    | e3-p1-ca1
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4532, received 4024 bytes, in 0.0 seconds
+    | Bytes per second: sent 2063752.3, received 1832422.6
+    | debug1: Exit status 0
+    rc=0 t_start=1791053511.831 t_end=1791053511.887
+[2026-10-03T18:51:52Z] server log hm-m00t03-ca1 (p1 -> ca1), new lines:
+    > Connection from 172.18.0.1 port 64984 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e3-p1-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 64984 ssh2 [preauth]
+    > Accepted certificate ID "g04-e3-p1-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 64984 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-p1-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 616
+    > Starting session: command for cert from 172.18.0.1 port 64984 id 0
+    > Received disconnect from 172.18.0.1 port 64984:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 64984
+[2026-10-03T18:51:52Z] PASS E3-p1-ca1 | expected: rc 0 with 1 Accepted line carrying ID g04-e3-p1 | observed: rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T18:51:52Z] $ (p1 -> ca2) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/p1.pub g-ca2 echo e3-p1-ca2
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 7: Applying options for g-ca2
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64773.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/p1.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64773 as 'cert'
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:ay+mK5xpPTICJ9gzZRMeCWwQnr2ZnyrtF810G6jVNi0
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: Host 'hm-ca2' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:4
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/p1.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/p1.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053512.375 t_end=1791053512.421
+[2026-10-03T18:51:52Z] server log hm-m00t03-ca2 (p1 -> ca2), new lines:
+    > Connection from 172.18.0.1 port 59286 on 172.18.0.5 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for cert from 172.18.0.1 port 59286 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-p1-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 59286 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 59286 [preauth]
+[2026-10-03T18:51:52Z] PASS E3-p1-ca2 | expected: rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:51:52Z] $ (p2 -> ca1) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/p2.pub g-ca1 echo e3-p2-ca1
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/p2.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/p2.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/p2.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053512.884 t_end=1791053512.930
+[2026-10-03T18:51:53Z] server log hm-m00t03-ca1 (p2 -> ca1), new lines:
+    > Connection from 172.18.0.1 port 64988 on 172.18.0.4 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for cert from 172.18.0.1 port 64988 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-p2-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 64988 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 64988 [preauth]
+[2026-10-03T18:51:53Z] PASS E3-p2-ca1 | expected: rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:51:53Z] $ (p2 -> ca2) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/p2.pub g-ca2 echo e3-p2-ca2
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 7: Applying options for g-ca2
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64773.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/p2.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64773 as 'cert'
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:ay+mK5xpPTICJ9gzZRMeCWwQnr2ZnyrtF810G6jVNi0
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: Host 'hm-ca2' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:4
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/p2.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/p2.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Server accepts key: <tmp>/p2.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64773) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e3-p2-ca2
+    | debug1: pledge: fork
+    | e3-p2-ca2
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4532, received 4024 bytes, in 0.0 seconds
+    | Bytes per second: sent 2256972.2, received 2003984.1
+    | debug1: Exit status 0
+    rc=0 t_start=1791053513.426 t_end=1791053513.474
+[2026-10-03T18:51:53Z] server log hm-m00t03-ca2 (p2 -> ca2), new lines:
+    > Connection from 172.18.0.1 port 59458 on 172.18.0.5 port 22 rdomain ""
+    > Accepted certificate ID "g04-e3-p2-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59458 ssh2 [preauth]
+    > Accepted certificate ID "g04-e3-p2-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59458 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-p2-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 42
+    > Starting session: command for cert from 172.18.0.1 port 59458 id 0
+    > Received disconnect from 172.18.0.1 port 59458:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59458
+[2026-10-03T18:51:53Z] PASS E3-p2-ca2 | expected: rc 0 with 1 Accepted line carrying ID g04-e3-p2 | observed: rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T18:51:54Z] $ (both -> ca1) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/both.pub g-ca1 echo e3-both-ca1
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/both.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/both.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/both.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Server accepts key: <tmp>/both.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64772) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e3-both-ca1
+    | debug1: pledge: fork
+    | e3-both-ca1
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4548, received 4040 bytes, in 0.0 seconds
+    | Bytes per second: sent 2403805.5, received 2135306.6
+    | debug1: Exit status 0
+    rc=0 t_start=1791053513.947 t_end=1791053513.994
+[2026-10-03T18:51:54Z] server log hm-m00t03-ca1 (both -> ca1), new lines:
+    > Connection from 172.18.0.1 port 58322 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e3-both-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 58322 ssh2 [preauth]
+    > Accepted certificate ID "g04-e3-both-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 58322 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-both-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 622
+    > Starting session: command for cert from 172.18.0.1 port 58322 id 0
+    > Received disconnect from 172.18.0.1 port 58322:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 58322
+[2026-10-03T18:51:54Z] PASS E3-both-ca1 | expected: rc 0 with 1 Accepted line carrying ID g04-e3-both | observed: rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T18:51:54Z] $ (both -> ca2) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/both.pub g-ca2 echo e3-both-ca2
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 7: Applying options for g-ca2
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64773.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/both.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64773 as 'cert'
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:ay+mK5xpPTICJ9gzZRMeCWwQnr2ZnyrtF810G6jVNi0
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: Host 'hm-ca2' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:4
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/both.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/both.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Server accepts key: <tmp>/both.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64773) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e3-both-ca2
+    | debug1: pledge: fork
+    | e3-both-ca2
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4548, received 4040 bytes, in 0.0 seconds
+    | Bytes per second: sent 2307458.2, received 2049721.0
+    | debug1: Exit status 0
+    rc=0 t_start=1791053514.460 t_end=1791053514.506
+[2026-10-03T18:51:54Z] server log hm-m00t03-ca2 (both -> ca2), new lines:
+    > Connection from 172.18.0.1 port 59460 on 172.18.0.5 port 22 rdomain ""
+    > Accepted certificate ID "g04-e3-both-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59460 ssh2 [preauth]
+    > Accepted certificate ID "g04-e3-both-185151-85994" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59460 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-both-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 46
+    > Starting session: command for cert from 172.18.0.1 port 59460 id 0
+    > Received disconnect from 172.18.0.1 port 59460:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59460
+[2026-10-03T18:51:54Z] PASS E3-both-ca2 | expected: rc 0 with 1 Accepted line carrying ID g04-e3-both | observed: rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T18:51:55Z] $ (user -> ca1) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/user.pub g-ca1 echo e3-user-ca1
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/user.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/user.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/user.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053514.972 t_end=1791053515.020
+[2026-10-03T18:51:55Z] server log hm-m00t03-ca1 (user -> ca1), new lines:
+    > Connection from 172.18.0.1 port 58338 on 172.18.0.4 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for cert from 172.18.0.1 port 58338 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-user-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 58338 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 58338 [preauth]
+[2026-10-03T18:51:55Z] PASS E3-user-ca1 | expected: rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:51:55Z] $ (user -> ca2) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/user.pub g-ca2 echo e3-user-ca2
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 7: Applying options for g-ca2
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64773.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/user.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64773 as 'cert'
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:ay+mK5xpPTICJ9gzZRMeCWwQnr2ZnyrtF810G6jVNi0
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: Host 'hm-ca2' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:4
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/user.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/user.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053515.500 t_end=1791053515.549
+[2026-10-03T18:51:55Z] server log hm-m00t03-ca2 (user -> ca2), new lines:
+    > Connection from 172.18.0.1 port 59470 on 172.18.0.5 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for cert from 172.18.0.1 port 59470 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-user-185151-85994 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 59470 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 59470 [preauth]
+[2026-10-03T18:51:55Z] PASS E3-user-ca2 | expected: rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:51:56Z] $ (rogue -> ca1) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/rogue.pub g-ca1 echo e3-rogue-ca1
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/rogue.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/rogue.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/rogue.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053516.025 t_end=1791053516.072
+[2026-10-03T18:51:56Z] server log hm-m00t03-ca1 (rogue -> ca1), new lines:
+    > Connection from 172.18.0.1 port 58342 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58342 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-rogue-185151-85994 (serial 0) CA ED25519 SHA256:ZTFq7OrObDXwspXaGjadqj1Z1h0XJ7NIETbeUhJ5gCI
+    > Failed publickey for cert from 172.18.0.1 port 58342 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 58342 [preauth]
+[2026-10-03T18:51:56Z] PASS E3-rogue-ca1 | expected: rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused (untrusted CA) | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[none logged]
+[2026-10-03T18:51:56Z] $ (rogue -> ca2) /usr/bin/ssh -F <tmp>/cfg -v -o CertificateFile=<tmp>/rogue.pub g-ca2 echo e3-rogue-ca2
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 7: Applying options for g-ca2
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64773.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: loaded identity cert from <tmp>/rogue.pub: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64773 as 'cert'
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:ay+mK5xpPTICJ9gzZRMeCWwQnr2ZnyrtF810G6jVNi0
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: Host 'hm-ca2' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:4
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/rogue.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/rogue.pub ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053516.535 t_end=1791053516.584
+[2026-10-03T18:51:57Z] server log hm-m00t03-ca2 (rogue -> ca2), new lines:
+    > Connection from 172.18.0.1 port 59472 on 172.18.0.5 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59472 ssh2: ED25519-CERT SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 ID g04-e3-rogue-185151-85994 (serial 0) CA ED25519 SHA256:ZTFq7OrObDXwspXaGjadqj1Z1h0XJ7NIETbeUhJ5gCI
+    > Failed publickey for cert from 172.18.0.1 port 59472 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 59472 [preauth]
+[2026-10-03T18:51:57Z] PASS E3-rogue-ca2 | expected: rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused (untrusted CA) | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[none logged]
+[2026-10-03T18:51:57Z] $ (bare -> ca1) /usr/bin/ssh -F <tmp>/cfg -v g-ca1 echo e3-bare-ca1
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: no identity pubkey loaded from <tmp>/k.pub
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053517.064 t_end=1791053517.102
+[2026-10-03T18:51:57Z] server log hm-m00t03-ca1 (bare -> ca1), new lines:
+    > Connection from 172.18.0.1 port 58348 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58348 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 58348 [preauth]
+[2026-10-03T18:51:57Z] PASS E3-bare-ca1 | expected: rc 255 and no Accepted line (plain key, no certificate) | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T18:51:57Z] $ (bare -> ca2) /usr/bin/ssh -F <tmp>/cfg -v g-ca2 echo e3-bare-ca2
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 7: Applying options for g-ca2
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64773.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k.pub: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    | debug1: identity file <tmp>/k.pub type 2
+    | debug1: no identity pubkey loaded from <tmp>/k.pub
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64773 as 'cert'
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:ay+mK5xpPTICJ9gzZRMeCWwQnr2ZnyrtF810G6jVNi0
+    | debug1: using hostkeyalias: hm-ca2
+    | debug1: Host 'hm-ca2' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:4
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Offering public key: <tmp>/k.pub ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053517.574 t_end=1791053517.612
+[2026-10-03T18:51:58Z] server log hm-m00t03-ca2 (bare -> ca2), new lines:
+    > Connection from 172.18.0.1 port 59482 on 172.18.0.5 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59482 ssh2: ED25519 SHA256:j+BzLr9/nw4urY65HIsq/xB6M8AXVeWUHy2IlCM5jb0
+    > Connection closed by authenticating user cert 172.18.0.1 port 59482 [preauth]
+[2026-10-03T18:51:58Z] PASS E3-bare-ca2 | expected: rc 255 and no Accepted line (plain key, no certificate) | observed: rc=255 accepted=0 accepted_with_id=0 failed_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T18:51:58Z] FACT matrix =  p1@ca1=rc0 p1@ca2=rc255 p2@ca1=rc255 p2@ca2=rc0 both@ca1=rc0 both@ca2=rc0 user@ca1=rc255 user@ca2=rc255 rogue@ca1=rc255 rogue@ca2=rc255 bare@ca1=rc255 bare@ca2=rc255
+[2026-10-03T18:51:58Z] FACT scope_caveat = certificate 'both' {p-host1,p-host2} is usable on every host whose principal map contains either name; it is not scoped to one destination
+[2026-10-03T18:51:58Z] cleanup agent pid=86120: terminated socket_removed
+[2026-10-03T18:51:58Z] END e3-principal-scope exit=0 checks=12 fails=0

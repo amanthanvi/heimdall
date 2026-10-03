@@ -1,0 +1,43 @@
+[2026-10-03T01:08:40Z] BEGIN e7-mux-stop-race run_stamp=dev-e567b-010813 run_id=010840-46142
+[2026-10-03T01:08:40Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T01:08:40Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T01:08:40Z] FACT docker_server = 29.8.1
+[2026-10-03T01:08:40Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T01:08:40Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.034
+[2026-10-03T01:08:40Z] dedicated ssh-agent started: pid=46259 ident='Fri Oct 2 21:08:40 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T01:08:40Z] certificate g04-race-010840-46142: id="g04-race-010840-46142" principals=p-host1 valid=[from 2026-10-02T21:07:40 to 2026-10-02T21:38:40] ca=ED25519 SHA256:wuFjPe1mwcB2fKxy4EB1SNwbW6CCc0xF8fc4KXNE+J0 (using ssh-ed25519)
+[2026-10-03T01:08:40Z] $ (ssh-add -t 1800 kr) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 1800 <tmp>/kr
+    | Identity added: <tmp>/kr (g04-race-k-010840-46142)
+    | Lifetime set to 00:30:00
+    rc=0 t_start=1790989720.825 t_end=1790989720.833
+[2026-10-03T01:08:40Z] FACT iterations = 5
+[2026-10-03T01:08:40Z] FACT control_persist_s = 3
+[2026-10-03T01:08:40Z] $ (start master r1) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r1 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1790989720.894 t_end=1790989720.942
+[2026-10-03T01:08:40Z] master started: pid=46353 ident='Fri Oct 2 21:08:40 2026 /usr/bin/ssh' controlpath=<tmp>/r1 persist=3
+[2026-10-03T01:08:41Z] $ (start master r2) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r2 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1790989721.026 t_end=1790989721.074
+[2026-10-03T01:08:41Z] master started: pid=46406 ident='Fri Oct 2 21:08:41 2026 /usr/bin/ssh' controlpath=<tmp>/r2 persist=3
+[2026-10-03T01:08:41Z] $ (start master r3) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r3 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1790989721.167 t_end=1790989721.211
+[2026-10-03T01:08:41Z] master started: pid=46459 ident='Fri Oct 2 21:08:41 2026 /usr/bin/ssh' controlpath=<tmp>/r3 persist=3
+[2026-10-03T01:08:41Z] $ (start master r4) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r4 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1790989721.324 t_end=1790989721.368
+[2026-10-03T01:08:41Z] master started: pid=46514 ident='Fri Oct 2 21:08:41 2026 /usr/bin/ssh' controlpath=<tmp>/r4 persist=3
+[2026-10-03T01:08:41Z] $ (start master r5) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/r5 -o ControlPersist=3 -N -f g-ca1
+    rc=0 t_start=1790989721.440 t_end=1790989721.489
+[2026-10-03T01:08:41Z] master started: pid=46567 ident='Fri Oct 2 21:08:41 2026 /usr/bin/ssh' controlpath=<tmp>/r5 persist=3
+    race table:
+    iter	delay_client_ms	delay_stop_ms	client_t0	client_t1	client_rc	stop_t0	stop_t1	stop_rc	class	client_err
+    1	23	25	1790989720.997	1790989721.009	0	1790989721.002	1790989721.011	0	admitted_started_before_stop	
+    2	22	3	1790989721.129	1790989721.153	255	1790989721.108	1790989721.117	0	not_admitted	cert@127.0.0.1: Permission denied (publickey).
+    3	39	31	1790989721.285	1790989721.308	255	1790989721.277	1790989721.288	0	not_admitted	cert@127.0.0.1: Permission denied (publickey).
+    4	3	12	1790989721.405	1790989721.418	0	1790989721.417	1790989721.426	0	admitted_started_before_stop	
+    5	5	14	1790989721.526	1790989721.537	0	1790989721.535	1790989721.544	0	admitted_started_before_stop	
+[2026-10-03T01:08:41Z] FACT race_counts = masters_started=5 admitted_after_stop_returned=0 admitted_started_during_stop=0 admitted_started_before_stop=3 not_admitted=2 (fresh-connection publickey denial=2; other=[none]) stop_rc_nonzero=0
+[2026-10-03T01:08:49Z] FACT masters_after_stop = exited_on_their_own=5 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+[2026-10-03T01:08:49Z] FACT server_accepted = with_race_id=5 any=5 (expected: one per master; clients cannot authenticate)
+[2026-10-03T01:08:50Z] PASS E7R-harness | expected: all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself) | observed: masters=5/5 stop_rc_nonzero=0 accepted_with_id=5 accepted_any=5
+[2026-10-03T01:08:50Z] CONFIRMED E7R-no-admission-after-stop-returned | hypothesis: no client that started after -O stop returned (MUX_S_OK received) was admitted through the master | observed: violations=0 (during_stop admitted=0, before_stop admitted=3, not_admitted=2 of 5)
+[2026-10-03T01:08:50Z] cleanup agent pid=46259: terminated socket_removed
+[2026-10-03T01:08:50Z] END e7-mux-stop-race exit=0 checks=1 fails=0

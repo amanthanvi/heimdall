@@ -1,0 +1,115 @@
+
+
+ user-keyring(7) - Linux manual page
+
+ man7.org > Linux > man-pages
+
+Linux/UNIX system programming training
+
+user-keyring(7) — Linux manual page
+
+NAME | DESCRIPTION | SEE ALSO | COLOPHON
+
+user-keyring(7) Miscellaneous Information Manual user-keyring(7)
+
+NAME         top
+
+ user-keyring - per-user keyring
+
+DESCRIPTION         top
+
+ The user keyring is a keyring used to anchor keys on behalf of a
+ user. Each UID the kernel deals with has its own user keyring
+ that is shared by all processes with that UID. The user keyring
+ has a name (description) of the form _uid.<UID> where <UID> is the
+ user ID of the corresponding user.
+
+ The user keyring is associated with the record that the kernel
+ maintains for the UID. It comes into existence upon the first
+ attempt to access either the user keyring, the
+ user-session-keyring(7), or the session-keyring(7). The keyring
+ remains pinned in existence so long as there are processes running
+ with that real UID or files opened by those processes remain open.
+ (The keyring can also be pinned indefinitely by linking it into
+ another keyring.)
+
+ Typically, the user keyring is created by pam_keyinit(8) when a
+ user logs in.
+
+ The user keyring is not searched by default by request_key(2).
+ When pam_keyinit(8) creates a session keyring, it adds to it a
+ link to the user keyring so that the user keyring will be searched
+ when the session keyring is.
+
+ A special serial number value, KEY_SPEC_USER_KEYRING, is defined
+ that can be used in lieu of the actual serial number of the
+ calling process's user keyring.
+
+ From the keyctl(1) utility, '@u' can be used instead of a numeric
+ key ID in much the same way.
+
+ User keyrings are independent of clone(2), fork(2), vfork(2),
+ execve(2), and _exit(3) excepting that the keyring is destroyed
+ when the UID record is destroyed when the last process pinning it
+ exits.
+
+ If it is necessary for a key associated with a user to exist
+ beyond the UID record being garbage collected—for example, for use
+ by a cron(8) script—then the persistent-keyring(7) should be used
+ instead.
+
+ If a user keyring does not exist when it is accessed, it will be
+ created.
+
+SEE ALSO         top
+
+ keyctl(1), keyctl(3), keyrings(7), persistent-keyring(7),
+ process-keyring(7), session-keyring(7), thread-keyring(7),
+ user-session-keyring(7), pam_keyinit(8)
+
+COLOPHON         top
+
+ This page is part of the man-pages (Linux kernel and C library
+ user-space interface documentation) project. Information about
+ the project can be found at 
+ ⟨https://www.kernel.org/doc/man-pages/⟩. If you have a bug report
+ for this manual page, see
+ ⟨https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/tree/CONTRIBUTING⟩.
+ This page was obtained from the tarball man-pages-6.19.tar.gz
+ fetched from
+ ⟨https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/⟩ on
+ 2026-09-09. If you discover any rendering problems in this HTML
+ version of the page, or you believe there is a better or more up-
+ to-date source for the page, or you have corrections or
+ improvements to the information in this COLOPHON (which is not
+ part of the original manual page), send a mail to
+ man-pages@man7.org
+
+Linux man-pages 6.19 2026-06-05 user-keyring(7)
+
+Pages that refer to this page:
+ add_key(2), 
+ keyctl(2), 
+ KEYCTL_GET_KEYRING_ID(2const), 
+ KEYCTL_SET_REQKEY_KEYRING(2const), 
+ request_key(2), 
+ keyrings(7), 
+ keyutils(7), 
+ persistent-keyring(7), 
+ process-keyring(7), 
+ session-keyring(7), 
+ thread-keyring(7), 
+ user-session-keyring(7), 
+ pam_keyinit(8)
+
+ HTML rendering created 2026-09-09
+ by Michael Kerrisk,
+ author of
+ The Linux Programming Interface.
+
+ For details of in-depth
+ Linux/UNIX system programming training courses
+ that I teach, look here.
+
+ Hosting by jambit GmbH.
+

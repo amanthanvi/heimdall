@@ -1,0 +1,642 @@
+
+
+ Keychain data protection - Apple Support
+
+Apple
+
+Store
+
+Mac
+
+iPad
+
+iPhone
+
+Watch
+
+Vision
+
+AirPods
+
+TV & Home
+
+Entertainment
+
+Accessories
+
+Support
+
+0+
+
+ Apple Platform Security
+
+ Search this guide
+
+ Clear Search
+
+ Table of Contents
+
+Apple Platform Security
+
+ Welcome
+
+ Intro to Apple platform security
+
+ Hardware security and biometrics
+
+ Hardware security overview
+
+ Apple SoC security
+
+ The Secure Enclave
+
+ Optic ID, Face ID, and Touch ID
+
+ Biometric security
+
+ Magic Keyboard with Touch ID
+
+ Optic ID, Face ID, Touch ID, passcodes, and passwords
+
+ Optic ID matching security
+
+ Facial matching security
+
+ Uses for Optic ID, Face ID, and Touch ID
+
+ Secure intent and connections to the Secure Enclave
+
+ Hardware microphone disconnect
+
+ Mac on-screen camera indicator light
+
+ Express Cards with power reserve
+
+ System security
+
+ System security overview
+
+ Secure boot
+
+ Boot process for iPad and iPhone devices
+
+ Memory safe iBoot implementation
+
+ Mac computers with Apple silicon
+
+ Boot process
+
+ Boot modes
+
+ Paired recoveryOS restrictions
+
+ Startup Disk security policy control
+
+ LocalPolicy signing-key creation and management
+
+ Contents of a LocalPolicy file for a Mac with Apple silicon
+
+ Intel-based Mac computers
+
+ Boot process
+
+ Boot modes
+
+ Startup Security Utility
+
+ Firmware password protection
+
+ recoveryOS and diagnostics environments
+
+ Signed system volume security
+
+ Secure software updates
+
+ Background Security Improvements
+
+ Operating system integrity
+
+ Device pairing and connection security
+
+ Physical pairing model security
+
+ Activating data connections securely
+
+ Verifying accessories
+
+ Automatically unlock Apple devices
+
+ BlastDoor for Messages and IDS
+
+ Lockdown Mode security
+
+ Overview of additional macOS system security capabilities
+
+ Additional macOS system security capabilities
+
+ System Integrity Protection
+
+ Trust caches
+
+ Peripheral processor security
+
+ Rosetta 2 on a Mac with Apple silicon
+
+ Direct memory access protections
+
+ Securely extending the kernel
+
+ Option ROM security
+
+ UEFI firmware security in an Intel-based Mac
+
+ System security for watchOS
+
+ Random number generation
+
+ Communicating emergency information using satellites
+
+ Apple Security Research Device
+
+ Encryption and Data Protection
+
+ Encryption and Data Protection overview
+
+ Quantum-secure cryptography with Apple devices
+
+ Passcodes and passwords
+
+ Data Protection
+
+ Data Protection overview
+
+ Data Protection
+
+ Data Protection classes
+
+ Keybags for Data Protection
+
+ Protecting keys in alternate boot modes
+
+ Protecting user data in the face of attack
+
+ Sealed Key Protection (SKP)
+
+ Role of Apple File System
+
+ Keychain data protection
+
+ FileVault
+
+ Volume encryption with FileVault
+
+ Managing FileVault
+
+ How Apple protects users’ personal data
+
+ Protecting app access to user data
+
+ Protecting access to user’s health data
+
+ Digital signing and encryption
+
+ App security
+
+ App security overview
+
+ App code signing process
+
+ App security in iOS, iPadOS, and visionOS
+
+ Intro to app security for iOS, iPadOS, and visionOS
+
+ About App Store security
+
+ Security of runtime process
+
+ App protection and app groups
+
+ App security in macOS
+
+ Intro to app security for macOS
+
+ App code signing process
+
+ Gatekeeper and runtime protection
+
+ Protecting against malware
+
+ Terminal and script protections
+
+ Controlling app access to files
+
+ Supporting extensions
+
+ Secure features in the Notes app
+
+ Secure features in the Shortcuts app
+
+ Services security
+
+ Services security overview
+
+ Apple Accounts and Managed Apple Accounts
+
+ Apple Account security
+
+ Managed Apple Account security
+
+ iCloud
+
+ iCloud security overview
+
+ iCloud encryption
+
+ Advanced Data Protection for iCloud
+
+ iCloud Backup security
+
+ Search on iCloud.com security
+
+ iCloud Private Relay security
+
+ Account recovery contact security
+
+ Legacy Contact security
+
+ Passcode and password management
+
+ Passcode security overview
+
+ Sign in with Apple security
+
+ Automatic strong passwords
+
+ Password AutoFill security
+
+ App access to saved passwords
+
+ Password security recommendations
+
+ Password Monitoring
+
+ Sending passwords
+
+ Credential provider extensions
+
+ iCloud Keychain
+
+ iCloud Keychain security overview
+
+ Secure keychain syncing
+
+ Secure iCloud Keychain recovery
+
+ Escrow security for iCloud Keychain 
+
+ Apple Pay
+
+ Apple Pay security overview
+
+ Apple Pay component security
+
+ How Apple Pay keeps users’ purchases protected
+
+ Credit, debit, and prepaid cards
+
+ Card provisioning security overview
+
+ Adding credit or debit cards to Apple Pay
+
+ Payment authorization with Apple Pay
+
+ Paying with cards using Apple Pay
+
+ Contactless passes in Apple Pay
+
+ Rendering cards unusable with Apple Pay
+
+ Apple Card security
+
+ Apple Cash security
+
+ Tap to Pay on iPhone
+
+ Using Apple Wallet
+
+ Access using Apple Wallet
+
+ Access key types
+
+ Car key security
+
+ Car key security
+
+ Car key transactions
+
+ Adding transit and eMoney cards to Apple Wallet
+
+ IDs in Apple Wallet
+
+ IDs in Apple Wallet
+
+ Security of IDs in Apple Wallet
+
+ iMessage
+
+ iMessage security overview
+
+ How iMessage sends and receives messages
+
+ Check In security
+
+ Secure iMessage name and photo sharing
+
+ Secure Apple Messages for Business
+
+ FaceTime security
+
+ SharePlay security
+
+ Nearby sharing security
+
+ Find My
+
+ Find My security
+
+ Locating missing devices
+
+ Continuity
+
+ Continuity security overview
+
+ Handoff security
+
+ iPhone cellular call relay security
+
+ iPhone Text Message Forwarding security
+
+ Instant Hotspot security
+
+ Network security
+
+ Network security overview
+
+ TLS security
+
+ IPv6 security
+
+ VPN security
+
+ Wi-Fi security and privacy
+
+ Security features when connecting to wireless networks
+
+ Wi-Fi security with Apple devices
+
+ Privacy features when connecting to wireless networks
+
+ Wi-Fi privacy with Apple devices
+
+ Bluetooth security
+
+ Ultra Wideband security in iOS
+
+ Single Sign-on security
+
+ AirDrop security
+
+ Wi-Fi password sharing security
+
+ Firewall security in macOS
+
+ Developer kit security
+
+ Developer kit security overview
+
+ ARKit security
+
+ DriverKit security
+
+ EnergyKit data security
+
+ HomeKit security
+
+ Communication security
+
+ Data security
+
+ Securing routers with HomeKit
+
+ Camera security
+
+ Security with Apple TV
+
+ NFC & SE Platform security
+
+ ReplayKit security
+
+ SiriKit security
+
+ WidgetKit security
+
+ Secure device management
+
+ Secure device management overview
+
+ Device management
+
+ Device management security overview
+
+ Managed Device Attestation
+
+ Attestation process security
+
+ Configuration enforcement
+
+ Automated Device Enrollment
+
+ Activation Lock security
+
+ Managed Lost Mode and remote wipe
+
+ Shared iPad security
+
+ Apple Configurator security
+
+ Screen Time security
+
+ Glossary
+
+ Document revision history
+
+ Copyright and trademarks
+
+Keychain data protection
+Many apps need to handle passwords and other short but sensitive bits of data, such as keys and login tokens. The keychain provides a secure way to store these items. The various Apple operating systems use differing mechanisms to enforce the guarantees associated with the different keychain protection classes. On devices with macOS, Data Protection isn’t used directly to enforce these guarantees.
+
+Overview
+Keychain items are encrypted using two different AES-256-GCM keys: a table key (metadata) and a per-row key (secret key). Keychain metadata (all attributes other than kSecValue) is encrypted with the metadata key to speed searches, and the secret value (kSecValueData) is encrypted with the secret key. The metadata key is protected by the Secure Enclave but is cached in the Application Processor to allow fast queries of the keychain. The secret key always requires a round trip through the Secure Enclave.
+The keychain is implemented as a SQLite database, stored on the file system. There is only one database, and the securityd daemon determines which keychain items each process or app can access. Keychain Access APIs result in calls to the daemon, which queries the app’s Keychain-access-groups, application-identifier, and application-group entitlements. Rather than limiting access to a single process, access groups allow keychain items to be shared between apps.
+Keychain items can be shared only between apps from the same developer. To share keychain items, third-party apps use access groups with a prefix allocated to them through the Apple Developer Program in their application groups. The prefix requirement and application group uniqueness are enforced through code signing, provisioning profiles, and the Apple Developer Program.
+Keychain data is protected using a class structure similar to the one used in file Data Protection. These classes have behaviors equivalent to file Data Protection classes but use distinct keys and functions.
+
+Availability
+File data protection
+Keychain data protection
+
+When unlocked
+NSFileProtectionComplete
+kSecAttrAccessibleWhenUnlocked
+
+While locked
+NSFileProtectionComplete
+UnlessOpen
+
+After first unlock
+NSFileProtectionComplete
+UntilFirstUserAuthentication
+kSecAttrAccessibleAfterFirstUnlock
+
+Always
+NSFileProtectionNone
+kSecAttrAccessibleAlways
+
+Passcode enabled
+
+kSecAttrAccessibleWhen
+PasscodeSetThisDeviceOnly
+Apps that use background refresh services can use kSecAttrAccessibleAfterFirstUnlock for keychain items that need to be accessed during background updates.
+The class kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly behaves the same as kSecAttrAccessibleWhenUnlocked; however, it’s available only when the device is configured with a passcode. This class exists only in the system keybag; they:
+
+Don’t sync to iCloud Keychain
+
+Aren’t backed up
+
+Aren’t included in escrow keybags
+If the passcode is removed or reset, the items are rendered useless by discarding the class keys.
+Other keychain classes have a “This device only” counterpart, which is always protected with the UID when being copied from the device during a backup, rendering it useless if it’s restored to a different device. Apple has carefully balanced security and usability by choosing keychain classes that vary according to the type of information being secured and when it’s needed by iOS, iPadOS, and visionOS.
+
+Keychain data class protections
+The class protections listed below are enforced for keychain items.
+
+Item
+Accessible
+
+Handoff advertisement encryption keys
+After first unlock
+
+iCloud token
+After first unlock
+
+iMessage keys
+After first unlock
+
+LDAP, CalDAV, CardDAV
+After first unlock
+
+Mail accounts
+After first unlock
+
+Microsoft Exchange ActiveSync accounts
+After first unlock
+
+Social network account tokens
+After first unlock
+
+VPN passwords
+After first unlock
+
+Wi-Fi passwords
+After first unlock
+
+Home sharing password
+When unlocked
+
+Safari bookmarks
+When unlocked
+
+Safari passwords
+When unlocked
+
+Finder/iTunes backup
+When unlocked, nonmigratory
+
+VPN certificates
+After first unlock, nonmigratory
+
+Apple Push Notification service (APNs) token
+Always, nonmigratory
+
+Bluetooth keys
+Always, nonmigratory
+
+iCloud certificates and private key
+Always, nonmigratory
+
+SIM PIN
+Always, nonmigratory
+
+Find My token
+Always
+
+Voicemail
+Always
+On macOS, all keychain items installed by configuration profiles are always available after unlocking FileVault. On iOS, iPadOS, and visionOS, keychain items installed by a configuration profile have different accessibility depending on their type, how they’re referenced, and when they were installed. By default, keychain items installed using configuration profiles are available after first unlock and nonmigratory. However, a keychain item installed by a configuration profile is always available if it:
+
+Was installed before upgrading to iOS 15 or iPadOS 15 or later
+
+Is a certificate (not an identity)
+
+Is an identity referenced by the IdentityCertificateUUID in a com.apple.mdm payload
+
+Keychain access control
+Keychains can use access control lists (ACLs) to set policies for accessibility and authentication requirements. Items can establish conditions that require user presence by specifying that they can’t be accessed unless authenticated using Optic ID, Face ID, Touch ID, or by entering the device’s passcode or password. Access to items can also be limited by specifying that Optic ID, Face ID, or Touch ID enrollment hasn’t changed since the item was added. This limitation helps prevent an attacker from adding their own fingerprint to access a keychain item. ACLs are evaluated inside the Secure Enclave and are released to the kernel only if their specified constraints are met.
+
+Keychain architecture in macOS
+macOS also provides access to the keychain to conveniently and securely stores user names and passwords, digital identities, encryption keys, and secure notes. It can be accessed by opening the Keychain Access app in /Applications/Utilities. Using a keychain eliminates the requirement to enter—or even remember—the credentials for each resource. An initial default keychain is created for each Mac user, though users can create other keychains for specific purposes.
+In addition to relying on user keychains, macOS relies on a number of system-level keychains that maintain authentication assets that aren’t user specific, such as network credentials and public key infrastructure (PKI) identities. One of these keychains, System Roots, is immutable and stores internet PKI root certificate authority (CA) certificates to facilitate common tasks like online banking and e-commerce. The user can similarly deploy internally provisioned CA certificates to managed Mac computers to help validate internal sites and services.Published Date: December 19, 2024
+See alsoiCloud Keychain overviewSecure keychain syncingSecure iCloud Keychain recoveryEscrow security for iCloud Keychain
+
+Download this guide as a PDF
+
+ Previous
+ Role of Apple File System
+
+ Next 
+ Volume encryption with FileVault
+
+ Helpful?
+
+ Yes
+
+ No
+
+ Character limit:
+ 250
+
+ Please don’t include any personal information in your comment.
+
+ Maximum character limit is 250.
+
+ Submit
+
+ Thanks for your feedback.
+
+Apple Footer
+
+ 
+ Apple
+
+ Support
+
+ Apple Platform Security
+
+ Keychain data protection
+
+ United States
+
+Copyright © 2026 Apple Inc. All rights reserved.
+
+ Privacy Policy Terms of Use Sales and Refunds Site Map
+

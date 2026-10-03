@@ -1,0 +1,29 @@
+{
+  "case_id": "G04-macos-secure-enclave-ctk-signing-under-lock",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-CR-03",
+    "R-EN-04"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "macOS",
+    "required": "native macOS host with Secure Enclave; owner authorization to create (and afterwards delete) a non-exportable CTK identity in the user's token store"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned: sc_auth create-ctk-identity -l heimdall-g04-probe -k p-256-ne -t none; ssh-add -s /usr/lib/ssh-keychain.dylib into a dedicated agent (KEYCHAIN_CERTIFICATES limited to the probe hash); sample signatures across a screen lock; sc_auth delete-ctk-identity -h <hash>; see docs/research/g04-managed-credentials.md section 8.2 P5"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Touches a real per-user store (not disposable by construction); therefore not run by the agent."
+  ],
+  "blocked_on": "owner authorization to write a CTK identity into the real user token store (sc_auth), plus an owner-driven screen lock/unlock cycle"
+}

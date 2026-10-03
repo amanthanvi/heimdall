@@ -1,0 +1,561 @@
+
+
+ Data Protection classes - Apple Support
+
+Apple
+
+Store
+
+Mac
+
+iPad
+
+iPhone
+
+Watch
+
+Vision
+
+AirPods
+
+TV & Home
+
+Entertainment
+
+Accessories
+
+Support
+
+0+
+
+ Apple Platform Security
+
+ Search this guide
+
+ Clear Search
+
+ Table of Contents
+
+Apple Platform Security
+
+ Welcome
+
+ Intro to Apple platform security
+
+ Hardware security and biometrics
+
+ Hardware security overview
+
+ Apple SoC security
+
+ The Secure Enclave
+
+ Optic ID, Face ID, and Touch ID
+
+ Biometric security
+
+ Magic Keyboard with Touch ID
+
+ Optic ID, Face ID, Touch ID, passcodes, and passwords
+
+ Optic ID matching security
+
+ Facial matching security
+
+ Uses for Optic ID, Face ID, and Touch ID
+
+ Secure intent and connections to the Secure Enclave
+
+ Hardware microphone disconnect
+
+ Mac on-screen camera indicator light
+
+ Express Cards with power reserve
+
+ System security
+
+ System security overview
+
+ Secure boot
+
+ Boot process for iPad and iPhone devices
+
+ Memory safe iBoot implementation
+
+ Mac computers with Apple silicon
+
+ Boot process
+
+ Boot modes
+
+ Paired recoveryOS restrictions
+
+ Startup Disk security policy control
+
+ LocalPolicy signing-key creation and management
+
+ Contents of a LocalPolicy file for a Mac with Apple silicon
+
+ Intel-based Mac computers
+
+ Boot process
+
+ Boot modes
+
+ Startup Security Utility
+
+ Firmware password protection
+
+ recoveryOS and diagnostics environments
+
+ Signed system volume security
+
+ Secure software updates
+
+ Background Security Improvements
+
+ Operating system integrity
+
+ Device pairing and connection security
+
+ Physical pairing model security
+
+ Activating data connections securely
+
+ Verifying accessories
+
+ Automatically unlock Apple devices
+
+ BlastDoor for Messages and IDS
+
+ Lockdown Mode security
+
+ Overview of additional macOS system security capabilities
+
+ Additional macOS system security capabilities
+
+ System Integrity Protection
+
+ Trust caches
+
+ Peripheral processor security
+
+ Rosetta 2 on a Mac with Apple silicon
+
+ Direct memory access protections
+
+ Securely extending the kernel
+
+ Option ROM security
+
+ UEFI firmware security in an Intel-based Mac
+
+ System security for watchOS
+
+ Random number generation
+
+ Communicating emergency information using satellites
+
+ Apple Security Research Device
+
+ Encryption and Data Protection
+
+ Encryption and Data Protection overview
+
+ Quantum-secure cryptography with Apple devices
+
+ Passcodes and passwords
+
+ Data Protection
+
+ Data Protection overview
+
+ Data Protection
+
+ Data Protection classes
+
+ Keybags for Data Protection
+
+ Protecting keys in alternate boot modes
+
+ Protecting user data in the face of attack
+
+ Sealed Key Protection (SKP)
+
+ Role of Apple File System
+
+ Keychain data protection
+
+ FileVault
+
+ Volume encryption with FileVault
+
+ Managing FileVault
+
+ How Apple protects users’ personal data
+
+ Protecting app access to user data
+
+ Protecting access to user’s health data
+
+ Digital signing and encryption
+
+ App security
+
+ App security overview
+
+ App code signing process
+
+ App security in iOS, iPadOS, and visionOS
+
+ Intro to app security for iOS, iPadOS, and visionOS
+
+ About App Store security
+
+ Security of runtime process
+
+ App protection and app groups
+
+ App security in macOS
+
+ Intro to app security for macOS
+
+ App code signing process
+
+ Gatekeeper and runtime protection
+
+ Protecting against malware
+
+ Terminal and script protections
+
+ Controlling app access to files
+
+ Supporting extensions
+
+ Secure features in the Notes app
+
+ Secure features in the Shortcuts app
+
+ Services security
+
+ Services security overview
+
+ Apple Accounts and Managed Apple Accounts
+
+ Apple Account security
+
+ Managed Apple Account security
+
+ iCloud
+
+ iCloud security overview
+
+ iCloud encryption
+
+ Advanced Data Protection for iCloud
+
+ iCloud Backup security
+
+ Search on iCloud.com security
+
+ iCloud Private Relay security
+
+ Account recovery contact security
+
+ Legacy Contact security
+
+ Passcode and password management
+
+ Passcode security overview
+
+ Sign in with Apple security
+
+ Automatic strong passwords
+
+ Password AutoFill security
+
+ App access to saved passwords
+
+ Password security recommendations
+
+ Password Monitoring
+
+ Sending passwords
+
+ Credential provider extensions
+
+ iCloud Keychain
+
+ iCloud Keychain security overview
+
+ Secure keychain syncing
+
+ Secure iCloud Keychain recovery
+
+ Escrow security for iCloud Keychain 
+
+ Apple Pay
+
+ Apple Pay security overview
+
+ Apple Pay component security
+
+ How Apple Pay keeps users’ purchases protected
+
+ Credit, debit, and prepaid cards
+
+ Card provisioning security overview
+
+ Adding credit or debit cards to Apple Pay
+
+ Payment authorization with Apple Pay
+
+ Paying with cards using Apple Pay
+
+ Contactless passes in Apple Pay
+
+ Rendering cards unusable with Apple Pay
+
+ Apple Card security
+
+ Apple Cash security
+
+ Tap to Pay on iPhone
+
+ Using Apple Wallet
+
+ Access using Apple Wallet
+
+ Access key types
+
+ Car key security
+
+ Car key security
+
+ Car key transactions
+
+ Adding transit and eMoney cards to Apple Wallet
+
+ IDs in Apple Wallet
+
+ IDs in Apple Wallet
+
+ Security of IDs in Apple Wallet
+
+ iMessage
+
+ iMessage security overview
+
+ How iMessage sends and receives messages
+
+ Check In security
+
+ Secure iMessage name and photo sharing
+
+ Secure Apple Messages for Business
+
+ FaceTime security
+
+ SharePlay security
+
+ Nearby sharing security
+
+ Find My
+
+ Find My security
+
+ Locating missing devices
+
+ Continuity
+
+ Continuity security overview
+
+ Handoff security
+
+ iPhone cellular call relay security
+
+ iPhone Text Message Forwarding security
+
+ Instant Hotspot security
+
+ Network security
+
+ Network security overview
+
+ TLS security
+
+ IPv6 security
+
+ VPN security
+
+ Wi-Fi security and privacy
+
+ Security features when connecting to wireless networks
+
+ Wi-Fi security with Apple devices
+
+ Privacy features when connecting to wireless networks
+
+ Wi-Fi privacy with Apple devices
+
+ Bluetooth security
+
+ Ultra Wideband security in iOS
+
+ Single Sign-on security
+
+ AirDrop security
+
+ Wi-Fi password sharing security
+
+ Firewall security in macOS
+
+ Developer kit security
+
+ Developer kit security overview
+
+ ARKit security
+
+ DriverKit security
+
+ EnergyKit data security
+
+ HomeKit security
+
+ Communication security
+
+ Data security
+
+ Securing routers with HomeKit
+
+ Camera security
+
+ Security with Apple TV
+
+ NFC & SE Platform security
+
+ ReplayKit security
+
+ SiriKit security
+
+ WidgetKit security
+
+ Secure device management
+
+ Secure device management overview
+
+ Device management
+
+ Device management security overview
+
+ Managed Device Attestation
+
+ Attestation process security
+
+ Configuration enforcement
+
+ Automated Device Enrollment
+
+ Activation Lock security
+
+ Managed Lost Mode and remote wipe
+
+ Shared iPad security
+
+ Apple Configurator security
+
+ Screen Time security
+
+ Glossary
+
+ Document revision history
+
+ Copyright and trademarks
+
+Data Protection classes
+When a new file is created on devices supporting Data Protection, it’s assigned a class by the app that creates it. Each class uses different policies to determine when the data is accessible. The basic classes and policies are described in the following sections. Apple silicon-based Mac computers don’t support Class D: No Protection, and a security boundary is established around logging in and out (not locking or unlocking as on iPad and iPhone).
+
+Class
+Protection type
+
+Class A: Complete Protection
+NSFileProtectionComplete
+
+Class B: Protected Unless Open
+NSFileProtectionCompleteUnlessOpen
+
+Class C: Protected Until First User Authentication
+
+Note: macOS uses a volume key to recreate FileVault protection characteristics.
+NSFileProtectionCompleteUntilFirstUserAuthentication
+
+Class D: No Protection
+
+Note: Not supported in macOS.
+NSFileProtectionNone
+
+Complete Protection
+NSFileProtectionComplete
+The class key is protected with a key derived from the user passcode or password and the device UID. Shortly after the user locks a device (10 seconds, if the Require Password setting is Immediately), the decrypted class key is discarded, rendering all data in this class inaccessible until the user enters the passcode again or unlocks (logs in to) the device using Optic ID, Face ID, or Touch ID.
+On devices with macOS, shortly after the last user is logged out, the decrypted class key is discarded, rendering all data in this class inaccessible until a user enters the passcode again or logs into the device using Touch ID.
+
+Protected Unless Open
+NSFileProtectionCompleteUnlessOpen
+Some files may need to be written while the device is locked or the user is logged out. A good example of this is a mail attachment downloading in the background. This behavior is achieved by using asymmetric elliptic curve cryptography (ECDH) over Curve25519. The usual per-file key is protected by a key derived using One-Pass Diffie-Hellman Key Agreement as described in NIST SP 800-56A.
+The ephemeral public key for the Agreement is stored alongside the wrapped per-file key. The KDF is Concatenation Key Derivation Function (Approved Alternative 1) as described in 5.8.1 of NIST SP 800-56A. AlgorithmID is omitted. PartyUInfo and PartyVInfo are the ephemeral and static public keys, respectively. SHA-256 is used as the hashing function. As soon as the file is closed, the per-file key is wiped from memory. To open the file again, the shared secret is re-created using the Protected Unless Open class’s private key and the file’s ephemeral public key, which are used to unwrap the per-file key that is then used to decrypt the file.
+On devices with macOS, the private part of NSFileProtectionCompleteUnlessOpen is accessible as long as any users on the system are logged in or are authenticated.
+
+Protected Until First User Authentication
+NSFileProtectionCompleteUntilFirstUserAuthentication
+This class behaves in the same way as Complete Protection, except that the decrypted class key isn’t removed from memory when the device is locked or the user logged out. The protection in this class has similar properties to desktop full-volume encryption, and protects data from attacks that involve a reboot. This is the default class for all third-party app data not otherwise assigned to a Data Protection class.
+On Mac computers, this class uses a volume key—accessible as long as the volume is mounted—that functions just like FileVault.
+
+No Protection
+NSFileProtectionNone
+This class key is protected only with the UID, and is kept in Effaceable Storage. Because all the keys needed to decrypt files in this class are stored on the device, the encryption only affords the benefit of fast remote wipe. If a file isn’t assigned a Data Protection class, it is still stored in encrypted form (as is all data on an iPad, iPhone, and Apple Vision Pro). This isn’t supported in macOS.
+
+Note: On devices with macOS, for volumes that don’t correspond to a booted operating system, all data protection classes are accessible as long as the volume is mounted. The default data protection class is NSFileProtectionCompleteUntilFirstUserAuthentication. Per-extent key functionality is available to both Rosetta 2 and native apps.Published Date: December 19, 2024
+See alsoEncryption and Data Protection overviewData Protection overviewKeychain data protection
+
+Download this guide as a PDF
+
+ Previous
+ Data Protection
+
+ Next 
+ Keybags for Data Protection
+
+ Helpful?
+
+ Yes
+
+ No
+
+ Character limit:
+ 250
+
+ Please don’t include any personal information in your comment.
+
+ Maximum character limit is 250.
+
+ Submit
+
+ Thanks for your feedback.
+
+Apple Footer
+
+ 
+ Apple
+
+ Support
+
+ Apple Platform Security
+
+ Data Protection classes
+
+ United States
+
+Copyright © 2026 Apple Inc. All rights reserved.
+
+ Privacy Policy Terms of Use Sales and Refunds Site Map
+

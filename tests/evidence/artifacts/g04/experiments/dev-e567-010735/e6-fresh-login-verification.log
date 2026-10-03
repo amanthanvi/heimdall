@@ -1,0 +1,3 @@
+[2026-10-03T01:07:36Z] BEGIN e6-fresh-login-verification run_stamp=dev-e567-010735 run_id=010736-41692
+[2026-10-03T01:07:36Z] SETUP FAILURE: fixture container hm-m00t03-ca1 not running
+[2026-10-03T01:07:36Z] END e6-fresh-login-verification exit=3 checks=0 fails=0

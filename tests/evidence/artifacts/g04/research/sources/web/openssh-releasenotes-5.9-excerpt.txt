@@ -1,0 +1,8 @@
+# Excerpt of https://www.openssh.org/releasenotes.html, OpenSSH 5.9 section (lines 9376..9599 of the text extraction), only the paragraph mentioning '-O stop'. Re-fetched 2026-10-03T00:35:09Z; raw sha256 d4b175e96db72cd0afccafaa5351e56d6467d7133503e95d3292ee0f38dd4e3e.
+98-
+99- * ssh(1): Allow graceful shutdown of multiplexing: request that a mux
+100- server removes its listener socket and refuse future multiplexing
+101- requests but don't kill existing connections. This may be requested
+102: using "ssh -O stop ..."
+103-
+104- * ssh-add(1) now accepts keys piped from standard input. E.g.

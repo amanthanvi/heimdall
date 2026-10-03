@@ -1,0 +1,30 @@
+{
+  "case_id": "G04-macos-sleep-across-deadline",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-AU-06",
+    "R-EN-04",
+    "R-AU-05"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "macOS",
+    "required": "native macOS host; owner puts the machine to sleep across a short agent lifetime and certificate validity window, then wakes it"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned (not yet implemented): see docs/research/g04-managed-credentials.md section 8.2 P4 (ssh-add -t lifetime and certificate valid_before crossing a sleep interval)"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Probe script for this case is not implemented yet; design only.",
+    "Inference to be tested: OpenSSH agent lifetimes use CLOCK_MONOTONIC on macOS, which the local clock_gettime(3) says continues to increment during sleep."
+  ],
+  "blocked_on": "owner-driven macOS system sleep/wake cycle spanning a deadline"
+}

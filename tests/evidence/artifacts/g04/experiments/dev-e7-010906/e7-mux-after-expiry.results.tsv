@@ -1,0 +1,29 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.011 rtt_s=0.044
+FACT	cert_valid_before_epoch	1790989766
+FACT	control_persist	10m
+CHECK	E7-master-authenticated	master started; exactly 1 Accepted line with the short-lived cert ID	master_pid=48767 accepted=1	PASS
+CHECK	E7-P1-mux-before-expiry	rc 0 via the master: no new TCP connection, no new Accepted line	rc=0 out=p1-mux-ok new_connections=0 new_accepted=0	PASS
+FACT	clock_ca1_phase2	offset_s=0.009 rtt_s=0.040
+CHECK	E7-P2a-fresh-login-rejected	rc 255; server logs 'Certificate invalid: expired' for the cert ID	rc=255 expired_lines=1 failed_with_id=1	PASS
+OBS	H1-mux-admitted-after-expiry	new multiplexed session admitted after valid_before, with no new connection or authentication	rc=0 out=p2-mux-after-expiry new_connections=0 new_accepted=0	CONFIRMED
+OBS	H1b-mux-needs-no-client-credential	a client with PubkeyAuthentication=no (cannot authenticate at all) is admitted through the master after expiry	rc=0 out=p2b2-mux	CONFIRMED
+CHECK	E7-P2c-S1-alive-after-expiry	S1 still running and printing heartbeats after valid_before	heartbeats_since_valid_before=3 s1_running=yes	PASS
+FACT	P3_stop	rc=0 out=[Stop listening request sent. ] master_running_after_stop=no control_socket=removed
+OBS	H2a-check-fails-after-stop	-O check fails after -O stop; control socket removed	stop_rc=0 check_rc=255 check_out=[Control socket connect(<tmp>/cm): No such file or directory ] socket=removed	CONFIRMED
+OBS	H2b-new-client-falls-back-to-fresh-auth	after stop, a client with the old ControlPath opens a NEW connection, is rejected (expired), rc 255	rc=255 out=[cert@127.0.0.1: Permission denied (publickey). ] new_connections=1 expired_lines=1 new_accepted=0	CONFIRMED
+OBS	H2b2-no-admission-via-master-after-stop	client with PubkeyAuthentication=no is NOT admitted after stop (rc 255)	rc=255 out=[cert@127.0.0.1: Permission denied (publickey). ]	CONFIRMED
+OBS	H2c-open-session-continues-after-stop	S1 keeps running >= 30 s after -O stop and ends normally	s1_rc=0 heartbeats_after_stop=9 last_heartbeat_minus_stop_s=44 s1_end_marker=1	CONFIRMED
+FACT	P3d_master	exited about 0 s (poll granularity 0.5 s) after S1 ended
+OBS	H2d-master-exits-after-last-session	after -O stop the master exits when its last session ends, despite ControlPersist=10m	exited_within_0s	CONFIRMED
+FACT	P4_before_exit	remote cert-owned processes: bash:1 sleep:1 sshd-session:1 ; S2 heartbeats so far: 3
+OBS	H3-exit-closes-master-and-sessions	-O exit: master gone, open session S2 terminated (no heartbeats after exit, no normal end), socket removed, later client not admitted	exit_rc=0 master_running_3s_after=no s2_running_3s_after=no s2_rc=255 s2_heartbeats_after_exit=0 s2_normal_end=0 socket=removed new_client_rc=255	CONFIRMED
+FACT	P4_remote_processes	before -O exit: [bash:1 sleep:1 sshd-session:1 ] ; 7 s after: [bash:1 sleep:1 ]
+CLEANUP	master pid=48767	not_running
+CLEANUP	master pid=53732	not_running
+CLEANUP	agent pid=48638	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=4	fails=0

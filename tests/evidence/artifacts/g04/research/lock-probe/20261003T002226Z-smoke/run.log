@@ -1,0 +1,9 @@
+00:22:26Z g04_lock_probe v1 mode=smoke interval=2s out=tests/evidence/artifacts/g04/research/lock-probe/20261003T002226Z-smoke
+00:22:26Z temp dir created (disposable)
+00:22:26Z caffeinate -i (idle-sleep assertion, exits with this script) pid=8286
+00:22:26Z disposable keychain created; settings: no-timeout (auto-lock disabled)
+00:22:26Z ERROR: started PID is not ssh-agent
+00:22:26Z cleanup: sampler=not_started agent=not_started agent_socket=not_applicable keychain=deleted search_list=unchanged default_keychain=unchanged caffeinate=terminated temp_dir=removed
+00:22:27Z result: status=in_progress; SETUP FAILED: started PID is not ssh-agent; Smoke run, screen unlocked, no lock exercised: dedicated agent signing=not_measured; disposable keychain read=not_measured; fresh SSH login=not_measured; 0 samples; cleanup_complete=true; canary_scan=clean.
+00:22:27Z WARNING: record written but did not parse as JSON: tests/evidence/g04-macos-lock-probe-smoke-20261003T002226Z.json
+00:22:27Z exit=3

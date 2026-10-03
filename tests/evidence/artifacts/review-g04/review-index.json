@@ -1,0 +1,60 @@
+{
+  "review": "M00-review-g04",
+  "reviewer_note": "Evidence index only (commands, real exit codes, artifact paths). Findings are returned to the orchestrator in the structured review.",
+  "generated_at": "2026-10-03T19:05:00Z",
+  "commands": [
+    {
+      "cmd": "tests/native/g04/.venv/bin/python tests/evidence/artifacts/review-g04/validate_records.py",
+      "exit": 0,
+      "artifact": null
+    },
+    {
+      "cmd": "shasum -a 256 -c RETAINED_SHA256SUMS.txt (web, 49 files) / SHA256SUMS.txt (local-man, 11 files)",
+      "exit": [
+        0,
+        0
+      ]
+    },
+    {
+      "cmd": "curl re-fetch of 9 pinned sources (openssh-portable 87f0cd1: mux.c ssh-add.c PROTOCOL.mux misc.c ssh-agent.c PROTOCOL.agent; rfc9987; smallstep LICENSE fdeb6fd; tpm2-pkcs11 SSH.md d8375fa)",
+      "exit": "all curl rc 0, HTTP 200, sha256 == MANIFEST.tsv",
+      "artifact": "tests/evidence/artifacts/review-g04/source-refetch/refetch.tsv"
+    },
+    {
+      "cmd": "G04_RUN_STAMP=../../review-g04/rerun-20261003T184245Z tests/native/g04/fresh_run.sh",
+      "exit": 0,
+      "artifact": "tests/evidence/artifacts/review-g04/rerun-20261003T184245Z/"
+    },
+    {
+      "cmd": "python3 tests/evidence/artifacts/review-g04/classify_rerun.py tests/evidence/artifacts/review-g04/rerun-20261003T184245Z",
+      "exit": 0
+    },
+    {
+      "cmd": "tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5 --out-dir tests/evidence/artifacts/review-g04/lock-probe-smoke-20261003T185325Z --record ...record.json",
+      "exit": 0,
+      "artifact": "tests/evidence/artifacts/review-g04/lock-probe-smoke-20261003T185325Z*"
+    },
+    {
+      "cmd": "/usr/bin/python3 tests/evidence/artifacts/review-g04/probe_preconnected_mux.py <repo> tests/evidence/artifacts/review-g04/probe-preconnected-run1",
+      "exit": 0
+    },
+    {
+      "cmd": "HP1_DELAY=15 /usr/bin/python3 tests/evidence/artifacts/review-g04/probe_preconnected_mux.py <repo> tests/evidence/artifacts/review-g04/probe-preconnected-run2-delay15",
+      "exit": 0
+    },
+    {
+      "cmd": "tests/fixtures/ssh/down.sh",
+      "exit": 0,
+      "artifact": "tests/evidence/artifacts/review-g04/rerun-20261003T184245Z/fixture-down-post.log"
+    },
+    {
+      "cmd": "tests/fixtures/ssh/up.sh; g04_lock_probe.sh --mode smoke ... --fixture-runtime tests/fixtures/ssh/runtime; tests/fixtures/ssh/down.sh",
+      "exit": [
+        0,
+        0,
+        0
+      ],
+      "artifact": "tests/evidence/artifacts/review-g04/lock-probe-smoke-fixture-*"
+    }
+  ]
+}

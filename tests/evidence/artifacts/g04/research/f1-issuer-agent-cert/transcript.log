@@ -1,0 +1,39 @@
+2026-10-03T00:10:11Z openssh: OpenSSH_10.3p1, LibreSSL 3.3.6
+2026-10-03T00:10:11Z issuer agent pid=66409
+2026-10-03T00:10:11Z worker agent pid=66417
+2026-10-03T00:10:11Z (a) load CA into issuer agent exit=0
+2026-10-03T00:10:11Z (a) CA private file removed; exists=no
+256 SHA256:<redacted> hm-g04-f1-ca (ED25519)
+2026-10-03T00:10:11Z (a) issuer list exit=0
+2026-10-03T00:10:11Z (a) sign working-key cert with CA-in-agent exit=0
+  Type: ssh-ed25519-cert-v01@openssh.com user certificate
+  Key ID: "hm-g04-f1-cert"
+  Valid: from 2026-10-02T20:09:11 to 2026-10-02T20:11:11
+  Principals: 
+  p-host1
+  Critical Options: (none)
+  Extensions: 
+2026-10-03T00:10:11Z (a) cert inspect exit=0
+2026-10-03T00:10:11Z (b) load work key (+cert) into worker agent exit=0
+2026-10-03T00:10:11Z (b) working private file removed; exists=no
+256 (ED25519)
+256 (ED25519-CERT)
+2026-10-03T00:10:11Z (b) worker list exit=0
+2026-10-03T00:10:11Z (b) ssh-add -T sign+verify via worker agent exit=0
+2026-10-03T00:10:11Z (b) ssh-keygen -Y sign via agent exit=0
+2026-10-03T00:10:11Z (b) signature check-novalidate exit=0
+2026-10-03T00:10:11Z (d) add ttl key with -t 20 exit=0
+  present: (ED25519)
+  present: (ED25519-CERT)
+  present: (ED25519)
+2026-10-03T00:10:11Z waiting 85 s for cert expiry (+1m) and ttl (20 s)
+  present: (ED25519)
+  present: (ED25519-CERT)
+2026-10-03T00:11:36Z (c,d) worker list after wait exit=0
+2026-10-03T00:11:36Z (c) plain working key still signs after cert removal exit=0
+2026-10-03T00:11:36Z (d) ttl key sign after lifetime exit=1
+2026-10-03T00:11:36Z done
+2026-10-03T00:11:36Z cleanup: sent TERM to agent pid=66409
+2026-10-03T00:11:36Z cleanup: sent TERM to agent pid=66417
+2026-10-03T00:11:36Z cleanup: removed temp dir exists_after=no
+exit=0

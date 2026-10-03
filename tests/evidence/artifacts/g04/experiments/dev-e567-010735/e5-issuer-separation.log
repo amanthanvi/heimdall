@@ -1,0 +1,3 @@
+[2026-10-03T01:07:35Z] BEGIN e5-issuer-separation run_stamp=dev-e567-010735 run_id=010735-41650
+[2026-10-03T01:07:35Z] SETUP FAILURE: fixture container hm-m00t03-ca1 not running
+[2026-10-03T01:07:35Z] END e5-issuer-separation exit=3 checks=0 fails=0

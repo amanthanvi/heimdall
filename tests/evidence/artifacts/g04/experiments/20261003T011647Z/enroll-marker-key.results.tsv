@@ -1,0 +1,23 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.007 rtt_s=0.034
+FACT	marker_key_fp	SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M
+FACT	admin_key_fp	SHA256:JSpyVBIpg/XBIrykZuqc5ZEzKi+HwI275FLIGKNSHZc
+FACT	agent_contents	256 SHA256:gDH3T+MNdWo69f+cOb/GWuvObyjMJwwrgBmcyxRxy9M heimdall-g04-exp-marker-012548-459 (ED25519)
+CHECK	ENR-verification-config	only the marker key; identitiesonly yes; no mux; publickey only; no password/kbd fallback; dedicated agent	identityfile <tmp>/km.pub identitiesonly=yes controlmaster=false controlpath=<absent> preferred=publickey password=no kbd=no identityagent=<tmp>/agent/agent.sock	PASS
+CHECK	ENR-preimage-is-seed	registry readable via the existing path; equals the fixture seed	rc=0 sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb	PASS
+CHECK	ENR-marker-before-enrollment	rc 255; exactly one key offered (the marker key); no Accepted line	rc=255 offered_keys=1 offered_marker=1 accepted_marker=0 accepted_any=0	PASS
+CHECK	ENR-add-transaction	rc 0	rc=0 out=POST sha256=904bab12485f4f5856dff1dba5b52c9efb0b9d1e8c4e7c9aeed6070f0dfe1925 owner_mode=enroll:600	PASS
+CHECK	ENR-added-alongside	after-add bytes == preimage + marker line (existing entries untouched)	cmp_rc=0	PASS
+CHECK	ENR-marker-fresh-auth	rc 0; exactly one key offered (the marker key); exactly 1 new Accepted line with the marker fingerprint	rc=0 offered_keys=1 offered_marker=1 accepted_marker=1 accepted_any=1	PASS
+CHECK	ENR-existing-access-survives	pre-existing working key still authenticates	rc=0	PASS
+CHECK	ENR-concurrent-edit-applied	rc 0	rc=0	PASS
+CHECK	ENR-remove-transaction	rc 0; exactly one marker line matched	rc=0 out=POST sha256=99ae48c0631fef666a4992965ae99de717df821782e9b36584285e8b89788d25 owner_mode=enroll:600	PASS
+CHECK	ENR-unrelated-bytes-identical	after-remove bytes == preimage + concurrent admin line (every unrelated byte and the concurrent edit preserved; marker gone)	cmp_rc=0 marker_present=no pre_lines=9 after_lines=10	PASS
+CHECK	ENR-marker-after-removal	rc 255; exactly one key offered (the marker key); no Accepted line	rc=255 offered_keys=1 offered_marker=1 accepted_marker=0 accepted_any=0	PASS
+CHECK	ENR-seed-restored	sha256 == seed; owner:mode enroll:600; no hm-g04 temp files	sha256=9812e1959326ecf79e3772065c358893f5c735b5efbf5a04d9fa2b2e659f45fb owner_mode_tmpcount=[enroll:600 0]	PASS
+CLEANUP	agent pid=938	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=12	fails=0

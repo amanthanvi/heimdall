@@ -1,0 +1,29 @@
+{
+  "case_id": "G04-macos-data-protection-keychain-under-lock",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-CR-03",
+    "R-EN-04"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "macOS",
+    "required": "a provisioning-profile-signed test app bundle with a keychain-access-groups entitlement (Apple TN3137), run in the owner's user session"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned: SecItemAdd with kSecUseDataProtectionKeychain and kSecAttrAccessibleAfterFirstUnlock vs kSecAttrAccessibleWhenUnlocked items; read them across a screen lock; see docs/research/g04-managed-credentials.md section 8.2 P6"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Whether Heimdall will ship a signed app-like bundle on macOS is an open owner decision (G02 distribution)."
+  ],
+  "blocked_on": "an Apple Developer signing identity and provisioning profile for a test bundle (an unsigned CLI cannot use the data-protection keychain per Apple TN3137), plus an owner-driven screen lock/unlock cycle"
+}

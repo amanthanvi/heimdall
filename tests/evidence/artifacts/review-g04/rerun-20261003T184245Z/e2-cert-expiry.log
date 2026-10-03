@@ -1,0 +1,2123 @@
+[2026-10-03T18:45:04Z] BEGIN e2-cert-expiry run_stamp=../../review-g04/rerun-20261003T184245Z run_id=184504-76634
+[2026-10-03T18:45:05Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:45:05Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:45:05Z] FACT docker_server = 29.8.1
+[2026-10-03T18:45:05Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:45:05Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.034
+[2026-10-03T18:45:05Z] FACT clock_ca1_before = offset_s=0.008 rtt_s=0.033
+[2026-10-03T18:45:05Z] dedicated ssh-agent started: pid=76777 ident='Sat Oct 3 14:45:05 2026 /usr/bin/ssh-agent' socket=<tmp>/aA/agent.sock mode=debug
+[2026-10-03T18:45:05Z] dedicated ssh-agent started: pid=76790 ident='Sat Oct 3 14:45:05 2026 /usr/bin/ssh-agent' socket=<tmp>/aB/agent.sock mode=debug
+[2026-10-03T18:45:05Z] dedicated ssh-agent started: pid=76805 ident='Sat Oct 3 14:45:05 2026 /usr/bin/ssh-agent' socket=<tmp>/aC/agent.sock mode=daemon
+[2026-10-03T18:45:05Z] certificate g04-e2-c1a-184504-76634: id="g04-e2-c1a-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:44:05 to 2026-10-03T18:46:35] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] certificate g04-e2-c1b-184504-76634: id="g04-e2-c1b-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:44:05 to 2026-10-03T18:46:35] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] certificate g04-e2-c2-184504-76634: id="g04-e2-c2-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:50:05 to 2026-10-03T18:55:05] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] certificate g04-e2-c3-184504-76634: id="g04-e2-c3-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:35:05 to 2026-10-03T18:40:05] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] FACT c1_valid_after_epoch = 1791053045
+[2026-10-03T18:45:05Z] FACT c1_valid_before_epoch = 1791053195
+[2026-10-03T18:45:05Z] FACT c1_valid_before_utc = 2026-10-03T18:46:35Z
+[2026-10-03T18:45:05Z] $ (ssh-add  k1a) env SSH_AUTH_SOCK=<tmp>/aA/agent.sock /usr/bin/ssh-add <tmp>/k1a
+    | Identity added: <tmp>/k1a (g04-e2-k1a-184504-76634)
+    | Certificate added: <tmp>/k1a-cert.pub (g04-e2-c1a-184504-76634)
+    | Lifetime set to 00:06:30
+    rc=0 t_start=1791053105.603 t_end=1791053105.614
+[2026-10-03T18:45:05Z] FACT ssh_add_default_output = Identity added: <tmp>/k1a (g04-e2-k1a-184504-76634)
+Certificate added: <tmp>/k1a-cert.pub (g04-e2-c1a-184504-76634)
+Lifetime set to 00:06:30
+[2026-10-03T18:45:05Z] $ (ssh-add -N k1b) env SSH_AUTH_SOCK=<tmp>/aB/agent.sock /usr/bin/ssh-add -N <tmp>/k1b
+    | Identity added: <tmp>/k1b (g04-e2-k1b-184504-76634)
+    | Certificate added: <tmp>/k1b-cert.pub (g04-e2-c1b-184504-76634)
+    rc=0 t_start=1791053105.644 t_end=1791053105.655
+[2026-10-03T18:45:05Z] FACT ssh_add_N_output = Identity added: <tmp>/k1b (g04-e2-k1b-184504-76634)
+Certificate added: <tmp>/k1b-cert.pub (g04-e2-c1b-184504-76634)
+[2026-10-03T18:45:05Z] $ (ssh-add  k2) env SSH_AUTH_SOCK=<tmp>/aC/agent.sock /usr/bin/ssh-add <tmp>/k2
+    | Identity added: <tmp>/k2 (g04-e2-k2-184504-76634)
+    rc=0 t_start=1791053105.685 t_end=1791053105.693
+[2026-10-03T18:45:05Z] $ (ssh-add  k3) env SSH_AUTH_SOCK=<tmp>/aC/agent.sock /usr/bin/ssh-add <tmp>/k3
+    | Identity added: <tmp>/k3 (g04-e2-k3-184504-76634)
+    rc=0 t_start=1791053105.713 t_end=1791053105.722
+[2026-10-03T18:45:05Z] $ (ssh-add -l (<tmp>/aA/agent.sock)) env SSH_AUTH_SOCK=<tmp>/aA/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+    | 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519-CERT)
+    rc=0 t_start=1791053105.741 t_end=1791053105.751
+[2026-10-03T18:45:05Z] FACT agentA_before = 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519-CERT)
+[2026-10-03T18:45:05Z] $ (ssh-add -l (<tmp>/aB/agent.sock)) env SSH_AUTH_SOCK=<tmp>/aB/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+    | 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+    rc=0 t_start=1791053105.775 t_end=1791053105.784
+[2026-10-03T18:45:05Z] FACT agentB_before = 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+[2026-10-03T18:45:05Z] $ (C1a agent-held, before expiry) /usr/bin/ssh -F <tmp>/agA.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/agA.cfg
+    | debug1: <tmp>/agA.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/agA.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: g04-e2-k1a-184504-76634 ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Will attempt key: g04-e2-k1a-184504-76634 ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Server accepts key: g04-e2-k1a-184504-76634 ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64772) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e2-ok
+    | debug1: pledge: fork
+    | e2-ok
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4656, received 4052 bytes, in 0.0 seconds
+    | Bytes per second: sent 2165581.4, received 1884651.2
+    | debug1: Exit status 0
+    rc=0 t_start=1791053105.878 t_end=1791053105.948
+[2026-10-03T18:45:06Z] server log hm-m00t03-ca1 (C1a agent-held, before expiry), new lines:
+    > Connection from 172.18.0.1 port 58504 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58504 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 58504 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 58504 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 90
+    > Starting session: command for cert from 172.18.0.1 port 58504 id 0
+    > Received disconnect from 172.18.0.1 port 58504:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 58504
+[2026-10-03T18:45:06Z] PASS E2-C1a-agent-before | expected: rc 0 + 1 Accepted line ID c1a | observed: rc=0 accepted=1 offered=[debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:45:06Z] $ (C1b agent-held, before expiry) /usr/bin/ssh -F <tmp>/agB.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/agB.cfg
+    | debug1: <tmp>/agB.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/agB.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: g04-e2-k1b-184504-76634 ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Will attempt key: g04-e2-k1b-184504-76634 ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Server accepts key: g04-e2-k1b-184504-76634 ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64772) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e2-ok
+    | debug1: pledge: fork
+    | e2-ok
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4656, received 4052 bytes, in 0.0 seconds
+    | Bytes per second: sent 2187969.9, received 1904135.3
+    | debug1: Exit status 0
+    rc=0 t_start=1791053106.400 t_end=1791053106.476
+[2026-10-03T18:45:06Z] server log hm-m00t03-ca1 (C1b agent-held, before expiry), new lines:
+    > Connection from 172.18.0.1 port 58516 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58516 ssh2: ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0
+    > Accepted certificate ID "g04-e2-c1b-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 58516 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1b-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 58516 ssh2: ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 ID g04-e2-c1b-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 94
+    > Starting session: command for cert from 172.18.0.1 port 58516 id 0
+    > Received disconnect from 172.18.0.1 port 58516:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 58516
+[2026-10-03T18:45:06Z] PASS E2-C1b-agent-before | expected: rc 0 + 1 Accepted line ID c1b | observed: rc=0 accepted=1 offered=[debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:45:07Z] $ (C1a disk cert, before expiry) /usr/bin/ssh -F <tmp>/dkA.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/dkA.cfg
+    | debug1: <tmp>/dkA.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/dkA.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k1a.pub: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    | debug1: identity file <tmp>/k1a.pub type 2
+    | debug1: loaded identity cert from <tmp>/k1a-cert.pub: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | debug1: Will attempt key: <tmp>/k1a.pub ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit agent
+    | debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | debug1: Server accepts key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:64772) using "publickey".
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug1: Sending command: echo e2-ok
+    | debug1: pledge: fork
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | e2-ok
+    | debug1: channel 0: free: client-session, nchannels 1
+    | Transferred: sent 4532, received 4024 bytes, in 0.0 seconds
+    | Bytes per second: sent 2299340.4, received 2041603.3
+    | debug1: Exit status 0
+    rc=0 t_start=1791053106.944 t_end=1791053107.004
+[2026-10-03T18:45:07Z] server log hm-m00t03-ca1 (C1a disk cert, before expiry), new lines:
+    > Connection from 172.18.0.1 port 58528 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 58528 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 58528 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 98
+    > Starting session: command for cert from 172.18.0.1 port 58528 id 0
+    > Received disconnect from 172.18.0.1 port 58528:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 58528
+[2026-10-03T18:45:07Z] PASS E2-C1a-disk-before | expected: rc 0 + 1 Accepted line ID c1a | observed: rc=0 accepted=1
+[2026-10-03T18:45:07Z] $ (C2 not yet valid) /usr/bin/ssh -F <tmp>/c2.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/c2.cfg
+    | debug1: <tmp>/c2.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/c2.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k2.pub: ED25519 SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4
+    | debug1: identity file <tmp>/k2.pub type 2
+    | debug1: loaded identity cert from <tmp>/c2.pub: ED25519-CERT SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: <tmp>/c2.pub ED25519-CERT SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4 explicit
+    | debug1: Will attempt key: <tmp>/k2.pub ED25519 SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4 explicit agent
+    | debug1: Offering public key: <tmp>/c2.pub ED25519-CERT SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k2.pub ED25519 SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053107.477 t_end=1791053107.526
+[2026-10-03T18:45:07Z] server log hm-m00t03-ca1 (C2 not yet valid), new lines:
+    > Connection from 172.18.0.1 port 58544 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: not yet valid
+    > Failed publickey for cert from 172.18.0.1 port 58544 ssh2: ED25519-CERT SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4 ID g04-e2-c2-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 58544 ssh2: ED25519 SHA256:m2CVt6EtymbUZFDnUqNk4yVgHsDkKFwNOjofKP+kQJ4
+    > Connection closed by authenticating user cert 172.18.0.1 port 58544 [preauth]
+[2026-10-03T18:45:07Z] PASS E2-C2-not-yet-valid-rejected | expected: rc 255; server saw the cert (Failed line with ID) and logged 'Certificate invalid: not yet valid' | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: not yet valid]
+[2026-10-03T18:45:08Z] $ (C3 expired) /usr/bin/ssh -F <tmp>/c3.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/c3.cfg
+    | debug1: <tmp>/c3.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/c3.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k3.pub: ED25519 SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I
+    | debug1: identity file <tmp>/k3.pub type 2
+    | debug1: loaded identity cert from <tmp>/c3.pub: ED25519-CERT SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: <tmp>/c3.pub ED25519-CERT SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I explicit
+    | debug1: Will attempt key: <tmp>/k3.pub ED25519 SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I explicit agent
+    | debug1: Offering public key: <tmp>/c3.pub ED25519-CERT SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k3.pub ED25519 SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053107.996 t_end=1791053108.046
+[2026-10-03T18:45:08Z] server log hm-m00t03-ca1 (C3 expired), new lines:
+    > Connection from 172.18.0.1 port 58552 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58552 ssh2: ED25519-CERT SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I ID g04-e2-c3-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 58552 ssh2: ED25519 SHA256:5sZhmxL+qKwrIcxgjECRWOzLlYzMuLm66nQNxg3DN6I
+    > Connection closed by authenticating user cert 172.18.0.1 port 58552 [preauth]
+[2026-10-03T18:45:08Z] PASS E2-C3-expired-rejected | expected: rc 255; server saw the cert and logged 'Certificate invalid: expired' | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired]
+[2026-10-03T18:45:08Z] waiting 81 s (until epoch 1791053189)
+[2026-10-03T18:46:29Z] FACT clock_ca1_at_boundary = offset_s=0.015 rtt_s=0.052
+[2026-10-03T18:46:39Z] server log hm-m00t03-ca1 (boundary sampling), new lines:
+    > Connection from 172.18.0.1 port 59922 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59922 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59922 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59922 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 112
+    > Starting session: command for cert from 172.18.0.1 port 59922 id 0
+    > Received disconnect from 172.18.0.1 port 59922:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59922
+    > Connection from 172.18.0.1 port 59934 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59934 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59934 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59934 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 116
+    > Starting session: command for cert from 172.18.0.1 port 59934 id 0
+    > Received disconnect from 172.18.0.1 port 59934:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59934
+    > Connection from 172.18.0.1 port 59948 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59948 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59948 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59948 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 120
+    > Starting session: command for cert from 172.18.0.1 port 59948 id 0
+    > Received disconnect from 172.18.0.1 port 59948:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59948
+    > Connection from 172.18.0.1 port 59954 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59954 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59954 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59954 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 124
+    > Starting session: command for cert from 172.18.0.1 port 59954 id 0
+    > Received disconnect from 172.18.0.1 port 59954:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59954
+    > Connection from 172.18.0.1 port 59966 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59966 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59966 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59966 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 128
+    > Starting session: command for cert from 172.18.0.1 port 59966 id 0
+    > Received disconnect from 172.18.0.1 port 59966:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59966
+    > Connection from 172.18.0.1 port 59978 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59978 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59978 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59978 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 132
+    > Starting session: command for cert from 172.18.0.1 port 59978 id 0
+    > Received disconnect from 172.18.0.1 port 59978:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59978
+    > Connection from 172.18.0.1 port 59992 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59992 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59992 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59992 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 136
+    > Starting session: command for cert from 172.18.0.1 port 59992 id 0
+    > Received disconnect from 172.18.0.1 port 59992:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59992
+    > Connection from 172.18.0.1 port 59994 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 59994 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 59994 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 59994 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 140
+    > Starting session: command for cert from 172.18.0.1 port 59994 id 0
+    > Received disconnect from 172.18.0.1 port 59994:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 59994
+    > Connection from 172.18.0.1 port 60010 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60010 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60010 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60010 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 144
+    > Starting session: command for cert from 172.18.0.1 port 60010 id 0
+    > Received disconnect from 172.18.0.1 port 60010:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60010
+    > Connection from 172.18.0.1 port 60024 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60024 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60024 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60024 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 148
+    > Starting session: command for cert from 172.18.0.1 port 60024 id 0
+    > Received disconnect from 172.18.0.1 port 60024:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60024
+    > Connection from 172.18.0.1 port 60028 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60028 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60028 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60028 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 152
+    > Starting session: command for cert from 172.18.0.1 port 60028 id 0
+    > Received disconnect from 172.18.0.1 port 60028:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60028
+    > Connection from 172.18.0.1 port 60030 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60030 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60030 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60030 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 156
+    > Starting session: command for cert from 172.18.0.1 port 60030 id 0
+    > Received disconnect from 172.18.0.1 port 60030:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60030
+    > Connection from 172.18.0.1 port 60032 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60032 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60032 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60032 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 160
+    > Starting session: command for cert from 172.18.0.1 port 60032 id 0
+    > Received disconnect from 172.18.0.1 port 60032:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60032
+    > Connection from 172.18.0.1 port 60038 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60038 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60038 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60038 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 164
+    > Starting session: command for cert from 172.18.0.1 port 60038 id 0
+    > Received disconnect from 172.18.0.1 port 60038:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60038
+    > Connection from 172.18.0.1 port 60042 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60042 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60042 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60042 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 168
+    > Starting session: command for cert from 172.18.0.1 port 60042 id 0
+    > Received disconnect from 172.18.0.1 port 60042:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60042
+    > Connection from 172.18.0.1 port 60058 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60058 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60058 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60058 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 172
+    > Starting session: command for cert from 172.18.0.1 port 60058 id 0
+    > Received disconnect from 172.18.0.1 port 60058:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60058
+    > Connection from 172.18.0.1 port 60064 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60064 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60064 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60064 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 176
+    > Starting session: command for cert from 172.18.0.1 port 60064 id 0
+    > Received disconnect from 172.18.0.1 port 60064:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60064
+    > Connection from 172.18.0.1 port 60066 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60066 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60066 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60066 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 180
+    > Starting session: command for cert from 172.18.0.1 port 60066 id 0
+    > Received disconnect from 172.18.0.1 port 60066:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60066
+    > Connection from 172.18.0.1 port 60082 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60082 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60082 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60082 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 184
+    > Starting session: command for cert from 172.18.0.1 port 60082 id 0
+    > Received disconnect from 172.18.0.1 port 60082:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60082
+    > Connection from 172.18.0.1 port 60084 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60084 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60084 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60084 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 188
+    > Starting session: command for cert from 172.18.0.1 port 60084 id 0
+    > Received disconnect from 172.18.0.1 port 60084:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60084
+    > Connection from 172.18.0.1 port 60094 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60094 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60094 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60094 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 192
+    > Starting session: command for cert from 172.18.0.1 port 60094 id 0
+    > Received disconnect from 172.18.0.1 port 60094:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60094
+    > Connection from 172.18.0.1 port 60100 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60100 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60100 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60100 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 196
+    > Starting session: command for cert from 172.18.0.1 port 60100 id 0
+    > Received disconnect from 172.18.0.1 port 60100:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60100
+    > Connection from 172.18.0.1 port 60104 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60104 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60104 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60104 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 200
+    > Starting session: command for cert from 172.18.0.1 port 60104 id 0
+    > Received disconnect from 172.18.0.1 port 60104:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60104
+    > Connection from 172.18.0.1 port 60106 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60106 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60106 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60106 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 204
+    > Starting session: command for cert from 172.18.0.1 port 60106 id 0
+    > Received disconnect from 172.18.0.1 port 60106:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60106
+    > Connection from 172.18.0.1 port 60108 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60108 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60108 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60108 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 208
+    > Starting session: command for cert from 172.18.0.1 port 60108 id 0
+    > Received disconnect from 172.18.0.1 port 60108:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60108
+    > Connection from 172.18.0.1 port 60110 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60110 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60110 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60110 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 212
+    > Starting session: command for cert from 172.18.0.1 port 60110 id 0
+    > Received disconnect from 172.18.0.1 port 60110:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60110
+    > Connection from 172.18.0.1 port 60118 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60118 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60118 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60118 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 216
+    > Starting session: command for cert from 172.18.0.1 port 60118 id 0
+    > Received disconnect from 172.18.0.1 port 60118:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60118
+    > Connection from 172.18.0.1 port 60132 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60132 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60132 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60132 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 220
+    > Starting session: command for cert from 172.18.0.1 port 60132 id 0
+    > Received disconnect from 172.18.0.1 port 60132:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60132
+    > Connection from 172.18.0.1 port 60136 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60136 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60136 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60136 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 224
+    > Starting session: command for cert from 172.18.0.1 port 60136 id 0
+    > Received disconnect from 172.18.0.1 port 60136:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60136
+    > Connection from 172.18.0.1 port 60152 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60152 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60152 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60152 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 228
+    > Starting session: command for cert from 172.18.0.1 port 60152 id 0
+    > Received disconnect from 172.18.0.1 port 60152:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60152
+    > Connection from 172.18.0.1 port 60154 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60154 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60154 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60154 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 232
+    > Starting session: command for cert from 172.18.0.1 port 60154 id 0
+    > Received disconnect from 172.18.0.1 port 60154:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60154
+    > Connection from 172.18.0.1 port 60170 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60170 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60170 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60170 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 236
+    > Starting session: command for cert from 172.18.0.1 port 60170 id 0
+    > Received disconnect from 172.18.0.1 port 60170:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60170
+    > Connection from 172.18.0.1 port 60180 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60180 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60180 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60180 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 240
+    > Starting session: command for cert from 172.18.0.1 port 60180 id 0
+    > Received disconnect from 172.18.0.1 port 60180:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60180
+    > Connection from 172.18.0.1 port 60192 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60192 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60192 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60192 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 244
+    > Starting session: command for cert from 172.18.0.1 port 60192 id 0
+    > Received disconnect from 172.18.0.1 port 60192:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60192
+    > Connection from 172.18.0.1 port 60204 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60204 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60204 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60204 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 248
+    > Starting session: command for cert from 172.18.0.1 port 60204 id 0
+    > Received disconnect from 172.18.0.1 port 60204:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60204
+    > Connection from 172.18.0.1 port 60218 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60218 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60218 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60218 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 252
+    > Starting session: command for cert from 172.18.0.1 port 60218 id 0
+    > Received disconnect from 172.18.0.1 port 60218:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60218
+    > Connection from 172.18.0.1 port 60230 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60230 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60230 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60230 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 256
+    > Starting session: command for cert from 172.18.0.1 port 60230 id 0
+    > Received disconnect from 172.18.0.1 port 60230:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60230
+    > Connection from 172.18.0.1 port 60240 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60240 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60240 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60240 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 260
+    > Starting session: command for cert from 172.18.0.1 port 60240 id 0
+    > Received disconnect from 172.18.0.1 port 60240:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60240
+    > Connection from 172.18.0.1 port 60248 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60248 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60248 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60248 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 264
+    > Starting session: command for cert from 172.18.0.1 port 60248 id 0
+    > Received disconnect from 172.18.0.1 port 60248:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60248
+    > Connection from 172.18.0.1 port 60256 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60256 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60256 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60256 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 268
+    > Starting session: command for cert from 172.18.0.1 port 60256 id 0
+    > Received disconnect from 172.18.0.1 port 60256:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60256
+    > Connection from 172.18.0.1 port 60260 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60260 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60260 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60260 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 272
+    > Starting session: command for cert from 172.18.0.1 port 60260 id 0
+    > Received disconnect from 172.18.0.1 port 60260:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60260
+    > Connection from 172.18.0.1 port 60272 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60272 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60272 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60272 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 276
+    > Starting session: command for cert from 172.18.0.1 port 60272 id 0
+    > Received disconnect from 172.18.0.1 port 60272:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60272
+    > Connection from 172.18.0.1 port 60278 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60278 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60278 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60278 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 280
+    > Starting session: command for cert from 172.18.0.1 port 60278 id 0
+    > Received disconnect from 172.18.0.1 port 60278:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60278
+    > Connection from 172.18.0.1 port 60290 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60290 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60290 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60290 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 284
+    > Starting session: command for cert from 172.18.0.1 port 60290 id 0
+    > Received disconnect from 172.18.0.1 port 60290:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60290
+    > Connection from 172.18.0.1 port 60302 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60302 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60302 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60302 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 288
+    > Starting session: command for cert from 172.18.0.1 port 60302 id 0
+    > Received disconnect from 172.18.0.1 port 60302:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60302
+    > Connection from 172.18.0.1 port 60318 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60318 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60318 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60318 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 292
+    > Starting session: command for cert from 172.18.0.1 port 60318 id 0
+    > Received disconnect from 172.18.0.1 port 60318:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60318
+    > Connection from 172.18.0.1 port 60330 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60330 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60330 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60330 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 296
+    > Starting session: command for cert from 172.18.0.1 port 60330 id 0
+    > Received disconnect from 172.18.0.1 port 60330:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60330
+    > Connection from 172.18.0.1 port 60342 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60342 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60342 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60342 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 300
+    > Starting session: command for cert from 172.18.0.1 port 60342 id 0
+    > Received disconnect from 172.18.0.1 port 60342:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60342
+    > Connection from 172.18.0.1 port 60356 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60356 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60356 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60356 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 304
+    > Starting session: command for cert from 172.18.0.1 port 60356 id 0
+    > Received disconnect from 172.18.0.1 port 60356:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60356
+    > Connection from 172.18.0.1 port 60358 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60358 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60358 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60358 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 308
+    > Starting session: command for cert from 172.18.0.1 port 60358 id 0
+    > Received disconnect from 172.18.0.1 port 60358:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60358
+    > Connection from 172.18.0.1 port 60364 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60364 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60364 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60364 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 312
+    > Starting session: command for cert from 172.18.0.1 port 60364 id 0
+    > Received disconnect from 172.18.0.1 port 60364:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60364
+    > Connection from 172.18.0.1 port 60380 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 60380 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 60380 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 60380 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 316
+    > Starting session: command for cert from 172.18.0.1 port 60380 id 0
+    > Received disconnect from 172.18.0.1 port 60380:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 60380
+    > Connection from 172.18.0.1 port 57654 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57654 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57654 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57654 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 320
+    > Starting session: command for cert from 172.18.0.1 port 57654 id 0
+    > Received disconnect from 172.18.0.1 port 57654:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57654
+    > Connection from 172.18.0.1 port 57668 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57668 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57668 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57668 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 324
+    > Starting session: command for cert from 172.18.0.1 port 57668 id 0
+    > Received disconnect from 172.18.0.1 port 57668:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57668
+    > Connection from 172.18.0.1 port 57682 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57682 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57682 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57682 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 328
+    > Starting session: command for cert from 172.18.0.1 port 57682 id 0
+    > Received disconnect from 172.18.0.1 port 57682:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57682
+    > Connection from 172.18.0.1 port 57698 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57698 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57698 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57698 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 332
+    > Starting session: command for cert from 172.18.0.1 port 57698 id 0
+    > Received disconnect from 172.18.0.1 port 57698:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57698
+    > Connection from 172.18.0.1 port 57710 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57710 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57710 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57710 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 336
+    > Starting session: command for cert from 172.18.0.1 port 57710 id 0
+    > Received disconnect from 172.18.0.1 port 57710:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57710
+    > Connection from 172.18.0.1 port 57724 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57724 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57724 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57724 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 340
+    > Starting session: command for cert from 172.18.0.1 port 57724 id 0
+    > Received disconnect from 172.18.0.1 port 57724:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57724
+    > Connection from 172.18.0.1 port 57732 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57732 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57732 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57732 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 344
+    > Starting session: command for cert from 172.18.0.1 port 57732 id 0
+    > Received disconnect from 172.18.0.1 port 57732:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57732
+    > Connection from 172.18.0.1 port 57740 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57740 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57740 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57740 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 348
+    > Starting session: command for cert from 172.18.0.1 port 57740 id 0
+    > Received disconnect from 172.18.0.1 port 57740:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57740
+    > Connection from 172.18.0.1 port 57748 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57748 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57748 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57748 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 352
+    > Starting session: command for cert from 172.18.0.1 port 57748 id 0
+    > Received disconnect from 172.18.0.1 port 57748:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57748
+    > Connection from 172.18.0.1 port 57754 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57754 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57754 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57754 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 356
+    > Starting session: command for cert from 172.18.0.1 port 57754 id 0
+    > Received disconnect from 172.18.0.1 port 57754:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57754
+    > Connection from 172.18.0.1 port 57756 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57756 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57756 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57756 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 360
+    > Starting session: command for cert from 172.18.0.1 port 57756 id 0
+    > Received disconnect from 172.18.0.1 port 57756:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57756
+    > Connection from 172.18.0.1 port 57758 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57758 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57758 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57758 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 364
+    > Starting session: command for cert from 172.18.0.1 port 57758 id 0
+    > Received disconnect from 172.18.0.1 port 57758:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57758
+    > Connection from 172.18.0.1 port 57768 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57768 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57768 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57768 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 368
+    > Starting session: command for cert from 172.18.0.1 port 57768 id 0
+    > Received disconnect from 172.18.0.1 port 57768:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57768
+    > Connection from 172.18.0.1 port 57778 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57778 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57778 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57778 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 372
+    > Starting session: command for cert from 172.18.0.1 port 57778 id 0
+    > Received disconnect from 172.18.0.1 port 57778:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57778
+    > Connection from 172.18.0.1 port 57786 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57786 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57786 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57786 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 376
+    > Starting session: command for cert from 172.18.0.1 port 57786 id 0
+    > Received disconnect from 172.18.0.1 port 57786:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57786
+    > Connection from 172.18.0.1 port 57788 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57788 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57788 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57788 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 380
+    > Starting session: command for cert from 172.18.0.1 port 57788 id 0
+    > Received disconnect from 172.18.0.1 port 57788:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57788
+    > Connection from 172.18.0.1 port 57804 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57804 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57804 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57804 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 384
+    > Starting session: command for cert from 172.18.0.1 port 57804 id 0
+    > Received disconnect from 172.18.0.1 port 57804:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57804
+    > Connection from 172.18.0.1 port 57820 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57820 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57820 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57820 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 388
+    > Starting session: command for cert from 172.18.0.1 port 57820 id 0
+    > Received disconnect from 172.18.0.1 port 57820:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57820
+    > Connection from 172.18.0.1 port 57822 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57822 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57822 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57822 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 392
+    > Starting session: command for cert from 172.18.0.1 port 57822 id 0
+    > Received disconnect from 172.18.0.1 port 57822:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57822
+    > Connection from 172.18.0.1 port 57828 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57828 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57828 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57828 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 396
+    > Starting session: command for cert from 172.18.0.1 port 57828 id 0
+    > Received disconnect from 172.18.0.1 port 57828:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57828
+    > Connection from 172.18.0.1 port 57844 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57844 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57844 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57844 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 400
+    > Starting session: command for cert from 172.18.0.1 port 57844 id 0
+    > Received disconnect from 172.18.0.1 port 57844:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57844
+    > Connection from 172.18.0.1 port 57860 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57860 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57860 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57860 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 404
+    > Starting session: command for cert from 172.18.0.1 port 57860 id 0
+    > Received disconnect from 172.18.0.1 port 57860:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57860
+    > Connection from 172.18.0.1 port 57864 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57864 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57864 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57864 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 408
+    > Starting session: command for cert from 172.18.0.1 port 57864 id 0
+    > Received disconnect from 172.18.0.1 port 57864:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57864
+    > Connection from 172.18.0.1 port 57874 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57874 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57874 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57874 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 412
+    > Starting session: command for cert from 172.18.0.1 port 57874 id 0
+    > Received disconnect from 172.18.0.1 port 57874:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57874
+    > Connection from 172.18.0.1 port 57884 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57884 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57884 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57884 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 416
+    > Starting session: command for cert from 172.18.0.1 port 57884 id 0
+    > Received disconnect from 172.18.0.1 port 57884:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57884
+    > Connection from 172.18.0.1 port 57900 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57900 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57900 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57900 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 420
+    > Starting session: command for cert from 172.18.0.1 port 57900 id 0
+    > Received disconnect from 172.18.0.1 port 57900:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57900
+    > Connection from 172.18.0.1 port 57902 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57902 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57902 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57902 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 424
+    > Starting session: command for cert from 172.18.0.1 port 57902 id 0
+    > Received disconnect from 172.18.0.1 port 57902:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57902
+    > Connection from 172.18.0.1 port 57908 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57908 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57908 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57908 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 428
+    > Starting session: command for cert from 172.18.0.1 port 57908 id 0
+    > Received disconnect from 172.18.0.1 port 57908:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57908
+    > Connection from 172.18.0.1 port 57920 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57920 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57920 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57920 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 432
+    > Starting session: command for cert from 172.18.0.1 port 57920 id 0
+    > Received disconnect from 172.18.0.1 port 57920:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57920
+    > Connection from 172.18.0.1 port 57934 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57934 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57934 ssh2 [preauth]
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 57934 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > User child is on pid 436
+    > Starting session: command for cert from 172.18.0.1 port 57934 id 0
+    > Received disconnect from 172.18.0.1 port 57934:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 57934
+    > Connection from 172.18.0.1 port 57948 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57948 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Accepted certificate ID "g04-e2-c1a-184504-76634" (serial 0) signed by ED25519 CA SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 57948 ssh2 [preauth]
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 57948 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 57948 [preauth]
+    > Connection from 172.18.0.1 port 57964 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57964 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 57964 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 57964 [preauth]
+    > Connection from 172.18.0.1 port 57974 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57974 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 57974 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 57974 [preauth]
+    > Connection from 172.18.0.1 port 57986 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57986 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 57986 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 57986 [preauth]
+    > Connection from 172.18.0.1 port 57996 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 57996 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 57996 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 57996 [preauth]
+    > Connection from 172.18.0.1 port 58008 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58008 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58008 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58008 [preauth]
+    > Connection from 172.18.0.1 port 58012 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58012 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58012 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58012 [preauth]
+    > Connection from 172.18.0.1 port 58026 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58026 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58026 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58026 [preauth]
+    > Connection from 172.18.0.1 port 58028 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58028 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58028 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58028 [preauth]
+    > Connection from 172.18.0.1 port 58034 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58034 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58034 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58034 [preauth]
+    > Connection from 172.18.0.1 port 58042 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58042 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58042 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58042 [preauth]
+    > Connection from 172.18.0.1 port 58048 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58048 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58048 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58048 [preauth]
+    > Connection from 172.18.0.1 port 58058 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58058 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58058 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58058 [preauth]
+    > Connection from 172.18.0.1 port 58074 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58074 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58074 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58074 [preauth]
+    > Connection from 172.18.0.1 port 58088 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58088 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58088 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58088 [preauth]
+    > Connection from 172.18.0.1 port 58104 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58104 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58104 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58104 [preauth]
+    > Connection from 172.18.0.1 port 58108 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58108 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58108 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58108 [preauth]
+    > Connection from 172.18.0.1 port 58114 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58114 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58114 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58114 [preauth]
+    > Connection from 172.18.0.1 port 58128 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58128 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58128 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58128 [preauth]
+    > Connection from 172.18.0.1 port 58140 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58140 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58140 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58140 [preauth]
+    > Connection from 172.18.0.1 port 58152 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58152 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58152 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58152 [preauth]
+    > Connection from 172.18.0.1 port 58160 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58160 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58160 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58160 [preauth]
+    > Connection from 172.18.0.1 port 58162 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58162 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58162 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58162 [preauth]
+    > Connection from 172.18.0.1 port 58166 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58166 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58166 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58166 [preauth]
+    > Connection from 172.18.0.1 port 58172 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58172 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58172 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58172 [preauth]
+    > Connection from 172.18.0.1 port 58176 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58176 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58176 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58176 [preauth]
+    > Connection from 172.18.0.1 port 58178 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58178 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58178 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58178 [preauth]
+    > Connection from 172.18.0.1 port 58194 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58194 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58194 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58194 [preauth]
+    > Connection from 172.18.0.1 port 58204 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58204 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58204 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58204 [preauth]
+    > Connection from 172.18.0.1 port 58220 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58220 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58220 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58220 [preauth]
+    > Connection from 172.18.0.1 port 58228 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58228 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58228 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58228 [preauth]
+    > Connection from 172.18.0.1 port 58230 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58230 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58230 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58230 [preauth]
+    > Connection from 172.18.0.1 port 58238 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58238 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58238 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58238 [preauth]
+    > Connection from 172.18.0.1 port 58252 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58252 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58252 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58252 [preauth]
+    > Connection from 172.18.0.1 port 58256 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58256 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58256 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58256 [preauth]
+    > Connection from 172.18.0.1 port 58272 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58272 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58272 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58272 [preauth]
+    > Connection from 172.18.0.1 port 58282 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58282 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58282 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58282 [preauth]
+    > Connection from 172.18.0.1 port 58286 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58286 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58286 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58286 [preauth]
+    > Connection from 172.18.0.1 port 58288 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58288 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58288 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58288 [preauth]
+    > Connection from 172.18.0.1 port 58304 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58304 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58304 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58304 [preauth]
+    > Connection from 172.18.0.1 port 58308 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58308 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58308 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58308 [preauth]
+    > Connection from 172.18.0.1 port 58310 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58310 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58310 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58310 [preauth]
+    > Connection from 172.18.0.1 port 58324 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58324 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58324 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58324 [preauth]
+    > Connection from 172.18.0.1 port 58338 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58338 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58338 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58338 [preauth]
+    > Connection from 172.18.0.1 port 58344 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58344 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58344 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58344 [preauth]
+    > Connection from 172.18.0.1 port 58356 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58356 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58356 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58356 [preauth]
+    > Connection from 172.18.0.1 port 58366 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58366 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58366 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58366 [preauth]
+    > Connection from 172.18.0.1 port 58370 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58370 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58370 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58370 [preauth]
+    > Connection from 172.18.0.1 port 58380 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58380 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58380 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58380 [preauth]
+    > Connection from 172.18.0.1 port 58394 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58394 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58394 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58394 [preauth]
+    > Connection from 172.18.0.1 port 58402 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58402 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58402 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58402 [preauth]
+    > Connection from 172.18.0.1 port 58412 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58412 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58412 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58412 [preauth]
+    > Connection from 172.18.0.1 port 58426 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58426 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58426 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58426 [preauth]
+    > Connection from 172.18.0.1 port 58432 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58432 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58432 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58432 [preauth]
+    > Connection from 172.18.0.1 port 58434 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58434 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58434 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58434 [preauth]
+    > Connection from 172.18.0.1 port 58444 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58444 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58444 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58444 [preauth]
+    > Connection from 172.18.0.1 port 58450 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58450 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58450 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58450 [preauth]
+    > Connection from 172.18.0.1 port 58460 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58460 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58460 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58460 [preauth]
+    > Connection from 172.18.0.1 port 58470 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58470 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58470 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58470 [preauth]
+    > Connection from 172.18.0.1 port 58486 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58486 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58486 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58486 [preauth]
+    > Connection from 172.18.0.1 port 58490 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58490 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58490 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58490 [preauth]
+    > Connection from 172.18.0.1 port 58504 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58504 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58504 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58504 [preauth]
+    > Connection from 172.18.0.1 port 58508 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58508 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58508 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58508 [preauth]
+    > Connection from 172.18.0.1 port 58512 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58512 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58512 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58512 [preauth]
+    > Connection from 172.18.0.1 port 58522 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58522 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58522 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58522 [preauth]
+    > Connection from 172.18.0.1 port 58536 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58536 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58536 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58536 [preauth]
+    > Connection from 172.18.0.1 port 58544 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58544 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58544 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58544 [preauth]
+    > Connection from 172.18.0.1 port 58548 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58548 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58548 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58548 [preauth]
+    > Connection from 172.18.0.1 port 58554 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58554 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58554 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58554 [preauth]
+    > Connection from 172.18.0.1 port 58566 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58566 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58566 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58566 [preauth]
+    > Connection from 172.18.0.1 port 58574 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58574 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58574 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58574 [preauth]
+    > Connection from 172.18.0.1 port 58578 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58578 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58578 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58578 [preauth]
+    > Connection from 172.18.0.1 port 58586 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58586 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58586 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58586 [preauth]
+    > Connection from 172.18.0.1 port 58598 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58598 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58598 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58598 [preauth]
+    boundary attempts (t_start t_end rc), valid_before=1791053195:
+    1791053189.613	1791053189.674	0
+    1791053189.684	1791053189.754	0
+    1791053189.763	1791053189.821	0
+    1791053189.830	1791053189.884	0
+    1791053189.892	1791053189.948	0
+    1791053189.956	1791053190.012	0
+    1791053190.020	1791053190.077	0
+    1791053190.085	1791053190.142	0
+    1791053190.150	1791053190.207	0
+    1791053190.216	1791053190.272	0
+    1791053190.280	1791053190.335	0
+    1791053190.343	1791053190.401	0
+    1791053190.410	1791053190.464	0
+    1791053190.472	1791053190.528	0
+    1791053190.537	1791053190.595	0
+    1791053190.606	1791053190.664	0
+    1791053190.673	1791053190.730	0
+    1791053190.739	1791053190.797	0
+    1791053190.806	1791053190.862	0
+    1791053190.871	1791053190.929	0
+    1791053190.938	1791053190.993	0
+    1791053191.001	1791053191.055	0
+    1791053191.063	1791053191.118	0
+    1791053191.127	1791053191.185	0
+    1791053191.193	1791053191.252	0
+    1791053191.261	1791053191.318	0
+    1791053191.327	1791053191.384	0
+    1791053191.392	1791053191.451	0
+    1791053191.459	1791053191.517	0
+    1791053191.526	1791053191.582	0
+    1791053191.591	1791053191.645	0
+    1791053191.652	1791053191.709	0
+    1791053191.716	1791053191.771	0
+    1791053191.779	1791053191.835	0
+    1791053191.843	1791053191.899	0
+    1791053191.907	1791053191.966	0
+    1791053191.975	1791053192.032	0
+    1791053192.041	1791053192.096	0
+    1791053192.104	1791053192.163	0
+    1791053192.172	1791053192.229	0
+    1791053192.237	1791053192.292	0
+    1791053192.300	1791053192.356	0
+    1791053192.364	1791053192.420	0
+    1791053192.429	1791053192.485	0
+    1791053192.494	1791053192.547	0
+    1791053192.554	1791053192.609	0
+    1791053192.617	1791053192.672	0
+    1791053192.680	1791053192.735	0
+    1791053192.744	1791053192.800	0
+    1791053192.809	1791053192.866	0
+    1791053192.875	1791053192.932	0
+    1791053192.941	1791053192.997	0
+    1791053193.006	1791053193.063	0
+    1791053193.071	1791053193.130	0
+    1791053193.138	1791053193.196	0
+    1791053193.205	1791053193.259	0
+    1791053193.267	1791053193.320	0
+    1791053193.329	1791053193.386	0
+    1791053193.395	1791053193.452	0
+    1791053193.460	1791053193.515	0
+    1791053193.522	1791053193.578	0
+    1791053193.586	1791053193.641	0
+    1791053193.650	1791053193.704	0
+    1791053193.713	1791053193.770	0
+    1791053193.778	1791053193.836	0
+    1791053193.845	1791053193.902	0
+    1791053193.910	1791053193.968	0
+    1791053193.977	1791053194.035	0
+    1791053194.043	1791053194.101	0
+    1791053194.110	1791053194.167	0
+    1791053194.176	1791053194.234	0
+    1791053194.243	1791053194.300	0
+    1791053194.308	1791053194.366	0
+    1791053194.375	1791053194.432	0
+    1791053194.440	1791053194.493	0
+    1791053194.501	1791053194.556	0
+    1791053194.564	1791053194.620	0
+    1791053194.628	1791053194.684	0
+    1791053194.692	1791053194.750	0
+    1791053194.759	1791053194.817	0
+    1791053194.825	1791053194.882	0
+    1791053194.891	1791053194.950	0
+    1791053194.958	1791053195.015	255
+    1791053195.024	1791053195.070	255
+    1791053195.078	1791053195.125	255
+    1791053195.134	1791053195.182	255
+    1791053195.190	1791053195.239	255
+    1791053195.248	1791053195.296	255
+    1791053195.305	1791053195.353	255
+    1791053195.362	1791053195.405	255
+    1791053195.412	1791053195.459	255
+    1791053195.468	1791053195.515	255
+    1791053195.523	1791053195.571	255
+    1791053195.579	1791053195.628	255
+    1791053195.636	1791053195.683	255
+    1791053195.692	1791053195.739	255
+    1791053195.748	1791053195.797	255
+    1791053195.806	1791053195.853	255
+    1791053195.862	1791053195.909	255
+    1791053195.918	1791053195.963	255
+    1791053195.971	1791053196.019	255
+    1791053196.027	1791053196.076	255
+    1791053196.084	1791053196.131	255
+    1791053196.140	1791053196.188	255
+    1791053196.196	1791053196.242	255
+    1791053196.250	1791053196.298	255
+    1791053196.307	1791053196.352	255
+    1791053196.359	1791053196.404	255
+    1791053196.412	1791053196.456	255
+    1791053196.464	1791053196.510	255
+    1791053196.518	1791053196.563	255
+    1791053196.572	1791053196.620	255
+    1791053196.629	1791053196.674	255
+    1791053196.683	1791053196.730	255
+    1791053196.739	1791053196.783	255
+    1791053196.791	1791053196.837	255
+    1791053196.846	1791053196.893	255
+    1791053196.902	1791053196.948	255
+    1791053196.957	1791053197.005	255
+    1791053197.014	1791053197.061	255
+    1791053197.070	1791053197.116	255
+    1791053197.125	1791053197.173	255
+    1791053197.182	1791053197.229	255
+    1791053197.237	1791053197.282	255
+    1791053197.289	1791053197.334	255
+    1791053197.341	1791053197.386	255
+    1791053197.394	1791053197.440	255
+    1791053197.448	1791053197.495	255
+    1791053197.504	1791053197.551	255
+    1791053197.559	1791053197.607	255
+    1791053197.615	1791053197.664	255
+    1791053197.673	1791053197.719	255
+    1791053197.727	1791053197.775	255
+    1791053197.784	1791053197.832	255
+    1791053197.840	1791053197.887	255
+    1791053197.896	1791053197.943	255
+    1791053197.952	1791053197.999	255
+    1791053198.008	1791053198.056	255
+    1791053198.065	1791053198.113	255
+    1791053198.122	1791053198.168	255
+    1791053198.177	1791053198.221	255
+    1791053198.229	1791053198.273	255
+    1791053198.281	1791053198.323	255
+    1791053198.332	1791053198.372	255
+    1791053198.379	1791053198.423	255
+    1791053198.430	1791053198.475	255
+    1791053198.482	1791053198.525	255
+    1791053198.533	1791053198.577	255
+    1791053198.584	1791053198.629	255
+    1791053198.637	1791053198.681	255
+    1791053198.688	1791053198.732	255
+    1791053198.740	1791053198.785	255
+    1791053198.792	1791053198.838	255
+    1791053198.848	1791053198.898	255
+    1791053198.905	1791053198.948	255
+    1791053198.956	1791053199.000	255
+[2026-10-03T18:46:39Z] FACT boundary = attempts=156 accepted=82 rejected=74 last_accept_end_minus_vb=-0.050 first_reject_start_minus_vb=-0.042 accepted_starting_after_vb=0 rejected_ending_before_vb=0 tolerance_s=0.065 server_accepted_lines=82 server_expired_lines=74
+[2026-10-03T18:46:39Z] PASS E2-boundary | expected: accepts only while t<valid_before, rejects from valid_before (each rejection logged as expired); first rejection <= 2 s + |offset| after valid_before | observed: attempts=156 accepted=82 rejected=74 last_accept_end_minus_vb=-0.050 first_reject_start_minus_vb=-0.042 accepted_starting_after_vb=0 rejected_ending_before_vb=0 tolerance_s=0.065 server_expired_lines=74 limit_s=2.015
+[2026-10-03T18:46:39Z] waiting 1 s (until epoch 1791053200)
+[2026-10-03T18:46:40Z] $ (ssh-add -l (<tmp>/aA/agent.sock)) env SSH_AUTH_SOCK=<tmp>/aA/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+    | 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519-CERT)
+    rc=0 t_start=1791053200.443 t_end=1791053200.462
+[2026-10-03T18:46:40Z] $ (ssh-add -l (<tmp>/aB/agent.sock)) env SSH_AUTH_SOCK=<tmp>/aB/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+    | 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+    rc=0 t_start=1791053200.487 t_end=1791053200.498
+[2026-10-03T18:46:40Z] FACT agentA_after_expiry = 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519-CERT)
+[2026-10-03T18:46:40Z] FACT agentB_after_expiry = 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+[2026-10-03T18:46:40Z] PASS E2-agents-still-hold-certs | expected: both agents still list the expired certificate at valid_before+5 s | observed: agentA_cert_entries=1 agentB_cert_entries=1
+[2026-10-03T18:46:40Z] $ (C1a agent-held, after expiry) /usr/bin/ssh -F <tmp>/agA.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/agA.cfg
+    | debug1: <tmp>/agA.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/agA.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: g04-e2-k1a-184504-76634 ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Will attempt key: g04-e2-k1a-184504-76634 ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053200.567 t_end=1791053200.617
+[2026-10-03T18:46:41Z] server log hm-m00t03-ca1 (C1a agent-held, after expiry), new lines:
+    > Connection from 172.18.0.1 port 58606 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58606 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58606 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58606 [preauth]
+[2026-10-03T18:46:41Z] PASS E2-after-expiry-agA | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:46:41Z] $ (C1a disk, after expiry) /usr/bin/ssh -F <tmp>/dkA.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/dkA.cfg
+    | debug1: <tmp>/dkA.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/dkA.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k1a.pub: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    | debug1: identity file <tmp>/k1a.pub type 2
+    | debug1: loaded identity cert from <tmp>/k1a-cert.pub: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | debug1: Will attempt key: <tmp>/k1a.pub ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit agent
+    | debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k1a.pub ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053201.081 t_end=1791053201.127
+[2026-10-03T18:46:41Z] server log hm-m00t03-ca1 (C1a disk, after expiry), new lines:
+    > Connection from 172.18.0.1 port 58612 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58612 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 58612 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Connection closed by authenticating user cert 172.18.0.1 port 58612 [preauth]
+[2026-10-03T18:46:41Z] PASS E2-after-expiry-dkA | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT <fp> explicit debug1: Offering public key: <tmp>/k1a.pub ED25519 <fp> explicit agent]
+[2026-10-03T18:46:41Z] $ (C1b(-N) agent-held, after expiry) /usr/bin/ssh -F <tmp>/agB.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/agB.cfg
+    | debug1: <tmp>/agB.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/agB.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: g04-e2-k1b-184504-76634 ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Will attempt key: g04-e2-k1b-184504-76634 ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053201.605 t_end=1791053201.652
+[2026-10-03T18:46:42Z] server log hm-m00t03-ca1 (C1b(-N) agent-held, after expiry), new lines:
+    > Connection from 172.18.0.1 port 58614 on 172.18.0.4 port 22 rdomain ""
+    > Failed publickey for cert from 172.18.0.1 port 58614 ssh2: ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58614 ssh2: ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 ID g04-e2-c1b-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Connection closed by authenticating user cert 172.18.0.1 port 58614 [preauth]
+[2026-10-03T18:46:42Z] PASS E2-after-expiry-agB | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:46:42Z] $ (C1b(-N) disk, after expiry) /usr/bin/ssh -F <tmp>/dkB.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/dkB.cfg
+    | debug1: <tmp>/dkB.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/dkB.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k1b.pub: ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0
+    | debug1: identity file <tmp>/k1b.pub type 2
+    | debug1: loaded identity cert from <tmp>/k1b-cert.pub: ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: <tmp>/k1b-cert.pub ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 explicit
+    | debug1: Will attempt key: <tmp>/k1b.pub ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 explicit agent
+    | debug1: Offering public key: <tmp>/k1b-cert.pub ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k1b.pub ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053202.123 t_end=1791053202.168
+[2026-10-03T18:46:42Z] server log hm-m00t03-ca1 (C1b(-N) disk, after expiry), new lines:
+    > Connection from 172.18.0.1 port 58624 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 58624 ssh2: ED25519-CERT SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 ID g04-e2-c1b-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 58624 ssh2: ED25519 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0
+    > Connection closed by authenticating user cert 172.18.0.1 port 58624 [preauth]
+[2026-10-03T18:46:42Z] PASS E2-after-expiry-dkB | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: <tmp>/k1b-cert.pub ED25519-CERT <fp> explicit debug1: Offering public key: <tmp>/k1b.pub ED25519 <fp> explicit agent]
+[2026-10-03T18:46:42Z] waiting 308 s (until epoch 1791053510)
+[2026-10-03T18:51:50Z] $ (ssh-add -l (<tmp>/aA/agent.sock)) env SSH_AUTH_SOCK=<tmp>/aA/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+    rc=0 t_start=1791053510.624 t_end=1791053510.643
+[2026-10-03T18:51:50Z] $ (ssh-add -l (<tmp>/aB/agent.sock)) env SSH_AUTH_SOCK=<tmp>/aB/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+    | 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+    rc=0 t_start=1791053510.674 t_end=1791053510.686
+[2026-10-03T18:51:50Z] FACT agentA_after_grace = 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+[2026-10-03T18:51:50Z] FACT agentB_after_grace = 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+[2026-10-03T18:51:50Z] FACT agentA_debug_expiry = debug1: expiring key 'g04-e2-k1a-184504-76634'
+[2026-10-03T18:51:50Z] PASS E2-grace-removal | expected: default ssh-add: cert gone from agent A after valid_before+300 s, plain key kept; ssh-add -N: cert still in agent B | observed: agentA cert=0 key=1; agentB cert=1
+[2026-10-03T18:51:50Z] $ (C1a disk, after expiry, agent A no longer holds the cert) /usr/bin/ssh -F <tmp>/dkA.cfg -v g-ca1 echo e2-ok
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug1: Reading configuration data <tmp>/dkA.cfg
+    | debug1: <tmp>/dkA.cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/dkA.cfg line 22: Applying options for *
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 64772.
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug1: loaded pubkey from <tmp>/k1a.pub: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    | debug1: identity file <tmp>/k1a.pub type 2
+    | debug1: loaded identity cert from <tmp>/k1a-cert.pub: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug1: Authenticating to 127.0.0.1:64772 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:0N8P+X/fyMPKjFXE81pm/Hi2NEVMLxLn5tLXMgP4ou8
+    | debug1: using hostkeyalias: hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug1: rekey in after 134217728 blocks
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug1: Authentications that can continue: publickey
+    | debug1: Next authentication method: publickey
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 1 keys
+    | debug1: Will attempt key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | debug1: Will attempt key: <tmp>/k1a.pub ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit agent
+    | debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit
+    | debug1: Authentications that can continue: publickey
+    | debug1: Offering public key: <tmp>/k1a.pub ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs explicit agent
+    | debug1: Authentications that can continue: publickey
+    | debug1: No more authentication methods to try.
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791053510.767 t_end=1791053510.815
+[2026-10-03T18:51:51Z] server log hm-m00t03-ca1 (C1a disk, after expiry, agent A no longer holds the cert), new lines:
+    > Connection from 172.18.0.1 port 64970 on 172.18.0.4 port 22 rdomain ""
+    > Certificate invalid: expired
+    > Failed publickey for cert from 172.18.0.1 port 64970 ssh2: ED25519-CERT SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs ID g04-e2-c1a-184504-76634 (serial 0) CA ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww
+    > Failed publickey for cert from 172.18.0.1 port 64970 ssh2: ED25519 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs
+    > Connection closed by authenticating user cert 172.18.0.1 port 64970 [preauth]
+[2026-10-03T18:51:51Z] PASS E2-after-expiry-dkA-cert-not-in-agent | expected: rc 255; cert offered from disk and rejected as expired, the same as while the agent held it (agent A lists no certificate) | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] agentA_cert_entries=0 offered=[debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT <fp> explicit debug1: Offering public key: <tmp>/k1a.pub ED25519 <fp> explicit agent]
+[2026-10-03T18:51:51Z] FACT clock_ca1_end = offset_s=0.008 rtt_s=0.035
+[2026-10-03T18:51:51Z] cleanup agent pid=76777: terminated socket_removed
+[2026-10-03T18:51:51Z] cleanup agent pid=76790: terminated socket_removed
+[2026-10-03T18:51:51Z] cleanup agent pid=76805: terminated socket_removed
+[2026-10-03T18:51:51Z] END e2-cert-expiry exit=0 checks=13 fails=0

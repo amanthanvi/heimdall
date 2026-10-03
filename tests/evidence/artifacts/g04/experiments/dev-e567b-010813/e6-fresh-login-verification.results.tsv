@@ -1,0 +1,13 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.008 rtt_s=0.032
+CHECK	E6-master-open	ControlMaster=yes master authenticated once (1 Accepted line)	rc=0 master_pid=45857 accepted=1	PASS
+CHECK	E6-verification-is-fresh	rc 0 and exactly 1 new Accepted line carrying ID g04-e6-010838-45676 (a new authentication) while a master is open	rc=0 new_accepted_with_id=1 new_accepted_any=1 new_connections=1	PASS
+CHECK	E6-reuse-is-not-verification	rc 0 with NO new Accepted line and no new TCP connection (session rode the existing master)	rc=0 new_accepted=0 new_connections=0	PASS
+CHECK	E6-master-closed	-O exit rc 0; master process gone; control socket removed	rc=0 master_gone=yes socket_exists=no	PASS
+CLEANUP	master pid=45857	not_running
+CLEANUP	agent pid=45792	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=4	fails=0

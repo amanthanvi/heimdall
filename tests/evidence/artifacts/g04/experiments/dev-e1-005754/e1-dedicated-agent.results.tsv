@@ -1,0 +1,21 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.0
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.007 rtt_s=0.031
+FACT	cert	id="g04-e1-005754-6008" principals=p-host1 valid=[from 2026-10-02T20:56:54 to 2026-10-02T21:07:54] ca=ED25519 SHA256:wuFjPe1mwcB2fKxy4EB1SNwbW6CCc0xF8fc4KXNE+J0 (using ssh-ed25519)
+FACT	kenv_fingerprint	SHA256:WV+J6+6wJVcR2ELxK96K7Zik14DN6GTT+4ZiYvZnr6c
+FACT	ssh_add_output	Identity added: <tmp>/kenv (g04-e1-kenv-005754-6008) Lifetime set to 00:00:15 Certificate added: <tmp>/kenv-cert.pub (g04-e1-005754-6008) Lifetime set to 00:00:15
+CHECK	E1-private-file-deleted	private key file absent after ssh-add	exists=no	PASS
+CHECK	E1a-agent-lists-key-and-cert	rc 0; exactly 2 entries (ED25519 + ED25519-CERT) of K_env	rc=0 entries=2 types=ED25519,ED25519-CERT, matching_fp=2	PASS
+CHECK	E1b-fresh-login	rc 0, output e1-login-ok, exactly 1 new Accepted line with ID g04-e1-005754-6008	rc=0 out=e1-login-ok new_accepted_with_id=1	PASS
+CHECK	E1b-dedicated-agent-signed	dedicated agent debug log shows >=1 new sign request during the login	sign_requests_before=0 after=0	FAIL
+CHECK	E1c-no-agent-no-auth	rc 255 and no new Accepted line (no private key file exists)	rc=255 new_accepted=0	PASS
+CHECK	E1d-config-uses-temp-socket	ssh -G identityagent = <tmp>/agent/agent.sock; one identityfile	identityagent=<tmp>/agent/agent.sock identityfile_entries=1	PASS
+CHECK	E1d-only-temp-agent-used	rc 0; no key/agent path outside <tmp>; no <home> or .ssh path in -vvv; dedicated agent saw a sign request	rc=0 foreign_paths=0 home_or_dotssh_refs=0 sign_requests_delta=0	FAIL
+FACT	agent_debug_expiry_lines	debug1: expiring key 'g04-e1-kenv-005754-6008' debug1: expiring key 'g04-e1-kenv-005754-6008'
+CHECK	E1e-lifetime-ends-signing	after -t 15 s: ssh-add -T rc!=0, fresh login rc 255, no Accepted line	ssh-add -l rc=1 (The agent has no identities.); ssh-add -T rc=1; login rc=255 new_accepted=0; agent expiry log lines=2	PASS
+CHECK	E1f-exact-pid-kill	kill_exact terminated; process gone; socket removed	kill=terminated process=gone socket=removed	PASS
+CLEANUP	agent pid=6123	already_exited socket_removed
+CLEANUP	tempdir	removed
+EXIT	1	checks=9	fails=2

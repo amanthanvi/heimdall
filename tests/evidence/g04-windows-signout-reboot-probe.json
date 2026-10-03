@@ -1,0 +1,30 @@
+{
+  "case_id": "G04-windows-signout-reboot-headless-availability",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-CR-02",
+    "R-EN-01",
+    "R-EN-04",
+    "R-RT-07"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "platform": "Windows",
+    "required": "native Windows x86-64 host; owner signs out, reboots, and observes before/after logon including a service context"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": [
+    "planned: see docs/research/g04-managed-credentials.md section 8.2 P-W2"
+  ],
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g04-managed-credentials.md"
+  ],
+  "limitations": [
+    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
+    "Design only."
+  ],
+  "blocked_on": "native Windows x86-64 host where the owner can sign out and reboot (none available on this macOS arm64 machine)"
+}

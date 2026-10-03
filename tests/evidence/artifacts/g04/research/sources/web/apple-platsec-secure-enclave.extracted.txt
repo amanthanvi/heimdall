@@ -1,0 +1,729 @@
+
+
+ The Secure Enclave - Apple Support
+
+Apple
+
+Store
+
+Mac
+
+iPad
+
+iPhone
+
+Watch
+
+Vision
+
+AirPods
+
+TV & Home
+
+Entertainment
+
+Accessories
+
+Support
+
+0+
+
+ Apple Platform Security
+
+ Search this guide
+
+ Clear Search
+
+ Table of Contents
+
+Apple Platform Security
+
+ Welcome
+
+ Intro to Apple platform security
+
+ Hardware security and biometrics
+
+ Hardware security overview
+
+ Apple SoC security
+
+ The Secure Enclave
+
+ Optic ID, Face ID, and Touch ID
+
+ Biometric security
+
+ Magic Keyboard with Touch ID
+
+ Optic ID, Face ID, Touch ID, passcodes, and passwords
+
+ Optic ID matching security
+
+ Facial matching security
+
+ Uses for Optic ID, Face ID, and Touch ID
+
+ Secure intent and connections to the Secure Enclave
+
+ Hardware microphone disconnect
+
+ Mac on-screen camera indicator light
+
+ Express Cards with power reserve
+
+ System security
+
+ System security overview
+
+ Secure boot
+
+ Boot process for iPad and iPhone devices
+
+ Memory safe iBoot implementation
+
+ Mac computers with Apple silicon
+
+ Boot process
+
+ Boot modes
+
+ Paired recoveryOS restrictions
+
+ Startup Disk security policy control
+
+ LocalPolicy signing-key creation and management
+
+ Contents of a LocalPolicy file for a Mac with Apple silicon
+
+ Intel-based Mac computers
+
+ Boot process
+
+ Boot modes
+
+ Startup Security Utility
+
+ Firmware password protection
+
+ recoveryOS and diagnostics environments
+
+ Signed system volume security
+
+ Secure software updates
+
+ Background Security Improvements
+
+ Operating system integrity
+
+ Device pairing and connection security
+
+ Physical pairing model security
+
+ Activating data connections securely
+
+ Verifying accessories
+
+ Automatically unlock Apple devices
+
+ BlastDoor for Messages and IDS
+
+ Lockdown Mode security
+
+ Overview of additional macOS system security capabilities
+
+ Additional macOS system security capabilities
+
+ System Integrity Protection
+
+ Trust caches
+
+ Peripheral processor security
+
+ Rosetta 2 on a Mac with Apple silicon
+
+ Direct memory access protections
+
+ Securely extending the kernel
+
+ Option ROM security
+
+ UEFI firmware security in an Intel-based Mac
+
+ System security for watchOS
+
+ Random number generation
+
+ Communicating emergency information using satellites
+
+ Apple Security Research Device
+
+ Encryption and Data Protection
+
+ Encryption and Data Protection overview
+
+ Quantum-secure cryptography with Apple devices
+
+ Passcodes and passwords
+
+ Data Protection
+
+ Data Protection overview
+
+ Data Protection
+
+ Data Protection classes
+
+ Keybags for Data Protection
+
+ Protecting keys in alternate boot modes
+
+ Protecting user data in the face of attack
+
+ Sealed Key Protection (SKP)
+
+ Role of Apple File System
+
+ Keychain data protection
+
+ FileVault
+
+ Volume encryption with FileVault
+
+ Managing FileVault
+
+ How Apple protects users’ personal data
+
+ Protecting app access to user data
+
+ Protecting access to user’s health data
+
+ Digital signing and encryption
+
+ App security
+
+ App security overview
+
+ App code signing process
+
+ App security in iOS, iPadOS, and visionOS
+
+ Intro to app security for iOS, iPadOS, and visionOS
+
+ About App Store security
+
+ Security of runtime process
+
+ App protection and app groups
+
+ App security in macOS
+
+ Intro to app security for macOS
+
+ App code signing process
+
+ Gatekeeper and runtime protection
+
+ Protecting against malware
+
+ Terminal and script protections
+
+ Controlling app access to files
+
+ Supporting extensions
+
+ Secure features in the Notes app
+
+ Secure features in the Shortcuts app
+
+ Services security
+
+ Services security overview
+
+ Apple Accounts and Managed Apple Accounts
+
+ Apple Account security
+
+ Managed Apple Account security
+
+ iCloud
+
+ iCloud security overview
+
+ iCloud encryption
+
+ Advanced Data Protection for iCloud
+
+ iCloud Backup security
+
+ Search on iCloud.com security
+
+ iCloud Private Relay security
+
+ Account recovery contact security
+
+ Legacy Contact security
+
+ Passcode and password management
+
+ Passcode security overview
+
+ Sign in with Apple security
+
+ Automatic strong passwords
+
+ Password AutoFill security
+
+ App access to saved passwords
+
+ Password security recommendations
+
+ Password Monitoring
+
+ Sending passwords
+
+ Credential provider extensions
+
+ iCloud Keychain
+
+ iCloud Keychain security overview
+
+ Secure keychain syncing
+
+ Secure iCloud Keychain recovery
+
+ Escrow security for iCloud Keychain 
+
+ Apple Pay
+
+ Apple Pay security overview
+
+ Apple Pay component security
+
+ How Apple Pay keeps users’ purchases protected
+
+ Credit, debit, and prepaid cards
+
+ Card provisioning security overview
+
+ Adding credit or debit cards to Apple Pay
+
+ Payment authorization with Apple Pay
+
+ Paying with cards using Apple Pay
+
+ Contactless passes in Apple Pay
+
+ Rendering cards unusable with Apple Pay
+
+ Apple Card security
+
+ Apple Cash security
+
+ Tap to Pay on iPhone
+
+ Using Apple Wallet
+
+ Access using Apple Wallet
+
+ Access key types
+
+ Car key security
+
+ Car key security
+
+ Car key transactions
+
+ Adding transit and eMoney cards to Apple Wallet
+
+ IDs in Apple Wallet
+
+ IDs in Apple Wallet
+
+ Security of IDs in Apple Wallet
+
+ iMessage
+
+ iMessage security overview
+
+ How iMessage sends and receives messages
+
+ Check In security
+
+ Secure iMessage name and photo sharing
+
+ Secure Apple Messages for Business
+
+ FaceTime security
+
+ SharePlay security
+
+ Nearby sharing security
+
+ Find My
+
+ Find My security
+
+ Locating missing devices
+
+ Continuity
+
+ Continuity security overview
+
+ Handoff security
+
+ iPhone cellular call relay security
+
+ iPhone Text Message Forwarding security
+
+ Instant Hotspot security
+
+ Network security
+
+ Network security overview
+
+ TLS security
+
+ IPv6 security
+
+ VPN security
+
+ Wi-Fi security and privacy
+
+ Security features when connecting to wireless networks
+
+ Wi-Fi security with Apple devices
+
+ Privacy features when connecting to wireless networks
+
+ Wi-Fi privacy with Apple devices
+
+ Bluetooth security
+
+ Ultra Wideband security in iOS
+
+ Single Sign-on security
+
+ AirDrop security
+
+ Wi-Fi password sharing security
+
+ Firewall security in macOS
+
+ Developer kit security
+
+ Developer kit security overview
+
+ ARKit security
+
+ DriverKit security
+
+ EnergyKit data security
+
+ HomeKit security
+
+ Communication security
+
+ Data security
+
+ Securing routers with HomeKit
+
+ Camera security
+
+ Security with Apple TV
+
+ NFC & SE Platform security
+
+ ReplayKit security
+
+ SiriKit security
+
+ WidgetKit security
+
+ Secure device management
+
+ Secure device management overview
+
+ Device management
+
+ Device management security overview
+
+ Managed Device Attestation
+
+ Attestation process security
+
+ Configuration enforcement
+
+ Automated Device Enrollment
+
+ Activation Lock security
+
+ Managed Lost Mode and remote wipe
+
+ Shared iPad security
+
+ Apple Configurator security
+
+ Screen Time security
+
+ Glossary
+
+ Document revision history
+
+ Copyright and trademarks
+
+The Secure Enclave
+The Secure Enclave is a dedicated secure subsystem in the latest versions of iPad, iPhone, Mac, Apple TV, Apple Vision Pro, Apple Watch, and HomePod.
+
+Overview
+The Secure Enclave is a dedicated secure subsystem integrated into Apple (SoC). The Secure Enclave is isolated from the main processor to provide an extra layer of security and is designed to keep sensitive user data secure even when the Application Processor kernel becomes compromised. It follows the same design principles as the SoC does—a Boot ROM to establish a hardware root of trust, an AES Engine for efficient and secure cryptographic operations, and protected memory. Although the Secure Enclave doesn’t include storage, it has a mechanism to store information securely on attached storage separate from the NAND flash storage that’s used by the Application Processor and operating system.
+The Secure Enclave is a hardware feature of most versions of iPad, iPhone, Mac, Apple TV, Apple Vision Pro, Apple Watch, and HomePod—namely:
+
+All iPad models starting with iPad Air or later
+
+All iPhone models starting with iPhone 5s or later
+
+All Mac computers with Apple silicon
+
+MacBook Pro computers with Touch Bar (2016 and 2017) that contain the Apple T1 Chip
+
+All Intel-based Mac computers that contain the Apple T2 Security Chip
+
+All Apple TV models starting with Apple TV HD or later
+
+All Apple Watch models starting with Apple Watch Series 1 or later
+
+Apple Vision Pro
+
+All HomePod models
+
+The Secure Enclave Processor
+The Secure Enclave Processor provides the main computing power for the Secure Enclave. To provide the strongest isolation, the Secure Enclave Processor is dedicated solely for Secure Enclave use. This helps prevent side-channel attacks that depend on malicious software sharing the same execution core as the target software under attack.
+The Secure Enclave Processor runs an Apple-customized version of the L4 microkernel. It’s designed to operate efficiently at a lower clock speed that helps to protect it against clock and power attacks. The Secure Enclave Processor, starting with the A11 and S4, includes a memory-protected engine and encrypted memory with anti-replay capabilities, secure boot, a dedicated random number generator, and its own AES Engine.
+
+Memory Protection Engine
+The Secure Enclave operates from a dedicated region of the device’s DRAM memory. Multiple layers of protection isolate the Secure Enclave protected memory from the Application Processor.
+When the device starts up, the Secure Enclave Boot ROM generates a random ephemeral memory protection key for the Memory Protection Engine. Whenever the Secure Enclave writes to its dedicated memory region, the Memory Protection Engine encrypts the block of memory using AES in MAC XEX (xor-encrypt-xor) mode, and calculates a Cipher-based Message Authentication Code (CMAC) authentication tag for the memory. The Memory Protection Engine stores the authentication tag alongside the encrypted memory. When the Secure Enclave reads the memory, the Memory Protection Engine verifies the authentication tag. If the authentication tag matches, the Memory Protection Engine decrypts the block of memory. If the tag doesn’t match, the Memory Protection Engine signals an error to the Secure Enclave. After a memory authentication error, the Secure Enclave stops accepting requests until the system is rebooted.
+Starting with the Apple A11 and S4 SoCs, the Memory Protection Engine adds replay protection for Secure Enclave memory. To help prevent replay of security-critical data, the Memory Protection Engine stores a unique one-off number, called an anti-replay value, for the block of memory alongside the authentication tag. The anti-replay value is used as an additional refinement for the CMAC authentication tag. The anti-replay values for all memory blocks are protected using an integrity tree rooted in dedicated SRAM within the Secure Enclave. For writes, the Memory Protection Engine updates the anti-replay value and each level of the integrity tree up to the SRAM. For reads, the Memory Protection Engine verifies the anti-replay value and each level of the integrity tree up to the SRAM. Anti-replay value mismatches are handled similarly to authentication tag mismatches.
+On Apple A14, M1, or later SoCs, the Memory Protection Engine supports two ephemeral memory protection keys. The first is used for data private to the Secure Enclave, and the second is used for data shared with the Secure Neural Engine.
+The Memory Protection Engine operates inline and transparently to the Secure Enclave. The Secure Enclave reads and writes memory as if it were regular unencrypted DRAM, whereas an observer outside the Secure Enclave sees only the encrypted and authenticated version of the memory. The result is strong memory protection without performance or software complexity tradeoffs.
+
+The Secure Enclave Boot ROM
+The Secure Enclave includes a dedicated Secure Enclave Boot ROM. Like the Application Processor Boot ROM, the Secure Enclave Boot ROM is immutable code that establishes the hardware root of trust for the Secure Enclave.
+On system startup, iBoot assigns a dedicated region of memory to the Secure Enclave. Before using the memory, the Secure Enclave Boot ROM initializes the Memory Protection Engine to provide cryptographic protection of the Secure Enclave protected memory.
+The Application Processor then sends the sepOS image to the Secure Enclave Boot ROM. After copying the sepOS image into the Secure Enclave protected memory, the Secure Enclave Boot ROM checks the cryptographic hash and signature of the image to verify that the sepOS is authorized to run on the device. If the sepOS image is properly signed to run on the device, the Secure Enclave Boot ROM transfers control to sepOS. If the signature isn’t valid, the Secure Enclave Boot ROM is designed to prevent any further use of the Secure Enclave until the next chip reset.
+On Apple A10 or later SoCs, the Secure Enclave Boot ROM locks a hash of the sepOS into a register dedicated to this purpose. The Public Key Accelerator uses this hash for operating-system–bound (OS-bound) keys.
+
+The Secure Enclave Boot Monitor
+On Apple A13 or later SoCs, the Secure Enclave includes a Boot Monitor designed to ensure stronger integrity on the hash of the booted sepOS.
+At system startup, the Secure Enclave Processor’s System Coprocessor Integrity Protection (SCIP) configuration helps prevent the Secure Enclave Processor from executing any code other than the Secure Enclave Boot ROM. The Boot Monitor helps prevent the Secure Enclave from modifying the SCIP configuration directly. To make the loaded sepOS executable, the Secure Enclave Boot ROM sends the Boot Monitor a request with the address and size of the loaded sepOS. On receipt of the request, the Boot Monitor resets the Secure Enclave Processor, hashes the loaded sepOS, updates the SCIP settings to allow execution of the loaded sepOS, and starts execution within the newly loaded code. As the system continues booting, this same process is used whenever new code is made executable. Each time, the Boot Monitor updates a running hash of the boot process. The Boot Monitor also includes critical security parameters in the running hash.
+When boot completes, the Boot Monitor finalizes the running hash and sends it to the Public Key Accelerator to use for OS-bound keys. This process is designed to avoid bypassing operating system keybinding even with a vulnerability in the Secure Enclave Boot ROM.
+
+True Random Number Generator
+The True Random Number Generator (TRNG) is used to generate secure random data. The Secure Enclave uses the TRNG whenever it generates a random cryptographic key, random key seed, or other entropy. The TRNG is based on multiple ring oscillators post processed with CTR_DRBG (an algorithm based on block ciphers in Counter Mode).
+
+Root Cryptographic Keys
+The Secure Enclave includes a unique ID (UID) root cryptographic key. The UID is unique to each individual device and isn’t related to any other identifier on the device.
+A randomly generated UID is fused into the SoC at manufacturing time. Starting with A9 SoCs, the UID is generated by the Secure Enclave TRNG during manufacturing and written to the fuses using a software process that runs entirely in the Secure Enclave. This process protects the UID from being visible outside the device during manufacturing and therefore isn’t available for access or storage by Apple or any of its suppliers.
+sepOS uses the UID to protect device-specific secrets. The UID allows data to be cryptographically tied to a particular device. For example, the key hierarchy protecting the file system includes the UID, so if the internal SSD storage is physically moved from one device to another, the files are inaccessible. Other protected device-specific secrets include Optic ID, Face ID, or Touch ID data. On a Mac, only fully internal storage linked to the AES Engine receives this level of encryption. For example, neither external storage devices connected over USB nor PCIe-based storage added to the 2019 Mac Pro are encrypted in this fashion.
+The Secure Enclave also has a device group ID (GID), which is common to all devices that use a given SoC (for example, all devices using the Apple A15 SoC share the same GID).
+The UID and GID aren’t available through Joint Test Action Group (JTAG) or other debugging interfaces.
+
+The Secure Enclave AES Engine
+The Secure Enclave AES Engine is a hardware block used to perform symmetric cryptography based on the AES cipher. The AES Engine is designed to resist leaking information by using timing and Static Power Analysis (SPA). Starting with the A9 SoC, the AES Engine also includes Dynamic Power Analysis (DPA) countermeasures.
+The AES Engine supports hardware and software keys. Hardware keys are derived from the Secure Enclave UID or GID. These keys stay within the AES Engine and aren’t made visible even to sepOS software. Although software can request encryption and decryption operations with hardware keys, it can’t extract the keys.
+On Apple A10 and newer SoCs, the AES Engine includes lockable seed bits that diversify keys derived from the UID or GID. This allows data access to be conditioned on the device’s mode of operation. For example, lockable seed bits are used to deny access to password-protected data when booting from Device Firmware Update (DFU) mode. For more information, see Passcodes and passwords.
+
+AES Engine
+Every Apple device with a Secure Enclave also has a dedicated AES-256 crypto engine (the AES Engine) built into the direct memory access (DMA) path between the NAND (nonvolatile) flash storage and main system memory, making file encryption highly efficient. On A9 or later A-series processors, the flash storage subsystem is on an isolated bus that’s granted access only to memory containing user data through the DMA crypto engine. 
+At boot time, sepOS generates an ephemeral wrapping key using the TRNG. The Secure Enclave transmits this key to the AES Engine using dedicated wires, designed to prevent it from being accessed by any software outside the Secure Enclave. sepOS can then use the ephemeral wrapping key to wrap file keys for use by the Application Processor file-system driver. When the file-system driver reads or writes a file, it sends the wrapped key to the AES Engine, which unwraps the key. The AES Engine never exposes the unwrapped key to software.
+
+Note: The AES Engine is a separate component from both the Secure Enclave and the Secure Enclave AES Engine, but its operation is closely tied to the Secure Enclave, as shown below.
+
+Public Key Accelerator
+The Public Key Accelerator (PKA) is a hardware block used to perform asymmetric cryptography operations. The PKA supports RSA and Elliptic Curve Cryptography (ECC) signing and encryption algorithms. The PKA is designed to resist leaking information using timing and side-channel attacks such as SPA and DPA.
+The PKA supports software and hardware keys. Hardware keys are derived from the Secure Enclave UID or GID. These keys stay within the PKA and aren’t made visible even to sepOS.
+Starting with A13 SoCs, the PKA’s encryption implementations have been proved to be mathematically correct using formal verification techniques.
+On Apple A10 or later SoCs, the PKA supports OS-bound keys, also referred to as Sealed Key Protection (SKP). These keys are generated using a combination of the device’s UID and the hash of the sepOS running on the device. The hash is provided by the Secure Enclave Boot ROM, or by the Secure Enclave Boot Monitor on Apple A13 or later SoCs. These keys are also used to:
+
+Verify the sepOS version when making requests to certain Apple services.
+
+Improve the security of passcode-protected data by helping to prevent access to keying material if critical changes are made to the system without user authorization.
+
+Secure nonvolatile storage
+The Secure Enclave is equipped with a dedicated secure nonvolatile storage device. The secure nonvolatile storage is connected to the Secure Enclave using a dedicated I2C bus, so that it can only be accessed by the Secure Enclave. All user data encryption keys are rooted in entropy stored in the Secure Enclave nonvolatile storage.
+In devices with A12, S4, or later SoCs, the Secure Enclave is paired with a Secure Storage Component for entropy storage. The Secure Storage Component is itself designed with immutable ROM code, a hardware random number generator, a per-device unique cryptographic key, cryptography engines, and physical tamper detection. The Secure Enclave and Secure Storage Component communicate using an encrypted and authenticated protocol that provides exclusive access to the entropy.
+Devices first released in Fall 2020 or later are equipped with a 2nd-generation Secure Storage Component, which adds counter lockboxes. Each counter lockbox stores a 128-bit salt, a 128-bit passcode verifier, an 8-bit counter, and an 8-bit maximum attempt value. Access to the counter lockboxes is through an encrypted and authenticated protocol.
+Counter lockboxes hold the entropy needed to unlock passcode-protected user data. To access the user data, the paired Secure Enclave needs to derive the correct passcode entropy value from the userʼs passcode and the Secure Enclaveʼs UID. The user’s passcode can’t be learned using unlock attempts sent from a source other than the paired Secure Enclave. If the passcode attempt limit is exceeded (for example, 10 attempts on iPhone), the passcode-protected data is erased completely by the Secure Storage Component.
+To create a counter lockbox, the Secure Enclave sends the Secure Storage Component the passcode entropy value and the maximum attempt value. The Secure Storage Component generates the salt value using its random number generator. It then derives a passcode verifier value and a lockbox entropy value from the provided passcode entropy, the Secure Storage Component’s unique cryptographic key, and the salt value. The Secure Storage Component initializes the counter lockbox with a count of 0, the provided maximum attempt value, the derived passcode verifier value, and the salt value. The Secure Storage Component then returns the generated lockbox entropy value to the Secure Enclave.
+To retrieve the lockbox entropy value from a counter lockbox later, the Secure Enclave sends the Secure Storage Component the passcode entropy. The Secure Storage Component first increments the counter for the lockbox. If the incremented counter exceeds the maximum attempt value, the Secure Storage Component completely erases the counter lockbox. If the maximum attempt count hasn’t been reached, the Secure Storage Component attempts to derive the passcode verifier value and lockbox entropy value with the same algorithm used to create the counter lockbox. If the derived passcode verifier value matches the stored passcode verifier value, the Secure Storage Component returns the lockbox entropy value to the Secure Enclave and resets the counter to 0.
+The keys used to access password-protected data are rooted in the entropy stored in counter lockboxes. For more information, see Data Protection overview.
+The secure nonvolatile storage is used for all anti-replay services in the Secure Enclave. Anti-replay services on the Secure Enclave are used for revocation of data over events that mark anti-replay boundaries including, but not limited to, the following:
+
+Passcode change
+
+Turning on, off, or resetting Optic ID, Face ID, or Touch ID
+
+Adding or removing an eye, face, or fingerprint, respectively
+
+Adding or removing an Apple Pay card
+
+Erase All Content and Settings
+On architectures that don’t feature a Secure Storage Component, electrically erasable programmable read-only memory (EEPROM) is utilized to provide secure storage services for the Secure Enclave. Just like the Secure Storage Components, the EEPROM is attached and accessible only from the Secure Enclave, but it doesn’t:
+
+Contain dedicated hardware security features.
+
+Guarantee exclusive access to entropy (aside from its physical attachment characteristics) or counter lockbox functionality.
+
+The Secure Neural Engine
+On Apple Vision Pro, the Secure Neural Engine converts images into a mathematical representation of a user’s eyes. On devices with Face ID (not Touch ID), the Secure Neural Engine converts 2D images and depth maps into a mathematical representation of a user’s face.
+On Apple A11 through A13 SoCs, the Secure Neural Engine is integrated into the Secure Enclave. The Secure Neural Engine uses DMA for high performance. An input-output memory management unit (IOMMU) under the sepOS kernel’s control limits this direct access to authorized memory regions.
+On Apple A14, M1, or later SoCs, the Secure Neural Engine is implemented as a secure mode in the Application Processor’s Neural Engine. A dedicated hardware security controller switches between Application Processor and Secure Enclave tasks, resetting Neural Engine state on each transition to keep Optic ID, Face ID, or Touch ID data secure. A dedicated engine applies memory encryption, authentication, and access control. At the same time, it uses a separate cryptographic key and memory range to limit the Secure Neural Engine to authorized memory regions.
+
+Power and clock monitors
+All electronics are designed to operate within a limited voltage and frequency envelope. When operated outside this envelope, the electronics can malfunction and then security controls may be bypassed. To help ensure that the voltage and frequency stay in a safe range, the Secure Enclave is designed with monitoring circuits. These monitoring circuits are designed to have a much larger operating envelope than the rest of the Secure Enclave. If the monitors detect an illegal operating point, the clocks in the Secure Enclave automatically stop and don’t restart until the next SoC reset.
+
+Secure Enclave feature summary
+A12, A13, S4, and S5 products first released in Fall 2020 have a 2nd generation Secure Storage Component, whereas while earlier products based on these SoCs have a 1st generation Secure Storage Component.
+
+SoC
+Memory Protection Engine
+Secure Storage
+AES Engine
+PKA
+
+A8
+Encryption and authentication
+EEPROM
+
+A9
+Encryption and authentication
+EEPROM
+DPA protection
+
+A10
+Encryption and authentication
+EEPROM
+DPA protection and lockable seed bits
+OS-bound keys
+
+A11
+Encryption, authentication, and replay prevention
+EEPROM
+DPA protection and lockable seed bits
+OS-bound keys
+
+A12 (Apple devices released before Fall 2020)
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 1
+DPA protection and lockable seed bits
+OS-bound keys
+
+A12 (Apple devices released after Fall 2020)
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 2
+DPA protection and lockable seed bits
+OS-bound keys
+
+A13 (Apple devices released before Fall 2020)
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 1
+DPA protection and lockable seed bits
+OS-bound keys and Boot Monitor
+
+A13 (Apple devices released after Fall 2020)
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 2
+DPA protection and lockable seed bits
+OS-bound keys and Boot Monitor
+
+A14 or later
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 2
+DPA protection and lockable seed bits
+OS-bound keys and Boot Monitor
+
+S3
+Encryption and authentication
+EEPROM
+DPA protection and lockable seed bits
+
+S4
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 1
+DPA protection and lockable seed bits
+OS-bound keys
+
+S5 (Apple devices released before Fall 2020)
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 1
+DPA protection and lockable seed bits
+OS-bound keys
+
+S5 (Apple devices released after Fall 2020)
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 2
+DPA protection and lockable seed bits
+OS-bound keys
+
+S6 or later
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 2
+DPA protection and lockable seed bits
+OS-bound keys
+
+T2
+Encryption and authentication
+EEPROM
+DPA protection and lockable seed bits
+OS-bound keys
+
+M1 or later
+Encryption, authentication, and replay prevention
+Secure Storage Component gen 2
+DPA protection and lockable seed bits
+OS-bound keys and Boot MonitorPublished Date: December 19, 2024
+See alsoBiometric securityVolume encryption with FileVault in macOSData Protection overviewApple Pay component security
+
+Download this guide as a PDF
+
+ Previous
+ Apple SoC security
+
+ Next 
+ Biometric security
+
+ Helpful?
+
+ Yes
+
+ No
+
+ Character limit:
+ 250
+
+ Please don’t include any personal information in your comment.
+
+ Maximum character limit is 250.
+
+ Submit
+
+ Thanks for your feedback.
+
+Apple Footer
+
+ 
+ Apple
+
+ Support
+
+ Apple Platform Security
+
+ The Secure Enclave
+
+ United States
+
+Copyright © 2026 Apple Inc. All rights reserved.
+
+ Privacy Policy Terms of Use Sales and Refunds Site Map
+

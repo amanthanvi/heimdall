@@ -1,0 +1,47 @@
+[2026-10-03T01:25:51Z] BEGIN e5-issuer-separation run_stamp=20261003T011647Z run_id=012551-1929
+[2026-10-03T01:25:51Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T01:25:51Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T01:25:51Z] FACT docker_server = 29.8.1
+[2026-10-03T01:25:51Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T01:25:51Z] FACT clock_ca1 = offset_s=0.006 rtt_s=0.030
+[2026-10-03T01:25:51Z] dedicated ssh-agent started: pid=2113 ident='Fri Oct 2 21:25:51 2026 /usr/bin/ssh-agent' socket=<tmp>/issuer/agent.sock mode=daemon
+[2026-10-03T01:25:51Z] issuer: ssh-add -t 900 <fixture CA> -> rc=0
+[2026-10-03T01:25:51Z] issuer: ssh-add -L -> rc=0
+[2026-10-03T01:25:51Z] PASS E5-issuer-holds-ca | expected: issuer agent lists the CA public key once | observed: ca_entries=1
+[2026-10-03T01:25:51Z] dedicated ssh-agent started: pid=2197 ident='Fri Oct 2 21:25:51 2026 /usr/bin/ssh-agent' socket=<tmp>/worker/agent.sock mode=daemon
+[2026-10-03T01:25:51Z] dedicated ssh-agent started: pid=2214 ident='Fri Oct 2 21:25:51 2026 /usr/bin/ssh-agent' socket=<tmp>/child/agent.sock mode=daemon
+[2026-10-03T01:25:51Z] issuer signs g04-e5-parent-012551-1929 -> rc=0
+[2026-10-03T01:25:51Z] certificate g04-e5-parent-012551-1929: id="g04-e5-parent-012551-1929" principals=p-host1,p-host2 valid=[from 2026-10-02T21:24:51 to 2026-10-02T21:40:51] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:51Z] issuer signs g04-e5-child-012551-1929 -> rc=0
+[2026-10-03T01:25:51Z] certificate g04-e5-child-012551-1929: id="g04-e5-child-012551-1929" principals=p-host1 valid=[from 2026-10-02T21:24:51 to 2026-10-02T21:26:51] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:51Z] PASS E5-issuer-signs-via-agent | expected: issuer agent signs parent and child certificates with no CA private key file in the issuer dir | observed: parent_rc=0 child_rc=0 issuer_dir_files=agent.sock
+[2026-10-03T01:25:51Z] FACT parent_cert = id="g04-e5-parent-012551-1929" principals=p-host1,p-host2 valid=[from 2026-10-02T21:24:51 to 2026-10-02T21:40:51] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519) valid_before_epoch=1790991651
+[2026-10-03T01:25:51Z] FACT child_cert = id="g04-e5-child-012551-1929" principals=p-host1 valid=[from 2026-10-02T21:24:51 to 2026-10-02T21:26:51] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519) valid_before_epoch=1790990811
+[2026-10-03T01:25:51Z] ssh-add -t 900 kenv -> rc=0
+[2026-10-03T01:25:51Z] ssh-add -t 900 kchild -> rc=0
+[2026-10-03T01:25:51Z] worker env: ssh-add -L -> rc=0
+[2026-10-03T01:25:51Z] PASS E5a-ca-absent-from-worker-agent | expected: worker agent lists only K_env and its certificate (2 entries); CA public key absent | observed: rc=0 entries=2 ca_entries=0
+[2026-10-03T01:25:51Z] worker env: try to sign a broad cert via the worker agent -> rc=255
+[2026-10-03T01:25:51Z] PASS E5a-worker-cannot-sign | expected: ssh-keygen -U -s <CA pub> through the worker socket fails; no certificate written | observed: rc=255 certificate_written=no
+[2026-10-03T01:25:52Z] child-ca1-before-child-expiry -> rc=0
+[2026-10-03T01:25:52Z] PASS E5b-child-ca1-before-child-expiry | expected: rc 0 | observed: rc=0 accepted_with_id=1 server_reason=[none logged]
+[2026-10-03T01:25:52Z] child-ca2-principal-not-granted -> rc=255
+[2026-10-03T01:25:52Z] PASS E5b-child-ca2-principal-not-granted | expected: rc 255 | observed: rc=255 accepted_with_id=0 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T01:25:53Z] parent-ca1 -> rc=0
+[2026-10-03T01:25:53Z] PASS E5b-parent-ca1 | expected: rc 0 | observed: rc=0 accepted_with_id=1 server_reason=[none logged]
+[2026-10-03T01:25:53Z] parent-ca2 -> rc=0
+[2026-10-03T01:25:53Z] PASS E5b-parent-ca2 | expected: rc 0 | observed: rc=0 accepted_with_id=1 server_reason=[none logged]
+[2026-10-03T01:25:53Z] waiting 61 s (until epoch 1790990814)
+[2026-10-03T01:26:54Z] child-ca1-after-child-expiry -> rc=255
+[2026-10-03T01:26:55Z] PASS E5b-child-ca1-after-child-expiry | expected: rc 255 | observed: rc=255 accepted_with_id=0 server_reason=[Certificate invalid: expired]
+[2026-10-03T01:26:55Z] parent-ca1-after-child-expiry -> rc=0
+[2026-10-03T01:26:55Z] PASS E5b-parent-ca1-after-child-expiry | expected: rc 0 | observed: rc=0 accepted_with_id=1 server_reason=[none logged]
+[2026-10-03T01:26:55Z] parent-ca2-after-child-expiry -> rc=0
+[2026-10-03T01:26:56Z] PASS E5b-parent-ca2-after-child-expiry | expected: rc 0 | observed: rc=0 accepted_with_id=1 server_reason=[none logged]
+[2026-10-03T01:26:56Z] PASS E5c-no-ca-material-in-worker-path | expected: no CA private material in worker/child files, agent argv/environment, or the worker command environment | observed: files_scanned=4 ca_body_hits=0 private_key_headers=0 files_deriving_ca_pub=0 agent_process_hits=0 worker_env_hits=0 worker_files=[agent.sock kenv-cert.pub kenv.pub]
+[2026-10-03T01:26:56Z] same-user process that knows the issuer socket path -> rc=0
+[2026-10-03T01:26:56Z] CONFIRMED E5-same-user-boundary | hypothesis: a same-user process with the issuer socket path can obtain signatures (separation is by endpoint only, not an OS boundary) | observed: rc=0 issuer_dir=drwx------ socket=srw------- owner_is_harness_uid=yes
+[2026-10-03T01:26:56Z] cleanup agent pid=2113: terminated socket_removed
+[2026-10-03T01:26:56Z] cleanup agent pid=2197: terminated socket_removed
+[2026-10-03T01:26:56Z] cleanup agent pid=2214: terminated socket_removed
+[2026-10-03T01:26:56Z] END e5-issuer-separation exit=0 checks=12 fails=0

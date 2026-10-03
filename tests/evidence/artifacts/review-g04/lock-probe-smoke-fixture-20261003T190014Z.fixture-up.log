@@ -1,0 +1,57 @@
+[2026-10-03T19:00:14Z] pulling base debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1 (preexisting=1)
+  docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1: Pulling from library/debian
+  Digest: sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  Status: Image is up to date for debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+[2026-10-03T19:00:14Z] building heimdall-m00-t03-sshd:local
+  #0 building with "desktop-linux" instance using docker driver
+  
+  #1 [internal] load build definition from Dockerfile
+  #1 transferring dockerfile: 945B done
+  #1 DONE 0.0s
+  
+  #2 [internal] load metadata for docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  #2 DONE 0.0s
+  
+  #3 [internal] load .dockerignore
+  #3 transferring context: 2B done
+  #3 DONE 0.0s
+  
+  #4 [1/4] FROM docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  #4 DONE 0.0s
+  
+  #5 [internal] load build context
+  #5 transferring context: 1.97kB done
+  #5 DONE 0.0s
+  
+  #6 [3/4] COPY entrypoint.sh /usr/local/bin/fixture-entrypoint.sh
+  #6 CACHED
+  
+  #7 [2/4] RUN apt-get update  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server  && rm -rf /var/lib/apt/lists/*  && mkdir -p /run/sshd /fixture  && rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+  #7 CACHED
+  
+  #8 [4/4] RUN chmod 0755 /usr/local/bin/fixture-entrypoint.sh
+  #8 CACHED
+  
+  #9 exporting to image
+  #9 exporting layers done
+  #9 writing image sha256:518ccd6a87982d29aa820839cfa33418a2ba00c0e8cf19f461bd37ea688e1a47 done
+  #9 naming to docker.io/library/heimdall-m00-t03-sshd:local done
+  #9 DONE 0.0s
+  
+  View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/2kcvv1y1gwolw2a26cti8or6v
+[2026-10-03T19:00:15Z] generating per-run keys, CA and host keys in <repo>/tests/fixtures/ssh/runtime
+[2026-10-03T19:00:15Z] starting hm-m00t03-fixed
+[2026-10-03T19:00:15Z] starting hm-m00t03-enroll
+[2026-10-03T19:00:15Z] starting hm-m00t03-ca1
+[2026-10-03T19:00:15Z] starting hm-m00t03-ca2
+[2026-10-03T19:00:15Z] starting hm-m00t03-bastion
+[2026-10-03T19:00:15Z] starting hm-m00t03-target
+[2026-10-03T19:00:16Z] up complete (run 20261003T190014Z-5126). Ports (loopback only):
+  PORT_fixed=49646
+  PORT_enroll=49649
+  PORT_ca1=49650
+  PORT_ca2=49652
+  PORT_bastion=49654
+[2026-10-03T19:00:16Z] client config: <repo>/tests/fixtures/ssh/runtime/ssh_config  (use: /usr/bin/ssh -F runtime/ssh_config <alias>)
+exit=0

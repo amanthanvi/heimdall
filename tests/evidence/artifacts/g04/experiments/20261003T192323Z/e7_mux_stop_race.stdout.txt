@@ -1,0 +1,120 @@
+[2026-10-03T19:37:57Z] BEGIN e7-mux-stop-race run_stamp=20261003T192323Z run_id=193757-63283
+[2026-10-03T19:37:57Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T19:37:57Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T19:37:58Z] FACT docker_server = 29.8.1
+[2026-10-03T19:37:58Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T19:37:58Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.032
+[2026-10-03T19:37:58Z] dedicated ssh-agent started: pid=63399 ident='Sat Oct 3 15:37:58 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T19:37:58Z] certificate g04-race-193757-63283: id="g04-race-193757-63283" principals=p-host1 valid=[from 2026-10-03T19:36:58 to 2026-10-03T20:07:58] ca=ED25519 SHA256:tO1pxPbQCwPTIiMJDVlhfEcA37zTB7yoV/EAJXZdoxc (using ssh-ed25519)
+[2026-10-03T19:37:58Z] ssh-add -t 1800 kr -> rc=0
+[2026-10-03T19:37:58Z] FACT iterations = 50
+[2026-10-03T19:37:58Z] FACT control_persist_s = 3
+[2026-10-03T19:37:58Z] FACT delay_ranges_ms = client 0-60, stop 0-40 (uniform, $RANDOM)
+[2026-10-03T19:37:58Z] start master r1 -> rc=0
+[2026-10-03T19:37:58Z] master started: pid=63510 lstart='Sat Oct 3 15:37:58 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r1 persist=3
+[2026-10-03T19:37:58Z] start master r2 -> rc=0
+[2026-10-03T19:37:58Z] master started: pid=63570 lstart='Sat Oct 3 15:37:58 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r2 persist=3
+[2026-10-03T19:37:58Z] start master r3 -> rc=0
+[2026-10-03T19:37:58Z] master started: pid=63630 lstart='Sat Oct 3 15:37:58 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r3 persist=3
+[2026-10-03T19:37:58Z] start master r4 -> rc=0
+[2026-10-03T19:37:58Z] master started: pid=63690 lstart='Sat Oct 3 15:37:58 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r4 persist=3
+[2026-10-03T19:37:58Z] start master r5 -> rc=0
+[2026-10-03T19:37:58Z] master started: pid=63757 lstart='Sat Oct 3 15:37:58 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r5 persist=3
+[2026-10-03T19:37:59Z] start master r6 -> rc=0
+[2026-10-03T19:37:59Z] master started: pid=63819 lstart='Sat Oct 3 15:37:59 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r6 persist=3
+[2026-10-03T19:37:59Z] start master r7 -> rc=0
+[2026-10-03T19:37:59Z] master started: pid=63884 lstart='Sat Oct 3 15:37:59 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r7 persist=3
+[2026-10-03T19:37:59Z] start master r8 -> rc=0
+[2026-10-03T19:37:59Z] master started: pid=63947 lstart='Sat Oct 3 15:37:59 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r8 persist=3
+[2026-10-03T19:37:59Z] start master r9 -> rc=0
+[2026-10-03T19:37:59Z] master started: pid=64007 lstart='Sat Oct 3 15:37:59 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r9 persist=3
+[2026-10-03T19:37:59Z] start master r10 -> rc=0
+[2026-10-03T19:37:59Z] master started: pid=64068 lstart='Sat Oct 3 15:37:59 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r10 persist=3
+[2026-10-03T19:37:59Z] start master r11 -> rc=0
+[2026-10-03T19:37:59Z] master started: pid=64128 lstart='Sat Oct 3 15:37:59 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r11 persist=3
+[2026-10-03T19:38:00Z] start master r12 -> rc=0
+[2026-10-03T19:38:00Z] master started: pid=64188 lstart='Sat Oct 3 15:38:00 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r12 persist=3
+[2026-10-03T19:38:00Z] start master r13 -> rc=0
+[2026-10-03T19:38:00Z] master started: pid=64248 lstart='Sat Oct 3 15:38:00 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r13 persist=3
+[2026-10-03T19:38:00Z] start master r14 -> rc=0
+[2026-10-03T19:38:00Z] master started: pid=64308 lstart='Sat Oct 3 15:38:00 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r14 persist=3
+[2026-10-03T19:38:00Z] start master r15 -> rc=0
+[2026-10-03T19:38:00Z] master started: pid=64368 lstart='Sat Oct 3 15:38:00 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r15 persist=3
+[2026-10-03T19:38:00Z] start master r16 -> rc=0
+[2026-10-03T19:38:00Z] master started: pid=64428 lstart='Sat Oct 3 15:38:00 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r16 persist=3
+[2026-10-03T19:38:00Z] start master r17 -> rc=0
+[2026-10-03T19:38:00Z] master started: pid=64488 lstart='Sat Oct 3 15:38:00 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r17 persist=3
+[2026-10-03T19:38:01Z] start master r18 -> rc=0
+[2026-10-03T19:38:01Z] master started: pid=64548 lstart='Sat Oct 3 15:38:01 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r18 persist=3
+[2026-10-03T19:38:01Z] start master r19 -> rc=0
+[2026-10-03T19:38:01Z] master started: pid=64608 lstart='Sat Oct 3 15:38:01 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r19 persist=3
+[2026-10-03T19:38:01Z] start master r20 -> rc=0
+[2026-10-03T19:38:01Z] master started: pid=64668 lstart='Sat Oct 3 15:38:01 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r20 persist=3
+[2026-10-03T19:38:01Z] start master r21 -> rc=0
+[2026-10-03T19:38:01Z] master started: pid=64728 lstart='Sat Oct 3 15:38:01 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r21 persist=3
+[2026-10-03T19:38:01Z] start master r22 -> rc=0
+[2026-10-03T19:38:01Z] master started: pid=64788 lstart='Sat Oct 3 15:38:01 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r22 persist=3
+[2026-10-03T19:38:01Z] start master r23 -> rc=0
+[2026-10-03T19:38:01Z] master started: pid=64848 lstart='Sat Oct 3 15:38:01 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r23 persist=3
+[2026-10-03T19:38:02Z] start master r24 -> rc=0
+[2026-10-03T19:38:02Z] master started: pid=64908 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r24 persist=3
+[2026-10-03T19:38:02Z] start master r25 -> rc=0
+[2026-10-03T19:38:02Z] master started: pid=64968 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r25 persist=3
+[2026-10-03T19:38:02Z] start master r26 -> rc=0
+[2026-10-03T19:38:02Z] master started: pid=65028 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r26 persist=3
+[2026-10-03T19:38:02Z] start master r27 -> rc=0
+[2026-10-03T19:38:02Z] master started: pid=65093 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r27 persist=3
+[2026-10-03T19:38:02Z] start master r28 -> rc=0
+[2026-10-03T19:38:02Z] master started: pid=65153 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r28 persist=3
+[2026-10-03T19:38:02Z] start master r29 -> rc=0
+[2026-10-03T19:38:02Z] master started: pid=65215 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r29 persist=3
+[2026-10-03T19:38:02Z] start master r30 -> rc=0
+[2026-10-03T19:38:03Z] master started: pid=65275 lstart='Sat Oct 3 15:38:02 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r30 persist=3
+[2026-10-03T19:38:03Z] start master r31 -> rc=0
+[2026-10-03T19:38:03Z] master started: pid=65340 lstart='Sat Oct 3 15:38:03 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r31 persist=3
+[2026-10-03T19:38:03Z] start master r32 -> rc=0
+[2026-10-03T19:38:03Z] master started: pid=65400 lstart='Sat Oct 3 15:38:03 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r32 persist=3
+[2026-10-03T19:38:03Z] start master r33 -> rc=0
+[2026-10-03T19:38:03Z] master started: pid=65460 lstart='Sat Oct 3 15:38:03 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r33 persist=3
+[2026-10-03T19:38:03Z] start master r34 -> rc=0
+[2026-10-03T19:38:03Z] master started: pid=65520 lstart='Sat Oct 3 15:38:03 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r34 persist=3
+[2026-10-03T19:38:03Z] start master r35 -> rc=0
+[2026-10-03T19:38:03Z] master started: pid=65580 lstart='Sat Oct 3 15:38:03 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r35 persist=3
+[2026-10-03T19:38:04Z] start master r36 -> rc=0
+[2026-10-03T19:38:04Z] master started: pid=65640 lstart='Sat Oct 3 15:38:04 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r36 persist=3
+[2026-10-03T19:38:04Z] start master r37 -> rc=0
+[2026-10-03T19:38:04Z] master started: pid=65700 lstart='Sat Oct 3 15:38:04 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r37 persist=3
+[2026-10-03T19:38:04Z] start master r38 -> rc=0
+[2026-10-03T19:38:04Z] master started: pid=65760 lstart='Sat Oct 3 15:38:04 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r38 persist=3
+[2026-10-03T19:38:04Z] start master r39 -> rc=0
+[2026-10-03T19:38:04Z] master started: pid=65820 lstart='Sat Oct 3 15:38:04 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r39 persist=3
+[2026-10-03T19:38:04Z] start master r40 -> rc=0
+[2026-10-03T19:38:04Z] master started: pid=65880 lstart='Sat Oct 3 15:38:04 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r40 persist=3
+[2026-10-03T19:38:04Z] start master r41 -> rc=0
+[2026-10-03T19:38:04Z] master started: pid=65940 lstart='Sat Oct 3 15:38:04 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r41 persist=3
+[2026-10-03T19:38:05Z] start master r42 -> rc=0
+[2026-10-03T19:38:05Z] master started: pid=66000 lstart='Sat Oct 3 15:38:05 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r42 persist=3
+[2026-10-03T19:38:05Z] start master r43 -> rc=0
+[2026-10-03T19:38:05Z] master started: pid=66068 lstart='Sat Oct 3 15:38:05 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r43 persist=3
+[2026-10-03T19:38:05Z] start master r44 -> rc=0
+[2026-10-03T19:38:05Z] master started: pid=66128 lstart='Sat Oct 3 15:38:05 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r44 persist=3
+[2026-10-03T19:38:05Z] start master r45 -> rc=0
+[2026-10-03T19:38:05Z] master started: pid=66190 lstart='Sat Oct 3 15:38:05 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r45 persist=3
+[2026-10-03T19:38:05Z] start master r46 -> rc=0
+[2026-10-03T19:38:05Z] master started: pid=66250 lstart='Sat Oct 3 15:38:05 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r46 persist=3
+[2026-10-03T19:38:05Z] start master r47 -> rc=0
+[2026-10-03T19:38:05Z] master started: pid=66310 lstart='Sat Oct 3 15:38:05 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r47 persist=3
+[2026-10-03T19:38:06Z] start master r48 -> rc=0
+[2026-10-03T19:38:06Z] master started: pid=66370 lstart='Sat Oct 3 15:38:06 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r48 persist=3
+[2026-10-03T19:38:06Z] start master r49 -> rc=0
+[2026-10-03T19:38:06Z] master started: pid=66430 lstart='Sat Oct 3 15:38:06 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r49 persist=3
+[2026-10-03T19:38:06Z] start master r50 -> rc=0
+[2026-10-03T19:38:06Z] master started: pid=66490 lstart='Sat Oct 3 15:38:06 2026' comm='/usr/bin/ssh' controlpath=<tmp>/r50 persist=3
+[2026-10-03T19:38:06Z] FACT race_counts = masters_started=50 admitted_after_stop_returned=0 admitted_started_during_stop=1 admitted_started_before_stop=18 not_admitted=31 (started_after_stop_returned=25 started_during_stop=6 started_before_stop=0; fresh-connection publickey denial=31; other=[none]) stop_rc_nonzero=0
+[2026-10-03T19:38:14Z] FACT masters_after_stop = exited_on_their_own=50 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+[2026-10-03T19:38:14Z] FACT server_accepted = with_race_id=50 any=50 (expected: one per master; clients cannot authenticate)
+[2026-10-03T19:38:14Z] PASS E7R-harness | expected: all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself) | observed: masters=50/50 stop_rc_nonzero=0 accepted_with_id=50 accepted_any=50
+[2026-10-03T19:38:15Z] PASS E7R-post-stop-clients-exercised | expected: at least 5 clients started after the -O stop call returned (otherwise the race says nothing about post-stop admission) | observed: clients_started_after_stop_returned=25 of 50
+[2026-10-03T19:38:15Z] CONFIRMED E7R-no-admission-after-stop-returned | hypothesis: no client that started after -O stop returned (MUX_S_OK received) was admitted through the master | observed: violations=0 of 25 clients that started after stop returned (not admitted: 25); started during stop: admitted=1 not_admitted=6; started before stop: admitted=18 not_admitted=0; masters=50
+[2026-10-03T19:38:15Z] cleanup agent pid=63399: terminated socket_removed
+[2026-10-03T19:38:15Z] END e7-mux-stop-race exit=0 checks=2 fails=0

@@ -1,0 +1,28 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.008 rtt_s=0.033
+FACT	cert_p1	id="g04-e3-p1-193230-49665" principals=p-host1 valid=[from 2026-10-03T19:31:30 to 2026-10-03T19:47:30] ca=ED25519 SHA256:tO1pxPbQCwPTIiMJDVlhfEcA37zTB7yoV/EAJXZdoxc (using ssh-ed25519)
+FACT	cert_p2	id="g04-e3-p2-193230-49665" principals=p-host2 valid=[from 2026-10-03T19:31:30 to 2026-10-03T19:47:30] ca=ED25519 SHA256:tO1pxPbQCwPTIiMJDVlhfEcA37zTB7yoV/EAJXZdoxc (using ssh-ed25519)
+FACT	cert_both	id="g04-e3-both-193230-49665" principals=p-host1,p-host2 valid=[from 2026-10-03T19:31:30 to 2026-10-03T19:47:30] ca=ED25519 SHA256:tO1pxPbQCwPTIiMJDVlhfEcA37zTB7yoV/EAJXZdoxc (using ssh-ed25519)
+FACT	cert_user	id="g04-e3-user-193230-49665" principals=cert valid=[from 2026-10-03T19:31:30 to 2026-10-03T19:47:30] ca=ED25519 SHA256:tO1pxPbQCwPTIiMJDVlhfEcA37zTB7yoV/EAJXZdoxc (using ssh-ed25519)
+FACT	cert_rogue	id="g04-e3-rogue-193230-49665" principals=p-host1 valid=[from 2026-10-03T19:31:30 to 2026-10-03T19:47:30] ca=ED25519 SHA256:p2Rc/lGbpFYZCyEbz7SKXvfuixrbSXzRNZC26Jk1c5U (using ssh-ed25519)
+FACT	agent_contents	256 SHA256:KwoLOGKgoQ16miJLoXm9tl0QohgS36XZa4wSA25o9Y8 g04-e3-k-193230-49665 (ED25519)
+CHECK	E3-p1-ca1	rc 0 with 1 Accepted line carrying ID g04-e3-p1	rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]	PASS
+CHECK	E3-p1-ca2	rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal'	rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]	PASS
+CHECK	E3-p2-ca1	rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal'	rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]	PASS
+CHECK	E3-p2-ca2	rc 0 with 1 Accepted line carrying ID g04-e3-p2	rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]	PASS
+CHECK	E3-both-ca1	rc 0 with 1 Accepted line carrying ID g04-e3-both	rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]	PASS
+CHECK	E3-both-ca2	rc 0 with 1 Accepted line carrying ID g04-e3-both	rc=0 accepted=1 accepted_with_id=1 failed_with_id=0 offered_keys=1 server_reason=[none logged]	PASS
+CHECK	E3-user-ca1	rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal'	rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]	PASS
+CHECK	E3-user-ca2	rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal'	rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]	PASS
+CHECK	E3-rogue-ca1	rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused (untrusted CA)	rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[none logged]	PASS
+CHECK	E3-rogue-ca2	rc 255, no Accepted line; certificate presented (Failed line with its ID) and refused (untrusted CA)	rc=255 accepted=0 accepted_with_id=0 failed_with_id=1 offered_keys=2 server_reason=[none logged]	PASS
+CHECK	E3-bare-ca1	rc 255 and no Accepted line (plain key, no certificate)	rc=255 accepted=0 accepted_with_id=0 failed_with_id=0 offered_keys=1 server_reason=[none logged]	PASS
+CHECK	E3-bare-ca2	rc 255 and no Accepted line (plain key, no certificate)	rc=255 accepted=0 accepted_with_id=0 failed_with_id=0 offered_keys=1 server_reason=[none logged]	PASS
+FACT	matrix	p1@ca1=rc0 p1@ca2=rc255 p2@ca1=rc255 p2@ca2=rc0 both@ca1=rc0 both@ca2=rc0 user@ca1=rc255 user@ca2=rc255 rogue@ca1=rc255 rogue@ca2=rc255 bare@ca1=rc255 bare@ca2=rc255
+FACT	scope_caveat	certificate 'both' {p-host1,p-host2} is usable on every host whose principal map contains either name; it is not scoped to one destination
+CLEANUP	agent pid=49783	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=12	fails=0

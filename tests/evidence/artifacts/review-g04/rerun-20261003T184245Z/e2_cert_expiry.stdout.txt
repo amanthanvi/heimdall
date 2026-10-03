@@ -1,0 +1,77 @@
+[2026-10-03T18:45:04Z] BEGIN e2-cert-expiry run_stamp=../../review-g04/rerun-20261003T184245Z run_id=184504-76634
+[2026-10-03T18:45:05Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:45:05Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:45:05Z] FACT docker_server = 29.8.1
+[2026-10-03T18:45:05Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:45:05Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.034
+[2026-10-03T18:45:05Z] FACT clock_ca1_before = offset_s=0.008 rtt_s=0.033
+[2026-10-03T18:45:05Z] dedicated ssh-agent started: pid=76777 ident='Sat Oct 3 14:45:05 2026 /usr/bin/ssh-agent' socket=<tmp>/aA/agent.sock mode=debug
+[2026-10-03T18:45:05Z] dedicated ssh-agent started: pid=76790 ident='Sat Oct 3 14:45:05 2026 /usr/bin/ssh-agent' socket=<tmp>/aB/agent.sock mode=debug
+[2026-10-03T18:45:05Z] dedicated ssh-agent started: pid=76805 ident='Sat Oct 3 14:45:05 2026 /usr/bin/ssh-agent' socket=<tmp>/aC/agent.sock mode=daemon
+[2026-10-03T18:45:05Z] certificate g04-e2-c1a-184504-76634: id="g04-e2-c1a-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:44:05 to 2026-10-03T18:46:35] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] certificate g04-e2-c1b-184504-76634: id="g04-e2-c1b-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:44:05 to 2026-10-03T18:46:35] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] certificate g04-e2-c2-184504-76634: id="g04-e2-c2-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:50:05 to 2026-10-03T18:55:05] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] certificate g04-e2-c3-184504-76634: id="g04-e2-c3-184504-76634" principals=p-host1 valid=[from 2026-10-03T18:35:05 to 2026-10-03T18:40:05] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:45:05Z] FACT c1_valid_after_epoch = 1791053045
+[2026-10-03T18:45:05Z] FACT c1_valid_before_epoch = 1791053195
+[2026-10-03T18:45:05Z] FACT c1_valid_before_utc = 2026-10-03T18:46:35Z
+[2026-10-03T18:45:05Z] ssh-add  k1a -> rc=0
+[2026-10-03T18:45:05Z] FACT ssh_add_default_output = Identity added: <tmp>/k1a (g04-e2-k1a-184504-76634)
+Certificate added: <tmp>/k1a-cert.pub (g04-e2-c1a-184504-76634)
+Lifetime set to 00:06:30
+[2026-10-03T18:45:05Z] ssh-add -N k1b -> rc=0
+[2026-10-03T18:45:05Z] FACT ssh_add_N_output = Identity added: <tmp>/k1b (g04-e2-k1b-184504-76634)
+Certificate added: <tmp>/k1b-cert.pub (g04-e2-c1b-184504-76634)
+[2026-10-03T18:45:05Z] ssh-add  k2 -> rc=0
+[2026-10-03T18:45:05Z] ssh-add  k3 -> rc=0
+[2026-10-03T18:45:05Z] ssh-add -l (<tmp>/aA/agent.sock) -> rc=0
+[2026-10-03T18:45:05Z] FACT agentA_before = 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519-CERT)
+[2026-10-03T18:45:05Z] ssh-add -l (<tmp>/aB/agent.sock) -> rc=0
+[2026-10-03T18:45:05Z] FACT agentB_before = 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+[2026-10-03T18:45:05Z] C1a agent-held, before expiry -> rc=0
+[2026-10-03T18:45:06Z] PASS E2-C1a-agent-before | expected: rc 0 + 1 Accepted line ID c1a | observed: rc=0 accepted=1 offered=[debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:45:06Z] C1b agent-held, before expiry -> rc=0
+[2026-10-03T18:45:06Z] PASS E2-C1b-agent-before | expected: rc 0 + 1 Accepted line ID c1b | observed: rc=0 accepted=1 offered=[debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:45:07Z] C1a disk cert, before expiry -> rc=0
+[2026-10-03T18:45:07Z] PASS E2-C1a-disk-before | expected: rc 0 + 1 Accepted line ID c1a | observed: rc=0 accepted=1
+[2026-10-03T18:45:07Z] C2 not yet valid -> rc=255
+[2026-10-03T18:45:07Z] PASS E2-C2-not-yet-valid-rejected | expected: rc 255; server saw the cert (Failed line with ID) and logged 'Certificate invalid: not yet valid' | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: not yet valid]
+[2026-10-03T18:45:08Z] C3 expired -> rc=255
+[2026-10-03T18:45:08Z] PASS E2-C3-expired-rejected | expected: rc 255; server saw the cert and logged 'Certificate invalid: expired' | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired]
+[2026-10-03T18:45:08Z] waiting 81 s (until epoch 1791053189)
+[2026-10-03T18:46:29Z] FACT clock_ca1_at_boundary = offset_s=0.015 rtt_s=0.052
+[2026-10-03T18:46:39Z] FACT boundary = attempts=156 accepted=82 rejected=74 last_accept_end_minus_vb=-0.050 first_reject_start_minus_vb=-0.042 accepted_starting_after_vb=0 rejected_ending_before_vb=0 tolerance_s=0.065 server_accepted_lines=82 server_expired_lines=74
+[2026-10-03T18:46:39Z] PASS E2-boundary | expected: accepts only while t<valid_before, rejects from valid_before (each rejection logged as expired); first rejection <= 2 s + |offset| after valid_before | observed: attempts=156 accepted=82 rejected=74 last_accept_end_minus_vb=-0.050 first_reject_start_minus_vb=-0.042 accepted_starting_after_vb=0 rejected_ending_before_vb=0 tolerance_s=0.065 server_expired_lines=74 limit_s=2.015
+[2026-10-03T18:46:39Z] waiting 1 s (until epoch 1791053200)
+[2026-10-03T18:46:40Z] ssh-add -l (<tmp>/aA/agent.sock) -> rc=0
+[2026-10-03T18:46:40Z] ssh-add -l (<tmp>/aB/agent.sock) -> rc=0
+[2026-10-03T18:46:40Z] FACT agentA_after_expiry = 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519-CERT)
+[2026-10-03T18:46:40Z] FACT agentB_after_expiry = 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+[2026-10-03T18:46:40Z] PASS E2-agents-still-hold-certs | expected: both agents still list the expired certificate at valid_before+5 s | observed: agentA_cert_entries=1 agentB_cert_entries=1
+[2026-10-03T18:46:40Z] C1a agent-held, after expiry -> rc=255
+[2026-10-03T18:46:41Z] PASS E2-after-expiry-agA | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1a-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:46:41Z] C1a disk, after expiry -> rc=255
+[2026-10-03T18:46:41Z] PASS E2-after-expiry-dkA | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT <fp> explicit debug1: Offering public key: <tmp>/k1a.pub ED25519 <fp> explicit agent]
+[2026-10-03T18:46:41Z] C1b(-N) agent-held, after expiry -> rc=255
+[2026-10-03T18:46:42Z] PASS E2-after-expiry-agB | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519 <fp> agent debug1: Offering public key: g04-e2-k1b-184504-76634 ED25519-CERT <fp> agent]
+[2026-10-03T18:46:42Z] C1b(-N) disk, after expiry -> rc=255
+[2026-10-03T18:46:42Z] PASS E2-after-expiry-dkB | expected: rc 255; cert offered (Failed line with ID) and rejected as expired by sshd | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] offered=[debug1: Offering public key: <tmp>/k1b-cert.pub ED25519-CERT <fp> explicit debug1: Offering public key: <tmp>/k1b.pub ED25519 <fp> explicit agent]
+[2026-10-03T18:46:42Z] waiting 308 s (until epoch 1791053510)
+[2026-10-03T18:51:50Z] ssh-add -l (<tmp>/aA/agent.sock) -> rc=0
+[2026-10-03T18:51:50Z] ssh-add -l (<tmp>/aB/agent.sock) -> rc=0
+[2026-10-03T18:51:50Z] FACT agentA_after_grace = 256 SHA256:kz+lQfCn5e3m4/UMJPb3tUbb9WD5TpwgEyXEiCk3jJs g04-e2-k1a-184504-76634 (ED25519)
+[2026-10-03T18:51:50Z] FACT agentB_after_grace = 256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519)
+256 SHA256:Qo1gjjIS4HF9S9/A7oN15zS6/4hdFOjQA68K6PaFGA0 g04-e2-k1b-184504-76634 (ED25519-CERT)
+[2026-10-03T18:51:50Z] FACT agentA_debug_expiry = debug1: expiring key 'g04-e2-k1a-184504-76634'
+[2026-10-03T18:51:50Z] PASS E2-grace-removal | expected: default ssh-add: cert gone from agent A after valid_before+300 s, plain key kept; ssh-add -N: cert still in agent B | observed: agentA cert=0 key=1; agentB cert=1
+[2026-10-03T18:51:50Z] C1a disk, after expiry, agent A no longer holds the cert -> rc=255
+[2026-10-03T18:51:51Z] PASS E2-after-expiry-dkA-cert-not-in-agent | expected: rc 255; cert offered from disk and rejected as expired, the same as while the agent held it (agent A lists no certificate) | observed: rc=255 accepted=0 failed_with_id=1 reason=[Certificate invalid: expired] agentA_cert_entries=0 offered=[debug1: Offering public key: <tmp>/k1a-cert.pub ED25519-CERT <fp> explicit debug1: Offering public key: <tmp>/k1a.pub ED25519 <fp> explicit agent]
+[2026-10-03T18:51:51Z] FACT clock_ca1_end = offset_s=0.008 rtt_s=0.035
+[2026-10-03T18:51:51Z] cleanup agent pid=76777: terminated socket_removed
+[2026-10-03T18:51:51Z] cleanup agent pid=76790: terminated socket_removed
+[2026-10-03T18:51:51Z] cleanup agent pid=76805: terminated socket_removed
+[2026-10-03T18:51:51Z] END e2-cert-expiry exit=0 checks=13 fails=0

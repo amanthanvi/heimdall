@@ -1,0 +1,37 @@
+[2026-10-03T18:43:00Z] BEGIN e1-dedicated-agent run_stamp=../../review-g04/rerun-20261003T184245Z run_id=184300-72995
+[2026-10-03T18:43:00Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:43:00Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:43:00Z] FACT docker_server = 29.8.1
+[2026-10-03T18:43:00Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:43:00Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.036
+[2026-10-03T18:43:00Z] dedicated ssh-agent started: pid=73130 ident='Sat Oct 3 14:43:00 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=debug
+[2026-10-03T18:43:00Z] certificate g04-e1-184300-72995: id="g04-e1-184300-72995" principals=p-host1 valid=[from 2026-10-03T18:42:00 to 2026-10-03T18:53:00] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:43:00Z] FACT cert = id="g04-e1-184300-72995" principals=p-host1 valid=[from 2026-10-03T18:42:00 to 2026-10-03T18:53:00] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:43:01Z] FACT kenv_fingerprint = SHA256:YXg38jtqcL3DUyW0g1ziab00zgYNezVUXlLajttxwJc
+[2026-10-03T18:43:01Z] ssh-add -t 120 kenv -> rc=0
+[2026-10-03T18:43:01Z] FACT ssh_add_output = Identity added: <tmp>/kenv (g04-e1-kenv-184300-72995)
+Lifetime set to 00:02:00
+Certificate added: <tmp>/kenv-cert.pub (g04-e1-184300-72995)
+Lifetime set to 00:02:00
+[2026-10-03T18:43:01Z] PASS E1-private-file-deleted | expected: private key file absent after ssh-add | observed: exists=no
+[2026-10-03T18:43:01Z] ssh-add -l (<tmp>/agent/agent.sock) -> rc=0
+[2026-10-03T18:43:01Z] PASS E1a-agent-lists-key-and-cert | expected: rc 0; exactly 2 entries (ED25519 + ED25519-CERT) of K_env | observed: rc=0 entries=2 types=ED25519,ED25519-CERT, matching_fp=2
+[2026-10-03T18:43:01Z] E1b fresh login ca1 -> rc=0
+[2026-10-03T18:43:01Z] PASS E1b-fresh-login | expected: rc 0, output e1-login-ok, exactly 1 new Accepted line with ID g04-e1-184300-72995 | observed: rc=0 out=e1-login-ok new_accepted_with_id=1
+[2026-10-03T18:43:01Z] PASS E1b-dedicated-agent-signed | expected: dedicated agent debug log shows >=1 new sign request during the login | observed: sign_requests_before=0 after=1
+[2026-10-03T18:43:01Z] E1c login with IdentityAgent=none -> rc=255
+[2026-10-03T18:43:02Z] PASS E1c-no-agent-no-auth | expected: rc 255 and no new Accepted line (no private key file exists) | observed: rc=255 new_accepted=0
+[2026-10-03T18:43:02Z] E1d ssh -G -> rc=0
+[2026-10-03T18:43:02Z] PASS E1d-config-uses-temp-socket | expected: ssh -G: identityagent=<tmp>/agent/agent.sock, one identityfile, identitiesonly yes, controlmaster false, controlpath none (ssh -G omits it when none) | observed: identityagent=<tmp>/agent/agent.sock identityfile_entries=1 identitiesonly=yes controlmaster=false controlpath=<absent>
+[2026-10-03T18:43:02Z] E1d ssh -vvv login -> rc=0
+[2026-10-03T18:43:02Z] PASS E1d-only-temp-agent-used | expected: rc 0; no key/agent path outside <tmp>; no <home> or .ssh path in -vvv; dedicated agent saw a sign request | observed: rc=0 foreign_paths=0 home_or_dotssh_refs=0 sign_requests_delta=1
+[2026-10-03T18:43:02Z] waiting 122 s (until epoch 1791053104)
+[2026-10-03T18:45:04Z] ssh-add -l (<tmp>/agent/agent.sock) -> rc=1
+[2026-10-03T18:45:04Z] E1e ssh-add -T after lifetime -> rc=1
+[2026-10-03T18:45:04Z] E1e fresh login after lifetime -> rc=255
+[2026-10-03T18:45:04Z] FACT agent_debug_expiry_lines = debug1: expiring key 'g04-e1-kenv-184300-72995'
+debug1: expiring key 'g04-e1-kenv-184300-72995'
+[2026-10-03T18:45:04Z] PASS E1e-lifetime-ends-signing | expected: after -t 120 s: ssh-add -T rc!=0, fresh login rc 255, no Accepted line | observed: ssh-add -l rc=1 (The agent has no identities.); ssh-add -T rc=1; login rc=255 new_accepted=0; agent expiry log lines=2
+[2026-10-03T18:45:04Z] PASS E1f-exact-pid-kill | expected: kill_exact terminated; process gone; socket removed | observed: kill=terminated process=gone socket=removed
+[2026-10-03T18:45:04Z] cleanup agent pid=73130: already_exited socket_removed
+[2026-10-03T18:45:04Z] END e1-dedicated-agent exit=0 checks=9 fails=0

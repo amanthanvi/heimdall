@@ -1,0 +1,20 @@
+[2026-10-03T18:53:09Z] BEGIN e6-fresh-login-verification run_stamp=../../review-g04/rerun-20261003T184245Z run_id=185309-92013
+[2026-10-03T18:53:09Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:53:09Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:53:10Z] FACT docker_server = 29.8.1
+[2026-10-03T18:53:10Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:53:10Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.033
+[2026-10-03T18:53:10Z] dedicated ssh-agent started: pid=92131 ident='Sat Oct 3 14:53:10 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:53:10Z] certificate g04-e6-185309-92013: id="g04-e6-185309-92013" principals=p-host1 valid=[from 2026-10-03T18:52:10 to 2026-10-03T19:08:10] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:53:10Z] ssh-add -t 900 k -> rc=0
+[2026-10-03T18:53:10Z] start master cm -> rc=0
+[2026-10-03T18:53:10Z] master started: pid=92199 lstart='Sat Oct 3 14:53:10 2026' comm='/usr/bin/ssh' controlpath=<tmp>/cm persist=120
+[2026-10-03T18:53:10Z] PASS E6-master-open | expected: ControlMaster=yes master authenticated once (1 Accepted line) | observed: rc=0 master_pid=92199 accepted=1
+[2026-10-03T18:53:10Z] verification command (fresh) -> rc=0
+[2026-10-03T18:53:11Z] PASS E6-verification-is-fresh | expected: rc 0 and exactly 1 new Accepted line carrying ID g04-e6-185309-92013 (a new authentication) while a master is open | observed: rc=0 new_accepted_with_id=1 new_accepted_any=1 new_connections=1
+[2026-10-03T18:53:11Z] negative control: reuse via ControlMaster=auto -> rc=0
+[2026-10-03T18:53:11Z] PASS E6-reuse-is-not-verification | expected: rc 0 with NO new Accepted line and no new TCP connection (session rode the existing master) | observed: rc=0 new_accepted=0 new_connections=0
+[2026-10-03T18:53:11Z] -O exit master -> rc=0
+[2026-10-03T18:53:12Z] PASS E6-master-closed | expected: -O exit rc 0; master process gone; control socket removed | observed: rc=0 master_gone=yes socket_exists=no
+[2026-10-03T18:53:12Z] cleanup agent pid=92131: terminated socket_removed
+[2026-10-03T18:53:12Z] END e6-fresh-login-verification exit=0 checks=4 fails=0

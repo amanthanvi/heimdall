@@ -1,0 +1,724 @@
+ 
+
+ How to use data protection - .NET | Microsoft Learn
+
+ Skip to main content
+
+ Skip to Ask Learn chat experience
+
+This browser is no longer supported.
+
+ Upgrade to Microsoft Edge to take advantage of the latest features, security updates, and technical support.
+
+ Download Microsoft Edge
+
+ More info about Internet Explorer and Microsoft Edge
+
+ Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Language
+
+ csharp
+
+ vb
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+How to use data protection
+
+ Feedback
+
+ Summarize this article for me
+
+ In this article
+
+Note
+
+This article applies to Windows.
+
+For information about ASP.NET Core, see ASP.NET Core Data Protection.
+
+.NET provides access to the data protection API (DPAPI), which lets you encrypt data using information from the current user account or computer. When you use the DPAPI, you avoid the difficult problem of explicitly generating and storing a cryptographic key.
+
+Use the ProtectedData class to encrypt a copy of an array of bytes. You can specify that only the same user account can decrypt the data, or that any account on the computer can decrypt it. For a detailed description of ProtectedData options, see the DataProtectionScope enumeration.
+
+Encrypt data to a file or stream using data protection
+
+Create random entropy.
+
+Call the static Protect method while passing an array of bytes to encrypt, the entropy, and the data protection scope.
+
+Write the encrypted data to a file or stream.
+
+To decrypt data from a file or stream using data protection
+
+Read the encrypted data from a file or stream.
+
+Call the static Unprotect method while passing an array of bytes to decrypt and the data protection scope.
+
+Example
+
+The following code example shows two forms of encryption and decryption. First, the code encrypts and then decrypts an in-memory array of bytes. Next, the code encrypts a copy of a byte array, saves it to a file, loads the data back from the file, and then decrypts the data. The example displays the original data, the encrypted data, and the decrypted data.
+
+Important
+
+ProtectedMemory is only available for .NET Framework. ProtectedData is available on .NET and .NET Framework.
+
+.NET
+
+.NET Framework
+
+This sample compiles and runs when you target .NET on Windows. To compile the sample, add the System.Security.Cryptography.ProtectedData NuGet package.
+
+using System.Security.Cryptography;
+using System.Text;
+
+try
+{
+ // Data Encryption - ProtectedData
+
+ // Create the original data to be encrypted.
+ byte[] toEncrypt = Encoding.ASCII.GetBytes("This is some data of any length.");
+
+ // Create some random entropy.
+ byte[] entropy = CreateRandomEntropy();
+
+ Console.WriteLine();
+ Console.WriteLine($"Original data: {Encoding.ASCII.GetString(toEncrypt)}");
+ Console.WriteLine("Encrypting and writing to disk...");
+
+ int bytesWritten;
+
+ // Encrypt a copy of the data to the stream.
+ using (FileStream writeStream = new("Data.dat", FileMode.OpenOrCreate))
+ {
+ bytesWritten = EncryptDataToStream(toEncrypt, entropy, DataProtectionScope.CurrentUser, writeStream);
+ }
+
+ Console.WriteLine("Reading data from disk and decrypting...");
+
+ // Read from the stream and decrypt the data.
+ byte[] decryptData;
+ using (FileStream readStream = new("Data.dat", FileMode.Open))
+ {
+ decryptData = DecryptDataFromStream(entropy, DataProtectionScope.CurrentUser, readStream, bytesWritten);
+ }
+
+ Console.WriteLine($"Decrypted data: {Encoding.ASCII.GetString(decryptData)}");
+}
+catch (Exception e)
+{
+ Console.WriteLine($"ERROR: {e.Message}");
+}
+
+static byte[] CreateRandomEntropy()
+{
+ // Create a byte array to hold the random value and fill it with a random value.
+ byte[] entropy = new byte[16];
+ RandomNumberGenerator.Fill(entropy);
+
+ return entropy;
+}
+
+static int EncryptDataToStream(byte[] buffer, byte[] entropy, DataProtectionScope scope, Stream stream)
+{
+ ArgumentNullException.ThrowIfNull(buffer);
+ ArgumentOutOfRangeException.ThrowIfZero(buffer.Length, nameof(buffer));
+ ArgumentNullException.ThrowIfNull(entropy);
+ ArgumentOutOfRangeException.ThrowIfZero(entropy.Length, nameof(entropy));
+ ArgumentNullException.ThrowIfNull(stream);
+
+ int length = 0;
+
+ // Encrypt the data and store the result in a new byte array. The original data remains unchanged.
+ byte[] encryptedData = ProtectedData.Protect(buffer, entropy, scope);
+
+ // Write the encrypted data to a stream.
+ if (stream.CanWrite)
+ {
+ stream.Write(encryptedData, 0, encryptedData.Length);
+ length = encryptedData.Length;
+ }
+
+ // Return the length that was written to the stream.
+ return length;
+}
+
+static byte[] DecryptDataFromStream(byte[] entropy, DataProtectionScope scope, Stream stream, int length)
+{
+ ArgumentNullException.ThrowIfNull(stream);
+ ArgumentOutOfRangeException.ThrowIfZero(length, nameof(length));
+ ArgumentNullException.ThrowIfNull(entropy);
+ ArgumentOutOfRangeException.ThrowIfZero(entropy.Length, nameof(entropy));
+
+ if (!stream.CanRead)
+ throw new IOException("Could not read the stream.");
+
+ byte[] inBuffer = new byte[length];
+ stream.ReadExactly(inBuffer, 0, length);
+
+ // Return the decrypted data.
+ return ProtectedData.Unprotect(inBuffer, entropy, scope);
+}
+
+Imports System.IO
+Imports System.Security.Cryptography
+Imports System.Text
+
+Public Module DataProtectionSample
+
+ Sub Main()
+ Try
+ ' Data Encryption - ProtectedData
+
+ ' Create the original data to be encrypted.
+ Dim toEncrypt As Byte() = Encoding.ASCII.GetBytes("This is some data of any length.")
+
+ ' Create some random entropy.
+ Dim entropy As Byte() = CreateRandomEntropy()
+
+ Console.WriteLine()
+ Console.WriteLine($"Original data: {Encoding.ASCII.GetString(toEncrypt)}")
+ Console.WriteLine("Encrypting and writing to disk...")
+
+ Dim bytesWritten As Integer
+
+ ' Encrypt a copy of the data to the stream.
+ Using writeStream As New FileStream("Data.dat", FileMode.OpenOrCreate)
+ bytesWritten = EncryptDataToStream(toEncrypt, entropy, DataProtectionScope.CurrentUser, writeStream)
+ End Using
+
+ Console.WriteLine("Reading data from disk and decrypting...")
+
+ ' Read from the stream and decrypt the data.
+ Dim decryptData As Byte()
+ Using readStream As New FileStream("Data.dat", FileMode.Open)
+ decryptData = DecryptDataFromStream(entropy, DataProtectionScope.CurrentUser, readStream, bytesWritten)
+ End Using
+
+ Console.WriteLine($"Decrypted data: {Encoding.ASCII.GetString(decryptData)}")
+
+ Catch e As Exception
+ Console.WriteLine($"ERROR: {e.Message}")
+ End Try
+ End Sub
+
+ Function CreateRandomEntropy() As Byte()
+ ' Create a byte array to hold the random value and fill it with a random value.
+ Dim entropy(15) As Byte
+ RandomNumberGenerator.Fill(entropy)
+
+ Return entropy
+ End Function
+
+ Function EncryptDataToStream(buffer As Byte(), entropy As Byte(), scope As DataProtectionScope, stream As Stream) As Integer
+ ArgumentNullException.ThrowIfNull(buffer)
+ ArgumentOutOfRangeException.ThrowIfZero(buffer.Length, NameOf(buffer))
+ ArgumentNullException.ThrowIfNull(entropy)
+ ArgumentOutOfRangeException.ThrowIfZero(entropy.Length, NameOf(entropy))
+ ArgumentNullException.ThrowIfNull(stream)
+
+ Dim length As Integer = 0
+
+ ' Encrypt the data and store the result in a new byte array. The original data remains unchanged.
+ Dim encryptedData As Byte() = ProtectedData.Protect(buffer, entropy, scope)
+
+ ' Write the encrypted data to a stream.
+ If stream.CanWrite Then
+ stream.Write(encryptedData, 0, encryptedData.Length)
+ length = encryptedData.Length
+ End If
+
+ ' Return the length that was written to the stream.
+ Return length
+ End Function
+
+ Function DecryptDataFromStream(entropy As Byte(), scope As DataProtectionScope, stream As Stream, length As Integer) As Byte()
+ ArgumentNullException.ThrowIfNull(stream)
+ ArgumentOutOfRangeException.ThrowIfZero(length, NameOf(length))
+ ArgumentNullException.ThrowIfNull(entropy)
+ ArgumentOutOfRangeException.ThrowIfZero(entropy.Length, NameOf(entropy))
+
+ If Not stream.CanRead Then
+ Throw New IOException("Could not read the stream.")
+ End If
+
+ Dim inBuffer(length - 1) As Byte
+ stream.ReadExactly(inBuffer, 0, length)
+
+ ' Return the decrypted data.
+ Return ProtectedData.Unprotect(inBuffer, entropy, scope)
+ End Function
+
+End Module
+
+This sample compiles and runs when you target .NET Framework on Windows. To compile the sample, add reference to the System.Security.dll library.
+
+using System;
+using System.IO;
+using System.Text;
+using System.Security.Cryptography;
+
+public class MemoryProtectionSample
+{
+ public static void Main()
+ {
+ try
+ {
+ ///////////////////////////////
+ //
+ // Memory Encryption - ProtectedMemory
+ //
+ ///////////////////////////////
+
+ // Create the original data to be encrypted (The data length should be a multiple of 16).
+ byte[] toEncrypt = Encoding.ASCII.GetBytes("ThisIsSomeData16");
+
+ Console.WriteLine(value: $"Original data: {Encoding.ASCII.GetString(toEncrypt)}");
+ Console.WriteLine("Encrypting...");
+
+ // Encrypt the data in memory.
+ EncryptInMemoryData(toEncrypt, MemoryProtectionScope.SameLogon);
+
+ Console.WriteLine($"Encrypted data: {Encoding.ASCII.GetString(toEncrypt)}");
+ Console.WriteLine("Decrypting...");
+
+ // Decrypt the data in memory.
+ DecryptInMemoryData(toEncrypt, MemoryProtectionScope.SameLogon);
+
+ Console.WriteLine($"Decrypted data: {Encoding.ASCII.GetString(toEncrypt)}");
+
+ ///////////////////////////////
+ //
+ // Data Encryption - ProtectedData
+ //
+ ///////////////////////////////
+
+ // Create the original data to be encrypted
+ toEncrypt = Encoding.ASCII.GetBytes("This is some data of any length.");
+
+ // Create a file.
+ FileStream fStream = new FileStream("Data.dat", FileMode.OpenOrCreate);
+
+ // Create some random entropy.
+ byte[] entropy = CreateRandomEntropy();
+
+ Console.WriteLine();
+ Console.WriteLine($"Original data: {Encoding.ASCII.GetString(toEncrypt)}");
+ Console.WriteLine("Encrypting and writing to disk...");
+
+ // Encrypt a copy of the data to the stream.
+ int bytesWritten = EncryptDataToStream(toEncrypt, entropy, DataProtectionScope.CurrentUser, fStream);
+
+ fStream.Close();
+
+ Console.WriteLine("Reading data from disk and decrypting...");
+
+ // Open the file.
+ fStream = new FileStream("Data.dat", FileMode.Open);
+
+ // Read from the stream and decrypt the data.
+ byte[] decryptData = DecryptDataFromStream(entropy, DataProtectionScope.CurrentUser, fStream, bytesWritten);
+
+ fStream.Close();
+
+ Console.WriteLine($"Decrypted data: {Encoding.ASCII.GetString(decryptData)}");
+ }
+ catch (Exception e)
+ {
+ Console.WriteLine($"ERROR: {e.Message}");
+ }
+ }
+
+ public static void EncryptInMemoryData(byte[] Buffer, MemoryProtectionScope Scope )
+ {
+ if (Buffer == null)
+ throw new ArgumentNullException(nameof(Buffer));
+ if (Buffer.Length <= 0)
+ throw new ArgumentException("The buffer length was 0.", nameof(Buffer));
+
+ // Encrypt the data in memory. The result is stored in the same array as the original data.
+ ProtectedMemory.Protect(Buffer, Scope);
+ }
+
+ public static void DecryptInMemoryData(byte[] Buffer, MemoryProtectionScope Scope)
+ {
+ if (Buffer == null)
+ throw new ArgumentNullException(nameof(Buffer));
+ if (Buffer.Length <= 0)
+ throw new ArgumentException("The buffer length was 0.", nameof(Buffer));
+
+ // Decrypt the data in memory. The result is stored in the same array as the original data.
+ ProtectedMemory.Unprotect(Buffer, Scope);
+ }
+
+ public static byte[] CreateRandomEntropy()
+ {
+ // Create a byte array to hold the random value.
+ byte[] entropy = new byte[16];
+
+ // Create a new instance of the RNGCryptoServiceProvider.
+ // Fill the array with a random value.
+ new RNGCryptoServiceProvider().GetBytes(entropy);
+
+ // Return the array.
+ return entropy;
+ }
+
+ public static int EncryptDataToStream(byte[] Buffer, byte[] Entropy, DataProtectionScope Scope, Stream S)
+ {
+ if (Buffer == null)
+ throw new ArgumentNullException(nameof(Buffer));
+ if (Buffer.Length <= 0)
+ throw new ArgumentException("The buffer length was 0.", nameof(Buffer));
+ if (Entropy == null)
+ throw new ArgumentNullException(nameof(Entropy));
+ if (Entropy.Length <= 0)
+ throw new ArgumentException("The entropy length was 0.", nameof(Entropy));
+ if (S == null)
+ throw new ArgumentNullException(nameof(S));
+
+ int length = 0;
+
+ // Encrypt the data and store the result in a new byte array. The original data remains unchanged.
+ byte[] encryptedData = ProtectedData.Protect(Buffer, Entropy, Scope);
+
+ // Write the encrypted data to a stream.
+ if (S.CanWrite && encryptedData != null)
+ {
+ S.Write(encryptedData, 0, encryptedData.Length);
+
+ length = encryptedData.Length;
+ }
+
+ // Return the length that was written to the stream.
+ return length;
+ }
+
+ public static byte[] DecryptDataFromStream(byte[] Entropy, DataProtectionScope Scope, Stream S, int Length)
+ {
+ if (S == null)
+ throw new ArgumentNullException(nameof(S));
+ if (Length <= 0 )
+ throw new ArgumentException("The given length was 0.", nameof(Length));
+ if (Entropy == null)
+ throw new ArgumentNullException(nameof(Entropy));
+ if (Entropy.Length <= 0)
+ throw new ArgumentException("The entropy length was 0.", nameof(Entropy));
+
+ byte[] inBuffer = new byte[Length];
+ byte[] outBuffer;
+
+ // Read the encrypted data from a stream.
+ if (S.CanRead)
+ {
+ S.Read(inBuffer, 0, Length);
+
+ outBuffer = ProtectedData.Unprotect(inBuffer, Entropy, Scope);
+ }
+ else
+ {
+ throw new IOException("Could not read the stream.");
+ }
+
+ // Return the decrypted data
+ return outBuffer;
+ }
+}
+
+Imports System.IO
+Imports System.Text
+Imports System.Security.Cryptography
+
+Public Module MemoryProtectionSample
+ Sub Main()
+ Try
+ ''''''''''''''''''''''''''''''''''''
+ '
+ ' Memory Encryption - ProtectedMemory
+ '
+ ''''''''''''''''''''''''''''''''''''
+ ' Create the original data to be encrypted (The data length should be a multiple of 16).
+ Dim toEncrypt As Byte() = Encoding.ASCII.GetBytes("ThisIsSomeData16")
+
+ Console.WriteLine("Original data: " + Encoding.ASCII.GetString(toEncrypt))
+ Console.WriteLine("Encrypting...")
+
+ ' Encrypt the data in memory.
+ EncryptInMemoryData(toEncrypt, MemoryProtectionScope.SameLogon)
+
+ Console.WriteLine("Encrypted data: " + Encoding.ASCII.GetString(toEncrypt))
+ Console.WriteLine("Decrypting...")
+
+ ' Decrypt the data in memory.
+ DecryptInMemoryData(toEncrypt, MemoryProtectionScope.SameLogon)
+
+ Console.WriteLine("Decrypted data: " + Encoding.ASCII.GetString(toEncrypt))
+
+ ''''''''''''''''''''''''''''''''''''
+ '
+ ' Data Encryption - ProtectedData
+ '
+ ''''''''''''''''''''''''''''''''''''
+ ' Create the original data to be encrypted
+ toEncrypt = Encoding.ASCII.GetBytes("This is some data of any length.")
+
+ ' Create a file.
+ Dim fStream As New FileStream("Data.dat", FileMode.OpenOrCreate)
+
+ ' Create some random entropy.
+ Dim entropy As Byte() = CreateRandomEntropy()
+
+ Console.WriteLine()
+ Console.WriteLine("Original data: " + Encoding.ASCII.GetString(toEncrypt))
+ Console.WriteLine("Encrypting and writing to disk...")
+
+ ' Encrypt a copy of the data to the stream.
+ Dim bytesWritten As Integer = EncryptDataToStream(toEncrypt, entropy, DataProtectionScope.CurrentUser, fStream)
+
+ fStream.Close()
+
+ Console.WriteLine("Reading data from disk and decrypting...")
+
+ ' Open the file.
+ fStream = New FileStream("Data.dat", FileMode.Open)
+
+ ' Read from the stream and decrypt the data.
+ Dim decryptData As Byte() = DecryptDataFromStream(entropy, DataProtectionScope.CurrentUser, fStream, bytesWritten)
+
+ fStream.Close()
+
+ Console.WriteLine("Decrypted data: " + Encoding.ASCII.GetString(decryptData))
+
+ Catch e As Exception
+ Console.WriteLine("ERROR: " + e.Message)
+ End Try
+
+ End Sub
+
+ Sub EncryptInMemoryData(Buffer() As Byte, Scope As MemoryProtectionScope)
+ If Buffer Is Nothing Then
+ Throw New ArgumentNullException("Buffer")
+ End If
+ If Buffer.Length <= 0 Then
+ Throw New ArgumentException("Buffer")
+ End If
+
+ ' Encrypt the data in memory. The result is stored in the same array as the original data.
+ ProtectedMemory.Protect(Buffer, Scope)
+
+ End Sub
+
+ Sub DecryptInMemoryData(Buffer() As Byte, Scope As MemoryProtectionScope)
+ If Buffer Is Nothing Then
+ Throw New ArgumentNullException("Buffer")
+ End If
+ If Buffer.Length <= 0 Then
+ Throw New ArgumentException("Buffer")
+ End If
+
+ ' Decrypt the data in memory. The result is stored in the same array as the original data.
+ ProtectedMemory.Unprotect(Buffer, Scope)
+
+ End Sub
+
+ Function CreateRandomEntropy() As Byte()
+ ' Create a byte array to hold the random value.
+ Dim entropy(15) As Byte
+
+ ' Create a new instance of the RNGCryptoServiceProvider.
+ ' Fill the array with a random value.
+ Dim RNG As New RNGCryptoServiceProvider()
+
+ RNG.GetBytes(entropy)
+
+ ' Return the array.
+ Return entropy
+
+ End Function 'CreateRandomEntropy
+
+ Function EncryptDataToStream(Buffer() As Byte, Entropy() As Byte, Scope As DataProtectionScope, S As Stream) As Integer
+ If Buffer Is Nothing Then
+ Throw New ArgumentNullException("Buffer")
+ End If
+ If Buffer.Length <= 0 Then
+ Throw New ArgumentException("Buffer")
+ End If
+ If Entropy Is Nothing Then
+ Throw New ArgumentNullException("Entropy")
+ End If
+ If Entropy.Length <= 0 Then
+ Throw New ArgumentException("Entropy")
+ End If
+ If S Is Nothing Then
+ Throw New ArgumentNullException("S")
+ End If
+ Dim length As Integer = 0
+
+ ' Encrypt the data and store the result in a new byte array. The original data remains unchanged.
+ Dim encryptedData As Byte() = ProtectedData.Protect(Buffer, Entropy, Scope)
+
+ ' Write the encrypted data to a stream.
+ If S.CanWrite AndAlso Not (encryptedData Is Nothing) Then
+ S.Write(encryptedData, 0, encryptedData.Length)
+
+ length = encryptedData.Length
+ End If
+
+ ' Return the length that was written to the stream. 
+ Return length
+
+ End Function 'EncryptDataToStream
+
+ Function DecryptDataFromStream(Entropy() As Byte, Scope As DataProtectionScope, S As Stream, Length As Integer) As Byte()
+ If S Is Nothing Then
+ Throw New ArgumentNullException("S")
+ End If
+ If Length <= 0 Then
+ Throw New ArgumentException("Length")
+ End If
+ If Entropy Is Nothing Then
+ Throw New ArgumentNullException("Entropy")
+ End If
+ If Entropy.Length <= 0 Then
+ Throw New ArgumentException("Entropy")
+ End If
+
+ Dim inBuffer(Length - 1) As Byte
+ Dim outBuffer() As Byte
+
+ ' Read the encrypted data from a stream.
+ If S.CanRead Then
+ S.Read(inBuffer, 0, Length)
+
+ outBuffer = ProtectedData.Unprotect(inBuffer, Entropy, Scope)
+ Else
+ Throw New IOException("Could not read the stream.")
+ End If
+
+ ' Return the unencrypted data as byte array. 
+ Return outBuffer
+
+ End Function 'DecryptDataFromStream 
+End Module 'MemoryProtectionSample
+
+See also
+
+Cryptography model
+
+Cryptographic services
+
+Cross-platform cryptography
+
+ProtectedMemory
+
+ProtectedData
+
+ASP.NET Core Data Protection
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ .NET
+
+ Open a documentation issue
+
+ Provide product feedback
+
+Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2026-07-23
+
+In this article
+
+ Was this page helpful?
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ en-us
+
+ Your Privacy Choices
+
+ Theme
+
+ Light 
+
+ Dark 
+
+ High contrast 
+
+ AI Disclaimer
+
+ Previous Versions
+
+ Blog
+
+ Contribute
+
+ Privacy
+
+ Consumer Health Privacy
+
+ Terms of Use
+
+ Trademarks
+
+© Microsoft 2026
+
+ 

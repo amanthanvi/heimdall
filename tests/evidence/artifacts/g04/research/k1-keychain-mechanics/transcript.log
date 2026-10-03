@@ -1,0 +1,14 @@
+2026-10-03T00:32:54Z user search list entries=2 (contents not printed)
+2026-10-03T00:32:54Z create-keychain via security -i exit=0 output_bytes=0 output_contains_password=0
+2026-10-03T00:32:54Z keychain file exists=yes
+2026-10-03T00:32:54Z after create: probe keychain in user search list=0 default keychain unchanged=yes
+2026-10-03T00:32:54Z default settings: lock-on-sleep timeout=300s
+2026-10-03T00:32:54Z set-keychain-settings (no flags) exit=0
+2026-10-03T00:32:54Z settings now: no-timeout
+2026-10-03T00:32:54Z add-generic-password via security -i exit=0 output_contains_value=0
+2026-10-03T00:32:54Z find-generic-password exit=0 value_matches=yes
+2026-10-03T00:32:54Z delete-keychain exit=0
+2026-10-03T00:32:54Z after delete: file exists=no search list unchanged=yes default unchanged=yes
+2026-10-03T00:32:55Z ioreg (screen unlocked): IOConsoleLocked=false CGSSessionScreenIsLocked_present=0
+2026-10-03T00:32:55Z done
+exit=0

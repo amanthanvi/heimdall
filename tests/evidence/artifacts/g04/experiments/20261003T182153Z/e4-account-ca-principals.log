@@ -1,0 +1,103 @@
+[2026-10-03T18:31:06Z] BEGIN e4-account-ca-principals run_stamp=20261003T182153Z run_id=183106-51015
+[2026-10-03T18:31:06Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:31:06Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:31:06Z] FACT docker_server = 29.8.1
+[2026-10-03T18:31:06Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:31:06Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.033
+[2026-10-03T18:31:06Z] dedicated ssh-agent started: pid=51141 ident='Sat Oct 3 14:31:06 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:31:06Z] certificate g04-e4-hm-183106-51015: id="g04-e4-hm-183106-51015" principals=hm:fx-enroll:enroll valid=[from 2026-10-03T18:30:06 to 2026-10-03T18:46:06] ca=ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE (using ssh-ed25519)
+[2026-10-03T18:31:06Z] certificate g04-e4-user-183106-51015: id="g04-e4-user-183106-51015" principals=enroll valid=[from 2026-10-03T18:30:06 to 2026-10-03T18:46:06] ca=ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE (using ssh-ed25519)
+[2026-10-03T18:31:06Z] certificate g04-e4-ops-183106-51015: id="g04-e4-ops-183106-51015" principals=ops valid=[from 2026-10-03T18:30:06 to 2026-10-03T18:46:06] ca=ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE (using ssh-ed25519)
+[2026-10-03T18:31:06Z] $ (ssh-add -t 900 k4) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 900 <tmp>/k4
+    | Identity added: <tmp>/k4 (g04-e4-k4-183106-51015)
+    | Lifetime set to 00:15:00
+    rc=0 t_start=1791052266.662 t_end=1791052266.671
+[2026-10-03T18:31:06Z] FACT ca_line = cert-authority,principals="hm:fx-enroll:enroll" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC6PowWe7+SS3H/W3V/nK+CUsGz5AEVhy9cyzZAxlPcD heimdall-g04-e4-183106-51015
+[2026-10-03T18:31:06Z] registry fetch (preimage): rc=0 bytes=792 lines=9 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc err=[]
+[2026-10-03T18:31:06Z] PASS E4-preimage-is-seed | expected: registry readable over the existing path and equal to the fixture seed | observed: rc=0 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc seed=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc
+[2026-10-03T18:31:06Z] $ (hm-before-line) /usr/bin/ssh -F <tmp>/cfg -o CertificateFile=<tmp>/hm.pub g-enroll echo e4-ok
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791052266.815 t_end=1791052266.862
+[2026-10-03T18:31:07Z] server log hm-m00t03-enroll (hm-before-line), new lines:
+    > Connection from 172.18.0.1 port 56170 on 172.18.0.3 port 22 rdomain ""
+    > Failed publickey for enroll from 172.18.0.1 port 56170 ssh2: ED25519-CERT SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw ID g04-e4-hm-183106-51015 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > Failed publickey for enroll from 172.18.0.1 port 56170 ssh2: ED25519 SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw
+    > Connection closed by authenticating user enroll 172.18.0.1 port 56170 [preauth]
+[2026-10-03T18:31:07Z] PASS E4-hm-before-line | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]
+[2026-10-03T18:31:07Z] $ (ops-before-line-seed-ca-differs) /usr/bin/ssh -F <tmp>/cfg -o CertificateFile=<tmp>/ops.pub g-enroll echo e4-ok
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791052267.346 t_end=1791052267.391
+[2026-10-03T18:31:07Z] server log hm-m00t03-enroll (ops-before-line-seed-ca-differs), new lines:
+    > Connection from 172.18.0.1 port 56180 on 172.18.0.3 port 22 rdomain ""
+    > Failed publickey for enroll from 172.18.0.1 port 56180 ssh2: ED25519-CERT SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw ID g04-e4-ops-183106-51015 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > Failed publickey for enroll from 172.18.0.1 port 56180 ssh2: ED25519 SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw
+    > Connection closed by authenticating user enroll 172.18.0.1 port 56180 [preauth]
+[2026-10-03T18:31:07Z] PASS E4-ops-before-line-seed-ca-differs | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]
+[2026-10-03T18:31:07Z] $ (add cert-authority line (CAS on preimage)) /usr/bin/ssh -F <tmp>/admin.cfg g-enroll bash -s -- 0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc < <tmp>/.reg_add.sh
+    | POST sha256=97009790429df1caceb1d02573619a0b1593fcca9eb5ca7a3fe1957542cf4b77 owner_mode=enroll:600
+    rc=0 t_start=1791052267.864 t_end=1791052267.920
+[2026-10-03T18:31:07Z] PASS E4-add-transaction | expected: rc 0 | observed: rc=0 out=POST sha256=97009790429df1caceb1d02573619a0b1593fcca9eb5ca7a3fe1957542cf4b77 owner_mode=enroll:600
+[2026-10-03T18:31:08Z] registry fetch (after-add): rc=0 bytes=950 lines=10 sha256=97009790429df1caceb1d02573619a0b1593fcca9eb5ca7a3fe1957542cf4b77 err=[]
+[2026-10-03T18:31:08Z] PASS E4-added-exactly-one-line | expected: after-add bytes == preimage bytes + the marker line | observed: cmp_rc=0 lines=10
+[2026-10-03T18:31:08Z] $ (hm-principal) /usr/bin/ssh -F <tmp>/cfg -o CertificateFile=<tmp>/hm.pub g-enroll echo e4-ok
+    | e4-ok
+    rc=0 t_start=1791052268.050 t_end=1791052268.100
+[2026-10-03T18:31:08Z] server log hm-m00t03-enroll (hm-principal), new lines:
+    > Connection from 172.18.0.1 port 56222 on 172.18.0.3 port 22 rdomain ""
+    > Accepted certificate ID "g04-e4-hm-183106-51015" (serial 0) signed by CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE found at /home/enroll/.ssh/authorized_keys:10
+    > Postponed publickey for enroll from 172.18.0.1 port 56222 ssh2 [preauth]
+    > Accepted certificate ID "g04-e4-hm-183106-51015" (serial 0) signed by CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE found at /home/enroll/.ssh/authorized_keys:10
+    > Accepted publickey for enroll from 172.18.0.1 port 56222 ssh2: ED25519-CERT SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw ID g04-e4-hm-183106-51015 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > User child is on pid 104
+    > Starting session: command for enroll from 172.18.0.1 port 56222 id 0
+    > Received disconnect from 172.18.0.1 port 56222:11: disconnected by user
+    > Disconnected from user enroll 172.18.0.1 port 56222
+[2026-10-03T18:31:08Z] PASS E4-hm-principal | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted=1 accepted_with_id=1 cert_failed_lines=0 server_reason=[none logged]
+[2026-10-03T18:31:08Z] $ (username-principal) /usr/bin/ssh -F <tmp>/cfg -o CertificateFile=<tmp>/user.pub g-enroll echo e4-ok
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791052268.598 t_end=1791052268.643
+[2026-10-03T18:31:09Z] server log hm-m00t03-enroll (username-principal), new lines:
+    > Connection from 172.18.0.1 port 56230 on 172.18.0.3 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for enroll from 172.18.0.1 port 56230 ssh2: ED25519-CERT SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw ID g04-e4-user-183106-51015 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > Failed publickey for enroll from 172.18.0.1 port 56230 ssh2: ED25519 SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw
+    > Connection closed by authenticating user enroll 172.18.0.1 port 56230 [preauth]
+[2026-10-03T18:31:09Z] PASS E4-username-principal | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:31:09Z] $ (ops-principal-our-ca) /usr/bin/ssh -F <tmp>/cfg -o CertificateFile=<tmp>/ops.pub g-enroll echo e4-ok
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791052269.128 t_end=1791052269.167
+[2026-10-03T18:31:09Z] server log hm-m00t03-enroll (ops-principal-our-ca), new lines:
+    > Connection from 172.18.0.1 port 56242 on 172.18.0.3 port 22 rdomain ""
+    > Certificate does not contain an authorized principal
+    > Failed publickey for enroll from 172.18.0.1 port 56242 ssh2: ED25519-CERT SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw ID g04-e4-ops-183106-51015 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > Failed publickey for enroll from 172.18.0.1 port 56242 ssh2: ED25519 SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw
+    > Connection closed by authenticating user enroll 172.18.0.1 port 56242 [preauth]
+[2026-10-03T18:31:09Z] PASS E4-ops-principal-our-ca | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:31:09Z] $ (bare-key) /usr/bin/ssh -F <tmp>/cfg g-enroll echo e4-ok
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791052269.646 t_end=1791052269.682
+[2026-10-03T18:31:10Z] server log hm-m00t03-enroll (bare-key), new lines:
+    > Connection from 172.18.0.1 port 56248 on 172.18.0.3 port 22 rdomain ""
+    > Failed publickey for enroll from 172.18.0.1 port 56248 ssh2: ED25519 SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw
+    > Connection closed by authenticating user enroll 172.18.0.1 port 56248 [preauth]
+[2026-10-03T18:31:10Z] PASS E4-bare-key | expected: rc 255, no Accepted line (plain key) | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=0 server_reason=[none logged]
+[2026-10-03T18:31:10Z] registry fetch (existing path still works): rc=0 bytes=950 lines=10 sha256=97009790429df1caceb1d02573619a0b1593fcca9eb5ca7a3fe1957542cf4b77 err=[]
+[2026-10-03T18:31:10Z] PASS E4-existing-access-survives | expected: admin (pre-existing) key still authenticates while the CA line is present | observed: rc=0
+[2026-10-03T18:31:10Z] $ (remove marker line) /usr/bin/ssh -F <tmp>/admin.cfg g-enroll bash -s -- heimdall-g04-e4-183106-51015 < <tmp>/.reg_rm.sh
+    | POST sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc owner_mode=enroll:600
+    rc=0 t_start=1791052270.205 t_end=1791052270.254
+[2026-10-03T18:31:10Z] PASS E4-remove-transaction | expected: rc 0 | observed: rc=0 out=POST sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc owner_mode=enroll:600
+[2026-10-03T18:31:10Z] registry fetch (after-remove): rc=0 bytes=792 lines=9 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc err=[]
+[2026-10-03T18:31:10Z] PASS E4-bytes-restored | expected: after-remove bytes identical to preimage; sha256 == seed | observed: cmp_rc=0 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc
+[2026-10-03T18:31:10Z] PASS E4-owner-mode-no-temp-left | expected: owner:mode enroll:600 and no hm-g04 temp files left in ~/.ssh | observed: enroll:600 0
+[2026-10-03T18:31:10Z] $ (hm-after-removal) /usr/bin/ssh -F <tmp>/cfg -o CertificateFile=<tmp>/hm.pub g-enroll echo e4-ok
+    | enroll@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1791052270.442 t_end=1791052270.484
+[2026-10-03T18:31:10Z] server log hm-m00t03-enroll (hm-after-removal), new lines:
+    > Connection from 172.18.0.1 port 56286 on 172.18.0.3 port 22 rdomain ""
+    > Failed publickey for enroll from 172.18.0.1 port 56286 ssh2: ED25519-CERT SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw ID g04-e4-hm-183106-51015 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > Failed publickey for enroll from 172.18.0.1 port 56286 ssh2: ED25519 SHA256:WEuxvz1lXFYsTaxnVwH5o7Bs2zo8HAR6RmzAo9+fQjw
+    > Connection closed by authenticating user enroll 172.18.0.1 port 56286 [preauth]
+[2026-10-03T18:31:10Z] PASS E4-hm-after-removal | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]
+[2026-10-03T18:31:10Z] cleanup agent pid=51141: terminated socket_removed
+[2026-10-03T18:31:10Z] END e4-account-ca-principals exit=0 checks=14 fails=0

@@ -1,0 +1,106 @@
+{
+  "case_id": "G09-prelim-mux-preconnected-after-stop",
+  "status": "verified",
+  "requirement_ids": [
+    "R-AU-05"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": "tests/evidence/artifacts/review-g04/probe_preconnected_mux.py sha256 7b562852113edc82db864cda57323a07b17f7d898a183687ec138929144786cf (review-g04 adversarial probe, independent of tests/native/g04; run1 used the default 2 s delay before HP1_DELAY was made configurable, same logic)",
+  "environment": {
+    "host": "macOS 27.0 arm64",
+    "docker": "Docker Desktop (linux VM)",
+    "fixture": "tests/fixtures/ssh (M00-T03) hm-m00t03-ca1, brought up fresh by tests/native/g04/fresh_run.sh in review-g04 rerun-20261003T184245Z; loopback port only",
+    "ssh_auth_sock_in_harness": "unset"
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client (host /usr/bin/ssh)",
+      "version": "OpenSSH_10.3p1, LibreSSL 3.3.6"
+    },
+    {
+      "name": "openssh-server (container package)",
+      "version": "1:10.0p1-7+deb13u4"
+    }
+  ],
+  "started_at": "2026-10-03T18:57:21+00:00",
+  "commands_or_harness": [
+    "/usr/bin/python3 tests/evidence/artifacts/review-g04/probe_preconnected_mux.py <repo> tests/evidence/artifacts/review-g04/probe-preconnected-run1  (exit 0)",
+    "HP1_DELAY=15 /usr/bin/python3 tests/evidence/artifacts/review-g04/probe_preconnected_mux.py <repo> tests/evidence/artifacts/review-g04/probe-preconnected-run2-delay15  (exit 0)",
+    "per run: dedicated HOME=<tmp> ssh-agent -U -a <tmp>/agent.sock; disposable ed25519 key + fixture-CA certificate (principal p-host1, valid_before = now+40 s); master ssh -o ControlMaster=yes -o ControlPersist=10m -N -f; raw mux protocol v4 client (python, SCM_RIGHTS fd passing) on the control socket; ssh -O stop; ssh -O check; ssh -o ControlPath=<old> -o PubkeyAuthentication=no"
+  ],
+  "observed_result": {
+    "verdict": "fail",
+    "criterion": "After ssh -O stop has returned rc 0 (MUX_S_OK), no new session is admitted through the master by any client, including a mux control connection that was accepted before the stop and is idle until after it (the design's 'Race: 0 admissions after MUX_S_OK', spec P06 'stop admissions through a verified control operation'). Fail: any such admission.",
+    "summary": "Both runs: a raw mux client connected to the control socket (hello exchanged) BEFORE -O stop. The certificate expired; a fresh login was refused (rc 255, 'Certificate invalid: expired'). -O stop rc 0; control socket removed; -O check rc 255; master kept running as 'ssh: [stopped mux]'; a new client with the old ControlPath and PubkeyAuthentication=no was refused (rc 255). The pre-connected client then sent MUX_C_NEW_SESSION 2.0 s (run1) and 15.0 s (run2) after -O stop returned: the master replied MUX_S_SESSION_OPENED and ran the remote command as account cert (stdout marker present, exit 0), with no new TCP connection and no new Accepted line, 7.7 s / 20.6 s after valid_before. -O stop stops new control connections, not requests on control connections it already accepted; the idle control connection also kept the stopped master alive until the session ran.",
+    "run1": {
+      "HC2-raw-mux-client-works-before-stop": {
+        "confirmed": true,
+        "observed": "reply=MUX_S_SESSION_OPENED exit=0 out=REVIEW-RAW-MUX-BEFORE-STOP new_accepted=0 new_connections=0 mux_version=4"
+      },
+      "HC1-new-client-after-stop-not-admitted": {
+        "confirmed": true,
+        "observed": "rc=255"
+      },
+      "HP1-preconnected-client-admitted-after-stop": {
+        "confirmed": true,
+        "observed": "request_sent_s_after_stop_returned=2.025 reply=MUX_S_SESSION_OPENED exit=0 stdout=[REVIEW-PRECONNECTED-ADMITTED-AFTER-STOP | cert] error=None new_accepted=0 new_connections=0 cert_valid_before_minus_request_s=-7.7"
+      }
+    },
+    "run2": {
+      "HC2-raw-mux-client-works-before-stop": {
+        "confirmed": true,
+        "observed": "reply=MUX_S_SESSION_OPENED exit=0 out=REVIEW-RAW-MUX-BEFORE-STOP new_accepted=0 new_connections=0 mux_version=4"
+      },
+      "HC1-new-client-after-stop-not-admitted": {
+        "confirmed": true,
+        "observed": "rc=255"
+      },
+      "HP1-preconnected-client-admitted-after-stop": {
+        "confirmed": true,
+        "observed": "request_sent_s_after_stop_returned=15.026 reply=MUX_S_SESSION_OPENED exit=0 stdout=[REVIEW-PRECONNECTED-ADMITTED-AFTER-STOP | cert] error=None new_accepted=0 new_connections=0 cert_valid_before_minus_request_s=-20.6"
+      }
+    },
+    "run1_stop": {
+      "rc": 0,
+      "check_rc_after": 255,
+      "socket_after": "removed",
+      "master_running_after": true,
+      "master_comm_after": "ssh: [stopped mux]"
+    },
+    "run2_stop": {
+      "rc": 0,
+      "check_rc_after": 255,
+      "socket_after": "removed",
+      "master_running_after": true,
+      "master_comm_after": "ssh: [stopped mux]"
+    },
+    "cleanup": {
+      "run1": {
+        "master": "already_exited",
+        "agent": "terminated",
+        "tempdir": "removed"
+      },
+      "run2": {
+        "master": "already_exited",
+        "agent": "terminated",
+        "tempdir": "removed"
+      }
+    }
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/review-g04/probe_preconnected_mux.py",
+    "tests/evidence/artifacts/review-g04/probe-preconnected-run1/probe_preconnected_mux.log",
+    "tests/evidence/artifacts/review-g04/probe-preconnected-run1/probe_preconnected_mux.result.json",
+    "tests/evidence/artifacts/review-g04/probe-preconnected-run2-delay15/probe_preconnected_mux.log",
+    "tests/evidence/artifacts/review-g04/probe-preconnected-run2-delay15/probe_preconnected_mux.result.json",
+    "tests/evidence/artifacts/review-g04/source-refetch/openssh-mux.c@87f0cd1"
+  ],
+  "limitations": [
+    "OpenSSH mechanism evidence on one client/server pair (host OpenSSH_10.3p1 Apple build; source reasoning from openssh-portable mux.c @87f0cd1). No Heimdall code ran.",
+    "The pre-connected client is a same-user process that could reach the owner-only control socket before the stop; a benign client whose control connection is accepted just before the stop is the same case (consistent with the 'started_during_stop' admissions in the race records).",
+    "MUX_C_OPEN_FWD (new forwardings) on an existing control connection after stop was not tested; by the same source reasoning it is expected to be accepted [I].",
+    "Requirement ID listed for traceability only; this record is not evidence that any requirement is met.",
+    "Produced by the review-g04 reviewer, not by the experiment's author."
+  ],
+  "blocked_on": null
+}

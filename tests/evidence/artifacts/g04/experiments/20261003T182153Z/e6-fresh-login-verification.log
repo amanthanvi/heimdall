@@ -1,0 +1,43 @@
+[2026-10-03T18:32:19Z] BEGIN e6-fresh-login-verification run_stamp=20261003T182153Z run_id=183219-56011
+[2026-10-03T18:32:19Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:32:19Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:32:19Z] FACT docker_server = 29.8.1
+[2026-10-03T18:32:19Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:32:19Z] FACT clock_ca1 = offset_s=0.009 rtt_s=0.035
+[2026-10-03T18:32:19Z] dedicated ssh-agent started: pid=56129 ident='Sat Oct 3 14:32:19 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:32:19Z] certificate g04-e6-183219-56011: id="g04-e6-183219-56011" principals=p-host1 valid=[from 2026-10-03T18:31:19 to 2026-10-03T18:47:19] ca=ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE (using ssh-ed25519)
+[2026-10-03T18:32:19Z] $ (ssh-add -t 900 k) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 900 <tmp>/k
+    | Identity added: <tmp>/k (g04-e6-k-183219-56011)
+    | Lifetime set to 00:15:00
+    | Certificate added: <tmp>/k-cert.pub (g04-e6-183219-56011)
+    | Lifetime set to 00:15:00
+    rc=0 t_start=1791052339.466 t_end=1791052339.477
+[2026-10-03T18:32:19Z] $ (start master cm) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=yes -o ControlPath=<tmp>/cm -o ControlPersist=120 -N -f g-ca1
+    rc=0 t_start=1791052339.528 t_end=1791052339.571
+[2026-10-03T18:32:19Z] master started: pid=56199 lstart='Sat Oct 3 14:32:19 2026' comm='/usr/bin/ssh' controlpath=<tmp>/cm persist=120
+[2026-10-03T18:32:19Z] PASS E6-master-open | expected: ControlMaster=yes master authenticated once (1 Accepted line) | observed: rc=0 master_pid=56199 accepted=1
+[2026-10-03T18:32:20Z] $ (verification command (fresh)) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes -o IdentityAgent=<tmp>/agent/agent.sock -o IdentityFile=<tmp>/k.pub -o CertificateFile=<tmp>/k-cert.pub -o PreferredAuthentications=publickey -o BatchMode=yes g-ca1 true
+    rc=0 t_start=1791052339.978 t_end=1791052340.032
+[2026-10-03T18:32:20Z] server log hm-m00t03-ca1 (verification), new lines:
+    > Connection from 172.18.0.1 port 65492 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e6-183219-56011" (serial 0) signed by ED25519 CA SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 65492 ssh2 [preauth]
+    > Accepted certificate ID "g04-e6-183219-56011" (serial 0) signed by ED25519 CA SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 65492 ssh2: ED25519-CERT SHA256:RKI6UWXmVknPeaTnu5fj/fAbtOZeX4TqsrOemkYeq98 ID g04-e6-183219-56011 (serial 0) CA ED25519 SHA256:9NoHxQY/+cuCWSk+iyxNXmqmFAdQnkel16FQ77vwnsE
+    > User child is on pid 717
+    > Starting session: command for cert from 172.18.0.1 port 65492 id 0
+    > Received disconnect from 172.18.0.1 port 65492:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 65492
+[2026-10-03T18:32:20Z] PASS E6-verification-is-fresh | expected: rc 0 and exactly 1 new Accepted line carrying ID g04-e6-183219-56011 (a new authentication) while a master is open | observed: rc=0 new_accepted_with_id=1 new_accepted_any=1 new_connections=1
+[2026-10-03T18:32:20Z] $ (negative control: reuse via ControlMaster=auto) /usr/bin/ssh -F <tmp>/cfg -o ControlMaster=auto -o ControlPath=<tmp>/cm g-ca1 true
+    rc=0 t_start=1791052340.479 t_end=1791052340.491
+[2026-10-03T18:32:20Z] server log hm-m00t03-ca1 (negative control), new lines:
+    > Starting session: command for cert from 172.18.0.1 port 65480 id 0
+    > Close session: user cert from 172.18.0.1 port 65480 id 0
+[2026-10-03T18:32:20Z] PASS E6-reuse-is-not-verification | expected: rc 0 with NO new Accepted line and no new TCP connection (session rode the existing master) | observed: rc=0 new_accepted=0 new_connections=0
+[2026-10-03T18:32:20Z] $ (-O exit master) /usr/bin/ssh -F <tmp>/cfg -S <tmp>/cm -O exit g-ca1
+    | Exit request sent.
+    rc=0 t_start=1791052340.894 t_end=1791052340.905
+[2026-10-03T18:32:21Z] PASS E6-master-closed | expected: -O exit rc 0; master process gone; control socket removed | observed: rc=0 master_gone=yes socket_exists=no
+[2026-10-03T18:32:21Z] cleanup agent pid=56129: terminated socket_removed
+[2026-10-03T18:32:21Z] END e6-fresh-login-verification exit=0 checks=4 fails=0

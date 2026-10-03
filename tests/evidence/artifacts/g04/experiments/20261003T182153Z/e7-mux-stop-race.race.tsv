@@ -1,0 +1,51 @@
+iter	delay_client_ms	delay_stop_ms	client_t0	client_t1	client_rc	stop_t0	stop_t1	stop_rc	class	client_err
+1	31	32	1791052521.149	1791052521.162	0	1791052521.150	1791052521.159	0	admitted_started_before_stop	
+2	33	2	1791052521.304	1791052521.331	255	1791052521.272	1791052521.282	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+3	20	7	1791052521.446	1791052521.472	255	1791052521.430	1791052521.439	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+4	58	7	1791052521.635	1791052521.667	255	1791052521.580	1791052521.590	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+5	17	12	1791052521.794	1791052521.816	255	1791052521.787	1791052521.796	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+6	57	27	1791052521.977	1791052522.009	255	1791052521.947	1791052521.958	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+7	60	23	1791052522.184	1791052522.217	255	1791052522.148	1791052522.158	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+8	37	24	1791052522.369	1791052522.395	255	1791052522.357	1791052522.367	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+9	41	19	1791052522.545	1791052522.575	255	1791052522.524	1791052522.534	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+10	54	19	1791052522.747	1791052522.774	255	1791052522.708	1791052522.718	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+11	18	7	1791052522.905	1791052522.932	255	1791052522.892	1791052522.902	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+12	49	6	1791052523.091	1791052523.122	255	1791052523.045	1791052523.055	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+13	54	33	1791052523.292	1791052523.319	255	1791052523.272	1791052523.284	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+14	8	14	1791052523.429	1791052523.441	0	1791052523.438	1791052523.447	0	admitted_started_before_stop	
+15	37	10	1791052523.591	1791052523.624	255	1791052523.561	1791052523.570	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+16	38	28	1791052523.768	1791052523.795	255	1791052523.763	1791052523.773	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+17	9	25	1791052523.907	1791052523.921	0	1791052523.923	1791052523.933	0	admitted_started_before_stop	
+18	8	18	1791052524.041	1791052524.052	0	1791052524.052	1791052524.061	0	admitted_started_before_stop	
+19	17	13	1791052524.185	1791052524.206	255	1791052524.180	1791052524.190	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+20	40	21	1791052524.350	1791052524.374	255	1791052524.333	1791052524.343	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+21	43	14	1791052524.507	1791052524.536	255	1791052524.480	1791052524.490	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+22	39	12	1791052524.682	1791052524.715	255	1791052524.652	1791052524.662	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+23	20	0	1791052524.841	1791052524.862	255	1791052524.819	1791052524.829	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+24	15	14	1791052524.979	1791052524.992	0	1791052524.978	1791052524.988	0	admitted_started_during_stop	
+25	27	2	1791052525.126	1791052525.149	255	1791052525.098	1791052525.108	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+26	37	21	1791052525.293	1791052525.320	255	1791052525.276	1791052525.285	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+27	42	32	1791052525.466	1791052525.489	255	1791052525.460	1791052525.470	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+28	52	35	1791052525.644	1791052525.674	255	1791052525.632	1791052525.642	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+29	34	27	1791052525.817	1791052525.843	255	1791052525.807	1791052525.817	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+30	17	3	1791052525.963	1791052525.985	255	1791052525.950	1791052525.959	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+31	9	36	1791052526.084	1791052526.097	0	1791052526.115	1791052526.124	0	admitted_started_before_stop	
+32	53	32	1791052526.279	1791052526.307	255	1791052526.263	1791052526.274	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+33	43	9	1791052526.443	1791052526.468	255	1791052526.407	1791052526.417	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+34	4	20	1791052526.575	1791052526.588	0	1791052526.596	1791052526.606	0	admitted_started_before_stop	
+35	0	13	1791052526.699	1791052526.712	0	1791052526.716	1791052526.725	0	admitted_started_before_stop	
+36	7	33	1791052526.838	1791052526.850	0	1791052526.865	1791052526.874	0	admitted_started_before_stop	
+37	23	28	1791052527.004	1791052527.017	0	1791052527.014	1791052527.023	0	admitted_started_before_stop	
+38	29	8	1791052527.156	1791052527.181	255	1791052527.137	1791052527.146	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+39	35	2	1791052527.325	1791052527.352	255	1791052527.288	1791052527.297	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+40	48	8	1791052527.507	1791052527.537	255	1791052527.466	1791052527.476	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+41	46	2	1791052527.691	1791052527.722	255	1791052527.643	1791052527.652	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+42	49	29	1791052527.882	1791052527.908	255	1791052527.864	1791052527.874	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+43	8	0	1791052528.024	1791052528.046	255	1791052528.014	1791052528.024	0	not_admitted_started_during_stop	cert@127.0.0.1: Permission denied (publickey).
+44	57	23	1791052528.207	1791052528.235	255	1791052528.174	1791052528.183	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+45	33	5	1791052528.381	1791052528.410	255	1791052528.350	1791052528.359	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+46	30	12	1791052528.549	1791052528.576	255	1791052528.527	1791052528.537	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+47	54	20	1791052528.732	1791052528.761	255	1791052528.698	1791052528.708	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+48	46	21	1791052528.915	1791052528.943	255	1791052528.891	1791052528.901	0	not_admitted_started_after_stop_returned	cert@127.0.0.1: Permission denied (publickey).
+49	8	24	1791052529.059	1791052529.072	0	1791052529.078	1791052529.087	0	admitted_started_before_stop	
+50	34	38	1791052529.230	1791052529.244	0	1791052529.234	1791052529.244	0	admitted_started_before_stop	

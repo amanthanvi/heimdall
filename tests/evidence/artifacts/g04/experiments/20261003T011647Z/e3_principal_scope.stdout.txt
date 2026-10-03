@@ -1,0 +1,48 @@
+[2026-10-03T01:25:37Z] BEGIN e3-principal-scope run_stamp=20261003T011647Z run_id=012537-97092
+[2026-10-03T01:25:37Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T01:25:38Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T01:25:38Z] FACT docker_server = 29.8.1
+[2026-10-03T01:25:38Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T01:25:38Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.035
+[2026-10-03T01:25:38Z] dedicated ssh-agent started: pid=97213 ident='Fri Oct 2 21:25:38 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T01:25:38Z] certificate g04-e3-p1-012537-97092: id="g04-e3-p1-012537-97092" principals=p-host1 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] certificate g04-e3-p2-012537-97092: id="g04-e3-p2-012537-97092" principals=p-host2 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] certificate g04-e3-both-012537-97092: id="g04-e3-both-012537-97092" principals=p-host1,p-host2 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] certificate g04-e3-user-012537-97092: id="g04-e3-user-012537-97092" principals=cert valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] certificate g04-e3-rogue-012537-97092: id="g04-e3-rogue-012537-97092" principals=p-host1 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:SCPSFn44F1XcQmmhr7LrsuG9mq0/oKKJ+vbbRmgeXck (using ssh-ed25519)
+[2026-10-03T01:25:38Z] FACT cert_p1 = id="g04-e3-p1-012537-97092" principals=p-host1 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] FACT cert_p2 = id="g04-e3-p2-012537-97092" principals=p-host2 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] FACT cert_both = id="g04-e3-both-012537-97092" principals=p-host1,p-host2 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] FACT cert_user = id="g04-e3-user-012537-97092" principals=cert valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:25:38Z] FACT cert_rogue = id="g04-e3-rogue-012537-97092" principals=p-host1 valid=[from 2026-10-02T21:24:38 to 2026-10-02T21:40:38] ca=ED25519 SHA256:SCPSFn44F1XcQmmhr7LrsuG9mq0/oKKJ+vbbRmgeXck (using ssh-ed25519)
+[2026-10-03T01:25:38Z] ssh-add -t 900 k -> rc=0
+[2026-10-03T01:25:38Z] ssh-add -l (<tmp>/agent/agent.sock) -> rc=0
+[2026-10-03T01:25:38Z] FACT agent_contents = 256 SHA256:fKwIEjqs4GBUnUVPgsRoiwh63wwCM7VFqZwpBGDWLWY g04-e3-k-012537-97092 (ED25519)
+[2026-10-03T01:25:38Z] p1 -> ca1 -> rc=0
+[2026-10-03T01:25:38Z] PASS E3-p1-ca1 | expected: expected rc 0 with 1 Accepted line carrying ID g04-e3-p1 | observed: rc=0 accepted=1 accepted_with_id=1 offered_keys=1 server_reason=[none logged]
+[2026-10-03T01:25:38Z] p1 -> ca2 -> rc=255
+[2026-10-03T01:25:39Z] PASS E3-p1-ca2 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T01:25:39Z] p2 -> ca1 -> rc=255
+[2026-10-03T01:25:39Z] PASS E3-p2-ca1 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T01:25:39Z] p2 -> ca2 -> rc=0
+[2026-10-03T01:25:40Z] PASS E3-p2-ca2 | expected: expected rc 0 with 1 Accepted line carrying ID g04-e3-p2 | observed: rc=0 accepted=1 accepted_with_id=1 offered_keys=1 server_reason=[none logged]
+[2026-10-03T01:25:40Z] both -> ca1 -> rc=0
+[2026-10-03T01:25:40Z] PASS E3-both-ca1 | expected: expected rc 0 with 1 Accepted line carrying ID g04-e3-both | observed: rc=0 accepted=1 accepted_with_id=1 offered_keys=1 server_reason=[none logged]
+[2026-10-03T01:25:40Z] both -> ca2 -> rc=0
+[2026-10-03T01:25:41Z] PASS E3-both-ca2 | expected: expected rc 0 with 1 Accepted line carrying ID g04-e3-both | observed: rc=0 accepted=1 accepted_with_id=1 offered_keys=1 server_reason=[none logged]
+[2026-10-03T01:25:41Z] user -> ca1 -> rc=255
+[2026-10-03T01:25:41Z] PASS E3-user-ca1 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T01:25:41Z] user -> ca2 -> rc=255
+[2026-10-03T01:25:42Z] PASS E3-user-ca2 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=2 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T01:25:42Z] rogue -> ca1 -> rc=255
+[2026-10-03T01:25:42Z] PASS E3-rogue-ca1 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=2 server_reason=[none logged]
+[2026-10-03T01:25:42Z] rogue -> ca2 -> rc=255
+[2026-10-03T01:25:43Z] PASS E3-rogue-ca2 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=2 server_reason=[none logged]
+[2026-10-03T01:25:43Z] bare -> ca1 -> rc=255
+[2026-10-03T01:25:43Z] PASS E3-bare-ca1 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T01:25:43Z] bare -> ca2 -> rc=255
+[2026-10-03T01:25:44Z] PASS E3-bare-ca2 | expected: expected rc 255 and no Accepted line | observed: rc=255 accepted=0 accepted_with_id=0 offered_keys=1 server_reason=[none logged]
+[2026-10-03T01:25:44Z] FACT matrix =  p1@ca1=rc0 p1@ca2=rc255 p2@ca1=rc255 p2@ca2=rc0 both@ca1=rc0 both@ca2=rc0 user@ca1=rc255 user@ca2=rc255 rogue@ca1=rc255 rogue@ca2=rc255 bare@ca1=rc255 bare@ca2=rc255
+[2026-10-03T01:25:44Z] FACT scope_caveat = certificate 'both' {p-host1,p-host2} is usable on every host whose principal map contains either name; it is not scoped to one destination
+[2026-10-03T01:25:44Z] cleanup agent pid=97213: terminated socket_removed
+[2026-10-03T01:25:44Z] END e3-principal-scope exit=0 checks=12 fails=0

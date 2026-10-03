@@ -1,0 +1,5 @@
+# kSecAttrAccessibleWhenUnlocked
+The data in the keychain item can be accessed only while the device is unlocked by the user.
+## Discussion
+This is recommended for items that need to be accessible only while the application is in the foreground. Items with this attribute migrate to a new device when using encrypted backups.
+This is the default value for keychain items added without explicitly setting an accessibility constant.

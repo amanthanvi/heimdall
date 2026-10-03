@@ -1,0 +1,41 @@
+[2026-10-03T18:51:58Z] BEGIN e4-account-ca-principals run_stamp=../../review-g04/rerun-20261003T184245Z run_id=185158-87668
+[2026-10-03T18:51:58Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:51:58Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:51:58Z] FACT docker_server = 29.8.1
+[2026-10-03T18:51:58Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:51:58Z] FACT clock_ca1 = offset_s=0.007 rtt_s=0.031
+[2026-10-03T18:51:58Z] dedicated ssh-agent started: pid=87794 ident='Sat Oct 3 14:51:58 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:51:58Z] certificate g04-e4-hm-185158-87668: id="g04-e4-hm-185158-87668" principals=hm:fx-enroll:enroll valid=[from 2026-10-03T18:50:58 to 2026-10-03T19:06:58] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:58Z] certificate g04-e4-user-185158-87668: id="g04-e4-user-185158-87668" principals=enroll valid=[from 2026-10-03T18:50:58 to 2026-10-03T19:06:58] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:58Z] certificate g04-e4-ops-185158-87668: id="g04-e4-ops-185158-87668" principals=ops valid=[from 2026-10-03T18:50:58 to 2026-10-03T19:06:58] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:51:58Z] ssh-add -t 900 k4 -> rc=0
+[2026-10-03T18:51:58Z] FACT ca_line = cert-authority,principals="hm:fx-enroll:enroll" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK7ZMLypHH6xNptQ87af/EneJrxH2kQWscaAgYt8PhsU heimdall-g04-e4-185158-87668
+[2026-10-03T18:51:58Z] registry fetch (preimage): rc=0 bytes=792 lines=9 sha256=1ff8dad77c550b08c01aef3511682f576bac7710a691edbaa7c2eca31993e56d err=[]
+[2026-10-03T18:51:58Z] PASS E4-preimage-is-seed | expected: registry readable over the existing path and equal to the fixture seed | observed: rc=0 sha256=1ff8dad77c550b08c01aef3511682f576bac7710a691edbaa7c2eca31993e56d seed=1ff8dad77c550b08c01aef3511682f576bac7710a691edbaa7c2eca31993e56d
+[2026-10-03T18:51:58Z] hm-before-line -> rc=255
+[2026-10-03T18:51:59Z] PASS E4-hm-before-line | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]
+[2026-10-03T18:51:59Z] ops-before-line-seed-ca-differs -> rc=255
+[2026-10-03T18:51:59Z] PASS E4-ops-before-line-seed-ca-differs | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]
+[2026-10-03T18:51:59Z] add cert-authority line (CAS on preimage) -> rc=0
+[2026-10-03T18:51:59Z] PASS E4-add-transaction | expected: rc 0 | observed: rc=0 out=POST sha256=83efa64c194ce98b9ad556d4636a635be707c728e6dd0510a71b5d0ef1fb98d9 owner_mode=enroll:600
+[2026-10-03T18:51:59Z] registry fetch (after-add): rc=0 bytes=950 lines=10 sha256=83efa64c194ce98b9ad556d4636a635be707c728e6dd0510a71b5d0ef1fb98d9 err=[]
+[2026-10-03T18:51:59Z] PASS E4-added-exactly-one-line | expected: after-add bytes == preimage bytes + the marker line | observed: cmp_rc=0 lines=10
+[2026-10-03T18:51:59Z] hm-principal -> rc=0
+[2026-10-03T18:52:00Z] PASS E4-hm-principal | expected: rc 0 with 1 Accepted line carrying the cert ID | observed: rc=0 accepted=1 accepted_with_id=1 cert_failed_lines=0 server_reason=[none logged]
+[2026-10-03T18:52:00Z] username-principal -> rc=255
+[2026-10-03T18:52:00Z] PASS E4-username-principal | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:52:00Z] ops-principal-our-ca -> rc=255
+[2026-10-03T18:52:01Z] PASS E4-ops-principal-our-ca | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal' | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[Certificate does not contain an authorized principal]
+[2026-10-03T18:52:01Z] bare-key -> rc=255
+[2026-10-03T18:52:01Z] PASS E4-bare-key | expected: rc 255, no Accepted line (plain key) | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=0 server_reason=[none logged]
+[2026-10-03T18:52:01Z] registry fetch (existing path still works): rc=0 bytes=950 lines=10 sha256=83efa64c194ce98b9ad556d4636a635be707c728e6dd0510a71b5d0ef1fb98d9 err=[]
+[2026-10-03T18:52:01Z] PASS E4-existing-access-survives | expected: admin (pre-existing) key still authenticates while the CA line is present | observed: rc=0
+[2026-10-03T18:52:01Z] remove marker line -> rc=0
+[2026-10-03T18:52:01Z] PASS E4-remove-transaction | expected: rc 0 | observed: rc=0 out=POST sha256=1ff8dad77c550b08c01aef3511682f576bac7710a691edbaa7c2eca31993e56d owner_mode=enroll:600
+[2026-10-03T18:52:02Z] registry fetch (after-remove): rc=0 bytes=792 lines=9 sha256=1ff8dad77c550b08c01aef3511682f576bac7710a691edbaa7c2eca31993e56d err=[]
+[2026-10-03T18:52:02Z] PASS E4-bytes-restored | expected: after-remove bytes identical to preimage; sha256 == seed | observed: cmp_rc=0 sha256=1ff8dad77c550b08c01aef3511682f576bac7710a691edbaa7c2eca31993e56d
+[2026-10-03T18:52:02Z] PASS E4-owner-mode-no-temp-left | expected: owner:mode enroll:600 and no hm-g04 temp files left in ~/.ssh | observed: enroll:600 0
+[2026-10-03T18:52:02Z] hm-after-removal -> rc=255
+[2026-10-03T18:52:02Z] PASS E4-hm-after-removal | expected: rc 255, no Accepted line; cert presented (Failed line with its ID) and refused | observed: rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]
+[2026-10-03T18:52:02Z] cleanup agent pid=87794: terminated socket_removed
+[2026-10-03T18:52:02Z] END e4-account-ca-principals exit=0 checks=14 fails=0

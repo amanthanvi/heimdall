@@ -1,0 +1,2 @@
+# SecureEnclave
+A representation of a device’s hardware-based key manager.

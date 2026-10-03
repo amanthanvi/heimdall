@@ -1,0 +1,23 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.008 rtt_s=0.033
+FACT	ca_line	cert-authority,principals="hm:fx-enroll:enroll" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC6PowWe7+SS3H/W3V/nK+CUsGz5AEVhy9cyzZAxlPcD heimdall-g04-e4-183106-51015
+CHECK	E4-preimage-is-seed	registry readable over the existing path and equal to the fixture seed	rc=0 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc seed=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc	PASS
+CHECK	E4-hm-before-line	rc 255, no Accepted line; cert presented (Failed line with its ID) and refused	rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]	PASS
+CHECK	E4-ops-before-line-seed-ca-differs	rc 255, no Accepted line; cert presented (Failed line with its ID) and refused	rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]	PASS
+CHECK	E4-add-transaction	rc 0	rc=0 out=POST sha256=97009790429df1caceb1d02573619a0b1593fcca9eb5ca7a3fe1957542cf4b77 owner_mode=enroll:600	PASS
+CHECK	E4-added-exactly-one-line	after-add bytes == preimage bytes + the marker line	cmp_rc=0 lines=10	PASS
+CHECK	E4-hm-principal	rc 0 with 1 Accepted line carrying the cert ID	rc=0 accepted=1 accepted_with_id=1 cert_failed_lines=0 server_reason=[none logged]	PASS
+CHECK	E4-username-principal	rc 255, no Accepted line; cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal'	rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[Certificate does not contain an authorized principal]	PASS
+CHECK	E4-ops-principal-our-ca	rc 255, no Accepted line; cert presented (Failed line with its ID) and refused with 'Certificate does not contain an authorized principal'	rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[Certificate does not contain an authorized principal]	PASS
+CHECK	E4-bare-key	rc 255, no Accepted line (plain key)	rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=0 server_reason=[none logged]	PASS
+CHECK	E4-existing-access-survives	admin (pre-existing) key still authenticates while the CA line is present	rc=0	PASS
+CHECK	E4-remove-transaction	rc 0	rc=0 out=POST sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc owner_mode=enroll:600	PASS
+CHECK	E4-bytes-restored	after-remove bytes identical to preimage; sha256 == seed	cmp_rc=0 sha256=0579c300eb49d790981328cfc7965186d385a3f64aee973ca5189e635b055fbc	PASS
+CHECK	E4-owner-mode-no-temp-left	owner:mode enroll:600 and no hm-g04 temp files left in ~/.ssh	enroll:600 0	PASS
+CHECK	E4-hm-after-removal	rc 255, no Accepted line; cert presented (Failed line with its ID) and refused	rc=255 accepted=0 accepted_with_id=0 cert_failed_lines=1 server_reason=[none logged]	PASS
+CLEANUP	agent pid=51141	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=14	fails=0

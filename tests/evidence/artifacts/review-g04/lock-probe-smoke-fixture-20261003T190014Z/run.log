@@ -1,0 +1,14 @@
+19:00:16Z g04_lock_probe v1 mode=smoke interval=2s out=tests/evidence/artifacts/review-g04/lock-probe-smoke-fixture-20261003T190014Z
+19:00:16Z temp dir created (disposable)
+19:00:16Z caffeinate -i (idle-sleep assertion, exits with this script) pid=5439
+19:00:16Z disposable keychain created; settings: no-timeout (auto-lock disabled)
+19:00:16Z dedicated ssh-agent pid=5475
+19:00:16Z probe certificate issued (principal p-host1, validity -5m:+31m, issued by fixture CA)
+19:00:16Z disposable key loaded into the dedicated agent; private key file removed (key now only in agent memory)
+19:00:16Z negative controls: ca2 with p-host1 cert rc=255 (expect non-zero); ca1 without agent rc=255 (expect non-zero)
+19:00:16Z sampler pid=5505; taking 5 samples (screen stays unlocked)
+19:00:26Z sampling stopped; 5 samples
+19:00:26Z cleanup: sampler=stopped agent=terminated agent_socket=removed keychain=deleted search_list=unchanged default_keychain=unchanged caffeinate=terminated temp_dir=removed
+19:00:26Z result: status=verified; Smoke run, screen unlocked, no lock exercised: dedicated agent signing=available_all_samples; disposable keychain read=available_all_samples; fresh SSH login=available_all_samples; 5 samples; cleanup_complete=true; canary_scan=clean.
+19:00:26Z record written: tests/evidence/artifacts/review-g04/lock-probe-smoke-fixture-20261003T190014Z.record.json (JSON parses)
+19:00:26Z exit=0

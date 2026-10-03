@@ -1,0 +1,20 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.008 rtt_s=0.034
+FACT	iterations	5
+FACT	control_persist_s	3
+FACT	race_counts	masters_started=5 admitted_after_stop_returned=0 admitted_started_during_stop=0 admitted_started_before_stop=3 not_admitted=2 (fresh-connection publickey denial=2; other=[none]) stop_rc_nonzero=0
+FACT	masters_after_stop	exited_on_their_own=5 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+FACT	server_accepted	with_race_id=5 any=5 (expected: one per master; clients cannot authenticate)
+CHECK	E7R-harness	all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself)	masters=5/5 stop_rc_nonzero=0 accepted_with_id=5 accepted_any=5	PASS
+OBS	E7R-no-admission-after-stop-returned	no client that started after -O stop returned (MUX_S_OK received) was admitted through the master	violations=0 (during_stop admitted=0, before_stop admitted=3, not_admitted=2 of 5)	CONFIRMED
+CLEANUP	master pid=46353	not_running
+CLEANUP	master pid=46406	not_running
+CLEANUP	master pid=46459	not_running
+CLEANUP	master pid=46514	not_running
+CLEANUP	master pid=46567	not_running
+CLEANUP	agent pid=46259	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=1	fails=0

@@ -1,0 +1,10 @@
+recorded_at=2026-10-03T19:23:26Z
+docker_server=29.8.1
+base_image=debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+base_image_id=sha256:1c833814c4af76e31f294017972a8090daf873dcf6d260f8e24b8722e98aedac
+base_preexisting=1
+fixture_image_id=sha256:518ccd6a87982d29aa820839cfa33418a2ba00c0e8cf19f461bd37ea688e1a47
+openssh_server_pkg=openssh-server 1:10.0p1-7+deb13u4
+sshd_version_banner=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.6 7 Apr 2026
+host_ssh=OpenSSH_10.3p1, LibreSSL 3.3.6
+host_ssh_path=/usr/bin/ssh

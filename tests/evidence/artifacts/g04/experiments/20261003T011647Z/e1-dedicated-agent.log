@@ -1,0 +1,393 @@
+[2026-10-03T01:16:47Z] BEGIN e1-dedicated-agent run_stamp=20261003T011647Z run_id=011647-71539
+[2026-10-03T01:16:47Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T01:16:47Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T01:16:47Z] FACT docker_server = 29.8.1
+[2026-10-03T01:16:47Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T01:16:47Z] FACT clock_ca1 = offset_s=0.007 rtt_s=0.030
+[2026-10-03T01:16:48Z] dedicated ssh-agent started: pid=71656 ident='Fri Oct 2 21:16:47 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=debug
+[2026-10-03T01:16:48Z] certificate g04-e1-011647-71539: id="g04-e1-011647-71539" principals=p-host1 valid=[from 2026-10-02T21:15:48 to 2026-10-02T21:26:48] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:16:48Z] FACT cert = id="g04-e1-011647-71539" principals=p-host1 valid=[from 2026-10-02T21:15:48 to 2026-10-02T21:26:48] ca=ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ (using ssh-ed25519)
+[2026-10-03T01:16:48Z] FACT kenv_fingerprint = SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+[2026-10-03T01:16:48Z] $ (ssh-add -t 120 kenv) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -t 120 <tmp>/kenv
+    | Identity added: <tmp>/kenv (g04-e1-kenv-011647-71539)
+    | Lifetime set to 00:02:00
+    | Certificate added: <tmp>/kenv-cert.pub (g04-e1-011647-71539)
+    | Lifetime set to 00:02:00
+    rc=0 t_start=1790990208.128 t_end=1790990208.139
+[2026-10-03T01:16:48Z] FACT ssh_add_output = Identity added: <tmp>/kenv (g04-e1-kenv-011647-71539)
+Lifetime set to 00:02:00
+Certificate added: <tmp>/kenv-cert.pub (g04-e1-011647-71539)
+Lifetime set to 00:02:00
+[2026-10-03T01:16:48Z] PASS E1-private-file-deleted | expected: private key file absent after ssh-add | observed: exists=no
+[2026-10-03T01:16:48Z] $ (ssh-add -l (<tmp>/agent/agent.sock)) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -l
+    | 256 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA g04-e1-kenv-011647-71539 (ED25519)
+    | 256 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA g04-e1-kenv-011647-71539 (ED25519-CERT)
+    rc=0 t_start=1790990208.179 t_end=1790990208.188
+[2026-10-03T01:16:48Z] PASS E1a-agent-lists-key-and-cert | expected: rc 0; exactly 2 entries (ED25519 + ED25519-CERT) of K_env | observed: rc=0 entries=2 types=ED25519,ED25519-CERT, matching_fp=2
+[2026-10-03T01:16:48Z] $ (E1b fresh login ca1) /usr/bin/ssh -F <tmp>/cfg g-ca1 echo e1-login-ok
+    | e1-login-ok
+    rc=0 t_start=1790990208.259 t_end=1790990208.308
+[2026-10-03T01:16:48Z] server log hm-m00t03-ca1 (E1b), new lines:
+    > Connection from 172.18.0.1 port 55466 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e1-011647-71539" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 55466 ssh2 [preauth]
+    > Accepted certificate ID "g04-e1-011647-71539" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Accepted publickey for cert from 172.18.0.1 port 55466 ssh2: ED25519-CERT SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA ID g04-e1-011647-71539 (serial 0) CA ED25519 SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ
+    > User child is on pid 42
+    > Starting session: command for cert from 172.18.0.1 port 55466 id 0
+    > Received disconnect from 172.18.0.1 port 55466:11: disconnected by user
+    > Disconnected from user cert 172.18.0.1 port 55466
+[2026-10-03T01:16:48Z] PASS E1b-fresh-login | expected: rc 0, output e1-login-ok, exactly 1 new Accepted line with ID g04-e1-011647-71539 | observed: rc=0 out=e1-login-ok new_accepted_with_id=1
+[2026-10-03T01:16:48Z] PASS E1b-dedicated-agent-signed | expected: dedicated agent debug log shows >=1 new sign request during the login | observed: sign_requests_before=0 after=1
+[2026-10-03T01:16:48Z] $ (E1c login with IdentityAgent=none) /usr/bin/ssh -F <tmp>/cfg -o IdentityAgent=none g-ca1 true
+    | Load key "<tmp>/kenv.pub": invalid format
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990208.924 t_end=1790990208.973
+[2026-10-03T01:16:49Z] server log hm-m00t03-ca1 (E1c), new lines:
+    > Connection from 172.18.0.1 port 55470 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e1-011647-71539" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 55470 ssh2 [preauth]
+    > Failed publickey for cert from 172.18.0.1 port 55470 ssh2: ED25519 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+    > Connection closed by authenticating user cert 172.18.0.1 port 55470 [preauth]
+[2026-10-03T01:16:49Z] PASS E1c-no-agent-no-auth | expected: rc 255 and no new Accepted line (no private key file exists) | observed: rc=255 new_accepted=0
+[2026-10-03T01:16:49Z] $ (E1d ssh -G) /usr/bin/ssh -F <tmp>/cfg -G g-ca1
+    | host g-ca1
+    | user cert
+    | hostname 127.0.0.1
+    | port 52281
+    | addressfamily any
+    | batchmode yes
+    | canonicalizefallbacklocal yes
+    | canonicalizehostname false
+    | checkhostip no
+    | compression no
+    | controlmaster false
+    | enablesshkeysign no
+    | clearallforwardings no
+    | exitonforwardfailure no
+    | fingerprinthash SHA256
+    | forwardx11 no
+    | forwardx11trusted no
+    | gatewayports no
+    | gssapiauthentication no
+    | gssapidelegatecredentials no
+    | hashknownhosts no
+    | hostbasedauthentication no
+    | identitiesonly yes
+    | kbdinteractiveauthentication no
+    | nohostauthenticationforlocalhost no
+    | nohostauthenticationforproxycommand no
+    | passwordauthentication no
+    | permitlocalcommand no
+    | proxyusefdpass no
+    | pubkeyauthentication true
+    | requesttty auto
+    | sessiontype default
+    | stdinnull no
+    | forkafterauthentication no
+    | streamlocalbindunlink no
+    | stricthostkeychecking true
+    | tcpkeepalive yes
+    | tunnel false
+    | verifyhostkeydns false
+    | visualhostkey no
+    | updatehostkeys false
+    | enableescapecommandline no
+    | warnweakcrypto yes
+    | applemultipath no
+    | canonicalizemaxdots 1
+    | connectionattempts 1
+    | forwardx11timeout 1200
+    | numberofpasswordprompts 3
+    | serveralivecountmax 3
+    | serveraliveinterval 0
+    | requiredrsasize 1024
+    | obscurekeystroketiming yes
+    | ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | hostkeyalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | hostkeyalias hm-ca1
+    | hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | identityagent <tmp>/agent/agent.sock
+    | kexalgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256
+    | casignaturealgorithms ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | loglevel ERROR
+    | macs umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | securitykeyprovider $SSH_SK_PROVIDER
+    | preferredauthentications publickey
+    | pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | xauthlocation /usr/X11R6/bin/xauth
+    | identityfile <tmp>/kenv.pub
+    | canonicaldomains none
+    | certificatefile <tmp>/kenv-cert.pub
+    | globalknownhostsfile /dev/null
+    | userknownhostsfile <fixture-runtime>/known_hosts
+    | revokedhostkeys none
+    | logverbose none
+    | channeltimeout none
+    | permitremoteopen any
+    | addkeystoagent false
+    | forwardagent no
+    | connecttimeout 10
+    | tunneldevice any:any
+    | canonicalizePermittedcnames none
+    | controlpersist no
+    | escapechar ~
+    | ipqos ef cs0
+    | rekeylimit 0 0
+    | streamlocalbindmask 0177
+    | syslogfacility USER
+    rc=0 t_start=1790990209.359 t_end=1790990209.369
+[2026-10-03T01:16:49Z] PASS E1d-config-uses-temp-socket | expected: ssh -G: identityagent=<tmp>/agent/agent.sock, one identityfile, identitiesonly yes, controlmaster false, controlpath none (ssh -G omits it when none) | observed: identityagent=<tmp>/agent/agent.sock identityfile_entries=1 identitiesonly=yes controlmaster=false controlpath=<absent>
+[2026-10-03T01:16:49Z] $ (E1d ssh -vvv login) /usr/bin/ssh -F <tmp>/cfg -vvv g-ca1 true
+    | debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+    | debug3: Running on Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64
+    | debug3: Started with: /usr/bin/ssh -F <tmp>/cfg -vvv g-ca1 true
+    | debug1: Reading configuration data <tmp>/cfg
+    | debug1: <tmp>/cfg line 2: Applying options for g-ca1
+    | debug1: <tmp>/cfg line 22: Applying options for *
+    | debug2: resolve_canonicalize: hostname 127.0.0.1 is address
+    | debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+    | debug3: channel_clear_timeouts: clearing
+    | debug3: ssh_connect_direct: entering
+    | debug1: Connecting to 127.0.0.1 [127.0.0.1] port 52281.
+    | debug3: set_sock_tos: set socket 3 IP_TOS 0xb8
+    | debug2: fd 3 setting O_NONBLOCK
+    | debug1: fd 3 clearing O_NONBLOCK
+    | debug1: Connection established.
+    | debug3: timeout: 10000 ms remain after connect
+    | debug1: loaded pubkey from <tmp>/kenv.pub: ED25519 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+    | debug1: identity file <tmp>/kenv.pub type 2
+    | debug1: loaded identity cert from <tmp>/kenv-cert.pub: ED25519-CERT SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+    | debug1: Local version string SSH-2.0-OpenSSH_10.3
+    | debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+    | debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+    | debug2: fd 3 setting O_NONBLOCK
+    | debug1: Authenticating to 127.0.0.1:52281 as 'cert'
+    | debug1: using hostkeyalias: hm-ca1
+    | debug3: record_hostkey: found key type ED25519 in file <fixture-runtime>/known_hosts:3
+    | debug3: load_hostkeys_file: loaded 1 keys from hm-ca1
+    | debug3: order_hostkeyalgs: have matching best-preference key type ssh-ed25519-cert-v01@openssh.com, using HostkeyAlgorithms verbatim
+    | debug3: send packet: type 20
+    | debug1: SSH2_MSG_KEXINIT sent
+    | debug3: receive packet: type 20
+    | debug1: SSH2_MSG_KEXINIT received
+    | debug2: local client KEXINIT proposal
+    | debug2: KEX algorithms: mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256,ext-info-c,kex-strict-c-v00@openssh.com
+    | debug2: host key algorithms: ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | debug2: ciphers ctos: chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | debug2: ciphers stoc: chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | debug2: MACs ctos: umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | debug2: MACs stoc: umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | debug2: compression ctos: none,zlib@openssh.com
+    | debug2: compression stoc: none,zlib@openssh.com
+    | debug2: languages ctos: 
+    | debug2: languages stoc: 
+    | debug2: first_kex_follows 0 
+    | debug2: reserved 0 
+    | debug2: peer server KEXINIT proposal
+    | debug2: KEX algorithms: mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,ext-info-s,kex-strict-s-v00@openssh.com
+    | debug2: host key algorithms: ssh-ed25519
+    | debug2: ciphers ctos: chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | debug2: ciphers stoc: chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | debug2: MACs ctos: umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | debug2: MACs stoc: umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | debug2: compression ctos: none,zlib@openssh.com
+    | debug2: compression stoc: none,zlib@openssh.com
+    | debug2: languages ctos: 
+    | debug2: languages stoc: 
+    | debug2: first_kex_follows 0 
+    | debug2: reserved 0 
+    | debug3: kex_choose_conf: will use strict KEX ordering
+    | debug1: kex: algorithm: mlkem768x25519-sha256
+    | debug1: kex: host key algorithm: ssh-ed25519
+    | debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+    | debug3: send packet: type 30
+    | debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+    | debug3: receive packet: type 31
+    | debug1: SSH2_MSG_KEX_ECDH_REPLY received
+    | debug1: Server host key: ssh-ed25519 SHA256:p60mqQcEuKrc0GUOba+rusBaFOEpmcw+98j7x2crASI
+    | debug3: put_host_port: [127.0.0.1]:52281
+    | debug1: using hostkeyalias: hm-ca1
+    | debug3: record_hostkey: found key type ED25519 in file <fixture-runtime>/known_hosts:3
+    | debug3: load_hostkeys_file: loaded 1 keys from hm-ca1
+    | debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+    | debug1: Found key in <fixture-runtime>/known_hosts:3
+    | debug3: send packet: type 21
+    | debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+    | debug2: ssh_set_newkeys: mode 1
+    | debug1: rekey out after 134217728 blocks
+    | debug1: SSH2_MSG_NEWKEYS sent
+    | debug1: Sending SSH2_MSG_EXT_INFO
+    | debug3: send packet: type 7
+    | debug1: expecting SSH2_MSG_NEWKEYS
+    | debug3: receive packet: type 21
+    | debug1: ssh_packet_read_poll2: resetting read seqnr 3
+    | debug1: SSH2_MSG_NEWKEYS received
+    | debug2: ssh_set_newkeys: mode 0
+    | debug1: rekey in after 134217728 blocks
+    | debug2: KEX algorithms: mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256,ext-info-c,kex-strict-c-v00@openssh.com
+    | debug2: host key algorithms: ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,webauthn-sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,webauthn-sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
+    | debug2: ciphers ctos: chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | debug2: ciphers stoc: chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes192-ctr,aes256-ctr
+    | debug2: MACs ctos: umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | debug2: MACs stoc: umac-64-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-64@openssh.com,umac-128@openssh.com,hmac-sha2-256,hmac-sha2-512,hmac-sha1
+    | debug2: compression ctos: none,zlib@openssh.com
+    | debug2: compression stoc: none,zlib@openssh.com
+    | debug2: languages ctos: 
+    | debug2: languages stoc: 
+    | debug2: first_kex_follows 0 
+    | debug2: reserved 0 
+    | debug3: send packet: type 5
+    | debug3: receive packet: type 7
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug3: kex_input_ext_info: extension server-sig-algs
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug3: kex_input_ext_info: extension publickey-hostbound@openssh.com
+    | debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+    | debug3: kex_input_ext_info: extension ping@openssh.com
+    | debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+    | debug3: receive packet: type 6
+    | debug2: service_accept: ssh-userauth
+    | debug1: SSH2_MSG_SERVICE_ACCEPT received
+    | debug3: send packet: type 50
+    | debug3: receive packet: type 7
+    | debug1: SSH2_MSG_EXT_INFO received
+    | debug3: kex_input_ext_info: extension server-sig-algs
+    | debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+    | debug3: receive packet: type 51
+    | debug1: Authentications that can continue: publickey
+    | debug3: start over, passed a different list publickey
+    | debug3: preferred publickey
+    | debug3: authmethod_lookup publickey
+    | debug3: remaining preferred: 
+    | debug3: authmethod_is_enabled publickey
+    | debug1: Next authentication method: publickey
+    | debug3: ssh_get_authentication_socket_path: path '<tmp>/agent/agent.sock'
+    | debug1: get_agent_identities: bound agent to hostkey
+    | debug1: get_agent_identities: agent returned 2 keys
+    | debug1: Will attempt key: <tmp>/kenv-cert.pub ED25519-CERT SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA explicit
+    | debug1: Will attempt key: <tmp>/kenv.pub ED25519 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA explicit agent
+    | debug2: pubkey_prepare: done
+    | debug1: Offering public key: <tmp>/kenv-cert.pub ED25519-CERT SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA explicit
+    | debug3: send packet: type 50
+    | debug2: we sent a publickey packet, wait for reply
+    | debug3: receive packet: type 60
+    | debug1: Server accepts key: <tmp>/kenv-cert.pub ED25519-CERT SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA explicit
+    | debug3: sign_and_send_pubkey: using publickey-hostbound-v00@openssh.com with ED25519-CERT SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+    | debug2: sign_and_send_pubkey: using private key "<tmp>/kenv.pub" from agent for certificate
+    | debug3: sign_and_send_pubkey: signing using ssh-ed25519-cert-v01@openssh.com SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+    | debug3: send packet: type 50
+    | debug3: receive packet: type 52
+    | Authenticated to 127.0.0.1 ([127.0.0.1]:52281) using "publickey".
+    | debug2: fd 4 setting O_NONBLOCK
+    | debug2: fd 5 setting O_NONBLOCK
+    | debug1: channel 0: new session [client-session] (inactive timeout: 0)
+    | debug3: ssh_session2_open: channel_new: 0
+    | debug2: channel 0: send open
+    | debug3: send packet: type 90
+    | debug1: Requesting no-more-sessions@openssh.com
+    | debug3: send packet: type 80
+    | debug1: Entering interactive session.
+    | debug1: pledge: network
+    | debug3: client_repledge: enter
+    | debug2: client_loop: session QoS is now interactive
+    | debug2: fd 3 setting TCP_NODELAY
+    | debug3: set_sock_tos: set socket 3 IP_TOS 0xb8
+    | debug3: receive packet: type 80
+    | debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+    | debug3: receive packet: type 4
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug3: receive packet: type 4
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug3: receive packet: type 4
+    | debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug3: receive packet: type 4
+    | debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    | debug3: receive packet: type 91
+    | debug2: channel_input_open_confirmation: channel 0: callback start
+    | debug2: client_session2_setup: id 0
+    | debug1: Sending command: true
+    | debug2: channel 0: request exec confirm 1
+    | debug3: send packet: type 98
+    | debug3: client_repledge: enter
+    | debug1: pledge: fork
+    | debug2: channel_input_open_confirmation: channel 0: callback done
+    | debug2: channel 0: open confirm rwindow 0 rmax 32768
+    | debug2: client_loop: session QoS is now non-interactive
+    | debug3: set_sock_tos: set socket 3 IP_TOS 0x00
+    | debug2: channel 0: rcvd adjust 2097152
+    | debug3: receive packet: type 99
+    | debug2: channel_input_status_confirm: type 99 id 0
+    | debug2: exec request accepted on channel 0
+    | debug2: channel 0: read failed rfd 4 maxlen 32768: Broken pipe
+    | debug2: channel 0: read failed
+    | debug2: chan_shutdown_read: channel 0: (i0 o0 sock -1 wfd 4 efd 6 [write])
+    | debug2: channel 0: input open -> drain
+    | debug2: channel 0: ibuf empty
+    | debug2: channel 0: send eof
+    | debug3: send packet: type 96
+    | debug2: channel 0: input drain -> closed
+    | debug3: receive packet: type 96
+    | debug2: channel 0: rcvd eof
+    | debug2: channel 0: output open -> drain
+    | debug2: channel 0: obuf empty
+    | debug2: chan_shutdown_write: channel 0: (i3 o1 sock -1 wfd 5 efd 6 [write])
+    | debug2: channel 0: output drain -> closed
+    | debug3: receive packet: type 98
+    | debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+    | debug3: receive packet: type 97
+    | debug2: channel 0: rcvd close
+    | debug3: channel 0: will not send data after close
+    | debug2: channel 0: almost dead
+    | debug2: channel 0: gc: notify user
+    | debug2: channel 0: gc: user detached
+    | debug2: channel 0: send_close2
+    | debug2: channel 0: send close for remote id 0
+    | debug3: send packet: type 97
+    | debug2: channel 0: is dead
+    | debug2: channel 0: garbage collecting
+    | debug1: channel 0: free: client-session, nchannels 1
+    | debug3: channel 0: status: The following connections are open:
+    |   #0 client-session (t4 [session] r0 nm0 i3/0 o3/0 e[write]/0 fd -1/-1/6 sock -1 cc -1 nc0 io 0x00/0x00 B)
+    | 
+    | debug2: client_loop: session QoS is now interactive
+    | debug3: set_sock_tos: set socket 3 IP_TOS 0xb8
+    | debug3: send packet: type 1
+    | Transferred: sent 4508, received 3988 bytes, in 0.0 seconds
+    | Bytes per second: sent 2204401.0, received 1950122.3
+    | debug1: Exit status 0
+    rc=0 t_start=1790990209.420 t_end=1790990209.473
+    agent-line: debug3: ssh_get_authentication_socket_path: path '<tmp>/agent/agent.sock'
+    agent-line: debug1: get_agent_identities: bound agent to hostkey
+    agent-line: debug1: get_agent_identities: agent returned 2 keys
+    agent-line: debug1: Will attempt key: <tmp>/kenv.pub ED25519 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA explicit agent
+    agent-line: debug2: sign_and_send_pubkey: using private key "<tmp>/kenv.pub" from agent for certificate
+    agent-line: debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    agent-line: debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    agent-line: debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+    agent-line: debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+[2026-10-03T01:16:49Z] PASS E1d-only-temp-agent-used | expected: rc 0; no key/agent path outside <tmp>; no <home> or .ssh path in -vvv; dedicated agent saw a sign request | observed: rc=0 foreign_paths=0 home_or_dotssh_refs=0 sign_requests_delta=1
+[2026-10-03T01:16:49Z] waiting 122 s (until epoch 1790990331)
+[2026-10-03T01:18:51Z] $ (ssh-add -l (<tmp>/agent/agent.sock)) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -l
+    | The agent has no identities.
+    rc=1 t_start=1790990331.544 t_end=1790990331.556
+[2026-10-03T01:18:51Z] $ (E1e ssh-add -T after lifetime) env SSH_AUTH_SOCK=<tmp>/agent/agent.sock /usr/bin/ssh-add -T <tmp>/kenv.pub
+    | Agent signature failed for <tmp>/kenv.pub: agent refused operation
+    rc=1 t_start=1790990331.576 t_end=1790990331.587
+[2026-10-03T01:18:51Z] $ (E1e fresh login after lifetime) /usr/bin/ssh -F <tmp>/cfg g-ca1 true
+    | Load key "<tmp>/kenv.pub": invalid format
+    | cert@127.0.0.1: Permission denied (publickey).
+    rc=255 t_start=1790990331.942 t_end=1790990331.988
+[2026-10-03T01:18:52Z] server log hm-m00t03-ca1 (E1e), new lines:
+    > Connection from 172.18.0.1 port 58772 on 172.18.0.4 port 22 rdomain ""
+    > Accepted certificate ID "g04-e1-011647-71539" (serial 0) signed by ED25519 CA SHA256:S+9Ng6I10KU9aFCLwsNCDsc4OsMSxfOPL2dppxZM2OQ via /etc/ssh/user_ca.pub
+    > Postponed publickey for cert from 172.18.0.1 port 58772 ssh2 [preauth]
+    > Failed publickey for cert from 172.18.0.1 port 58772 ssh2: ED25519 SHA256:1zaOVZVCY+lRzrDS5XNvGqezcvGrbzuASpsN0aR7kqA
+    > Connection closed by authenticating user cert 172.18.0.1 port 58772 [preauth]
+[2026-10-03T01:18:52Z] FACT agent_debug_expiry_lines = debug1: expiring key 'g04-e1-kenv-011647-71539'
+debug1: expiring key 'g04-e1-kenv-011647-71539'
+[2026-10-03T01:18:52Z] PASS E1e-lifetime-ends-signing | expected: after -t 120 s: ssh-add -T rc!=0, fresh login rc 255, no Accepted line | observed: ssh-add -l rc=1 (The agent has no identities.); ssh-add -T rc=1; login rc=255 new_accepted=0; agent expiry log lines=2
+[2026-10-03T01:18:52Z] PASS E1f-exact-pid-kill | expected: kill_exact terminated; process gone; socket removed | observed: kill=terminated process=gone socket=removed
+[2026-10-03T01:18:52Z] cleanup agent pid=71656: already_exited socket_removed
+[2026-10-03T01:18:52Z] END e1-dedicated-agent exit=0 checks=9 fails=0

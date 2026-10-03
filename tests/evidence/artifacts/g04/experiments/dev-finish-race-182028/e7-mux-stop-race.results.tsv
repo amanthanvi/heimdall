@@ -1,0 +1,28 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.008 rtt_s=0.034
+FACT	iterations	12
+FACT	control_persist_s	3
+FACT	race_counts	masters_started=12 admitted_after_stop_returned=0 admitted_started_during_stop=0 admitted_started_before_stop=9 not_admitted=3 (started_after_stop_returned=1 started_during_stop=2 started_before_stop=0; fresh-connection publickey denial=3; other=[none]) stop_rc_nonzero=0
+FACT	masters_after_stop	exited_on_their_own=12 still_running_after_3+5s=0 (any still running are terminated by exact PID in cleanup)
+FACT	server_accepted	with_race_id=12 any=12 (expected: one per master; clients cannot authenticate)
+CHECK	E7R-harness	all masters started; every -O stop rc 0; server Accepted lines == masters (no client authenticated itself)	masters=12/12 stop_rc_nonzero=0 accepted_with_id=12 accepted_any=12	PASS
+CHECK	E7R-post-stop-clients-exercised	at least 5 clients started after the -O stop call returned (otherwise the race says nothing about post-stop admission)	clients_started_after_stop_returned=1 of 12	FAIL
+OBS	E7R-no-admission-after-stop-returned	no client that started after -O stop returned (MUX_S_OK received) was admitted through the master	violations=0 of 1 clients that started after stop returned (not admitted: 1); started during stop: admitted=0 not_admitted=2; started before stop: admitted=9 not_admitted=0; masters=12	CONFIRMED
+CLEANUP	master pid=27704	not_running
+CLEANUP	master pid=27764	not_running
+CLEANUP	master pid=27825	not_running
+CLEANUP	master pid=27886	not_running
+CLEANUP	master pid=27947	not_running
+CLEANUP	master pid=28007	not_running
+CLEANUP	master pid=28067	not_running
+CLEANUP	master pid=28127	not_running
+CLEANUP	master pid=28188	not_running
+CLEANUP	master pid=28248	not_running
+CLEANUP	master pid=28308	not_running
+CLEANUP	master pid=28368	not_running
+CLEANUP	agent pid=27605	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	1	checks=2	fails=1

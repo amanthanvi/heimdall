@@ -1,0 +1,12 @@
+00:26:36Z g04_lock_probe v1 mode=smoke interval=2s out=tests/evidence/artifacts/g04/research/lock-probe/20261003T002636Z-smoke
+00:26:36Z temp dir created (disposable)
+00:26:36Z caffeinate -i (idle-sleep assertion, exits with this script) pid=24597
+00:26:36Z disposable keychain created; settings: no-timeout (auto-lock disabled)
+00:26:36Z dedicated ssh-agent pid=24654
+00:26:36Z disposable key loaded into the dedicated agent; private key file removed (key now only in agent memory)
+00:26:36Z sampler pid=24670; taking 30 samples (screen stays unlocked)
+00:26:46Z interrupted by signal TERM; cleaning up
+00:26:46Z cleanup: sampler=stopped agent=terminated agent_socket=removed keychain=deleted search_list=unchanged default_keychain=unchanged caffeinate=terminated temp_dir=removed
+00:26:46Z result: status=in_progress; INTERRUPTED before completion. Smoke run, screen unlocked, no lock exercised: dedicated agent signing=available_all_samples; disposable keychain read=available_all_samples; fresh SSH login=not_measured; 5 samples; cleanup_complete=true; canary_scan=clean.
+00:26:46Z record written: tests/evidence/g04-macos-lock-probe-smoke-20261003T002636Z.json (JSON parses)
+00:26:46Z exit=5

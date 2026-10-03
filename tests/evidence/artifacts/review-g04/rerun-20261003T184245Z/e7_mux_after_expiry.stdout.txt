@@ -1,0 +1,48 @@
+[2026-10-03T18:53:12Z] BEGIN e7-mux-after-expiry run_stamp=../../review-g04/rerun-20261003T184245Z run_id=185312-92548
+[2026-10-03T18:53:12Z] FACT host_ssh = OpenSSH_10.3p1, LibreSSL 3.3.6
+[2026-10-03T18:53:12Z] FACT container_sshd = openssh-server 1:10.0p1-7+deb13u4
+[2026-10-03T18:53:12Z] FACT docker_server = 29.8.1
+[2026-10-03T18:53:12Z] FACT ssh_auth_sock_in_harness = unset
+[2026-10-03T18:53:12Z] FACT clock_ca1 = offset_s=0.008 rtt_s=0.035
+[2026-10-03T18:53:12Z] dedicated ssh-agent started: pid=92664 ident='Sat Oct 3 14:53:12 2026 /usr/bin/ssh-agent' socket=<tmp>/agent/agent.sock mode=daemon
+[2026-10-03T18:53:12Z] certificate g04-e7-185312-92548: id="g04-e7-185312-92548" principals=p-host1 valid=[from 2026-10-03T18:52:12 to 2026-10-03T18:54:42] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:53:12Z] certificate g04-e7-p4-185312-92548: id="g04-e7-p4-185312-92548" principals=p-host1 valid=[from 2026-10-03T18:52:12 to 2026-10-03T19:23:12] ca=ED25519 SHA256:/eboTBvFrx1i9qKCCHJDWmBaXH712/HhsXgQzdFdWww (using ssh-ed25519)
+[2026-10-03T18:53:12Z] FACT cert_valid_before_epoch = 1791053682
+[2026-10-03T18:53:12Z] FACT control_persist = 10m
+[2026-10-03T18:53:12Z] ssh-add -t 1800 k7 -> rc=0
+[2026-10-03T18:53:12Z] start master cm -> rc=0
+[2026-10-03T18:53:12Z] master started: pid=92784 lstart='Sat Oct 3 14:53:12 2026' comm='/usr/bin/ssh' controlpath=<tmp>/cm persist=10m
+[2026-10-03T18:53:12Z] PASS E7-master-authenticated | expected: master started; exactly 1 Accepted line with the short-lived cert ID | observed: master_pid=92784 accepted=1
+[2026-10-03T18:53:13Z] S1 started through the master: pid=92854 ident='Sat Oct 3 14:53:13 2026' remote loop until epoch 1791053742
+[2026-10-03T18:53:15Z] P1 new mux session before expiry -> rc=0
+[2026-10-03T18:53:15Z] PASS E7-P1-mux-before-expiry | expected: rc 0 via the master: no new TCP connection, no new Accepted line | observed: rc=0 out=p1-mux-ok new_connections=0 new_accepted=0
+[2026-10-03T18:53:15Z] waiting 97 s (until epoch 1791053692)
+[2026-10-03T18:54:52Z] FACT clock_ca1_phase2 = offset_s=0.012 rtt_s=0.044
+[2026-10-03T18:54:52Z] P2a fresh login after expiry -> rc=255
+[2026-10-03T18:54:53Z] PASS E7-P2a-fresh-login-rejected | expected: rc 255; server logs 'Certificate invalid: expired' for the cert ID | observed: rc=255 expired_lines=1 failed_with_id=1
+[2026-10-03T18:54:53Z] P2b new mux session after expiry -> rc=0
+[2026-10-03T18:54:53Z] CONFIRMED H1-mux-admitted-after-expiry | hypothesis: new multiplexed session admitted after valid_before, with no new connection or authentication | observed: rc=0 out=p2-mux-after-expiry new_connections=0 new_accepted=0
+[2026-10-03T18:54:53Z] P2b2 new mux session after expiry, client has no usable authentication -> rc=0
+[2026-10-03T18:54:53Z] CONFIRMED H1b-mux-needs-no-client-credential | hypothesis: a client with PubkeyAuthentication=no (cannot authenticate at all) is admitted through the master after expiry | observed: rc=0 out=p2b2-mux
+[2026-10-03T18:54:53Z] PASS E7-P2c-S1-alive-after-expiry | expected: S1 still running and printing heartbeats after valid_before | observed: heartbeats_since_valid_before=3 s1_running=yes
+[2026-10-03T18:54:53Z] P3 ssh -O stop -> rc=0
+[2026-10-03T18:54:54Z] FACT P3_stop = rc=0 out=[Stop listening request sent.] master_running_after_stop=yes master_ps_comm_after_stop=[ssh: [stopped mux]] control_socket=removed
+[2026-10-03T18:54:54Z] P3a -O check after stop -> rc=255
+[2026-10-03T18:54:54Z] CONFIRMED H2a-check-fails-after-stop | hypothesis: -O check fails after -O stop; control socket removed | observed: stop_rc=0 check_rc=255 check_out=[Control socket connect(<tmp>/cm): No such file or directory] socket=removed
+[2026-10-03T18:54:54Z] P3b new client with the old ControlPath after stop -> rc=255
+[2026-10-03T18:54:54Z] CONFIRMED H2b-new-client-falls-back-to-fresh-auth | hypothesis: after stop, a client with the old ControlPath opens a NEW connection, is rejected (expired), rc 255 | observed: rc=255 out=[cert@127.0.0.1: Permission denied (publickey).] new_connections=1 expired_lines=1 new_accepted=0
+[2026-10-03T18:54:54Z] P3b2 same, client has no usable authentication -> rc=255
+[2026-10-03T18:54:54Z] CONFIRMED H2b2-no-admission-via-master-after-stop | hypothesis: client with PubkeyAuthentication=no is NOT admitted after stop (rc 255) | observed: rc=255 out=[cert@127.0.0.1: Permission denied (publickey).]
+[2026-10-03T18:55:43Z] CONFIRMED H2c-open-session-continues-after-stop | hypothesis: S1 keeps running >= 30 s after -O stop and ends normally | observed: s1_rc=0 heartbeats_after_stop=9 last_heartbeat_minus_stop_s=44 s1_end_marker=1
+[2026-10-03T18:55:43Z] FACT P3d_master = exited about 0 s (poll granularity 0.5 s) after S1 ended
+[2026-10-03T18:55:43Z] CONFIRMED H2d-master-exits-after-last-session | hypothesis: after -O stop the master exits when its last session ends, despite ControlPersist=10m | observed: exited_within_0s
+[2026-10-03T18:55:43Z] start master cm2 -> rc=0
+[2026-10-03T18:55:43Z] master started: pid=97029 lstart='Sat Oct 3 14:55:43 2026' comm='/usr/bin/ssh' controlpath=<tmp>/cm2 persist=10m
+[2026-10-03T18:55:51Z] FACT P4_before_exit = remote cert-owned processes: bash(826) sleep(832) sshd-session(825) ; S2 heartbeats so far: 3
+[2026-10-03T18:55:51Z] P4 ssh -O exit -> rc=0
+[2026-10-03T18:55:58Z] P4 new client after -O exit (no usable auth) -> rc=255
+[2026-10-03T18:55:58Z] CONFIRMED H3-exit-closes-master-and-sessions | hypothesis: -O exit: master gone, open session S2 terminated (no heartbeats after exit, no normal end), socket removed, later client not admitted | observed: exit_rc=0 master_running_3s_after=no s2_running_3s_after=no s2_rc=255 s2_heartbeats_after_exit=0 s2_normal_end=0 socket=removed new_client_rc=255
+[2026-10-03T18:56:11Z] FACT P4_remote_processes = account cert processes in ca1, before -O exit: [bash(826) sleep(832) sshd-session(825) ] ; 7 s after: [bash(826) sleep(854) ] ; 20 s after: [bash(826) sleep(883) ]
+[2026-10-03T18:56:11Z] CONFIRMED H3b-remote-command-outlives-exit | hypothesis: the remote shell of no-tty session S2 is NOT terminated when -O exit closes the connection (it keeps running; only writers hit a closed pipe) | observed: S2 remote shell before exit=[bash(826)] ; still present 20 s after exit=yes ; lists: before=[bash(826) sleep(832) sshd-session(825) ] 7s=[bash(826) sleep(854) ] 20s=[bash(826) sleep(883) ]
+[2026-10-03T18:56:11Z] cleanup agent pid=92664: terminated socket_removed
+[2026-10-03T18:56:11Z] END e7-mux-after-expiry exit=0 checks=4 fails=0

@@ -1,0 +1,35 @@
+FACT	host_ssh	OpenSSH_10.3p1, LibreSSL 3.3.6
+FACT	container_sshd	openssh-server 1:10.0p1-7+deb13u4
+FACT	docker_server	29.8.1
+FACT	ssh_auth_sock_in_harness	unset
+FACT	clock_ca1	offset_s=0.009 rtt_s=0.025
+FACT	delays_s	request 1 at stop+2 s, request 2 at stop+8 s; certificate validity 20 s
+FACT	cert_valid_before_epoch	1791055318
+CHECK	E7P-A-master-authenticated	ca1 master started; exactly 1 Accepted line with the short-lived cert ID	master_pid=34678 accepted=1	PASS
+CHECK	E7P-A-raw-client-session-before-stop	the raw mux client opens a session through the master before the stop (so a refusal later is meaningful)	reply=MUX_S_SESSION_OPENED exit=0 stdout=[G04-E7P-RAW-BEFORE-STOP] new_accepted=0 new_connections=0 mux_protocol=4	PASS
+CHECK	E7P-A-fresh-login-rejected-after-expiry	rc 255; sshd logs 'Certificate invalid: expired'	rc=255 expired_lines=1	PASS
+FACT	A_stop	rc=0 out=[Stop listening request sent.] check_rc_after=255 control_socket=removed master_running_after_stop=True master_ps_comm=[ssh: [stopped mux]]
+CHECK	E7P-A-stop-effective	-O stop rc 0; control socket removed; -O check fails	stop_rc=0 socket=removed check_rc=255	PASS
+CHECK	E7P-A-new-client-after-stop-refused	a client that connects after the stop (and cannot authenticate) is refused, rc 255	rc=255	PASS
+OBS	H2e-preconnected-session-refused-after-stop	a control connection accepted before -O stop is refused a new session after stop returned (ca1, certificate expired)	request_s_after_stop_returned=2.038 s_after_valid_before=7.5 reply=MUX_S_SESSION_OPENED exit=0 stdout=[G04-E7P-PRECONNECTED-SESSION-1 | cert] error=None new_connections=0 new_accepted=0	REFUTED
+OBS	H2d-held-stopped-master-kept-alive-by-idle-control-connection	after -O stop, with no session and no new connection, the master keeps running while an idle pre-accepted control connection is open	master_running_in_all_5_samples_over_5_s_after_last_session=True	CONFIRMED
+OBS	H2e2-preconnected-session-refused-late	a control connection accepted before -O stop and idle for 8 s is refused a new session	request_s_after_stop_returned=7.918 s_after_valid_before=13.4 reply=MUX_S_SESSION_OPENED exit=0 stdout=[G04-E7P-PRECONNECTED-SESSION-2 | cert] error=None new_connections=0 new_accepted=0	REFUTED
+OBS	H2d-exit-stopped-master-exits-when-last-control-connection-closes	the stopped master exits once its last pre-accepted control connection and session are gone (despite ControlPersist=10m)	exited within 0.25 s of the last control connection closing	CONFIRMED
+CHECK	E7P-B-master-authenticated	bastion master started; exactly 1 Accepted line	master_pid=35196 accepted=1	PASS
+CHECK	E7P-B-local-fwd-before-stop	before the stop, MUX_C_OPEN_FWD local 127.0.0.1:P -> target:22 returns MUX_S_OK and the target's SSH banner is read through P	reply=MUX_S_OK banner=[SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4] close_fwd_reply=MUX_S_OK	PASS
+CHECK	E7P-B-remote-fwd-before-stop	before the stop, MUX_C_OPEN_FWD remote 127.0.0.1:0 returns MUX_S_REMOTE_PORT and that port accepts inside the bastion container	reply=MUX_S_REMOTE_PORT port=38377 remote_listener_accepts=True close_fwd_reply=MUX_S_OK	PASS
+CHECK	E7P-B-stdio-fwd-before-stop	before the stop, MUX_C_NEW_STDIO_FWD to target:22 returns MUX_S_SESSION_OPENED and the target's SSH banner	reply=MUX_S_SESSION_OPENED banner=[SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4]	PASS
+FACT	B_stop	rc=0 out=[Stop listening request sent.] check_rc_after=255 control_socket=removed master_running_after_stop=True master_ps_comm=[ssh: [stopped mux]]
+CHECK	E7P-B-stop-effective	-O stop rc 0; control socket removed; -O check fails	stop_rc=0 socket=removed check_rc=255	PASS
+OBS	H2f-preconnected-local-fwd-refused-after-stop	a control connection accepted before -O stop is refused MUX_C_OPEN_FWD (local) after stop returned	request_s_after_stop_returned=2.033 reply=MUX_S_OK error=None banner_through_new_listener=[SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4]	REFUTED
+OBS	H2g-preconnected-remote-fwd-refused-after-stop	a control connection accepted before -O stop is refused MUX_C_OPEN_FWD (remote) after stop returned	request_s_after_stop_returned=2.040 reply=MUX_S_REMOTE_PORT port=35579 error=None remote_listener_accepts=True	REFUTED
+OBS	H2h-preconnected-stdio-fwd-refused-after-stop	a control connection accepted before -O stop is refused MUX_C_NEW_STDIO_FWD after stop returned	request_s_after_stop_returned=2.078 reply=MUX_S_SESSION_OPENED error=None banner=[SSH-2.0-OpenSSH_10.0p2 Debian-7+deb13u4]	REFUTED
+FACT	B_after_stop_server_lines	bastion new_connections=0 new_accepted=0 since the after-stop requests began
+OBS	H3d-exact-pid-termination-closes-preconnected-connection-and-forward	SIGTERM to the exact stopped-master PID closes a remaining pre-accepted control connection and the local forward listener created after the stop	master_running_before_kill=True kill=terminated later_request_reply=None error=BrokenPipeError: [Errno 32] Broken pipe local_forward_port_after_kill=[<connect failed: ConnectionRefusedError>]	CONFIRMED
+OBS	H3c-exit-closes-preconnected-control-connection	-O exit terminates the master, and a control connection accepted before it can no longer obtain a session	exit_rc=0 out=[Exit request sent.] master_running_1s_after=False request_s_after_exit_returned=1.014 reply=None error=BrokenPipeError: [Errno 32] Broken pipe socket=removed	CONFIRMED
+CLEANUP	master pid=34678	not_running
+CLEANUP	master pid=35196	not_running
+CLEANUP	master pid=35248	not_running
+CLEANUP	agent pid=34670	terminated socket_removed
+CLEANUP	tempdir	removed
+EXIT	0	checks=10	fails=0

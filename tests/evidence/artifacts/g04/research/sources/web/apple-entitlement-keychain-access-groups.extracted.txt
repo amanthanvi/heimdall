@@ -1,0 +1,4 @@
+# Keychain Access Groups Entitlement
+The identifiers for the keychain groups that the app may share items with.
+## Discussion
+To add this entitlement to your app, enable the Keychain Sharing capability in Xcode.
