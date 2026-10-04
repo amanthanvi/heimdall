@@ -923,6 +923,183 @@ fn k6a_group_sigkill_leaves_no_orphan() {
     );
 }
 
+/// Round 3b (round-2 review defect 1; contract §4 "waits for the child and does not
+/// exit first"): a failure to create the signal-forwarding thread must never leave the
+/// child running after heimdall-proto has exited. A huge RUST_MIN_STACK (read by std at
+/// thread creation) forces that failure on every Unix. Round 2 spawned the child first
+/// and then panicked in `std::thread::spawn`: exit 1, no meta file, and the child kept
+/// running as an orphan. Accepted outcomes: the command is not launched at all (meta
+/// `launched:false`), or heimdall-proto waits for it (meta `CHILD_EXITED`, its status).
+#[test]
+fn run_thread_spawn_failure_never_orphans_child() {
+    let d = TempDir::new("tspawn");
+    let marker = d.path().join("child ran");
+    let meta = d.path().join("meta file.json");
+    // stdout/stderr go to files, not pipes: an orphaned child would keep a pipe open
+    // and make the test wait for it, hiding the early exit.
+    let err_path = d.path().join("stderr");
+    let status = cmd()
+        .env("RUST_MIN_STACK", "999999999999999")
+        .args(["run", "--meta-file"])
+        .arg(&meta)
+        .args([
+            "--",
+            "sh",
+            "-c",
+            "sleep 0.5; echo ran > \"$1\"; exit 6",
+            "sh",
+        ])
+        .arg(&marker)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(&err_path).unwrap())
+        .status()
+        .unwrap();
+    let ran_before_exit = marker.exists();
+    // Long enough for an orphaned child to finish its 0.5 s sleep.
+    std::thread::sleep(Duration::from_millis(1500));
+    let ran_after_exit = marker.exists() && !ran_before_exit;
+    assert!(
+        !ran_after_exit,
+        "child still ran after heimdall-proto exited (orphan); exit {:?}",
+        status.code()
+    );
+    let m: Value = serde_json::from_slice(
+        &std::fs::read(&meta).expect("meta file must be written on this path too"),
+    )
+    .unwrap();
+    if m["data"]["launched"] == true {
+        assert_eq!(m["code"], "CHILD_EXITED");
+        assert_eq!(status.code(), Some(6), "waited and passed the status on");
+        assert!(ran_before_exit);
+    } else {
+        assert_eq!(m["code"], "CHILD_LAUNCH_FAILED");
+        assert!(!ran_before_exit, "meta says not launched");
+        assert_ne!(status.code(), Some(0));
+        assert!(
+            std::fs::metadata(&err_path).unwrap().len() > 0,
+            "stderr diagnostic for the internal failure"
+        );
+    }
+}
+
+/// Real tasks (threads included) owned by real uid `uid`, from /proc (Linux).
+#[cfg(target_os = "linux")]
+fn tasks_of_uid(uid: &str) -> usize {
+    let mut n = 0;
+    for p in std::fs::read_dir("/proc").unwrap().flatten() {
+        let Ok(tasks) = std::fs::read_dir(p.path().join("task")) else {
+            continue;
+        };
+        for t in tasks.flatten() {
+            if let Ok(s) = std::fs::read_to_string(t.path().join("status"))
+                && let Some(l) = s.lines().find(|l| l.starts_with("Uid:"))
+                && l.split_whitespace().nth(1) == Some(uid)
+            {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Round 3b, the realistic form of review2 defect 1 (Linux, a real resource limit
+/// instead of RUST_MIN_STACK): RLIMIT_NPROC counts threads and processes of the uid, so
+/// a limit just above the current task count lets exactly one of heimdall-proto's two
+/// clones (forwarder thread, child) succeed. Round 2 cloned the child first, so its
+/// thread creation failed and it exited 1 leaving the child running. The limit is
+/// swept over the current count -1..+4 and every value must leave no orphan and write
+/// the meta file. Must run as a non-root uid (root ignores RLIMIT_NPROC) and alone
+/// (`--test-threads=1`), hence `#[ignore]`: the selftest runs it in a dedicated
+/// container step as uid 10001.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "needs a non-root uid and a quiet process table; selftest step linux-*-nproc"]
+fn linux_nproc_limit_never_orphans_child() {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    let uid = status
+        .lines()
+        .find(|l| l.starts_with("Uid:"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .unwrap()
+        .to_string();
+    assert_ne!(
+        uid, "0",
+        "must run as a non-root uid: root ignores RLIMIT_NPROC"
+    );
+    let d = TempDir::new("nproc");
+    let mut seen = Vec::new();
+    let base = tasks_of_uid(&uid);
+    for limit in base.saturating_sub(1)..=base + 4 {
+        let pidfile = d.path().join(format!("child-{limit}.pid"));
+        let meta = d.path().join(format!("meta-{limit}.json"));
+        let err_path = d.path().join(format!("stderr-{limit}"));
+        let _ = std::fs::remove_file(&pidfile);
+        // bash sets the limit and execs heimdall-proto (no extra task). The child
+        // records its PID, then execs sleep (no fork, so the limit cannot stop it).
+        let st = Command::new("bash")
+            .args([
+                "-c",
+                "ulimit -u \"$1\" || exit 99; shift; exec \"$@\"",
+                "bash",
+                &limit.to_string(),
+                &bin(),
+                "run",
+                "--meta-file",
+            ])
+            .arg(&meta)
+            .args(["--", "sh", "-c", "echo $$ > \"$1\"; exec sleep 1", "sh"])
+            .arg(&pidfile)
+            .env_remove("SSH_AUTH_SOCK")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(std::fs::File::create(&err_path).unwrap())
+            .status()
+            .unwrap();
+        assert_ne!(st.code(), Some(99), "ulimit -u failed");
+        // Give a child that was spawned just before an early exit time to record its PID.
+        std::thread::sleep(Duration::from_millis(200));
+        let child: Option<i32> = std::fs::read_to_string(&pidfile)
+            .ok()
+            .and_then(|s| s.trim().parse().ok());
+        let orphan = child.is_some_and(pid_running);
+        if let (true, Some(c)) = (orphan, child) {
+            shell_kill("-KILL", &c.to_string());
+        }
+        let m: Option<Value> = std::fs::read(&meta)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        let line = format!(
+            "limit={limit} (base {base}): exit={:?} meta={} child_pid_recorded={} orphan={orphan} stderr={:?}",
+            st.code(),
+            m.as_ref()
+                .map(|m| m["code"].to_string())
+                .unwrap_or("none".into()),
+            child.is_some(),
+            String::from_utf8_lossy(&std::fs::read(&err_path).unwrap_or_default()).trim()
+        );
+        eprintln!("{line}");
+        seen.push(line.clone());
+        assert!(!orphan, "orphaned child: {line}");
+        let m = m.unwrap_or_else(|| panic!("no meta file: {line}"));
+        if m["data"]["launched"] == true {
+            assert_eq!(m["code"], "CHILD_EXITED", "{line}");
+        } else {
+            assert_eq!(m["code"], "CHILD_LAUNCH_FAILED", "{line}");
+            assert!(child.is_none(), "meta says not launched: {line}");
+        }
+    }
+    // The sweep must have hit both clone-failure positions and a fully working run.
+    assert!(
+        seen.iter().any(|l| l.contains("exit=Some(0)")),
+        "no unconstrained run in the sweep: {seen:#?}"
+    );
+    assert!(
+        seen.iter().filter(|l| !l.contains("exit=Some(0)")).count() >= 2,
+        "sweep did not hit both failure positions: {seen:#?}"
+    );
+}
+
 fn mkfifo(path: &Path) {
     let st = Command::new("mkfifo").arg(path).status().unwrap();
     assert!(st.success(), "mkfifo");

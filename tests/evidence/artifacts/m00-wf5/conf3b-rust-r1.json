@@ -1,0 +1,22 @@
+{
+  "candidate": "rust",
+  "harness_version": "2.3.0",
+  "darwin": {
+    "harness_exit_code": 0,
+    "evidence_record": "<repo>/tests/evidence/g02-rust-conformance.json",
+    "artifact_sha256": "003105655033a37f9934e9c4633044fd9a7417fe8d398d3ced69c68f7946f306",
+    "passed": 136,
+    "failed": 0,
+    "errored": 0
+  },
+  "linux": {
+    "harness_exit_code": 0,
+    "evidence_record": "<repo>/tests/evidence/g02-rust-conformance-linux.json",
+    "artifact_sha256": "9b9450ddab73b1993d1e2d33beb290a76705c07e561bfee837edeac815190b38",
+    "passed": 136,
+    "failed": 0,
+    "errored": 0
+  },
+  "failures": [],
+  "summary": "The rust prototype passes the full 136-check harness 2.3.0 catalogue on both platforms. Darwin-arm64 exited 0 with 136 pass, 0 fail, 0 error and 0 skipped. Linux-arm64 exited 0 with the same counts, run in the digest-pinned container image heimdall-g02-harness:d0c8e448a3a7 via tests/g02/linux/run.sh. Both records have status verified and verdict pass. Build and artifacts: I rebuilt with prototypes/rust/build.sh (exit 0, all four targets built). The new darwin-arm64 and linux-arm64 digests differ from the round-3 baseline (d9838f89... and 77d10192...), so these are the round-3b artifacts. Each record's artifact_digest equals the sha256 of the tested binary. The darwin-arm64 and linux-arm64 sha256 values are in the per-platform fields. The other two built targets are linux-x64 3120f83e86e4bfbfca4a2ba7a970de627df4304227d2ce783259d5b697b2f28f and windows-x64 9bbdf7bd84295fafb4367ef4f9908683a3a466149e8c472ebf4fd1495d1c9763. Both records carry build_commit a04f2f3708588319ee7ec79f44d3bd6dbf864e00+dirty, so the tree had uncommitted changes. Prev directories under <repo>/tests/evidence/artifacts/g02-rust/conformance/: the round-3 baseline (pre-round-3b) records and artifacts are in prev-20261004T194339Z. Its two records show harness 2.3.0, 136/136 pass, and the old digests above. The two top-level records at the start of this task were byte-identical to it. The killed attempt left a partial top-level set of 93 check directories without records. I moved those into the new prev-20261004T201403Z. I left prev-20261003T233634Z, prev-20261004T020001Z (harness 2.0.0, round 1) and prev-20261004T184725Z (harness 2.1.0, round 2, 133/133) untouched. Observations (no failures to classify, so no reruns were needed): K6d shared mode, with explicit SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH in the sh -c, pipeline-first and pipeline-last layouts, got 1 delivery each on both platforms. K6e job control (bash, gating) passed 5 iterations of both forms on both platforms, and the zsh forms (non-gating) also passed. K17 filter latency samples peaked at about 5.4 ms, far under 100 ms. K10 exits were 143 for SIGTERM and 129 for SIGHUP and hangup. K3a on Linux reports ECONNRESET, while Darwin reports EOF as expected (K13). K16 recorded no helper-process hits. The canary scan found only the bare HEIMDALL_CANARY_ prefix, 1156 occurrences, and no full value in the new records or artifacts. The harness's canary self-check also passed. Limits: the harness's own flake probe sees the old double-forwarding wrapper's duplicates in only 4/10 trials on Darwin and 1/10 on Linux, so exactly-once is a best-effort lower bound there. This was a single run per platform. Windows and WSL are not covered, and K11 build and sidecar rules are not judged by this harness. Run logs are in /tmp/rust-r3b/."
+}

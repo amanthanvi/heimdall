@@ -1,0 +1,36 @@
+dist/darwin-arm64/heimdall-proto:    Mach-O 64-bit executable arm64
+dist/linux-arm64/heimdall-proto:     ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, stripped
+dist/linux-x64/heimdall-proto:       ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
+dist/windows-x64/heimdall-proto.exe: PE32+ executable (console) x86-64, for MS Windows
+dist/darwin-arm64/heimdall-proto:
+	/usr/lib/libiconv.2.dylib (compatibility version 7.0.0, current version 7.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)
+Identifier=heimdall-proto-55554944c7099a53e06b3121aacd7dee08cc422f
+CodeDirectory v=20500 size=1624 flags=0x10002(adhoc,runtime) hashes=44+2 location=embedded
+TeamIdentifier=not set
+windows DLL imports:
+KERNEL32.dll
+USER32.dll
+api-ms-win-core-synch-l1-2-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+bcryptprimitives.dll
+ntdll.dll
+-rw-r--r--  1 amanthanvi  staff  302235 Oct  4 15:27 dist/THIRD-PARTY-NOTICES.txt
+-rwxr-xr-x  1 amanthanvi  staff  717968 Oct  4 15:27 dist/darwin-arm64/heimdall-proto
+-rwxr-xr-x  1 amanthanvi  staff  812728 Oct  4 15:27 dist/linux-arm64/heimdall-proto
+-rwxr-xr-x  1 amanthanvi  staff  875560 Oct  4 15:27 dist/linux-x64/heimdall-proto
+-rwxr-xr-x  1 amanthanvi  staff  841728 Oct  4 15:27 dist/windows-x64/heimdall-proto.exe
+dist/darwin-arm64/heimdall-proto home-path-strings=0 tput=0 tmux=0 infocmp=0
+dist/linux-arm64/heimdall-proto home-path-strings=0 tput=0 tmux=0 infocmp=0
+dist/linux-x64/heimdall-proto home-path-strings=0 tput=0 tmux=0 infocmp=0
+dist/windows-x64/heimdall-proto.exe home-path-strings=0 tput=0 tmux=0 infocmp=0
+std panic-path markers:
+dist/darwin-arm64/heimdall-proto: /rust/deps/addr2line-0.27.1 /rust/deps/gimli-0.34.0 /rust/deps/hashbrown-0.17.1 /rust/deps/rustc-demangle-0.1.28 
+dist/linux-arm64/heimdall-proto: /rust/deps/addr2line-0.27.1 /rust/deps/gimli-0.34.0 /rust/deps/hashbrown-0.17.1 /rust/deps/miniz_oxide-0.9.1 /rust/deps/rustc-demangle-0.1.28 
+dist/linux-x64/heimdall-proto: /rust/deps/addr2line-0.27.1 /rust/deps/gimli-0.34.0 /rust/deps/hashbrown-0.17.1 /rust/deps/miniz_oxide-0.9.1 /rust/deps/rustc-demangle-0.1.28 
+dist/windows-x64/heimdall-proto.exe: 

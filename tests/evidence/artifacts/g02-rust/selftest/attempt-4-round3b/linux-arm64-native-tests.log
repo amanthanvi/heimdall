@@ -1,0 +1,101 @@
+aarch64
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/heimdall_proto-6cd4a090deff3000
+
+running 49 tests
+test agent::tests::control_chars_in_comment_replaced ... ok
+test agent::tests::envelope_shapes ... ok
+test agent::tests::k1_all_control_classes_replaced_in_comment_and_key_type ... ok
+test agent::tests::huge_nkeys_rejected ... ok
+test agent::tests::k4_failure_with_payload_is_protocol_error ... ok
+test agent::tests::k3a_reset_classified_like_eof ... ok
+test agent::tests::oversize_length_rejected_without_reading_body ... ok
+test agent::tests::parses_identities_and_fingerprint ... ok
+test agent::tests::request_is_exactly_type_11 ... ok
+test agent::tests::string_length_exceeding_frame_rejected ... ok
+test agent::tests::trailing_bytes_rejected ... ok
+test agent::tests::truncated_rejected ... ok
+test agent::tests::wrong_type_and_failure ... ok
+test agent::tests::zero_keys_ok ... ok
+test envelope::tests::envelope_shape ... ok
+test keys::tests::contract_keys ... ok
+test agent::tests::max_length_frame_accepted_by_reader ... ok
+test keys::tests::garbage_is_bounded_and_invalid_utf8_is_other ... ok
+test keys::tests::lone_escape_needs_flush ... ok
+test keys::tests::split_sequences_and_utf8_across_reads ... ok
+test list_model::tests::filter_mode ... ok
+test agent::tests::exactly_1024_keys_ok ... ok
+test list_model::tests::k9_filter_edit_resets_selection_enter_keeps_it ... ok
+test list_model::tests::narrow_rows ... ok
+test list_model::tests::navigate_and_select ... ok
+test list_model::tests::q_in_filter_mode_is_text_and_empty_enter_noop ... ok
+test profile::tests::duplicate_alias_and_id ... ok
+test profile::tests::example_json_matches_contract_shape ... ok
+test profile::tests::homelab_ok ... ok
+test profile::tests::invalid_utf8_is_schema_invalid ... ok
+test profile::tests::forbidden_key_no_canary ... ok
+test profile::tests::k2_control_chars_in_values_rejected_outside_meta ... ok
+test profile::tests::malformed_with_canary_not_quoted ... ok
+test profile::tests::meta_content_tolerated_including_unknown_nested_keys ... ok
+test profile::tests::large_100 ... ok
+test profile::tests::malformed ... ok
+test list_model::tests::large_filter_immediate ... ok
+test profile::tests::port_out_of_range ... ok
+test profile::tests::required_and_types ... ok
+test profile::tests::schema_version_unsupported ... ok
+test profile::tests::unknown_dest_key ... ok
+test runner::tests::launch_failure_is_127 ... ok
+test profile::tests::spaced_unicode_path_identical ... ok
+test runner::tests::meta_shapes ... ok
+test sigdisp::tests::default_disposition_is_not_ignored ... ok
+test text::tests::controls_replaced ... ok
+test text::tests::key_segments ... ok
+test runner::tests::exit_code_and_signal_mapping ... ok
+test profile::tests::oversize_not_parsed_and_missing_is_usage ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-16df67353d49c928
+
+running 28 tests
+test agent_ok_and_request_bytes ... ok
+test k14_non_regular_profile_files ... ok
+test agent_crafted_frames ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test k3_k4_eof_and_failure_frame_shape ... ok
+heimdall-proto: CANCELLED
+test k15_parser_resource_bound ... ok
+test k5_meta_state ... ok
+test k3a_reset_before_and_after_partial_frame ... ok
+test k6a_group_sigkill_leaves_no_orphan ... ok
+test k6a_inherited_ignored_dispositions_reach_child ... ok
+test agent_unavailable_and_timeout ... ok
+test k6a_limitation_sigpipe_ignore_not_preserved_by_rust_std ... ok
+test linux_nproc_limit_never_orphans_child ... ignored, needs a non-root uid and a quiet process table; selftest step linux-*-nproc
+test meta_file_fifo_never_blocks ... ok
+test profile_fixtures ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test run_binary_stdio_passthrough ... ok
+test k6a_inherited_ignored_signals_are_not_forwarded ... ok
+test run_inherits_env_and_cwd ... ok
+test run_status_and_meta ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test version_json ... ok
+test agent_cancel_sigint_within_500ms ... ok
+test run_forwards_signals_and_waits ... ok
+test run_thread_spawn_failure_never_orphans_child ... ok
+
+test result: ok. 27 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.08s
+
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/heimdall_proto-df619891b1c32289
+
+running 4 tests
+test cli::tests::parses_commands ... ok
+test cli::tests::run_argv_non_utf8 ... ok
+test cli::tests::run_argv_passthrough ... ok
+test cli::tests::usage_errors ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

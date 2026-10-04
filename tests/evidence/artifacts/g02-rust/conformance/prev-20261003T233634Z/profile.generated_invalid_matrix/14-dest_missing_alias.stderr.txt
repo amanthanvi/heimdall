@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: required key destinations[0].alias is missing

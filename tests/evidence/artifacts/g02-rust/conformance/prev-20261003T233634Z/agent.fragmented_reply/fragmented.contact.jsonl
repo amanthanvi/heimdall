@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-03T19:58:39.761Z", "mono_ms": 0.243, "event": "listen", "socket": "/tmp/hmg02-9x5scn1q/014-agent-fragmented/fragmented.sock", "mode": "fragmented", "keys": 3}
+{"seq": 2, "ts": "2026-10-03T19:58:39.767Z", "mono_ms": 6.569, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-03T19:58:40.182Z", "mono_ms": 421.093, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "fragmented", "sent_bytes": 497}
+{"seq": 4, "ts": "2026-10-03T19:58:40.182Z", "mono_ms": 421.148, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 497, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-03T19:58:40.273Z", "mono_ms": 512.018, "event": "shutdown"}

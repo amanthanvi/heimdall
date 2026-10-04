@@ -295,6 +295,8 @@ class KnownLimitation(Exception):
 def case(name):
     def deco(fn):
         def wrapped(*a):
+            if os.environ.get("HP_PTY_ONLY") and os.environ["HP_PTY_ONLY"] not in name:
+                return  # case filter for focused runs (selftest always runs every case)
             t = time.monotonic()
             print(f"[pty_tui] {name} ...", file=sys.stderr, flush=True)
             limitation = False
@@ -857,6 +859,208 @@ def t_run_leader_hup(b):
     return f"session-leader hangup: child saw SIGHUP once, exit {rc}"
 
 
+# ---------- round 3b (contract §9.3 K6e) ----------
+
+K6E_CHILD = r"""
+import os, sys, time
+hb = sys.argv[1]
+print('ready', os.getpid(), flush=True)
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        sys.exit(9)
+    line = line.strip()
+    if line == 'quit':
+        sys.exit(5)
+    if line == 'hb':  # heartbeat phase: no terminal reads, a counter in a file
+        print('HB-START', flush=True)
+        end, n = time.time() + 1.6, 0
+        while time.time() < end:
+            n += 1
+            open(hb + '.t', 'w').write(str(n))
+            os.replace(hb + '.t', hb)  # atomic: the reader never sees a truncated file
+            time.sleep(0.02)
+        print('HB-END', flush=True)
+        continue
+    print('GOT', line, flush=True)
+"""
+
+
+def ppid_of(pid):
+    if sys.platform.startswith("linux"):
+        return int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[1])
+    r = subprocess.run(["/bin/ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True)
+    return int(r.stdout.strip() or 0)
+
+
+class Shell:
+    """Interactive bash (job control on) as session leader of a fresh pty."""
+
+    def __init__(self):
+        self.master, slave = os.openpty()
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
+        env = {k: v for k, v in os.environ.items() if k != "SSH_AUTH_SOCK"}
+        env.update({"PS1": "HPS1$ ", "TERM": "dumb", "BASH_SILENCE_DEPRECATION_WARNING": "1",
+                    "HISTFILE": "/dev/null"})
+        self.p = subprocess.Popen(["/bin/bash", "--norc", "--noprofile", "-i"], stdin=slave, stdout=slave,
+                                  stderr=slave, start_new_session=True, env=env,
+                                  preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
+        os.close(slave)
+        self.out = b""
+
+    def read_for(self, seconds):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            r, _, _ = select.select([self.master], [], [], max(0.0, end - time.monotonic()))
+            if not r:
+                break
+            try:
+                chunk = os.read(self.master, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            self.out += chunk
+
+    def wait_count(self, needle: bytes, n: int, timeout=4.0):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self.out.count(needle) >= n:
+                return True
+            self.read_for(0.02)
+        return self.out.count(needle) >= n
+
+    def send(self, b: bytes):
+        os.write(self.master, b)
+
+    def close(self):
+        try:
+            self.send(b"exit\n")
+            end = time.monotonic() + 3
+            while self.p.poll() is None and time.monotonic() < end:
+                self.read_for(0.05)
+        except OSError:
+            pass
+        if self.p.poll() is None:
+            os.kill(self.p.pid, signal.SIGKILL)
+            self.p.wait()
+        os.close(self.master)
+
+
+@case("k6e-interactive-bash-ctrl-z-fg-bg")
+def t_k6e(b):
+    if not os.access("/bin/bash", os.X_OK):
+        raise AssertionError("/bin/bash missing: K6e needs an interactive job-control shell")
+    d = tempfile.mkdtemp(prefix="k6e-", dir=TMP)
+    child_py, hb = os.path.join(d, "c.py"), os.path.join(d, "hb")
+    open(child_py, "w").write(K6E_CHILD)
+    sh = Shell()
+    hp_pid = child = None
+    try:
+        assert sh.wait_count(b"HPS1$ ", 1), f"no prompt: {sh.out[-200:]!r}"
+        assert b"no job control" not in sh.out, f"bash has no job control: {sh.out[-200:]!r}"
+        sh.send(f'"{b}" run -- "{sys.executable}" "{child_py}" "{hb}"\n'.encode())
+        assert sh.wait_count(b"ready ", 1), f"child not started: {sh.out[-300:]!r}"
+        sh.read_for(0.1)
+        child = int(re.search(rb"ready (\d+)", sh.out).group(1))
+        hp_pid = ppid_of(child)
+        assert hp_pid > 1, f"child's parent not found: {hp_pid}"
+        stops = 0
+        notes = []
+
+        def states():
+            return proc_state(child), proc_state(hp_pid)
+
+        def ctrl_z(tag):
+            nonlocal stops
+            stops += 1
+            sh.send(b"\x1a")
+            assert sh.wait_count(b"Stopped", stops), f"{tag}: shell never reported Stopped: {sh.out[-300:]!r}"
+            assert sh.wait_count(b"HPS1$ ", 2 + prompts[0]), f"{tag}: no prompt after Ctrl-Z"
+            prompts[0] += 1
+            end = time.monotonic() + 2
+            while time.monotonic() < end and not all(s.startswith("T") for s in states()):
+                sh.read_for(0.02)
+            st = states()
+            assert all(s.startswith("T") for s in st), f"{tag}: job not stopped while shell says Stopped: {st}"
+
+        def fg_and_read(tag, token):
+            sh.send(b"fg\n")
+            sh.read_for(0.4)
+            st = states()
+            assert not any(s.startswith("T") for s in st), f"{tag}: stopped after fg: {st}"
+            assert sh.out.count(b"Stopped") == stops, f"{tag}: re-stopped after fg: {sh.out[-300:]!r}"
+            sh.send(token + b"\n")
+            assert sh.wait_count(b"GOT " + token, 1), f"{tag}: child did not read terminal input after fg: {sh.out[-300:]!r}"
+
+        prompts = [0]
+        for i in range(1, 4):
+            ctrl_z(f"z-fg #{i}")
+            fg_and_read(f"z-fg #{i}", f"K6E-A-{i}".encode())
+            sh.send(b"hb\n")
+            assert sh.wait_count(b"HB-START", i), f"z-bg-fg #{i}: heartbeat did not start"
+            sh.read_for(0.1)
+            ctrl_z(f"z-bg-fg #{i}")
+            before = open(hb).read()
+            sh.read_for(0.4)
+            assert open(hb).read() == before, f"z-bg-fg #{i}: heartbeat advanced while stopped"
+            sh.send(b"bg\n")
+            sh.read_for(0.3)
+            after = open(hb).read()
+            st = states()
+            assert int(after) > int(before), f"z-bg-fg #{i}: heartbeat did not advance after bg ({before}->{after})"
+            assert not any(s.startswith("T") for s in st), f"z-bg-fg #{i}: stopped while shell says running (bg): {st}"
+            assert sh.wait_count(b"HPS1$ ", 2 + prompts[0]), f"z-bg-fg #{i}: no prompt after bg"
+            prompts[0] += 1
+            fg_and_read(f"z-bg-fg #{i}", f"K6E-B-{i}".encode())
+            assert sh.wait_count(b"HB-END", i), f"z-bg-fg #{i}: heartbeat never ended"
+            notes.append(f"#{i} ok (hb {before}->{after})")
+        sh.send(b"quit\n")
+        sh.read_for(0.5)
+        sh.send(b"echo RC=$?\n")
+        assert sh.wait_count(b"RC=5", 1), f"exit status not passed through: {sh.out[-300:]!r}"
+        return ("interactive bash: Ctrl-Z stops child and heimdall-proto, fg resumes with terminal input, "
+                "bg runs it (heartbeat advances), fg after bg reads input, no re-stop; 3 iterations each; RC=5; "
+                + "; ".join(notes))
+    finally:
+        for pid in (child, hp_pid):
+            if pid:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        sh.close()
+
+
+@case("k6d-shared-mode-explicit-signals-reach-child")
+def t_k6d(b):
+    """K6d: heimdall-proto shares the process group of a foreground non-job-control
+    script (the script's group holds the terminal). A signal sent explicitly to the
+    heimdall-proto PID reaches the child at least once (K6b allows duplicates)."""
+    got = []
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT, signal.SIGWINCH):
+        out = os.path.join(TMP, f"k6d-{sig.name}.txt")
+        script = f'"$0" run -- "{sys.executable}" -c "$1"; echo "RC=$?"'
+        s = Pty(["/bin/sh", "-c", script, b, counting_child(sig.name, out)])
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not (os.path.exists(out) and open(out).read().startswith("ready")):
+            s.read_for(0.01)
+        _, cpid, cpgid = open(out).read().split()
+        hp = ppid_of(int(cpid))
+        assert hp not in (0, 1, s.pid), f"{sig.name}: heimdall-proto not found (ppid {hp})"
+        hp_pgid = os.getpgid(hp)
+        assert hp_pgid == os.getpgid(s.pid) == int(cpgid) == os.tcgetpgrp(s.master), \
+            f"{sig.name}: not shared mode (hp {hp_pgid}, script {os.getpgid(s.pid)}, child {cpgid}, fg {os.tcgetpgrp(s.master)})"
+        os.kill(hp, sig)  # explicit signal to heimdall-proto's PID only
+        code, _ = s.finish(timeout=5)
+        count = open(out).read()
+        n = int(count.split("=")[1]) if count.startswith("count=") else 0
+        assert n >= 1, f"{sig.name}: child saw {count!r} (silent loss)"
+        assert b"RC=3" in s.out and code == 0, f"{sig.name}: script saw {s.out[-120:]!r}, exit {code}"
+        got.append(f"{sig.name}={n}")
+    return "shared mode (hp, script and child in the terminal's foreground group): " + ", ".join(got) + "; RC=3 each"
+
+
 def t_panic(pb):
     @case("tui-panic-restores")
     def inner(b):
@@ -885,7 +1089,8 @@ def main():
         panic_bin = os.path.abspath(args[args.index("--panic-binary") + 1])
     for fn in [t_select, t_quit, t_ctrlc, t_term, t_filter, t_esc, t_resize, t_nocolor,
                t_large, t_tiny, t_bad, t_hangup, t_run_sigint, t_run_ctrlz,
-               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup]:
+               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
+               t_k6e, t_k6d]:
         fn(binary)
     if panic_bin:
         t_panic(panic_bin)

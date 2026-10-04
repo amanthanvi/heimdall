@@ -1,0 +1,4 @@
+4f8521433fc3be19d932bcc82a99e6dcdf1868e5b602502faf391b98217f6513  ~/GitRepos/heimdall/prototypes/rust/target/round1-dist/darwin-arm64/heimdall-proto
+9bbd19c36229cb4bd34022c0fa16762e6d995dfd70935f9c78d88c4354a83dfb  ~/GitRepos/heimdall/prototypes/rust/target/round1-dist/linux-arm64/heimdall-proto
+10e6bf896dd64b835328287c916171c808e0da32ef4b83b1a4267e51fe029856  ~/GitRepos/heimdall/prototypes/rust/target/round1-dist/linux-x64/heimdall-proto
+round-1 manifest digests match: True

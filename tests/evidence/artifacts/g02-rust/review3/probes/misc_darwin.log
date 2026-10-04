@@ -1,0 +1,30 @@
+== 1 nohup: SIGHUP to heimdall-proto pid must not reach/kill the child (K6a inherited ignore)
+exit=3 out=INT=0 TERM=0 HUP=0 QUIT=0 WINCH=0
+== 2 sh -c wrapper, explicit signals to the heimdall-proto pid (shared group, no tty)
+INT: INT=1 TERM=0 HUP=0 QUIT=0 WINCH=0 wrapper_rc=3 
+TERM: INT=0 TERM=1 HUP=0 QUIT=0 WINCH=0 wrapper_rc=3 
+HUP: INT=0 TERM=0 HUP=1 QUIT=0 WINCH=0 wrapper_rc=3 
+QUIT: INT=0 TERM=0 HUP=0 QUIT=1 WINCH=0 wrapper_rc=3 
+WINCH: INT=0 TERM=0 HUP=0 QUIT=0 WINCH=1 wrapper_rc=3 
+== 3 killpg of the shared group (K6b: duplicate allowed, recorded)
+rc=3 INT=1 TERM=0 HUP=0 QUIT=0 WINCH=0
+== 4 pipeline: heimdall-proto | cat and cat | heimdall-proto, explicit TERM to the pid
+first: INT=0 TERM=1 HUP=0 QUIT=0 WINCH=0
+last: INT=0 TERM=1 HUP=0 QUIT=0 WINCH=0
+== 5 make recipe (if make exists): explicit INT to the pid
+./misc_probe.sh: child setpgid (32168 to 32168): Operation not permitted
+make_rc=2 INT=1 TERM=0 HUP=0 QUIT=0 WINCH=0
+== 6 signal not in the five (USR1) / SIGKILL to the pid: orphan? (out of contract, recorded)
+USR1: hp_rc=158 child_alive_after_hp_exit=yes
+KILL: hp_rc=137 child_alive_after_hp_exit=yes
+== 7 explicit signal burst: 5x INT back to back to the pid
+rc=3 INT=3 TERM=0 HUP=0 QUIT=0 WINCH=0
+== 8 heimdall-proto stopped (SIGSTOP) then explicit TERM then SIGCONT
+rc=3 INT=0 TERM=1 HUP=0 QUIT=0 WINCH=0
+== 9 meta file in a read-only dir and a FIFO meta path
+ro rc=0 stderr=heimdall-proto: cannot write meta file: PermissionDenied
+fifo rc=0
+fifo stderr=heimdall-proto: cannot write meta file: Uncategorized
+== 10 environment: RUST_MIN_STACK huge -> run launches nothing (no orphan)
+rc=1 ran=no meta={"schema_version":"1","state":"failed","code":"CHILD_LAUNCH_FAILED","data":{"launched":false,"exit_code":null,"signal":null},"warnings":[],"next":null} stderr=heimdall-proto: cannot start the signal forwarder, command not launched: WouldBlock
+agent rc=1 out={"schema_version":"1","state":"failed","code":"INTERNAL","data":{"error":{"key_path":null,"message":"internal error"}},"warnings":[],"next":null}

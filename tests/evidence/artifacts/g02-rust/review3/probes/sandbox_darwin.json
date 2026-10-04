@@ -1,0 +1,29 @@
+{
+ "version": 0,
+ "profile_show": 0,
+ "profile_invalid": 2,
+ "agent_missing": 5,
+ "run_meta": {
+  "exit": 0,
+  "meta_written": true
+ },
+ "tui_exit": 0,
+ "helper_marker_exists": false,
+ "helper_marker": "",
+ "files_in_workdir": [
+  "deny.sb",
+  "fakebin",
+  "fakebin/clear",
+  "fakebin/infocmp",
+  "fakebin/ls",
+  "fakebin/resize",
+  "fakebin/sh",
+  "fakebin/stty",
+  "fakebin/tmux",
+  "fakebin/toe",
+  "fakebin/tput",
+  "fakebin/tset",
+  "meta.json"
+ ]
+}
+{"control_exec_other_denied_exit": 127, "control_write_elsewhere_written": false, "control_write_elsewhere_stderr": "heimdall-proto: cannot write meta file: PermissionDenied"}

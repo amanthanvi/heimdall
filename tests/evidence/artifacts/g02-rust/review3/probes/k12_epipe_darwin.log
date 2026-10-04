@@ -1,0 +1,8 @@
+profile show exit= 1 stderr0= thread 'main' (24609056) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/libra
+profile show --json exit= 0 stderr0= 
+version exit= 1 stderr0= thread 'main' (24609060) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/libra
+version --json exit= 0 stderr0= 
+json=[] hp_exit=0
+
+json=[--json] hp_exit=0
+

@@ -1,0 +1,48 @@
+{
+ "shell": "/bin/zsh",
+ "hp": "/tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto",
+ "platform": "darwin",
+ "uname": "arm64",
+ "self_stop": {
+  "pids_seen": true,
+  "states_1.5s_after_self_stop": {
+   "child": "T",
+   "parent_of_child": "S"
+  },
+  "shell_reported_stop_without_user_action": false,
+  "prompt_returned_without_user_action": false,
+  "recovery_steps": [
+   "ctrl-z",
+   "fg"
+  ],
+  "child_resumed": true,
+  "rc5_reported": false,
+  "transcript_tail": " run -- /bin/sh -c 'echo $$ $PPID > /tmp/hp-review3-rust/jc-zsh-hp/selfstop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'; echo RC=$?\r\nC_START\r\n^Z\r\nzsh: suspended  /tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto run -- /bin/sh\r\nRC=146\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> fg\r\n[1]  + continued  /tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto run -- /bin/sh\r\nC_RESUMED\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> "
+ },
+ "ctrlz_fg_bg": {
+  "stopped_after_ctrl_z": true,
+  "bg_output_tail": "ntinued  /tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto run -- /bin/sh\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> ",
+  "got_input_after_fg": true,
+  "rc4": false,
+  "restopped_after_fg": 1,
+  "transcript_tail": "ist/darwin-arm64/heimdall-proto run -- /bin/sh\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> fg\r\n[1]  + suspended (tty input)  /tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto run -- /bin/sh\r\n[1]  + continued  /tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto run -- /bin/sh\r\nhello\r\nGOT=hello\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> "
+ },
+ "ctrl_c": {
+  "signal": "INT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "ctrl_backslash": {
+  "signal": "QUIT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "explicit_tstp": {
+  "states_after_tstp": {
+   "child": "S",
+   "launcher": "T"
+  },
+  "shell_saw_stop": true,
+  "rc6_after_fg": false
+ }
+}

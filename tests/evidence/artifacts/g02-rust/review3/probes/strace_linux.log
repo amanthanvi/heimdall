@@ -1,0 +1,11 @@
+version exit=0
+profile exit=0
+profile_bad exit=2
+agent_missing exit=5
+run_meta exit=0
+tui driver exit=0 tui_exit 0
+--- execve calls (any program other than heimdall-proto itself; run: the child /bin/true expected)
+execve("/bin/true", ["/bin/true"], 0xffffd3fed740 /* 14 vars */) = 0
+--- write-capable opens/creates/renames outside the named paths
+--- helper marker: none
+--- files created in HOME/TMPDIR: 0

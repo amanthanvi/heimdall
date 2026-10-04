@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"destinations[0].host","message":"destinations[0].host contains control characters"}},"warnings":[],"next":null}

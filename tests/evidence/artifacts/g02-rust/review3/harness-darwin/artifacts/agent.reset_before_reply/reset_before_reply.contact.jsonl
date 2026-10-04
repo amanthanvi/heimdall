@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T20:22:46.242Z", "mono_ms": 0.312, "event": "listen", "socket": "/tmp/hmg02-e_c457v4/060-agent-reset_before_reply/reset_before_reply.sock", "mode": "reset_before_reply", "keys": 1}
+{"seq": 2, "ts": "2026-10-04T20:22:46.252Z", "mono_ms": 9.993, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T20:22:46.252Z", "mono_ms": 10.098, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "reset_before_reply", "sent_bytes": 0, "consumed": false}
+{"seq": 4, "ts": "2026-10-04T20:22:46.307Z", "mono_ms": 65.18, "event": "disconnect", "conn": 1, "reason": "server_reset", "bytes_received": 5, "bytes_sent": 0, "partial_bytes": 0, "request_left_unread": true}
+{"seq": 5, "ts": "2026-10-04T20:22:46.354Z", "mono_ms": 111.719, "event": "shutdown"}

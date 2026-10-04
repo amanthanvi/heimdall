@@ -1,0 +1,189 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling libc v0.2.190
+   Compiling foldhash v0.2.0
+   Compiling allocator-api2 v0.2.21
+   Compiling equivalent v1.0.2
+   Compiling cfg-if v1.0.5
+   Compiling unicode-segmentation v1.13.3
+   Compiling rustversion v1.0.23
+   Compiling bitflags v2.13.2
+   Compiling strsim v0.11.1
+   Compiling thiserror v2.0.21
+   Compiling ident_case v1.0.1
+   Compiling either v1.18.0
+   Compiling itoa v1.0.18
+   Compiling parking_lot_core v0.9.12
+   Compiling signal-hook v0.3.18
+   Compiling heck v0.5.0
+   Compiling serde_core v1.0.229
+   Compiling static_assertions v1.1.0
+   Compiling smallvec v1.16.2
+   Compiling rustix v1.1.5
+   Compiling itertools v0.14.0
+   Compiling typenum v1.20.1
+   Compiling ryu v1.0.23
+   Compiling scopeguard v1.2.0
+   Compiling log v0.4.34
+   Compiling hashbrown v0.17.1
+   Compiling hashbrown v0.16.1
+   Compiling unicode-width v0.2.2
+   Compiling convert_case v0.10.0
+   Compiling lock_api v0.4.14
+   Compiling indoc v2.0.7
+   Compiling litrs v1.0.0
+   Compiling zmij v1.0.23
+   Compiling cfg_aliases v0.2.2
+   Compiling line-clipping v0.3.8
+   Compiling winnow v1.0.4
+   Compiling serde_json v1.0.151
+   Compiling nix v0.31.3
+   Compiling signal-hook v0.4.4
+   Compiling heimdall-proto v0.0.0-g02 (/private/tmp/hp-rs-reloc-elT190/rust)
+   Compiling memchr v2.8.3
+   Compiling base64 v0.23.1
+   Compiling lru v0.18.5
+   Compiling indexmap v2.14.2
+   Compiling document-features v0.2.12
+   Compiling hybrid-array v0.4.15
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling castaway v0.2.4
+   Compiling compact_str v0.9.1
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling block-buffer v0.12.1
+   Compiling crypto-common v0.2.2
+   Compiling unicode-truncate v2.0.1
+   Compiling errno v0.3.14
+   Compiling mio v1.2.3
+   Compiling cpufeatures v0.3.1
+   Compiling signal-hook-registry v1.4.8
+   Compiling parking_lot v0.12.5
+   Compiling digest v0.11.3
+   Compiling signal-hook-mio v0.2.5
+   Compiling sha2 v0.11.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling strum_macros v0.28.0
+   Compiling derive_more-impl v2.1.1
+   Compiling derive_more v2.1.1
+   Compiling crossterm v0.29.0
+   Compiling darling_core v0.24.1
+   Compiling strum v0.28.0
+   Compiling thiserror-impl v2.0.21
+   Compiling kasuari v0.4.12
+   Compiling ratatui-core v0.1.2
+   Compiling darling_macro v0.24.1
+   Compiling darling v0.24.1
+   Compiling instability v0.3.14
+   Compiling ratatui-widgets v0.3.2
+   Compiling ratatui-crossterm v0.1.2
+   Compiling ratatui v0.30.2
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.90s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_proto-d7bc56532cd80e18)
+
+running 49 tests
+test agent::tests::huge_nkeys_rejected ... ok
+test agent::tests::control_chars_in_comment_replaced ... ok
+test agent::tests::k1_all_control_classes_replaced_in_comment_and_key_type ... ok
+test agent::tests::envelope_shapes ... ok
+test agent::tests::k4_failure_with_payload_is_protocol_error ... ok
+test agent::tests::k3a_reset_classified_like_eof ... ok
+test agent::tests::oversize_length_rejected_without_reading_body ... ok
+test agent::tests::parses_identities_and_fingerprint ... ok
+test agent::tests::request_is_exactly_type_11 ... ok
+test agent::tests::string_length_exceeding_frame_rejected ... ok
+test agent::tests::trailing_bytes_rejected ... ok
+test agent::tests::wrong_type_and_failure ... ok
+test agent::tests::truncated_rejected ... ok
+test agent::tests::zero_keys_ok ... ok
+test keys::tests::contract_keys ... ok
+test envelope::tests::envelope_shape ... ok
+test keys::tests::garbage_is_bounded_and_invalid_utf8_is_other ... ok
+test keys::tests::lone_escape_needs_flush ... ok
+test keys::tests::split_sequences_and_utf8_across_reads ... ok
+test list_model::tests::k9_filter_edit_resets_selection_enter_keeps_it ... ok
+test list_model::tests::filter_mode ... ok
+test list_model::tests::narrow_rows ... ok
+test agent::tests::max_length_frame_accepted_by_reader ... ok
+test list_model::tests::navigate_and_select ... ok
+test list_model::tests::q_in_filter_mode_is_text_and_empty_enter_noop ... ok
+test profile::tests::duplicate_alias_and_id ... ok
+test profile::tests::forbidden_key_no_canary ... ok
+test profile::tests::example_json_matches_contract_shape ... ok
+test profile::tests::invalid_utf8_is_schema_invalid ... ok
+test profile::tests::homelab_ok ... ok
+test profile::tests::k2_control_chars_in_values_rejected_outside_meta ... ok
+test profile::tests::malformed ... ok
+test profile::tests::malformed_with_canary_not_quoted ... ok
+test profile::tests::meta_content_tolerated_including_unknown_nested_keys ... ok
+test agent::tests::exactly_1024_keys_ok ... ok
+test profile::tests::port_out_of_range ... ok
+test profile::tests::required_and_types ... ok
+test profile::tests::schema_version_unsupported ... ok
+test list_model::tests::large_filter_immediate ... ok
+test profile::tests::unknown_dest_key ... ok
+test profile::tests::spaced_unicode_path_identical ... ok
+test profile::tests::large_100 ... ok
+test runner::tests::meta_shapes ... ok
+test sigdisp::tests::default_disposition_is_not_ignored ... ok
+test text::tests::controls_replaced ... ok
+test text::tests::key_segments ... ok
+test runner::tests::launch_failure_is_127 ... ok
+test runner::tests::exit_code_and_signal_mapping ... ok
+test profile::tests::oversize_not_parsed_and_missing_is_usage ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running unittests src/main.rs (target/debug/deps/heimdall_proto-e09c1a025266e25d)
+
+running 4 tests
+test cli::tests::run_argv_non_utf8 ... ok
+test cli::tests::run_argv_passthrough ... ok
+test cli::tests::parses_commands ... ok
+test cli::tests::usage_errors ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli.rs (target/debug/deps/cli-aab126e0c1f784db)
+
+running 27 tests
+test agent_ok_and_request_bytes ... ok
+test k14_non_regular_profile_files ... ok
+test agent_crafted_frames ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test k3_k4_eof_and_failure_frame_shape ... ok
+heimdall-proto: CANCELLED
+test agent_unavailable_and_timeout ... ok
+test k3a_reset_before_and_after_partial_frame ... ok
+test k5_meta_state ... ok
+test k6a_group_sigkill_leaves_no_orphan ... ok
+test k6a_inherited_ignored_dispositions_reach_child ... ok
+test k15_parser_resource_bound ... ok
+test k6a_limitation_sigpipe_ignore_not_preserved_by_rust_std ... ok
+test meta_file_fifo_never_blocks ... ok
+test profile_fixtures ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test run_binary_stdio_passthrough ... ok
+test k6a_inherited_ignored_signals_are_not_forwarded ... ok
+test run_inherits_env_and_cwd ... ok
+test run_status_and_meta ... ok
+test agent_cancel_sigint_within_500ms ... ok
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test version_json ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+test run_thread_spawn_failure_never_orphans_child ... ok
+test run_forwards_signals_and_waits ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.86s
+
+   Doc-tests heimdall_proto
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

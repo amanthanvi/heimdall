@@ -1,0 +1,47 @@
+{
+ "shell": "/bin/bash",
+ "hp": "~/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto",
+ "platform": "darwin",
+ "uname": "arm64",
+ "self_stop": {
+  "pids_seen": true,
+  "states_1.5s_after_self_stop": {
+   "child": "T",
+   "parent_of_child": "T"
+  },
+  "shell_reported_stop_without_user_action": true,
+  "prompt_returned_without_user_action": true,
+  "recovery_steps": [
+   "fg"
+  ],
+  "child_resumed": true,
+  "rc5_reported": false,
+  "transcript_tail": "st/jc-go/selfsto \rp.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'; echo RC=$?\r\nC_START\r\n\r\n[1]+  Stopped                 ~/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sh -c 'echo $$ $PPID > /tmp/hp-review3-rust/jc-go/selfstop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'\r\nRC=146\r\nPROMPT> fg\r\n~/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sh -c 'echo $$ $PPID > /tmp/hp-review3-rust/jc-go/selfstop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'\r\nC_RESUMED\r\nPROMPT> "
+ },
+ "ctrlz_fg_bg": {
+  "stopped_after_ctrl_z": true,
+  "bg_output_tail": "bg\r\n[1]+ ~/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4' &\r\nPROMPT> ",
+  "got_input_after_fg": true,
+  "rc4": false,
+  "restopped_after_fg": 0,
+  "transcript_tail": "ers/amanthanvi/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nRC=146\r\nPROMPT> bg\r\n[1]+ ~/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4' &\r\nPROMPT> fg\r\n~/GitRepos/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nhello\r\nGOT=hello\r\nPROMPT> "
+ },
+ "ctrl_c": {
+  "signal": "INT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "ctrl_backslash": {
+  "signal": "QUIT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "explicit_tstp": {
+  "states_after_tstp": {
+   "child": "S",
+   "launcher": "T"
+  },
+  "shell_saw_stop": true,
+  "rc6_after_fg": false
+ }
+}

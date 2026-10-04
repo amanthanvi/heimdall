@@ -193,31 +193,56 @@ pub fn run(argv: &[OsString]) -> RunOutcome {
         }
     };
     let handle = signals.handle();
+
+    // Round 3b (review2 defect 1, §4 "does not exit first"): the forwarding thread is
+    // started BEFORE the child, with `Builder::spawn` (which reports failure instead of
+    // panicking). If no thread can be created (pids cgroup, RLIMIT_NPROC, a huge
+    // RUST_MIN_STACK) nothing has been launched yet, so the failure is reported without
+    // leaving an orphan behind. The thread learns the child's PID through a channel;
+    // signals caught before that stay buffered in `signals` and are forwarded once.
+    let (pid_tx, pid_rx) = std::sync::mpsc::channel::<Pid>();
+    let exited = Arc::new(Mutex::new(false));
+    let exited_fwd = Arc::clone(&exited);
+    let forwarder = match std::thread::Builder::new()
+        .name("hp-signal-forwarder".into())
+        .spawn(move || {
+            let Ok(pid) = pid_rx.recv() else {
+                return; // launch failed: nothing to forward to
+            };
+            for info in signals.forever() {
+                if !should_forward(&info) {
+                    continue;
+                }
+                let guard = exited_fwd.lock().unwrap_or_else(|p| p.into_inner());
+                if !*guard && let Some(sig) = Signal::from_named_raw(info.si_signo) {
+                    let _ = kill_process(pid, sig);
+                }
+            }
+        }) {
+        Ok(t) => t,
+        Err(e) => {
+            handle.close();
+            crate::sigdisp::restore_mask();
+            return RunOutcome::internal(format!(
+                "heimdall-proto: cannot start the signal forwarder, command not launched: {:?}",
+                e.kind()
+            ));
+        }
+    };
     // Handlers are in place: let signals blocked since main() through.
     crate::sigdisp::restore_mask();
 
     let mut child = match Command::new(&argv[0]).args(&argv[1..]).spawn() {
         Ok(c) => c,
         Err(e) => {
+            drop(pid_tx);
             handle.close();
+            let _ = forwarder.join();
             return RunOutcome::launch_failed(&e);
         }
     };
     let pid = Pid::from_child(&child);
-
-    let exited = Arc::new(Mutex::new(false));
-    let exited_fwd = Arc::clone(&exited);
-    let forwarder = std::thread::spawn(move || {
-        for info in signals.forever() {
-            if !should_forward(&info) {
-                continue;
-            }
-            let guard = exited_fwd.lock().unwrap_or_else(|p| p.into_inner());
-            if !*guard && let Some(sig) = Signal::from_named_raw(info.si_signo) {
-                let _ = kill_process(pid, sig);
-            }
-        }
-    });
+    let _ = pid_tx.send(pid);
 
     // Wait for termination without reaping, so the PID stays valid while the
     // forwarder may still signal it.

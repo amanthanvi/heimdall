@@ -1,0 +1,19 @@
+aarch64
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-16df67353d49c928
+
+running 1 test
+test linux_nproc_limit_never_orphans_child ... limit=4 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=5 (base 5): exit=Some(1) meta=none child_pid_recorded=true orphan=true stderr="thread 'main' (11) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/std/src/thread/functions.rs:131:29:\nfailed to spawn thread: Os { code: 11, kind: WouldBlock, message: \"Resource temporarily unavailable\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+
+thread 'linux_nproc_limit_never_orphans_child' (9) panicked at tests/cli.rs:1083:9:
+orphaned child: limit=5 (base 5): exit=Some(1) meta=none child_pid_recorded=true orphan=true stderr="thread 'main' (11) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/std/src/thread/functions.rs:131:29:\nfailed to spawn thread: Os { code: 11, kind: WouldBlock, message: \"Resource temporarily unavailable\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    linux_nproc_limit_never_orphans_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.41s
+

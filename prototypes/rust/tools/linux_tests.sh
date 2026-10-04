@@ -4,7 +4,7 @@
 #   binary-override: path (inside the repo) of the heimdall-proto binary under test,
 #   e.g. a round-1 binary for a red proof; default dist/<dist target>/heimdall-proto.
 # HP_TEST_ONLY: substring filter on test executable paths; HP_TEST_ARGS: arguments for
-# them (default --test-threads=4). Images are pinned by digest and must already be present locally (--pull never).
+# them (default --test-threads=4). HP_LINUX_USER: run as that uid:gid (round 3b, RLIMIT_NPROC test). Images are pinned by digest and must already be present locally (--pull never).
 # Fixtures come from HEIMDALL_G02_FIXTURES, so no path symlink is needed. --network none.
 set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -15,7 +15,7 @@ IMG="${HP_LINUX_TEST_IMAGE:-debian:bookworm-slim@sha256:0c8bbb8e987a035fe1d9704e
 list="$HERE/target/tests-$triple.txt"
 bins=$(sed "s#^$REPO#/repo#" "$list" | grep -F -- "${HP_TEST_ONLY:-/}" | tr '\n' ' ')
 ARGS=${HP_TEST_ARGS:---test-threads=4}
-exec docker run --rm --pull never --platform "linux/$arch" --network none \
+exec docker run --rm --pull never --platform "linux/$arch" --network none ${HP_LINUX_USER:+--user "$HP_LINUX_USER"} \
   -v "$REPO:/repo:ro" \
   -e HEIMDALL_G02_FIXTURES=/repo/tests/fixtures/g02/profiles \
   -e "HEIMDALL_PROTO_BIN=/repo/$bin" \

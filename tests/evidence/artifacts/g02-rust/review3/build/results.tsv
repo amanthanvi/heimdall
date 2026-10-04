@@ -1,0 +1,4 @@
+darwin-arm64	darwin-arm64/heimdall-proto	1	0	6
+linux-x64	linux-x64/heimdall-proto	1	0	6
+linux-arm64	linux-arm64/heimdall-proto	1	0	5
+windows-x64	windows-x64/heimdall-proto.exe	1	0	6

@@ -2,6 +2,8 @@
 
 # REPORT.md content — G02 prototype: Rust + Ratatui (M00-T05-rust)
 
+> **Current state:** §14 "Round 3b (2026-10-04)" is the current mechanism and evidence. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
+
 **Evidence:** `tests/evidence/g02-rust-selftest.json`, plus `tests/evidence/artifacts/g02-rust/selftest/` (`summary.json` with the real exit code of every step, one log per step). Re-run everything with `prototypes/rust/selftest.sh`.
 
 ## 1. Layout and the shared-operations gate
@@ -284,3 +286,110 @@ watchdog's `poll`, now `restore()` polls stdin once.
 - Downloads this round: the `rust-src` component for the stable 1.99.0 toolchain (rustup,
   2026-10-03T21:24Z), used for the standard-library inventory. No other downloads; all container
   images were already local and are pinned by digest or image ID.
+
+## 14. Round 3b (2026-10-04)
+
+Task M00-T05-rust-round3b-fix: the final fix round under the complete rulings (contract §9–§9.3, including
+K6b, K6d, K6e, K17, K18, the K10 exit form and the start-up window). Evidence: `tests/evidence/g02-rust-selftest.json`
+(attempt 4; attempts 1–3 kept) and `tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b/` (`summary.json`:
+47 steps, real exit codes, `all_expectations_met: true`; run started 2026-10-04T19:27:44Z). Re-run with
+`HP_SELFTEST_RUN_HARNESS=1 prototypes/rust/selftest.sh`.
+
+"Red" below means the round-2 artifact (digests checked against the round-2 manifest: darwin `d9838f89…`,
+linux-arm64 `77d10192…`, linux-x64 `28c8dee0…`; copies kept in gitignored `target/round2-dist/`) fails the new test.
+
+### Round-3 baseline → outcome
+
+The round-3 baseline records (`tests/evidence/g02-rust-conformance.json`, `…-linux.json`, harness 2.3.0, round-2
+artifacts) had **no failure**: 136/136 on darwin-arm64 and on linux-arm64, including `run.k6d_shared_mode_explicit_signals`,
+`run.k6e_job_control` and `tui.large_100_filter_latency` (K17). No assertion, gating or not, was false in either record.
+
+| Item | Outcome | Where (code; proving test) |
+|---|---|---|
+| Review2 defect 1: a thread-spawn failure after the child is spawned exits 1 first and orphans the child, with no meta file (§4 "waits for the child and does not exit first") | **Fixed.** The signal-forwarding thread is now created **before** the child, with `std::thread::Builder::spawn` (an error, not a panic). It receives the child PID over a channel; signals caught before that stay buffered and are forwarded once. If no thread can be created, nothing has been launched: stderr diagnostic, exit 1, meta `CHILD_LAUNCH_FAILED` (`launched:false`). If the child cannot be created after the thread, it is an ordinary launch failure (127). After the child exists, no code path can return before the wait. | `src/runner.rs` `run`; `tests/cli.rs` `run_thread_spawn_failure_never_orphans_child` (huge `RUST_MIN_STACK`; darwin and Linux arm64; red on round 2: exit 1, child ran after heimdall-proto exited) and `linux_nproc_limit_never_orphans_child` (a real `RLIMIT_NPROC`, uid 10001, limit swept over the task count −1…+4: new = exit 1 not launched / 127 / 0 ×4, never an orphan; red on round 2: at limit=base the thread clone failed, `failed to spawn thread` panic, exit 1, no meta, child orphaned). |
+| K6e Ctrl-Z / `fg` / `bg` under interactive bash (never probed for Rust in round 2) | **Verified, no change needed.** Exec semantics leave job control to the shell: Ctrl-Z stops heimdall-proto and the child together (one process group), `fg`/`bg` send SIGCONT to that group, and heimdall-proto never stops or re-stops anything. | `tests/pty_tui.py` `k6e-interactive-bash-ctrl-z-fg-bg` (`/bin/bash --norc -i` as session leader of a fresh pty; 3 × Ctrl-Z→`fg`→terminal read, 3 × Ctrl-Z→`bg` (heartbeat advances, nothing stopped)→`fg`→terminal read; no `Stopped` after `fg`; `RC=5` passed through): passes on darwin (bash 3.2) and Linux arm64 (bash 5.2) for both round 2 and round 3b. Sensitivity: the round-1 job-control binary fails it on both OSes (re-stopped after `fg` following `bg`). Harness `run.k6e_job_control` passes on both. |
+| K6d shared mode (explicit signal to the PID reaches the child at least once) | **Already conformed; now also a native test.** Every received signal is forwarded on Darwin; on Linux only kernel-generated ones are skipped, and a `kill(2)` to the PID is never kernel-generated. | pty `k6d-shared-mode-explicit-signals-reach-child` (heimdall-proto, `sh -c` script and child in the terminal's foreground group, checked with `getpgid`/`tcgetpgrp`; INT, TERM, HUP, QUIT, WINCH each counted 1 on both OSes; `RC=3`). Harness `run.k6d_shared_mode_explicit_signals`: 1 per signal and layout on both. |
+| K17 filter latency p95 ≤ 100 ms | **Conforms.** | Harness `tui.large_100_filter_latency`: p95 3.2 ms darwin, 2.0 ms Linux arm64 (round 3b artifacts). |
+| K18 value non-echo on stderr | **Conforms** (round 2 already named only key paths). | Harness `profile.error_value_not_echoed` (stderr and stdout) passes on both. |
+| K10 exit form | **Conforms**: SIGTERM → exit status 143, SIGHUP/hangup → 129 (plain exit statuses). | pty `k10-sighup-129-sigterm-143-no-stdout`; harness `tui.sigterm_restores_terminal`, `tui.sighup_exit_129`, `tui.hangup_exit_129`. |
+| Start-up window | **Residual, outside the contract (§9.3).** Unchanged: `main` blocks the five signals first. | `darwin-early-sigint` (≤0.5 ms after spawn 30/30 killed, 1 ms 20/30 CANCELLED, ≥2 ms 30/30), `linux-arm64-early-sigint` (0 ms 30/30 killed, 0.25 ms 13/30 CANCELLED, ≥0.5 ms 30/30). |
+| `RUST_MIN_STACK` test under linux-x64 **emulation** | **Not a product result.** Rosetta itself aborts the process (`rosetta error: could not find free space for allocation size 38d7ea4c6b000`, SIGTRAP, status 133) on the huge stack mmap before heimdall-proto runs any code that could handle it. That test is skipped in the emulated amd64 step only (`--skip`, reason in `selftest.sh`) and the observation is recorded (`linux-amd64-emulated-min-stack-observation`). All other emulated tests pass; native linux-x64 was not run (no host). | `selftest.sh`; step logs |
+
+No stack limitation was hit this round. The K6c stack limitation (inherited ignored SIGPIPE reset by Rust std,
+remedy: nightly `-Zon-broken-pipe=inherit` or a pre-exec re-ignore, not applied) is unchanged and still asserted by
+`k6a_limitation_sigpipe_ignore_not_preserved_by_rust_std`.
+
+### Corrections to earlier sections (review2 defect 4)
+- §13 "Remaining gaps" said std's spawn resets the child's blocked-signal mask. That is wrong: a caller-blocked
+  signal stays blocked in the child (review2 probe on both OSes; harness K6c observation). The forwarder thread
+  now also inherits the startup block, which does not reach the child (the child is spawned by the main thread
+  after `restore_mask`).
+- §2 "91 crate versions in the lock": `Cargo.lock` has 117 `[[package]]` entries.
+- §4 and §6 describe the round-1 mechanism (see the banner at the top).
+
+### Final signal / terminal / job-control mechanism (`run`, Unix)
+- **Exec semantics.** The child stays in heimdall-proto's process group and session. heimdall-proto never calls
+  `setpgid` or `tcsetpgrp` and never stops itself or anything else, so the shell's job control acts on the pair as
+  one job (K6a, K6e).
+- **Order:** block INT/TERM/HUP/QUIT/WINCH first in `main` → query dispositions; signals inherited as `SIG_IGN` get
+  no handler (`execve` keeps them ignored in the child; never forwarded) → register the rest (signal-hook
+  `WithRawSiginfo`) → start the forwarder thread (failure: report and launch nothing) → restore the mask → spawn
+  the child → hand its PID to the forwarder → `waitid(WEXITED|WNOWAIT)` → disarm forwarding → reap.
+- **Forwarding:** each caught signal goes to the child's PID with `kill(2)`, except on Linux when `si_code > 0`
+  (kernel-generated: the terminal already signalled the whole foreground group, child included), unless it is a
+  hangup SIGHUP and heimdall-proto is the session leader.
+
+### Remaining gaps, stated plainly
+- **Darwin duplicate terminal-signal delivery (K6b-permitted, documented, non-gating).** Darwin gives a tty signal
+  and `kill(2)` the same `siginfo`, so heimdall-proto forwards a terminal-generated signal that the child already got
+  from the kernel. One Ctrl-C reaches the child **twice** (pty `run-terminal-sigint-not-doubled` count=2,
+  `known_limitation`; harness `run.explicit_signal_with_tty`: one Ctrl-C → 2 deliveries, two Ctrl-C → 4; on Linux 1
+  and 2). The same applies to Ctrl-\ (SIGQUIT), terminal resize (SIGWINCH) and a kernel SIGHUP sent to the
+  foreground group. A child that counts SIGINT (for example "press Ctrl-C twice to quit") behaves differently
+  on macOS. The only alternative, giving the child its own foreground group, breaks K6a whenever another process
+  shares heimdall-proto's group.
+- **All platforms:** a group-directed signal from another process (`killpg`) reaches the child directly and is
+  also forwarded: twice (K6b: recorded, not gated).
+- **Out of contract (§9.3 "not gated"), unchanged:** signals other than the five forwarded ones (SIGUSR1/USR2/ALRM
+  …) and SIGKILL to the heimdall-proto PID orphan the child (production remedy: forward or handle every catchable
+  terminating signal; `PR_SET_PDEATHSIG` / a supervisor for SIGKILL). The TUI ends by default action on SIGQUIT and
+  SIGUSR1 without restoring the terminal.
+- **Start-up window:** a signal in the ~0.5–1 ms between `execve` and `main` kills the process by default action
+  (outside the contract, residual for any stack).
+- **SIGPIPE** inherited as ignored is not preserved in the child (K6c stack limitation above).
+- **Thread-creation failure** now launches nothing (exit 1, `CHILD_LAUNCH_FAILED`); a caller may prefer the command
+  to run without forwarding. That is a product choice for M01; G02 only requires no early exit and no orphan.
+- **Windows:** compile-checked only (**blocked: needs a Windows 10/11 x64 host**); WSL **blocked: needs a Windows
+  host with WSL2**. linux-x64 only under emulation.
+
+### Round-3b results (attempt 4; all real exit codes)
+- Host (macOS 27.0 arm64, rustc 1.99.0): fmt, clippy `-D warnings` (host and `x86_64-pc-windows-gnu`) exit 0;
+  `cargo test` lib 49, bin 4, cli 27 passed (the Linux-only RLIMIT_NPROC test is not compiled on darwin).
+- darwin dist: CLI tests 27/27 under `env -i PATH=/usr/bin:/bin`; pty 26 cases: 25 pass, 1 `known_limitation`
+  (`run-terminal-sigint-not-doubled`, count=2).
+- Linux arm64 (Docker Desktop VM, native arm64 kernel, digest-pinned images, `--network none`): lib 49, bin 4, cli 27
+  passed (1 ignored, run separately: `linux-arm64-nproc` as uid 10001, exit 0); pty 26/26.
+  linux-x64 (emulated, alpine 3.22 amd64 image ID `c83674e1…`): 49 + 4 + 26 passed, 1 skipped as described above.
+- Red proofs (expected non-zero, observed): round-2 darwin `thread_spawn` 101, round-2 Linux arm64 `thread_spawn` 101 and
+  `linux_nproc` 101. Round-2 K6e/K6d pty cases pass (exit 0) on both OSes (no change was needed). Round-1 sensitivity
+  for K6e: exit 1 on both OSes. The round-1 red steps of attempt 3 still fail as expected (101 / 1).
+- **Shared harness 2.3.0, read-only, on the round-3b artifacts** (records under `/tmp/hp-rs-round3b-harness/`,
+  copies in `attempt-4-round3b/harness-{darwin,linux}/record.json`): darwin exit 0, 136/136, `verified`/`pass`,
+  digest `00310565…`; Linux arm64 via `tests/g02/linux/run.sh` exit 0, 136/136, `verified`/`pass`, digest `9b9450dd…`.
+  Non-gating: darwin `signal_duplicate_probe` [1,1,1,1,1,2,1,2,1,2], Linux [1×10].
+- Builds (`dist/manifest.json`, rustc 1.99.0; identical from a second checkout path, step `repro-other-checkout`):
+
+| Target | Size | sha256 |
+|---|---|---|
+| darwin-arm64 | 717,968 B | 00310565… |
+| linux-x64 | 875,560 B | 3120f83e… |
+| linux-arm64 | 812,728 B | 9b9450dd… |
+| windows-x64 | 841,728 B | 9bbdf7bd… |
+
+  windows-x64 changed digest although its code did not change; inferred (not verified per byte) to come from the
+  embedded panic-location line numbers of `src/runner.rs`.
+- Test-driver changes: `tests/pty_tui.py` gains `HP_PTY_ONLY` (case-name filter for focused runs; the full selftest
+  runs every case), the K6e and K6d cases; `tools/linux_tests.sh` gains `HP_LINUX_USER`; `tools/linux_pty.sh` passes
+  `HP_PTY_ONLY`; `selftest.sh` writes attempt 4, adds the round-2 red proofs, the K6e sensitivity steps, both harness
+  runs and a canary scan of the attempt directory (no `HEIMDALL_CANARY_` value found).
+- No downloads this round; all images were local and pinned by digest or image ID.

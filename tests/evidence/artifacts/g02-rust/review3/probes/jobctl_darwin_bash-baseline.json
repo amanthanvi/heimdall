@@ -1,0 +1,47 @@
+{
+ "shell": "/bin/bash",
+ "hp": "NONE",
+ "platform": "darwin",
+ "uname": "arm64",
+ "self_stop": {
+  "pids_seen": true,
+  "states_1.5s_after_self_stop": {
+   "child": "T",
+   "parent_of_child": "S"
+  },
+  "shell_reported_stop_without_user_action": true,
+  "prompt_returned_without_user_action": true,
+  "recovery_steps": [
+   "fg"
+  ],
+  "child_resumed": true,
+  "rc5_reported": false,
+  "transcript_tail": "/bin/sh -c 'echo $$ $PPID > /tmp/hp-review3-rust/jc-bash-baseline/selfst \rop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'; echo RC=$?\r\nC_START\r\n\r\n[1]+  Stopped                 /bin/sh -c 'echo $$ $PPID > /tmp/hp-review3-rust/jc-bash-baseline/selfstop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'\r\nRC=146\r\nPROMPT> fg\r\n/bin/sh -c 'echo $$ $PPID > /tmp/hp-review3-rust/jc-bash-baseline/selfstop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'\r\nC_RESUMED\r\nPROMPT> "
+ },
+ "ctrlz_fg_bg": {
+  "stopped_after_ctrl_z": true,
+  "bg_output_tail": "bg\r\n[1]+ /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4' &\r\n\r\n[1]+  Stopped                 /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nPROMPT> ",
+  "got_input_after_fg": true,
+  "rc4": false,
+  "restopped_after_fg": 0,
+  "transcript_tail": "/bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'; echo RC=$?\r\nC_READY\r\n^Z\r\n[1]+  Stopped                 /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nRC=146\r\nPROMPT> bg\r\n[1]+ /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4' &\r\n\r\n[1]+  Stopped                 /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nPROMPT> fg\r\n/bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nhello\r\nGOT=hello\r\nPROMPT> "
+ },
+ "ctrl_c": {
+  "signal": "INT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "ctrl_backslash": {
+  "signal": "QUIT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "explicit_tstp": {
+  "states_after_tstp": {
+   "child": "T",
+   "launcher": "S"
+  },
+  "shell_saw_stop": true,
+  "rc6_after_fg": false
+ }
+}

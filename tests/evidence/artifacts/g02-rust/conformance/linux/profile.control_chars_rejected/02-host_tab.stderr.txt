@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: destinations[0].host contains control characters

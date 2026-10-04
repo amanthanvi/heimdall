@@ -1,0 +1,47 @@
+{
+ "shell": "/bin/zsh",
+ "hp": "NONE",
+ "platform": "linux",
+ "uname": "aarch64",
+ "self_stop": {
+  "pids_seen": true,
+  "states_1.5s_after_self_stop": {
+   "child": "T",
+   "parent_of_child": "S"
+  },
+  "shell_reported_stop_without_user_action": true,
+  "prompt_returned_without_user_action": true,
+  "recovery_steps": [
+   "fg"
+  ],
+  "child_resumed": true,
+  "rc5_reported": false,
+  "transcript_tail": "/bin/sh -c 'echo $$ $PPID > /tmp/jc/selfstop.pids; echo C_START; kill -TSTP $$; echo C_RESUMED; exit 5'; echo RC=$?\r\nC_START\r\n\r\nzsh: suspended  /bin/sh -c \r\nRC=148\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> fg\r\n[1]  + continued  /bin/sh -c \r\nC_RESUMED\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> "
+ },
+ "ctrlz_fg_bg": {
+  "stopped_after_ctrl_z": true,
+  "bg_output_tail": "bg\r\n[1]  + continued  /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nPROMPT> ",
+  "got_input_after_fg": true,
+  "rc4": false,
+  "restopped_after_fg": 1,
+  "transcript_tail": "RC=148\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> bg\r\n[1]  + continued  /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nPROMPT> fg\r\n[1]  + suspended (tty input)  /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\n[1]  + continued  /bin/sh -c 'echo C_READY; read x; echo GOT=$x; exit 4'\r\nhello\r\nGOT=hello\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rPROMPT> "
+ },
+ "ctrl_c": {
+  "signal": "INT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "ctrl_backslash": {
+  "signal": "QUIT",
+  "child_count": 1,
+  "rc3": true
+ },
+ "explicit_tstp": {
+  "states_after_tstp": {
+   "child": "T",
+   "launcher": "S"
+  },
+  "shell_saw_stop": true,
+  "rc6_after_fg": false
+ }
+}

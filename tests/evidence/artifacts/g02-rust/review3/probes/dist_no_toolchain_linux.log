@@ -1,0 +1,2 @@
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","revision":3,"destinations":[{"id":"dst_lab_server","alias":"l
+rc=0

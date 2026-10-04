@@ -1,19 +1,19 @@
 #!/bin/sh
 # Native self-test driver for the Rust G02 prototype. Runs every step, records the
 # REAL exit status of each, and writes logs plus summary.json under
-# $HP_SELFTEST_OUT (default: tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2).
+# $HP_SELFTEST_OUT (default: tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b).
 # Never touches ~/.ssh or a real agent (SSH_AUTH_SOCK is unset; fake agents live in
 # per-test temp dirs). Containers run with --network none and --pull never, from images
 # pinned by digest. POSIX sh.
 #
 # Each step has an expectation: "exit0", or "nonzero" for red proofs (new tests run
-# against the round-1 binaries, whose digests are checked against the round-1 manifest).
+# against the round-1 or round-2 binaries, whose digests are checked against their manifests).
 # summary.json records both; "met" says whether the real exit status matched.
 set -u
 unset SSH_AUTH_SOCK
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 REPO=$(CDPATH= cd -- "$HERE/../.." && pwd -P)
-OUT="${HP_SELFTEST_OUT:-$REPO/tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2}"
+OUT="${HP_SELFTEST_OUT:-$REPO/tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 STEPS="$OUT/steps.tsv"
@@ -28,6 +28,7 @@ PYIMG="python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a3
 # alpine 3.22 amd64 retag (hp-g02-alpine-amd64:3.22), pinned here by image ID.
 AMD64IMG="${HP_AMD64_IMAGE:-sha256:c83674e1999044d33d751661371b873539f47e5b5c5ca3320c7e0377acca6238}"
 R1="$HERE/target/round1-dist"   # round-1 artifacts for red proofs (see step round1-digests)
+R2="$HERE/target/round2-dist"   # round-2 artifacts for round-3b red proofs (see step round2-digests)
 
 # step <name> <expect: exit0|nonzero> <command string> : sh -c, log to $OUT/<name>.log
 step() {
@@ -89,8 +90,15 @@ if docker info >/dev/null 2>&1; then
   step linux-arm64-k15-measure exit0 "HP_TEST_ONLY=/cli- HP_TEST_ARGS='k15 --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64"
   step linux-arm64-dist-pty exit0 "sh tools/linux_pty.sh arm64 prototypes/rust/dist/linux-arm64/heimdall-proto prototypes/rust/target/panic/aarch64-unknown-linux-musl/debug/heimdall-proto"
   step linux-arm64-early-sigint exit0 "docker run --rm --pull never --platform linux/arm64 --network none -e PYTHONDONTWRITEBYTECODE=1 -v '$REPO:/repo:ro' $PYIMG python3 /repo/prototypes/rust/tools/early_sigint_probe.py /repo/prototypes/rust/dist/linux-arm64/heimdall-proto 30"
+  # Round 3b: review2 defect 1 under a real RLIMIT_NPROC (non-root uid; ignored test, run alone).
+  step linux-arm64-nproc exit0 "HP_LINUX_USER=10001:10001 HP_TEST_ONLY=/cli- HP_TEST_ARGS='linux_nproc --ignored --test-threads=1 --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64"
   step linux-amd64-dist-version exit0 "docker run --rm --pull never --platform linux/amd64 --network none -v '$REPO:/repo:ro' $AMD64IMG sh -c 'uname -m; /repo/prototypes/rust/dist/linux-x64/heimdall-proto version --json'"
-  step linux-amd64-native-tests-emulated exit0 "HP_LINUX_TEST_IMAGE=$AMD64IMG sh tools/linux_tests.sh amd64 x86_64-unknown-linux-musl linux-x64"
+  # Round 3b: the RUST_MIN_STACK test is skipped under amd64 emulation only. Rosetta
+  # itself aborts the process (SIGTRAP, "could not find free space for allocation") on
+  # the huge thread-stack mmap before heimdall-proto can handle the failure: an emulator
+  # artifact, recorded by the observation step below. Native arm64 runs it.
+  step linux-amd64-native-tests-emulated exit0 "HP_LINUX_TEST_IMAGE=$AMD64IMG HP_TEST_ARGS='--test-threads=4 --skip run_thread_spawn_failure_never_orphans_child' sh tools/linux_tests.sh amd64 x86_64-unknown-linux-musl linux-x64"
+  step linux-amd64-emulated-min-stack-observation exit0 "docker run --rm --pull never --platform linux/amd64 --network none -v '$REPO:/repo:ro' $AMD64IMG sh -c 'RUST_MIN_STACK=999999999999999 /repo/prototypes/rust/dist/linux-x64/heimdall-proto run --meta-file /tmp/m -- sh -c \"echo child-ran\"; echo \"heimdall-proto exit status under amd64 emulation: \$?\"; test -f /tmp/m && cat /tmp/m || echo \"no meta file\"'"
 else
   printf 'docker\t-1\texit0\t0\tdocker unavailable\n' >>"$STEPS"
 fi
@@ -114,15 +122,52 @@ else
   printf 'round1-digests\t-1\texit0\t0\tround-1 binaries not present under target/round1-dist\n' >>"$STEPS"
 fi
 
-# --- shared conformance harness: not run by default (tests/g02 is being changed
-# concurrently; its results are not this prototype's verdict). HP_SELFTEST_RUN_HARNESS=1
-# runs it read-only for information.
+# --- round 3b red proofs: the round-2 binaries against the round-3b tests -------------
+if [ -d "$R2" ]; then
+  step round2-digests exit0 'shasum -a 256 '"$R2"'/*/heimdall-proto; python3 -c "
+import hashlib,sys
+want={\"darwin-arm64\":\"d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3ef65a67e11\",\"linux-arm64\":\"77d10192ec9192d09370b13b97ae04af1c59b11e3bda8604825597581a6ccb42\",\"linux-x64\":\"28c8dee00e34be705c38170f84a611f023693ecfb567e24bfe16e9fb84661272\"}
+ok=all(hashlib.sha256(open(sys.argv[1]+\"/\"+t+\"/heimdall-proto\",\"rb\").read()).hexdigest()==h for t,h in want.items())
+print(\"round-2 manifest digests match:\", ok); sys.exit(0 if ok else 1)" '"$R2"
+  step red-round2-darwin-thread-spawn nonzero 'HEIMDALL_G02_FIXTURES="'"$FIX"'" HEIMDALL_PROTO_BIN='"$R2"'/darwin-arm64/heimdall-proto "$(cat target/host-cli-test.txt)" thread_spawn --nocapture'
+  step round2-darwin-pty-k6e-k6d exit0 'HP_PTY_ONLY=k6 python3 tests/pty_tui.py '"$R2"'/darwin-arm64/heimdall-proto'
+  if docker info >/dev/null 2>&1; then
+    step red-round2-linux-arm64-thread-spawn nonzero "HP_TEST_ONLY=/cli- HP_TEST_ARGS='thread_spawn --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
+    step red-round2-linux-arm64-nproc nonzero "HP_LINUX_USER=10001:10001 HP_TEST_ONLY=/cli- HP_TEST_ARGS='linux_nproc --ignored --test-threads=1 --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
+    step round2-linux-arm64-pty-k6e-k6d exit0 "HP_PTY_ONLY=k6 sh tools/linux_pty.sh arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
+  fi
+else
+  printf 'round2-digests\t-1\texit0\t0\tround-2 binaries not present under target/round2-dist\n' >>"$STEPS"
+fi
+# Sensitivity of the new K6e case: the round-1 job-control design (child in its own
+# foreground group, self-SIGSTOP) must fail it.
+if [ -d "$R1" ]; then
+  step sensitivity-round1-darwin-k6e nonzero 'HP_PTY_ONLY=k6e python3 tests/pty_tui.py '"$R1"'/darwin-arm64/heimdall-proto'
+  if docker info >/dev/null 2>&1; then
+    step sensitivity-round1-linux-arm64-k6e nonzero "HP_PTY_ONLY=k6e sh tools/linux_pty.sh arm64 prototypes/rust/target/round1-dist/linux-arm64/heimdall-proto"
+  fi
+fi
+
+# --- shared conformance harness (read-only; tests/g02 is not this prototype's to edit).
+# HP_SELFTEST_RUN_HARNESS=1 runs the full catalogue on darwin and, through
+# tests/g02/linux/run.sh, on linux-arm64. Records and harness artifacts are written under
+# /tmp ($HP_HARNESS_TMP); the records and console logs are copied into $OUT/harness-*/.
 H="$REPO/tests/g02/conformance.py"
 if [ -f "$H" ] && [ -n "${HP_SELFTEST_RUN_HARNESS:-}" ]; then
   PY=python3
   [ -x "$REPO/tests/g02/.venv/bin/python" ] && PY="$REPO/tests/g02/.venv/bin/python"
-  step harness-informational exit0 "'$PY' '$H' --bin '$HERE/dist/darwin-arm64/heimdall-proto' --candidate rust --out '$OUT/harness-record.json' --artifacts-dir '$OUT/harness'"
+  HT="${HP_HARNESS_TMP:-/tmp/hp-rs-round3b-harness}"
+  rm -rf "$HT"; mkdir -p "$HT/darwin" "$HT/linux" "$OUT/harness-darwin" "$OUT/harness-linux"
+  step harness-darwin exit0 "cd '$REPO' && '$PY' '$H' --bin '$HERE/dist/darwin-arm64/heimdall-proto' --candidate rust --out '$HT/darwin/record.json' --artifacts-dir '$HT/darwin/artifacts' --case-id G02-rust-round3b-darwin"
+  cp "$HT/darwin/record.json" "$OUT/harness-darwin/record.json" 2>/dev/null
+  if docker info >/dev/null 2>&1; then
+    step harness-linux-arm64 exit0 "cd '$REPO' && sh tests/g02/linux/run.sh --artifact-dir '$HERE/dist/linux-arm64' --candidate rust --out '$HT/linux/record.json' --artifacts-out '$HT/linux/artifacts' --case-id G02-rust-round3b-linux-arm64"
+    cp "$HT/linux/record.json" "$OUT/harness-linux/record.json" 2>/dev/null
+  fi
 fi
+
+# No full canary value anywhere in this attempt's evidence (tests/evidence/README.md rule).
+step canary-scan exit0 'if grep -rlE "HEIMDALL_CANARY_[A-Za-z0-9_-]{8,}" "'"$OUT"'"; then exit 1; fi; echo "no canary value in '"$(basename "$OUT")"'"'
 
 python3 - "$OUT" "$REPO" "$HOME" <<'PY'
 import json, os, sys
@@ -136,8 +181,8 @@ for line in open(os.path.join(out, "steps.tsv"), encoding="utf-8"):
     steps.append({"step": name, "exit_code": rc, "expect": expect, "met": met, "seconds": int(secs),
                   "command": cmd.replace(home, "~"), "log": f"{rel}/{name}.log"})
 # Logs must not carry the builder's home path.
-for fn in os.listdir(out):
-    p = os.path.join(out, fn)
+for p in [os.path.join(dp, fn) for dp, _, fns in os.walk(out) for fn in fns]:
+    fn = os.path.basename(p)
     if os.path.isfile(p) and fn.endswith((".log", ".json", ".tsv")):
         t = open(p, encoding="utf-8", errors="replace").read()
         if home in t:

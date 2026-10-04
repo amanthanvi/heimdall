@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: malformed TOML: invalid UTF-8 at line 1 column 1

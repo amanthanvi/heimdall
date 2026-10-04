@@ -1,0 +1,19 @@
+
+running 1 test
+deep-array-open: 1048565 bytes exit 2 "SCHEMA_INVALID" rss 52 MiB 19.860958ms
+deep-array-closed: 1048565 bytes exit 2 "SCHEMA_INVALID" rss 52 MiB 18.491375ms
+deep-inline-open: 1048564 bytes exit 2 "SCHEMA_INVALID" rss 52 MiB 19.637208ms
+deep-inline-closed: 1048564 bytes exit 2 "SCHEMA_INVALID" rss 52 MiB 19.324833ms
+deep-dotted-key: 1048564 bytes exit 2 "SCHEMA_INVALID" rss 73 MiB 28.466958ms
+deep-table-header: 1048560 bytes exit 2 "SCHEMA_INVALID" rss 73 MiB 27.332208ms
+wide-array: 1048567 bytes exit 0 "PROFILE_OK" rss 142 MiB 51.100292ms
+wide-empty-arrays: 1048566 bytes exit 0 "PROFILE_OK" rss 111 MiB 41.291417ms
+wide-empty-tables: 1048566 bytes exit 0 "PROFILE_OK" rss 111 MiB 43.567208ms
+wide-strings: 1048566 bytes exit 0 "PROFILE_OK" rss 95 MiB 41.969833ms
+array-of-tables: 1048552 bytes exit 0 "PROFILE_OK" rss 52 MiB 35.722625ms
+nested-2-arrays: 1048533 bytes exit 0 "PROFILE_OK" rss 116 MiB 64.296792ms
+K15 worst case: peak RSS 142 MiB, 64.296792ms
+test k15_parser_resource_bound ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.51s
+

@@ -1,0 +1,222 @@
+{
+  "subject": "M00-T05-review3-rust: independent adversarial review of the Rust + Ratatui G02 prototype after round 3b (artifacts darwin-arm64 00310565…, linux-arm64 9b9450dd…; harness 2.3.0)",
+  "reexecuted_commands": [
+    {
+      "command": "rsync prototypes/rust (excluding target/dist) to /tmp/hp-review3-rust/src-copy; CARGO_ZIGBUILD=<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild sh build.sh (rustc 1.99.0, zig 0.16.0)",
+      "exit_code": 0,
+      "observed": "All four targets built. darwin-arm64 003105655033…, linux-x64 3120f83e86e4…, linux-arm64 9b9450ddab73…, windows-x64 9bbdf7bd8429… and THIRD-PARTY-NOTICES.txt d13a6ca8… are byte-identical (sha256 and size) to prototypes/rust/dist/manifest.json, built from a different checkout path. Log: review3/build/build-sh.out, manifest-review-rebuild.json."
+    },
+    {
+      "command": "env -u SSH_AUTH_SOCK python3 tests/g02/conformance.py --bin /tmp/hp-review3-rust/src-copy/dist/darwin-arm64/heimdall-proto --candidate rust --case-id G02-rust-review3-darwin --out review3/harness-darwin/record.json --artifacts-dir review3/harness-darwin/artifacts",
+      "exit_code": 0,
+      "observed": "136 total: 136 pass, 0 fail, 0 error, 0 skipped. status verified, artifact_digest sha256:003105655033…, build_commit a04f2f3…+dirty. K17 p95 4.4 ms (max 5.0). K6d counts 1 per signal and layout. Terminal Ctrl-C delivered 2 times, twice 4 (non-gating, documented). Duplicate probe [1,1,1,2,1,1,1,1,1,2]. K3a reset seen as EOF (Darwin)."
+    },
+    {
+      "command": "env -u SSH_AUTH_SOCK tests/g02/linux/run.sh --artifact-dir /tmp/hp-review3-rust/src-copy/dist/linux-arm64 --candidate rust --case-id G02-rust-review3-linux --out review3/harness-linux/record.json --artifacts-out review3/harness-linux/artifacts",
+      "exit_code": 0,
+      "observed": "136 total: 136 pass, 0 fail, 0 error, 0 skipped. status verified, digest sha256:9b9450ddab73…. K17 p95 4.3 ms. Terminal Ctrl-C 1, twice 2. Duplicate probe all 1."
+    },
+    {
+      "command": "HEIMDALL_G02_FIXTURES=tests/fixtures/g02/profiles cargo test --locked --offline (in the /tmp copy)",
+      "exit_code": 0,
+      "observed": "lib 49 passed, bin 4 passed, tests/cli.rs 27 passed. This matches REPORT §14."
+    },
+    {
+      "command": "docker run --rm --network none --platform linux/arm64 debian:bookworm-slim: probe for cargo/rustc/go/node/bun/python3/gcc/cc, then heimdall-proto version --json and profile show --file homelab.toml --json",
+      "exit_code": 0,
+      "observed": "No toolchain was found in the image. version --json gave VERSION_OK, and profile show gave PROFILE_OK, rc=0. Log: probes/dist_no_toolchain_linux.log."
+    },
+    {
+      "command": "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json; otool -L; codesign -dv",
+      "exit_code": 0,
+      "observed": "VERSION_OK. The binary links only libiconv and libSystem. The signature is ad hoc with the hardened runtime (flags=0x10002 adhoc,runtime). It has no Developer ID or notarization."
+    },
+    {
+      "command": "python3 probe: profile show / version with stdout = a pipe whose reader is already closed, with and without --json (darwin)",
+      "exit_code": 0,
+      "observed": "Without --json, profile show exits 1 (println! panic: 'failed printing to stdout'). With --json it exits 0. version behaves the same: exit 1 without --json, 0 with it. Log: probes/k12_epipe_darwin.log. With a real '| head -c 1' both exited 0, because the output fit in one write."
+    },
+    {
+      "command": "python3 probes/sandbox_probe.py (darwin sandbox-exec: deny file-write* except the named meta path and the tty/null/fd; deny process-exec of anything but heimdall-proto; TERM=tmux-256color, TMUX, TERM_PROGRAM=tmux set, fake tput/tmux/infocmp/stty/… first on PATH)",
+      "exit_code": 0,
+      "observed": "version 0, profile show 0, invalid profile 2, agent list with a missing socket 5, run with meta 0 (meta written), TUI with keys/filter/resizes/quit 0. No fake helper ran, and no file appeared in HOME or TMPDIR. Positive controls: exec of /bin/echo was denied (127), and writing meta elsewhere was denied (PermissionDenied)."
+    },
+    {
+      "command": "docker run (heimdall-review2-strace:1, --network none, uid 10001, cap-drop ALL) bash probes/strace_probe.sh: strace -f of version/profile/invalid profile/agent/run --meta-file/TUI-in-pty, with the same helper-selecting env and fake helpers on PATH",
+      "exit_code": 0,
+      "observed": "Exit codes 0/0/2/5/0, TUI 0. The only execve besides heimdall-proto itself is the run child /bin/true. No write-capable open, create, rename or unlink outside the named meta file and the tty. No helper ran, and 0 files appeared in HOME or TMPDIR."
+    },
+    {
+      "command": "python3 probes/jobctl_probe.py <shell> <hp|NONE> (pty, '<shell> -i' as session leader): darwin /bin/bash 3.2 and /bin/zsh; Linux bash and zsh in heimdall-g02-harness:d0c8e448a3a7 (--network none, uid 10001)",
+      "exit_code": 0,
+      "observed": "All 8 runs exited 0. Child self-stop (`/bin/sh -c '…; kill -TSTP $$; …'`): under heimdall-proto, on both OSes and both shells, after 1.5 s the child is T and heimdall-proto is S. The shell prints no Stopped line and does not return to the prompt, and recovery needed a terminal Ctrl-Z, then fg. In the direct-exec baseline the shell reports Stopped at once and fg resumes. Ctrl-Z, bg, fg, then terminal input: the child got the input after fg under heimdall-proto on all 4 combinations (Linux included); like the baseline. Terminal Ctrl-C and Ctrl-\\ counted 1 by an sh trap child (coalescing, so a lower bound). Explicit kill -TSTP to the heimdall-proto PID stops only heimdall-proto (T), while the child keeps running (S) and the shell reports the job stopped."
+    },
+    {
+      "command": "python3 probes/jobctl_probe.py /bin/bash <go dist darwin-arm64 heimdall-proto> (context only, not a Go review)",
+      "exit_code": 0,
+      "observed": "The Go build present in the tree (sha256 prefix a5644a4f5c18) propagates the child self-stop: both processes are T, and the shell reports Stopped without user action. So the Rust behavior is a candidate difference, not a platform limit."
+    },
+    {
+      "command": "bash probes/misc_probe.sh (darwin host, and Linux in heimdall-review2-strace:1), set -m",
+      "exit_code": 0,
+      "observed": "nohup with kill -HUP to the PID: child unaffected, exit 3. sh -c wrapper with explicit INT/TERM/HUP/QUIT/WINCH to the PID: 1 each, wrapper_rc 3. killpg INT: counted 1 (sh coalescing). Pipeline first and last, explicit TERM: 1 each. make recipe (darwin only, no make in the images): INT 1, make_rc 2. USR1 to the PID: exit 158 (darwin) / 138 (Linux); USR1 and KILL to the PID orphan the child (alive after heimdall-proto exits), out of contract. Burst of 5 INT: 3 counted (sh trap coalescing, not evidence of loss). SIGSTOP, then TERM, then SIGCONT: TERM forwarded once. Read-only meta dir: rc 0 with a stderr diagnostic. FIFO meta: no hang, rc 0. RUST_MIN_STACK=999999999999999: run exits 1, the child never ran, meta CHILD_LAUNCH_FAILED. agent list under the same env: INTERNAL, exit 1."
+    },
+    {
+      "command": "cargo tree -e normal,build --target {aarch64-apple-darwin,aarch64-unknown-linux-musl,x86_64-pc-windows-gnu} vs dist/THIRD-PARTY-NOTICES.txt",
+      "exit_code": 0,
+      "observed": "Every linked crate is listed with its license texts. The only crates not listed are proc-macro and build-script crates (syn, quote, proc-macro2, darling*, strum_macros, rustversion, …) and the prototype itself. All crate licenses are permissive: MIT/Apache, Zlib, Unlicense/MIT, BSL-1.0 option, Unicode. The mingw-w64 marked LGPL parts are declared as 'not determined'."
+    },
+    {
+      "command": "grep Cargo.lock [[package]]; python byte search for 'tput' in the artifacts; grep for $HOME in the artifacts",
+      "exit_code": 0,
+      "observed": "117 packages, matching the §14 correction. The only 'tput' byte matches are inside 'output' and 'InputOutput', so there is no standalone tput string. 0 home-path occurrences in all four artifacts."
+    },
+    {
+      "command": "grep -rE 'HEIMDALL_CANARY_[A-Za-z0-9_]{4,}' tests/evidence/artifacts/g02-rust/review3",
+      "exit_code": 1,
+      "observed": "No full canary value anywhere. The bare prefix appears in 2 files, the two harness records, and the harness's own canary self-check passed. One probe file was redacted, with $HOME replaced by ~."
+    }
+  ],
+  "confirmed_claims": [
+    "The rebuild is reproducible: a build from a different path (/tmp copy) gives sha256 identical to dist/manifest.json for all four targets and the notices file.",
+    "The harness-2.3.0 verdict holds on my independent build: darwin-arm64 136/136 (exit 0) and linux-arm64 via tests/g02/linux/run.sh 136/136 (exit 0), status verified on both, so K13 passes.",
+    "Round-2 review defect 1 is fixed: with thread creation forced to fail (RUST_MIN_STACK), run launches nothing, exits 1, writes meta CHILD_LAUNCH_FAILED and leaves no orphan. Observed on darwin and on Linux arm64.",
+    "K6d: an explicit INT/TERM/HUP/QUIT/WINCH to the PID reaches the child (count 1) in shared mode. Observed in the harness and in my own sh -c wrapper, pipeline-first, pipeline-last and make-recipe probes.",
+    "K6e core: Ctrl-Z then fg, and Ctrl-Z then bg then fg, under interactive bash and zsh on darwin and on Linux. The job stops, resumes and gets terminal input, and it is not re-stopped after fg.",
+    "K6a: nohup keeps SIGHUP ignored in the child, and an `&` job's inherited SIGINT/SIGQUIT ignore is preserved and not forwarded. My first misc-probe run showed this incidentally.",
+    "K16 / K11 runtime: no helper program executes and nothing is written outside the named meta path. Verified independently with strace on Linux and sandbox-exec on darwin, with TERM/TMUX/TERM_PROGRAM set to tmux values and fake helpers first on PATH.",
+    "K17 holds: p95 is 4.4 ms on darwin and 4.3 ms on Linux in my runs, and REPORT's 3.2/2.0 ms values match its own selftest records.",
+    "K10 and K18 pass in both of my harness runs.",
+    "The Darwin terminal-signal duplicate is still present and documented: harness Ctrl-C gave 2 deliveries, and two Ctrl-C gave 4. K6b allows this and it is non-gating.",
+    "Distribution: the linux-arm64 static musl binary runs in debian:bookworm-slim with no toolchain. The darwin binary runs under env -i and links only libSystem/libiconv. Ad-hoc signed with the hardened runtime, not notarized, as REPORT says.",
+    "The host test counts (lib 49, bin 4, cli 27) and Cargo.lock's 117 packages match REPORT §14. The artifacts contain no home path and no standalone 'tput' string.",
+    "Licensing: every linked crate is permissively licensed and has notice texts in dist/THIRD-PARTY-NOTICES.txt.",
+    "Out-of-contract items recorded in REPORT reproduce as described: USR1 and KILL to the PID orphan the child, a FIFO meta path no longer hangs, and an unwritable meta path is reported only on stderr."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "REPORT.md §14 K6e row / mechanism: 'Exec semantics leave job control to the shell … so the shell's job control acts on the pair as one job' and 'heimdall-proto never stops or re-stops anything' (offered as full K6e conformance)",
+      "evidence": "The claim only holds for stops sent to the whole group. If the child stops itself (kill -TSTP $$, which is what OpenSSH's ~^Z escape does via kill(getpid(), SIGTSTP) in client_suspend_self), heimdall-proto keeps waiting with waitid(WEXITED). The child stays in state T while the shell still treats the job as running in the foreground: no Stopped line and no prompt. Seen with bash and zsh on darwin and on Linux (probes/jobctl_*_bash-hp.json, *_zsh-hp.json). Only a second, terminal Ctrl-Z recovers. Run directly (exec baseline), and also under the Go build, the shell reports Stopped at once. K6e: 'The child is never left stopped while the shell believes the job is running.'"
+    }
+  ],
+  "hard_gate_findings": [
+    {
+      "gate": "K13 common slice: full harness 2.3.0 on darwin-arm64 and linux-arm64",
+      "verdict": "pass",
+      "evidence": "My own rebuild, same digests: review3/harness-darwin/record.json 136/136 exit 0, and review3/harness-linux/record.json 136/136 exit 0 (digest-pinned image heimdall-g02-harness:d0c8e448a3a7)."
+    },
+    {
+      "gate": "K6e job control (§9.3)",
+      "verdict": "uncertain",
+      "evidence": "Ctrl-Z/fg/bg pass in the harness and in my probes (bash and zsh, both OSes). The literal clause 'the child is never left stopped while the shell believes the job is running' fails when the child stops itself (ssh ~^Z pattern). Whether K6e covers child-initiated stops needs an orchestrator ruling; see defects."
+    },
+    {
+      "gate": "K6d shared mode explicit signals",
+      "verdict": "pass",
+      "evidence": "Harness counts are 1 per signal and layout on both OSes. My probes got 1 per signal for the sh -c wrapper, both pipeline ends and make (darwin)."
+    },
+    {
+      "gate": "K6a / K6b / K6c",
+      "verdict": "pass",
+      "evidence": "Harness passes on both OSes. nohup and `&`-job ignores are preserved in my probes. Darwin terminal-signal duplicates and killpg duplicates are documented (K6b). SIGPIPE reset is a documented K6c stack limitation."
+    },
+    {
+      "gate": "K16 no helper processes / K11 no writes outside named paths",
+      "verdict": "pass",
+      "evidence": "Linux strace: the only exec is the run child, and there are no writes. darwin sandbox-exec deny profile: all commands, TUI included, behave normally, and positive controls prove the denials are enforced."
+    },
+    {
+      "gate": "K17 filter latency p95 <= 100 ms",
+      "verdict": "pass",
+      "evidence": "p95 4.4 ms on darwin and 4.3 ms on Linux in my runs."
+    },
+    {
+      "gate": "K10 exit form / K18 value non-echo",
+      "verdict": "pass",
+      "evidence": "tui.sigterm_restores_terminal, tui.sighup_exit_129, tui.hangup_exit_129 and profile.error_value_not_echoed pass in both of my runs."
+    },
+    {
+      "gate": "plan §3 G02: correctness of child/IPC behavior",
+      "verdict": "uncertain",
+      "evidence": "The full harness passes on both OSes. The open issues are child self-stop propagation (K6e scope) and a K12 exit-code mismatch on a closed stdout. Windows behavior is code review only."
+    },
+    {
+      "gate": "plan §3 G02: viable Windows/WSL path",
+      "verdict": "uncertain",
+      "evidence": "Code review only. Windows is compile-checked and cross-built; no native run (blocked: needs a Windows 10/11 x64 host; WSL: needs a Windows host with WSL2). Code review found the std exe resolution order and the agent socket-path issue (defects)."
+    },
+    {
+      "gate": "plan §3 G02: no unsupported security assumption",
+      "verdict": "uncertain",
+      "evidence": "Unix: no helper execs, no stray writes, hardened runtime, no home paths. Windows (code review): run resolves argv[0] in heimdall-proto.exe's own directory and in System32/Windows before PATH, which is a planting and precedence assumption that is not documented."
+    },
+    {
+      "gate": "plan §3 G02: practical distribution",
+      "verdict": "uncertain",
+      "evidence": "darwin and Linux pass, with a reproducible single static binary that runs without a toolchain. Windows is unexecuted, and darwin is not Developer-ID signed or notarized (owner authority)."
+    },
+    {
+      "gate": "plan §3 G02: compatible licensing",
+      "verdict": "pass",
+      "evidence": "All linked crates are permissive, and the notices file covers every linked crate. Caveat already declared in the notices: which mingw-w64 LGPL-marked parts are linked was not determined."
+    },
+    {
+      "gate": "plan §3 G02: maintained dependencies",
+      "verdict": "uncertain",
+      "evidence": "Not re-verified (no registry/network check this review). REPORT lists crossterm 0.29.0 (2025-04) and winapi 0.3.9 (2020) as old."
+    },
+    {
+      "gate": "plan §3 G02: share domain operations across CLI/TUI",
+      "verdict": "pass",
+      "evidence": "Code review: the CLI and the TUI both use profile::load_file, and all TUI behavior is in list_model::ListModel, which has unit tests."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "The launcher does not pass on a stop that the child starts itself. If the child stops itself (kill(getpid(), SIGTSTP)), as OpenSSH does for the ~^Z escape, heimdall-proto keeps blocking in waitid(WEXITED|WNOWAIT). The child stays stopped while the interactive shell believes the foreground job is running: no Stopped report, no prompt, and the user must press a terminal Ctrl-Z to get the shell back. Reproduced with bash and zsh on darwin and on Linux arm64. The direct-exec baseline reports Stopped at once, and so does the Go build present in the tree (context only), so this is a candidate difference. It contradicts the K6e sentence 'The child is never left stopped while the shell believes the job is running' and REPORT §14's 'acts on the pair as one job'. Escalation: K6e is framed around Ctrl-Z/fg/bg, so whether it gates child-initiated stops needs a ruling. The harness does not probe this.",
+      "location": "prototypes/rust/src/runner.rs run(): waitid loop without WSTOPPED/WUNTRACED handling; prototypes/rust/REPORT.md §14 K6e row and 'Final signal / terminal / job-control mechanism'; evidence tests/evidence/artifacts/g02-rust/review3/probes/jobctl_{darwin,linux}_{bash,zsh}-{hp,baseline}.json, context_go_jobctl_darwin_bash.json"
+    },
+    {
+      "severity": "minor",
+      "description": "K12 exit-code parity fails on a closed stdout pipe. Without --json, `profile show` and `version` write with println!, which panics on EPIPE because Rust std ignores SIGPIPE. catch_unwind then exits 1. With --json the same invocation exits 0, because write_all errors are ignored. K12 requires the same exit codes with and without --json. agent list's non-json printing follows the same pattern (not executed).",
+      "location": "prototypes/rust/src/main.rs dispatch(): println! in Cmd::Version, Cmd::ProfileShow and Cmd::AgentList non-json branches; evidence review3/probes/k12_epipe_darwin.log"
+    },
+    {
+      "severity": "minor",
+      "description": "An explicit SIGTSTP (or SIGSTOP) to the heimdall-proto PID stops only heimdall-proto. The child keeps running while the shell reports the job stopped and takes the terminal back. Under exec semantics the program itself would stop. This is outside the five forwarded signals and not gated, but REPORT does not record it among the out-of-contract gaps.",
+      "location": "prototypes/rust/src/sigdisp.rs HANDLED / runner.rs; REPORT.md §14 'Remaining gaps'; evidence review3/probes/jobctl_*-hp.json explicit_tstp"
+    },
+    {
+      "severity": "minor",
+      "description": "Windows (code review only, not executed): std::process::Command resolves a bare argv[0] in the child-PATH override, then heimdall-proto.exe's own directory, then System32 and the Windows directory, and only then PATH (std/src/sys/process/windows.rs search_paths). That deviates from contract §4's 'PATH lookup'. A same-named exe next to heimdall-proto.exe or in System32 shadows the user's PATH, a planting and precedence risk for an SSH launcher. REPORT §7 does not mention it.",
+      "location": "prototypes/rust/src/runner.rs (cfg(windows) run: Command::new(&argv[0])); REPORT.md §7"
+    },
+    {
+      "severity": "minor",
+      "description": "Windows (code review only): `agent list --socket <path>` opens any existing path read-write with OpenOptions and writes the 5-byte request frame. A regular file given by mistake is overwritten at offset 0. There is no \\\\.\\pipe\\ prefix or file-type check. On Unix, connect() on a regular file fails without writing.",
+      "location": "prototypes/rust/src/agent.rs conn::connect (cfg(windows))"
+    },
+    {
+      "severity": "minor",
+      "description": "Round-2 review note not carried into REPORT: `agent list` still uses std::thread::spawn, which panics on failure. Under thread-creation failure (RUST_MIN_STACK, RLIMIT_NPROC) it returns INTERNAL with exit 1 (observed on darwin and Linux). Not a contract violation, but REPORT §14 records only the run fix.",
+      "location": "prototypes/rust/src/agent.rs probe(); REPORT.md §14; evidence review3/probes/misc_{darwin,linux}.log case 10"
+    },
+    {
+      "severity": "minor",
+      "description": "Traceability: the round-3b artifacts and both conformance records carry build_commit a04f2f3…+dirty. The round-3b source changes (runner.rs, tests/cli.rs, pty_tui.py, selftest.sh, REPORT.md) are uncommitted. My rebuild of the current tree reproduces the digests, but plan §3's ADR deliverable needs prototype commit IDs, so the orchestrator should commit and record the commit.",
+      "location": "git working tree (prototypes/rust/*), tests/evidence/g02-rust-conformance*.json build_commit"
+    }
+  ],
+  "unverifiable_here": [
+    "Native Windows 10/11 x64: blocked (needs a Windows 10/11 x64 host). Every Windows finding comes from code review only.",
+    "WSL: blocked (needs a Windows host with WSL2).",
+    "linux-x64 native: no x64 host. The digest was only reproduced, and I did not run the binary.",
+    "Developer ID signing and notarization of the darwin artifact: needs owner authority. Gatekeeper behavior for a downloaded, quarantined ad-hoc binary was not tested.",
+    "Dependency maintenance status: crates.io was not queried this review.",
+    "Strict exactly-once under signal bursts: my sh trap counters coalesce signals, so the counts are lower bounds. The harness's own duplicate probe shows Darwin merges back-to-back deliveries in most trials.",
+    "Real OpenSSH ~^Z through heimdall-proto against a live host: not done, because of the no-live-hosts rule. The mechanism comes from the OpenSSH source (client_suspend_self: kill(getpid(), SIGTSTP)) plus my simulated self-stopping child.",
+    "Linux RLIMIT_NPROC sweep: not re-run by me. RUST_MIN_STACK on both OSes exercises the same no-orphan path."
+  ],
+  "summary": "I could not refute the harness verdict. A rebuild of the round-3b Rust prototype from a /tmp copy reproduces all four manifest digests. Harness 2.3.0 passes 136/136 on darwin-arm64 and on linux-arm64 via the Linux runner, both exit 0 and status verified. That satisfies K13. Independent probes confirm the following. K6d: explicit signals are delivered in sh -c, pipeline and make layouts. K6a ignores survive nohup and `&`. K16/K11: strace on Linux and sandbox-exec on darwin show no helper execs and no stray writes, even with tmux-like environment variables set. Also confirmed: K17 p95 of about 4 ms, toolchain-free runs and full notice coverage. The round-2 review fix holds too: with thread creation forced to fail, nothing is launched and no child is orphaned.\n\nNew finding (major, escalation needed on K6e scope): a child that stops itself, which is OpenSSH's ~^Z mechanism, is left stopped while bash or zsh still treats the job as running. This reproduced on darwin and Linux, while direct exec and the Go build report the stop. It refutes REPORT's claim that the shell's job control \"acts on the pair as one job\". Minor findings:\n- Without --json, a closed stdout pipe makes the exit code 1 instead of 0 (K12).\n- An explicit SIGTSTP to the PID stops only the launcher; this is undocumented.\n- Windows, code review only: argv[0] is looked up in the app dir and System32 before PATH, and agent list writes into a non-pipe --socket path.\n- An agent-list thread-failure note was never carried into REPORT.\n- The artifacts were built from an uncommitted tree.\n\nWindows/WSL native behavior, linux-x64 native runs and notarization remain blocked. Artifacts are in tests/evidence/artifacts/g02-rust/review3/ (harness-darwin/, harness-linux/, probes/, build/), with no full canary value."
+}

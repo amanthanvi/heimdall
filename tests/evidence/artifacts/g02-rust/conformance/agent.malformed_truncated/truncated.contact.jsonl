@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T20:14:26.250Z", "mono_ms": 0.263, "event": "listen", "socket": "/tmp/hmg02-3ur673lt/032-agent-truncated/truncated.sock", "mode": "truncated", "keys": 3}
+{"seq": 2, "ts": "2026-10-04T20:14:26.255Z", "mono_ms": 5.282, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T20:14:26.255Z", "mono_ms": 5.388, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "truncated", "sent_bytes": 14}
+{"seq": 4, "ts": "2026-10-04T20:14:26.255Z", "mono_ms": 5.405, "event": "disconnect", "conn": 1, "reason": "server_close", "bytes_received": 5, "bytes_sent": 14, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T20:14:26.355Z", "mono_ms": 105.906, "event": "shutdown"}
