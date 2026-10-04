@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T02:11:40.434Z", "mono_ms": 0.425, "event": "listen", "socket": "/tmp/hmg02-848o4m7_/041-agent-failure/failure.sock", "mode": "failure", "keys": 3}
+{"seq": 2, "ts": "2026-10-04T02:11:40.445Z", "mono_ms": 10.837, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T02:11:40.445Z", "mono_ms": 11.063, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "failure", "sent_bytes": 5}
+{"seq": 4, "ts": "2026-10-04T02:11:40.445Z", "mono_ms": 11.107, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 5, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T02:11:40.547Z", "mono_ms": 112.806, "event": "shutdown"}

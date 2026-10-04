@@ -1,0 +1,5 @@
+built darwin-arm64 (5207474 bytes)
+built linux-x64 (5423264 bytes)
+built linux-arm64 (5111968 bytes)
+built windows-x64 (5084160 bytes)
+wrote /tmp/heimdall-review-go/dist/manifest.json

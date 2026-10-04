@@ -1,0 +1,547 @@
+{
+ "bin": "/tmp/heimdall-review-go/dist/darwin-arm64/heimdall-proto",
+ "uname": [
+  "Darwin",
+  "Mac",
+  "27.0.0",
+  "Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050",
+  "arm64"
+ ],
+ "results": [
+  {
+   "case": "ok_one_key",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.005,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 219,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1,
+   "first_identity_ascii": "{\"key_type\": \"ssh-ed25519\", \"fingerprint\": \"SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk\", \"comment\": \"c\"}"
+  },
+  {
+   "case": "ok_zero_keys",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.011,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 112,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 0
+  },
+  {
+   "case": "frame_len_0",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 177,
+   "stderr": "heimdall-proto: agent list: agent protocol error: empty frame\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "frame_len_ffffffff",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.008,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 204,
+   "stderr": "heimdall-proto: agent list: agent protocol error: frame length 4294967295 exceeds 262144\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "frame_len_262144_exact_valid",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.014,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 262298,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1,
+   "first_identity_ascii": "{\"key_type\": \"ssh-ed25519\", \"fingerprint\": \"SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk\", \"comment\": \"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+  },
+  {
+   "case": "frame_len_262145",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b",
+    [
+     "server_err",
+     "BrokenPipeError(32, 'Broken pipe')"
+    ]
+   ],
+   "connections": 1,
+   "stdout_len": 200,
+   "stderr": "heimdall-proto: agent list: agent protocol error: frame length 262145 exceeds 262144\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "nkeys_1024_min",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.013,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 99439,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1024,
+   "first_identity_ascii": "{\"key_type\": \"t\", \"fingerprint\": \"SHA256:xQjJnjAjHifJvM4ZsJPDH4bNXUAMHCTRra1/8gfPsSE\", \"comment\": \"\"}"
+  },
+  {
+   "case": "nkeys_1025",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 189,
+   "stderr": "heimdall-proto: agent list: agent protocol error: nkeys 1025 exceeds 1024\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "nkeys_huge_short_frame",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 195,
+   "stderr": "heimdall-proto: agent list: agent protocol error: nkeys 4294967295 exceeds 1024\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "blob_len_overrun",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 197,
+   "stderr": "heimdall-proto: agent list: agent protocol error: nkeys 1 exceeds remaining frame\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "keytype_len_overrun_blob",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.007,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 205,
+   "stderr": "heimdall-proto: agent list: agent protocol error: key 0: key type length exceeds key_blob\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "empty_blob",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.013,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 205,
+   "stderr": "heimdall-proto: agent list: agent protocol error: key 0: key type length exceeds key_blob\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "trailing_1_byte",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 197,
+   "stderr": "heimdall-proto: agent list: agent protocol error: 1 trailing bytes after last key\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "nkeys_missing",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 181,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated nkeys\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "nkeys_3_bytes",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 181,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated nkeys\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "type_6_success",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 191,
+   "stderr": "heimdall-proto: agent list: agent protocol error: unexpected message type 6\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "type_0",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 191,
+   "stderr": "heimdall-proto: agent list: agent protocol error: unexpected message type 0\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "failure_len1",
+   "expected_code": "AGENT_REFUSED",
+   "observed_code": "AGENT_REFUSED",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 169,
+   "stderr": "heimdall-proto: agent list: agent returned SSH_AGENT_FAILURE\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "failure_payload",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 204,
+   "stderr": "heimdall-proto: agent list: agent protocol error: trailing bytes after SSH_AGENT_FAILURE\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "truncated_header_2",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 188,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame header\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "truncated_body",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.011,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 186,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame body\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "close_silent",
+   "expected_code": "AGENT_UNAVAILABLE",
+   "observed_code": "AGENT_UNAVAILABLE",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 193,
+   "stderr": "heimdall-proto: agent list: agent closed the connection before any response byte\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "close_without_reading",
+   "expected_code": "AGENT_UNAVAILABLE",
+   "observed_code": "AGENT_UNAVAILABLE",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [],
+   "connections": 1,
+   "stdout_len": 193,
+   "stderr": "heimdall-proto: agent list: agent closed the connection before any response byte\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "hold_no_reply_timeout_400",
+   "expected_code": "AGENT_UNAVAILABLE",
+   "observed_code": "AGENT_UNAVAILABLE",
+   "exit_code": 5,
+   "elapsed_s": 0.411,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 182,
+   "stderr": "heimdall-proto: agent list: read: no complete response within timeout\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "drip_1byte_per_50ms_total_ok",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.839,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 219,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1,
+   "first_identity_ascii": "{\"key_type\": \"ssh-ed25519\", \"fingerprint\": \"SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk\", \"comment\": \"c\"}"
+  },
+  {
+   "case": "drip_slow_past_deadline",
+   "expected_code": "AGENT_UNAVAILABLE",
+   "observed_code": "AGENT_UNAVAILABLE",
+   "exit_code": 5,
+   "elapsed_s": 1.007,
+   "client_sent_hex": [
+    "000000010b",
+    [
+     "server_err",
+     "BrokenPipeError(32, 'Broken pipe')"
+    ]
+   ],
+   "connections": 1,
+   "stdout_len": 182,
+   "stderr": "heimdall-proto: agent list: read: no complete response within timeout\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "reset_before_any_byte",
+   "expected_code": "AGENT_UNAVAILABLE",
+   "observed_code": "AGENT_UNAVAILABLE",
+   "exit_code": 5,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 193,
+   "stderr": "heimdall-proto: agent list: agent closed the connection before any response byte\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "reset_after_1_byte",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.216,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 188,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame header\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "reset_after_4_header_bytes",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.013,
+   "client_sent_hex": [
+    "000000010b",
+    [
+     "server_err",
+     "OSError(22, 'Invalid argument')"
+    ]
+   ],
+   "connections": 1,
+   "stdout_len": 177,
+   "stderr": "heimdall-proto: agent list: agent protocol error: empty frame\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "reset_after_3_header_bytes",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.218,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 188,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame header\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "reset_mid_body_len100_sent6",
+   "expected_code": "AGENT_PROTOCOL_ERROR",
+   "observed_code": "AGENT_PROTOCOL_ERROR",
+   "exit_code": 5,
+   "elapsed_s": 0.214,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 186,
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame body\n",
+   "files_left": [],
+   "match": true
+  },
+  {
+   "case": "extra_bytes_after_frame",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 219,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1,
+   "first_identity_ascii": "{\"key_type\": \"ssh-ed25519\", \"fingerprint\": \"SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk\", \"comment\": \"c\"}"
+  },
+  {
+   "case": "bidi_and_zero_width_in_comment",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.012,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 236,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1,
+   "first_identity_ascii": "{\"key_type\": \"ssh-ed25519\", \"fingerprint\": \"SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk\", \"comment\": \"x\\u202eevil\\u200b\\u2028y\"}"
+  },
+  {
+   "case": "c1_and_esc_in_keytype",
+   "expected_code": "AGENT_OK",
+   "observed_code": "AGENT_OK",
+   "exit_code": 0,
+   "elapsed_s": 0.01,
+   "client_sent_hex": [
+    "000000010b"
+   ],
+   "connections": 1,
+   "stdout_len": 230,
+   "stderr": "",
+   "files_left": [],
+   "match": true,
+   "n_identities": 1,
+   "first_identity_ascii": "{\"key_type\": \"ssh-\\ufffd[31m\\ufffd-ed\", \"fingerprint\": \"SHA256:8oYJ2XoDn5az6Q9Fehk+smmDYrANVdfi4o3ekg/bRrg\", \"comment\": \"\\ufffd\\ufffd\"}"
+  }
+ ]
+}

@@ -1,0 +1,24 @@
+{
+ "loadavg": [
+  1.283203125,
+  2.0361328125,
+  2.76953125
+ ],
+ "version": {
+  "median_ms": 3.25,
+  "max_rss_mib_median": 7.0
+ },
+ "profile_large100": {
+  "median_ms": 3.77,
+  "max_rss_mib_median": 7.6
+ },
+ "dest10000_min_keys": {
+  "rc": 0,
+  "code": "PROFILE_OK"
+ },
+ "dest10000_all_keys": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "bytes": 837823
+ }
+}

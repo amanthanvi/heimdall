@@ -1,0 +1,9 @@
+## GOOS=darwin
+No vulnerabilities found.
+govulncheck exit=0
+## GOOS=linux
+No vulnerabilities found.
+govulncheck exit=0
+## GOOS=windows
+No vulnerabilities found.
+govulncheck exit=0

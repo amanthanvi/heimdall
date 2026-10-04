@@ -1,0 +1,1411 @@
+{
+ "bin": "/tmp/heimdall-review-go/dist/darwin-arm64/heimdall-proto",
+ "n": 200,
+ "summary": {
+  "rc=-15 child_started=False orphan=False": 112,
+  "rc=143 child_started=False orphan=False": 58,
+  "rc=143 child_started=True orphan=False": 30
+ },
+ "rows": [
+  {
+   "i": 0,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 1,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 2,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 3,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 4,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 5,
+   "delay_s": 0.004,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 6,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 7,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 8,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 9,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 10,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 11,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 12,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 13,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 14,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 15,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 16,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 17,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 18,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 19,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 20,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 21,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 22,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 23,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 24,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 25,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 26,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 27,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 28,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 29,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 30,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 31,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 32,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 33,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 34,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 35,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 36,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 37,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 38,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 39,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 40,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 41,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 42,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 43,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 44,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 45,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 46,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 47,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 48,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 49,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 50,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 51,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 52,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 53,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 54,
+   "delay_s": 0.003,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 55,
+   "delay_s": 0.004,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 56,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 57,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 58,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 59,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 60,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 61,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 62,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 63,
+   "delay_s": 0.002,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 64,
+   "delay_s": 0.003,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 65,
+   "delay_s": 0.004,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 66,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 67,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 68,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 69,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 70,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 71,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 72,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 73,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 74,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 75,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 76,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 77,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 78,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 79,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 80,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 81,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 82,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 83,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 84,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 85,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 86,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 87,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 88,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 89,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 90,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 91,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 92,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 93,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 94,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 95,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 96,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 97,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 98,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 99,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 100,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 101,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 102,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 103,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 104,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 105,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 106,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 107,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 108,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 109,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 110,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 111,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 112,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 113,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 114,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 115,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 116,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 117,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 118,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 119,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 120,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 121,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 122,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 123,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 124,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 125,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 126,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 127,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 128,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 129,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 130,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 131,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 132,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 133,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 134,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 135,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 136,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 137,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 138,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 139,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 140,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 141,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 142,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 143,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 144,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 145,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 146,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 147,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 148,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 149,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 150,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 151,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 152,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 153,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 154,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 155,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 156,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 157,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 158,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 159,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 160,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 161,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 162,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 163,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 164,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 165,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 166,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 167,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 168,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 169,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 170,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 171,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 172,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 173,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 174,
+   "delay_s": 0.003,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 175,
+   "delay_s": 0.004,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 176,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 177,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 178,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 179,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 180,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 181,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 182,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 183,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 184,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 185,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 186,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 187,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 188,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 189,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 190,
+   "delay_s": 0,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 191,
+   "delay_s": 0.0005,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 192,
+   "delay_s": 0.001,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 193,
+   "delay_s": 0.002,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 194,
+   "delay_s": 0.003,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 195,
+   "delay_s": 0.004,
+   "heimdall_rc": -15,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 196,
+   "delay_s": 0.006,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 197,
+   "delay_s": 0.008,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 198,
+   "delay_s": 0.012,
+   "heimdall_rc": 143,
+   "child_started": false,
+   "child_alive_after_heimdall_exit": false
+  },
+  {
+   "i": 199,
+   "delay_s": 0.02,
+   "heimdall_rc": 143,
+   "child_started": true,
+   "child_alive_after_heimdall_exit": false
+  }
+ ]
+}

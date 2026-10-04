@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T02:12:54.157Z", "mono_ms": 0.095, "event": "listen", "socket": "/tmp/hmg02-1o1tqpwm/045-agent-frame_over/frame_over.sock", "mode": "frame_over", "keys": 1}
+{"seq": 2, "ts": "2026-10-04T02:12:54.167Z", "mono_ms": 9.672, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T02:12:54.167Z", "mono_ms": 10.324, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "frame_over", "sent_bytes": 0}
+{"seq": 4, "ts": "2026-10-04T02:12:54.167Z", "mono_ms": 10.346, "event": "disconnect", "conn": 1, "reason": "peer_reset", "bytes_received": 5, "bytes_sent": 0, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T02:12:54.268Z", "mono_ms": 110.945, "event": "shutdown"}

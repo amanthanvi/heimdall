@@ -1,0 +1,306 @@
+{
+ "platform": "Darwin-arm64",
+ "shapes": {
+  "int_array_500k": {
+   "bytes": 1048576,
+   "exit": 0,
+   "elapsed_s": 0.054,
+   "peak_rss_mib": 39.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "str_array_short": {
+   "bytes": 1048574,
+   "exit": 0,
+   "elapsed_s": 0.038,
+   "peak_rss_mib": 31.8,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "flat_keys_meta": {
+   "bytes": 720050,
+   "exit": 0,
+   "elapsed_s": 0.033,
+   "peak_rss_mib": 42.1,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "flat_keys_meta_65k_short": {
+   "bytes": 490146,
+   "exit": 2,
+   "elapsed_s": 0.007,
+   "peak_rss_mib": 8.1,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 65536\n"
+  },
+  "inline_tables_array": {
+   "bytes": 1048574,
+   "exit": 2,
+   "elapsed_s": 0.007,
+   "peak_rss_mib": 9.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 5\n"
+  },
+  "empty_arrays_array": {
+   "bytes": 1048574,
+   "exit": 2,
+   "elapsed_s": 0.006,
+   "peak_rss_mib": 9.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 5\n"
+  },
+  "empty_inline_array": {
+   "bytes": 1048574,
+   "exit": 2,
+   "elapsed_s": 0.006,
+   "peak_rss_mib": 9.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 5\n"
+  },
+  "nested31_arrays_repeat": {
+   "bytes": 1048526,
+   "exit": 2,
+   "elapsed_s": 0.004,
+   "peak_rss_mib": 9.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile nesting exceeds 32 levels near line 5\n"
+  },
+  "nested_inline_31": {
+   "bytes": 258940,
+   "exit": 2,
+   "elapsed_s": 0.006,
+   "peak_rss_mib": 7.5,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 1079\n"
+  },
+  "nested_inline_8000_round1": {
+   "bytes": 32056,
+   "exit": 2,
+   "elapsed_s": 0.004,
+   "peak_rss_mib": 7.0,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile nesting exceeds 32 levels near line 5\n"
+  },
+  "array_tables_meta": {
+   "bytes": 1048574,
+   "exit": 2,
+   "elapsed_s": 0.006,
+   "peak_rss_mib": 9.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 21848\n"
+  },
+  "array_tables_with_key": {
+   "bytes": 1048573,
+   "exit": 2,
+   "elapsed_s": 0.007,
+   "peak_rss_mib": 9.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 32770\n"
+  },
+  "subtables_unique": {
+   "bytes": 828933,
+   "exit": 2,
+   "elapsed_s": 0.006,
+   "peak_rss_mib": 9.1,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 21848\n"
+  },
+  "dotted_31_keys": {
+   "bytes": 117940,
+   "exit": 0,
+   "elapsed_s": 0.041,
+   "peak_rss_mib": 15.0,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "long_header_many_keys": {
+   "bytes": 258970,
+   "exit": 2,
+   "elapsed_s": 0.004,
+   "peak_rss_mib": 7.6,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile key paths exceed 2097152 bytes near line 12\n"
+  },
+  "big_string": {
+   "bytes": 1048576,
+   "exit": 0,
+   "elapsed_s": 0.012,
+   "peak_rss_mib": 13.0,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "escapes_string": {
+   "bytes": 1048575,
+   "exit": 0,
+   "elapsed_s": 0.013,
+   "peak_rss_mib": 13.3,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "multiline_string_quotes": {
+   "bytes": 1048574,
+   "exit": 0,
+   "elapsed_s": 0.019,
+   "peak_rss_mib": 14.0,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "datetimes": {
+   "bytes": 1048565,
+   "exit": 0,
+   "elapsed_s": 0.017,
+   "peak_rss_mib": 15.1,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "floats": {
+   "bytes": 1048572,
+   "exit": 0,
+   "elapsed_s": 0.029,
+   "peak_rss_mib": 20.6,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "destinations_max": {
+   "bytes": 757823,
+   "exit": 2,
+   "elapsed_s": 0.007,
+   "peak_rss_mib": 8.6,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile structure exceeds 65536 keys and containers near line 54614\n"
+  },
+  "dup_key_late": {
+   "bytes": 720062,
+   "exit": 2,
+   "elapsed_s": 0.033,
+   "peak_rss_mib": 38.7,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: malformed TOML near line 60005\n"
+  },
+  "comments_only": {
+   "bytes": 1048543,
+   "exit": 0,
+   "elapsed_s": 0.011,
+   "peak_rss_mib": 13.8,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "crlf_lines": {
+   "bytes": 588944,
+   "exit": 0,
+   "elapsed_s": 0.034,
+   "peak_rss_mib": 42.6,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "near_units_inline3": {
+   "bytes": 224056,
+   "exit": 0,
+   "elapsed_s": 0.028,
+   "peak_rss_mib": 31.8,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "near_long_keys": {
+   "bytes": 1000050,
+   "exit": 0,
+   "elapsed_s": 0.012,
+   "peak_rss_mib": 13.8,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "near_tiny_arrays": {
+   "bytes": 240056,
+   "exit": 0,
+   "elapsed_s": 0.02,
+   "peak_rss_mib": 16.9,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "near_nested31_repeat": {
+   "bytes": 124056,
+   "exit": 2,
+   "elapsed_s": 0.004,
+   "peak_rss_mib": 7.3,
+   "k15_ok": true,
+   "killed": false,
+   "code": "SCHEMA_INVALID",
+   "stderr": "heimdall-proto: SCHEMA_INVALID: profile nesting exceeds 32 levels near line 5\n"
+  },
+  "near_nested_inline_rep": {
+   "bytes": 138940,
+   "exit": 0,
+   "elapsed_s": 0.05,
+   "peak_rss_mib": 53.2,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  },
+  "near_quoted_unicode_keys": {
+   "bytes": 372140,
+   "exit": 0,
+   "elapsed_s": 0.009,
+   "peak_rss_mib": 11.3,
+   "k15_ok": true,
+   "killed": false,
+   "code": "PROFILE_OK",
+   "stderr": ""
+  }
+ },
+ "k15_violations": []
+}

@@ -1,0 +1,3 @@
+host: macOS-27.0-arm64-arm-64bit-Mach-O Apple M5 Max
+version --json: n=50 median=2.85ms p90=3.01ms min=2.54ms max_rss_bytes=7225344 peak_footprint_bytes=4112984
+profile show large-100 --json: n=50 median=3.34ms p90=3.56ms min=3.11ms max_rss_bytes=7979008 peak_footprint_bytes=4883080

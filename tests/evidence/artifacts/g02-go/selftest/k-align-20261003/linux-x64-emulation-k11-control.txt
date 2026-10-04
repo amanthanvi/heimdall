@@ -1,0 +1,13 @@
+# started 2026-10-03T18:29:27Z
+# context: first linux-x64 (emulated) selftest run with the K11 check (before the control was added) reported: FAIL k11.no_writes_no_sidecars exits=[0, 0, 5, 0, 0] files_written=['.cache'] sidecars=[] (SUMMARY 58/59, exit=1). Investigation:
+heimdall-proto version rc=0
+HOME after heimdall-proto:
+/tmp/h1
+/tmp/h1/.cache
+/tmp/h1/.cache/rosetta
+HOME after busybox /bin/true (control):
+/tmp/h2
+/tmp/h2/.cache
+/tmp/h2/.cache/rosetta
+exit=0
+# conclusion (inference): the x86-64 emulator writes $HOME/.cache/rosetta for every process; not attributable to heimdall-proto. The selftest now runs a control program first and excludes only directories the control created.

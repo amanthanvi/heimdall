@@ -1,0 +1,519 @@
+{
+ "case_id": "G02-go-selftest",
+ "status": "blocked",
+ "blocked_on": "native Windows x64 host: windows-x64 artifact execution, named-pipe agent probe (including the K3a pipe-reset mapping), console Ctrl-C, CreateProcess quoting and console TUI are compile-checked only. darwin-arm64 (native) and linux-arm64 (native arm64 kernel, Docker Desktop VM) were executed in attempt 3; linux-x64 was built but not executed in attempt 3.",
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "build_commit": "b44c3128003563495854a210931eeae923974605 (HEAD at round-2 start; prototypes/go is uncommitted working-tree content)",
+ "artifact_digest": "sha256:20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1 (darwin-arm64/heimdall-proto, attempt 3); linux-arm64 sha256:f7d383185190bbaf385082e7c6455f3d714823d3951cd545d385f7d712a10f61; all targets in tests/evidence/artifacts/g02-go/selftest/round2-20261003/manifest.json",
+ "environment": {
+  "host": "macOS 27.0 (Darwin 27.0.0) arm64, Apple M5 Max",
+  "go": "go1.27.1 darwin/arm64",
+  "docker": "29.8.1 linux/arm64 (Docker Desktop VM, kernel Linux 7.0.14-linuxkit aarch64); attempt 3 ran linux/arm64 only",
+  "container_images": [
+   "alpine:3.22 (index sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8)",
+   "python:3.13-alpine (index sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059)",
+   "attempt 2 used local per-platform tags hp-g02-{alpine,python}-{arm64,amd64} of the same two indexes (see k-align-20261003/docker-pulls.txt)",
+   "attempt 3 pinned by digest: alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8, python@sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059 (python:3.13-alpine, busybox ash), python@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed (python:3.13-slim-bookworm, bash)"
+  ],
+  "python_for_selftest": "host python3 3.14.8 (Homebrew); jsonschema 4.25.1 in /tmp/hp-go-ev/venv; container python 3.13",
+  "network": "containers run with --network none; no listeners other than Unix sockets in private /tmp dirs",
+  "ssh_agent": "SSH_AUTH_SOCK unset; fake agents only",
+  "macos_tools": "/usr/bin/codesign (ad-hoc hardened-runtime signing in build.sh); /usr/bin/cc only for the DYLD test dylib in /tmp"
+ },
+ "provider_versions": [
+  {
+   "name": "charm.land/bubbletea/v2",
+   "version": "v2.0.10"
+  },
+  {
+   "name": "github.com/BurntSushi/toml",
+   "version": "v1.6.0"
+  },
+  {
+   "name": "github.com/Microsoft/go-winio",
+   "version": "v0.6.2"
+  },
+  {
+   "name": "github.com/charmbracelet/x/ansi",
+   "version": "v0.11.8"
+  },
+  {
+   "name": "github.com/charmbracelet/x/term",
+   "version": "v0.2.2"
+  },
+  {
+   "name": "golang.org/x/sys",
+   "version": "v0.46.0"
+  },
+  {
+   "name": "go-licenses",
+   "version": "v2.0.1"
+  },
+  {
+   "name": "govulncheck",
+   "version": "v1.8.0"
+  },
+  {
+   "name": "github.com/charmbracelet/colorprofile (now direct)",
+   "version": "v0.4.3"
+  },
+  {
+   "name": "BurntSushi/toml toml-test corpus (module cache, test input only)",
+   "version": "v1.6.0"
+  }
+ ],
+ "started_at": "2026-10-03T21:08:49Z",
+ "commands_or_harness": [
+  "go test -count=1 -v ./... (darwin-arm64 native) -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-go-test.txt]",
+  "go vet x4 targets, gofmt -l, go mod verify, go mod tidy -diff, windows go test -c per package -> exit 0 each  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/go-vet-and-windows-compile.txt]",
+  "go test -fuzz FuzzGuard -fuzztime 30s ./internal/profile/ -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-fuzz-guard.txt]",
+  "red/green: round-2 tests against round-1 sources (snapshot) and round-2 sources, darwin -> before exit 1 (6 tests fail), after exit 0  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/red-green-darwin-arm64.txt]",
+  "linux/arm64 go test -c binaries (before/after) in alpine@sha256:5291449c... --network none -> before exit 1 (new tests fail), after exit 0 x5  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-go-test-before-after.txt, k3a-linux-arm64-red-green.txt]",
+  "cd / && sh prototypes/go/build.sh, twice -> exit 0, 4/4 targets, identical manifests  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/build.log, build-repeat.log, manifest.json, artifact-sha256.txt, go-version-m.txt]",
+  "python3 selftest.py dist/darwin-arm64/heimdall-proto <repo> -> exit 0, 68/68, two runs  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-blackbox-selftest-run1.txt, -run2.txt]",
+  "selftest.py with dist/linux-arm64 in python@sha256:2dd78ad5... (ash) and python@sha256:5024f48b... (bash) -> exit 0, 68/68 each  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-*-blackbox-selftest.txt]",
+  "red reference: selftest.py against the round-1 artifacts -> darwin exit 1 63/68; Linux exit 1 61/68 (ash, bash)  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/*-round1-artifact-red.txt]",
+  "k15_probe.py (32 shapes up to 1 MiB, 2 s / 256 MiB) -> after exit 0 32/32 darwin and Linux; before exit 1 25/32 darwin and Linux  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-*.txt/json]",
+  "review/probe-scripts/agent_probe.py in Linux arm64 -> before exit 1 (3 K3a mismatches), after exit 0 34/34  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/agent-probe-linux-arm64-*.txt]",
+  "review/probe-scripts/pipeline_tty_probe.py darwin bash and Linux ash -> before 2/4 and 4/4 heimdall cases never got the line; after 4/4 got it on both  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-*.txt]",
+  "review/probe-scripts/tui_env_probe.py darwin -> before tmux executed with TMUX set; after never  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-*.txt]",
+  "env -i ... DYLD_INSERT_LIBRARIES=<test dylib> <bin> version --json -> before dylib loaded, after not loaded, exit 0 both  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/dyld-insert-darwin-arm64-*.txt]",
+  "/tmp/hp-go-ev/venv/bin/python schema_check.py dist/darwin-arm64/heimdall-proto <repo> -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-schema-check.txt]",
+  "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json -> exit 0, go not on PATH  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-no-toolchain-run.txt]",
+  "INFORMATIONAL: tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate go -> exit 1, 123/124 (run.k6a_inherited_ignore: SIGQUIT clause)  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/informational-shared-harness-darwin-arm64.txt; first round-2 build: -build1.txt]",
+  "python3 startup_probe.py dist/darwin-arm64/heimdall-proto <repo> -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-startup-memory.txt]"
+ ],
+ "observed_result": {
+  "verdict": "fail",
+  "verdict_note": "Attempt 3 (round 2): all counted checks pass on darwin-arm64 and linux-arm64, but the K6a clause for an inherited-ignored SIGQUIT (also SIGTERM, SIGWINCH) is not met: the Go runtime installs its own handler whatever the inherited disposition, the child gets the default, and heimdall-proto forwards the signal. This is recorded as a Go stack limitation, not routed around. Windows was not executed.",
+  "attempts": [
+   {
+    "attempt": 1,
+    "task": "M00-T05-go (original prototype build, before slice-contract §9)",
+    "started_at": "2026-10-02T23:59:00Z",
+    "artifact_digest": "sha256:dd1d270cebfde3e10a12b903266248ad0ac269a022fb914f9362ff1334b2f948 (darwin-arm64/heimdall-proto); per-target digests in artifacts/g02-go/selftest/manifest.json",
+    "commands_or_harness": [
+     "cd prototypes/go && go mod tidy && go mod verify  -> exit 0, 'all modules verified'",
+     "go vet ./... with GOOS/GOARCH darwin/arm64, linux/amd64, linux/arm64, windows/amd64 (CGO_ENABLED=0)  -> exit 0 each",
+     "go test -count=1 -v ./...  (darwin-arm64 native)  -> exit 0",
+     "GOOS=linux GOARCH={arm64,amd64} go test -c per package; run in alpine:3.22 --network none  -> every package exit 0 on both",
+     "GOOS=windows GOARCH=amd64 go test -c per package  -> exit 0 each (compile only)",
+     "cd / && sh prototypes/go/build.sh  -> exit 0, 4/4 targets built",
+     "second build.sh run  -> identical sha256 for all 4 artifacts",
+     "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json  -> exit 0, no go on PATH",
+     "docker run --network none alpine:3.22 (arm64, amd64) dist/linux-*/heimdall-proto version/profile/run  -> exit 0/0/9 as expected",
+     "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py dist/darwin-arm64/heimdall-proto <repo>  -> exit 0, 35/35",
+     "same selftest in python:3.13-alpine linux/arm64 and linux/amd64 with dist/linux-*  -> exit 0, 35/35 each",
+     "/tmp/hp-go-ev/venv/bin/python tests/evidence/artifacts/g02-go/selftest/schema_check.py dist/darwin-arm64/heimdall-proto <repo>  -> exit 0, 21/21",
+     "go-licenses report ./cmd/heimdall-proto for GOOS darwin, linux, windows  -> exit 0 each",
+     "govulncheck ./... for GOOS darwin, linux, windows  -> exit 0 each, 'No vulnerabilities found.'",
+     "startup/memory timing script (50 runs after 10 warm-up)  -> see darwin-arm64-startup-memory.txt"
+    ],
+    "observed_result": {
+     "summary": "All executed checks passed on darwin-arm64 (native) and linux-arm64/linux-x64 (containers; x64 emulated). Windows: artifact built and all packages compile for windows/amd64, nothing executed.",
+     "build": {
+      "darwin-arm64": {
+       "built": true,
+       "bytes": 5190642
+      },
+      "linux-x64": {
+       "built": true,
+       "bytes": 5406880
+      },
+      "linux-arm64": {
+       "built": true,
+       "bytes": 5111968
+      },
+      "windows-x64": {
+       "built": true,
+       "bytes": 5073920,
+       "executed": false
+      }
+     },
+     "unit_tests": {
+      "darwin-arm64": "exit 0",
+      "linux-arm64-container": "exit 0 (all 5 packages)",
+      "linux-amd64-container-emulated": "exit 0 (all 5 packages)"
+     },
+     "blackbox_selftest": {
+      "darwin-arm64": "35/35 exit 0",
+      "linux-arm64-container": "35/35 exit 0",
+      "linux-x64-container-emulated": "35/35 exit 0"
+     },
+     "schema_check": "21/21 documents valid against schemas/g02/result.schema.json, exit 0",
+     "agent_sigint_cancel_latency_ms": 2.1,
+     "agent_timeout_300ms_elapsed_s": 0.305,
+     "startup_darwin_arm64": {
+      "version_json_median_ms": 2.85,
+      "profile_large100_median_ms": 3.34,
+      "max_rss_bytes": [
+       7225344,
+       7979008
+      ]
+     },
+     "canary_leak": "none observed in stdout, stderr, or meta files",
+     "licenses": "all linked dependencies MIT or BSD-3-Clause",
+     "vulnerabilities": "govulncheck: none found (darwin, linux, windows)"
+    },
+    "evidence_paths": [
+     "tests/evidence/artifacts/g02-go/selftest/toolchain.txt",
+     "tests/evidence/artifacts/g02-go/selftest/build.log",
+     "tests/evidence/artifacts/g02-go/selftest/manifest.json",
+     "tests/evidence/artifacts/g02-go/selftest/artifact-sha256.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-go-test.txt",
+     "tests/evidence/artifacts/g02-go/selftest/go-vet.txt",
+     "tests/evidence/artifacts/g02-go/selftest/windows-compile-check.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-container-unit-tests.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-container-artifact-run.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-no-toolchain-run.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-arm64-container-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-x64-container-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-schema-check.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-startup-memory.txt",
+     "tests/evidence/artifacts/g02-go/selftest/go-licenses-report.txt",
+     "tests/evidence/artifacts/g02-go/selftest/govulncheck.txt",
+     "tests/evidence/artifacts/g02-go/selftest/selftest.py",
+     "tests/evidence/artifacts/g02-go/selftest/schema_check.py",
+     "prototypes/go/LICENSES.md"
+    ],
+    "limitations_at_the_time": [
+     "Prototype-level evidence only; never production verification of R-SS-04, R-UX-05, R-DI-01, R-AP-02, R-SE-05.",
+     "Shared conformance harness tests/g02/conformance.py was absent during this run; conformance by the shared harness is unverified.",
+     "Windows: nothing executed (named pipe via go-winio, console Ctrl-C, CreateProcess quoting, console TUI are compile-checked only). .bat/.cmd targets are re-parsed by cmd.exe and are not mitigated.",
+     "linux-x64 ran only under Docker emulation on Apple silicon; linux-arm64 ran in Docker Desktop's VM, not on bare metal or a clean distro install.",
+     "Clean-machine artifact tests were approximated: darwin via env -i without Go on PATH on the development host; Linux in minimal containers. No clean macOS VM. darwin binary unsigned/not notarized; Gatekeeper not tested.",
+     "Job-control stop/resume (Ctrl-Z) path in run is implemented_unverified (pty selftest groups are orphaned). TUI panic restore relies on Bubble Tea's recover and is implemented_unverified.",
+     "All selftests and unit tests were written by the same agent that wrote the prototype; no independent review.",
+     "prototypes/go/REPORT.md was not written: the subagent tool policy rejected writing a report .md file; its content was returned in the structured task output for the orchestrator."
+    ],
+    "note": "Preserved verbatim from the attempt-1 record. Its dist artifacts were replaced by attempt 2 builds; attempt-1 selftest/schema_check tool versions are preserved under k-align-20261003/previous-tools/."
+   },
+   {
+    "attempt": 2,
+    "task": "M00-T05-go-align (bring the prototype in line with slice-contract §9 K1-K12)",
+    "started_at": "2026-10-03T18:14:08Z",
+    "verdict_executed_scope": "pass",
+    "summary": "Changed: K2 (profile control characters -> SCHEMA_INVALID), K3 (zero-byte EOF -> AGENT_UNAVAILABLE), K6 (child always in its own process group; every signal heimdall-proto receives is forwarded once; fixes an explicit SIGINT being dropped while a background job was in the foreground), K10 (SIGHUP and terminal hangup -> 129; panic -> 1, now tested). Already conformed, with new tests: K1, K4, K5, K8, K9, K11. Statement only: K7, K12. All native tests, vet, build and black-box selftests pass on darwin-arm64 (native) and in linux-arm64 / linux-x64 (emulated) containers. Windows not executed.",
+    "k_rulings": {
+     "K1": "already conformed; TestK1ControlCharactersInIdentity, selftest agent.k1_controls_replaced",
+     "K2": "changed (internal/profile/profile.go); TestK2ControlCharactersInValues, selftest profile.k2_* (6 cases + meta tolerance)",
+     "K3": "changed (internal/agent/frame.go, probe.go); TestK3EOFClassification, selftest agent.k3_*",
+     "K4": "already conformed; TestK4FailureFrameShape, TestParseRejects 'failure+trailing', selftest agent.k4_*",
+     "K5": "already conformed; TestK5MetaState, selftest run.k5_meta_state",
+     "K6": "changed (internal/run/run_unix.go); selftest run.k6_foreground_explicit_sigint_once, run.k6_bg_fg_explicit_and_terminal_once_each; red check with the attempt-1 run_unix.go fails (exit 12, want 13)",
+     "K7": "statement: PATH matches via empty or '.' entries are refused with exit 127 (exec.ErrDot); allowed, not tested",
+     "K8": "already conformed; TestInvalidUTF8ArgBytes, selftest run.k8_invalid_utf8_argv_bytes",
+     "K9": "already conformed; TestK9SelectionAfterFilterEdit, selftest tui.k9_*",
+     "K10": "changed (cmd/heimdall-proto/main.go, internal/tui/tui.go); TestK10PanicRestoresAndExits1, TestK10SIGHUPRestoresAndExits129, TestK10TerminalHangupNoSignalExits129, selftest tui.k10_sighup_restores_129, tui.k10_hangup_master_close_129, tui.sigterm_restores",
+     "K11": "already conformed (single static executable, no sidecars, manifest has no sidecars array); selftest k11.no_writes_no_sidecars; schema_check manifest shape now allows the optional sidecars array",
+     "K12": "statement: output without --json is plain text and unjudged; exit codes are the same code path as with --json"
+    },
+    "pre_change_observations": {
+     "pre-change-reference-selftest.txt": "dev build prototypes/go/bin/heimdall-proto (sha256 24e5a04d..., provenance inferred from mtime only): 49/58, exit 1. FAIL agent.k3_eof_zero_bytes (AGENT_PROTOCOL_ERROR), all 6 profile.k2_* (exit 0 PROFILE_OK, canary in stdout), tui.k10_sighup_restores_129 (exit -1, terminal not restored), tui.k10_hangup_master_close_129 (exit -1). Its K6 cases passed, so this dev build does not match the attempt-1 run_unix.go.",
+     "k6-red-check-old-run_unix-selftest.txt": "current sources with the attempt-1 run_unix.go: 57/58, exit 1; FAIL run.k6_bg_fg_explicit_and_terminal_once_each exit=12 (want 13)",
+     "k10-red-check-no-hangup-wrapper.txt": "main.go without the hangup input wrapper: TestK10TerminalHangupNoSignalExits129 FAIL (no exit within 5 s), exit 1"
+    },
+    "build": {
+     "command": "cd / && sh prototypes/go/build.sh",
+     "exit": 0,
+     "darwin-arm64": {
+      "built": true,
+      "bytes": 5207474,
+      "sha256": "8a3a4fcc136bfe4df7b098f180bb97a9c100c4bc034a9a7ad945a805b9c7f64c"
+     },
+     "linux-x64": {
+      "built": true,
+      "bytes": 5423264,
+      "sha256": "0a16dac34821acadfc95a00917cbc23ad38589e16ee2a88543a931bbb66965a5"
+     },
+     "linux-arm64": {
+      "built": true,
+      "bytes": 5111968,
+      "sha256": "9a072063d311a356ded98fded373c5534191e7a6c4f8d0e2ddce52cfe2a09614"
+     },
+     "windows-x64": {
+      "built": true,
+      "bytes": 5084160,
+      "sha256": "cf6a7386697015452954ffd84d70b3356373317ffd493f80178f2dc701db5a09",
+      "executed": false
+     },
+     "repeat_build": "identical sha256 for all 4 artifacts across two consecutive build.sh runs",
+     "sidecars": "none"
+    },
+    "unit_tests": {
+     "darwin-arm64": "go test -count=1 -v ./... exit 0 (5 packages)",
+     "linux-arm64-container": "exit 0 for all 5 test binaries",
+     "linux-amd64-container-emulated": "exit 0 for all 5 test binaries",
+     "windows-amd64": "go test -c compile only, exit 0 for all 5 packages",
+     "go_vet": "exit 0 on darwin/arm64, linux/amd64, linux/arm64, windows/amd64; gofmt -l empty; go mod verify ok; go mod tidy -diff exit 0"
+    },
+    "blackbox_selftest": {
+     "darwin-arm64": "59/59, exit 0; repeated 3 more times: 59/59 each",
+     "linux-arm64-container": "59/59, exit 0",
+     "linux-x64-container-emulated": "59/59, exit 0 (an earlier run without the emulator control was 58/59: k11 saw $HOME/.cache/rosetta, which the control program /bin/true also creates under Rosetta; see linux-x64-emulation-k11-control.txt)"
+    },
+    "schema_check": "23/23 (21 attempt-1 documents + K2 SCHEMA_INVALID + K3 AGENT_UNAVAILABLE) valid against schemas/g02/result.schema.json, manifest shape PASS, exit 0",
+    "no_toolchain_run": "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json exit 0, no go on PATH; links only libSystem and libresolv",
+    "canary_leak": "none observed (profile.k2_* cases put HEIMDALL_CANARY_ in the offending value)",
+    "informational_shared_harness": "NOT the verdict: tests/g02/conformance.py (being modified concurrently; file hashes recorded in the artifact) run read-only against dist/darwin-arm64 with outputs under /tmp: exit 0, 111/111 pass, harness-reported status=verified verdict=pass. Includes tui.sighup_exit_129, tui.hangup_exit_129, tui.filter_edit_resets_selection.",
+    "commands_or_harness": [
+     "go test -count=1 -v ./... (darwin-arm64 native) -> exit 0  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-go-test.txt]",
+     "go vet ./... for darwin/arm64, linux/amd64, linux/arm64, windows/amd64 -> exit 0 each; windows go test -c per package -> exit 0; gofmt -l empty; go mod verify; go mod tidy -diff exit 0  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/go-vet.txt]",
+     "GOOS=linux go test -c per package; run in hp-g02-alpine-{arm64,amd64}:3.22 --network none -> exit 0 for all 10  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-container-unit-tests.txt]",
+     "cd / && sh prototypes/go/build.sh -> exit 0, 4/4 targets; second run identical sha256  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/build.log, artifact-sha256.txt, manifest.json]",
+     "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py dist/darwin-arm64/heimdall-proto <repo> -> exit 0, 59/59; repeated x3 -> 59/59 each  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-blackbox-selftest.txt, darwin-arm64-blackbox-selftest-repeat.txt]",
+     "same selftest in hp-g02-python-{arm64,amd64}:3.13-alpine with dist/linux-* -> exit 0, 59/59 each  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-*-container-blackbox-selftest.txt]",
+     "/tmp/hp-go-ev/venv/bin/python schema_check.py dist/darwin-arm64/heimdall-proto <repo> -> exit 0, 23/23 + manifest  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-schema-check.txt]",
+     "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json -> exit 0  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-no-toolchain-run.txt]",
+     "red checks: selftest against prototypes/go/bin dev build -> exit 1, 49/58; selftest against a build with the attempt-1 run_unix.go -> exit 1, 57/58; K10 hangup test without the input wrapper -> exit 1  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/pre-change-reference-selftest.txt, k6-red-check-old-run_unix-selftest.txt, k10-red-check-no-hangup-wrapper.txt]",
+     "INFORMATIONAL: PYTHONDONTWRITEBYTECODE=1 python3 tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/... -> exit 0, 111/111  [tests/evidence/artifacts/g02-go/selftest/k-align-20261003/informational-shared-harness-console.txt]"
+    ],
+    "evidence_paths": [
+     "tests/evidence/artifacts/g02-go/selftest/toolchain.txt",
+     "tests/evidence/artifacts/g02-go/selftest/build.log",
+     "tests/evidence/artifacts/g02-go/selftest/manifest.json",
+     "tests/evidence/artifacts/g02-go/selftest/artifact-sha256.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-go-test.txt",
+     "tests/evidence/artifacts/g02-go/selftest/go-vet.txt",
+     "tests/evidence/artifacts/g02-go/selftest/windows-compile-check.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-container-unit-tests.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-container-artifact-run.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-no-toolchain-run.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-arm64-container-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/linux-x64-container-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-schema-check.txt",
+     "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-startup-memory.txt",
+     "tests/evidence/artifacts/g02-go/selftest/go-licenses-report.txt",
+     "tests/evidence/artifacts/g02-go/selftest/govulncheck.txt",
+     "tests/evidence/artifacts/g02-go/selftest/selftest.py",
+     "tests/evidence/artifacts/g02-go/selftest/schema_check.py",
+     "prototypes/go/LICENSES.md",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-go-test.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/go-vet.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-container-unit-tests.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/build.log",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/artifact-sha256.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/manifest.json",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-blackbox-selftest-repeat.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-arm64-container-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-x64-container-blackbox-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-x64-emulation-k11-control.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-schema-check.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-no-toolchain-run.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/docker-pulls.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/pre-change-reference-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/k6-red-check-old-run_unix-selftest.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/k10-red-check-no-hangup-wrapper.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/previous-tools/selftest.attempt1.py",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/previous-tools/schema_check.attempt1.py",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/previous-tools/run_unix.attempt1.go.txt",
+     "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/informational-shared-harness-console.txt",
+     "prototypes/go/REPORT.md"
+    ],
+    "limitations_at_the_time": [
+     "Prototype-level evidence only; never production verification of R-SS-04, R-UX-05, R-DI-01, R-AP-02, R-SE-05.",
+     "The shared harness tests/g02/conformance.py is not the verdict for this record (it was being modified concurrently); conformance by the shared harness is unverified here.",
+     "Windows: nothing executed (named pipe via go-winio, console Ctrl-C, CreateProcess quoting, console TUI are compile-checked only). .bat/.cmd targets are re-parsed by cmd.exe and are not mitigated. K6/K10 behavior on Windows is untested.",
+     "linux-x64 ran only under Docker (Rosetta) emulation on Apple silicon; linux-arm64 ran in Docker Desktop's VM, not on bare metal or a clean distro install.",
+     "Clean-machine artifact tests were approximated: darwin via env -i without Go on PATH on the development host; Linux in minimal containers. No clean macOS VM. darwin binary unsigned/not notarized; Gatekeeper not tested.",
+     "K6: the signal model was validated with pty-driven Python leaders (explicit kill and tcsetpgrp as 'fg'), not with a real interactive bash/zsh. Job-control stop/resume (Ctrl-Z, bg/fg after a stop) is implemented_unverified. When no stdio descriptor is the controlling terminal but the process has one, the child is not given the terminal (unchanged from attempt 1).",
+     "K10: the panic path is tested in-process with a test-only panicking model wrapper (the shipped binary has no panic trigger); Bubble Tea prints the panic and stack to stderr.",
+     "K11 no-writes check watches only an isolated HOME/TMPDIR/cwd, not the whole filesystem; under x64 emulation, directories also created by a control program (Rosetta's $HOME/.cache/rosetta) are excluded.",
+     "Timing-based pty checks passed 4/4 runs on darwin and once per Linux container; flakiness under load is not characterized.",
+     "prototypes/go/bin/heimdall-proto is a stale development build of unknown exact source; it is not a deliverable.",
+     "All selftests and unit tests were written by the agents that wrote the prototype; no independent review."
+    ],
+    "artifact_digest": "sha256:8a3a4fcc136bfe4df7b098f180bb97a9c100c4bc034a9a7ad945a805b9c7f64c (darwin-arm64/heimdall-proto, attempt 2); per-target digests in tests/evidence/artifacts/g02-go/selftest/k-align-20261003/manifest.json",
+    "blocked_on_at_the_time": "native Windows x64 host: windows-x64 artifact execution, named-pipe agent probe, console Ctrl-C, CreateProcess quoting and console TUI were compile-checked only. darwin-arm64 (native) and linux-arm64 / linux-x64 (Docker containers; x64 emulated) portions were executed and passed in attempt 2. The shared harness tests/g02/conformance.py was not used as the verdict (it was being modified concurrently)."
+   },
+   {
+    "attempt": 3,
+    "task": "M00-T05-go-round2-fix (round-1 adversarial review defects; slice-contract §9.1 K6a, K13-K16; K3a on Linux)",
+    "started_at": "2026-10-03T21:08:49Z",
+    "verdict_executed_scope": "fail",
+    "verdict_note": "Every counted check passes on darwin-arm64 (native) and linux-arm64 (native arm64 kernel in digest-pinned containers): Go tests, selftest 68/68 (alpine/ash and bookworm/bash), K15 probe 32/32, agent probe 34/34, reviewer pipeline probe 7/7. One K6a clause is NOT met and cannot be met without routing around the Go runtime: a SIGQUIT (also SIGTERM, SIGWINCH) that heimdall-proto inherited as ignored is reset to the default in the child and is forwarded (observed: selftest OBSERVE line, child SIGQUIT=dfl, on darwin and Linux; informational shared-harness run.k6a_inherited_ignore [async-job] child SIGQUIT SIG_DFL, heimdall exit 131). Hence fail for the contract criterion; Windows not executed.",
+    "summary": "Fixed: K3a (reset after >=1 byte -> AGENT_PROTOCOL_ERROR; verified on Linux arm64 with real ECONNRESET), K6a pipeline/job transparency (new mode model: child stays in heimdall's group when heimdall shares its group or stdin/stdout is a pipe; own group + foreground only when heimdall is alone in its group), K6a inherited SIGINT/SIGHUP ignore, controlling terminal found through /dev/tty when not on stdio, K14 (non-regular --file -> USAGE_ERROR without blocking), K15 (structural pre-scan guard before BurntSushi/toml: depth 32, 65536 units, 2 MiB key-path bytes), K16 (color profile detected without `tmux info`), GODEBUG=execerrdot=0 cannot re-enable '.' PATH matches, FIFO --meta-file no longer blocks, darwin artifact signed ad-hoc with hardened runtime (DYLD_INSERT_LIBRARIES ignored), doc fixes (LICENSES termios/colorprofile, Filter comment), tests relocatable via HEIMDALL_G02_FIXTURES. Stack limitation: inherited-ignored SIGQUIT/SIGTERM/SIGWINCH (Go runtime installs its handler regardless; os/signal.Ignored reports only SIGINT/SIGHUP); no siginfo in os/signal, so in shared mode an explicit SIGINT/SIGQUIT/SIGWINCH/SIGHUP sent to heimdall's PID while its group is the terminal foreground is not forwarded. Every fix has a native test that fails on the round-1 sources/artifact and passes now.",
+    "rulings_and_defects": {
+     "K3a": "fixed: internal/agent/frame.go (+reset_unix.go, reset_windows.go); TestK3aResetClassificationReadFrame, TestK3aResetEndToEnd (asserts the Linux kernel really delivered ECONNRESET). Red on Linux arm64 (round-1 sources), green after: k3a-linux-arm64-red-green.txt, linux-arm64-go-test-before-after.txt; reviewer agent_probe Linux arm64 before 31/34 (3 K3a MISMATCH), after 34/34.",
+     "K6a pipeline/job": "fixed: internal/run/run_unix.go (mode model), group_darwin.go (sysctl kern.proc.pgrp), group_linux.go (/proc scan), group_other.go; selftest run.k6a_pipeline_* (5) and run.k6a_async_job_of_script, each with a no-heimdall control. Round-1 artifact: darwin 3 of 6 fail, Linux 5 of 6 fail (ash and bash); now 6/6 on darwin bash 3.2, Linux busybox ash, Linux bash.",
+     "K6a inherited ignore": "SIGINT/SIGHUP fixed (not handled, not forwarded, child inherits SIG_IGN): selftest run.k6a_inherited_ignore_int_hup (round-1: exit 129, child SIGHUP=dfl SIGINT handler; now exit 5, both ign). SIGQUIT/SIGTERM/SIGWINCH: stack limitation (see verdict_note).",
+     "K6a ctty not on stdio": "fixed: run_unix.go controllingTTY falls back to /dev/tty; selftest run.k6a_ctty_not_on_stdio_child_reads_tty (round-1: child stopped by SIGTTIN forever, killed by the check; now GOT:hello, exit 0).",
+     "K6 regression guard": "selftest run.k6_foreground_explicit_sigint_once_stderr_piped added after the informational shared harness found that the first round-2 build treated a piped stderr as a pipeline (red: red-round2-build1-stderr-piped-darwin-arm64.txt; fixed: only stdin/stdout are considered).",
+     "K14": "fixed: internal/profile/profile.go Load (stat before open, O_NONBLOCK open, fstat+SameFile), open_unix.go, open_windows.go; TestK14NonRegularFiles (FIFO, symlink to FIFO, socket, directory, /dev/null). Red: FIFO blocked >2 s, /dev/null gave SCHEMA_INVALID.",
+     "K15": "fixed: internal/profile/guard.go (linear pre-scan); TestK15ParserResourceBound (process-level, watchdog), TestGuardSyntax, TestGuardAcceptsValidCorpus (289 parser-valid toml-test documents accepted), FuzzGuard 30 s. k15_probe.py: before 25/32 (darwin and Linux), after 32/32; worst accepted case 75.8 MiB darwin / 77.1 MiB Linux, max 0.083 s.",
+     "K16": "fixed: cmd/heimdall-proto/main.go colorProfileNoExec + tea.WithColorProfile; TestK16TUINoHelperProcesses (fake tmux/tput/infocmp/stty/screen; red: 'tmux info' executed). Reviewer tui_env_probe: before tmux executed with TMUX set; after never.",
+     "GODEBUG execerrdot": "fixed: internal/run/run.go pins the ErrDot refusal; TestDotPathRefusalNotEnvironmentControlled (red: GODEBUG=execerrdot=0 ran ./hpdotcmd).",
+     "FIFO --meta-file": "fixed: cmd/heimdall-proto/meta_unix.go (O_NONBLOCK open), meta_windows.go; TestRunMetaFIFO (red: blocked >3 s).",
+     "DYLD_INSERT_LIBRARIES": "fixed in build.sh: codesign --options runtime --sign - (ad-hoc, hardened runtime); dyld-insert-darwin-arm64-{before,after}.txt (before: INJECTED_DYLIB_LOADED; after: not loaded). Not notarized; no Developer ID.",
+     "docs": "LICENSES.md (termios darwin/linux only; colorprofile direct), Filter comment, REPORT stale numbers replaced in the Round 2 section.",
+     "test relocatability": "internal/testfix: HEIMDALL_G02_FIXTURES or nearest ancestor tests/fixtures/g02/profiles; a relocated copy without the variable fails with that instruction instead of skipping."
+    },
+    "build": {
+     "command": "cd / && sh prototypes/go/build.sh (twice; manifests identical)",
+     "exit": 0,
+     "darwin-arm64": {
+      "built": true,
+      "bytes": 5212000,
+      "sha256": "20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1",
+      "signature": "ad-hoc, hardened runtime (flags=0x10002)"
+     },
+     "linux-x64": {
+      "built": true,
+      "bytes": 5451936,
+      "sha256": "ee6d2dc568cb1f04fca5417f5dada74e259627f49b0e55b7837b37ec380dea6d",
+      "executed": false
+     },
+     "linux-arm64": {
+      "built": true,
+      "bytes": 5177504,
+      "sha256": "f7d383185190bbaf385082e7c6455f3d714823d3951cd545d385f7d712a10f61"
+     },
+     "windows-x64": {
+      "built": true,
+      "bytes": 5099008,
+      "sha256": "31b958aca1502915b43df0b46b59df3775506ad9e4c655a069bfe74d1b6eb7a8",
+      "executed": false
+     }
+    },
+    "unit_tests": {
+     "darwin-arm64": "go test -count=1 -v ./...: exit 0 (5 packages, 48 top-level tests pass)",
+     "linux-arm64": "go test -c binaries in alpine@sha256:5291449c...: exit 0 for all 5 packages (TestGuardAcceptsValidCorpus skipped there: needs the go command)",
+     "vet_fmt_mod": "go vet darwin/arm64, linux/amd64, linux/arm64, windows/amd64: exit 0; gofmt -l: empty; go mod verify: ok; go mod tidy -diff: exit 0; windows go test -c per package: exit 0",
+     "fuzz": "FuzzGuard 30 s: exit 0"
+    },
+    "blackbox_selftest": {
+     "darwin-arm64": "68/68, exit 0, two runs",
+     "linux-arm64 python:3.13-alpine (busybox ash)": "68/68, exit 0",
+     "linux-arm64 python:3.13-slim-bookworm (bash)": "68/68, exit 0",
+     "round-1 artifact (red reference)": "darwin 63/68, Linux 61/68 (alpine and bookworm)"
+    },
+    "schema_check": "darwin-arm64: exit 0",
+    "no_toolchain_run": "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json: exit 0; go not on PATH",
+    "informational_shared_harness": "NOT the verdict (harness in flux, owned by another agent). darwin-arm64 final build: 123/124, only run.k6a_inherited_ignore fails, on the SIGQUIT clause (stack limitation). First round-2 build: 121/123 (also run.explicit_signal_with_tty, fixed since).",
+    "startup": "darwin-arm64 median of 50: version --json 2.96 ms, max RSS 7.1 MiB; profile show large-100 3.51 ms, 7.7 MiB  [tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-startup-memory.txt]"
+   }
+  ]
+ },
+ "evidence_paths": [
+  "tests/evidence/artifacts/g02-go/selftest/toolchain.txt",
+  "tests/evidence/artifacts/g02-go/selftest/build.log",
+  "tests/evidence/artifacts/g02-go/selftest/manifest.json",
+  "tests/evidence/artifacts/g02-go/selftest/artifact-sha256.txt",
+  "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-go-test.txt",
+  "tests/evidence/artifacts/g02-go/selftest/go-vet.txt",
+  "tests/evidence/artifacts/g02-go/selftest/windows-compile-check.txt",
+  "tests/evidence/artifacts/g02-go/selftest/linux-container-unit-tests.txt",
+  "tests/evidence/artifacts/g02-go/selftest/linux-container-artifact-run.txt",
+  "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-no-toolchain-run.txt",
+  "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/linux-arm64-container-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/linux-x64-container-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-schema-check.txt",
+  "tests/evidence/artifacts/g02-go/selftest/darwin-arm64-startup-memory.txt",
+  "tests/evidence/artifacts/g02-go/selftest/go-licenses-report.txt",
+  "tests/evidence/artifacts/g02-go/selftest/govulncheck.txt",
+  "tests/evidence/artifacts/g02-go/selftest/selftest.py",
+  "tests/evidence/artifacts/g02-go/selftest/schema_check.py",
+  "prototypes/go/LICENSES.md",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-go-test.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/go-vet.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-container-unit-tests.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/build.log",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/artifact-sha256.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/manifest.json",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-blackbox-selftest-repeat.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-arm64-container-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-x64-container-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/linux-x64-emulation-k11-control.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-schema-check.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/darwin-arm64-no-toolchain-run.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/docker-pulls.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/pre-change-reference-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/k6-red-check-old-run_unix-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/k10-red-check-no-hangup-wrapper.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/previous-tools/selftest.attempt1.py",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/previous-tools/schema_check.attempt1.py",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/previous-tools/run_unix.attempt1.go.txt",
+  "tests/evidence/artifacts/g02-go/selftest/k-align-20261003/informational-shared-harness-console.txt",
+  "prototypes/go/REPORT.md",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/agent-linux-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/agent-linux-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/agent-probe-linux-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/agent-probe-linux-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/artifact-sha256.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/build-repeat.log",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/build.log",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-blackbox-selftest-round1-artifact-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-blackbox-selftest-run1.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-blackbox-selftest-run2.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-fuzz-guard.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-go-test.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-no-toolchain-run.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-schema-check.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/dyld-insert-darwin-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/dyld-insert-darwin-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/go-version-m.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/go-vet-and-windows-compile.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/informational-shared-harness-darwin-arm64-build1.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/informational-shared-harness-darwin-arm64.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-darwin-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-darwin-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-darwin-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-darwin-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-linux-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-linux-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-linux-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15-linux-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k15_probe.py",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/k3a-linux-arm64-red-green.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-alpine-ash-blackbox-selftest-round1-artifact-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-alpine-ash-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-bookworm-bash-blackbox-selftest-round1-artifact-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-bookworm-bash-blackbox-selftest.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/linux-arm64-go-test-before-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/manifest.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-darwin-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-darwin-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-darwin-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-darwin-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-linux-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-linux-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-linux-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/pipeline-tty-linux-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/red-green-darwin-arm64.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/red-round2-build1-stderr-piped-darwin-arm64.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/run-probe-darwin-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/run-probe-darwin-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/run-probe-darwin-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/run-probe-darwin-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-after.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-after.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-before.json",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-before.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-startup-memory.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/startup_probe.py"
+ ],
+ "limitations": [
+  "Prototype-level evidence only; never production verification of R-SS-04, R-UX-05, R-DI-01, R-AP-02, R-SE-05.",
+  "The shared harness tests/g02/conformance.py is not the verdict for this record (being changed concurrently by another agent); its runs here are informational.",
+  "Windows: nothing executed. K3a pipe-reset mapping, K14 refusal of named-pipe paths by Stat, meta-file open, .bat/.cmd quoting, console Ctrl-C/close events and K6/K10 behavior on Windows are compile-checked only.",
+  "linux-x64 was built but not executed in attempt 3 (attempt 2 ran it only under emulation). linux-arm64 ran in Docker Desktop's arm64 VM (native arm64 kernel), not on bare metal.",
+  "K6a stack limitation (Go): SIGQUIT, SIGTERM and SIGWINCH inherited as ignored are reset to the default in the child and forwarded; os/signal exposes no siginfo, so in shared mode (pipeline or shared process group, terminal present) an explicit SIGINT/SIGQUIT/SIGWINCH/SIGHUP sent to heimdall's PID while its group is the terminal foreground is not forwarded, and a killpg of the shared group delivers SIGTERM/SIGHUP twice.",
+  "K6a mode choice is a heuristic over observable state (process-group membership via sysctl/proc, stdin/stdout pipe or socket, controlling terminal). A process that joins heimdall's group after the start check without a pipe on stdin/stdout is not detected until the next foreground handoff check; job-control stop mirroring in exclusive mode does not re-check membership.",
+  "K15 guard bounds were chosen from measurements of BurntSushi/toml v1.6.0 on 32 shapes; a shape not modeled could cost more per unit. Worst accepted case observed 77.1 MiB / 0.083 s.",
+  "Ctrl-Z / bg / fg sequences after a stop are still not automated (implemented_unverified). The 50 ms foreground watcher, PID-reuse window after reap on macOS, and SIGKILL of heimdall leaving the child (exclusive and no-tty modes) are unchanged.",
+  "darwin artifact: ad-hoc signature with hardened runtime only; no Developer ID, not notarized, Gatekeeper not tested.",
+  "All selftests and unit tests were written by prototype agents; the round-1 independent review's probes were re-run but round 2 has no independent review yet.",
+  "prototypes/go/bin/heimdall-proto is a stale development build of unknown exact source; it is not a deliverable."
+ ]
+}

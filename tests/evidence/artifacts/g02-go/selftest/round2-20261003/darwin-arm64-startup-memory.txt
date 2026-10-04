@@ -1,0 +1,4 @@
+# started 2026-10-03T22:13:38Z darwin-arm64 native (Apple M5 Max), final build; ru_maxrss of the child (darwin: no fork-image inheritance issue for a small parent)
+version --json           median 2.96 ms  p90 3.26 ms  max RSS 7.1 MiB (n=50)
+profile show large-100   median 3.51 ms  p90 3.70 ms  max RSS 7.7 MiB (n=50)
+exit=0

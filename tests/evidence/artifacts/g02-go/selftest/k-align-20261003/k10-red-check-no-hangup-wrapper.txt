@@ -1,0 +1,7 @@
+# started 2026-10-03T18:19:09Z red check: main.go WITHOUT hangupInput (tea.WithInput(in) directly), darwin-arm64
+    tui_k10_test.go:163: tui did not exit after terminal hangup
+--- FAIL: TestK10TerminalHangupNoSignalExits129 (5.00s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	5.007s
+FAIL
+exit=1

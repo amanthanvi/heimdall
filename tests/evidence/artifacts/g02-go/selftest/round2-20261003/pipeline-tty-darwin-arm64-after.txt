@@ -1,0 +1,10 @@
+# started 2026-10-03T22:00:30Z after sha256 20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1
++ python3 review/probe-scripts/pipeline_tty_probe.py <bin> (macOS /bin/bash 3.2)
+control_sleep_pipe_tty_reader GOT after 0.107
+heimdall_run_pipe_tty_reader GOT after 0.108
+control_tty_reader_pipe_cat GOT after 0.106
+heimdall_tty_reader_pipe_run_cat GOT after 0.113
+control_slow_tty_reader_pipe_sleep GOT after 0.103
+heimdall_slow_tty_reader_pipe_run_sleep GOT after 0.105
+heimdall_first_slow_reader GOT after 0.103
+exit=0

@@ -1,0 +1,22 @@
+package tifuzz
+
+import (
+	"os"
+	"testing"
+
+	"github.com/xo/terminfo"
+)
+
+func FuzzDecode(f *testing.F) {
+	for _, p := range []string{"/usr/share/terminfo/78/xterm-256color", "/usr/share/terminfo/78/xterm"} {
+		if b, err := os.ReadFile(p); err == nil {
+			f.Add(b)
+		}
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		ti, err := terminfo.Decode(b)
+		if err == nil && ti != nil {
+			_ = ti.ExtBoolCapsShort()
+		}
+	})
+}

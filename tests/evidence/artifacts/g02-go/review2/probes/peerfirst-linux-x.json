@@ -1,0 +1,246 @@
+{
+ "runs": 5,
+ "bad": 0,
+ "results": [
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "7": [
+     "bash",
+     "S",
+     "7",
+     "8"
+    ],
+    "9": [
+     "heimdall-proto",
+     "S",
+     "8",
+     "8"
+    ],
+    "17": [
+     "python3",
+     "S",
+     "8",
+     "8"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${P\rPIPESTATUS[*]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 8,
+    "fg_before": 8,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "heimdall-proto",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "19": [
+     "bash",
+     "S",
+     "19",
+     "20"
+    ],
+    "21": [
+     "heimdall-proto",
+     "S",
+     "20",
+     "20"
+    ],
+    "29": [
+     "python3",
+     "S",
+     "20",
+     "20"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${P\rPIPESTATUS[*]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 20,
+    "fg_before": 20,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "heimdall-proto",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "21": [
+     "heimdall-proto",
+     "Z",
+     "20",
+     "-1"
+    ],
+    "31": [
+     "bash",
+     "S",
+     "31",
+     "32"
+    ],
+    "33": [
+     "heimdall-proto",
+     "S",
+     "32",
+     "32"
+    ],
+    "41": [
+     "python3",
+     "S",
+     "32",
+     "32"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${P\rPIPESTATUS[*]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 32,
+    "fg_before": 32,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "heimdall-proto",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "21": [
+     "heimdall-proto",
+     "Z",
+     "20",
+     "-1"
+    ],
+    "33": [
+     "heimdall-proto",
+     "Z",
+     "32",
+     "-1"
+    ],
+    "42": [
+     "bash",
+     "S",
+     "42",
+     "43"
+    ],
+    "44": [
+     "heimdall-proto",
+     "S",
+     "43",
+     "43"
+    ],
+    "52": [
+     "python3",
+     "S",
+     "43",
+     "43"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${P\rPIPESTATUS[*]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 43,
+    "fg_before": 43,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "heimdall-proto",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "21": [
+     "heimdall-proto",
+     "Z",
+     "20",
+     "-1"
+    ],
+    "33": [
+     "heimdall-proto",
+     "Z",
+     "32",
+     "-1"
+    ],
+    "44": [
+     "heimdall-proto",
+     "Z",
+     "43",
+     "-1"
+    ],
+    "54": [
+     "bash",
+     "S",
+     "54",
+     "55"
+    ],
+    "56": [
+     "heimdall-proto",
+     "S",
+     "55",
+     "55"
+    ],
+    "64": [
+     "python3",
+     "S",
+     "55",
+     "55"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${P\rPIPESTATUS[*]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 55,
+    "fg_before": 55,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  }
+ ]
+}

@@ -1,0 +1,95 @@
+{
+ "platform": "Linux-aarch64",
+ "cases": {
+  "baseline": {
+   "first_frame_s": 0.03,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10712,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "tmux_env": {
+   "first_frame_s": 0.032,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10872,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "screen_env": {
+   "first_frame_s": 0.026,
+   "exit": 0,
+   "peak_rss_kib_sampled": 8660,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "term_dumb": {
+   "first_frame_s": 0.027,
+   "exit": 0,
+   "peak_rss_kib_sampled": 8540,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "term_unset": {
+   "first_frame_s": 0.031,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10596,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "term_traversal_dev_zero": {
+   "first_frame_s": null,
+   "exit": -9,
+   "peak_rss_kib_sampled": 2088472,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "terminfo_fifo": {
+   "first_frame_s": null,
+   "exit": "killed-by-reviewer",
+   "peak_rss_kib_sampled": 7864,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "home_terminfo_fifo": {
+   "first_frame_s": 0.029,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10700,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": [
+    ".terminfo"
+   ]
+  },
+  "terminfo_garbage": {
+   "first_frame_s": 0.029,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10720,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "no_color": {
+   "first_frame_s": 0.028,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10532,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  },
+  "colorterm_truecolor": {
+   "first_frame_s": 0.027,
+   "exit": 0,
+   "peak_rss_kib_sampled": 10760,
+   "helper_execs": [],
+   "stray_files": [],
+   "home_files": []
+  }
+ }
+}

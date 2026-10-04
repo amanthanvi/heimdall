@@ -1,0 +1,35 @@
+{
+ "platform": "Darwin",
+ "before_any_byte": {
+  "control_reader_saw": "EOF",
+  "control_bytes": 0,
+  "proto_exit": 5,
+  "proto_code": "AGENT_UNAVAILABLE",
+  "want": "AGENT_UNAVAILABLE",
+  "ok": true
+ },
+ "after_1_byte": {
+  "control_reader_saw": "EOF",
+  "control_bytes": 1,
+  "proto_exit": 5,
+  "proto_code": "AGENT_PROTOCOL_ERROR",
+  "want": "AGENT_PROTOCOL_ERROR",
+  "ok": true
+ },
+ "after_4_byte_header": {
+  "control_reader_saw": "EOF",
+  "control_bytes": 4,
+  "proto_exit": 5,
+  "proto_code": "AGENT_PROTOCOL_ERROR",
+  "want": "AGENT_PROTOCOL_ERROR",
+  "ok": true
+ },
+ "mid_body": {
+  "control_reader_saw": "EOF",
+  "control_bytes": 7,
+  "proto_exit": 5,
+  "proto_code": "AGENT_PROTOCOL_ERROR",
+  "want": "AGENT_PROTOCOL_ERROR",
+  "ok": true
+ }
+}

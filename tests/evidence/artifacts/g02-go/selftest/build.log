@@ -1,0 +1,6 @@
+built darwin-arm64 (5190642 bytes)
+built linux-x64 (5406880 bytes)
+built linux-arm64 (5111968 bytes)
+built windows-x64 (5073920 bytes)
+wrote <repo>/prototypes/go/dist/manifest.json
+build.sh exit=0

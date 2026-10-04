@@ -1,0 +1,25 @@
+total 5512
+drwx------   11 amanthanvi  wheel      352 Oct  3 16:48 .
+drwxrwxrwt  523 root        wheel    16736 Oct  3 16:48 ..
+-rw-r--r--    1 amanthanvi  wheel      101 Oct  3 16:48 bidi.toml
+-rw-r--r--    1 amanthanvi  wheel       56 Oct  3 16:48 bigint.toml
+-rw-r--r--    1 amanthanvi  wheel       63 Oct  3 16:48 canary-in-malformed.toml
+-rw-r--r--    1 amanthanvi  wheel       68 Oct  3 16:48 canary-keyname.toml
+-rw-r--r--    1 amanthanvi  wheel  1048583 Oct  3 16:48 deep-array.toml
+-rw-r--r--    1 amanthanvi  wheel   699016 Oct  3 16:48 deep-inline.toml
+prw-r--r--    1 amanthanvi  wheel        0 Oct  3 16:48 fifo.toml
+-rw-r--r--    1 amanthanvi  wheel  1048553 Oct  3 16:48 many-tables.toml
+-rw-r--r--    1 amanthanvi  wheel       39 Oct  3 16:48 sv-float.toml
+deep-array rc=2 out={"schema_version":"1","state":"failed","code":"INPUT_TOO_LARGE","data":{"error":{"key_path":null,"message":"profile file exceeds 1048576 bytes"}},"warnings":[],"next":null} rss=7241728 err1=heimdall-proto: INPUT_TOO_LARGE: profile file exceeds 1048576 bytes
+deep-inline rc=1 out= rss=26054574080 err1=time: command terminated abnormally
+many-tables rc=2 out={"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":null,"message":"malformed TOML near line 82368"}},"warnings":[],"next":null} rss=28852224 err1=heimdall-proto: SCHEMA_INVALID: malformed TOML near line 82368
+bidi rc=0 out={"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"x","revision":1,"destinations":[{"id":"i","alias":"ab‮cd","host":"h​","port":22,"account":"u","labels":[]}]}},"warnings":[],"next":null} rss=7372800 err1=        0.00 real         0.00 user         0.00 sys
+bigint rc=2 out={"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":null,"message":"malformed TOML near line 3"}},"warnings":[],"next":null} rss=7307264 err1=heimdall-proto: SCHEMA_INVALID: malformed TOML near line 3
+sv-float rc=2 out={"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"schema_version","message":"unsupported schema_version"}},"warnings":["unsupported profile schema_version (not an integer; supported: 1)"],"next":null} rss=7356416 err1=heimdall-proto: SCHEMA_INVALID: schema_version: unsupported schema_version
+canary-keyname rc=2 out={"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"HEIMDALL_CANARY_keyname_zz","message":"unknown key"}},"warnings":[],"next":null} rss=7340032 err1=heimdall-proto: SCHEMA_INVALID: HEIMDALL_CANARY_keyname_zz: unknown key
+canary-in-malformed rc=2 out={"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":null,"message":"malformed TOML near line 2"}},"warnings":[],"next":null} rss=7290880 err1=heimdall-proto: SCHEMA_INVALID: malformed TOML near line 2
+fifo rc=124 (124=timeout)
+canary-present-in: canary-keyname.out
+canary-present-in: canary-keyname.err
+
+[exited with code 0]

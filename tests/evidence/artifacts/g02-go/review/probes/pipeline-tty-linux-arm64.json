@@ -1,0 +1,40 @@
+{
+ "bin": "/dist/linux-arm64/heimdall-proto",
+ "cases": {
+  "control_sleep_pipe_tty_reader": {
+   "cmd": "sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": 0.105,
+   "transcript_tail": "PROMPT$ \u001b[6nsleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\nhello\r\nGOT:hello\r\njobs -l\r\nPROMPT$ jobs -l\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "heimdall_run_pipe_tty_reader": {
+   "cmd": "/dist/linux-arm64/heimdall-proto run -- sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": null,
+   "transcript_tail": "PROMPT$ \u001b[6n/dist/linux-arm64/heimdall-proto run -- sleep 1.5 | /bin/sh -c 'sleep 0.\r\r\n3; read x </dev/tty; echo GOT:$x'\r\nhello\r\n[1]+  Stopped (tty input)        /dist/linux-arm64/heimdall-proto run -- sleep 1.5 | /bin/sh -c \"sleep 0.3; read x </dev/tty; echo GOT:\\$x\"\r\nPROMPT$ hello\r\n/bin/sh: hello: not found\r\nPROMPT$ \u001b[6njobs -l\r\n[1]+  14 Stopped (tty input)     /dist/linux-arm64/heimdall-proto run -- sleep 1.5\r\n      15                         | /bin/sh -c \"sleep 0.3; read x </dev/tty; echo GOT:\\$x\"\r\nPROMPT$ \u001b[6nexit\r\nYou have stopped jobs.\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "control_tty_reader_pipe_cat": {
+   "cmd": "/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | cat",
+   "got_line_after_s": 0.109,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | cat\r\nhello\r\nGOT:hello\r\nPROMPT$ \u001b[6njobs -l\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "heimdall_tty_reader_pipe_run_cat": {
+   "cmd": "/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | /dist/linux-arm64/heimdall-proto run -- cat",
+   "got_line_after_s": null,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | /dist/linux-arm6\r\r\n4/heimdall-proto run -- cat\r\nhello\r\n[1]+  Stopped (tty input)        /bin/sh -c \"sleep 0.3; read x </dev/tty; echo GOT:\\$x\" | /dist/linux-arm64/heimdall-proto run -- cat\r\nPROMPT$ hello\r\n/bin/sh: hello: not found\r\nPROMPT$ \u001b[6njobs -l\r\n[1]+  32 Stopped (tty input)     /bin/sh -c \"sleep 0.3; read x </dev/tty; echo GOT:\\$x\"\r\n      33                         | /dist/linux-arm64/heimdall-proto run -- cat\r\nPROMPT$ \u001b[6nexit\r\nYou have stopped jobs.\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "control_slow_tty_reader_pipe_sleep": {
+   "cmd": "/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | sleep 3",
+   "got_line_after_s": 0.108,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | sleep 3\r\nhello\r\nGOT:hello\r\njobs -l\r\nexit\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\n"
+  },
+  "heimdall_slow_tty_reader_pipe_run_sleep": {
+   "cmd": "/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | /dist/linux-arm64/heimdall-proto run -- sleep 3",
+   "got_line_after_s": null,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | /dist/li\r\r\nnux-arm64/heimdall-proto run -- sleep 3\r\nhello\r\n[1]+  Stopped (tty input)        /bin/sh -c \"sleep 1; read x </dev/tty; echo GOT:\\$x >/dev/tty\" | /dist/linux-arm64/heimdall-proto run -- sleep 3\r\nPROMPT$ hello\r\n/bin/sh: hello: not found\r\nPROMPT$ \u001b[6njobs -l\r\n[1]+  49 Stopped (tty input)     /bin/sh -c \"sleep 1; read x </dev/tty; echo GOT:\\$x >/dev/tty\"\r\n      50                         | /dist/linux-arm64/heimdall-proto run -- sleep 3\r\nPROMPT$ \u001b[6nexit\r\nYou have stopped jobs.\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "heimdall_first_slow_reader": {
+   "cmd": "/dist/linux-arm64/heimdall-proto run -- sleep 3 | /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": null,
+   "transcript_tail": "PROMPT$ \u001b[6n/dist/linux-arm64/heimdall-proto run -- sleep 3 | /bin/sh -c 'sleep 1; r\r\r\nead x </dev/tty; echo GOT:$x'\r\nhello\r\n[1]+  Stopped (tty input)        /dist/linux-arm64/heimdall-proto run -- sleep 3 | /bin/sh -c \"sleep 1; read x </dev/tty; echo GOT:\\$x\"\r\nPROMPT$ hello\r\n/bin/sh: hello: not found\r\nPROMPT$ \u001b[6njobs -l\r\n[1]+  63 Stopped (tty input)     /dist/linux-arm64/heimdall-proto run -- sleep 3\r\n      64                         | /bin/sh -c \"sleep 1; read x </dev/tty; echo GOT:\\$x\"\r\nPROMPT$ \u001b[6nexit\r\nYou have stopped jobs.\r\nPROMPT$ \u001b[6nexit\r\n"
+  }
+ }
+}

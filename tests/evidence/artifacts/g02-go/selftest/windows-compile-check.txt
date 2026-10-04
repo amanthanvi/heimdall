@@ -1,0 +1,6 @@
+windows/amd64 test compile ./cmd/heimdall-proto exit=0
+windows/amd64 test compile ./internal/agent exit=0
+windows/amd64 test compile ./internal/profile exit=0
+?   	github.com/heimdall-g02/proto-go/internal/run	[no test files]
+windows/amd64 test compile ./internal/run exit=0
+windows/amd64 test compile ./internal/tui exit=0

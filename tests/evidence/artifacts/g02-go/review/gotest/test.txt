@@ -1,0 +1,12 @@
+ok  	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	1.641s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	0.513s
+--- FAIL: TestFixtures (0.00s)
+    profile_test.go:35: open ../../../../tests/fixtures/g02/profiles: no such file or directory
+--- FAIL: TestHomelabValues (0.00s)
+    profile_test.go:81: USAGE_ERROR: profile file cannot be opened
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	0.017s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.307s
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.008s
+FAIL

@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: destinations[0].host: required key is missing

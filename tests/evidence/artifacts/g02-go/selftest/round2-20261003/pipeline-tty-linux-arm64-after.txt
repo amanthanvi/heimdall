@@ -1,0 +1,10 @@
+# started 2026-10-03T22:10:02Z after image python@sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059 PROBE_SHELL=/bin/sh (busybox ash -i)
++ python3 review/probe-scripts/pipeline_tty_probe.py /repo/prototypes/go/dist/linux-arm64/heimdall-proto
+control_sleep_pipe_tty_reader GOT after 0.103
+heimdall_run_pipe_tty_reader GOT after 0.106
+control_tty_reader_pipe_cat GOT after 0.108
+heimdall_tty_reader_pipe_run_cat GOT after 0.106
+control_slow_tty_reader_pipe_sleep GOT after 0.105
+heimdall_slow_tty_reader_pipe_run_sleep GOT after 0.103
+heimdall_first_slow_reader GOT after 0.103
+exit=0

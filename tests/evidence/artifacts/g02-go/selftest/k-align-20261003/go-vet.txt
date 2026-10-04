@@ -1,0 +1,16 @@
+# started 2026-10-03T18:19:53Z
+go vet darwin/arm64 exit=0
+go vet linux/amd64 exit=0
+go vet linux/arm64 exit=0
+go vet windows/amd64 exit=0
+windows/amd64 go test -c ./cmd/heimdall-proto exit=0
+windows/amd64 go test -c ./internal/agent exit=0
+windows/amd64 go test -c ./internal/profile exit=0
+?   	github.com/heimdall-g02/proto-go/internal/run	[no test files]
+windows/amd64 go test -c ./internal/run exit=0
+windows/amd64 go test -c ./internal/tui exit=0
+gofmt -l: []
+all modules verified
+go mod verify exit=0
+# 2026-10-03T18:30:08Z
+go mod tidy -diff exit=0 (go.mod/go.sum unchanged by this alignment)

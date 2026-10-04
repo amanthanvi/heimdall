@@ -1,0 +1,1 @@
+ok  	github.com/heimdall-g02/proto-go/internal/profile	0.014s

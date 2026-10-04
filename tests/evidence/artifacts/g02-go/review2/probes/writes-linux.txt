@@ -1,0 +1,17 @@
+{
+ "platform": "Linux",
+ "exit_codes": {
+  "version": 0,
+  "profile:homelab.toml": 0,
+  "profile:invalid-forbidden-key.toml": 2,
+  "profile:large-100.toml": 0,
+  "agent": 0,
+  "agent-missing": 5,
+  "run": 3,
+  "run-launchfail": 127,
+  "tui-select": 0
+ },
+ "unexpected_paths": []
+}
+--- /tmp contents:
+probe_rc=0

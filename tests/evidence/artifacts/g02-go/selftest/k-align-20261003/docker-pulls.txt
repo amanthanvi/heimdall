@@ -1,0 +1,20 @@
+# started 2026-10-03T18:19:40Z user-level image pulls for linux/amd64 emulated runs
+Digest: sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+Status: Downloaded newer image for alpine:3.22
+pull alpine:3.22 linux/amd64 exit=0
+Digest: sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059
+Status: Image is up to date for python:3.13-alpine
+pull python:3.13-alpine linux/amd64 exit=0
+# 2026-10-03T18:22:09Z re-pull: the local alpine:3.22 tag held one platform at a time (the amd64 pull replaced the arm64 variant)
+Digest: sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+Status: Downloaded newer image for alpine:3.22
+pull alpine:3.22 linux/arm64 exit=0
+# 2026-10-03T18:22:15Z per-platform local tags (classic image store keeps one platform per tag)
+pull alpine:3.22 linux/amd64 exit=0
+tag hp-g02-alpine-amd64:3.22 id=sha256:c83674e1999044d33d751661371b873539f47e5b5c5ca3320c7e0377acca6238 linux/amd64
+pull alpine:3.22 linux/arm64 exit=0
+tag hp-g02-alpine-arm64:3.22 id=sha256:e09dd31eab4f4aeaade69891673134f31880ef51c6ee514b0cea072df06d7547 linux/arm64
+pull python:3.13-alpine linux/amd64 exit=0
+tag hp-g02-python-amd64:3.13-alpine id=sha256:050f6d1f4e5f89af62e03f6fcd1c06be2a401339b3694adc4c0a2850d9d8b1e7 linux/amd64
+pull python:3.13-alpine linux/arm64 exit=0
+tag hp-g02-python-arm64:3.13-alpine id=sha256:e3d1bf57b579e73da5380ece73f53f39c0cc955e9063684f1f5015c0e0be80fa linux/arm64

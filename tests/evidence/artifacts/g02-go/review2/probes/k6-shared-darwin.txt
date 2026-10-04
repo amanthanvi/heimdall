@@ -1,0 +1,167 @@
+{
+ "alone-fg/SIGINT": {
+  "child_signals": [
+   "SIGINT"
+  ],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": false,
+  "terminal_fg_is_proto_group": false,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGINT"
+  ]
+ },
+ "alone-fg/SIGHUP": {
+  "child_signals": [
+   "SIGHUP"
+  ],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": false,
+  "terminal_fg_is_proto_group": false,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGHUP"
+  ]
+ },
+ "alone-fg/SIGQUIT": {
+  "child_signals": [
+   "SIGQUIT"
+  ],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": false,
+  "terminal_fg_is_proto_group": false,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGQUIT"
+  ]
+ },
+ "alone-fg/SIGWINCH": {
+  "child_signals": [
+   "SIGWINCH"
+  ],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": false,
+  "terminal_fg_is_proto_group": false,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGWINCH"
+  ]
+ },
+ "alone-fg/SIGTERM": {
+  "child_signals": [
+   "SIGTERM"
+  ],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": false,
+  "terminal_fg_is_proto_group": false,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGTERM"
+  ]
+ },
+ "script-fg/SIGINT": {
+  "child_signals": [],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGINT"
+  ]
+ },
+ "script-fg/SIGHUP": {
+  "child_signals": [],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGHUP"
+  ]
+ },
+ "script-fg/SIGQUIT": {
+  "child_signals": [],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGQUIT"
+  ]
+ },
+ "script-fg/SIGWINCH": {
+  "child_signals": [],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGWINCH"
+  ]
+ },
+ "script-fg/SIGTERM": {
+  "child_signals": [
+   "SIGTERM"
+  ],
+  "proto_rc": "RC=7",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGTERM"
+  ]
+ },
+ "pipeline-stdout/SIGINT": {
+  "child_signals": [],
+  "proto_rc": "RC=0",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGINT"
+  ]
+ },
+ "pipeline-stdout/SIGHUP": {
+  "child_signals": [],
+  "proto_rc": "RC=0",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGHUP"
+  ]
+ },
+ "pipeline-stdout/SIGQUIT": {
+  "child_signals": [],
+  "proto_rc": "RC=0",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGQUIT"
+  ]
+ },
+ "pipeline-stdout/SIGWINCH": {
+  "child_signals": [],
+  "proto_rc": "RC=0",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGWINCH"
+  ]
+ },
+ "pipeline-stdout/SIGTERM": {
+  "child_signals": [
+   "SIGTERM"
+  ],
+  "proto_rc": "RC=0",
+  "proto_pgrp_eq_child_pgrp": true,
+  "terminal_fg_is_proto_group": true,
+  "terminal_fg_is_child_group": true,
+  "expected_child_signals_K6": [
+   "SIGTERM"
+  ]
+ }
+}
+K6_VIOLATIONS ['script-fg/SIGINT', 'script-fg/SIGHUP', 'script-fg/SIGQUIT', 'script-fg/SIGWINCH', 'pipeline-stdout/SIGINT', 'pipeline-stdout/SIGHUP', 'pipeline-stdout/SIGQUIT', 'pipeline-stdout/SIGWINCH']

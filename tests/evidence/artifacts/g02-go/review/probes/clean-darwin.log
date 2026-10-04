@@ -1,0 +1,6 @@
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"candidate":"go","name":"heimdall-proto","runtime":"go1.27.1 darwin/arm64","tui_framework":"charm.land/bubbletea/v2","tui_framework_version":"v2.0.10","version":"0.0.0-g02"},"warnings":[],"next":null}
+version rc=0
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","revision":3,"destinat
+profile rc=0
+./spaced dir ü/heimdall-proto
+./spaced dir ü/prof ü.toml

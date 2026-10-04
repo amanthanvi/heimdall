@@ -1,0 +1,56 @@
+{
+ "runs": 10,
+ "bad": 10,
+ "results": [
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "peer": null,
+   "stopped_reported": false,
+   "statuses": null
+  }
+ ]
+}

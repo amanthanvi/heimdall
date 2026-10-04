@@ -1,0 +1,68 @@
+{
+ "bin": "/tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto",
+ "results": [
+  {
+   "case": "baseline_no_tmux_env",
+   "env_added": [],
+   "exit": 0,
+   "tmux_executed": false,
+   "tmux_args": null,
+   "files_created": [],
+   "truecolor_sgr_seen": false,
+   "alt_screen_entered_after_s": 0.023
+  },
+  {
+   "case": "TMUX_set",
+   "env_added": [
+    "TMUX"
+   ],
+   "exit": 0,
+   "tmux_executed": true,
+   "tmux_args": "info",
+   "files_created": [
+    "TMUX_WAS_EXECUTED"
+   ],
+   "truecolor_sgr_seen": false,
+   "alt_screen_entered_after_s": 0.029
+  },
+  {
+   "case": "TMUX_set_tmux_hangs_5s",
+   "env_added": [
+    "TMUX"
+   ],
+   "exit": 0,
+   "tmux_executed": true,
+   "tmux_args": "info",
+   "files_created": [
+    "TMUX_WAS_EXECUTED"
+   ],
+   "truecolor_sgr_seen": false,
+   "alt_screen_entered_after_s": 5.038
+  },
+  {
+   "case": "UV_DEBUG_set",
+   "env_added": [
+    "UV_DEBUG"
+   ],
+   "exit": 0,
+   "tmux_executed": false,
+   "tmux_args": null,
+   "files_created": [],
+   "truecolor_sgr_seen": false,
+   "alt_screen_entered_after_s": 0.027
+  },
+  {
+   "case": "TEA_TRACE_and_TEA_DEBUG_set",
+   "env_added": [
+    "TEA_TRACE",
+    "TEA_DEBUG"
+   ],
+   "exit": 0,
+   "tmux_executed": false,
+   "tmux_args": null,
+   "files_created": [],
+   "truecolor_sgr_seen": false,
+   "alt_screen_entered_after_s": 0.025
+  }
+ ]
+}

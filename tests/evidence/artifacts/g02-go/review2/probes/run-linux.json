@@ -1,0 +1,52 @@
+{
+ "platform": "Linux",
+ "stream_50MiB_slow_reader": {
+  "rc": 0,
+  "sha_equal": true,
+  "bytes": 51380224
+ },
+ "stdin_eof": {
+  "rc": 0,
+  "stdout": "3"
+ },
+ "sigpipe_child": {
+  "proto_rc": 141,
+  "expected": 141,
+  "elapsed_s": 0.009
+ },
+ "godebug_execerrdot": {
+  "rc": 127,
+  "ran": false
+ },
+ "sigkill_proto_child_survives": true,
+ "closed_stdout": {
+  "stderr": "rc=0",
+  "rc": 0
+ },
+ "closed_stdout_control": {
+  "stderr": "/bin/sh: 1: echo: echo: I/O error\nrc=1"
+ },
+ "meta_fifo_no_reader": {
+  "rc": 4,
+  "elapsed_s": 0.008,
+  "stderr": "heimdall-proto: run: cannot write --meta-file\n"
+ },
+ "meta_symlink_followed": true,
+ "grandchild_background": {
+  "rc": 0,
+  "elapsed_s": 0.007
+ },
+ "exit_mapping": {
+  "0": 0,
+  "1": 1,
+  "126": 126,
+  "127": 127,
+  "128": 128,
+  "255": 255,
+  "sig11": 139,
+  "sig6": 134,
+  "sig9": 137,
+  "sig10": 138
+ },
+ "child_reaped": true
+}

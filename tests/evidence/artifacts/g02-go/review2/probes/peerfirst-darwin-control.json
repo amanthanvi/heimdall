@@ -1,0 +1,61 @@
+{
+ "runs": 5,
+ "bad": 0,
+ "results": [
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[* \r]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50341,
+    "fg_before": 50341,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[* \r]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50345,
+    "fg_before": 50345,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[* \r]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50350,
+    "fg_before": 50350,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[* \r]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50353,
+    "fg_before": 50353,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[* \r]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50382,
+    "fg_before": 50382,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  }
+ ]
+}

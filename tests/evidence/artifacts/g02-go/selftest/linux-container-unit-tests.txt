@@ -1,0 +1,94 @@
+=== linux/arm64 (alpine:3.22, --network none, no Go toolchain)
+Unable to find image 'alpine:3.22' locally
+3.22: Pulling from library/alpine
+Digest: sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+Status: Downloaded newer image for alpine:3.22
+no go on PATH
+aarch64
+--- PASS: TestUsageErrors (0.00s)
+--- PASS: TestProfileShowOversizeAndMissing (0.00s)
+--- PASS: TestCanaryNeverEmitted (0.00s)
+--- PASS: TestRunMetaFile (0.00s)
+--- PASS: TestVersion (0.00s)
+--- PASS: TestTUIRequiresTTY (0.00s)
+PASS
+pkg=heimdall-proto exit=0
+--- PASS: TestParseOK (0.00s)
+--- PASS: TestParseRejects (0.00s)
+--- PASS: TestReadFrameBounds (0.00s)
+--- PASS: TestSafeTextStripsEscapes (0.00s)
+--- PASS: TestProbeOK (0.00s)
+--- PASS: TestProbeRefusedAndProtocol (0.00s)
+--- PASS: TestProbeUnavailable (0.31s)
+--- PASS: TestProbeCancel (0.20s)
+PASS
+pkg=agent exit=0
+--- PASS: TestFixtures (0.01s)
+--- PASS: TestHomelabValues (0.00s)
+--- PASS: TestOversize (0.01s)
+--- PASS: TestMissingFile (0.00s)
+--- PASS: TestMoreSchemaRules (0.00s)
+--- PASS: TestFilter (0.00s)
+PASS
+pkg=profile exit=0
+--- PASS: TestArgvPassthroughAndExitCode (0.00s)
+--- PASS: TestInvalidUTF8ArgBytes (0.00s)
+--- PASS: TestSignalDeath (0.00s)
+--- PASS: TestLaunchFailure (0.00s)
+--- PASS: TestForwardSignalsAndReap (0.28s)
+PASS
+pkg=run exit=0
+--- PASS: TestLayoutWideNarrowTiny (0.00s)
+--- PASS: TestColorSelectionNotColorOnly (0.00s)
+--- PASS: TestKeysFilterSelect (0.00s)
+--- PASS: TestSanitize (0.00s)
+PASS
+pkg=tui exit=0
+overall=0
+=== linux/amd64 (alpine:3.22, --network none, no Go toolchain)
+Unable to find image 'alpine:3.22' locally
+3.22: Pulling from library/alpine
+Digest: sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+Status: Downloaded newer image for alpine:3.22
+no go on PATH
+x86_64
+--- PASS: TestUsageErrors (0.01s)
+--- PASS: TestProfileShowOversizeAndMissing (0.00s)
+--- PASS: TestCanaryNeverEmitted (0.00s)
+--- PASS: TestRunMetaFile (0.01s)
+--- PASS: TestVersion (0.00s)
+--- PASS: TestTUIRequiresTTY (0.00s)
+PASS
+pkg=heimdall-proto exit=0
+--- PASS: TestParseOK (0.00s)
+--- PASS: TestParseRejects (0.00s)
+--- PASS: TestReadFrameBounds (0.00s)
+--- PASS: TestSafeTextStripsEscapes (0.00s)
+--- PASS: TestProbeOK (0.00s)
+--- PASS: TestProbeRefusedAndProtocol (0.00s)
+--- PASS: TestProbeUnavailable (0.30s)
+--- PASS: TestProbeCancel (0.21s)
+PASS
+pkg=agent exit=0
+--- PASS: TestFixtures (0.02s)
+--- PASS: TestHomelabValues (0.00s)
+--- PASS: TestOversize (0.03s)
+--- PASS: TestMissingFile (0.00s)
+--- PASS: TestMoreSchemaRules (0.00s)
+--- PASS: TestFilter (0.00s)
+PASS
+pkg=profile exit=0
+--- PASS: TestArgvPassthroughAndExitCode (0.03s)
+--- PASS: TestInvalidUTF8ArgBytes (0.01s)
+--- PASS: TestSignalDeath (0.02s)
+--- PASS: TestLaunchFailure (0.00s)
+--- PASS: TestForwardSignalsAndReap (0.29s)
+PASS
+pkg=run exit=0
+--- PASS: TestLayoutWideNarrowTiny (0.00s)
+--- PASS: TestColorSelectionNotColorOnly (0.00s)
+--- PASS: TestKeysFilterSelect (0.00s)
+--- PASS: TestSanitize (0.00s)
+PASS
+pkg=tui exit=0
+overall=0

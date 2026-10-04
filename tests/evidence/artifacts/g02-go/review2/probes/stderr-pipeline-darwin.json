@@ -1,0 +1,96 @@
+{
+ "runs": 10,
+ "bad": 0,
+ "results": [
+  {
+   "peer": {
+    "pgrp": 49180,
+    "fg_before": 49180,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49196,
+    "fg_before": 49196,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49200,
+    "fg_before": 49200,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49205,
+    "fg_before": 49205,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49210,
+    "fg_before": 49210,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49215,
+    "fg_before": 49215,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49222,
+    "fg_before": 49222,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49230,
+    "fg_before": 49230,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49242,
+    "fg_before": 49242,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  },
+  {
+   "peer": {
+    "pgrp": 49269,
+    "fg_before": 49269,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": "7 0"
+  }
+ ]
+}

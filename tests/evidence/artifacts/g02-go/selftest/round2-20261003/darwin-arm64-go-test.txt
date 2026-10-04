@@ -1,0 +1,195 @@
+# started 2026-10-03T21:57:50Z host darwin-arm64 go version go1.27.1 darwin/arm64
++ go test -count=1 -v ./...
+=== RUN   TestK15ParserResourceBound
+    k15_test.go:168: inline nest depth 4000 (16 KB)          24056 B  SCHEMA_INVALID  0.004s  peak    7.2 MiB  killed=""
+    k15_test.go:168: array of inline nest 1 MiB             696056 B  SCHEMA_INVALID  0.004s  peak    8.7 MiB  killed=""
+    k15_test.go:168: long header components, many keys      421942 B  SCHEMA_INVALID  0.004s  peak    8.4 MiB  killed=""
+    k15_test.go:168: wide array 1 MiB                      1048575 B  PROFILE_OK      0.055s  peak   35.2 MiB  killed=""
+    k15_test.go:168: at limit: deep header 28000 keys       297000 B  PROFILE_OK      0.035s  peak   65.8 MiB  killed=""
+    k15_test.go:168: at limit: 10000 destinations           707823 B  PROFILE_OK      0.028s  peak   28.4 MiB  killed=""
+    k15_test.go:168: dotted keys depth 8, 1 MiB            1041940 B  SCHEMA_INVALID  0.004s  peak    9.5 MiB  killed=""
+    k15_test.go:168: many keys 1 MiB                        978940 B  SCHEMA_INVALID  0.005s  peak    9.4 MiB  killed=""
+    k15_test.go:168: long string 1 MiB                     1048576 B  PROFILE_OK      0.010s  peak   13.1 MiB  killed=""
+    k15_test.go:168: at limit: inline nest 30 x1049         198250 B  PROFILE_OK      0.069s  peak   72.8 MiB  killed=""
+--- PASS: TestK15ParserResourceBound (0.23s)
+=== RUN   TestK16TUINoHelperProcesses
+--- PASS: TestK16TUINoHelperProcesses (0.50s)
+=== RUN   TestUsageErrors
+--- PASS: TestUsageErrors (0.00s)
+=== RUN   TestProfileShowOversizeAndMissing
+--- PASS: TestProfileShowOversizeAndMissing (0.00s)
+=== RUN   TestCanaryNeverEmitted
+--- PASS: TestCanaryNeverEmitted (0.00s)
+=== RUN   TestRunMetaFile
+--- PASS: TestRunMetaFile (0.01s)
+=== RUN   TestVersion
+--- PASS: TestVersion (0.00s)
+=== RUN   TestTUIRequiresTTY
+--- PASS: TestTUIRequiresTTY (0.00s)
+=== RUN   TestK5MetaState
+--- PASS: TestK5MetaState (0.02s)
+=== RUN   TestRunMetaFIFO
+--- PASS: TestRunMetaFIFO (0.01s)
+=== RUN   TestK10PanicRestoresAndExits1
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 163 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x6509c63c0d20, {0x102cc7198, 0x102c74b90})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x102cc7198?, 0x102c74b90?})
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x102d8c930?}, {0x102cf6698?, 0x6509c6c55c80?})
+	<repo>/prototypes/go/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x6509c63c0d20, {0x102d05850?, 0x6509c6c82200?}, 0x6509c647e0e0)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x6509c63c0d20)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x102d05850, 0x6509c6c82200}, 0x6509c6c82200, 0x6509c678a1d8, {0x102d042d0, 0x6509c64337a0}, {0x102d042d0, 0x6509c64337d0}, {0x6509c6404e90, 0x2, ...})
+	<repo>/prototypes/go/cmd/heimdall-proto/main.go:326 +0x344
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x6509c64706c8)
+	<repo>/prototypes/go/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x6509c64706c8, 0x102d06910)
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2258 +0x3b8
+
+--- PASS: TestK10PanicRestoresAndExits1 (0.60s)
+=== RUN   TestK10SIGHUPRestoresAndExits129
+--- PASS: TestK10SIGHUPRestoresAndExits129 (0.60s)
+=== RUN   TestK10TerminalHangupNoSignalExits129
+--- PASS: TestK10TerminalHangupNoSignalExits129 (0.40s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	2.400s
+=== RUN   TestParseOK
+--- PASS: TestParseOK (0.00s)
+=== RUN   TestParseRejects
+--- PASS: TestParseRejects (0.00s)
+=== RUN   TestReadFrameBounds
+--- PASS: TestReadFrameBounds (0.00s)
+=== RUN   TestSafeTextStripsEscapes
+--- PASS: TestSafeTextStripsEscapes (0.00s)
+=== RUN   TestProbeOK
+--- PASS: TestProbeOK (0.00s)
+=== RUN   TestProbeRefusedAndProtocol
+--- PASS: TestProbeRefusedAndProtocol (0.00s)
+=== RUN   TestProbeUnavailable
+--- PASS: TestProbeUnavailable (0.30s)
+=== RUN   TestProbeCancel
+    agent_test.go:211: cancel latency after signal: 1.113ms
+--- PASS: TestProbeCancel (0.20s)
+=== RUN   TestK3EOFClassification
+--- PASS: TestK3EOFClassification (0.00s)
+=== RUN   TestK4FailureFrameShape
+--- PASS: TestK4FailureFrameShape (0.00s)
+=== RUN   TestK1ControlCharactersInIdentity
+--- PASS: TestK1ControlCharactersInIdentity (0.00s)
+=== RUN   TestK3aResetClassificationReadFrame
+--- PASS: TestK3aResetClassificationReadFrame (0.00s)
+=== RUN   TestK3aResetEndToEnd
+=== RUN   TestK3aResetEndToEnd/before_any_byte
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/after_1_byte
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/after_3_header_bytes
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/mid_body
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+--- PASS: TestK3aResetEndToEnd (0.62s)
+    --- PASS: TestK3aResetEndToEnd/before_any_byte (0.00s)
+    --- PASS: TestK3aResetEndToEnd/after_1_byte (0.20s)
+    --- PASS: TestK3aResetEndToEnd/after_3_header_bytes (0.21s)
+    --- PASS: TestK3aResetEndToEnd/mid_body (0.20s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.132s
+=== RUN   TestGuardSyntax
+--- PASS: TestGuardSyntax (0.00s)
+=== RUN   TestGuardAcceptsValidCorpus
+    guard_test.go:119: 289 parser-valid corpus documents accepted by the guard
+--- PASS: TestGuardAcceptsValidCorpus (0.07s)
+=== RUN   TestK14NonRegularFiles
+--- PASS: TestK14NonRegularFiles (0.00s)
+=== RUN   TestFixtures
+=== RUN   TestFixtures/homelab.toml
+=== RUN   TestFixtures/large-100.toml
+=== RUN   TestFixtures/spaced_dir_ü/prøfile_homelab.toml
+=== RUN   TestFixtures/invalid-forbidden-key.toml
+=== RUN   TestFixtures/invalid-unknown-dest-key.toml
+=== RUN   TestFixtures/invalid-malformed.toml
+=== RUN   TestFixtures/invalid-schema-version.toml
+=== RUN   TestFixtures/invalid-duplicate-alias.toml
+=== RUN   TestFixtures/invalid-port.toml
+--- PASS: TestFixtures (0.00s)
+    --- PASS: TestFixtures/homelab.toml (0.00s)
+    --- PASS: TestFixtures/large-100.toml (0.00s)
+    --- PASS: TestFixtures/spaced_dir_ü/prøfile_homelab.toml (0.00s)
+    --- PASS: TestFixtures/invalid-forbidden-key.toml (0.00s)
+    --- PASS: TestFixtures/invalid-unknown-dest-key.toml (0.00s)
+    --- PASS: TestFixtures/invalid-malformed.toml (0.00s)
+    --- PASS: TestFixtures/invalid-schema-version.toml (0.00s)
+    --- PASS: TestFixtures/invalid-duplicate-alias.toml (0.00s)
+    --- PASS: TestFixtures/invalid-port.toml (0.00s)
+=== RUN   TestHomelabValues
+--- PASS: TestHomelabValues (0.00s)
+=== RUN   TestOversize
+--- PASS: TestOversize (0.01s)
+=== RUN   TestMissingFile
+--- PASS: TestMissingFile (0.00s)
+=== RUN   TestMoreSchemaRules
+--- PASS: TestMoreSchemaRules (0.00s)
+=== RUN   TestFilter
+--- PASS: TestFilter (0.00s)
+=== RUN   TestK2ControlCharactersInValues
+--- PASS: TestK2ControlCharactersInValues (0.00s)
+=== RUN   FuzzGuard
+=== RUN   FuzzGuard/seed#0
+=== RUN   FuzzGuard/seed#1
+=== RUN   FuzzGuard/seed#2
+=== RUN   FuzzGuard/seed#3
+=== RUN   FuzzGuard/seed#4
+=== RUN   FuzzGuard/seed#5
+--- PASS: FuzzGuard (0.00s)
+    --- PASS: FuzzGuard/seed#0 (0.00s)
+    --- PASS: FuzzGuard/seed#1 (0.00s)
+    --- PASS: FuzzGuard/seed#2 (0.00s)
+    --- PASS: FuzzGuard/seed#3 (0.00s)
+    --- PASS: FuzzGuard/seed#4 (0.00s)
+    --- PASS: FuzzGuard/seed#5 (0.00s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/profile	0.093s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+=== RUN   TestDotPathRefusalNotEnvironmentControlled
+--- PASS: TestDotPathRefusalNotEnvironmentControlled (0.00s)
+=== RUN   TestArgvPassthroughAndExitCode
+--- PASS: TestArgvPassthroughAndExitCode (0.00s)
+=== RUN   TestInvalidUTF8ArgBytes
+--- PASS: TestInvalidUTF8ArgBytes (0.00s)
+=== RUN   TestSignalDeath
+--- PASS: TestSignalDeath (0.00s)
+=== RUN   TestLaunchFailure
+--- PASS: TestLaunchFailure (0.00s)
+=== RUN   TestForwardSignalsAndReap
+--- PASS: TestForwardSignalsAndReap (0.28s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.298s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+=== RUN   TestLayoutWideNarrowTiny
+--- PASS: TestLayoutWideNarrowTiny (0.00s)
+=== RUN   TestColorSelectionNotColorOnly
+--- PASS: TestColorSelectionNotColorOnly (0.00s)
+=== RUN   TestKeysFilterSelect
+--- PASS: TestKeysFilterSelect (0.00s)
+=== RUN   TestSanitize
+--- PASS: TestSanitize (0.00s)
+=== RUN   TestK9SelectionAfterFilterEdit
+--- PASS: TestK9SelectionAfterFilterEdit (0.00s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.008s
+exit=0

@@ -1,0 +1,487 @@
+{
+ "platform": "Linux-aarch64",
+ "cases": {
+  "frame_len_exactly_262144_ok": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "elapsed_s": 0.005,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "",
+   "fingerprint_ok": true,
+   "want": [
+    0,
+    "AGENT_OK"
+   ],
+   "ok": true
+  },
+  "frame_len_262145": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "server_errors": [
+     "[Errno 32] Broken pipe"
+    ]
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: frame length 262145 exceeds 262144\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "frame_len_0xffffffff_header_only": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: frame length 4294967295 exceeds 262144\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "nkeys_1024_ok": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "elapsed_s": 0.005,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "",
+   "fingerprint_ok": true,
+   "want": [
+    0,
+    "AGENT_OK"
+   ],
+   "ok": true
+  },
+  "nkeys_1025": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: nkeys 1025 exceeds 1024\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "nkeys_huge_small_frame": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: nkeys 4294967295 exceeds 1024\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "blob_len_past_end": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: nkeys 1 exceeds remaining frame\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "comment_len_past_end": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: key 0: comment length exceeds frame\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "keytype_len_past_blob": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: key 0: key type length exceeds key_blob\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "empty_blob": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: key 0: key type length exceeds key_blob\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "trailing_after_last_key": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: 1 trailing bytes after last key\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "type6_success": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: unexpected message type 6\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "type5_len1_refused": {
+   "exit": 5,
+   "code": "AGENT_REFUSED",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent returned SSH_AGENT_FAILURE\n",
+   "want": [
+    5,
+    "AGENT_REFUSED"
+   ],
+   "ok": true
+  },
+  "type5_with_payload_K4": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: trailing bytes after SSH_AGENT_FAILURE\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "zero_length_frame": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: empty frame\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "eof_before_any_byte_K3": {
+   "exit": 5,
+   "code": "AGENT_UNAVAILABLE",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b"
+   },
+   "stderr": "heimdall-proto: agent list: agent closed the connection before any response byte\n",
+   "want": [
+    5,
+    "AGENT_UNAVAILABLE"
+   ],
+   "ok": true
+  },
+  "eof_after_2_header_bytes_K3": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b"
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame header\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "eof_mid_body_K3": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b"
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame body\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "reset_before_any_byte_K3a": {
+   "exit": 5,
+   "code": "AGENT_UNAVAILABLE",
+   "elapsed_s": 0.003,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b"
+   },
+   "stderr": "heimdall-proto: agent list: agent closed the connection before any response byte\n",
+   "want": [
+    5,
+    "AGENT_UNAVAILABLE"
+   ],
+   "ok": true
+  },
+  "reset_after_1_byte_K3a": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.06,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b"
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame header\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "reset_mid_body_K3a": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "elapsed_s": 0.06,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b"
+   },
+   "stderr": "heimdall-proto: agent list: agent protocol error: truncated frame body\n",
+   "want": [
+    5,
+    "AGENT_PROTOCOL_ERROR"
+   ],
+   "ok": true
+  },
+  "slow_drip_valid_within_timeout": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "elapsed_s": 0.376,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "",
+   "fingerprint_ok": true,
+   "want": [
+    0,
+    "AGENT_OK"
+   ],
+   "ok": true
+  },
+  "slow_drip_exceeds_timeout": {
+   "exit": 5,
+   "code": "AGENT_UNAVAILABLE",
+   "elapsed_s": 0.81,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "server_errors": [
+     "[Errno 32] Broken pipe"
+    ]
+   },
+   "stderr": "heimdall-proto: agent list: read: no complete response within timeout\n",
+   "timeout_overrun_ms": 9.7,
+   "want": [
+    5,
+    "AGENT_UNAVAILABLE"
+   ],
+   "ok": true
+  },
+  "silent_until_timeout": {
+   "exit": 5,
+   "code": "AGENT_UNAVAILABLE",
+   "elapsed_s": 0.517,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: read: no complete response within timeout\n",
+   "timeout_overrun_ms": 17.0,
+   "want": [
+    5,
+    "AGENT_UNAVAILABLE"
+   ],
+   "ok": true
+  },
+  "sigint_while_waiting": {
+   "exit": 130,
+   "code": "CANCELLED",
+   "elapsed_s": 0.311,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: cancelled\n",
+   "sigint_to_exit_ms": 3.8,
+   "want": [
+    130,
+    "CANCELLED"
+   ],
+   "ok": true
+  },
+  "sigint_after_partial_header": {
+   "exit": 130,
+   "code": "CANCELLED",
+   "elapsed_s": 0.311,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "heimdall-proto: agent list: cancelled\n",
+   "sigint_to_exit_ms": 3.8,
+   "want": [
+    130,
+    "CANCELLED"
+   ],
+   "ok": true
+  },
+  "controls_and_invalid_utf8_K1": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "elapsed_s": 0.01,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "",
+   "k1_bad_codepoints": [],
+   "identity": {
+    "key_type": "ssh-\ufffd[31mrsa\ufffd",
+    "fingerprint": "SHA256:cUDSIUU19n5vI7UrYpH9Hz4XMGeYg9P6QqaJ2JeeXxM",
+    "comment": "\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd\u202eevil\u200b"
+   },
+   "bidi_zero_width_passed_through": [
+    true,
+    true
+   ],
+   "want": [
+    0,
+    "AGENT_OK"
+   ],
+   "ok": true
+  },
+  "valid_then_extra_bytes_after_frame": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "elapsed_s": 0.008,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": "none(ConnectionResetError)"
+   },
+   "stderr": "",
+   "fingerprint_ok": true,
+   "want": [
+    0,
+    "AGENT_OK"
+   ],
+   "ok": true
+  },
+  "response_before_request_read": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "elapsed_s": 0.006,
+   "server": {
+    "accepted": true,
+    "request_hex": "000000010b",
+    "client_sent_after": ""
+   },
+   "stderr": "",
+   "fingerprint_ok": true,
+   "want": [
+    0,
+    "AGENT_OK"
+   ],
+   "ok": true
+  }
+ },
+ "fails": []
+}

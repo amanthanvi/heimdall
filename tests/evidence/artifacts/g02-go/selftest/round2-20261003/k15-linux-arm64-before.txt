@@ -1,0 +1,36 @@
+# started 2026-10-03T22:08:30Z before image python@sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059
++ python3 k15_probe.py /before/linux-arm64/heimdall-proto
+FAIL {"shape": "inline_table_nest", "n": 174753, "file_bytes": 1048574, "elapsed_s": 0.431, "peak_rss_mib": 1044.1, "killed_by_probe": "rss", "exit": -9, "code": null, "within_bounds": false}
+FAIL {"shape": "array_nest", "n": 524260, "file_bytes": 1048575, "elapsed_s": 0.144, "peak_rss_mib": 460.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": false}
+FAIL {"shape": "array_of_inline_nest", "n": 131065, "file_bytes": 1048576, "elapsed_s": 0.261, "peak_rss_mib": 1038.3, "killed_by_probe": "rss", "exit": -9, "code": null, "within_bounds": false}
+FAIL {"shape": "dotted_key_depth", "n": 524261, "file_bytes": 1048576, "elapsed_s": 0.791, "peak_rss_mib": 1042.8, "killed_by_probe": "rss", "exit": -9, "code": null, "within_bounds": false}
+FAIL {"shape": "table_header_depth", "n": 524260, "file_bytes": 1048576, "elapsed_s": 0.288, "peak_rss_mib": 1066.3, "killed_by_probe": "rss", "exit": -9, "code": null, "within_bounds": false}
+FAIL {"shape": "dotted_key_in_inline", "n": 524258, "file_bytes": 1048576, "elapsed_s": 0.89, "peak_rss_mib": 1036.1, "killed_by_probe": "rss", "exit": -9, "code": null, "within_bounds": false}
+PASS {"shape": "many_keys", "n": 96330, "file_bytes": 1048570, "elapsed_s": 0.053, "peak_rss_mib": 49.3, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "many_tables", "n": 75688, "file_bytes": 1048565, "elapsed_s": 0.053, "peak_rss_mib": 47.4, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "array_of_tables", "n": 95320, "file_bytes": 1048570, "elapsed_s": 0.042, "peak_rss_mib": 31.1, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "wide_inline", "n": 88302, "file_bytes": 1048569, "elapsed_s": 0.062, "peak_rss_mib": 55.3, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "wide_array", "n": 524259, "file_bytes": 1048575, "elapsed_s": 0.053, "peak_rss_mib": 35.7, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "wide_array_of_inline", "n": 131064, "file_bytes": 1048569, "elapsed_s": 0.098, "peak_rss_mib": 137.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "long_string", "n": 1048519, "file_bytes": 1048576, "elapsed_s": 0.011, "peak_rss_mib": 14.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "long_ml_string", "n": 349504, "file_bytes": 1048574, "elapsed_s": 0.021, "peak_rss_mib": 14.2, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "many_destinations", "n": 14667, "file_bytes": 1048514, "elapsed_s": 0.042, "peak_rss_mib": 35.1, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+FAIL {"shape": "nest32_repeated", "n": 5196, "file_bytes": 1048532, "elapsed_s": 0.377, "peak_rss_mib": 332.9, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": false}
+PASS {"shape": "nest64_arrays_repeated", "n": 7661, "file_bytes": 1048497, "elapsed_s": 0.099, "peak_rss_mib": 56.3, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "deep_in_string_not_nesting", "n": 524259, "file_bytes": 1048575, "elapsed_s": 0.011, "peak_rss_mib": 20.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_inline_nest30_x1049", "n": 1049, "file_bytes": 198250, "elapsed_s": 0.073, "peak_rss_mib": 73.0, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "over_bytes_deep_header_65000_keys", "n": 65000, "file_bytes": 704000, "elapsed_s": 0.089, "peak_rss_mib": 147.8, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "over_bytes_dotted31_x2064", "n": 2064, "file_bytes": 143420, "elapsed_s": 0.066, "peak_rss_mib": 87.4, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "over_bytes_deep_inline_64000_keys", "n": 64000, "file_bytes": 757119, "elapsed_s": 0.086, "peak_rss_mib": 153.7, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_array_of_inline_32000", "n": 32000, "file_bytes": 256057, "elapsed_s": 0.032, "peak_rss_mib": 41.2, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_destinations_10000", "n": 10000, "file_bytes": 707823, "elapsed_s": 0.032, "peak_rss_mib": 23.4, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_array_nest30_x2064", "n": 2064, "file_bytes": 141356, "elapsed_s": 0.022, "peak_rss_mib": 20.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_deep_header_28000_keys", "n": 28000, "file_bytes": 297000, "elapsed_s": 0.043, "peak_rss_mib": 64.1, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_deep_inline_27000_keys", "n": 27000, "file_bytes": 313119, "elapsed_s": 0.043, "peak_rss_mib": 62.2, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_dotted31_x1800", "n": 1800, "file_bytes": 124940, "elapsed_s": 0.052, "peak_rss_mib": 77.1, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_long_header_comps_60_keys", "n": 60, "file_bytes": 30550, "elapsed_s": 0.011, "peak_rss_mib": 20.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_long_key_names_100", "n": 100, "file_bytes": 1000840, "elapsed_s": 0.011, "peak_rss_mib": 20.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_long_quoted_dotted_keys", "n": 60, "file_bytes": 600880, "elapsed_s": 0.011, "peak_rss_mib": 20.5, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+PASS {"shape": "at_limit_dotted_inline_mix_x1560", "n": 1560, "file_bytes": 170540, "elapsed_s": 0.072, "peak_rss_mib": 77.2, "killed_by_probe": null, "exit": 0, "code": "PROFILE_OK", "within_bounds": true}
+SUMMARY 25 / 32
+exit=1

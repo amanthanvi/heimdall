@@ -1,0 +1,17 @@
+# started 2026-10-03T21:41:42Z before
++ python3 review/probe-scripts/run_probe.py <bin>
+OK   stdin_eof_cat {"rc": 0, "out": "61626300ff", "s": 0.006}
+OK   stdin_devnull_eof {"rc": 4}
+OK   large_stderr_stdout_blocked {"rc": 0, "err": 3000004, "out": 300000}
+OK   exit_not_delayed_by_grandchild {"rc": 6, "s": 0.023}
+OK   sigpipe_child_meta {"meta": {"exit_code": null, "launched": true, "signal": 13}}
+FAIL sigterm_race_60 {"outcomes": {"-15": 29, "3": 23, "143": 8}, "bad": [["heimdall_killed_by_signal", 0, -15], ["heimdall_killed_by_signal", 3, -15], ["heimdall_killed_by_signal", 4, -15], ["heimdall_killed_by_signal", 6, -15], ["heimdall_killed_by_signal", 7, -15]]}
+OK   killpg_sigkill_leaves_child (limitation probe; ok=child survived) {"heimdall_pgid_eq_pid": true, "child_pgid_eq_child_pid": true, "child_alive_after_heimdall_sigkill": true}
+OK   killpg_sigterm_once {"rc": 0, "deliveries": 1}
+OK   closed_stdout_inherited (observation) {"rc": 0, "stderr": "rc=0\n"}
+OK   closed_stdout_control_without_heimdall (observation) {"rc": 0, "stderr": "/bin/sh: line 0: echo: write error: Bad file descriptor\nhi\nrc=1\n"}
+OK   meta_unwritable (observation) {"rc": 3, "stderr": "ran\nheimdall-proto: run: cannot write --meta-file\n"}
+OK   sigtstp_no_tty (observation) {"heimdall_state": "Ss", "child_state": "S", "rc": 0}
+OK   godebug_execerrdot (observation) {"default_rc": 127, "default_err": "heimdall-proto: run: command resolved to the current directory via PATH; refused (use ./name)\n", "godebug_rc": 0, "godebug_err": "DOT-RAN\n"}
+total 13 fail 1
+exit=1

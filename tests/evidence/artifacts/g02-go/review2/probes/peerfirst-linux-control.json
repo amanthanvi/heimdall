@@ -1,0 +1,216 @@
+{
+ "runs": 5,
+ "bad": 0,
+ "results": [
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "7": [
+     "bash",
+     "S",
+     "7",
+     "8"
+    ],
+    "9": [
+     "python3",
+     "S",
+     "8",
+     "8"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[*]\r]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 8,
+    "fg_before": 8,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "python3",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "10": [
+     "bash",
+     "S",
+     "10",
+     "11"
+    ],
+    "12": [
+     "python3",
+     "S",
+     "11",
+     "11"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[*]\r]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 11,
+    "fg_before": 11,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "python3",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "12": [
+     "python3",
+     "Z",
+     "11",
+     "-1"
+    ],
+    "13": [
+     "bash",
+     "S",
+     "13",
+     "14"
+    ],
+    "15": [
+     "python3",
+     "S",
+     "14",
+     "14"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[*]\r]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 14,
+    "fg_before": 14,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "python3",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "12": [
+     "python3",
+     "Z",
+     "11",
+     "-1"
+    ],
+    "15": [
+     "python3",
+     "Z",
+     "14",
+     "-1"
+    ],
+    "16": [
+     "bash",
+     "S",
+     "16",
+     "17"
+    ],
+    "18": [
+     "python3",
+     "S",
+     "17",
+     "17"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[*]\r]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 17,
+    "fg_before": 17,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": {
+    "1": [
+     "python3",
+     "R",
+     "1",
+     "-1"
+    ],
+    "9": [
+     "python3",
+     "Z",
+     "8",
+     "-1"
+    ],
+    "12": [
+     "python3",
+     "Z",
+     "11",
+     "-1"
+    ],
+    "15": [
+     "python3",
+     "Z",
+     "14",
+     "-1"
+    ],
+    "18": [
+     "python3",
+     "Z",
+     "17",
+     "-1"
+    ],
+    "19": [
+     "bash",
+     "S",
+     "19",
+     "20"
+    ],
+    "21": [
+     "python3",
+     "S",
+     "20",
+     "20"
+    ]
+   },
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${PIPESTATUS[*]\r]}\"\r\n\rPEERLINE\r\n",
+   "peer": {
+    "pgrp": 20,
+    "fg_before": 20,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  }
+ ]
+}

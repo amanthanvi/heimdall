@@ -1,0 +1,42 @@
+=== before: docker run --rm --network none --platform linux/arm64 alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 /t/agent-before.test -test.run K3a -test.v -test.count=1
+=== RUN   TestK3aResetClassificationReadFrame
+    k3a_test.go:37: reset before any byte: read unix: read: connection reset by peer
+--- FAIL: TestK3aResetClassificationReadFrame (0.00s)
+=== RUN   TestK3aResetEndToEnd
+=== RUN   TestK3aResetEndToEnd/before_any_byte
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa777383980/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/after_1_byte
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa2497113826/agent sock: read: connection reset by peer (reset=true)
+    k3a_test.go:134: got {Outcome:1 Identities:[] Detail:read failed} want outcome 2
+=== RUN   TestK3aResetEndToEnd/after_3_header_bytes
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa1271601364/agent sock: read: connection reset by peer (reset=true)
+    k3a_test.go:134: got {Outcome:1 Identities:[] Detail:read failed} want outcome 2
+=== RUN   TestK3aResetEndToEnd/mid_body
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa1767489699/agent sock: read: connection reset by peer (reset=true)
+    k3a_test.go:134: got {Outcome:1 Identities:[] Detail:read failed} want outcome 2
+--- FAIL: TestK3aResetEndToEnd (0.62s)
+    --- PASS: TestK3aResetEndToEnd/before_any_byte (0.00s)
+    --- FAIL: TestK3aResetEndToEnd/after_1_byte (0.21s)
+    --- FAIL: TestK3aResetEndToEnd/after_3_header_bytes (0.21s)
+    --- FAIL: TestK3aResetEndToEnd/mid_body (0.21s)
+FAIL
+exit=1
+=== after: docker run --rm --network none --platform linux/arm64 alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 /t/agent-after.test -test.run K3a -test.v -test.count=1
+=== RUN   TestK3aResetClassificationReadFrame
+--- PASS: TestK3aResetClassificationReadFrame (0.00s)
+=== RUN   TestK3aResetEndToEnd
+=== RUN   TestK3aResetEndToEnd/before_any_byte
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa2150421286/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/after_1_byte
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa2529700002/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/after_3_header_bytes
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa4007007932/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/mid_body
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa3278231592/agent sock: read: connection reset by peer (reset=true)
+--- PASS: TestK3aResetEndToEnd (0.62s)
+    --- PASS: TestK3aResetEndToEnd/before_any_byte (0.00s)
+    --- PASS: TestK3aResetEndToEnd/after_1_byte (0.21s)
+    --- PASS: TestK3aResetEndToEnd/after_3_header_bytes (0.21s)
+    --- PASS: TestK3aResetEndToEnd/mid_body (0.21s)
+PASS
+exit=0

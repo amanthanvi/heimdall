@@ -1,0 +1,7 @@
+# started 2026-10-03T18:19:54Z cwd=/
+built darwin-arm64 (5207474 bytes)
+built linux-x64 (5423264 bytes)
+built linux-arm64 (5111968 bytes)
+built windows-x64 (5084160 bytes)
+wrote <repo>/prototypes/go/dist/manifest.json
+exit=0

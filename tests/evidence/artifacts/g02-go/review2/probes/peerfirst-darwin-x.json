@@ -1,0 +1,61 @@
+{
+ "runs": 5,
+ "bad": 0,
+ "results": [
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${ \rPIPESTATUS[*]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50455,
+    "fg_before": 50455,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${ \rPIPESTATUS[*]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50460,
+    "fg_before": 50460,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${ \rPIPESTATUS[*]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50464,
+    "fg_before": 50464,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${ \rPIPESTATUS[*]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50470,
+    "fg_before": 50470,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  },
+  {
+   "ps": null,
+   "tail": "HMPS$ \"$Y\" \"$Q\" \"$D\" </dev/null | \"$P\" run -- \"$Y\" \"$C\" \"$D\" 1.2; echo \"PDONE ${ \rPIPESTATUS[*]}\"\r\nPEERLINE\r\n",
+   "peer": {
+    "pgrp": 50481,
+    "fg_before": 50481,
+    "read": "PEERLINE\n"
+   },
+   "stopped_reported": false,
+   "statuses": null
+  }
+ ]
+}

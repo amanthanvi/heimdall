@@ -1,0 +1,26 @@
+charm.land/bubbletea/v2 v2.0.10  2026-09-24
+github.com/BurntSushi/toml v1.6.0  2025-12-18
+github.com/Microsoft/go-winio v0.6.2  2024-04-09
+github.com/aymanbagabas/go-udiff v0.2.0 -> v0.4.1 2023-12-13
+github.com/bits-and-blooms/bitset v1.24.6 -> v1.25.0 2026-07-10
+github.com/charmbracelet/colorprofile v0.4.3  2026-03-09
+github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7 -> v0.0.0-20261001125412-878653296cfd 2026-07-03
+github.com/charmbracelet/x/ansi v0.11.8  2026-08-11
+github.com/charmbracelet/x/exp/golden v0.0.0-20241212170349-ad4b7ae0f25f -> v0.1.0 2024-12-12
+github.com/charmbracelet/x/term v0.2.2  2025-10-31
+github.com/charmbracelet/x/termios v0.1.1  2025-01-31
+github.com/charmbracelet/x/windows v0.2.2  2025-08-06
+github.com/clipperhouse/displaywidth v0.11.0  2026-02-17
+github.com/clipperhouse/stringish v0.1.1  2025-10-14
+github.com/clipperhouse/uax29/v2 v2.7.0  2026-02-16
+github.com/lucasb-eyer/go-colorful v1.4.0 -> v1.4.1 2026-03-28
+github.com/mattn/go-runewidth v0.0.24 -> v0.0.30 2026-05-29
+github.com/muesli/cancelreader v0.2.2  2022-06-22
+github.com/rivo/uniseg v0.4.7  2024-02-08
+github.com/sirupsen/logrus v1.9.3 -> v1.10.2 2023-05-21
+github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e -> v1.2.0 2022-09-10
+golang.org/x/exp v0.0.0-20220909182711-5c715a9e8561 -> v0.0.0-20260908205506-85c1c2202aba 2022-09-09
+golang.org/x/mod v0.12.0 -> v0.41.0 2023-06-21
+golang.org/x/sync v0.21.0 -> v0.23.0 2026-06-04
+golang.org/x/sys v0.46.0 -> v0.48.0 2026-05-27
+golang.org/x/tools v0.11.0 -> v0.51.0 2023-07-05

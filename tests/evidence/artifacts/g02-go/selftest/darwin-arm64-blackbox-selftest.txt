@@ -1,0 +1,36 @@
+PASS run.stdin_stdout_bytes exit=0
+PASS run.signal_meta exit=137 meta={'exit_code': None, 'launched': True, 'signal': 9}
+PASS run.group_sigint_once exit=11 (10+count)
+PASS tui.select_down_enter exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.j_k_select exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.filter_unicode exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.filter_esc_clears exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.filter_backspace exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.quit_q exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.ctrl_c exit=130 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.large_100_filter exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.sigterm_restores exit=143 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.no_color exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.no_color_sgr color_sgr_count=0
+PASS tui.color_default exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.color_when_allowed TERM=xterm-256color, NO_COLOR empty
+PASS tui.resize_20x5_redraw_within_100ms bytes=61 alive=True
+PASS tui.resize_49x10_redraw_within_100ms bytes=96 alive=True
+PASS tui.resize_120x40_redraw_within_100ms bytes=311 alive=True
+PASS tui.resize_20x5_redraw_within_100ms bytes=61 alive=True
+PASS tui.resize_then_select exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.requires_tty exit=2
+PASS run.tty_ctrl_c_once exit=11 (10+count) termios_same=True
+PASS run.shared_tty_bg_then_fg_once_each exit=12 (10+count, want 12)
+PASS agent.ok exit=0 code=AGENT_OK key_type=ssh-ed25519 comment='fixture �' fp_ok=True
+PASS agent.failure exit=5 code=AGENT_REFUSED
+PASS agent.oversize_len exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.huge_nkeys exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.trailing exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.truncated exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.wrong_type exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.string_over exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.connect_failure exit=5
+PASS agent.timeout exit=5 elapsed=0.307s
+PASS agent.sigint_cancel exit=130 latency=0.8ms
+SUMMARY 35/35 passed

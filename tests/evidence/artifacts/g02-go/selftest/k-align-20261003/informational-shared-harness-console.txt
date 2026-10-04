@@ -1,0 +1,125 @@
+# INFORMATIONAL ONLY - not the verdict for g02-go-selftest.json. The shared harness was being modified concurrently by another agent.
+# command (run read-only, PYTHONDONTWRITEBYTECODE=1, outputs under /tmp): python3 tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/hp-go-harness/G02-go-conformance.json --artifacts-dir /tmp/hp-go-harness/artifacts
+# started=2026-10-03T18:29:37Z exit=0
+# harness file sha256 at time of reading (2026-10-03T18:31:09Z, may have changed during the run):
+#   c049a3aa70fc99098694c953660b71d18a3392d14f2c27c7380aba037773158b  tests/g02/conformance.py
+#   59c0c8b92e28aadb2658afee1ed063723017b4c6719af2685b0a7847dc5a7efb  tests/g02/harness_lib.py
+#   dcbe77b74e19394495018dcd47030a5bebda9c4760c78690034a9e859da291b3  tests/g02/minischema.py
+#   7ce947695e42dba0a57a89d8b7394700426940663d3be4098a1bd4dbb2b3c8e6  tests/g02/pty_shim.py
+#   c09a785943854c6dc11112b72993dece715b07320fb65dcb1fcbec20810d8d0b  tests/g02/reference_impl.py
+#   9fc95eb37fc22905a31719793acfd01dc4eac1d2f22e7771259f67e05fdc3ae7  tests/g02/reference_tui.py
+#   d6080b4158bedb23ca60203c39a375767903c55fa52e7b63c1ea33c3d4d55548  tests/g02/selftest.py
+G02 conformance: candidate=go bin=<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto checks=111 pyte=yes
+PASS  harness.schema_validator                          0 ms  
+PASS  harness.expected_data                             1 ms  
+PASS  harness.ansi_parsers                              0 ms  
+PASS  harness.keygen                                  187 ms  
+PASS  harness.fake_agent                              161 ms  
+PASS  harness.pty_session                             220 ms  
+PASS  harness.fake_agent_modes                        672 ms  
+PASS  harness.screen_wide_chars                         1 ms  
+PASS  harness.pty_close_undrained                    2109 ms  
+PASS  harness.check_bound                            2022 ms  
+PASS  usage.unknown_subcommand_json                    11 ms  
+PASS  usage.unknown_subcommand_plain                    7 ms  
+PASS  usage.unknown_flag_json                           7 ms  
+PASS  usage.unknown_flag_plain                          6 ms  
+PASS  usage.missing_argument_json                      12 ms  
+PASS  usage.missing_argument_plain                     10 ms  
+PASS  version.valid                                     5 ms  
+PASS  profile.homelab_exact                             4 ms  
+PASS  profile.spaced_unicode_path                       4 ms  
+PASS  profile.large_100                                 7 ms  
+PASS  profile.invalid_forbidden_key                     5 ms  
+PASS  profile.invalid_unknown_dest_key                  5 ms  
+PASS  profile.invalid_malformed                         4 ms  
+PASS  profile.invalid_schema_version                    5 ms  
+PASS  profile.invalid_duplicate_alias                   4 ms  
+PASS  profile.invalid_port                              4 ms  
+PASS  profile.generated_invalid_matrix                 94 ms  
+PASS  profile.generated_valid_variants                 28 ms  
+PASS  profile.control_chars_rejected                   32 ms  
+PASS  profile.control_chars_in_meta_ok                  4 ms  
+PASS  profile.meta_not_echoed_homelab                   4 ms  
+PASS  profile.oversize_garbage                          7 ms  
+PASS  profile.size_boundary_plus_one                    4 ms  
+PASS  profile.size_boundary_exact                      10 ms  
+PASS  profile.missing_file                              4 ms  
+PASS  profile.unreadable_file                           4 ms  
+PASS  agent.normal_identities                         166 ms  
+PASS  agent.fingerprint_ssh_keygen                    176 ms  
+PASS  agent.empty                                     181 ms  
+PASS  agent.fragmented_reply                          589 ms  
+PASS  agent.passive_contact_log                       172 ms  
+PASS  agent.malformed_oversize                        177 ms  
+PASS  agent.malformed_huge_nkeys                      164 ms  
+PASS  agent.malformed_truncated                       175 ms  
+PASS  agent.malformed_trailing_bytes                  179 ms  
+PASS  agent.malformed_wrong_type                      168 ms  
+PASS  agent.malformed_string_overrun                  175 ms  
+PASS  agent.malformed_comment_overrun                 180 ms  
+PASS  agent.failure_refused                           173 ms  
+PASS  agent.nkeys_boundary                            361 ms  
+PASS  agent.frame_boundary                            359 ms  
+PASS  agent.missing_socket                              8 ms  
+PASS  agent.stale_socket                                6 ms  
+PASS  agent.slow_timeout                             1741 ms  
+PASS  agent.slow_sigint_cancel                        543 ms  
+PASS  agent.invalid_utf8_comment                      172 ms  
+PASS  agent.control_chars_sanitized                   167 ms  
+PASS  agent.eof_before_reply                          171 ms  
+PASS  agent.eof_after_partial_header                  172 ms  
+PASS  agent.failure_with_payload                      179 ms  
+PASS  agent.unicode_spaced_socket_path                181 ms  
+PASS  run.stdio_passthrough                            42 ms  
+PASS  run.exit_codes                                   88 ms  
+PASS  run.meta_child_exited                            41 ms  
+PASS  run.argv_exact                                   21 ms  
+PASS  run.argv_invalid_utf8                            22 ms  
+PASS  run.meta_state                                   66 ms  
+PASS  run.path_lookup                                  21 ms  
+PASS  run.launch_failure_missing_absolute               5 ms  
+PASS  run.launch_failure_missing_path                   4 ms  
+PASS  run.launch_failure_not_executable                 4 ms  
+PASS  run.child_killed_by_signal                       20 ms  
+PASS  run.forward_sigterm                             541 ms  
+PASS  run.forward_sigint                              578 ms  
+PASS  run.forward_sighup                              544 ms  
+PASS  run.forward_sigquit                             557 ms  
+PASS  run.forward_sigwinch                            609 ms  
+PASS  run.sigint_process_group                        844 ms  
+PASS  run.explicit_signal_with_tty                   5634 ms  
+PASS  run.proto_silent_stdout                          52 ms  
+PASS  run.cwd_env_inherited                            22 ms  
+PASS  run.no_surviving_child                           20 ms  
+PASS  run.usage_errors                                 15 ms  
+PASS  tui.non_tty                                     119 ms  
+PASS  tui.first_frame                                 330 ms  
+PASS  tui.filter_basic                                615 ms  
+PASS  tui.filter_unicode                              558 ms  
+PASS  tui.filter_case_insensitive                     444 ms  
+PASS  tui.filter_matches_host                         560 ms  
+PASS  tui.filter_backspace                            471 ms  
+PASS  tui.esc_clears_filter                           661 ms  
+PASS  tui.filter_enter_keeps_filter                   742 ms  
+PASS  tui.select_down_enter                           336 ms  
+PASS  tui.select_jk_keys                              453 ms  
+PASS  tui.quit_q                                      338 ms  
+PASS  tui.ctrl_c                                      343 ms  
+PASS  tui.ctrl_c_in_filter_mode                       540 ms  
+PASS  tui.sigterm_restores_terminal                   340 ms  
+PASS  tui.sighup_exit_129                             348 ms  
+PASS  tui.hangup_exit_129                             333 ms  
+PASS  tui.filter_edit_resets_selection               1168 ms  
+PASS  tui.no_color                                   1088 ms  
+PASS  tui.resize_narrow_hides_host                    359 ms  
+PASS  tui.resize_relayout_latency                    1517 ms  
+PASS  tui.resize_tiny_no_crash                       1374 ms  
+PASS  tui.start_tiny_no_crash                         739 ms  
+PASS  tui.large_100_filter_latency                   1406 ms  
+PASS  tui.no_agent_contact                           1027 ms  
+PASS  common.exit_codes_without_json                  573 ms  
+PASS  common.no_stray_writes                            1 ms  
+PASS  canary.no_canary_anywhere                         0 ms  
+
+summary: {'total': 111, 'pass': 111, 'fail': 0, 'error': 0, 'skipped': 0}  status=verified verdict=pass  record=/tmp/hp-go-harness/G02-go-conformance.json

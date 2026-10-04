@@ -1,0 +1,48 @@
+--- FAIL: TestCanaryNeverEmitted (0.00s)
+    main_test.go:77: G02 fixture profiles not found above /tmp/heimdall-review2-go/go/cmd/heimdall-proto; set HEIMDALL_G02_FIXTURES to tests/fixtures/g02/profiles
+--- FAIL: TestTUIRequiresTTY (0.00s)
+    main_test.go:116: G02 fixture profiles not found above /tmp/heimdall-review2-go/go/cmd/heimdall-proto; set HEIMDALL_G02_FIXTURES to tests/fixtures/g02/profiles
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 126 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x26bafda7d0e0, {0x102b5b198, 0x102b08b90})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x102b5b198?, 0x102b08b90?})
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x102c20930?}, {0x102b8a698?, 0x26bafd718030?})
+	/tmp/heimdall-review2-go/go/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x26bafda7d0e0, {0x102b99850?, 0x26bafd7aa280?}, 0x26bafda64310)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x26bafda7d0e0)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x102b99850, 0x26bafd7aa280}, 0x26bafd7aa280, 0x26bafd7020a0, {0x102b982d0, 0x26bafd6f9200}, {0x102b982d0, 0x26bafd6f9230}, {0x26bafe344e90, 0x2, ...})
+	/tmp/heimdall-review2-go/go/cmd/heimdall-proto/main.go:326 +0x344
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x26bafdafa008)
+	/tmp/heimdall-review2-go/go/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x26bafdafa008, 0x102b9a910)
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2258 +0x3b8
+
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	2.399s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.136s
+--- FAIL: TestFixtures (0.00s)
+    profile_test.go:15: G02 fixture profiles not found above /tmp/heimdall-review2-go/go/internal/profile; set HEIMDALL_G02_FIXTURES to tests/fixtures/g02/profiles
+--- FAIL: TestHomelabValues (0.00s)
+    profile_test.go:79: G02 fixture profiles not found above /tmp/heimdall-review2-go/go/internal/profile; set HEIMDALL_G02_FIXTURES to tests/fixtures/g02/profiles
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	0.042s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.300s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.008s
+FAIL

@@ -1,0 +1,4 @@
+# started 2026-10-03T22:01:05Z after codesign: flags=0x10002(adhoc,runtime)
++ env -i PATH=/usr/bin:/bin DYLD_INSERT_LIBRARIES=<test dylib printing INJECTED_DYLIB_LOADED> <bin> version --json
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"candidate":"go","name":"heimdall-proto","runtime":"go1.27.1 darwin/arm64","tui_framework":"charm.land/bubbletea/v2","tui_framework_version":"v2.0.10","version":"0.0.0-g02"},"warnings":[],"next":null}
+exit=0

@@ -1,0 +1,104 @@
+# started 2026-10-03T21:39:19Z darwin-arm64 native. 'before' = round-1 sources (snapshot of prototypes/go taken at round-2 start, /tmp/hp-r2-base) with the round-2 test files copied in; 'after' = round-2 sources.
+=== before: (cd before-tree) go test -count=1 -v -run 'K3a|K14|K15|K16|DotPath|MetaFIFO' ./cmd/heimdall-proto ./internal/agent ./internal/profile ./internal/run
+=== RUN   TestK15ParserResourceBound
+    k15_test.go:168: wide array 1 MiB                      1048575 B  PROFILE_OK      0.054s  peak   39.7 MiB  killed=""
+    k15_test.go:168: long string 1 MiB                     1048576 B  PROFILE_OK      0.010s  peak   13.3 MiB  killed=""
+    k15_test.go:168: at limit: inline nest 30 x1049         198250 B  PROFILE_OK      0.074s  peak   76.3 MiB  killed=""
+    k15_test.go:168: inline nest depth 4000 (16 KB)          24056 B                  0.601s  peak  771.1 MiB  killed="rss"
+    k15_test.go:170: inline nest depth 4000 (16 KB): outside K15 bounds (code "", 600.5005ms, 771.1 MiB, killed "rss")
+    k15_test.go:168: array of inline nest 1 MiB             696056 B                  0.321s  peak  772.2 MiB  killed="rss"
+    k15_test.go:170: array of inline nest 1 MiB: outside K15 bounds (code "", 320.885917ms, 772.2 MiB, killed "rss")
+    k15_test.go:168: at limit: deep header 28000 keys       297000 B  PROFILE_OK      0.035s  peak   66.0 MiB  killed=""
+    k15_test.go:168: at limit: 10000 destinations           707823 B  PROFILE_OK      0.028s  peak   29.6 MiB  killed=""
+    k15_test.go:168: dotted keys depth 8, 1 MiB            1041940 B  PROFILE_OK      0.204s  peak  247.5 MiB  killed=""
+    k15_test.go:168: long header components, many keys      421942 B  PROFILE_OK      0.143s  peak  239.4 MiB  killed=""
+    k15_test.go:168: many keys 1 MiB                        978940 B  PROFILE_OK      0.047s  peak   45.4 MiB  killed=""
+--- FAIL: TestK15ParserResourceBound (1.53s)
+=== RUN   TestK16TUINoHelperProcesses
+    k16_test.go:62: heimdall-proto executed helper programs: "tmux info\n"
+--- FAIL: TestK16TUINoHelperProcesses (0.50s)
+=== RUN   TestRunMetaFIFO
+    meta_fifo_test.go:46: run blocked on a --meta-file FIFO without a reader
+--- FAIL: TestRunMetaFIFO (3.00s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	5.046s
+=== RUN   TestK3aResetClassificationReadFrame
+    k3a_test.go:37: reset before any byte: read unix: read: connection reset by peer
+--- FAIL: TestK3aResetClassificationReadFrame (0.00s)
+=== RUN   TestK3aResetEndToEnd
+=== RUN   TestK3aResetEndToEnd/before_any_byte
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/after_1_byte
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/after_3_header_bytes
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/mid_body
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+--- PASS: TestK3aResetEndToEnd (0.62s)
+    --- PASS: TestK3aResetEndToEnd/before_any_byte (0.00s)
+    --- PASS: TestK3aResetEndToEnd/after_1_byte (0.20s)
+    --- PASS: TestK3aResetEndToEnd/after_3_header_bytes (0.21s)
+    --- PASS: TestK3aResetEndToEnd/mid_body (0.21s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/agent	0.623s
+=== RUN   TestK14NonRegularFiles
+    k14_test.go:47: char device: got SCHEMA_INVALID: schema_version: required key is missing, want USAGE_ERROR
+    k14_test.go:53: fifo: Load still blocked after 2 s
+    k14_test.go:53: symlink to fifo: Load still blocked after 2 s
+--- FAIL: TestK14NonRegularFiles (4.01s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	4.013s
+=== RUN   TestDotPathRefusalNotEnvironmentControlled
+    errdot_test.go:28: GODEBUG="execerrdot=0" PATH=".": {Launched:true ExitCode:0x13db8d736030 Signal:<nil> Exit:0 LaunchErr:}
+    errdot_test.go:31: GODEBUG="execerrdot=0" PATH=".": the command found through the current directory ran
+--- FAIL: TestDotPathRefusalNotEnvironmentControlled (0.00s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/run	0.011s
+FAIL
+exit=1
+=== after: (cd after-tree) go test -count=1 -v -run 'K3a|K14|K15|K16|DotPath|MetaFIFO' ./cmd/heimdall-proto ./internal/agent ./internal/profile ./internal/run
+=== RUN   TestK15ParserResourceBound
+    k15_test.go:168: inline nest depth 4000 (16 KB)          24056 B  SCHEMA_INVALID  0.004s  peak    7.3 MiB  killed=""
+    k15_test.go:168: many keys 1 MiB                        978940 B  SCHEMA_INVALID  0.005s  peak    9.5 MiB  killed=""
+    k15_test.go:168: at limit: inline nest 30 x1049         198250 B  PROFILE_OK      0.074s  peak   72.6 MiB  killed=""
+    k15_test.go:168: at limit: 10000 destinations           707823 B  PROFILE_OK      0.029s  peak   27.3 MiB  killed=""
+    k15_test.go:168: array of inline nest 1 MiB             696056 B  SCHEMA_INVALID  0.004s  peak    8.7 MiB  killed=""
+    k15_test.go:168: dotted keys depth 8, 1 MiB            1041940 B  SCHEMA_INVALID  0.004s  peak    9.7 MiB  killed=""
+    k15_test.go:168: long header components, many keys      421942 B  SCHEMA_INVALID  0.004s  peak    8.3 MiB  killed=""
+    k15_test.go:168: wide array 1 MiB                      1048575 B  PROFILE_OK      0.054s  peak   35.5 MiB  killed=""
+    k15_test.go:168: long string 1 MiB                     1048576 B  PROFILE_OK      0.014s  peak   12.8 MiB  killed=""
+    k15_test.go:168: at limit: deep header 28000 keys       297000 B  PROFILE_OK      0.038s  peak   66.1 MiB  killed=""
+--- PASS: TestK15ParserResourceBound (0.24s)
+=== RUN   TestK16TUINoHelperProcesses
+--- PASS: TestK16TUINoHelperProcesses (0.50s)
+=== RUN   TestRunMetaFIFO
+--- PASS: TestRunMetaFIFO (0.01s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	0.759s
+=== RUN   TestK3aResetClassificationReadFrame
+--- PASS: TestK3aResetClassificationReadFrame (0.00s)
+=== RUN   TestK3aResetEndToEnd
+=== RUN   TestK3aResetEndToEnd/before_any_byte
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/after_1_byte
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/after_3_header_bytes
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+=== RUN   TestK3aResetEndToEnd/mid_body
+    k3a_test.go:128: kernel delivered: EOF (reset=false)
+--- PASS: TestK3aResetEndToEnd (0.62s)
+    --- PASS: TestK3aResetEndToEnd/before_any_byte (0.00s)
+    --- PASS: TestK3aResetEndToEnd/after_1_byte (0.20s)
+    --- PASS: TestK3aResetEndToEnd/after_3_header_bytes (0.20s)
+    --- PASS: TestK3aResetEndToEnd/mid_body (0.21s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/agent	0.622s
+=== RUN   TestK14NonRegularFiles
+--- PASS: TestK14NonRegularFiles (0.00s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/profile	0.008s
+=== RUN   TestDotPathRefusalNotEnvironmentControlled
+--- PASS: TestDotPathRefusalNotEnvironmentControlled (0.00s)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.012s
+exit=0

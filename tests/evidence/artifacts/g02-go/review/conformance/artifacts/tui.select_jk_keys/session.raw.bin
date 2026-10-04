@@ -1,0 +1,6 @@
+[?2026$p[?2027$p[>4m[?1049h[?25l[?5W[?2004h[>4;2m[>1u[?u[H[2J[36;1m> lab-server  aman@lab.example.internal:22[m
+  nas  admin@nas.example.internal:22
+  vps-東京  deploy@vps1.example.invalid:2222[45G[24d3/3[H  lab-server  aman@lab.example.internal:22
+
+[36;1m> vps-東京  deploy@vps1.example.invalid:2222[45G[mM[36;1m> nas  admin@nas.example.internal:22[m
+  vps-東京  deploy@vps1.example.invalid:2222[45G[>4m[<1u[24d[?1049l[?25h[?2004lSELECTED nas

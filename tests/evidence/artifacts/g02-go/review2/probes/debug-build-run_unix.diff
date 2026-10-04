@@ -1,0 +1,36 @@
+--- go/internal/run/run_unix.go	2026-10-03 17:54:17
++++ dbg/internal/run/run_unix.go	2026-10-03 22:20:54
+@@ -3,6 +3,7 @@
+ package run
+ 
+ import (
++	"fmt"
+ 	"os"
+ 	"os/exec"
+ 	"os/signal"
+@@ -230,6 +231,7 @@
+ 			}
+ 			return Status{Launched: true, Exit: 1}
+ 		}
++		fmt.Fprintf(os.Stderr, "DBG wait4 status stopped=%v sig=%v cont=%v exited=%v fg=%d\n", ws.Stopped(), ws.StopSignal(), ws.Continued(), ws.Exited(), tcgetpgrp(ttyFD))
+ 		if ws.Stopped() {
+ 			mirrorStop(ttyFD, pid, own, ws.StopSignal(), &mu)
+ 			continue
+@@ -287,7 +289,9 @@
+ 	if fg == pid {
+ 		setFG(ttyFD, own) // reclaim the terminal for the shell's view of the job
+ 	}
++	fmt.Fprintf(os.Stderr, "DBG mirror: stopping self with %v (fg=%d)\n", sig, tcgetpgrp(ttyFD))
+ 	_ = syscall.Kill(0, sig)
++	fmt.Fprintf(os.Stderr, "DBG mirror: resumed (fg=%d own=%d pid=%d)\n", tcgetpgrp(ttyFD), own, pid)
+ 	// Resumed (or the stop was discarded): hand the terminal back only if our
+ 	// group holds the foreground (`fg`), never after `bg`.
+ 	if tcgetpgrp(ttyFD) == own {
+@@ -295,6 +299,7 @@
+ 	} else {
+ 		time.Sleep(handoffPoll) // avoid a busy loop when the stop was discarded
+ 	}
++	fmt.Fprintf(os.Stderr, "DBG mirror: SIGCONT child (fg=%d)\n", tcgetpgrp(ttyFD))
+ 	_ = syscall.Kill(-pid, syscall.SIGCONT)
+ }
+ 

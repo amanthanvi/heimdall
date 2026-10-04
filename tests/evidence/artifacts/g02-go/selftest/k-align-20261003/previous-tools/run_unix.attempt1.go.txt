@@ -1,0 +1,167 @@
+//go:build !windows
+
+package run
+
+import (
+	"os"
+	"os/exec"
+	"os/signal"
+	"sync"
+	"syscall"
+
+	"golang.org/x/sys/unix"
+)
+
+var forwarded = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGWINCH}
+
+type mode int
+
+const (
+	// modeForeground: a stdio descriptor is our controlling terminal and our
+	// process group is its foreground group. The child gets its own group and
+	// becomes the terminal foreground group, so terminal-generated SIGINT/
+	// SIGQUIT/SIGWINCH reach only the child; signals heimdall-proto receives
+	// are explicit and are forwarded once.
+	modeForeground mode = iota
+	// modeSharedTTY: a terminal is present but we are a background job. The
+	// child stays in our process group so shell job control (fg/bg/Ctrl-Z)
+	// keeps working. If the job is later brought to the foreground, terminal-
+	// generated SIGINT/SIGQUIT/SIGWINCH reach the child directly; those are
+	// not forwarded while our group owns the terminal foreground.
+	modeSharedTTY
+	// modeNoTTY: no terminal on stdio. The child gets its own process group so
+	// a signal sent to heimdall-proto's group is delivered to the child once
+	// (by forwarding), never twice.
+	modeNoTTY
+)
+
+func detectMode() (mode, int) {
+	pg := unix.Getpgrp()
+	tty := -1
+	for _, fd := range []int{0, 1, 2} {
+		fg, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+		if err != nil {
+			continue
+		}
+		if fg == pg {
+			return modeForeground, fd
+		}
+		if tty < 0 {
+			tty = fd
+		}
+	}
+	if tty >= 0 {
+		return modeSharedTTY, tty
+	}
+	return modeNoTTY, -1
+}
+
+func terminalGenerated(s os.Signal) bool {
+	return s == syscall.SIGINT || s == syscall.SIGQUIT || s == syscall.SIGWINCH
+}
+
+// startAndWait launches the child, forwards signals, propagates job-control
+// stops (modeForeground), reaps the child, and restores the terminal
+// foreground group.
+func startAndWait(cmd *exec.Cmd) Status {
+	m, ttyFD := detectMode()
+	switch m {
+	case modeForeground:
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Foreground: true, Ctty: ttyFD}
+	case modeNoTTY:
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
+
+	sigs := make(chan os.Signal, 16)
+	signal.Notify(sigs, forwarded...)
+	defer signal.Stop(sigs)
+
+	if err := cmd.Start(); err != nil {
+		msg := "command could not be started"
+		if os.IsPermission(err) {
+			msg = "command is not executable"
+		}
+		return Status{Exit: ExitLaunchFailed, LaunchErr: msg}
+	}
+	pid := cmd.Process.Pid
+
+	var mu sync.Mutex
+	reaped := false
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case s := <-sigs:
+				if m == modeSharedTTY && terminalGenerated(s) {
+					if fg, err := unix.IoctlGetInt(ttyFD, unix.TIOCGPGRP); err == nil && fg == unix.Getpgrp() {
+						continue // the terminal already delivered it to the child
+					}
+				}
+				mu.Lock()
+				if !reaped {
+					_ = cmd.Process.Signal(s)
+				}
+				mu.Unlock()
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	var ws syscall.WaitStatus
+	for {
+		_, err := syscall.Wait4(pid, &ws, syscall.WUNTRACED, nil)
+		if err == syscall.EINTR {
+			continue
+		}
+		if err != nil {
+			close(done)
+			if m == modeForeground {
+				setFG(ttyFD, unix.Getpgrp())
+			}
+			return Status{Launched: true, Exit: 1}
+		}
+		if ws.Stopped() {
+			if m == modeForeground {
+				// Child stopped by job control: reclaim the terminal and stop
+				// our own group with the same signal so the shell sees the
+				// job stop; on resume hand the terminal back and continue it.
+				// SIGSTOP is never used on our own group: in an orphaned group
+				// (no job-control parent) the kernel discards SIGTSTP but SIGSTOP
+				// would stop us with nobody to continue us.
+				stopSig := ws.StopSignal()
+				if stopSig == syscall.SIGSTOP {
+					stopSig = syscall.SIGTSTP
+				}
+				setFG(ttyFD, unix.Getpgrp())
+				_ = syscall.Kill(0, stopSig)
+				setFG(ttyFD, pid)
+				_ = syscall.Kill(-pid, syscall.SIGCONT)
+			}
+			continue
+		}
+		break
+	}
+	mu.Lock()
+	reaped = true
+	mu.Unlock()
+	close(done)
+	if m == modeForeground {
+		setFG(ttyFD, unix.Getpgrp())
+	}
+
+	if ws.Signaled() {
+		n := int(ws.Signal())
+		return Status{Launched: true, Signal: intp(n), Exit: 128 + n}
+	}
+	code := ws.ExitStatus()
+	return Status{Launched: true, ExitCode: intp(code), Exit: code}
+}
+
+// setFG is tcsetpgrp; from a background group it raises SIGTTOU, which is
+// ignored around the call.
+func setFG(fd, pgid int) {
+	signal.Ignore(syscall.SIGTTOU)
+	_ = unix.IoctlSetPointerInt(fd, unix.TIOCSPGRP, pgid)
+	signal.Reset(syscall.SIGTTOU)
+}

@@ -1,0 +1,5 @@
+8a3a4fcc136bfe4df7b098f180bb97a9c100c4bc034a9a7ad945a805b9c7f64c  darwin-arm64/heimdall-proto
+9a072063d311a356ded98fded373c5534191e7a6c4f8d0e2ddce52cfe2a09614  linux-arm64/heimdall-proto
+0a16dac34821acadfc95a00917cbc23ad38589e16ee2a88543a931bbb66965a5  linux-x64/heimdall-proto
+cf6a7386697015452954ffd84d70b3356373317ffd493f80178f2dc701db5a09  windows-x64/heimdall-proto.exe
+REPEAT BUILD: identical sha256 across two consecutive build.sh runs (2026-10-03T18:20:02Z)

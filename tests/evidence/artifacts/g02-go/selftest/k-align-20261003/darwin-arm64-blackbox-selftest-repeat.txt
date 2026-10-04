@@ -1,0 +1,4 @@
+# started 2026-10-03T18:27:19Z repeat x3 (flakiness check of timing-based pty cases)
+run 1 exit=0 SUMMARY 59/59 passed
+run 2 exit=0 SUMMARY 59/59 passed
+run 3 exit=0 SUMMARY 59/59 passed

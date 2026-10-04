@@ -1,0 +1,16 @@
+{"kind": "inline_table", "depth": 100, "file_bytes": 448, "elapsed_s": 0.03, "peak_rss_kib_sampled": 0, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "inline_table", "depth": 1000, "file_bytes": 4048, "elapsed_s": 0.058, "peak_rss_kib_sampled": 79392, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "inline_table", "depth": 2000, "file_bytes": 8048, "elapsed_s": 0.164, "peak_rss_kib_sampled": 243808, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "inline_table", "depth": 4000, "file_bytes": 16048, "elapsed_s": 0.576, "peak_rss_kib_sampled": 764080, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "inline_table", "depth": 8000, "file_bytes": 32048, "elapsed_s": 1.351, "peak_rss_kib_sampled": 2110672, "killed_by_reviewer": "rss", "exit": -9, "code": null, "stderr_head": ""}
+{"kind": "array", "depth": 100, "file_bytes": 247, "elapsed_s": 0.027, "peak_rss_kib_sampled": 0, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array", "depth": 1000, "file_bytes": 2047, "elapsed_s": 0.029, "peak_rss_kib_sampled": 0, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array", "depth": 2000, "file_bytes": 4047, "elapsed_s": 0.028, "peak_rss_kib_sampled": 9216, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array", "depth": 4000, "file_bytes": 8047, "elapsed_s": 0.03, "peak_rss_kib_sampled": 9008, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array", "depth": 8000, "file_bytes": 16047, "elapsed_s": 0.03, "peak_rss_kib_sampled": 9008, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array", "depth": 16000, "file_bytes": 32047, "elapsed_s": 0.03, "peak_rss_kib_sampled": 8528, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array_of_inline", "depth": 100, "file_bytes": 648, "elapsed_s": 0.03, "peak_rss_kib_sampled": 8256, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array_of_inline", "depth": 1000, "file_bytes": 6048, "elapsed_s": 0.056, "peak_rss_kib_sampled": 84192, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array_of_inline", "depth": 2000, "file_bytes": 12048, "elapsed_s": 0.159, "peak_rss_kib_sampled": 284640, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array_of_inline", "depth": 4000, "file_bytes": 24048, "elapsed_s": 0.573, "peak_rss_kib_sampled": 878304, "killed_by_reviewer": null, "exit": 0, "code": "PROFILE_OK", "stderr_head": ""}
+{"kind": "array_of_inline", "depth": 8000, "file_bytes": 48048, "elapsed_s": 0.972, "peak_rss_kib_sampled": 2111312, "killed_by_reviewer": "rss", "exit": -9, "code": null, "stderr_head": ""}

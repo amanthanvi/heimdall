@@ -1,0 +1,40 @@
+{
+ "bin": "/repo/prototypes/go/dist/linux-arm64/heimdall-proto",
+ "cases": {
+  "control_sleep_pipe_tty_reader": {
+   "cmd": "sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": 0.103,
+   "transcript_tail": "PROMPT$ \u001b[6nsleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\nhello\r\nGOT:hello\r\njobs -l\r\nPROMPT$ jobs -l\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "heimdall_run_pipe_tty_reader": {
+   "cmd": "/repo/prototypes/go/dist/linux-arm64/heimdall-proto run -- sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": 0.106,
+   "transcript_tail": "PROMPT$ \u001b[6n/repo/prototypes/go/dist/linux-arm64/heimdall-proto run -- sleep 1.5 | /\r\r\nbin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\nhello\r\nGOT:hello\r\njobs -l\r\nPROMPT$ jobs -l\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "control_tty_reader_pipe_cat": {
+   "cmd": "/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | cat",
+   "got_line_after_s": 0.108,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | cat\r\nhello\r\nGOT:hello\r\nPROMPT$ \u001b[6njobs -l\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "heimdall_tty_reader_pipe_run_cat": {
+   "cmd": "/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | /repo/prototypes/go/dist/linux-arm64/heimdall-proto run -- cat",
+   "got_line_after_s": 0.106,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | /repo/prototypes\r\r\n/go/dist/linux-arm64/heimdall-proto run -- cat\r\nhello\r\nGOT:hello\r\nPROMPT$ \u001b[6njobs -l\r\nPROMPT$ \u001b[6nexit\r\n"
+  },
+  "control_slow_tty_reader_pipe_sleep": {
+   "cmd": "/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | sleep 3",
+   "got_line_after_s": 0.105,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | sleep 3\r\nhello\r\nGOT:hello\r\njobs -l\r\nexit\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\n"
+  },
+  "heimdall_slow_tty_reader_pipe_run_sleep": {
+   "cmd": "/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | /repo/prototypes/go/dist/linux-arm64/heimdall-proto run -- sleep 3",
+   "got_line_after_s": 0.103,
+   "transcript_tail": "PROMPT$ \u001b[6n/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | /repo/pr\r\r\nototypes/go/dist/linux-arm64/heimdall-proto run -- sleep 3\r\nhello\r\nGOT:hello\r\njobs -l\r\nexit\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\n"
+  },
+  "heimdall_first_slow_reader": {
+   "cmd": "/repo/prototypes/go/dist/linux-arm64/heimdall-proto run -- sleep 3 | /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": 0.103,
+   "transcript_tail": "PROMPT$ \u001b[6n/repo/prototypes/go/dist/linux-arm64/heimdall-proto run -- sleep 3 | /bi\r\r\nn/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'\r\nhello\r\nGOT:hello\r\njobs -l\r\nexit\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\n"
+  }
+ }
+}

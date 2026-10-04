@@ -1,0 +1,22 @@
+== linux/arm64 linux-arm64
+Unable to find image 'alpine:3.22' locally
+3.22: Pulling from library/alpine
+Digest: sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+Status: Downloaded newer image for alpine:3.22
+no go on PATH
+aarch64
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"candidate":"go","name":"heimdall-proto","runtime":"go1.27.1 linux/arm64","tui_framework":"charm.land/bubbletea/v2","tui_framework_version":"v2.0.10","version":"0.0.0-g02"},"warnings":[],"next":null}
+version exit=0
+profile exit=0
+run exit=9
+== linux/amd64 linux-x64
+Unable to find image 'alpine:3.22' locally
+3.22: Pulling from library/alpine
+Digest: sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+Status: Downloaded newer image for alpine:3.22
+no go on PATH
+x86_64
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"candidate":"go","name":"heimdall-proto","runtime":"go1.27.1 linux/amd64","tui_framework":"charm.land/bubbletea/v2","tui_framework_version":"v2.0.10","version":"0.0.0-g02"},"warnings":[],"next":null}
+version exit=0
+profile exit=0
+run exit=9

@@ -1,0 +1,13 @@
+# started 2026-10-03T18:22:25Z docker 29.8.1; images hp-g02-alpine-{arm64,amd64}:3.22 (local per-platform tags of alpine:3.22, index sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8, see docker-pulls.txt); --network none; repo mounted read-only; test binaries cross-compiled with CGO_ENABLED=0 GOOS=linux go test -c; amd64 runs under emulation
+linux/arm64 heimdall-proto.test exit=0  10 PASS, 0 FAIL; K tests: --- PASS: TestK5MetaState --- PASS: TestK10PanicRestoresAndExits1 --- PASS: TestK10SIGHUPRestoresAndExits129 --- PASS: TestK10TerminalHangupNoSignalExits129 
+linux/arm64 agent.test exit=0  11 PASS, 0 FAIL; K tests: --- PASS: TestK3EOFClassification --- PASS: TestK4FailureFrameShape --- PASS: TestK1ControlCharactersInIdentity 
+    agent_test.go:211: cancel latency after signal: 1.149126ms
+linux/arm64 profile.test exit=0  7 PASS, 0 FAIL; K tests: --- PASS: TestK2ControlCharactersInValues 
+linux/arm64 run.test exit=0  5 PASS, 0 FAIL; K tests: 
+linux/arm64 tui.test exit=0  5 PASS, 0 FAIL; K tests: --- PASS: TestK9SelectionAfterFilterEdit 
+linux/amd64 heimdall-proto.test exit=0  10 PASS, 0 FAIL; K tests: --- PASS: TestK5MetaState --- PASS: TestK10PanicRestoresAndExits1 --- PASS: TestK10SIGHUPRestoresAndExits129 --- PASS: TestK10TerminalHangupNoSignalExits129 
+linux/amd64 agent.test exit=0  11 PASS, 0 FAIL; K tests: --- PASS: TestK3EOFClassification --- PASS: TestK4FailureFrameShape --- PASS: TestK1ControlCharactersInIdentity 
+    agent_test.go:211: cancel latency after signal: 4.164417ms
+linux/amd64 profile.test exit=0  7 PASS, 0 FAIL; K tests: --- PASS: TestK2ControlCharactersInValues 
+linux/amd64 run.test exit=0  5 PASS, 0 FAIL; K tests: 
+linux/amd64 tui.test exit=0  5 PASS, 0 FAIL; K tests: --- PASS: TestK9SelectionAfterFilterEdit 

@@ -1,0 +1,93 @@
+charm.land/bubbletea/v2@v2.0.10/tty.go:62:	term := p.environ.Getenv("TERM")
+charm.land/bubbletea/v2@v2.0.10/tea.go:525:	// the environment variables for the program, defaults to os.Environ().
+charm.land/bubbletea/v2@v2.0.10/tea.go:629:	// if no environment was set, set it to os.Environ()
+charm.land/bubbletea/v2@v2.0.10/tea.go:631:		p.environ = os.Environ()
+charm.land/bubbletea/v2@v2.0.10/tea.go:640:	tracePath, traceOk := os.LookupEnv("TEA_TRACE")
+charm.land/bubbletea/v2@v2.0.10/tea.go:643:		if f, err := os.OpenFile(tracePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600); err == nil {
+charm.land/bubbletea/v2@v2.0.10/tea.go:981:	termType := environ.Getenv("TERM")
+charm.land/bubbletea/v2@v2.0.10/tea.go:982:	termProg, okTermProg := environ.LookupEnv("TERM_PROGRAM")
+charm.land/bubbletea/v2@v2.0.10/tea.go:983:	_, okSSHTTY := environ.LookupEnv("SSH_TTY")
+charm.land/bubbletea/v2@v2.0.10/tea.go:984:	_, okWTSession := environ.LookupEnv("WT_SESSION")
+charm.land/bubbletea/v2@v2.0.10/tea.go:1306:	if v, err := strconv.ParseBool(os.Getenv("TEA_DEBUG")); err == nil && v {
+charm.land/bubbletea/v2@v2.0.10/tea.go:1307:		f, err := os.Create(fmt.Sprintf("bubbletea-panic-%d.log", time.Now().Unix()))
+charm.land/bubbletea/v2@v2.0.10/tea.go:1331:	if v, err := strconv.ParseBool(os.Getenv("TEA_DEBUG")); err == nil && v {
+charm.land/bubbletea/v2@v2.0.10/tea.go:1332:		f, err := os.Create(fmt.Sprintf("bubbletea-panic-%d.log", time.Now().Unix()))
+charm.land/bubbletea/v2@v2.0.10/logging.go:36:	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:mnd
+charm.land/bubbletea/v2@v2.0.10/exec.go:39://	c := exec.Command("vim", "file.txt")
+charm.land/bubbletea/v2@v2.0.10/exec.go:47://	cmd := ExecProcess(exec.Command("vim", "file.txt"), nil)
+charm.land/bubbletea/v2@v2.0.10/exec.go:54:// ExecCallback is used when executing an *exec.Command to return a message
+charm.land/bubbletea/v2@v2.0.10/cursed_renderer.go:46:	s.term = uv.Environ(env).Getenv("TERM")
+charm.land/bubbletea/v2@v2.0.10/environ.go:7:// running in a remote session like SSH. In that case, using [os.Getenv] would
+charm.land/bubbletea/v2@v2.0.10/environ.go:17://	  term := msg.Getenv("TERM")
+charm.land/bubbletea/v2@v2.0.10/environ.go:21:// Getenv returns the value of the environment variable named by the key. If
+charm.land/bubbletea/v2@v2.0.10/environ.go:24:func (msg EnvMsg) Getenv(key string) (v string) {
+charm.land/bubbletea/v2@v2.0.10/environ.go:25:	return uv.Environ(msg).Getenv(key)
+charm.land/bubbletea/v2@v2.0.10/environ.go:28:// LookupEnv retrieves the value of the environment variable named by the key.
+charm.land/bubbletea/v2@v2.0.10/environ.go:32:func (msg EnvMsg) LookupEnv(key string) (s string, v bool) {
+charm.land/bubbletea/v2@v2.0.10/environ.go:33:	return uv.Environ(msg).LookupEnv(key)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/terminal.go:181:		evs.table = buildKeysTable(t.opts.LegacyKeyEncoding, t.con.Getenv("TERM"), t.opts.UseTerminfoKeys)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/terminal_screen.go:69:	if debugFile := env.Getenv("UV_DEBUG"); debugFile != "" {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/terminal_screen.go:70:		if f, err := os.OpenFile(debugFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:41:	// Getenv retrieves the value of the environment variable named by the key.
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:42:	Getenv(key string) string
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:44:	// LookupEnv retrieves the value of the environment variable named by the key
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:46:	LookupEnv(key string) (string, bool)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:91:// [os.Stdin], [os.Stdout], and [os.Environ].
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:96:	return NewConsole(os.Stdin, os.Stdout, os.Environ())
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:106:	return NewConsole(inTty, outTty, os.Environ()), nil
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:127:		environ = os.Environ()
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:157:// Getenv retrieves the value of the environment variable named by the key.
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:158:func (t *console) Getenv(key string) string {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:159:	return t.environ.Getenv(key)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:162:// LookupEnv retrieves the value of the environment variable named by the key
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:164:func (t *console) LookupEnv(key string) (string, bool) {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/console.go:165:	return t.environ.LookupEnv(key)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/terminal_renderer.go:170:	s.term = Environ(env).Getenv("TERM")
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/poll_windows.go:51:	// WaitForMultipleObjects but which ReadFile cannot read, resulting in an
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/cancelreader_windows.go:96:	if err := windows.ReadFile(r.conin, data, &n, nil); err != nil {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/terminal_reader.go:93://	sc := NewTerminalReader(cr, os.Getenv("TERM"))
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/tty_unix.go:16:	f, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/environ.go:11:// Getenv returns the value of the environment variable named by the key. If
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/environ.go:14:func (p Environ) Getenv(key string) (v string) {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/environ.go:15:	v, _ = p.LookupEnv(key)
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/environ.go:19:// LookupEnv retrieves the value of the environment variable named by the key.
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/environ.go:23:func (p Environ) LookupEnv(key string) (s string, v bool) {
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/tty_windows.go:16:	inTty, err = os.OpenFile("CONIN$", os.O_RDWR, 0o644) //nolint:gosec
+github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7/tty_windows.go:20:	outTty, err = os.OpenFile("CONOUT$", os.O_RDWR, 0o644) //nolint:gosec
+github.com/charmbracelet/colorprofile@v0.4.3/env.go:248:	cmd := exec.CommandContext(context.Background(), "tmux", "info")
+github.com/charmbracelet/colorprofile@v0.4.3/writer.go:16:// If environ is nil, it will use os.Environ() to get the environment variables.
+github.com/charmbracelet/x/ansi@v0.11.8/method.go:21:	if ea, err := strconv.ParseBool(os.Getenv("RUNEWIDTH_EASTASIAN")); err == nil && ea {
+github.com/charmbracelet/x/ansi@v0.11.8/kitty/writer.go:17:	// This is used in [WriteKittyGraphics] along with [os.CreateTemp].
+github.com/charmbracelet/x/ansi@v0.11.8/kitty/writer.go:21:	// This is used in [WriteKittyGraphics] along with [os.CreateTemp].
+github.com/charmbracelet/x/ansi@v0.11.8/kitty/writer.go:69:		f, err := os.Open(o.File)
+github.com/charmbracelet/x/ansi@v0.11.8/kitty/writer.go:92:		f, err := os.CreateTemp(GraphicsTempDir, GraphicsTempPattern)
+github.com/charmbracelet/x/term@v0.2.2/term_plan9.go:18:	ctl, err := os.ReadFile(filepath.Join("/fd", fmt.Sprintf("%dctl", fd)))
+github.com/charmbracelet/x/term@v0.2.2/term_plan9.go:30:	ctl, err := os.ReadFile(filepath.Join("/fd", fmt.Sprintf("%dctl", fd)))
+github.com/charmbracelet/x/term@v0.2.2/term_plan9.go:45:	ctl, err := os.OpenFile(t, os.O_RDWR, 0)
+github.com/charmbracelet/x/term@v0.2.2/term_plan9.go:60:	ctl, err := os.OpenFile(t, os.O_RDWR, 0)
+github.com/charmbracelet/x/term@v0.2.2/term_plan9.go:80:	b, err := os.ReadFile("/dev/wctl")
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/color.go:51:	colorTerm, termProg, forceColor := os.Getenv("COLORTERM"), os.Getenv("TERM_PROGRAM"), os.Getenv("FORCE_COLOR")
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/color.go:60:		ver := os.Getenv("TERM_PROGRAM_VERSION")
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/color.go:74:	if term := os.Getenv("TERM"); term != "" {
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/gen.go:109:		return ioutil.ReadFile(cacheFile)
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/terminfo.go:226:		buf, err = ioutil.ReadFile(f)
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/cmd/infocmp/main.go:18:	flagTerm     = flag.String("term", os.Getenv("TERM"), "term name")
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/load.go:34:	if dir := os.Getenv("TERMINFO"); dir != "" {
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/load.go:44:	if dirs := os.Getenv("TERMINFO_DIRS"); dirs != "" {
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/load.go:63:	return Load(os.Getenv("TERM"))
+github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/_examples/main.go:92:		if strings.Contains(strings.ToLower(os.Getenv("TERM")), "xterm") || os.Getenv("COLORTERM") == "truecolor" {
+github.com/mattn/go-runewidth@v0.0.24/runewidth_posix.go:64:	locale := os.Getenv("LC_ALL")
+github.com/mattn/go-runewidth@v0.0.24/runewidth_posix.go:66:		locale = os.Getenv("LC_CTYPE")
+github.com/mattn/go-runewidth@v0.0.24/runewidth_posix.go:69:		locale = os.Getenv("LANG")
+github.com/mattn/go-runewidth@v0.0.24/runewidth.go:77:	env := os.Getenv("RUNEWIDTH_EASTASIAN")
+github.com/mattn/go-runewidth@v0.0.24/runewidth_windows.go:18:	if os.Getenv("WT_SESSION") != "" {
+github.com/muesli/cancelreader@v0.2.2/cancelreader_windows.go:46:	// WaitForMultipleObjects but which ReadFile cannot read, resulting in an
+github.com/muesli/cancelreader@v0.2.2/cancelreader_windows.go:174:	err = windows.ReadFile(r.conin, data, &n, &overlapped)
+github.com/!burnt!sushi/toml@v1.6.0/cmd/tomlv/main.go:48:		fp, err := os.Open(f)
+github.com/!burnt!sushi/toml@v1.6.0/decode.go:41:	fp, err := os.Open(path)
+github.com/!burnt!sushi/toml@v1.6.0/internal/toml-test/runner.go:320:		d, err := fs.ReadFile(r.Files, path+".toml")
+github.com/!burnt!sushi/toml@v1.6.0/internal/toml-test/runner.go:343:	cmd := exec.CommandContext(ctx, c.cmd[0])
+github.com/!burnt!sushi/toml@v1.6.0/internal/toml-test/runner.go:463:	d, err := fs.ReadFile(fsys, path)
+github.com/!burnt!sushi/toml@v1.6.0/internal/toml-test/runner.go:476:	d, err := fs.ReadFile(fsys, path)
+github.com/clipperhouse/displaywidth@v0.11.0/testdata/testdata.go:39:	return os.ReadFile(path)
+github.com/clipperhouse/displaywidth@v0.11.0/terminal-test/main.go:23:	fmt.Printf("TERM: %s\n", os.Getenv("TERM"))

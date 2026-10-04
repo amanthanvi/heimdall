@@ -1,0 +1,40 @@
+{
+ "bin": "/tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto",
+ "cases": {
+  "control_sleep_pipe_tty_reader": {
+   "cmd": "sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": 0.11,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\nhello\r\nGOT:hello\r\njobs -l\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\nexit\r\n"
+  },
+  "heimdall_run_pipe_tty_reader": {
+   "cmd": "/tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": null,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 1.5 | /b \rin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\n\r\n[1]+  Stopped                 /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 1.5 | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\nPROMPT$ hello\r\nbash: hello: command not found\r\nPROMPT$ jobs -l\r\n[1]+ 95684 Stopped (tty input): 21 /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 1.5\r\n     95687                       | /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x'\r\nPROMPT$ exit\r\nexit\r\n"
+  },
+  "control_tty_reader_pipe_cat": {
+   "cmd": "/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | cat",
+   "got_line_after_s": 0.11,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | cat\r\nhello\r\nGOT:hello\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\nexit\r\n"
+  },
+  "heimdall_tty_reader_pipe_run_cat": {
+   "cmd": "/bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- cat",
+   "got_line_after_s": 0.106,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ /bin/sh -c 'sleep 0.3; read x </dev/tty; echo GOT:$x' | /tmp/hp-r2-befor \re/dist/darwin-arm64/heimdall-proto run -- cat\r\nhello\r\nGOT:hello\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\nexit\r\n"
+  },
+  "control_slow_tty_reader_pipe_sleep": {
+   "cmd": "/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | sleep 3",
+   "got_line_after_s": 0.106,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | sleep 3\r\nhello\r\nGOT:hello\r\njobs -l\r\nexit\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\nexit\r\n"
+  },
+  "heimdall_slow_tty_reader_pipe_run_sleep": {
+   "cmd": "/bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 3",
+   "got_line_after_s": 0.11,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x >/dev/tty' | /tmp/hp- \rr2-before/dist/darwin-arm64/heimdall-proto run -- sleep 3\r\nhello\r\nGOT:hello\r\njobs -l\r\nexit\r\nPROMPT$ jobs -l\r\nPROMPT$ exit\r\nexit\r\n"
+  },
+  "heimdall_first_slow_reader": {
+   "cmd": "/tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 3 | /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'",
+   "got_line_after_s": null,
+   "transcript_tail": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hPROMPT$ /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 3 | /bin \r/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'\r\n\r\n[1]+  Stopped                 /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 3 | /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'\r\nPROMPT$ hello\r\nbash: hello: command not found\r\nPROMPT$ jobs -l\r\n[1]+ 97543 Stopped (tty input): 21 /tmp/hp-r2-before/dist/darwin-arm64/heimdall-proto run -- sleep 3\r\n     97544                       | /bin/sh -c 'sleep 1; read x </dev/tty; echo GOT:$x'\r\nPROMPT$ exit\r\nexit\r\n"
+  }
+ }
+}

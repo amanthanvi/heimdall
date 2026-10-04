@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T02:12:53.688Z", "mono_ms": 0.118, "event": "listen", "socket": "/tmp/hmg02-1o1tqpwm/042-agent-nkeys_max/nkeys_max.sock", "mode": "nkeys_max", "keys": 1}
+{"seq": 2, "ts": "2026-10-04T02:12:53.698Z", "mono_ms": 10.22, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T02:12:53.700Z", "mono_ms": 12.335, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "nkeys_max", "sent_bytes": 85001}
+{"seq": 4, "ts": "2026-10-04T02:12:53.700Z", "mono_ms": 12.77, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 85001, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T02:12:53.800Z", "mono_ms": 112.77, "event": "shutdown"}

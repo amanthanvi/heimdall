@@ -1,0 +1,107 @@
+[?2026$p[?2027$p[>4m[?1049h[?25l[?5W[?2004h[>4;2m[>1u[?u[H[2J[36;1m> host-000-web  aman@h000.example.internal:2200[m
+  host-001-db  deploy@h001.example.internal:22
+  host-002-lab  root@h002.example.internal:22
+  host-003-ci  aman@h003.example.internal:2203
+  host-004-web  deploy@h004.example.internal:22
+  host-005-db  root@h005.example.internal:22
+  host-006-lab  aman@h006.example.internal:2206
+  host-007-ci  deploy@h007.example.internal:22
+  host-008-web  root@h008.example.internal:22
+  host-009-db  aman@h009.example.internal:2209
+  host-010-lab  deploy@h010.example.internal:22
+  host-011-ci  root@h011.example.internal:22
+  host-012-web  aman@h012.example.internal:2212
+  host-013-db  deploy@h013.example.internal:22
+  host-014-lab  root@h014.example.internal:22
+  host-015-ci  aman@h015.example.internal:2215
+  host-016-web  deploy@h016.example.internal:22
+  host-017-db  root@h017.example.internal:22
+  host-018-lab  aman@h018.example.internal:2218
+  host-019-ci  deploy@h019.example.internal:22
+  host-020-web  root@h020.example.internal:22
+  host-021-db  aman@h021.example.internal:2221
+  host-022-lab  deploy@h022.example.internal:22
+100/100[H  host-000-web  aman@h000.example.internal:2200
+[36;1m> host-001-db  deploy@h001.example.internal:22[m  host-001-db  deploy@h001.example.internal:22
+[36;1m> host-002-lab  root@h002.example.internal:22[m  host-002-lab  root@h002.example.internal:22
+[36;1m> host-003-ci  aman@h003.example.internal:2203[m  host-003-ci  aman@h003.example.internal:2203
+[36;1m> host-004-web  deploy@h004.example.internal:22[m  host-004-web  deploy@h004.example.internal:22
+[36;1m> host-005-db  root@h005.example.internal:22[m  host-005-db  root@h005.example.internal:22
+[36;1m> host-006-lab  aman@h006.example.internal:2206[m  host-006-lab  aman@h006.example.internal:2206
+[36;1m> host-007-ci  deploy@h007.example.internal:22[m  host-007-ci  deploy@h007.example.internal:22
+[36;1m> host-008-web  root@h008.example.internal:22[m  host-008-web  root@h008.example.internal:22
+[36;1m> host-009-db  aman@h009.example.internal:2209[m  host-009-db  aman@h009.example.internal:2209
+[36;1m> host-010-lab  deploy@h010.example.internal:22[m  host-010-lab  deploy@h010.example.internal:22
+[36;1m> host-011-ci  root@h011.example.internal:22[m  host-011-ci  root@h011.example.internal:22
+[36;1m> host-012-web  aman@h012.example.internal:2212[m  host-012-web  aman@h012.example.internal:2212
+[36;1m> host-013-db  deploy@h013.example.internal:22[m  host-013-db  deploy@h013.example.internal:22
+[36;1m> host-014-lab  root@h014.example.internal:22[m  host-014-lab  root@h014.example.internal:22
+[36;1m> host-015-ci  aman@h015.example.internal:2215[m  host-015-ci  aman@h015.example.internal:2215
+[36;1m> host-016-web  deploy@h016.example.internal:22[m  host-016-web  deploy@h016.example.internal:22
+[36;1m> host-017-db  root@h017.example.internal:22[m  host-017-db  root@h017.example.internal:22
+[36;1m> host-018-lab  aman@h018.example.internal:2218[m  host-018-lab  aman@h018.example.internal:2218
+[36;1m> host-019-ci  deploy@h019.example.internal:22[m  host-019-ci  deploy@h019.example.internal:22
+[36;1m> host-020-web  root@h020.example.internal:22[m  host-020-web  root@h020.example.internal:22
+[36;1m> host-021-db  aman@h021.example.internal:2221[m  host-021-db  aman@h021.example.internal:2221
+[36;1m> host-022-lab  deploy@h022.example.internal:22[m[1;22r[22;1H
+[1;24r[22;3Hhost-022-lab  deploy@h022.example.internal:22[23;10H[36;1m3-ci  root@h023.[m[3P[1;22r[22;1H
+[1;24r[22;3Hhost-023-ci  root@h023.example.internal:22[23;10H[36;1m4-web  aman@h024.example.internal:2224[m[1;22r[22;1H
+[1;24r[22;3Hhost-024-web  aman@h024.example.internal:2224[23;10H[36;1m5-db  deploy@h025.example.internal:22[m[K[1;22r[22;1H
+[1;24r[22;3Hhost-025-db  deploy@h025.example.internal:22[23;10H[36;1m6-lab  root@h026.[m[P[1;22r[22;1H
+[1;24r[22;3Hhost-026-lab  root@h026.example.internal:22[23;10H[36;1m7-ci  aman@h027.example.internal:2227[m[1;22r[22;1H
+[1;24r[22;3Hhost-027-ci  aman@h027.example.internal:2227[23;10H[36;1m8-web  deploy@h028.example.internal:22[m[1;22r[22;1H
+[1;24r[22;3Hhost-028-web  deploy@h028.example.internal:22[23;10H[36;1m9-db  root@h029.[m[3P[1;22r[22;1H
+[1;24r[22;3Hhost-029-db  root@h029.example.internal:22[23;9H[36;1m30-lab  aman@h030.example.internal:2230[m[1;23r[H[8T[1;24r[H[36;1m> host-000-web  aman@h000.example.internal:2200[m
+  host-001-db  deploy@h001.example.internal:22
+  host-002-lab  root@h002.example.internal:22
+  host-003-ci  aman@h003.example.internal:2203
+  host-004-web  deploy@h004.example.internal:22
+  host-005-db  root@h005.example.internal:22
+  host-006-lab  aman@h006.example.internal:2206
+  host-007-ci  deploy@h007.example.internal:22[24;9H/[1;10H[36;1m7-ci  deploy@h007.example.internal:22[m[K[2;9H17-db  root@h017.[2P[3;9H27-ci  aman@h027.example.internal:2227[4;9H37-db  deploy@h037.example.internal:22[5;9H47-ci  root@h047.[3P[6;9H57-db  aman@h057.example.internal:2257[7;9H67-ci  deploy@h067.example.internal:22[K[8;9H70-lab  deploy@h070.example.internal:22[9;9H71-ci  root@h071.[P[10;9H72-web  aman@h072.example.internal:2272[11;9H73-db  deploy@h073.[P[12;9H74-lab  root@h074.example.internal:22[13;9H75-ci  aman@h075.example.internal:2275[K[14;9H76-web  deploy@h076.example.internal:22[15;9H77-db  root@h077.[P[16;9H78-lab  aman@h078.example.internal:2278[17;9H79-ci  deploy@h079.[P[18;9H87-ci  aman@h087.example.internal:2287[19;9H97-db  deploy@h097.example.internal:22[K
+[K
+[K
+[K
+[K
+19/100 /7[1;9H[36;1m70-lab  deploy@h070.example.internal:22[m
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[5B1/100 /70[H[K[24d0/100 /705[H[36;1m> host-070-lab  deploy@h070.example.internal:22[m[24d1[24;10H[K[1;9H[36;1m07-ci  deploy@h007.[m[P
+  host-017-db  root@h017.example.internal:22
+  host-027-ci  aman@h027.example.internal:2227
+  host-037-db  deploy@h037.example.internal:22
+  host-047-ci  root@h047.example.internal:22
+  host-057-db  aman@h057.example.internal:2257
+  host-067-ci  deploy@h067.example.internal:22
+  host-070-lab  deploy@h070.example.internal:22
+  host-071-ci  root@h071.example.internal:22
+  host-072-web  aman@h072.example.internal:2272
+  host-073-db  deploy@h073.example.internal:22
+  host-074-lab  root@h074.example.internal:22
+  host-075-ci  aman@h075.example.internal:2275
+  host-076-web  deploy@h076.example.internal:22
+  host-077-db  root@h077.example.internal:22
+  host-078-lab  aman@h078.example.internal:2278
+  host-079-ci  deploy@h079.example.internal:22
+  host-087-ci  aman@h087.example.internal:2287
+  host-097-db  deploy@h097.example.internal:22[5B19/100 /7[1;10H[36;1m0-web  aman@h000.example.internal:2200[m[2;9H01-db  deploy@h001.example.internal:22[3;9H02-lab  root@h002.example.internal:22[K[4;9H03-ci  aman@h003.example.internal:2203[5;9H04-web  deploy@h004.example.internal:22[6;9H05-db  root@h005[6;45H[K[7;9H06-lab  aman@h006.example.internal:2206[8;9H07-ci  deploy@h007.[P[9;9H08-web  root@h008.example.internal:22[10;9H09-db  aman@h009.example.internal:2209[K[11;9H10-lab  deploy@h010.example.internal:22[12;9H11-ci  root@h011.[P[13;9H12-web  aman@h012.example.internal:2212[14;9H13-db  deploy@h013.[P[15;9H14-lab  root@h014.example.internal:22[16;9H15-ci  aman@h015.example.internal:2215[K[17;9H16-web  deploy@h016.example.internal:22[18;9H17-db  root@h01[18;45H[K[19;9H18-lab  aman@h018.example.internal:2218
+  host-019-ci  deploy@h019.example.internal:22
+  host-020-web  root@h020.example.internal:22
+  host-021-db  aman@h021.example.internal:2221
+  host-022-lab  deploy@h022.example.internal:22
+100/100 /[>4m[<1u[?1049l[?25h[?2004l

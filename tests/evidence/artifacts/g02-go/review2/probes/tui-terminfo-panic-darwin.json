@@ -1,0 +1,8 @@
+{
+ "exit": 2,
+ "termios_identical": true,
+ "alt_screen_entered": false,
+ "panic_text": true,
+ "first_line": "panic: runtime error: slice bounds out of range [:-25252]\r",
+ "goroutine_trace": true
+}

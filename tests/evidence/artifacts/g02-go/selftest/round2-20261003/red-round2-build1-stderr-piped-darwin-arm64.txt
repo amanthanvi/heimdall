@@ -1,0 +1,4 @@
+# started 2026-10-03T21:56:30Z RED reference for the stderr-pipe regression found by the informational shared-harness run (run.explicit_signal_with_tty): first round-2 build, darwin-arm64 sha256 b8e21b8d0eb60d2d1b7e495c4043b8d317c1d28e910f08a892f1efae8d00c566, whose pipeline heuristic also looked at stderr
+FAIL run.k6_foreground_explicit_sigint_once_stderr_piped exit=10 (10+count, want 11)
+SUMMARY 67/68 passed
+(exit of filtered selftest run not recorded; full run below in darwin-arm64-blackbox-selftest-run*.txt for the final build)

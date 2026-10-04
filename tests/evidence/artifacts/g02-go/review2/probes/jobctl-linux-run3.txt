@@ -1,0 +1,37 @@
+{
+ "z-fg": {
+  "prompt": true,
+  "ready": true,
+  "stopped_0": true,
+  "jobrc": false,
+  "jobrc_value": "148",
+  "child_got": null,
+  "shell_usable_after": true,
+  "jobs_left": "1",
+  "transcript_tail": "\"$P\" run -- \"$Y\" \"$R\" \"$D\"; echo \"JOBRC=$?\"\r\n\rREADY\r\n^Z\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nJOBRC=148\r\nHMPS$ fg\r\n\r\"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\n\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nHMPS$ LINE-AFTER-RESUME\r\n\rbash: LINE-AFTER-RESUME: command not found\r\nHMPS$ echo \"PROMPT_OK $(jobs | wc -l)\"\r\n\rPROMPT_OK 1\r\nHMPS$ exit\r\n\rexit\r\nThere are stopped jobs.\r\nHMPS$ "
+ },
+ "z-bg-fg": {
+  "prompt": true,
+  "ready": true,
+  "stopped_0": true,
+  "after_bg_1": "bg\r\n\u001b[?2004l\r[1]+ \"$P\" run -- \"$Y\" \"$R\" \"$D\" &\r\n\u001b[?2004hHMPS$ ",
+  "jobrc": false,
+  "jobrc_value": "148",
+  "child_got": null,
+  "shell_usable_after": true,
+  "jobs_left": "1",
+  "transcript_tail": "\"$P\" run -- \"$Y\" \"$R\" \"$D\"; echo \"JOBRC=$?\"\r\n\rREADY\r\n^Z\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nJOBRC=148\r\nHMPS$ bg\r\n\r[1]+ \"$P\" run -- \"$Y\" \"$R\" \"$D\" &\r\nHMPS$ fg\r\n\r\"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\n\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nHMPS$ LINE-AFTER-RESUME\r\n\rbash: LINE-AFTER-RESUME: command not found\r\nHMPS$ echo \"PROMPT_OK $(jobs | wc -l)\"\r\n\rPROMPT_OK 1\r\nHMPS$ exit\r\n\rexit\r\nThere are stopped jobs.\r\nHMPS$ "
+ },
+ "z-fg-z-fg": {
+  "prompt": true,
+  "ready": true,
+  "stopped_0": true,
+  "stopped_2": false,
+  "jobrc": false,
+  "jobrc_value": "148",
+  "child_got": null,
+  "shell_usable_after": true,
+  "jobs_left": "1",
+  "transcript_tail": "\"$P\" run -- \"$Y\" \"$R\" \"$D\"; echo \"JOBRC=$?\"\r\n\rREADY\r\n^Z\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nJOBRC=148\r\nHMPS$ fg\r\n\r\"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\n\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nHMPS$ fg\r\n\r\"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\n\r\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$R\" \"$D\"\r\nHMPS$ LINE-AFTER-RESUME\r\n\rbash: LINE-AFTER-RESUME: command not found\r\nHMPS$ echo \"PROMPT_OK $(jobs | wc -l)\"\r\n\rPROMPT_OK 1\r\nHMPS$ exit\r\n\rexit\r\nThere are stopped jobs.\r\nHMPS$ "
+ }
+}

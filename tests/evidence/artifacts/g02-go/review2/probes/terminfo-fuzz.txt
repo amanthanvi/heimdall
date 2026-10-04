@@ -1,0 +1,41 @@
+fuzz: elapsed: 0s, gathering baseline coverage: 0/2 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 2/2 completed, now fuzzing with 18 workers
+fuzz: elapsed: 0s, execs: 4480 (24306/sec), new interesting: 0 (total: 2)
+--- FAIL: FuzzDecode (0.19s)
+    --- FAIL: FuzzDecode (0.00s)
+        testing.go:2076: panic: runtime error: slice bounds out of range [:-25252]
+            goroutine 4472 [running]:
+            runtime/debug.Stack()
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/debug/stack.go:26 +0xc4
+            testing.tRunner.func1()
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2076 +0x1c8
+            panic({0x100ee7828?, 0x80a89820918?})
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/panic.go:859 +0x120
+            github.com/xo/terminfo.(*decoder).readBytes(...)
+            	<home>/go/pkg/mod/github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/dec.go:110
+            github.com/xo/terminfo.(*decoder).readInts(0x80a7e913590, 0xffffffffffff9d30, 0x6?)
+            	<home>/go/pkg/mod/github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/dec.go:117 +0x510
+            github.com/xo/terminfo.(*decoder).readBools(0x80a7e840590?, 0x6?)
+            	<home>/go/pkg/mod/github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/dec.go:139 +0x50
+            github.com/xo/terminfo.Decode({0x80a7e9fd000, 0x32, 0x1000})
+            	<home>/go/pkg/mod/github.com/xo/terminfo@v0.0.0-20220910002029-abceb7e1c41e/terminfo.go:125 +0x878
+            tifuzz.FuzzDecode.func1(0x80a7e8407a8?, {0x80a7e9fd000?, 0x0?, 0x0?})
+            	/tmp/heimdall-review2-go/tifuzz/f_test.go:17 +0x64
+            reflect.Value.call({0x100eb5430?, 0x100ef6918?, 0x13?}, {0x100ce0baf, 0x4}, {0x80a898a8a50, 0x2, 0x2?})
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/reflect/value.go:586 +0xa88
+            reflect.Value.Call({0x100eb5430?, 0x100ef6918?, 0x100c15ee0?}, {0x80a898a8a50?, 0x100ef3200?, 0x100ee27d8?})
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/reflect/value.go:369 +0x94
+            testing.(*F).Fuzz.func1.1(0x80a898ed688?)
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/fuzz.go:341 +0x254
+            testing.tRunner(0x80a898ed688, 0x80a898dd200)
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xc4
+            created by testing.(*F).Fuzz.func1 in goroutine 7
+            	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/fuzz.go:328 +0x4b8
+            
+    
+    Failing input written to testdata/fuzz/FuzzDecode/cb908c42564f1f12
+    To re-run:
+    go test -run=FuzzDecode/cb908c42564f1f12
+FAIL
+exit status 1
+FAIL	tifuzz	0.192s

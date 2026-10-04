@@ -1,0 +1,33 @@
+# started 2026-10-03T21:57:53Z
++ GOOS/GOARCH=darwin/arm64 go vet ./...
+exit=0
++ GOOS/GOARCH=linux/amd64 go vet ./...
+exit=0
++ GOOS/GOARCH=linux/arm64 go vet ./...
+exit=0
++ GOOS/GOARCH=windows/amd64 go vet ./...
+exit=0
++ gofmt -l .
+exit=0
++ go mod verify
+all modules verified
+exit=0
++ go mod tidy -diff
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/cmd/heimdall-proto
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/internal/agent
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/internal/profile
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/internal/result
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/internal/run
+?   	github.com/heimdall-g02/proto-go/internal/run	[no test files]
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/internal/testfix
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+exit=0
++ GOOS=windows GOARCH=amd64 go test -c -o /dev/null github.com/heimdall-g02/proto-go/internal/tui
+exit=0

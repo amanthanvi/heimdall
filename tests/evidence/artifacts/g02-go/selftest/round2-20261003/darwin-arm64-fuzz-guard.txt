@@ -1,0 +1,18 @@
+# started 2026-10-03T21:57:54Z
++ go test -run '^$' -fuzz FuzzGuard -fuzztime 30s ./internal/profile/
+fuzz: elapsed: 0s, gathering baseline coverage: 0/268 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 268/268 completed, now fuzzing with 18 workers
+fuzz: elapsed: 3s, execs: 1453387 (484387/sec), new interesting: 0 (total: 268)
+fuzz: elapsed: 6s, execs: 2939786 (495535/sec), new interesting: 0 (total: 268)
+fuzz: elapsed: 9s, execs: 4416017 (492029/sec), new interesting: 1 (total: 269)
+fuzz: elapsed: 12s, execs: 5888241 (490788/sec), new interesting: 1 (total: 269)
+fuzz: elapsed: 15s, execs: 7323656 (478455/sec), new interesting: 3 (total: 271)
+fuzz: elapsed: 18s, execs: 8769268 (481731/sec), new interesting: 5 (total: 273)
+fuzz: elapsed: 21s, execs: 10186501 (472538/sec), new interesting: 5 (total: 273)
+fuzz: elapsed: 24s, execs: 11587247 (466936/sec), new interesting: 5 (total: 273)
+fuzz: elapsed: 27s, execs: 12998094 (470297/sec), new interesting: 5 (total: 273)
+fuzz: elapsed: 30s, execs: 14405092 (468965/sec), new interesting: 5 (total: 273)
+fuzz: elapsed: 30s, execs: 14405092 (0/sec), new interesting: 5 (total: 273)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/profile	30.134s
+exit=0
