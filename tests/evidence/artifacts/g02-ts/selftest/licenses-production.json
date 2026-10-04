@@ -1,0 +1,143 @@
+{
+    "@opentui/core-darwin-arm64@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-darwin-arm64",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-darwin-arm64/LICENSE"
+    },
+    "@opentui/core-darwin-x64@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-darwin-x64",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-darwin-x64/LICENSE"
+    },
+    "@opentui/core-linux-arm64-musl@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-arm64-musl",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-arm64-musl/LICENSE"
+    },
+    "@opentui/core-linux-arm64@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-arm64",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-arm64/LICENSE"
+    },
+    "@opentui/core-linux-x64-musl@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-x64-musl",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-x64-musl/LICENSE"
+    },
+    "@opentui/core-linux-x64@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-x64",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-linux-x64/LICENSE"
+    },
+    "@opentui/core-win32-arm64@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-win32-arm64",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-win32-arm64/LICENSE"
+    },
+    "@opentui/core-win32-x64@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-win32-x64",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core-win32-x64/LICENSE"
+    },
+    "@opentui/core@0.5.14": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/opentui",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/@opentui/core/LICENSE"
+    },
+    "ansi-regex@6.4.0": {
+        "licenses": "MIT",
+        "repository": "https://github.com/chalk/ansi-regex",
+        "publisher": "Sindre Sorhus",
+        "email": "sindresorhus@gmail.com",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/ansi-regex",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/ansi-regex/license"
+    },
+    "bun-ffi-structs@0.3.1": {
+        "licenses": "MIT",
+        "repository": "https://github.com/anomalyco/bun-ffi-structs",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/bun-ffi-structs",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/bun-ffi-structs/LICENSE"
+    },
+    "diff@9.0.0": {
+        "licenses": "BSD-3-Clause",
+        "repository": "https://github.com/kpdecker/jsdiff",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/diff",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/diff/LICENSE"
+    },
+    "emoji-regex@10.6.0": {
+        "licenses": "MIT",
+        "repository": "https://github.com/mathiasbynens/emoji-regex",
+        "publisher": "Mathias Bynens",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/emoji-regex",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/emoji-regex/LICENSE-MIT.txt"
+    },
+    "get-east-asian-width@1.7.0": {
+        "licenses": "MIT",
+        "repository": "https://github.com/sindresorhus/get-east-asian-width",
+        "publisher": "Sindre Sorhus",
+        "email": "sindresorhus@gmail.com",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/get-east-asian-width",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/get-east-asian-width/license"
+    },
+    "heimdall-proto-ts@0.0.0-g02": {
+        "licenses": "UNLICENSED",
+        "private": true,
+        "path": "~/GitRepos/heimdall/prototypes/ts"
+    },
+    "marked@17.0.1": {
+        "licenses": "MIT",
+        "repository": "https://github.com/markedjs/marked",
+        "publisher": "Christopher Jeffrey",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/marked",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/marked/LICENSE.md"
+    },
+    "smol-toml@1.9.0": {
+        "licenses": "BSD-3-Clause",
+        "repository": "https://github.com/squirrelchat/smol-toml",
+        "publisher": "Cynthia Rey",
+        "email": "cynthia@cynthia.dev",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/smol-toml",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/smol-toml/LICENSE"
+    },
+    "string-width@7.2.0": {
+        "licenses": "MIT",
+        "repository": "https://github.com/sindresorhus/string-width",
+        "publisher": "Sindre Sorhus",
+        "email": "sindresorhus@gmail.com",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/string-width",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/string-width/license"
+    },
+    "strip-ansi@7.1.2": {
+        "licenses": "MIT",
+        "repository": "https://github.com/chalk/strip-ansi",
+        "publisher": "Sindre Sorhus",
+        "email": "sindresorhus@gmail.com",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/strip-ansi",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/strip-ansi/license"
+    },
+    "typescript@5.9.3": {
+        "licenses": "Apache-2.0",
+        "repository": "https://github.com/microsoft/TypeScript",
+        "publisher": "Microsoft Corp.",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/typescript",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/typescript/LICENSE.txt"
+    },
+    "web-tree-sitter@0.25.10": {
+        "licenses": "MIT",
+        "repository": "https://github.com/tree-sitter/tree-sitter",
+        "publisher": "Max Brunsfeld",
+        "email": "maxbrunsfeld@gmail.com",
+        "path": "~/GitRepos/heimdall/prototypes/ts/node_modules/web-tree-sitter",
+        "licenseFile": "~/GitRepos/heimdall/prototypes/ts/node_modules/web-tree-sitter/LICENSE"
+    }
+}
+

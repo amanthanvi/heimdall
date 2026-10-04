@@ -1,0 +1,58 @@
+2026-10-03T20:50:37Z
+Fatal Python error: init_import_site: Failed to import the site module
+Python runtime state: initialized
+Traceback (most recent call last):
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/site.py", line 73, in <module>
+    import os
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/os.py", line 27, in <module>
+    import stat as st
+  File "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/stat.py", line 193, in <module>
+    from _stat import *
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+KeyboardInterrupt
+{"signal": "SIGINT", "counts": {"no_child_started rc=-2": 9, "no_child_started rc=130": 5, "no_child_started rc=1": 1, "delivered rc=130": 15}, "bad": []}
+exit=0

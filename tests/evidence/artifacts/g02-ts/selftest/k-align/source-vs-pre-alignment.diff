@@ -1,0 +1,289 @@
+diff --color -ru /tmp/g02ts-negctl/src/cli.ts src/cli.ts
+--- /tmp/g02ts-negctl/src/cli.ts	2026-10-03 14:13:54
++++ src/cli.ts	2026-10-03 14:16:20
+@@ -1,7 +1,8 @@
+ // heimdall-proto CLI (G02 slice). Argument handling and process exit only; behavior
+ // lives in domain/ (pure) and platform/ (I/O), shared with the TUI.
+ 
+-import { writeFileSync } from "node:fs";
++import { realpathSync, writeFileSync } from "node:fs";
++import { dirname } from "node:path";
+ import pkg from "../package.json" with { type: "json" };
+ import { parseProfile } from "./domain/profile.ts";
+ import { cancelled, EXIT, fail, ok, serialize, type Result } from "./domain/result.ts";
+@@ -107,6 +108,7 @@
+     process.stderr.write(`heimdall-proto: invalid profile (${parsed.result.code})\n`);
+     process.exit(EXIT[parsed.result.code]);
+   }
++  pinNativeAssets();
+   // Lazy import: the native OpenTUI library is loaded only for `tui`.
+   const { runTui } = await import("./tui/tui.ts");
+   const res = await runTui(parsed.profile);
+@@ -123,6 +125,19 @@
+     case "error":
+       process.exit(1);
+   }
++}
++
++// K11: the compiled executable ships OpenTUI's native library as a sidecar
++// (<exe dir>/@opentui/core-<platform>-<arch>/<lib>, see build.sh) and loads it only from
++// the directory of its own real path. Inherited OTUI_ASSET_ROOT / OPENTUI_LIBC values are
++// overwritten or removed before OpenTUI is loaded, so nothing is extracted to TMPDIR and
++// the environment cannot redirect the load. If the sidecar is missing, OpenTUI throws
++// and the TUI exits 1 (it does not fall back). From source, node_modules is used.
++function pinNativeAssets(): void {
++  delete process.env.OPENTUI_LIBC;
++  const compiled = Bun.main.startsWith("/$bunfs/") || /^[A-Za-z]:\\~BUN\\/.test(Bun.main);
++  if (compiled) process.env.OTUI_ASSET_ROOT = dirname(realpathSync(process.execPath));
++  else delete process.env.OTUI_ASSET_ROOT;
+ }
+ 
+ function version(args: string[]): never {
+diff --color -ru /tmp/g02ts-negctl/src/domain/agent.ts src/domain/agent.ts
+--- /tmp/g02ts-negctl/src/domain/agent.ts	2026-10-03 14:13:54
++++ src/domain/agent.ts	2026-10-03 14:14:19
+@@ -3,6 +3,7 @@
+ // bytes actually present before any slice/allocation.
+ 
+ import { createHash } from "node:crypto";
++import { sanitize } from "./result.ts";
+ 
+ export const SSH_AGENT_FAILURE = 5;
+ export const SSH_AGENTC_REQUEST_IDENTITIES = 11;
+@@ -37,7 +38,7 @@
+ }
+ 
+ const utf8Lossy = new TextDecoder("utf-8", { fatal: false });
+-const utf8Strict = new TextDecoder("utf-8", { fatal: true });
++const text = (b: Uint8Array) => sanitize(utf8Lossy.decode(b));
+ 
+ class Reader {
+   private off = 0;
+@@ -90,13 +91,14 @@
+       const blob = r.str();
+       const comment = r.str();
+       const br = new Reader(blob);
+-      let keyType: string;
++      let keyType: Uint8Array;
+       try {
+-        keyType = utf8Strict.decode(br.str());
+-      } catch (e) {
+-        throw e instanceof ProtoErr ? new ProtoErr(`key ${i}: malformed key blob`) : new ProtoErr(`key ${i}: key type is not UTF-8`);
++        keyType = br.str();
++      } catch {
++        throw new ProtoErr(`key ${i}: malformed key blob`);
+       }
+-      identities.push({ key_type: keyType, fingerprint: fingerprint(blob), comment: utf8Lossy.decode(comment) });
++      // K1: invalid UTF-8 and every C0/DEL/C1 control code point become U+FFFD.
++      identities.push({ key_type: text(keyType), fingerprint: fingerprint(blob), comment: text(comment) });
+     }
+     if (r.remaining() !== 0) throw new ProtoErr("trailing bytes after last key");
+     return { kind: "identities", identities };
+diff --color -ru /tmp/g02ts-negctl/src/domain/listview.ts src/domain/listview.ts
+--- /tmp/g02ts-negctl/src/domain/listview.ts	2026-10-03 14:13:54
++++ src/domain/listview.ts	2026-10-03 14:15:24
+@@ -29,11 +29,11 @@
+   return all.filter((d) => d.alias.toLowerCase().includes(f) || d.host.toLowerCase().includes(f));
+ }
+ 
++// K9: every filter change (append, Backspace, Esc clear) selects the first shown row.
+ function refilter(s: ViewState): void {
+-  const current = s.shown[s.selected];
+   s.shown = applyFilter(s.all, s.filter);
+-  const keep = current ? s.shown.indexOf(current) : -1;
+-  s.selected = keep >= 0 ? keep : 0;
++  s.selected = 0;
++  s.top = 0;
+ }
+ 
+ // Printable: one or more code points, none of them control characters.
+diff --color -ru /tmp/g02ts-negctl/src/domain/profile.ts src/domain/profile.ts
+--- /tmp/g02ts-negctl/src/domain/profile.ts	2026-10-03 14:13:54
++++ src/domain/profile.ts	2026-10-03 14:15:05
+@@ -42,9 +42,16 @@
+   return Number(v);
+ }
+ 
++// K2: a string value outside [meta] containing a C0, DEL or C1 control code point is
++// rejected; the message names the key, never the value.
++function noControl(v: string, path: string): string {
++  if (/[\u0000-\u001f\u007f-\u009f]/.test(v)) throw new Invalid(path, `${path} contains a control character`);
++  return v;
++}
++
+ function str(v: unknown, path: string): string {
+   if (typeof v !== "string" || v.length === 0) throw new Invalid(path, `${path} must be a non-empty string`);
+-  return v;
++  return noControl(v, path);
+ }
+ 
+ function req(t: Record<string, unknown>, key: string, path: string): unknown {
+@@ -92,7 +99,7 @@
+       if (!Array.isArray(l)) throw new Invalid(`${p}.labels`, `${p}.labels must be an array of strings`);
+       labels = l.map((x, j) => {
+         if (typeof x !== "string") throw new Invalid(`${p}.labels[${j}]`, `${p}.labels[${j}] must be a string`);
+-        return x;
++        return noControl(x, `${p}.labels[${j}]`);
+       });
+     }
+     if (ids.has(id)) throw new Invalid(`${p}.id`, `duplicate id at ${p}.id`);
+diff --color -ru /tmp/g02ts-negctl/src/domain/result.ts src/domain/result.ts
+--- /tmp/g02ts-negctl/src/domain/result.ts	2026-10-03 14:13:54
++++ src/domain/result.ts	2026-10-03 14:14:19
+@@ -45,10 +45,12 @@
+   return { schema_version: "1", state: "cancelled", code: "CANCELLED", data: null, warnings: [], next: null };
+ }
+ 
+-// Strip C0/C1 control characters (including ESC) so no machine string can carry a
+-// terminal escape sequence (contract §1, spec §11.2).
++// Replace every C0 (incl. TAB), DEL and C1 control code point with U+FFFD so no
++// machine string can carry a terminal escape sequence (contract §1, ruling K1).
++// JSON-escaping them is not enough: the decoded value would still contain them.
++export const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
+ export function sanitize(s: string): string {
+-  return s.replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
++  return s.replace(CONTROL_CHARS, "\ufffd");
+ }
+ 
+ function deepSanitize(v: unknown): unknown {
+Only in src/platform: posix-spawn.ts
+diff --color -ru /tmp/g02ts-negctl/src/platform/run.ts src/platform/run.ts
+--- /tmp/g02ts-negctl/src/platform/run.ts	2026-10-03 14:13:54
++++ src/platform/run.ts	2026-10-03 14:24:43
+@@ -1,16 +1,19 @@
+ // `run` adapter (contract §4): launch argv without a shell, inherit stdio/cwd/env,
+ // forward signals, wait for the child, report status.
++//
++// Unix (ruling K6): the child runs in its own process group (posix-spawn.ts). When
++// heimdall-proto is the terminal's foreground group, the terminal is handed to the
++// child's group for the child's lifetime, so terminal-generated SIGINT/SIGQUIT/SIGWINCH
++// reach only the child. Every signal heimdall-proto itself receives (for example an
++// explicit `kill -INT <pid>`) is therefore forwarded exactly once, in every state.
+ 
+ import { constants as osConstants } from "node:os";
+ import { extname } from "node:path";
+ import { childExited, childLaunchFailed, exitStatusFor, quoteWindowsArg } from "../domain/run.ts";
+ import type { Result } from "../domain/result.ts";
+-import { isForegroundOfControllingTty } from "./tty.ts";
++import { foregroundTtyFd, giveTerminal, reclaimTerminal, spawnInOwnGroup, waitChild } from "./posix-spawn.ts";
+ 
+ const FORWARDED = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGWINCH"] as const;
+-// Keyboard-generated signals: the terminal delivers these to the whole foreground
+-// process group, which includes the child. Forwarding them again would deliver twice.
+-const KEYBOARD = new Set<string>(["SIGINT", "SIGQUIT"]);
+ 
+ export interface RunOutcome {
+   status: number; // heimdall-proto's exit status
+@@ -39,49 +42,76 @@
+   };
+ }
+ 
+-export async function runChild(argv: string[]): Promise<RunOutcome> {
+-  const isWin = process.platform === "win32";
+-  // Install handlers before spawning so heimdall-proto never dies before the child.
+-  let child: ReturnType<typeof Bun.spawn> | null = null;
+-  const handlers = new Map<string, () => void>();
+-  const signals: readonly string[] = isWin ? ["SIGINT", "SIGBREAK"] : FORWARDED;
+-  for (const sig of signals) {
+-    const h = () => {
+-      if (!child || isWin) return; // Windows: the console delivers Ctrl-C/Break to the child itself.
+-      if (KEYBOARD.has(sig) && isForegroundOfControllingTty()) return;
+-      try {
+-        child.kill(sig as NodeJS.Signals);
+-      } catch {
+-        /* child already gone */
+-      }
+-    };
+-    handlers.set(sig, h);
+-    process.on(sig as NodeJS.Signals, h);
+-  }
+-  const cleanup = () => {
+-    for (const [sig, h] of handlers) process.off(sig as NodeJS.Signals, h);
+-  };
++function launchFailed(code: string): RunOutcome {
++  process.stderr.write(`heimdall-proto: cannot launch command (${code})\n`);
++  return { status: 127, meta: childLaunchFailed() };
++}
+ 
++async function runWindows(argv: string[]): Promise<RunOutcome> {
++  // The console delivers Ctrl-C/Break to the child itself; keep heimdall-proto alive.
++  const noop = () => {};
++  process.on("SIGINT", noop);
++  process.on("SIGBREAK", noop);
++  const cleanup = () => { process.off("SIGINT", noop); process.off("SIGBREAK", noop); };
++  let child: ReturnType<typeof Bun.spawn>;
+   try {
+-    let cmd = argv;
+-    let extra: Record<string, unknown> = {};
+-    if (isWin) {
+-      const w = windowsSpawnArgs(argv);
+-      if (!w) throw Object.assign(new Error("not found or not launchable without a shell"), { code: "ENOENT" });
+-      cmd = w.cmd;
+-      extra = w.opts;
+-    }
+-    child = Bun.spawn(cmd, { stdio: ["inherit", "inherit", "inherit"], ...extra });
++    const w = windowsSpawnArgs(argv);
++    if (!w) { cleanup(); return launchFailed("ENOENT"); }
++    child = Bun.spawn(w.cmd, { stdio: ["inherit", "inherit", "inherit"], ...w.opts });
+   } catch (e) {
+     cleanup();
+-    const code = (e as { code?: string }).code ?? "error";
+-    process.stderr.write(`heimdall-proto: cannot launch command (${code})\n`);
+-    return { status: 127, meta: childLaunchFailed() };
++    return launchFailed((e as { code?: string }).code ?? "error");
+   }
+-
+   await child.exited;
+   cleanup();
+   const sig = signalNumber(child.signalCode as string | null);
+   const exitCode = sig === null ? child.exitCode : null;
+   return { status: exitStatusFor(exitCode, sig), meta: childExited(exitCode, sig) };
++}
++
++export async function runChild(argv: string[]): Promise<RunOutcome> {
++  if (process.platform === "win32") return runWindows(argv);
++  // Handlers are installed before spawning so heimdall-proto never dies before the child.
++  let pid: number | null = null;
++  const handlers = new Map<string, () => void>();
++  for (const sig of FORWARDED) {
++    const h = () => {
++      if (pid === null) return;
++      try { process.kill(pid, sig); } catch { /* child already gone */ }
++    };
++    handlers.set(sig, h);
++    process.on(sig, h);
++  }
++  const cleanup = () => { for (const [sig, h] of handlers) process.off(sig as NodeJS.Signals, h); };
++
++  // PATH lookup up front (execvp rules: executable regular file). posix_spawnp reports
++  // exec failures itself on macOS and native linux-arm64, but in the emulated linux-x64
++  // container it returned success and the child exited 127 (observed; cause not traced).
++  const file = Bun.which(argv[0]!);
++  if (file === null) {
++    cleanup();
++    return launchFailed("ENOENT");
++  }
++  const ttyFd = foregroundTtyFd();
++  const spawned = spawnInOwnGroup(file, argv);
++  if (!spawned.ok) {
++    cleanup();
++    return launchFailed(`errno ${spawned.errno}`);
++  }
++  pid = spawned.pid;
++  const handedOff = ttyFd !== null && giveTerminal(ttyFd, pid);
++  // Ctrl-Z stops only the child (it owns the terminal). Pass the stop on as a shell
++  // expects: take the terminal back and stop heimdall-proto; when continued, hand the
++  // terminal back and continue the child's group.
++  const childPid = pid;
++  const res = await waitChild(childPid, () => {
++    if (!handedOff) return;
++    reclaimTerminal(ttyFd!);
++    process.kill(process.pid, "SIGSTOP");
++    giveTerminal(ttyFd!, childPid);
++    try { process.kill(-childPid, "SIGCONT"); } catch { /* group gone */ }
++  });
++  if (handedOff) reclaimTerminal(ttyFd!);
++  cleanup();
++  return { status: exitStatusFor(res.exitCode, res.signal), meta: childExited(res.exitCode, res.signal) };
+ }
+Only in /tmp/g02ts-negctl/src/platform: tty.ts

@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-03T19:58:40.456Z", "mono_ms": 0.231, "event": "listen", "socket": "/tmp/hmg02-k0ikrnxs/026-agent-frame_max/frame_max.sock", "mode": "frame_max", "keys": 1}
+{"seq": 2, "ts": "2026-10-03T19:58:40.477Z", "mono_ms": 21.248, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-03T19:58:40.478Z", "mono_ms": 22.235, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "frame_max", "sent_bytes": 262148}
+{"seq": 4, "ts": "2026-10-03T19:58:40.478Z", "mono_ms": 22.645, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 262148, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-03T19:58:40.578Z", "mono_ms": 122.868, "event": "shutdown"}

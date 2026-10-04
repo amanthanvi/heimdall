@@ -1,0 +1,6 @@
+2026-10-03T20:50:24Z
+rc 0
+stdout_ok True 8388608
+stderr_prefix_ok True
+stdin_sha_match True
+exit=0

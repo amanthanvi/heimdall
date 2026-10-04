@@ -1,0 +1,460 @@
+{
+ "source": "/tmp/heimdall-g02-ts-recheck.json (harness --out, read-only run; full record not copied: check descriptions quote fixture canary values)",
+ "status": "verified",
+ "verdict": "fail",
+ "artifact_digest": "sha256:dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2",
+ "checks": [
+  {
+   "id": "harness.schema_validator",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.expected_data",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.ansi_parsers",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.keygen",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.fake_agent",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.pty_session",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.fake_agent_modes",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.screen_wide_chars",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.pty_close_undrained",
+   "outcome": "pass"
+  },
+  {
+   "id": "harness.check_bound",
+   "outcome": "pass"
+  },
+  {
+   "id": "usage.unknown_subcommand_json",
+   "outcome": "pass"
+  },
+  {
+   "id": "usage.unknown_subcommand_plain",
+   "outcome": "pass"
+  },
+  {
+   "id": "usage.unknown_flag_json",
+   "outcome": "pass"
+  },
+  {
+   "id": "usage.unknown_flag_plain",
+   "outcome": "pass"
+  },
+  {
+   "id": "usage.missing_argument_json",
+   "outcome": "pass"
+  },
+  {
+   "id": "usage.missing_argument_plain",
+   "outcome": "pass"
+  },
+  {
+   "id": "version.valid",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.homelab_exact",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.spaced_unicode_path",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.large_100",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.invalid_forbidden_key",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.invalid_unknown_dest_key",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.invalid_malformed",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.invalid_schema_version",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.invalid_duplicate_alias",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.invalid_port",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.generated_invalid_matrix",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.generated_valid_variants",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.control_chars_rejected",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.control_chars_in_meta_ok",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.meta_not_echoed_homelab",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.oversize_garbage",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.size_boundary_plus_one",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.size_boundary_exact",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.missing_file",
+   "outcome": "pass"
+  },
+  {
+   "id": "profile.unreadable_file",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.normal_identities",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.fingerprint_ssh_keygen",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.empty",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.fragmented_reply",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.passive_contact_log",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_oversize",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_huge_nkeys",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_truncated",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_trailing_bytes",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_wrong_type",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_string_overrun",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.malformed_comment_overrun",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.failure_refused",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.nkeys_boundary",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.frame_boundary",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.missing_socket",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.stale_socket",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.slow_timeout",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.slow_sigint_cancel",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.invalid_utf8_comment",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.control_chars_sanitized",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.eof_before_reply",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.eof_after_partial_header",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.failure_with_payload",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.reset_before_reply",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.reset_after_partial_header",
+   "outcome": "pass"
+  },
+  {
+   "id": "agent.unicode_spaced_socket_path",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.stdio_passthrough",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.exit_codes",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.meta_child_exited",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.argv_exact",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.argv_invalid_utf8",
+   "outcome": "fail"
+  },
+  {
+   "id": "run.meta_state",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.path_lookup",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.launch_failure_missing_absolute",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.launch_failure_missing_path",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.launch_failure_not_executable",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.child_killed_by_signal",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.forward_sigterm",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.forward_sigint",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.forward_sighup",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.forward_sigquit",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.forward_sigwinch",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.sigint_process_group",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.explicit_signal_with_tty",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.proto_silent_stdout",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.cwd_env_inherited",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.no_surviving_child",
+   "outcome": "pass"
+  },
+  {
+   "id": "run.usage_errors",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.non_tty",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.first_frame",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_basic",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_unicode",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_case_insensitive",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_matches_host",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_backspace",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.esc_clears_filter",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_enter_keeps_filter",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.select_down_enter",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.select_jk_keys",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.quit_q",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.ctrl_c",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.ctrl_c_in_filter_mode",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.sigterm_restores_terminal",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.sighup_exit_129",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.hangup_exit_129",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.filter_edit_resets_selection",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.no_color",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.resize_narrow_hides_host",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.resize_relayout_latency",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.resize_tiny_no_crash",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.start_tiny_no_crash",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.large_100_filter_latency",
+   "outcome": "pass"
+  },
+  {
+   "id": "tui.no_agent_contact",
+   "outcome": "pass"
+  },
+  {
+   "id": "common.exit_codes_without_json",
+   "outcome": "pass"
+  },
+  {
+   "id": "common.no_stray_writes",
+   "outcome": "pass"
+  },
+  {
+   "id": "canary.no_canary_anywhere",
+   "outcome": "pass"
+  }
+ ]
+}

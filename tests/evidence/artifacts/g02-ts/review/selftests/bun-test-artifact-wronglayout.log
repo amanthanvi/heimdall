@@ -1,0 +1,153 @@
+bun test v1.4.2 (744846f84)
+
+test/profile.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+test/tui.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+test/run.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+test/agent.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+test/dist.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+test/units.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+test/cli.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+69 |     code: p.exitCode, signal: (p.signalCode as string | null) ?? null, stdout,
+70 |     stderr: await errP, stdoutText: new TextDecoder().decode(stdout), ms,
+71 |   };
+72 | }
+73 | 
+74 | const schema = JSON.parse(readFileSync(join(ROOT, "schemas/g02/result.schema.json"), "utf8"));
+                               ^
+ENOENT: no such file or directory, open '/private/schemas/g02/result.schema.json'
+    path: "/private/schemas/g02/result.schema.json",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at /private/tmp/heimdall-review-ts/test/helpers.ts:74:27
+-------------------------------
+
+
+ 0 pass
+ 7 fail
+ 7 errors
+Ran 7 tests across 7 files. [25.00ms]

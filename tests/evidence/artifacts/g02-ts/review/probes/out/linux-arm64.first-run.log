@@ -1,0 +1,35 @@
+Unable to find image 'debian:trixie' locally
+trixie: Pulling from library/debian
+Digest: sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
+Status: Downloaded newer image for debian:trixie
+uname: Linux aarch64; glibc: ldd (Debian GLIBC 2.41-12+deb13u4) 2.41
+== ldd
+	linux-vdso.so.1 (0x0000ffffab63c000)
+	libc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffffab440000)
+	/lib/ld-linux-aarch64.so.1 (0x0000ffffab600000)
+	libpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000ffffab410000)
+	libdl.so.2 => /lib/aarch64-linux-gnu/libdl.so.2 (0x0000ffffab3e0000)
+	libm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000ffffab330000)
+== version
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"ts","runtime":"bun 1.4.2 (744846f84)","tui_framework":"@opentui/core","tui_framework_version":"0.5.14"},"warnings":[],"next":null}
+rc=0
+== profile spaced
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","r rc=0
+== K8 argv aÿb
+ 61 ef bf bd 62
+rc=0
+== env bytes
+ 61 ff 62
+== nofile soft
+direct 256
+proto 1048576
+== SIG_IGN inheritance (SigIgn mask of child)
+direct SigIgn: 0000000000000007
+proto SigIgn: 0000000180000000
+== BUN_OPTIONS preload
+rc=0 ran=yes
+== launch failure
+heimdall-proto: cannot launch command (ENOENT)
+rc=127
+{"schema_version":"1","state":"failed","code":"CHILD_LAUNCH_FAILED","data":{"launched":false,"exit_code":null,"signal":null},"warnings":[],"next":null}
+== new files in TMPDIR: 0; /tmp .bun-*: 0

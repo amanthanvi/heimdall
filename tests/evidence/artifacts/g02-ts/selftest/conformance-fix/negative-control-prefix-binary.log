@@ -1,0 +1,25 @@
+bun test v1.4.2 (744846f84)
+
+test/tui.test.ts:
+178 |       stderr: "pipe",
+179 |     });
+180 |     expect(r.exitCode).toBe(0);
+181 |     const res = JSON.parse(r.stdout.toString());
+182 |     expect(res.frame).toBe(true);
+183 |     expect(res.rc).toBe(129);
+                         ^
+error: expect(received).toBe(expected)
+
+Expected: 129
+Received: null
+
+      at <anonymous> (<repo>/prototypes/ts/test/tui.test.ts:183:20)
+(fail) tui under PTY > K10: bare terminal hangup (EOF/EIO only, no SIGHUP) → exit 129, no SELECTED [5141.71ms]
+
+ 1 pass
+ 13 filtered out
+ 1 fail
+ 6 expect() calls
+Ran 2 tests across 1 file. [5.25s]
+NEG_EXIT=1
+b7355eaf140a010e1ffcbf5952713580145c89d52774c0396d1eebae9ce2c256  /tmp/ts-fix-neg/bin/heimdall-proto

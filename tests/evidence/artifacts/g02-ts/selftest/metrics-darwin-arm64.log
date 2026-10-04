@@ -1,0 +1,31 @@
+## codesign
+Identifier=a.out
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=564030 flags=0x20002(adhoc,linker-signed) hashes=17623+0 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+## spctl
+~/GitRepos/heimdall/prototypes/ts/dist/darwin-arm64/heimdall-proto: rejected
+## wall time, 10 runs each (python perf_counter around subprocess)
+version --json: median 19.6 ms, min 18.7, max 20.9
+profile show large-100: median 21.0 ms, min 20.7, max 23.3
+## peak RSS (/usr/bin/time -l)
+version --json:             25673728  maximum resident set size
+version --json:             10683016  peak memory footprint
+profile show --file ~/GitRepos/heimdall/tests/fixtures/g02/profiles/large-100.toml --json:             29687808  maximum resident set size
+profile show --file ~/GitRepos/heimdall/tests/fixtures/g02/profiles/large-100.toml --json:             12944008  peak memory footprint
+TUI time to first frame with large-100 (5 runs): median 59.9 ms, min 55.1, max 62.6
+TUI RSS after first frame (ps rss, KiB): median 60432, min 60272, max 60832
+211fae214b6ad7fdb62835d0f2e31f6506440a013ef09cfc5b960270fccdec09  /tmp/g02ts/repro1
+e6dc0a9d7700467d2e3d7fe3b32ce67d16ed90fbbcf83f3db992391403f9d957  /tmp/g02ts/repro2
+d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1  dist/darwin-arm64/heimdall-proto
+linux-x64 rebuild: 4c08908614f52bcae5da638610d932ecd766c743c0f06bef27302d843fd77375 vs dist 185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d
+windows-x64 rebuild: 48a470e30cdcd551ecb9fe384d9c74a556adb7b0b18ebc00627ef7e5b18cbb65 vs dist 5dbe0f5e446e68de3dfd923e23159f628801032ad49327bc917810a2006662ee
+## reproducibility (same outfile name, separate dirs)
+d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1  /tmp/g02ts/r1/heimdall-proto
+d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1  /tmp/g02ts/r2/heimdall-proto
+d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1  dist/darwin-arm64/heimdall-proto
+185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d  /tmp/g02ts/r1/lx/heimdall-proto
+185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d  /tmp/g02ts/r2/lx/heimdall-proto
+185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d  dist/linux-x64/heimdall-proto
+darwin r1 vs r2 differing bytes: 0

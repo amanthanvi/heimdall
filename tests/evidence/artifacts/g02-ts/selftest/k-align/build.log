@@ -1,0 +1,14 @@
+built  darwin-arm64 67147506 cbc197f6cb006919b9d0bfb5e9c77b01250ccd1d75188b3b8f8795d11df0bc9d
+built  linux-x64 86205920 8feca43bacfb87f34a37eb9df4c859865e772094a0d55bcb74cd78229e22b570
+built  linux-arm64 86165800 31ee3c33a97af1b26a1cc5b2cb53b18522a8b6ff066f7b20c61446f8e1bca8e2
+built  windows-x64 90981888 79e5827342be78e9670f545966cb5aae5389f29908e41dc24d4b0017bf40a883
+BUILD_EXIT=0
+
+Rebuild after a comment-only edit to src/platform/run.ts (2026-10-03T18:24:56Z):
+tsc --noEmit exit 0
+built  darwin-arm64 67147506 cbc197f6cb006919b9d0bfb5e9c77b01250ccd1d75188b3b8f8795d11df0bc9d
+built  linux-x64 86205920 8feca43bacfb87f34a37eb9df4c859865e772094a0d55bcb74cd78229e22b570
+built  linux-arm64 86165800 31ee3c33a97af1b26a1cc5b2cb53b18522a8b6ff066f7b20c61446f8e1bca8e2
+built  windows-x64 90981888 79e5827342be78e9670f545966cb5aae5389f29908e41dc24d4b0017bf40a883
+BUILD_EXIT=0
+dist/manifest.json byte-identical to the previous build (cmp exit 0): all four digests unchanged

@@ -1,0 +1,6 @@
+2026-10-03T20:50:26Z
+direct_nofile 256
+proto_nofile 1048576
+direct: HUP Handlers.SIG_IGN INT Handlers.SIG_IGN QUIT Handlers.SIG_IGN
+proto: HUP Handlers.SIG_DFL INT <built-in function default_int_handler> QUIT Handlers.SIG_DFL
+exit=0

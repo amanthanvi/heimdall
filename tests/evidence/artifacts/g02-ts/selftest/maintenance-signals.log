@@ -1,0 +1,18 @@
+@opentui/core: pinned 0.5.14 published 2026-09-30; latest 0.5.14 published 2026-09-30
+smol-toml: pinned 1.9.0 published 2026-09-22; latest 1.9.0 published 2026-09-22
+bun: pinned 1.4.2 published 2026-09-05; latest 1.4.2 published 2026-09-05
+typescript: pinned 5.9.3 published 2025-09-30; latest 7.0.2 published 2026-07-08
+ajv: pinned 8.20.0 published 2026-04-24; latest 8.20.0 published 2026-04-24
+@number0/iroh: pinned 1.1.0 published 2026-07-16; latest 1.1.0 published 2026-07-16
+bun-ffi-structs: pinned 0.3.1 published 2026-07-22; latest 0.3.1 published 2026-07-22
+web-tree-sitter: pinned 0.25.10 published 2025-09-22; latest 0.27.0 published 2026-08-30
+marked: pinned 17.0.1 published 2025-11-20; latest 18.0.14 published 2026-09-22
+diff: pinned 9.0.0 published 2026-04-13; latest 9.0.0 published 2026-04-13
+string-width: pinned 7.2.0 published 2024-06-30; latest 8.3.0 published 2026-09-24
+strip-ansi: pinned 7.1.2 published 2025-09-08; latest 7.2.0 published 2026-02-26
+opentui repo: stars=13456 open_issues=154 pushed_at=2026-10-02T10:11:38Z license=MIT archived=false
+bun repo: pushed_at=2026-10-03T00:30:50Z open_issues=9639 archived=false
+iroh-ffi repo: pushed_at=2026-10-02T19:34:51Z open_issues=15 archived=false
+opentui release v0.5.14 2026-09-30T14:50:28Z
+opentui release v0.5.13 2026-09-30T05:54:16Z
+opentui release v0.5.12 2026-09-22T08:20:07Z

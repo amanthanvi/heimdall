@@ -1,0 +1,21 @@
+## 1. TUI run extracts the embedded native library into TMPDIR (contract §1: no writes outside named paths)
+tui exit=0 rendered=true
+-rw-------  1 amanthanvi  wheel  5560064 Oct  2 20:31 .bun-501-33eea43aef98a673.dylib
+## 2. Same-size, same-uid planted file at the predictable name is loaded without content verification
+tui exit=1 rendered=false
+file after run is still all zeros: yes
+## 3. Different-size planted file is replaced (rewritten) and the TUI works
+tui exit=0 rendered=true
+size after run: 5560064
+## 4. Sidecar library via OTUI_ASSET_ROOT: no TMPDIR extraction (also shows the env var is honored when inherited)
+tui exit=0 rendered=true
+TMPDIR empty
+## 5. BUN_BE_BUN=1 turns the shipped binary into a general Bun runtime
+BUN_BE_BUN: evaluated arbitrary code
+exit=0
+## 6. .env autoload: disabled in build.sh artifacts; enabled by default in a plain --compile build
+build.sh artifact sees: []
+default --compile build sees: [loaded-from-dotenv]
+## 7. Non-TUI commands do not touch TMPDIR
+TMPDIR empty
+SCRIPT_EXIT=0

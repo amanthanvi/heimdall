@@ -1,0 +1,240 @@
+2026-10-03T20:50:57Z
+{
+ "len_ffffffff": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 47,
+  "maxrss_kib": 27248,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "len_262145": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 30,
+  "maxrss_kib": 27264,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "len_exact_max_ok": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 32,
+  "maxrss_kib": 29376,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "nkeys_ffffffff": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 30,
+  "maxrss_kib": 26992,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "nkeys_1024_ok": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 36,
+  "maxrss_kib": 32320,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "nkeys_1025": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 26,
+  "maxrss_kib": 27264,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "strlen_ffffffff": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 31,
+  "maxrss_kib": 26992,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "inner_keytype_overrun": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 38,
+  "maxrss_kib": 27424,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "blob_lt4": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 30,
+  "maxrss_kib": 27408,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "empty_keytype": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 28,
+  "maxrss_kib": 27312,
+  "request_hex": "000000010b",
+  "data": {
+   "identities": [
+    {
+     "key_type": "",
+     "fingerprint": "SHA256:3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERk",
+     "comment": "c"
+    }
+   ]
+  },
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "trailing_same_write": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 29,
+  "maxrss_kib": 26880,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "trailing_later_write": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 28,
+  "maxrss_kib": 27344,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "server_send_error": "BrokenPipeError"
+  }
+ },
+ "byte_by_byte_ok": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 79,
+  "maxrss_kib": 29248,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "success_type6": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 26,
+  "maxrss_kib": 27008,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "failure_len1": {
+  "rc": 5,
+  "code": "AGENT_REFUSED",
+  "ms": 26,
+  "maxrss_kib": 27296,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "failure_len5": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 30,
+  "maxrss_kib": 27376,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "zero_len_frame": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 29,
+  "maxrss_kib": 27360,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "slowloris_header_then_drip": {
+  "rc": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "ms": 1531,
+  "maxrss_kib": 28960,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "server_send_error": "BrokenPipeError"
+  }
+ },
+ "control_and_invalid_comment": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 26,
+  "maxrss_kib": 27408,
+  "request_hex": "000000010b",
+  "data": {
+   "identities": [
+    {
+     "key_type": "ssh-\ufffd[31med",
+     "fingerprint": "SHA256:apdN2jGbcUKZKM0isgDI8fQrlpzB8IaenceRSDtrwc4",
+     "comment": "a\ufffd]0;x\ufffd\ufffd\ufffd\u2028z"
+    }
+   ]
+  },
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "respond_then_hold_open": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 36,
+  "maxrss_kib": 27504,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ }
+}
+exit=0

@@ -1,0 +1,3 @@
+2026-10-03T20:50:52Z
+{"proto": {"wrapper_rc": -9, "child_alive_after_group_SIGKILL": true}, "direct-sh": {"wrapper_rc": -9, "child_alive_after_group_SIGKILL": false}}
+exit=0

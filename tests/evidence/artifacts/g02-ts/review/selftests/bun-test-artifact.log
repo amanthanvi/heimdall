@@ -1,0 +1,16 @@
+bun test v1.4.2 (744846f84)
+
+test/tui.test.ts:
+[evidence] TUI 100-destination filter redraw observed after 19.4 ms
+[evidence] TUI resize 80x10→20x5 re-layout observed after 14.5 ms
+
+test/agent.test.ts:
+[evidence] agent SIGINT→exit latency 1.3 ms
+
+test/units.test.ts:
+[evidence] listview filter+layout per keystroke over 100 destinations: 0.033 ms
+
+ 154 pass
+ 0 fail
+ 579 expect() calls
+Ran 154 tests across 7 files. [6.34s]

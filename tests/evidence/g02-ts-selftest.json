@@ -1,0 +1,320 @@
+{
+  "case_id": "G02-ts-selftest",
+  "status": "verified",
+  "requirement_ids": [
+    "R-SS-04",
+    "R-UX-05",
+    "R-DI-01",
+    "R-AP-02",
+    "R-SE-05"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2 (HEAD at record time; prototypes/ts/** is uncommitted working-tree content, not yet in any commit)",
+  "artifact_digest": "sha256:dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2 (dist/darwin-arm64/heimdall-proto, 67147506 bytes) + sidecar sha256:708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6 (dist/darwin-arm64/@opentui/core-darwin-arm64/libopentui.dylib, 5560064 bytes)",
+  "environment": {
+    "host": "macOS 27.0 (26A428), arm64",
+    "runtime": "bun 1.4.2+744846f84",
+    "typescript": "5.9.3 (typecheck only)",
+    "node": "v24.18.0 installed but unused (OpenTUI 0.5.14 requires node >=26.4.0 with --experimental-ffi)",
+    "docker": "29.8.0; linux containers debian:trixie (arm64 native in Docker Desktop VM, amd64 emulated) and alpine:3.22",
+    "ssh_tools": "/usr/bin/ssh-agent, /usr/bin/ssh-keygen, /usr/bin/ssh-add (disposable temp-dir agent and key only; SSH_AUTH_SOCK unset)",
+    "docker_images": "debian:trixie re-pulled from the registry for linux/arm64 and linux/amd64 during attempt 2 (containers ran with --network none); linux/amd64 is emulated on this arm64 host"
+  },
+  "provider_versions": [
+    {
+      "name": "@opentui/core",
+      "version": "0.5.14",
+      "license": "MIT"
+    },
+    {
+      "name": "smol-toml",
+      "version": "1.9.0",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "bun (embedded runtime)",
+      "version": "1.4.2"
+    },
+    {
+      "name": "ajv (tests only)",
+      "version": "8.20.0"
+    },
+    {
+      "name": "license-checker-rseidelsohn (tool)",
+      "version": "5.0.1"
+    }
+  ],
+  "started_at": "2026-10-03T20:08:20Z",
+  "commands_or_harness": [
+    "attempt 4 (M00-T05-ts-fix re-dispatch; single remaining shared-harness failure run.argv_invalid_utf8; no source change):",
+    "shasum -a 256 tests/g02/conformance.py  -> f2ccd7e7238683214c4ec7ca906072ce991c659284fe2ba5b3819f45a6593a81 (check run.argv_invalid_utf8 marked gating, matches K8)",
+    "python3 conformance-fix-2/argv-k8-probe.py (bun -e printing hex of process.argv and Bun.argv for argv a\\xffb, caf\\xe9, 'valid \\xc3\\xbc')  -> exit 0; 61efbfbd62, 636166efbfbd, 76616c696420c3bc for both APIs (invalid bytes become U+FFFD before user code runs; valid UTF-8 intact)",
+    "grep argv in node_modules/bun-types/*.d.ts  -> only string[] argv APIs (Bun.argv, process.argv, execArgv); no raw-bytes argv API found",
+    "cd prototypes/ts && ./build.sh (2026-10-03T20:08:20Z)  -> exit 0, 4/4 targets; darwin-arm64 sha256 dd7a771d... (byte-identical to attempt 3)",
+    "prototypes/ts: bunx tsc --noEmit  -> exit 0",
+    "prototypes/ts: bun test --timeout 30000  -> exit 0 (154 pass, 0 fail, 7 files)",
+    "prototypes/ts: HEIMDALL_PROTO_BIN=dist/darwin-arm64/heimdall-proto (relative path) bun test --timeout 30000  -> exit 1 (150 pass, 4 fail: ENOENT spawning the relative path from tests that change cwd or copy the binary; operator invocation error, log kept as test-dist-darwin-arm64-relative-bin-invocation-error.log)",
+    "prototypes/ts: HEIMDALL_PROTO_BIN=<absolute>/prototypes/ts/dist/darwin-arm64/heimdall-proto bun test --timeout 30000  -> exit 0 (154 pass, 0 fail)",
+    "python3 tests/g02/conformance.py --candidate ts --bin <absolute>/prototypes/ts/dist/darwin-arm64/heimdall-proto --out /tmp/heimdall-g02-ts-recheck.json --artifacts-dir /tmp/heimdall-g02-ts-recheck-artifacts (read-only, 2026-10-03T20:08:57Z-20:09:44Z)  -> exit 1; 113 checks: 112 pass, 1 fail (run.argv_invalid_utf8, differing_indexes 0-6, index 7 valid UTF-8 matches); record status verified, verdict fail"
+  ],
+  "observed_result": {
+    "verdict": "fail",
+    "criterion": "The TS prototype meets slice contract §1-§7 as clarified by §9 (K1-K12) in its own native tests and probes on the platforms available here.",
+    "verdict_reason": "K8 (gating) is not met and is not fixable within the stack under K8: Bun decodes argv to JS strings (invalid bytes -> U+FFFD) before user code runs and exposes no raw-bytes argv API; the only routes (bun:ffi _NSGetArgv, /proc/self/cmdline) are excluded by K8 as routing around. Attempt 4 made no source change; rebuild byte-identical, 154/154 native tests, shared harness 112/113 with run.argv_invalid_utf8 the only failure.",
+    "k_rulings": {
+      "K1": "changed: C0/DEL/C1 and invalid UTF-8 in comment and key_type -> U+FFFD (was JSON-escaped text; non-UTF-8 key_type was AGENT_PROTOCOL_ERROR); agent.test.ts K1 tests pass",
+      "K2": "changed: control code points in profile string values outside [meta] -> exit 2 SCHEMA_INVALID naming the key, no value echoed; profile.test.ts K2 tests pass",
+      "K3": "already conformed; new close/reset tests (0 bytes -> AGENT_UNAVAILABLE, 1 byte -> AGENT_PROTOCOL_ERROR) pass on new and pre-alignment binaries",
+      "K4": "already conformed; new end-to-end test passes",
+      "K5": "already conformed; run.test.ts now asserts state",
+      "K6": "changed: Unix child launched in its own process group via bun:ffi posix_spawnp; terminal handed to the child's group when heimdall-proto is foreground; every received signal forwarded once. Explicit kill -INT while foreground: child count 1 (new) vs 0 (pre-alignment). PTY test: ^C, ^\\, resize once each; explicit INT/QUIT/WINCH/TERM/HUP once each; foreground group restored. Linux containers: INT=2 (terminal + explicit), fg restored",
+      "K7": "statement only (Bun.which lookup; untested)",
+      "K8": "stack limitation (re-observed attempt 4, no source change; shared harness run.argv_invalid_utf8 FAIL, gating)",
+      "K9": "changed: every filter change selects row 0; Enter keeps the selection; units and PTY tests pass",
+      "K10": "changed (attempt 3): a terminal hangup seen only as stdin EOF/EIO (stdin 'end'/'close'/'error') now restores and exits 129 like SIGHUP; before, a TUI whose session leader did not forward SIGHUP never exited. New native test 'K10: bare terminal hangup' passes; fails on the pre-fix binary",
+      "K11": "changed: OpenTUI library shipped as sidecar dist/<target>/@opentui/core-<platform>/<lib>, listed in manifest sidecars; loaded only from the executable's real directory; inherited OTUI_ASSET_ROOT/OPENTUI_LIBC overridden; nothing written to a fresh TMPDIR (macOS tests and probes, both Linux containers); missing sidecar -> exit 1. BUN_BE_BUN=1 still evaluates arbitrary code (stack limitation)",
+      "K12": "statement only"
+    },
+    "build": "darwin-arm64 67147506 B (sha256 dd7a771d...) + 5560064 B sidecar (unchanged); linux-x64 86205920 (a392aee6...); linux-arm64 86165800 (ac48d2a6...); windows-x64 90981888 (3e81b6fc...); all built:true; sidecars unchanged",
+    "selftests": "154/154 against source and against the darwin-arm64 artifact (absolute HEIMDALL_PROTO_BIN)",
+    "shared_harness": {
+      "exit": 1,
+      "checks": 113,
+      "pass": 112,
+      "fail": 1,
+      "failed": [
+        "run.argv_invalid_utf8"
+      ],
+      "harness_sha256": "f2ccd7e7238683214c4ec7ca906072ce991c659284fe2ba5b3819f45a6593a81",
+      "record": "/tmp/heimdall-g02-ts-recheck.json (not copied: harness check descriptions quote fixture canary values; redacted summary in tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/harness-recheck-summary.json)"
+    },
+    "attempts": [
+      {
+        "attempt": 1,
+        "task": "M00-T05-ts (initial prototype, before contract §9 existed)",
+        "status": "implemented_unverified",
+        "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2 (HEAD at record time; prototypes/ts/** is uncommitted working-tree content, not yet in any commit)",
+        "artifact_digest": "sha256:d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1 (dist/darwin-arm64/heimdall-proto, 72745074 bytes)",
+        "started_at": "2026-10-02T23:56:01Z",
+        "commands_or_harness": [
+          "sh prototypes/ts/build.sh  -> exit 0 (4/4 targets built; final run started 2026-10-03T00:29:11Z)",
+          "prototypes/ts: ./node_modules/.bin/tsc --noEmit -p .  -> exit 0",
+          "prototypes/ts: bun test --timeout 20000  -> exit 0 (128 pass, 0 fail, 6 files)",
+          "prototypes/ts: HEIMDALL_PROTO_BIN=$PWD/dist/darwin-arm64/heimdall-proto bun test --timeout 20000  -> exit 0 (128 pass, 0 fail)",
+          "docker run --network none debian:trixie (linux/arm64 and linux/amd64) sh ctest.sh / ctui.sh against dist/linux-*/heimdall-proto  -> DOCKER_EXIT=0 for all four runs",
+          "docker run --network none alpine:3.22 dist/linux-arm64/heimdall-proto version --json  -> exit 255 (glibc binary on musl)",
+          "sh tests/evidence/artifacts/g02-ts/selftest/security-probes.sh  -> exit 0",
+          "bunx --bun license-checker-rseidelsohn@5.0.1 --json [--production]  -> exit 0 (both)",
+          "INFORMATIONAL: tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate ts --out /tmp/... (in-progress harness, read-only)  -> exit 1, 91/93 pass"
+        ],
+        "observed_result": {
+          "build": "darwin-arm64 72745074 B, linux-x64 98813408 B, linux-arm64 97962280 B, windows-x64 97369600 B; all built:true; same-name rebuilds byte-identical on this host",
+          "selftests": "128/128 pass against source and against the compiled darwin-arm64 artifact (PATH for the artifact process inherited from test runner; separate env -i PATH=/usr/bin:/bin runs of the artifact also succeeded)",
+          "linux_smoke": "linux-arm64 (native VM) and linux-x64 (emulated): version, profile (Unicode path), canary fixture, run argv/exit/meta/signal/launch-failure/binary stdin, non-TTY tui, PTY tui render + alt-screen enter/leave all as expected; extracted .so left in /tmp after TUI",
+          "measurements": "darwin-arm64 artifact: version median 19.6 ms, profile(100) median 21.0 ms, max RSS 25.7/29.7 MB; TUI first frame median 59.9 ms, RSS ~60 MB; resize re-layout 7-17 ms; 100-destination filter redraw 7-8 ms; agent SIGINT->exit 1.4-2.0 ms",
+          "contract_failures_observed": [
+            "§1 TUI path writes the embedded native library to $TMPDIR/.bun-<uid>-<hash>.<ext> and leaves it (Bun --compile dlopen extraction); a same-size planted file at that name is loaded without content verification (probe 2: exit 1, file unchanged)",
+            "§4 argv bytes that are not valid UTF-8 are replaced with U+FFFD (61 ff 62 -> 61 ef bf bd 62); valid UTF-8 non-ASCII passes"
+          ],
+          "other_findings": [
+            "BUN_BE_BUN=1 makes the shipped artifact evaluate arbitrary code (-e); no build flag found to disable",
+            "default bun --compile artifacts autoload .env/bunfig.toml from cwd; build.sh disables both (probe 6 shows the difference)",
+            "OpenTUI 0.5.14 ignores NO_COLOR (always truecolor/256 SGR); workaround = proxied stdout (feed mode) + SGR color filter; verified no color SGR under NO_COLOR",
+            "OpenTUI KeyHandler swallows listener exceptions and prints stack traces over the TUI; adapter routes them to a restoring exit (exit 1)",
+            "OpenTUI clears the terminal window title (OSC 0) on exit and sends many capability queries at startup",
+            "cross-target Bun runtimes are downloaded from registry.npmjs.org without integrity verification beyond TLS (Bun 1.4.2 source)",
+            "shared harness preview: tui.no_color failed only on selection-after-Esc expectation (contract-unspecified; escalated); common.no_stray_writes failed on the TMPDIR extraction"
+          ]
+        },
+        "evidence_paths": [
+          "prototypes/ts/",
+          "prototypes/ts/LICENSES.md",
+          "tests/evidence/artifacts/g02-ts/selftest/build.log",
+          "tests/evidence/artifacts/g02-ts/selftest/manifest.json",
+          "tests/evidence/artifacts/g02-ts/selftest/typecheck.log",
+          "tests/evidence/artifacts/g02-ts/selftest/test-source.log",
+          "tests/evidence/artifacts/g02-ts/selftest/test-dist-darwin-arm64.log",
+          "tests/evidence/artifacts/g02-ts/selftest/linux-container-smoke.log",
+          "tests/evidence/artifacts/g02-ts/selftest/metrics-darwin-arm64.log",
+          "tests/evidence/artifacts/g02-ts/selftest/security-probes.sh",
+          "tests/evidence/artifacts/g02-ts/selftest/security-probes.log",
+          "tests/evidence/artifacts/g02-ts/selftest/licenses-all.json",
+          "tests/evidence/artifacts/g02-ts/selftest/licenses-production.json",
+          "tests/evidence/artifacts/g02-ts/selftest/maintenance-signals.log",
+          "tests/evidence/artifacts/g02-ts/selftest/shared-harness-preview.log"
+        ],
+        "limitations": [
+          "Prototype self-tests are not the official G02 conformance verdict; the shared harness run recorded here was informational against an in-progress harness.",
+          "Native Windows execution blocked: needs a Windows x64 host. windows-x64 artifact built (PE32+) and Windows branches typecheck only (named pipe, console Ctrl-C, CreateProcess quoting, ConPTY/resize).",
+          "No clean bare-metal macOS or Linux machine: macOS runs were on the development host (with PATH lacking bun/node for artifact runs); Linux runs were in Docker containers, linux-x64 under emulation.",
+          "linux-*-musl, darwin-x64 and windows-arm64 targets not built (not in contract target list).",
+          "macOS artifact is ad-hoc linker-signed only; spctl rejects it; notarization not attempted.",
+          "SIGINT/SIGQUIT are not forwarded when heimdall-proto is the terminal foreground group (to avoid double delivery); a kill -INT aimed at heimdall-proto in that state is not forwarded.",
+          "TUI exception path verified via a test-only fault-injection hook (HEIMDALL_PROTO_FAULT=tui-throw).",
+          "prototypes/ts/REPORT.md was not written: the subagent runtime rejected report .md file writes; the full report content was returned in the task's structured output for the orchestrator to persist."
+        ]
+      },
+      {
+        "attempt": 2,
+        "task": "M00-T05-ts-align",
+        "started_at": "2026-10-03T18:11:33Z",
+        "summary": "see the top-level fields of this record"
+      },
+      {
+        "attempt": 2,
+        "task": "M00-T05-ts-align (contract §9 K1-K12)",
+        "status": "verified",
+        "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2 (HEAD at record time; prototypes/ts/** is uncommitted working-tree content, not yet in any commit)",
+        "artifact_digest": "sha256:cbc197f6cb006919b9d0bfb5e9c77b01250ccd1d75188b3b8f8795d11df0bc9d (dist/darwin-arm64/heimdall-proto, 67147506 bytes) + sidecar sha256:708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6 (dist/darwin-arm64/@opentui/core-darwin-arm64/libopentui.dylib, 5560064 bytes)",
+        "started_at": "2026-10-03T18:11:33Z",
+        "commands_or_harness": [
+          "prototypes/ts: ./node_modules/.bin/tsc --noEmit -p .  -> exit 0",
+          "sh prototypes/ts/build.sh (started 2026-10-03T18:21:18Z)  -> exit 0, 4/4 targets built with sidecars; rebuild at 18:24:56Z after a comment-only edit -> exit 0, manifest byte-identical",
+          "prototypes/ts: bun test --timeout 30000  -> exit 0 (153 pass, 0 fail, 7 files)",
+          "prototypes/ts: HEIMDALL_PROTO_BIN=$PWD/dist/darwin-arm64/heimdall-proto bun test --timeout 30000  -> exit 0 (153 pass, 0 fail)",
+          "prototypes/ts: bun test --timeout 30000 test/run.test.ts x3 (after the Ctrl-Z test was added)  -> exit 0 x3 (15 pass each)",
+          "negative control: HEIMDALL_PROTO_BIN=/tmp/g02ts-negctl/old-run/heimdall-proto bun test --timeout 30000 (binary built from the reconstructed pre-alignment sources; run before the Ctrl-Z test existed)  -> exit 1 (143 pass, 9 fail: K1 e2e, K2 CLI, K6 x2, K9 PTY, K11 x4)",
+          "docker run --rm --network none --platform linux/arm64|linux/amd64 debian:trixie sh /s/ctest-k.sh against dist/linux-*/  -> DOCKER_EXIT=0 for both",
+          "OLD_BIN=/tmp/g02ts-negctl/old-run/heimdall-proto sh tests/evidence/artifacts/g02-ts/selftest/k-align/probes.sh  -> exit 0",
+          "INFORMATIONAL: tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate ts --out /tmp/g02ts-harness/out.json (in-flux harness, conformance.py sha256 75b23fbe..., read-only)  -> exit 0, 95/95 pass"
+        ],
+        "verdict": "fail",
+        "verdict_reason": "K8 (gating) is not met: invalid-UTF-8 argv bytes reach the child as U+FFFD (61 ff 62 -> 61 ef bf bd 62; observed on macOS and both Linux containers). Recorded as a Bun stack limitation; not routed around. Every other K ruling is conformed with a passing native test. Windows behavior is unverified (blocked).",
+        "k_rulings": {
+          "K1": "changed: C0/DEL/C1 and invalid UTF-8 in comment and key_type -> U+FFFD (was JSON-escaped text; non-UTF-8 key_type was AGENT_PROTOCOL_ERROR); agent.test.ts K1 tests pass",
+          "K2": "changed: control code points in profile string values outside [meta] -> exit 2 SCHEMA_INVALID naming the key, no value echoed; profile.test.ts K2 tests pass",
+          "K3": "already conformed; new close/reset tests (0 bytes -> AGENT_UNAVAILABLE, 1 byte -> AGENT_PROTOCOL_ERROR) pass on new and pre-alignment binaries",
+          "K4": "already conformed; new end-to-end test passes",
+          "K5": "already conformed; run.test.ts now asserts state",
+          "K6": "changed: Unix child launched in its own process group via bun:ffi posix_spawnp; terminal handed to the child's group when heimdall-proto is foreground; every received signal forwarded once. Explicit kill -INT while foreground: child count 1 (new) vs 0 (pre-alignment). PTY test: ^C, ^\\, resize once each; explicit INT/QUIT/WINCH/TERM/HUP once each; foreground group restored. Linux containers: INT=2 (terminal + explicit), fg restored",
+          "K7": "statement only (Bun.which lookup; untested)",
+          "K8": "stack limitation (observed, unchanged; shared harness run.argv_invalid_utf8 FAIL)",
+          "K9": "changed: every filter change selects row 0; Enter keeps the selection; units and PTY tests pass",
+          "K10": "changed (attempt 3): a terminal hangup seen only as stdin EOF/EIO (stdin 'end'/'close'/'error') now restores and exits 129 like SIGHUP; before, a TUI whose session leader did not forward SIGHUP never exited. New native test 'K10: bare terminal hangup' passes; fails on the pre-fix binary",
+          "K11": "changed: OpenTUI library shipped as sidecar dist/<target>/@opentui/core-<platform>/<lib>, listed in manifest sidecars; loaded only from the executable's real directory; inherited OTUI_ASSET_ROOT/OPENTUI_LIBC overridden; nothing written to a fresh TMPDIR (macOS tests and probes, both Linux containers); missing sidecar -> exit 1. BUN_BE_BUN=1 still evaluates arbitrary code (stack limitation)",
+          "K12": "statement only"
+        },
+        "build": "darwin-arm64 67147506 B + 5560064 B sidecar; linux-x64 86205920 + 6314816; linux-arm64 86165800 + 5907256; windows-x64 90981888 + 6391688; all built:true; rebuild byte-identical",
+        "selftests": "153/153 against source and against the darwin-arm64 artifact; negative control 9 failures on the pre-alignment binary",
+        "limitations": [
+          "Prototype self-tests are not the official G02 conformance verdict; the shared harness run was informational against an in-flux harness whose run.argv_invalid_utf8 check is still non-gating (contradicts K8).",
+          "Native Windows execution blocked: needs a Windows x64 host. windows-x64 artifact and opentui.dll sidecar built; Windows code paths (named pipe, console Ctrl-C, CreateProcess quoting, sidecar load from the executable directory) are compile-checked only.",
+          "No clean bare-metal macOS or Linux machine: macOS runs on the development host; Linux runs in Docker containers, linux-x64 under emulation. In the emulated linux-x64 container posix_spawnp reported success for a missing command (child exited 127); argv[0] is now pre-resolved with Bun.which, cause not traced.",
+          "K6 gaps (untested): a signal arriving before posix_spawnp returns is not forwarded; SIGKILL of heimdall-proto while the child holds the terminal leaves the child in the foreground; children that do their own job control were not tried.",
+          "K8 and BUN_BE_BUN=1 are Bun stack limitations, recorded, not worked around.",
+          "Negative-control binary was built from pre-alignment sources reconstructed from the captured listing of the original files (diff in k-align/source-vs-pre-alignment.diff); its digest differs from the first build's because the output file name is embedded.",
+          "Measurements (startup, RSS, first frame) were not repeated for the new build; the attempt-1 numbers are from the first build.",
+          "macOS artifact is ad-hoc linker-signed only; notarization not attempted.",
+          "Pre-existing $TMPDIR/.bun-501-*.dylib/.node files from earlier runs remain in the owner's real TMPDIR; the negative-control runs of the pre-alignment binary reused one of them. Not removed (not created by this task)."
+        ]
+      },
+      {
+        "attempt": 3,
+        "task": "M00-T05-ts-fix (shared-harness failures tui.hangup_exit_129 and run.argv_invalid_utf8)",
+        "status": "verified",
+        "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2 (HEAD at record time; prototypes/ts/** is uncommitted working-tree content, not yet in any commit)",
+        "artifact_digest": "sha256:dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2 (dist/darwin-arm64/heimdall-proto, 67147506 bytes) + sidecar sha256:708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6 (dist/darwin-arm64/@opentui/core-darwin-arm64/libopentui.dylib, 5560064 bytes)",
+        "started_at": "2026-10-03T19:58:00Z",
+        "commands_or_harness": [
+          "pre-fix binary (sha256 cbc197f6...): python3 tests/g02/conformance.py --candidate ts --only tui.hangup_exit_129 --out /tmp/ts-fix-hup-pre.json  -> check FAIL ([bare hangup] exit status 129: wait status null after 5 s); reproduced",
+          "probe: bun stdin-event-probe.ts under tests/g02/pty_shim.py --no-hup-forward, pty master closed  -> stdin emitted 'end' then 'close', no SIGHUP; process still alive after 4 s (probe exit 3)",
+          "prototypes/ts: bunx tsc --noEmit  -> exit 0",
+          "sh prototypes/ts/build.sh (started 2026-10-03T20:01:53Z)  -> exit 0, 4/4 targets built with sidecars",
+          "python3 tests/g02/conformance.py --only tui.hangup_exit_129,tui.sighup_exit_129 (post-fix binary)  -> exit 0, 2/2 pass; --only tui.hangup_exit_129 x3  -> exit 0 x3, pass x3",
+          "python3 tests/g02/conformance.py --only run.argv_invalid_utf8 (post-fix binary)  -> exit 1, FAIL (K8 stack limitation, unchanged)",
+          "bun -e (print hex of process.argv/Bun.argv last element) -- $'a\\xffb'  -> 61efbfbd62 for both (Bun decodes argv to U+FFFD before user code runs)",
+          "prototypes/ts: bun test --timeout 30000  -> exit 0 (154 pass, 0 fail, 7 files)",
+          "prototypes/ts: HEIMDALL_PROTO_BIN=$PWD/dist/darwin-arm64/heimdall-proto bun test --timeout 30000  -> exit 0 (154 pass, 0 fail)",
+          "negative control: HEIMDALL_PROTO_BIN=/tmp/ts-fix-neg/bin/heimdall-proto (pre-fix tui.ts, sha256 b7355eaf...) bun test test/tui.test.ts -t hangup  -> exit 1 (1 pass, 1 fail: new bare-hangup test, rc null)",
+          "python3 tests/g02/conformance.py --bin prototypes/ts/dist/darwin-arm64/heimdall-proto --candidate ts --out /tmp/heimdall-g02-ts-recheck.json --artifacts-dir /tmp/heimdall-g02-ts-recheck-art (conformance.py sha256 f2ccd7e7..., read-only, 2026-10-03T20:03:27Z-20:04:14Z)  -> exit 1; 113 checks: 112 pass, 1 fail (run.argv_invalid_utf8); record status verified, verdict fail"
+        ],
+        "verdict": "fail",
+        "verdict_reason": "K8 (gating) is still not met: invalid-UTF-8 argv bytes reach the child as U+FFFD (Bun decodes argv before user code; recorded stack limitation, not routed around). The K10 bare-hangup defect is fixed: the shared harness now passes 112/113 checks, the only failure being run.argv_invalid_utf8. Windows and Linux hangup behavior unverified.",
+        "shared_harness": {
+          "exit": 1,
+          "checks": 113,
+          "pass": 112,
+          "fail": 1,
+          "failed": [
+            "run.argv_invalid_utf8"
+          ],
+          "record": "/tmp/heimdall-g02-ts-recheck.json (not copied; summary in tests/evidence/artifacts/g02-ts/selftest/conformance-fix/harness-recheck-summary.json)"
+        },
+        "selftests": "154/154 against source and against the darwin-arm64 artifact; negative control: new bare-hangup test fails on the pre-fix binary",
+        "build": "darwin-arm64 67147506 B (sha256 dd7a771d...) + 5560064 B sidecar (unchanged); linux-x64 86205920 (a392aee6...); linux-arm64 86165800 (ac48d2a6...); windows-x64 90981888 (3e81b6fc...); all built:true; sidecars unchanged"
+      }
+    ]
+  },
+  "evidence_paths": [
+    "prototypes/ts/",
+    "prototypes/ts/LICENSES.md",
+    "tests/evidence/artifacts/g02-ts/selftest/build.log",
+    "tests/evidence/artifacts/g02-ts/selftest/manifest.json",
+    "tests/evidence/artifacts/g02-ts/selftest/typecheck.log",
+    "tests/evidence/artifacts/g02-ts/selftest/test-source.log",
+    "tests/evidence/artifacts/g02-ts/selftest/test-dist-darwin-arm64.log",
+    "tests/evidence/artifacts/g02-ts/selftest/linux-container-smoke.log",
+    "tests/evidence/artifacts/g02-ts/selftest/metrics-darwin-arm64.log",
+    "tests/evidence/artifacts/g02-ts/selftest/security-probes.sh",
+    "tests/evidence/artifacts/g02-ts/selftest/security-probes.log",
+    "tests/evidence/artifacts/g02-ts/selftest/licenses-all.json",
+    "tests/evidence/artifacts/g02-ts/selftest/licenses-production.json",
+    "tests/evidence/artifacts/g02-ts/selftest/maintenance-signals.log",
+    "tests/evidence/artifacts/g02-ts/selftest/shared-harness-preview.log",
+    "prototypes/ts/REPORT.md (section '§9 alignment (2026-10-03)')",
+    "prototypes/ts/dist/manifest.json",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/build-started.txt",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/build.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/manifest.json",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/typecheck.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/test-source.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/test-dist-darwin-arm64.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/negative-control-old-binary.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/probes.sh",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/probes.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/ctest-k.sh",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/linux-container-smoke.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/shared-harness-preview.log",
+    "tests/evidence/artifacts/g02-ts/selftest/k-align/source-vs-pre-alignment.diff",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/build.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/manifest.json",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/typecheck.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/test-source.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/test-dist-darwin-arm64.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/negative-control-prefix-binary.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/harness-recheck.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/harness-recheck-summary.json",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/harness-hangup-only.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/argv-k8.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/stdin-event-probe.ts",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/stdin-event-probe-drive.py",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix/stdin-event-probe.log",
+    "prototypes/ts/test/bare_hangup.py",
+    "prototypes/ts/REPORT.md (section 'Conformance fixes (2026-10-03)')",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/started.txt",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/build.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/manifest.json",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/typecheck.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/test-source.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/test-dist-darwin-arm64.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/test-dist-darwin-arm64-relative-bin-invocation-error.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/harness-recheck.log",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/harness-recheck-summary.json",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/argv-k8-probe.py",
+    "tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/argv-k8-probe.log"
+  ],
+  "limitations": [
+    "Attempt 4 changed no prototype source: the only remaining shared-harness failure (run.argv_invalid_utf8) is a K8 stack limitation. The bun:ffi raw-argv route (escalation E2) was not taken because K8 classes it as routing around; it is recorded as a production option only.",
+    "Prototype self-tests are not the official G02 conformance verdict; the shared harness re-run here was read-only to /tmp, and tests/evidence/g02-ts-conformance.json was not rewritten (owned by the conformance runner).",
+    "The bare-hangup fix and its test were exercised on macOS only; Linux (pty EOF vs EIO semantics) and Windows (console close) hangup paths are unverified. blocked_on for Windows: Windows x64 host; Linux containers were not re-run for attempt 3.",
+    "The native bare-hangup test depends on python3 and reuses tests/g02/pty_shim.py read-only.",
+    "Native Windows execution blocked: needs a Windows x64 host. windows-x64 artifact and opentui.dll sidecar built; Windows code paths (named pipe, console Ctrl-C, CreateProcess quoting, sidecar load from the executable directory) are compile-checked only.",
+    "No clean bare-metal macOS or Linux machine: macOS runs on the development host; Linux runs in Docker containers, linux-x64 under emulation. In the emulated linux-x64 container posix_spawnp reported success for a missing command (child exited 127); argv[0] is now pre-resolved with Bun.which, cause not traced.",
+    "K6 gaps (untested): a signal arriving before posix_spawnp returns is not forwarded; SIGKILL of heimdall-proto while the child holds the terminal leaves the child in the foreground; children that do their own job control were not tried.",
+    "K8 and BUN_BE_BUN=1 are Bun stack limitations, recorded, not worked around.",
+    "Negative-control binary was built from pre-alignment sources reconstructed from the captured listing of the original files (diff in k-align/source-vs-pre-alignment.diff); its digest differs from the first build's because the output file name is embedded.",
+    "Measurements (startup, RSS, first frame) were not repeated for the new build; the attempt-1 numbers are from the first build.",
+    "macOS artifact is ad-hoc linker-signed only; notarization not attempted.",
+    "Pre-existing $TMPDIR/.bun-501-*.dylib/.node files from earlier runs remain in the owner's real TMPDIR; the negative-control runs of the pre-alignment binary reused one of them. Not removed (not created by this task)."
+  ],
+  "blocked_on": null
+}

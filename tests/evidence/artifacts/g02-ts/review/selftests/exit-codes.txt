@@ -1,0 +1,6 @@
+source exit 1
+artifact exit 1
+tsc exit 0
+# rerun with mirrored layout /tmp/hm-review-root
+source exit 0
+artifact exit 0

@@ -1,0 +1,80 @@
+bun test v1.4.2 (744846f84)
+
+test/tui.test.ts:
+[evidence] TUI 100-destination filter redraw observed after 19.5 ms
+[evidence] TUI resize 80x10→20x5 re-layout observed after 14.4 ms
+
+test/run.test.ts:
+32 |   ms: number;
+33 | }
+34 | 
+35 | export function proto(args: string[], opts: { stdin?: Uint8Array; env?: Record<string, string>; cwd?: string } = {}): Ran {
+36 |   const t0 = performance.now();
+37 |   const r = Bun.spawnSync([...PROTO, ...args], {
+                     ^
+error: ENOENT: no such file or directory, posix_spawn 'dist/darwin-arm64/heimdall-proto'
+      at proto (<repo>/prototypes/ts/test/helpers.ts:37:17)
+      at <anonymous> (<repo>/prototypes/ts/test/run.test.ts:104:17)
+(fail) run: argv, stdio, status > cwd and environment inherited [0.84ms]
+
+test/agent.test.ts:
+[evidence] agent SIGINT→exit latency 1.2 ms
+
+test/dist.test.ts:
+12 | const HOMELAB = join(FIXTURES, "homelab.toml");
+13 | 
+14 | // Run the TUI under a PTY with a minimal environment; press q after the first frame.
+15 | async function tuiOnce(bin: string, env: Record<string, string>, cwd: string): Promise<{ code: number | null; rendered: boolean }> {
+16 |   let out = "";
+17 |   const p = Bun.spawn([bin, "tui", "--file", HOMELAB], {
+                     ^
+ENOENT: no such file or directory, posix_spawn 'dist/darwin-arm64/heimdall-proto'
+    path: "dist/darwin-arm64/heimdall-proto",
+ syscall: "posix_spawn",
+   errno: -2,
+    code: "ENOENT"
+
+      at tuiOnce (<repo>/prototypes/ts/test/dist.test.ts:17:17)
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:43:23)
+(fail) K11: native library sidecar (compiled artifact) > TUI writes nothing to a fresh empty TMPDIR, HOME or cwd [21.76ms]
+12 | const HOMELAB = join(FIXTURES, "homelab.toml");
+13 | 
+14 | // Run the TUI under a PTY with a minimal environment; press q after the first frame.
+15 | async function tuiOnce(bin: string, env: Record<string, string>, cwd: string): Promise<{ code: number | null; rendered: boolean }> {
+16 |   let out = "";
+17 |   const p = Bun.spawn([bin, "tui", "--file", HOMELAB], {
+                     ^
+ENOENT: no such file or directory, posix_spawn 'dist/darwin-arm64/heimdall-proto'
+    path: "dist/darwin-arm64/heimdall-proto",
+ syscall: "posix_spawn",
+   errno: -2,
+    code: "ENOENT"
+
+      at tuiOnce (<repo>/prototypes/ts/test/dist.test.ts:17:17)
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:60:25)
+(fail) K11: native library sidecar (compiled artifact) > inherited OTUI_ASSET_ROOT and OPENTUI_LIBC are ignored; planted library is not loaded [21.15ms]
+12 | const HOMELAB = join(FIXTURES, "homelab.toml");
+13 | 
+14 | // Run the TUI under a PTY with a minimal environment; press q after the first frame.
+15 | async function tuiOnce(bin: string, env: Record<string, string>, cwd: string): Promise<{ code: number | null; rendered: boolean }> {
+16 |   let out = "";
+17 |   const p = Bun.spawn([bin, "tui", "--file", HOMELAB], {
+                     ^
+ENOENT: no such file or directory, posix_spawn '/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/g02ts-2RpKO4/spaced dir ü/heimdall-proto'
+    path: "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/g02ts-2RpKO4/spaced dir ü/heimdall-proto",
+ syscall: "posix_spawn",
+   errno: -2,
+    code: "ENOENT"
+
+      at tuiOnce (<repo>/prototypes/ts/test/dist.test.ts:17:17)
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:74:23)
+(fail) K11: native library sidecar (compiled artifact) > invoked through a symlink: the sidecar is found from the executable's real path [18.66ms]
+
+test/units.test.ts:
+[evidence] listview filter+layout per keystroke over 100 destinations: 0.031 ms
+
+ 150 pass
+ 4 fail
+ 569 expect() calls
+Ran 154 tests across 7 files. [5.89s]
+dist rc=1

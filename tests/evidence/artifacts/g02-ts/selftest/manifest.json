@@ -1,0 +1,37 @@
+{
+  "candidate": "ts",
+  "targets": [
+    {
+      "target": "darwin-arm64",
+      "path": "darwin-arm64/heimdall-proto",
+      "bytes": 72745074,
+      "sha256": "d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1",
+      "built": true,
+      "error": null
+    },
+    {
+      "target": "linux-x64",
+      "path": "linux-x64/heimdall-proto",
+      "bytes": 98813408,
+      "sha256": "185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d",
+      "built": true,
+      "error": null
+    },
+    {
+      "target": "linux-arm64",
+      "path": "linux-arm64/heimdall-proto",
+      "bytes": 97962280,
+      "sha256": "3c067c8769a15c4221d182770673913998f65c11f637335f384135bec00bb446",
+      "built": true,
+      "error": null
+    },
+    {
+      "target": "windows-x64",
+      "path": "windows-x64/heimdall-proto.exe",
+      "bytes": 97369600,
+      "sha256": "5dbe0f5e446e68de3dfd923e23159f628801032ad49327bc917810a2006662ee",
+      "built": true,
+      "error": null
+    }
+  ]
+}

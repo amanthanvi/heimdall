@@ -1,0 +1,3 @@
+2026-10-03T20:50:49Z
+{"mode": "proto", "hung_after_10s": false, "elapsed_s": 0.04, "output": "PROMPT\r\n\r\n[1]+  Stopped                 '/tmp/hm-review-root/prototypes/ts/dist/darwin-arm64/heimdall-proto' run -- /bin/sleep 2 | /usr/bin/python3 -c 'import os;fd=os.open(\"/dev/tty\",os.O_RDWR);os.write(fd,b\"PROMPT\\n\");b=os.read(fd,1);os.write(fd,b\"GOT:\"+b+b\"\\n\")'\r\nPIPE_DONE\r\n"}
+exit=0

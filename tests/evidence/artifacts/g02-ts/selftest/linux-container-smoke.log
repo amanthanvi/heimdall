@@ -1,0 +1,79 @@
+===== linux/arm64 (linux-arm64) debian:trixie, --network none; native arm64 in Docker Desktop VM
+artifact sha256: 3c067c8769a15c4221d182770673913998f65c11f637335f384135bec00bb446
+--- command -v bun node: none
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"ts","runtime":"bun 1.4.2 (744846f84)","tui_framework":"@opentui/core","tui_framework_version":"0.5.14"},"warnings":[],"next":null}
+exit=0
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","revision":3,"destinations":[{"id":"dst_lab_server","alias":"l exit=0
+{"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"private_key","message":"unknown key private_key"}},"warnings":[],"next":null}
+exit=2
+a b|$HOME|;*|ü| exit=7
+{"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":7,"signal":null},"warnings":[],"next":null}
+exit=143
+heimdall-proto: cannot launch command (ENOENT)
+exit=127
+{"schema_version":"1","state":"failed","code":"CHILD_LAUNCH_FAILED","data":{"launched":false,"exit_code":null,"signal":null},"warnings":[],"next":null}
+  \0 377   b   i   n   a   r   y
+heimdall-proto: tui requires a terminal on stdin and stdout
+tui exit=2
+tui bytes=0
+no .bun- extraction found
+DOCKER_EXIT=0
+----- TUI under script(1), SIGTERM after 2s
+script exit=0 (124=timeout sent TERM; inner status recorded below)
+SCRIPT_DONE tui_exit=124
+rows containing lab-server: 1
+alt-screen enter: yes
+alt-screen leave: yes
+-rw------- 1 root root 5907256 Oct  3 00:30 .bun-0-af4e0c09fa9998e6.so
+DOCKER_EXIT=0
+===== linux/amd64 (linux-x64) debian:trixie, --network none; EMULATED on arm64 host
+artifact sha256: 185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d
+--- command -v bun node: none
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"ts","runtime":"bun 1.4.2 (744846f84)","tui_framework":"@opentui/core","tui_framework_version":"0.5.14"},"warnings":[],"next":null}
+exit=0
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","revision":3,"destinations":[{"id":"dst_lab_server","alias":"l exit=0
+{"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"private_key","message":"unknown key private_key"}},"warnings":[],"next":null}
+exit=2
+a b|$HOME|;*|ü| exit=7
+{"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":7,"signal":null},"warnings":[],"next":null}
+exit=143
+heimdall-proto: cannot launch command (ENOENT)
+exit=127
+{"schema_version":"1","state":"failed","code":"CHILD_LAUNCH_FAILED","data":{"launched":false,"exit_code":null,"signal":null},"warnings":[],"next":null}
+  \0 377   b   i   n   a   r   y
+heimdall-proto: tui requires a terminal on stdin and stdout
+tui exit=2
+tui bytes=0
+no .bun- extraction found
+DOCKER_EXIT=0
+----- TUI under script(1), SIGTERM after 2s
+script exit=0 (124=timeout sent TERM; inner status recorded below)
+SCRIPT_DONE tui_exit=124
+rows containing lab-server: 1
+alt-screen enter: yes
+alt-screen leave: yes
+-rw------- 1 root root 6314816 Oct  3 00:30 .bun-0-f9ff78253ed86245.so
+DOCKER_EXIT=0
+===== alpine:3.22 (musl), linux-arm64 artifact (glibc-linked)
+DOCKER_EXIT=255
+exec /d/heimdall-proto: no such file or directory
+
+## scripts
+--- ctest.sh
+set -u
+B=/d/heimdall-proto
+echo "--- command -v bun node: $(command -v bun node || echo none)"
+$B version --json; echo "exit=$?"
+$B profile show --file "/f/spaced dir ü/prøfile homelab.toml" --json | head -c 160; echo " exit=$?"
+$B profile show --file /f/invalid-forbidden-key.toml --json; echo "exit=$?"
+$B run --meta-file /tmp/m.json -- sh -c 'printf "%s|" "$@"; exit 7' x 'a b' '$HOME' ';*' 'ü'; echo " exit=$?"; cat /tmp/m.json
+$B run -- sh -c 'kill -TERM $$'; echo "exit=$?"
+$B run --meta-file /tmp/m2.json -- does-not-exist-xyz; echo "exit=$?"; cat /tmp/m2.json
+printf '\000\377binary' | $B run -- cat | od -An -c | head -2
+timeout -s TERM 2 $B tui --file /f/homelab.toml > /tmp/tui.out; echo "tui exit=$?"; echo "tui bytes=$(wc -c < /tmp/tui.out)"; ls -la /tmp | grep '\.bun-' || echo "no .bun- extraction found"
+--- ctui.sh
+command -v script >/dev/null || { echo "no script(1)"; exit 3; }
+TMPDIR=/tmp script -qec "stty cols 80 rows 10; timeout --foreground -k 3 -s TERM 2 /d/heimdall-proto tui --file /f/homelab.toml; echo SCRIPT_DONE tui_exit=\$?" /tmp/ts.out </dev/null >/dev/null 2>&1; echo "script exit=$? (124=timeout sent TERM; inner status recorded below)"; grep -ao "SCRIPT_DONE.*" /tmp/ts.out
+grep -c 'lab-server' /tmp/ts.out | sed 's/^/rows containing lab-server: /'
+grep -q "$(printf '\033\[?1049h')" /tmp/ts.out && echo "alt-screen enter: yes"; grep -q "$(printf '\033\[?1049l')" /tmp/ts.out && echo "alt-screen leave: yes"
+ls -la /tmp | grep '\.bun-' || echo "no .bun- extraction found"

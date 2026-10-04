@@ -1,0 +1,3 @@
+2026-10-03T20:50:46Z
+{"mode": "env", "hung_after_10s": false, "elapsed_s": 2.02, "output": "PROMPT\r\ny\r\nGOT:y\r\nPIPE_DONE\r\n"}
+exit=0

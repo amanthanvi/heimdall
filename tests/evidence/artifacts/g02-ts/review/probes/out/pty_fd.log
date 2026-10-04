@@ -1,0 +1,3 @@
+2026-10-03T20:50:26Z
+{"rc": 0, "out": "fd0:nonblock=False fd1:nonblock=False fd2:nonblock=False fds=0,1,2,3 pgid_eq_pid=True"}
+exit=0

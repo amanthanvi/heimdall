@@ -1,0 +1,65 @@
+{
+  "candidate": "ts",
+  "targets": [
+    {
+      "target": "darwin-arm64",
+      "path": "darwin-arm64/heimdall-proto",
+      "bytes": 67147506,
+      "sha256": "cbc197f6cb006919b9d0bfb5e9c77b01250ccd1d75188b3b8f8795d11df0bc9d",
+      "built": true,
+      "error": null,
+      "sidecars": [
+        {
+          "path": "darwin-arm64/@opentui/core-darwin-arm64/libopentui.dylib",
+          "bytes": 5560064,
+          "sha256": "708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6"
+        }
+      ]
+    },
+    {
+      "target": "linux-x64",
+      "path": "linux-x64/heimdall-proto",
+      "bytes": 86205920,
+      "sha256": "8feca43bacfb87f34a37eb9df4c859865e772094a0d55bcb74cd78229e22b570",
+      "built": true,
+      "error": null,
+      "sidecars": [
+        {
+          "path": "linux-x64/@opentui/core-linux-x64/libopentui.so",
+          "bytes": 6314816,
+          "sha256": "be65f2428361c08fc717a20b67a81990e2864aa2067874d625aa590dee71fcce"
+        }
+      ]
+    },
+    {
+      "target": "linux-arm64",
+      "path": "linux-arm64/heimdall-proto",
+      "bytes": 86165800,
+      "sha256": "31ee3c33a97af1b26a1cc5b2cb53b18522a8b6ff066f7b20c61446f8e1bca8e2",
+      "built": true,
+      "error": null,
+      "sidecars": [
+        {
+          "path": "linux-arm64/@opentui/core-linux-arm64/libopentui.so",
+          "bytes": 5907256,
+          "sha256": "a9b0e0a95dd3d5c8515a4c94bff42d2e061c7f9ad1860f88ff86a509c916554e"
+        }
+      ]
+    },
+    {
+      "target": "windows-x64",
+      "path": "windows-x64/heimdall-proto.exe",
+      "bytes": 90981888,
+      "sha256": "79e5827342be78e9670f545966cb5aae5389f29908e41dc24d4b0017bf40a883",
+      "built": true,
+      "error": null,
+      "sidecars": [
+        {
+          "path": "windows-x64/@opentui/core-win32-x64/opentui.dll",
+          "bytes": 6391688,
+          "sha256": "701435b577754aab978f1dc896e0defaf9dffc9abb952ad2f7d3b823755cf827"
+        }
+      ]
+    }
+  ]
+}

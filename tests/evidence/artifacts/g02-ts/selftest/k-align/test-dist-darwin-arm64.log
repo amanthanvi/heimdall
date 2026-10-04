@@ -1,0 +1,19 @@
+started 2026-10-03T18:28:01Z (final, after test-cleanup hardening)
+HEIMDALL_PROTO_BIN=dist/darwin-arm64/heimdall-proto sha256=cbc197f6cb006919b9d0bfb5e9c77b01250ccd1d75188b3b8f8795d11df0bc9d
+bun test v1.4.2 (744846f84)
+
+test/tui.test.ts:
+[evidence] TUI 100-destination filter redraw observed after 16.8 ms
+[evidence] TUI resize 80x10→20x5 re-layout observed after 14.1 ms
+
+test/agent.test.ts:
+[evidence] agent SIGINT→exit latency 1.3 ms
+
+test/units.test.ts:
+[evidence] listview filter+layout per keystroke over 100 destinations: 0.029 ms
+
+ 153 pass
+ 0 fail
+ 575 expect() calls
+Ran 153 tests across 7 files. [6.19s]
+BUN_TEST_EXIT=0

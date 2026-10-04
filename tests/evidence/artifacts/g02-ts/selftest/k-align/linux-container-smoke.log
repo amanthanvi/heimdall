@@ -1,0 +1,94 @@
+===== linux/arm64 (linux-arm64) debian:trixie, --network none; 2026-10-03T18:21:50Z
+artifact sha256: 31ee3c33a97af1b26a1cc5b2cb53b18522a8b6ff066f7b20c61446f8e1bca8e2
+Unable to find image 'debian:trixie' locally
+trixie: Pulling from library/debian
+Digest: sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
+Status: Downloaded newer image for debian:trixie
+--- command -v bun node: none
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"ts","runtime":"bun 1.4.2 (744846f84)","tui_framework":"@opentui/core","tui_framework_version":"0.5.14"},"warnings":[],"next":null}
+exit=0
+--- run basics + K5 state
+a b|$HOME|;*|ü| exit=7
+{"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":7,"signal":null},"warnings":[],"next":null}
+exit=143
+{"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":null,"signal":15},"warnings":[],"next":null}
+heimdall-proto: cannot launch command (ENOENT)
+exit=127
+{"schema_version":"1","state":"failed","code":"CHILD_LAUNCH_FAILED","data":{"launched":false,"exit_code":null,"signal":null},"warnings":[],"next":null}
+ 00 ff 62 69 6e 61 72 79
+--- env passthrough of a non-UTF-8 value (bytes)
+ 61 ff 62
+--- K8: argv element with invalid UTF-8 (expected stack limitation)
+ 61 ef bf bd 62
+--- K6: child in its own process group (no tty)
+pid=62 pgrp=62
+--- K6: explicit kill -INT to proto, no tty: child count
+proto exit=3
+INT=1 QUIT=1
+--- K6 under a PTY (script(1)): terminal ^C once, then explicit kill -INT to proto once, fg group restored
+script exit=0
+ready
+INT
+INT
+proto exit=3
+after: shell pgrp=94 tty_fg=94
+INT=2
+--- K11: TUI under script(1) with fresh TMPDIR and hostile OTUI_ASSET_ROOT/OPENTUI_LIBC
+script exit=0
+SCRIPT_DONE tui_exit=$?" <not executed on terminal>]
+SCRIPT_DONE tui_exit=0
+rows containing lab-server: 1
+fresh TMPDIR entries: 0
+no .bun- extraction in /tmp
+--- K11: sidecar missing -> fail closed
+SCRIPT_DONE tui_exit=$?" <not executed on terminal>]
+SCRIPT_DONE tui_exit=1
+fresh TMPDIR entries: 0
+DOCKER_EXIT=0
+===== linux/amd64 (linux-x64) debian:trixie, --network none; 2026-10-03T18:21:59Z
+artifact sha256: 8feca43bacfb87f34a37eb9df4c859865e772094a0d55bcb74cd78229e22b570
+Unable to find image 'debian:trixie' locally
+trixie: Pulling from library/debian
+Digest: sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
+Status: Downloaded newer image for debian:trixie
+--- command -v bun node: none
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"ts","runtime":"bun 1.4.2 (744846f84)","tui_framework":"@opentui/core","tui_framework_version":"0.5.14"},"warnings":[],"next":null}
+exit=0
+--- run basics + K5 state
+a b|$HOME|;*|ü| exit=7
+{"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":7,"signal":null},"warnings":[],"next":null}
+exit=143
+{"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":null,"signal":15},"warnings":[],"next":null}
+heimdall-proto: cannot launch command (ENOENT)
+exit=127
+{"schema_version":"1","state":"failed","code":"CHILD_LAUNCH_FAILED","data":{"launched":false,"exit_code":null,"signal":null},"warnings":[],"next":null}
+ 00 ff 62 69 6e 61 72 79
+--- env passthrough of a non-UTF-8 value (bytes)
+ 61 ff 62
+--- K8: argv element with invalid UTF-8 (expected stack limitation)
+ 61 ef bf bd 62
+--- K6: child in its own process group (no tty)
+pid=62 pgrp=62
+--- K6: explicit kill -INT to proto, no tty: child count
+proto exit=3
+INT=1 QUIT=1
+--- K6 under a PTY (script(1)): terminal ^C once, then explicit kill -INT to proto once, fg group restored
+script exit=0
+ready
+INT
+INT
+proto exit=3
+after: shell pgrp=101 tty_fg=101
+INT=2
+--- K11: TUI under script(1) with fresh TMPDIR and hostile OTUI_ASSET_ROOT/OPENTUI_LIBC
+script exit=0
+SCRIPT_DONE tui_exit=$?" <not executed on terminal>]
+SCRIPT_DONE tui_exit=0
+rows containing lab-server: 1
+fresh TMPDIR entries: 0
+no .bun- extraction in /tmp
+--- K11: sidecar missing -> fail closed
+SCRIPT_DONE tui_exit=$?" <not executed on terminal>]
+SCRIPT_DONE tui_exit=1
+fresh TMPDIR entries: 0
+DOCKER_EXIT=0

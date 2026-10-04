@@ -1,0 +1,238 @@
+{
+ "len_ffffffff": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 26,
+  "maxrss_kib": 27248,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "len_262145": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 43,
+  "maxrss_kib": 27264,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "len_exact_max_ok": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 45,
+  "maxrss_kib": 28912,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "nkeys_ffffffff": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 39,
+  "maxrss_kib": 27376,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "nkeys_1024_ok": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 36,
+  "maxrss_kib": 32656,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "nkeys_1025": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 32,
+  "maxrss_kib": 27616,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "strlen_ffffffff": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 43,
+  "maxrss_kib": 27360,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "inner_keytype_overrun": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 32,
+  "maxrss_kib": 27424,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "blob_lt4": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 44,
+  "maxrss_kib": 27424,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "empty_keytype": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 44,
+  "maxrss_kib": 27680,
+  "request_hex": "000000010b",
+  "data": {
+   "identities": [
+    {
+     "key_type": "",
+     "fingerprint": "SHA256:3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERk",
+     "comment": "c"
+    }
+   ]
+  },
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "trailing_same_write": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 33,
+  "maxrss_kib": 26864,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "trailing_later_write": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 30,
+  "maxrss_kib": 27680,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "server_send_error": "BrokenPipeError"
+  }
+ },
+ "byte_by_byte_ok": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 76,
+  "maxrss_kib": 28656,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "success_type6": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 32,
+  "maxrss_kib": 27376,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "failure_len1": {
+  "rc": 5,
+  "code": "AGENT_REFUSED",
+  "ms": 44,
+  "maxrss_kib": 27296,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "failure_len5": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 32,
+  "maxrss_kib": 27376,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "zero_len_frame": {
+  "rc": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "ms": 44,
+  "maxrss_kib": 27376,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "slowloris_header_then_drip": {
+  "rc": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "ms": 1529,
+  "maxrss_kib": 28768,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "server_send_error": "BrokenPipeError"
+  }
+ },
+ "control_and_invalid_comment": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 44,
+  "maxrss_kib": 27792,
+  "request_hex": "000000010b",
+  "data": {
+   "identities": [
+    {
+     "key_type": "ssh-\ufffd[31med",
+     "fingerprint": "SHA256:apdN2jGbcUKZKM0isgDI8fQrlpzB8IaenceRSDtrwc4",
+     "comment": "a\ufffd]0;x\ufffd\ufffd\ufffd\u2028z"
+    }
+   ]
+  },
+  "server": {
+   "extra_after": ""
+  }
+ },
+ "respond_then_hold_open": {
+  "rc": 0,
+  "code": "AGENT_OK",
+  "ms": 44,
+  "maxrss_kib": 27696,
+  "request_hex": "000000010b",
+  "data": null,
+  "server": {
+   "extra_after": ""
+  }
+ }
+}

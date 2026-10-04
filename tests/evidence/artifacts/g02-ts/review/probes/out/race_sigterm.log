@@ -1,0 +1,3 @@
+2026-10-03T20:50:29Z
+{"signal": "SIGTERM", "counts": {"no_child_started rc=-15": 21, "delivered rc=143": 9}, "bad": []}
+exit=0

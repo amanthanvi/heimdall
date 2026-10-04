@@ -1,0 +1,158 @@
+Negative control: full suite (post-alignment tests) run against a binary built from the pre-alignment sources (/tmp/g02ts-negctl/old-run/heimdall-proto, sha256 312acb6c7847bf1a48180c1d03a68d20d13ba6f6756cf3be526f4fec277ea79e); run at ~2026-10-03T18:15Z, before the Ctrl-Z test was added; exit 1
+bun test v1.4.2 (744846f84)
+
+test/profile.test.ts:
+163 |     const t = tempDir();
+164 |     try {
+165 |       const f = join(t.spaced, "ctl ü.toml");
+166 |       writeFileSync(f, 'schema_version = 1\nname = "HEIMDALL_CANARY_\\u001b]0;x\\u0007"\nrevision = 1\n');
+167 |       const r = proto(["profile", "show", "--file", f, "--json"]);
+168 |       expect(r.code).toBe(2);
+                           ^
+error: expect(received).toBe(expected)
+
+Expected: 2
+Received: 0
+
+      at <anonymous> (<repo>/prototypes/ts/test/profile.test.ts:168:22)
+(fail) profile validation: domain unit cases > K2: via CLI: exit 2, no value in stdout/stderr; U+00A0 (not a control) still accepted [17.26ms]
+
+test/tui.test.ts:
+199 |       expect(await waitFor(() => s.screen()[9] === "1/3 /nAS", 2000)).toBe(true);
+200 |       expect(s.screen()[0]).toBe("> nas  admin@nas.example.internal:22");
+201 |       s.write("ESC");
+202 |       expect(await waitFor(() => s.screen()[9] === "3/3 filter:", 2000)).toBe(true);
+203 |       // K9: the Esc clear selects the first shown row (nas was selected before it).
+204 |       expect(await waitFor(() => s.screen()[0] === "> lab-server  aman@lab.example.internal:22", 2000)).toBe(true);
+                                                                                                              ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (<repo>/prototypes/ts/test/tui.test.ts:204:105)
+(fail) tui under PTY > filter: / + non-ASCII + Backspace + Esc clears [2157.53ms]
+[evidence] TUI 100-destination filter redraw observed after 11.9 ms
+[evidence] TUI resize 80x10→20x5 re-layout observed after 14.3 ms
+
+test/run.test.ts:
+230 |       term.write("\x03");
+231 |       expect(await waitFor(() => count("INT") === 1, 3000)).toBe(true);
+232 |       term.write("\x1c");
+233 |       expect(await waitFor(() => count("QUIT") === 1, 3000)).toBe(true);
+234 |       term.resize(100, 30);
+235 |       expect(await waitFor(() => count("WINCH") === 1, 3000)).toBe(true);
+                                                                    ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (<repo>/prototypes/ts/test/run.test.ts:235:63)
+(fail) run: signals > K6: PTY: terminal ^C/^\/resize once each AND explicit kill INT/QUIT/WINCH/TERM/HUP to proto once each; fg group restored [3119.52ms]
+253 | 
+254 |   test("K6: child runs in its own process group (no TTY)", () => {
+255 |     const r = proto(["run", "--", "/bin/sh", "-c", "/bin/ps -o pid=,pgid= -p $$"]);
+256 |     expect(r.code).toBe(0);
+257 |     const [pid, pgid] = r.stdoutText.trim().split(/\s+/);
+258 |     expect(pgid).toBe(pid);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: "22466"
+Received: "22289"
+
+      at <anonymous> (<repo>/prototypes/ts/test/run.test.ts:258:18)
+(fail) run: signals > K6: child runs in its own process group (no TTY) [40.03ms]
+
+test/agent.test.ts:
+116 |     behavior = (s) => s.write(answer([[blob, cat(new TextEncoder().encode("\x1b]0;pwn\x07 tab\t del\x7f c1\u0085"), new Uint8Array([0x80]))]]));
+117 |     const r = await list();
+118 |     expect(r.code).toBe(0);
+119 |     const doc = parseResult(r.stdoutText);
+120 |     const id = doc.data.identities[0];
+121 |     expect(id.key_type).toBe("ssh-ed25519\ufffd");
+                              ^
+error: expect(received).toBe(expected)
+
+Expected: "ssh-ed25519�"
+Received: "ssh-ed25519\u0007"
+
+      at <anonymous> (<repo>/prototypes/ts/test/agent.test.ts:121:25)
+(fail) agent list against fake endpoint > K1: decoded JSON strings contain no C0/DEL/C1 code points [22.23ms]
+[evidence] agent SIGINT→exit latency 1.2 ms
+
+test/dist.test.ts:
+30 | const listing = (dir: string) => readdirSync(dir).sort();
+31 | 
+32 | describe("K11: native library sidecar (compiled artifact)", () => {
+33 |   test("artifact and sidecar exist", () => {
+34 |     expect(existsSync(BIN)).toBe(true);
+35 |     expect(existsSync(join(BIN, "..", LIB_REL))).toBe(true);
+                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:35:50)
+(fail) K11: native library sidecar (compiled artifact) > artifact and sidecar exist [0.09ms]
+40 |     try {
+41 |       const tmp = join(t.dir, "tmp"), home = join(t.dir, "home"), cwd = join(t.dir, "cwd");
+42 |       for (const d of [tmp, home, cwd]) mkdirSync(d);
+43 |       const r = await tuiOnce(BIN, { TMPDIR: tmp + "/", HOME: home }, cwd);
+44 |       expect(r).toEqual({ code: 0, rendered: true });
+45 |       expect([listing(tmp), listing(home), listing(cwd)]).toEqual([[], [], []]);
+                                                               ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,5 @@
+  [
+-   [],
++   [
++     ".bun-501-33eea43aef98a673.dylib",
++   ],
+    [],
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:45:59)
+(fail) K11: native library sidecar (compiled artifact) > TUI writes nothing to a fresh empty TMPDIR, HOME or cwd [87.50ms]
+49 |   test("inherited OTUI_ASSET_ROOT and OPENTUI_LIBC are ignored; planted library is not loaded", async () => {
+50 |     const t = tempDir();
+51 |     try {
+52 |       const evil = join(t.dir, "evil");
+53 |       mkdirSync(join(evil, LIB_REL, ".."), { recursive: true });
+54 |       const real = readFileSync(join(BIN, "..", LIB_REL));
+                        ^
+ENOENT: no such file or directory, open '/tmp/g02ts-negctl/old-run/@opentui/core-darwin-arm64/libopentui.dylib'
+    path: "/tmp/g02ts-negctl/old-run/@opentui/core-darwin-arm64/libopentui.dylib",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:54:20)
+(fail) K11: native library sidecar (compiled artifact) > inherited OTUI_ASSET_ROOT and OPENTUI_LIBC are ignored; planted library is not loaded [0.70ms]
+82 |       copyFileSync(BIN, lone);
+83 |       Bun.spawnSync(["/bin/chmod", "755", lone]);
+84 |       const tmp = join(t.dir, "tmp");
+85 |       mkdirSync(tmp);
+86 |       const r = await tuiOnce(lone, { TMPDIR: tmp, HOME: tmp }, t.dir);
+87 |       expect(r.code).toBe(1);
+                          ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (<repo>/prototypes/ts/test/dist.test.ts:87:22)
+(fail) K11: native library sidecar (compiled artifact) > missing sidecar: TUI fails closed (exit 1), extracts nothing, no fallback [142.84ms]
+
+test/units.test.ts:
+[evidence] listview filter+layout per keystroke over 100 destinations: 0.031 ms
+
+ 143 pass
+ 9 fail
+ 545 expect() calls
+Ran 152 tests across 7 files. [9.84s]

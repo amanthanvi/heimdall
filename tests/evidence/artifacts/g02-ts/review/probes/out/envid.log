@@ -1,0 +1,17 @@
+2026-10-03T20:51:08Z
+== BUN_OPTIONS=--preload
+PRELOAD_RAN
+rc=0 preload_ran=yes
+== NODE_OPTIONS=--require
+rc=0 preload_ran=no
+== BUN_BE_BUN -e
+ARBITRARY_CODE 42
+rc=0
+== BUN_BE_BUN <file>
+rc=0 file_ran=yes
+== bunfig.toml preload in cwd
+rc=0 preload_ran=no
+== .env BUN_BE_BUN in cwd
+rc=2 (2=usage => .env ignored)
+== HEIMDALL_PROTO_FAULT present in artifact strings: 1
+exit=0

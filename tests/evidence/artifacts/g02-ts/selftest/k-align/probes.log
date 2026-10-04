@@ -1,0 +1,25 @@
+started 2026-10-03T18:22:35Z
+artifact sha256: cbc197f6cb006919b9d0bfb5e9c77b01250ccd1d75188b3b8f8795d11df0bc9d
+## K8: argv element 61 ff 62 (invalid UTF-8) as received by the child
+           61  ef  bf  bd  62                                            
+
+## env value 61 ff 62 as received by the child (posix_spawn passes the C environ)
+           61  ff  62                                                    
+
+## BUN_BE_BUN=1 still turns the artifact into a general Bun runtime
+BUN_BE_BUN: evaluated arbitrary code
+exit=0
+## .env autoload stays disabled
+artifact sees: []
+## Non-TUI commands and TUI write nothing to a fresh TMPDIR
+profile exit=0
+version exit=0
+run exit=0
+tui exit=0 rendered=true
+TMPDIR entries after all commands: 0
+## K6: proto is the PTY foreground group; explicit kill -INT <proto pid>; INT count seen by the child
+new artifact:
+proto exit=0 child INT count=1 (want 1)
+pre-alignment artifact (negative control) sha256 312acb6c7847bf1a48180c1d03a68d20d13ba6f6756cf3be526f4fec277ea79e:
+proto exit=0 child INT count=0 (want 1)
+SCRIPT_EXIT=0

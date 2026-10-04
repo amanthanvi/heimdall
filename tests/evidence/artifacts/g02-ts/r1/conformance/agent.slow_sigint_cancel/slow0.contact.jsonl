@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-03T19:58:42.511Z", "mono_ms": 0.286, "event": "listen", "socket": "/tmp/hmg02-k0ikrnxs/031-agent-slow/slow0.sock", "mode": "slow", "keys": 3}
+{"seq": 2, "ts": "2026-10-03T19:58:42.536Z", "mono_ms": 25.431, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-03T19:58:42.537Z", "mono_ms": 25.756, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "slow", "sent_bytes": 0}
+{"seq": 4, "ts": "2026-10-03T19:58:42.593Z", "mono_ms": 81.793, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 0, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-03T19:58:42.638Z", "mono_ms": 127.597, "event": "shutdown"}
