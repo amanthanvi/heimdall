@@ -1,0 +1,12 @@
+[?2004hHMPS1$ "$Y" /tmp/hmg02-oh4l9tdr/017-k6d-pipeline-last-sigint/w.py /tmp/hmg02-oh4l9tdr/017-k6d-pipeline-last-sigint | "$P" run -- "$Y" /tmp/hmg02-oh4l9tdr/017-k6d-pipeline-last-sigint/c.py /tmp/hmg02-oh4l9tdr/017-k6d-pipeline-last-sigint; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 0 7
+[?2004hHMPS1$ "$Y" /tmp/hmg02-oh4l9tdr/018-k6d-pipeline-last-sigterm/w.py /tmp/hmg02-oh4l9tdr/018-k6d-pipeline-last-sigterm | "$P" run -- "$Y" /tmp/hmg02-oh4l9tdr/018-k6d-pipeline-last-sigterm/c.py /tmp/hmg02-oh4l9tdr/018-k6d-pipeline-last-sigterm; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 0 7
+[?2004hHMPS1$ "$Y" /tmp/hmg02-oh4l9tdr/019-k6d-pipeline-last-sighup/w.py /tmp/hmg02-oh4l9tdr/019-k6d-pipeline-last-sighup | "$P" run -- "$Y" /tmp/hmg02-oh4l9tdr/019-k6d-pipeline-last-sighup/c.py /tmp/hmg02-oh4l9tdr/019-k6d-pipeline-last-sighup; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 0 7
+[?2004hHMPS1$ "$Y" /tmp/hmg02-oh4l9tdr/020-k6d-pipeline-last-sigquit/w.py /tmp/hmg02-oh4l9tdr/020-k6d-pipeline-last-sigquit | "$P" run -- "$Y" /tmp/hmg02-oh4l9tdr/020-k6d-pipeline-last-sigquit/c.py /tmp/hmg02-oh4l9tdr/020-k6d-pipeline-last-sigquit; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 0 7
+[?2004hHMPS1$ "$Y" /tmp/hmg02-oh4l9tdr/021-k6d-pipeline-last-sigwinch/w.py /tmp/hmg02-oh4l9tdr/021-k6d-pipeline-last-sigwinch | "$P" run -- "$Y" /tmp/hmg02-oh4l9tdr/021-k6d-pipeline-last-sigwinch/c.py /tmp/hmg02-oh4l9tdr/021-k6d-pipeline-last-sigwinch; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 0 7
+[?2004hHMPS1$ exit
+[?2004lexit

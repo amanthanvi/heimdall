@@ -1,0 +1,6 @@
+== base
+status 19/100 after 4.5 ms; rows all-matching (19) after 7.5 ms; at status moment rows_ok/first row/status=((True, 19), '> host-007-ci  deploy@h007.example.inter', '19/100  /7_                   ')
+exit=0
+== rv_rows_lag
+status 19/100 after 2.8 ms; rows all-matching (19) after 173.6 ms; at status moment rows_ok/first row/status=((False, 23), '> host-000-web  aman@h000.example.intern', '19/100  /7_                   ')
+exit=0

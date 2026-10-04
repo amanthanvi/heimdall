@@ -1,0 +1,12 @@
+[?1034hHMPS1$ "$Y" /tmp/hmg02-66qjvrmb/017-k6d-pipeline-last-sigint/w.py /tmp/hmg02-66q jvrmb/017-k6d-pipeline-last-sigint | "$P" run -- "$Y" /tmp/hmg02-66qjvrmb/017-k6 d-pipeline-last-sigint/c.py /tmp/hmg02-66qjvrmb/017-k6d-pipeline-last-sigint; ec ho "K6D_DONE ${PIPESTATUS[*]}"
+K6D_DONE 0 7
+HMPS1$ "$Y" /tmp/hmg02-66qjvrmb/018-k6d-pipeline-last-sigterm/w.py /tmp/hmg02-66 qjvrmb/018-k6d-pipeline-last-sigterm | "$P" run -- "$Y" /tmp/hmg02-66qjvrmb/018- k6d-pipeline-last-sigterm/c.py /tmp/hmg02-66qjvrmb/018-k6d-pipeline-last-sigterm ; echo "K6D_DONE ${PIPESTATUS[*]}"
+K6D_DONE 0 7
+HMPS1$ "$Y" /tmp/hmg02-66qjvrmb/019-k6d-pipeline-last-sighup/w.py /tmp/hmg02-66q jvrmb/019-k6d-pipeline-last-sighup | "$P" run -- "$Y" /tmp/hmg02-66qjvrmb/019-k6 d-pipeline-last-sighup/c.py /tmp/hmg02-66qjvrmb/019-k6d-pipeline-last-sighup; ec ho "K6D_DONE ${PIPESTATUS[*]}"
+K6D_DONE 0 7
+HMPS1$ "$Y" /tmp/hmg02-66qjvrmb/020-k6d-pipeline-last-sigquit/w.py /tmp/hmg02-66 qjvrmb/020-k6d-pipeline-last-sigquit | "$P" run -- "$Y" /tmp/hmg02-66qjvrmb/020- k6d-pipeline-last-sigquit/c.py /tmp/hmg02-66qjvrmb/020-k6d-pipeline-last-sigquit ; echo "K6D_DONE ${PIPESTATUS[*]}"
+K6D_DONE 0 7
+HMPS1$ "$Y" /tmp/hmg02-66qjvrmb/021-k6d-pipeline-last-sigwinch/w.py /tmp/hmg02-6 6qjvrmb/021-k6d-pipeline-last-sigwinch | "$P" run -- "$Y" /tmp/hmg02-66qjvrmb/02 1-k6d-pipeline-last-sigwinch/c.py /tmp/hmg02-66qjvrmb/021-k6d-pipeline-last-sigw inch; echo "K6D_DONE ${PIPESTATUS[*]}"
+K6D_DONE 0 7
+HMPS1$ exit
+exit

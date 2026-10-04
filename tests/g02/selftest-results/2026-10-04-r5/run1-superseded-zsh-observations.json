@@ -1,0 +1,1004 @@
+{
+ "what": "First full self-test of harness 2.3.0 (darwin host 07:27:05Z-09:23:35Z exit 0, SELFTEST PASS; Linux container 07:26:45Z-09:15:11Z exit 0, PASS). Superseded: it revealed that the NON-GATING K6e zsh forms flaked in the Linux container (zsh 5.9 sometimes does not redraw its prompt after `bg`; the harness waited for the prompt). Fixed in conformance.py (zsh's 'continued' notice acknowledges bg) and the self-test re-run; this file keeps the per-run zsh outcomes of the superseded run.",
+ "tested_file_sha256_prefixes_differ_only_in": "tests/g02/conformance.py (bg acknowledgement for zsh) and README.md",
+ "zsh_forms": {
+  "linux": [
+   {
+    "run": "baseline-repeat-1",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline-repeat-1",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 2 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running (non-gating observation)",
+    "observed": "{\"prompt\": false, \"beat\": [287, 305], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+   },
+   {
+    "run": "baseline",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_argv_lossy",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_argv_lossy",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_child_sigpipe_ignored",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_child_sigpipe_ignored",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_double_signal",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_double_signal",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_cwd",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 5 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running (non-gating observation)",
+    "observed": "{\"prompt\": false, \"beat\": [578, 595], \"states\": {\"child\": \"R\", \"proto\": \"S\"}}"
+   },
+   {
+    "run": "mut-run_drop_cwd",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_env",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_env",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_exit_255_to_1",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_exit_255_to_1",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_extra_stdout",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_extra_stdout",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_fg_restop",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 3 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal) (non-gating observation)",
+    "observed": "\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n\\x0d\nzsh: suspended  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n%                                                                               \\x0d \\x0d\\x0dHMPS1$ "
+   },
+   {
+    "run": "mut-run_fg_restop",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 3 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal) (non-gating observation)",
+    "observed": "\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n\\x0d\nzsh: suspended  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n%                                                                               \\x0d \\x0d\\x0dHMPS1$ "
+   },
+   {
+    "run": "mut-run_fg_restop_late",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 2 z-fg] the job is not stopped again after `fg`: no 'Stopped' notice and the child is not stopped from the `fg` until the next step (1.5 s window, observed 1.51 s) (non-gating observation)",
+    "observed": "{\"states\": {\"child\": \"T\", \"proto\": \"T\"}, \"output\": \"$D\\\" 5\\\\x0d\\nK6E-A-2\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/c.py\\\" \\\"$D\\\" 5\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \"}"
+   },
+   {
+    "run": "mut-run_fg_restop_late",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 2 z-fg] the job is not stopped again after `fg`: no 'Stopped' notice and the child is not stopped from the `fg` until the next step (1.5 s window, observed 1.51 s) (non-gating observation)",
+    "observed": "{\"states\": {\"child\": \"T\", \"proto\": \"T\"}, \"output\": \"$D\\\" 5\\\\x0d\\nK6E-A-2\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/c.py\\\" \\\"$D\\\" 5\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \"}"
+   },
+   {
+    "run": "mut-run_forward_ignored",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_forward_ignored",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_forward_then_exit",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_forward_then_exit",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_kill_child_early",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_kill_child_early",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_launch_126",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_launch_126",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running (non-gating observation)",
+    "observed": "{\"prompt\": false, \"beat\": [184, 201], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+   },
+   {
+    "run": "mut-run_meta_exit_for_signal",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_exit_for_signal",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_ok",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_ok",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_state_ok",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_state_ok",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_state_by_exit",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_state_by_exit",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_tmp_left",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_tmp_left",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_dashdash_ok",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_dashdash_ok",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_forward_term",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_forward_term",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_pipe_stdio",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_pipe_stdio",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_reset_ignored_in_child",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_reset_ignored_in_child",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_second_signal_force_quit",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_second_signal_force_quit",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shared_drop",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shared_drop",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shell",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shell",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running (non-gating observation)",
+    "observed": "{\"prompt\": false, \"beat\": [186, 203], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+   },
+   {
+    "run": "mut-run_signal_exit_wrong",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_signal_exit_wrong",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_stderr_noise",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_stderr_noise",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_stdin_devnull",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 1 z-fg] the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+    "observed": ""
+   },
+   {
+    "run": "mut-run_stdin_devnull",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-fg] the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+    "observed": ""
+   },
+   {
+    "run": "mut-run_strip_empty_arg",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_strip_empty_arg",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 4 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running (non-gating observation)",
+    "observed": "{\"prompt\": false, \"beat\": [468, 485], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+   },
+   {
+    "run": "mut-run_takes_foreground",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "mut-run_takes_foreground",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "mut-run_text_mode",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_text_mode",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_tty_no_forward",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "mut-run_tty_no_forward",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "var-run_job_control_own_group",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "var-run_job_control_own_group",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   }
+  ],
+  "darwin": [
+   {
+    "run": "baseline-repeat-1",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline-repeat-1",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline-repeat-2",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline-repeat-2",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "baseline",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_argv_lossy",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_argv_lossy",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_child_sigpipe_ignored",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_child_sigpipe_ignored",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_double_signal",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_double_signal",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_cwd",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_cwd",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_env",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_drop_env",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_exit_255_to_1",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_exit_255_to_1",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_extra_stdout",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_extra_stdout",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_fg_restop",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 3 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal) (non-gating observation)",
+    "observed": "\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n\\x0d\nzsh: suspended  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n%                                                                               \\x0d \\x0d\\x0dHMPS1$ "
+   },
+   {
+    "run": "mut-run_fg_restop",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 3 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal) (non-gating observation)",
+    "observed": "\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n\\x0d\nzsh: suspended  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n%                                                                               \\x0d \\x0d\\x0dHMPS1$ "
+   },
+   {
+    "run": "mut-run_fg_restop_late",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 2 z-fg] the job is not stopped again after `fg`: no 'Stopped' notice and the child is not stopped from the `fg` until the next step (1.5 s window, observed 1.52 s) (non-gating observation)",
+    "observed": "{\"states\": {\"child\": \"T\", \"proto\": \"T\"}, \"output\": \"$D\\\" 5\\\\x0d\\nK6E-A-2\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/c.py\\\" \\\"$D\\\" 5\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \"}"
+   },
+   {
+    "run": "mut-run_fg_restop_late",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 2 z-fg] the job is not stopped again after `fg`: no 'Stopped' notice and the child is not stopped from the `fg` until the next step (1.5 s window, observed 1.51 s) (non-gating observation)",
+    "observed": "{\"states\": {\"child\": \"T\", \"proto\": \"T\"}, \"output\": \"$D\\\" 5\\\\x0d\\nK6E-A-2\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/c.py\\\" \\\"$D\\\" 5\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \"}"
+   },
+   {
+    "run": "mut-run_forward_ignored",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_forward_ignored",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_forward_then_exit",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_forward_then_exit",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_kill_child_early",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_kill_child_early",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_launch_126",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_launch_126",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_exit_for_signal",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_exit_for_signal",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_ok",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_ok",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_state_ok",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_launch_state_ok",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_state_by_exit",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_state_by_exit",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_tmp_left",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_meta_tmp_left",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_dashdash_ok",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_dashdash_ok",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_forward_term",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_no_forward_term",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_pipe_stdio",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_pipe_stdio",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_reset_ignored_in_child",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_reset_ignored_in_child",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_second_signal_force_quit",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_second_signal_force_quit",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shared_drop",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shared_drop",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shell",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_shell",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_signal_exit_wrong",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_signal_exit_wrong",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_stderr_noise",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_stderr_noise",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_stdin_devnull",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 1 z-fg] the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+    "observed": ""
+   },
+   {
+    "run": "mut-run_stdin_devnull",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-fg] the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+    "observed": ""
+   },
+   {
+    "run": "mut-run_strip_empty_arg",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_strip_empty_arg",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_takes_foreground",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "mut-run_takes_foreground",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "mut-run_text_mode",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_text_mode",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "mut-run_tty_no_forward",
+    "form": "zsh-simple",
+    "ok": false,
+    "first_failed": "[zsh simple: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "mut-run_tty_no_forward",
+    "form": "zsh-list",
+    "ok": false,
+    "first_failed": "[zsh list: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again (non-gating observation)",
+    "observed": "^Z"
+   },
+   {
+    "run": "var-run_job_control_own_group",
+    "form": "zsh-simple",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   },
+   {
+    "run": "var-run_job_control_own_group",
+    "form": "zsh-list",
+    "ok": true,
+    "first_failed": null,
+    "observed": null
+   }
+  ]
+ }
+}

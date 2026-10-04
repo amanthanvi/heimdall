@@ -1,0 +1,3 @@
+# BuildKit per-Dockerfile ignore file: the build context (tests/g02) sends only requirements.txt.
+*
+!requirements.txt

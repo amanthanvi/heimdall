@@ -1,0 +1,66 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-2
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-2
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-3
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-3
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-4
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-4
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-5
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-5
+HMPS1$ echo "K6E_RC=$? K6E_JOBS=$(jobs -p | wc -l)"
+K6E_RC=0 K6E_JOBS=       0
+HMPS1$ exit
+exit
+exit

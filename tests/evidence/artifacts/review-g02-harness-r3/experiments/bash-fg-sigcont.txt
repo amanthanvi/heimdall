@@ -1,0 +1,11 @@
+Experiment (2026-10-04, reviewer M00-T05-harness-r3-review): does bash send SIGCONT when `fg` takes a job
+that is already running?  drive.py starts `bash --norc --noprofile -i` in a pty, runs logcont.py (logs each
+SIGCONT and whether it holds the terminal foreground) as `&`, then: fg, Ctrl-Z, bg, fg.
+Observed output (both runs exit 0):
+  darwin, GNU bash 3.2.57(1)-release:          "CONT fg=False"   (one SIGCONT: from `bg`; none from either `fg`)
+  linux-arm64 container, bash 5.2.15(1):       "CONT fg=False"   (same)
+  (a first Linux attempt printed "no SIGCONT logged" because the pty PATH lacked /usr/local/bin, so python3
+   was not found; fixed and re-run - the line above is the re-run)
+Consequence: a job-control launcher cannot rely on SIGCONT to learn that `fg` gave it the terminal after
+`bg`; it must react to the child's SIGTTIN stop.  The harness's z-bg-fg step catches the SIGCONT-only
+design (mut-rv_jc fails, mut-rv_jc2 passes).

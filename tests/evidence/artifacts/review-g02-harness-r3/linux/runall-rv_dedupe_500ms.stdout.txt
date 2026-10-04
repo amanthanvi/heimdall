@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            38 ms  
+PASS  run.exit_codes                                  140 ms  
+PASS  run.meta_child_exited                            63 ms  
+PASS  run.argv_exact                                   34 ms  
+PASS  run.argv_invalid_utf8                            35 ms  
+PASS  run.meta_state                                  118 ms  
+PASS  run.path_lookup                                  33 ms  
+PASS  run.launch_failure_missing_absolute              25 ms  
+PASS  run.launch_failure_missing_path                  25 ms  
+PASS  run.launch_failure_not_executable                25 ms  
+PASS  run.child_killed_by_signal                       31 ms  
+PASS  run.forward_sigterm                             564 ms  
+PASS  run.forward_sigint                              560 ms  
+PASS  run.forward_sighup                              565 ms  
+PASS  run.forward_sigquit                             567 ms  
+PASS  run.forward_sigwinch                            609 ms  
+FAIL  run.repeated_signals                           3445 ms  [sigint+sigint] child received both signals, once each, in order; [sigterm+sigterm] child received both signal
+PASS  run.sigint_process_group                        853 ms  
+FAIL  run.explicit_signal_with_tty                   7465 ms  [SIGINT twice] the child received both explicitly sent signals, once each
+PASS  run.stdio_inherited                             252 ms  
+PASS  run.proto_silent_stdout                          62 ms  
+PASS  run.cwd_env_inherited                            34 ms  
+PASS  run.no_surviving_child                           35 ms  
+PASS  run.usage_errors                                101 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2038 ms  
+PASS  run.k6a_background_script_tty                  2462 ms  
+PASS  run.k6a_inherited_ignore                       2722 ms  
+PASS  run.k6d_shared_mode_explicit_signals          10289 ms  
+PASS  run.k6e_job_control                           25717 ms  
+
+summary: {'total': 29, 'pass': 27, 'fail': 2, 'error': 0, 'skipped': 0}  status=in_progress verdict=fail  record=/out/runall-rv_dedupe_500ms.json

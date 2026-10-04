@@ -1,0 +1,3983 @@
+{
+  "case_id": "REVIEW-r3-flake-orig-1-linux",
+  "status": "in_progress",
+  "requirement_ids": [],
+  "build_commit": "418f1fa15a0510e3ecf77577673a3fb9ebbafd8c+dirty",
+  "artifact_digest": "sha256:5ed54c05aa9ef01e090b3353b7cdf039de7059e082519d410a890217d55be4eb",
+  "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.2.0",
+    "binary": "$HOME/GitRepos/heimdall/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "loadavg_end": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "container": {
+      "runner": "tests/g02/linux/run.sh",
+      "image_ref": "heimdall-g02-harness:ac0f6cf382a4",
+      "image_id": "sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3",
+      "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+      "image_packages": [
+        "locales=2.36-9+deb12u14",
+        "openssh-client=1:9.2p1-2+deb12u10"
+      ],
+      "docker_server": "29.8.1 linux/arm64",
+      "network": "none",
+      "user": "10001:10001",
+      "capabilities": "all dropped, no-new-privileges",
+      "memory_limit": "2g",
+      "mounts": {
+        "repository": "/repo (read-only)",
+        "artifact_dir": null,
+        "output": "/out (read-write)"
+      }
+    },
+    "artifact_dir": null,
+    "subject": "reference_impl.py"
+  },
+  "provider_versions": [
+    {
+      "name": "openssh (ssh-keygen used for fingerprints; version from /usr/bin/ssh -V)",
+      "path": "/usr/bin/ssh-keygen",
+      "version": "OpenSSH_9.2p1 Debian-2+deb12u10, OpenSSL 3.0.22 25 Aug 2026"
+    },
+    {
+      "name": "python",
+      "version": "3.13.16"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2"
+    },
+    {
+      "name": "wcwidth",
+      "version": "0.9.1"
+    }
+  ],
+  "started_at": "2026-10-04T05:11:30+00:00",
+  "commands_or_harness": [
+    "/usr/local/bin/python3 tests/g02/conformance.py --bin /repo/tests/g02/reference_impl.py --candidate go --out /out/flake-orig-1.json --artifacts-dir /arts --case-id REVIEW-r3-flake-orig-1-linux --build-commit 418f1fa15a0510e3ecf77577673a3fb9ebbafd8c+dirty --environment-extra {\"container\": {\"runner\": \"tests/g02/linux/run.sh\", \"image_ref\": \"heimdall-g02-harness:ac0f6cf382a4\", \"image_id\": \"sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3\", \"base_image\": \"python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed\", \"image_packages\": [\"locales=2.36-9+deb12u14\", \"openssh-client=1:9.2p1-2+deb12u10\"], \"docker_server\": \"29.8.1 linux/arm64\", \"network\": \"none\", \"user\": \"10001:10001\", \"capabilities\": \"all dropped, no-new-privileges\", \"memory_limit\": \"2g\", \"mounts\": {\"repository\": \"/repo (read-only)\", \"artifact_dir\": null, \"output\": \"/out (read-write)\"}}, \"artifact_dir\": null, \"subject\": \"reference_impl.py\"} --path-map /out=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/linux --path-map /arts=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/linux/flake-orig-1-artifacts --path-map /repo=$HOME/GitRepos/heimdall --only run.k6d_shared_mode_explicit_signals,run.k6e_job_control,tui.large_100_filter_latency,run.k6a_inherited_ignore --selftest --pass-env REF_MUTATE,REF_CANDIDATE",
+    "harness_lib.py / minischema.py / tests/fixtures/fake-agent/fake_agent.py (sha256 ec52fd7482c991dadf041738a942c55b45d4d4c2b1d9564a275dbcfb6a1c515c)"
+  ],
+  "observed_result": {
+    "verdict": "inconclusive",
+    "criterion": "every check of the full catalogue passes against docs/g02/slice-contract.md incl. section 9",
+    "summary": {
+      "pass": 4,
+      "fail": 0,
+      "error": 0,
+      "skipped": 0,
+      "total": 4,
+      "duration_s": 40.5
+    },
+    "checks": [
+      {
+        "id": "run.k6a_inherited_ignore",
+        "group": "run",
+        "clause": "§4/K6a",
+        "title": "a signal heimdall-proto inherited as ignored stays SIG_IGN in the child and is not forwarded; heimdall-proto survives it. Gated (K6c): SIGHUP (nohup) and SIGINT (non-interactive & job, started with SIGINT+SIGQUIT ignored). Recorded, not gated: SIGQUIT, SIGTERM, SIGWINCH ignores and the blocked mask (CPython child) and the SIGPIPE ignore (non-Python `yes`/`cat` child)",
+        "outcome": "pass",
+        "hard_bound_s": 120,
+        "duration_ms": 2753.0,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "[ignored-nohup] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in ignored-nohup.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in ignored-nohup.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[ignored-nohup] completed within 30s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[ignored-nohup] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[nohup] heimdall-proto exited 0 (child's status: neither it nor the child died of the signal)",
+            "ok": true,
+            "gating": true,
+            "expected": "0",
+            "observed": "0"
+          },
+          {
+            "desc": "[nohup] heimdall-proto still alive after the signal(s) of phase 1",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[nohup] child's inherited disposition (signal.getsignal at start) is SIG_IGN for ['SIGHUP']",
+            "ok": true,
+            "gating": true,
+            "expected": "{\"SIGHUP\": \"SIG_IGN\"}",
+            "observed": "{\"SIGHUP\": \"SIG_IGN\"}"
+          },
+          {
+            "desc": "[nohup] child's /proc/self/status SigIgn mask has ['SIGHUP'] set",
+            "ok": true,
+            "gating": true,
+            "expected": "{\"SIGHUP\": true}",
+            "observed": "{\"SIGHUP\": true}"
+          },
+          {
+            "desc": "[nohup] child survived the signal(s) sent to heimdall-proto while it had no handler",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"survived_phase1\": true}"
+          },
+          {
+            "desc": "[nohup] signal(s) sent to heimdall-proto while the child had handlers were not forwarded",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[nohup] heimdall-proto wrote nothing to stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b''\"",
+            "observed": "\"b''\""
+          },
+          {
+            "desc": "[ignored-async-job] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in ignored-async-job.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in ignored-async-job.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[ignored-async-job] completed within 30s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[ignored-async-job] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[async-job] heimdall-proto exited 0 (child's status: neither it nor the child died of the signal)",
+            "ok": true,
+            "gating": true,
+            "expected": "0",
+            "observed": "0"
+          },
+          {
+            "desc": "[async-job] heimdall-proto still alive after the signal(s) of phase 1",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[async-job] child's inherited disposition (signal.getsignal at start) is SIG_IGN for ['SIGINT']",
+            "ok": true,
+            "gating": true,
+            "expected": "{\"SIGINT\": \"SIG_IGN\"}",
+            "observed": "{\"SIGINT\": \"SIG_IGN\"}"
+          },
+          {
+            "desc": "[async-job] child's /proc/self/status SigIgn mask has ['SIGINT'] set",
+            "ok": true,
+            "gating": true,
+            "expected": "{\"SIGINT\": true}",
+            "observed": "{\"SIGINT\": true}"
+          },
+          {
+            "desc": "[async-job] child survived the signal(s) sent to heimdall-proto while it had no handler",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"survived_phase1\": true}"
+          },
+          {
+            "desc": "[async-job] signal(s) sent to heimdall-proto while the child had handlers were not forwarded",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[async-job] heimdall-proto wrote nothing to stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b''\"",
+            "observed": "\"b''\""
+          },
+          {
+            "desc": "[async-job] K6c observation (non-gating): child's disposition of the other inherited ignores ['SIGQUIT'] and whether the inherited blocked signals [] stay blocked",
+            "ok": true,
+            "gating": false,
+            "expected": "{\"dispositions\": {\"SIGQUIT\": \"SIG_IGN\"}, \"still_blocked\": []}",
+            "observed": "{\"dispositions\": {\"SIGQUIT\": \"SIG_IGN\"}, \"still_blocked\": [], \"proto_exit\": 0}"
+          },
+          {
+            "desc": "[ignored-other-ignores-K6c] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in ignored-other-ignores-K6c.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in ignored-other-ignores-K6c.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[ignored-other-ignores-K6c] completed within 30s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[ignored-other-ignores-K6c] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[other-ignores-K6c] K6c observation (non-gating): child's disposition of the other inherited ignores ['SIGQUIT', 'SIGTERM', 'SIGWINCH'] and whether the inherited blocked signals ['SIGUSR2'] stay blocked",
+            "ok": true,
+            "gating": false,
+            "expected": "{\"dispositions\": {\"SIGQUIT\": \"SIG_IGN\", \"SIGTERM\": \"SIG_IGN\", \"SIGWINCH\": \"SIG_IGN\"}, \"still_blocked\": [\"SIGUSR2\"]}",
+            "observed": "{\"dispositions\": {\"SIGQUIT\": \"SIG_IGN\", \"SIGTERM\": \"SIG_IGN\", \"SIGWINCH\": \"SIG_IGN\"}, \"still_blocked\": [\"SIGUSR2\"], \"proto_exit\": 0}"
+          },
+          {
+            "desc": "harness precondition: a `yes` executable is on PATH",
+            "ok": true,
+            "gating": true,
+            "expected": "found",
+            "observed": "/usr/bin/yes"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in direct-yes-default.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in direct-yes-default.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in direct-yes-ignore.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in direct-yes-ignore.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "harness precondition: run directly, `yes` dies of SIGPIPE with the default disposition (-13) and exits 1 (EPIPE) with SIGPIPE ignored",
+            "ok": true,
+            "gating": true,
+            "expected": "[-13, 1]",
+            "observed": "[-13, 1]"
+          },
+          {
+            "desc": "[via-proto-yes-default] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in via-proto-yes-default.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in via-proto-yes-default.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[via-proto-yes-default] completed within 20s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[via-proto-yes-default] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[via-proto-yes-ignore] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in via-proto-yes-ignore.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in via-proto-yes-ignore.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[via-proto-yes-ignore] completed within 20s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[via-proto-yes-ignore] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "K6c observation (non-gating): with SIGPIPE inherited as ignored, the `yes` child gets EPIPE and exits 1 (ignore kept) instead of dying of SIGPIPE (reset to default)",
+            "ok": true,
+            "gating": false,
+            "expected": "{\"child_exit_code\": 1, \"child_signal\": null}",
+            "observed": "{\"proto_rc\": 141, \"child_exit_code\": null, \"child_signal\": 13}"
+          },
+          {
+            "desc": "[via-proto-cat-status-ignore] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in via-proto-cat-status-ignore.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in via-proto-cat-status-ignore.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[via-proto-cat-status-ignore] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[via-proto-cat-status-ignore] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "K6c observation (non-gating): /proc/self/status SigIgn of a non-Python run child has SIGPIPE set when heimdall-proto inherited it as ignored",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "false"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [
+          {
+            "label": "ignored-nohup",
+            "argv": [
+              "/repo/tests/g02/reference_impl.py",
+              "run",
+              "--",
+              "/usr/local/bin/python3",
+              "/tmp/hmg02-44utvwlj/001-k6a-ign-nohup/c.py",
+              "/tmp/hmg02-44utvwlj/001-k6a-ign-nohup",
+              "SIGHUP",
+              "SIGHUP"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 1232.8,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "ignored-async-job",
+            "argv": [
+              "/repo/tests/g02/reference_impl.py",
+              "run",
+              "--",
+              "/usr/local/bin/python3",
+              "/tmp/hmg02-44utvwlj/002-k6a-ign-async-job/c.py",
+              "/tmp/hmg02-44utvwlj/002-k6a-ign-async-job",
+              "SIGINT,SIGQUIT",
+              "SIGINT"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 1252.2,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "ignored-other-ignores-K6c",
+            "argv": [
+              "/repo/tests/g02/reference_impl.py",
+              "run",
+              "--",
+              "/usr/local/bin/python3",
+              "/tmp/hmg02-44utvwlj/003-k6a-ign-other-ignores-K6c/c.py",
+              "/tmp/hmg02-44utvwlj/003-k6a-ign-other-ignores-K6c",
+              "SIGQUIT,SIGTERM,SIGWINCH",
+              ""
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 123.2,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "direct-yes-default",
+            "argv": [
+              "/usr/local/bin/python3",
+              "-c",
+              "\nimport json, os, signal, subprocess, sys\nreport, mode, argv = sys.argv[1], sys.argv[2], sys.argv[3:]\nr, w = os.pipe()\ndef pre():\n    signal.signal(signal.SIGPIPE, signal.SIG_IGN if mode == \"ignore\" else signal.SIG_DFL)\np = subprocess.Popen(argv, stdout=w, preexec_fn=pre)\nos.close(w)\ngot = os.read(r, 4096)\nos.close(r)\ntry:\n    rc = p.wait(timeout=10)\nexcept subprocess.TimeoutExpired:\n    p.kill()\n    rc = \"timeout\"\n    p.wait()\nwith open(report, \"w\") as f:\n    f.write(json.dumps({\"rc\": rc, \"read_bytes\": len(got)}))\n",
+              "/tmp/hmg02-44utvwlj/004-k6c-sigpipe/direct-default.json",
+              "default",
+              "/usr/bin/yes"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 22.3,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "direct-yes-ignore",
+            "argv": [
+              "/usr/local/bin/python3",
+              "-c",
+              "\nimport json, os, signal, subprocess, sys\nreport, mode, argv = sys.argv[1], sys.argv[2], sys.argv[3:]\nr, w = os.pipe()\ndef pre():\n    signal.signal(signal.SIGPIPE, signal.SIG_IGN if mode == \"ignore\" else signal.SIG_DFL)\np = subprocess.Popen(argv, stdout=w, preexec_fn=pre)\nos.close(w)\ngot = os.read(r, 4096)\nos.close(r)\ntry:\n    rc = p.wait(timeout=10)\nexcept subprocess.TimeoutExpired:\n    p.kill()\n    rc = \"timeout\"\n    p.wait()\nwith open(report, \"w\") as f:\n    f.write(json.dumps({\"rc\": rc, \"read_bytes\": len(got)}))\n",
+              "/tmp/hmg02-44utvwlj/004-k6c-sigpipe/direct-ignore.json",
+              "ignore",
+              "/usr/bin/yes"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 16.2,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 43,
+            "stderr_sha256": "28bc5bfc21bdf3933dad076761c567bfc811d702d4a05f54fc192b2dff6d84d8",
+            "stderr_excerpt": "/usr/bin/yes: standard output: Broken pipe\n"
+          },
+          {
+            "label": "via-proto-yes-default",
+            "argv": [
+              "/usr/local/bin/python3",
+              "-c",
+              "\nimport json, os, signal, subprocess, sys\nreport, mode, argv = sys.argv[1], sys.argv[2], sys.argv[3:]\nr, w = os.pipe()\ndef pre():\n    signal.signal(signal.SIGPIPE, signal.SIG_IGN if mode == \"ignore\" else signal.SIG_DFL)\np = subprocess.Popen(argv, stdout=w, preexec_fn=pre)\nos.close(w)\ngot = os.read(r, 4096)\nos.close(r)\ntry:\n    rc = p.wait(timeout=10)\nexcept subprocess.TimeoutExpired:\n    p.kill()\n    rc = \"timeout\"\n    p.wait()\nwith open(report, \"w\") as f:\n    f.write(json.dumps({\"rc\": rc, \"read_bytes\": len(got)}))\n",
+              "/tmp/hmg02-44utvwlj/004-k6c-sigpipe/via-default.json",
+              "default",
+              "/repo/tests/g02/reference_impl.py",
+              "run",
+              "--meta-file",
+              "/tmp/hmg02-44utvwlj/004-k6c-sigpipe/meta-default.json",
+              "--",
+              "/usr/bin/yes"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 35.3,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "via-proto-yes-ignore",
+            "argv": [
+              "/usr/local/bin/python3",
+              "-c",
+              "\nimport json, os, signal, subprocess, sys\nreport, mode, argv = sys.argv[1], sys.argv[2], sys.argv[3:]\nr, w = os.pipe()\ndef pre():\n    signal.signal(signal.SIGPIPE, signal.SIG_IGN if mode == \"ignore\" else signal.SIG_DFL)\np = subprocess.Popen(argv, stdout=w, preexec_fn=pre)\nos.close(w)\ngot = os.read(r, 4096)\nos.close(r)\ntry:\n    rc = p.wait(timeout=10)\nexcept subprocess.TimeoutExpired:\n    p.kill()\n    rc = \"timeout\"\n    p.wait()\nwith open(report, \"w\") as f:\n    f.write(json.dumps({\"rc\": rc, \"read_bytes\": len(got)}))\n",
+              "/tmp/hmg02-44utvwlj/004-k6c-sigpipe/via-ignore.json",
+              "ignore",
+              "/repo/tests/g02/reference_impl.py",
+              "run",
+              "--meta-file",
+              "/tmp/hmg02-44utvwlj/004-k6c-sigpipe/meta-ignore.json",
+              "--",
+              "/usr/bin/yes"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 33.0,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "via-proto-cat-status-ignore",
+            "argv": [
+              "/repo/tests/g02/reference_impl.py",
+              "run",
+              "--",
+              "/bin/cat",
+              "/proc/self/status"
+            ],
+            "exit_code": 0,
+            "elapsed_ms": 26.4,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 1132,
+            "stdout_sha256": "e436a0a2328063ec458f2c3a24246072b5949a687da13259c4139f8ef13dcb61",
+            "stdout_excerpt": "Name:\tcat\nUmask:\t0022\nState:\tR (running)\nTgid:\t24\nNgid:\t0\nPid:\t24\nPPid:\t23\nTracerPid:\t0\nUid:\t10001\t10001\t10001\t10001\nGid:\t10001\t10001\t10001\t10001\nFDSize:\t64\nGroups:\t10001 \nNStgid:\t24\nNSpid:\t24\nNSpgid:\t23\nNSsid:\t23\nKthread:\t0\nVmPeak:\t    5360 kB\nVmSize:\t    5360 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t    1384 kB\nVmRSS:\t    1384 kB\nRssAnon:\t     100 kB\nRssFile:\t    1284 kB\nRssShmem:\t       0 kB\nVmData:\t     356 kB\nVmStk:\t     132 kB\nVmExe:\t      36 kB\nVmLib:\t    1748 kB\nVmPTE:\t      52 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffff\nThreads:\t1\nSigQ:\t0/31480\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000180000000\nSigCgt:\t0000000000000000\nCapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\nCapBnd:\t0000000000000000\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\nSeccomp_filters:\t1\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\tunknown\nCpus_allowed:\t3ff\nCpus_allowed_list:\t0-9\nMems_allowed:\t1\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t2\nnonvoluntary_ctxt_switches:\t0\n",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          }
+        ],
+        "notes": {
+          "k6a_ignore_nohup": {
+            "report1": {
+              "pid": 8,
+              "ppid": 7,
+              "getsignal": {
+                "SIGHUP": "SIG_IGN"
+              },
+              "blocked": [],
+              "proc_sigblk": {
+                "SIGHUP": false,
+                "SIGUSR2": false
+              },
+              "proc_sigign": {
+                "SIGHUP": true,
+                "SIGUSR2": false
+              }
+            },
+            "report2": {
+              "phase2_deliveries": []
+            },
+            "flow": {
+              "proto_alive_after_phase1": true
+            }
+          },
+          "k6a_ignore_async-job": {
+            "report1": {
+              "pid": 10,
+              "ppid": 9,
+              "getsignal": {
+                "SIGINT": "SIG_IGN",
+                "SIGQUIT": "SIG_IGN"
+              },
+              "blocked": [],
+              "proc_sigblk": {
+                "SIGINT": false,
+                "SIGQUIT": false,
+                "SIGUSR2": false
+              },
+              "proc_sigign": {
+                "SIGINT": true,
+                "SIGQUIT": true,
+                "SIGUSR2": false
+              }
+            },
+            "report2": {
+              "phase2_deliveries": []
+            },
+            "flow": {
+              "proto_alive_after_phase1": true
+            }
+          },
+          "k6a_ignore_other-ignores-K6c": {
+            "report1": {
+              "pid": 12,
+              "ppid": 11,
+              "getsignal": {
+                "SIGQUIT": "SIG_IGN",
+                "SIGTERM": "SIG_IGN",
+                "SIGWINCH": "SIG_IGN"
+              },
+              "blocked": [
+                "SIGUSR2"
+              ],
+              "proc_sigblk": {
+                "SIGQUIT": false,
+                "SIGTERM": false,
+                "SIGWINCH": false,
+                "SIGUSR2": true
+              },
+              "proc_sigign": {
+                "SIGQUIT": true,
+                "SIGTERM": true,
+                "SIGWINCH": true,
+                "SIGUSR2": false
+              }
+            },
+            "report2": {
+              "phase2_deliveries": []
+            },
+            "flow": {
+              "proto_alive_after_phase1": true
+            }
+          },
+          "k6c_sigpipe": {
+            "probe": "yes writing into a pipe whose reader closes",
+            "yes": "/usr/bin/yes",
+            "direct": {
+              "default": -13,
+              "ignore": 1
+            },
+            "via_heimdall_proto": {
+              "default": {
+                "proto_rc": 141,
+                "child_exit_code": null,
+                "child_signal": 13
+              },
+              "ignore": {
+                "proto_rc": 141,
+                "child_exit_code": null,
+                "child_signal": 13
+              }
+            },
+            "inherited_sigpipe_ignore_kept": false,
+            "linux_proc_sigign_sigpipe_in_child": false
+          },
+          "check_seconds": 2.753
+        },
+        "artifacts": [
+          "arts/run.k6a_inherited_ignore/01-ignored-nohup.stdout.txt",
+          "arts/run.k6a_inherited_ignore/01-ignored-nohup.stderr.txt",
+          "arts/run.k6a_inherited_ignore/02-ignored-async-job.stdout.txt",
+          "arts/run.k6a_inherited_ignore/02-ignored-async-job.stderr.txt",
+          "arts/run.k6a_inherited_ignore/03-ignored-other-ignores-K6c.stdout.txt",
+          "arts/run.k6a_inherited_ignore/03-ignored-other-ignores-K6c.stderr.txt",
+          "arts/run.k6a_inherited_ignore/04-direct-yes-default.stdout.txt",
+          "arts/run.k6a_inherited_ignore/04-direct-yes-default.stderr.txt",
+          "arts/run.k6a_inherited_ignore/05-direct-yes-ignore.stdout.txt",
+          "arts/run.k6a_inherited_ignore/05-direct-yes-ignore.stderr.txt",
+          "arts/run.k6a_inherited_ignore/06-via-proto-yes-default.stdout.txt",
+          "arts/run.k6a_inherited_ignore/06-via-proto-yes-default.stderr.txt",
+          "arts/run.k6a_inherited_ignore/07-via-proto-yes-ignore.stdout.txt",
+          "arts/run.k6a_inherited_ignore/07-via-proto-yes-ignore.stderr.txt",
+          "arts/run.k6a_inherited_ignore/08-via-proto-cat-status-ignore.stdout.txt",
+          "arts/run.k6a_inherited_ignore/08-via-proto-cat-status-ignore.stderr.txt"
+        ]
+      },
+      {
+        "id": "run.k6d_shared_mode_explicit_signals",
+        "group": "run",
+        "clause": "§4/K6d",
+        "title": "heimdall-proto sharing its process group with the terminal's foreground job (child of a foreground non-job-control `sh -c` script; first and last member of a `bash -i` pipeline job): SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH sent explicitly to the heimdall-proto pid each reach the child at least once (count recorded; duplicates allowed, K6b; silent loss fails); exit statuses are the child's",
+        "outcome": "pass",
+        "hard_bound_s": 240,
+        "duration_ms": 10580.2,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "[sh-c/SIGINT] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 27}"
+          },
+          {
+            "desc": "[sh-c/SIGINT] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGINT",
+            "observed": "[\"SIGINT\"]"
+          },
+          {
+            "desc": "[sh-c/SIGINT] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"RC=7\", 0]",
+            "observed": "[\"RC=7\", 0]"
+          },
+          {
+            "desc": "[sh-c/SIGINT] setup (non-gating observation): heimdall-proto is in the script's process group, which holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[sh-c/SIGINT] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[sh-c/SIGTERM] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 31}"
+          },
+          {
+            "desc": "[sh-c/SIGTERM] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGTERM",
+            "observed": "[\"SIGTERM\"]"
+          },
+          {
+            "desc": "[sh-c/SIGTERM] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"RC=7\", 0]",
+            "observed": "[\"RC=7\", 0]"
+          },
+          {
+            "desc": "[sh-c/SIGTERM] setup (non-gating observation): heimdall-proto is in the script's process group, which holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[sh-c/SIGTERM] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[sh-c/SIGHUP] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 35}"
+          },
+          {
+            "desc": "[sh-c/SIGHUP] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGHUP",
+            "observed": "[\"SIGHUP\"]"
+          },
+          {
+            "desc": "[sh-c/SIGHUP] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"RC=7\", 0]",
+            "observed": "[\"RC=7\", 0]"
+          },
+          {
+            "desc": "[sh-c/SIGHUP] setup (non-gating observation): heimdall-proto is in the script's process group, which holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[sh-c/SIGHUP] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[sh-c/SIGQUIT] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 39}"
+          },
+          {
+            "desc": "[sh-c/SIGQUIT] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGQUIT",
+            "observed": "[\"SIGQUIT\"]"
+          },
+          {
+            "desc": "[sh-c/SIGQUIT] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"RC=7\", 0]",
+            "observed": "[\"RC=7\", 0]"
+          },
+          {
+            "desc": "[sh-c/SIGQUIT] setup (non-gating observation): heimdall-proto is in the script's process group, which holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[sh-c/SIGQUIT] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[sh-c/SIGWINCH] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 43}"
+          },
+          {
+            "desc": "[sh-c/SIGWINCH] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGWINCH",
+            "observed": "[\"SIGWINCH\"]"
+          },
+          {
+            "desc": "[sh-c/SIGWINCH] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"RC=7\", 0]",
+            "observed": "[\"RC=7\", 0]"
+          },
+          {
+            "desc": "[sh-c/SIGWINCH] setup (non-gating observation): heimdall-proto is in the script's process group, which holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[sh-c/SIGWINCH] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "harness precondition: /bin/bash is executable",
+            "ok": true,
+            "gating": true,
+            "expected": "executable",
+            "observed": "/bin/bash"
+          },
+          {
+            "desc": "[pipeline-first] interactive bash printed its prompt",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[pipeline-first] harness precondition: bash enabled job control",
+            "ok": true,
+            "gating": true,
+            "expected": "job control on",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[pipeline-first/SIGINT] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 47}"
+          },
+          {
+            "desc": "[pipeline-first/SIGINT] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGINT",
+            "observed": "[\"SIGINT\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGINT] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'7'\", \"b'0'\"]",
+            "observed": "[\"b'7'\", \"b'0'\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGINT] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-first/SIGTERM] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 50}"
+          },
+          {
+            "desc": "[pipeline-first/SIGTERM] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGTERM",
+            "observed": "[\"SIGTERM\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGTERM] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'7'\", \"b'0'\"]",
+            "observed": "[\"b'7'\", \"b'0'\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGTERM] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-first/SIGHUP] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 53}"
+          },
+          {
+            "desc": "[pipeline-first/SIGHUP] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGHUP",
+            "observed": "[\"SIGHUP\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGHUP] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'7'\", \"b'0'\"]",
+            "observed": "[\"b'7'\", \"b'0'\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGHUP] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-first/SIGQUIT] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 56}"
+          },
+          {
+            "desc": "[pipeline-first/SIGQUIT] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGQUIT",
+            "observed": "[\"SIGQUIT\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGQUIT] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'7'\", \"b'0'\"]",
+            "observed": "[\"b'7'\", \"b'0'\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGQUIT] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-first/SIGWINCH] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 59}"
+          },
+          {
+            "desc": "[pipeline-first/SIGWINCH] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGWINCH",
+            "observed": "[\"SIGWINCH\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGWINCH] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'7'\", \"b'0'\"]",
+            "observed": "[\"b'7'\", \"b'0'\"]"
+          },
+          {
+            "desc": "[pipeline-first/SIGWINCH] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-first] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[pipeline-last] interactive bash printed its prompt",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[pipeline-last] harness precondition: bash enabled job control",
+            "ok": true,
+            "gating": true,
+            "expected": "job control on",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[pipeline-last/SIGINT] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 65}"
+          },
+          {
+            "desc": "[pipeline-last/SIGINT] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGINT",
+            "observed": "[\"SIGINT\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGINT] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'0'\", \"b'7'\"]",
+            "observed": "[\"b'0'\", \"b'7'\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGINT] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-last/SIGTERM] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 68}"
+          },
+          {
+            "desc": "[pipeline-last/SIGTERM] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGTERM",
+            "observed": "[\"SIGTERM\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGTERM] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'0'\", \"b'7'\"]",
+            "observed": "[\"b'0'\", \"b'7'\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGTERM] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-last/SIGHUP] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 71}"
+          },
+          {
+            "desc": "[pipeline-last/SIGHUP] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGHUP",
+            "observed": "[\"SIGHUP\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGHUP] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'0'\", \"b'7'\"]",
+            "observed": "[\"b'0'\", \"b'7'\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGHUP] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-last/SIGQUIT] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 74}"
+          },
+          {
+            "desc": "[pipeline-last/SIGQUIT] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGQUIT",
+            "observed": "[\"SIGQUIT\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGQUIT] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'0'\", \"b'7'\"]",
+            "observed": "[\"b'0'\", \"b'7'\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGQUIT] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-last/SIGWINCH] harness precondition: the child's parent (heimdall-proto) is alive in the terminal session the harness created",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"ppid\": 77}"
+          },
+          {
+            "desc": "[pipeline-last/SIGWINCH] the child received the signal sent explicitly to heimdall-proto at least once, and no other signal",
+            "ok": true,
+            "gating": true,
+            "expected": ">= 1 x SIGWINCH",
+            "observed": "[\"SIGWINCH\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGWINCH] pipeline exit statuses (the heimdall-proto member exits with the child's 7)",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'0'\", \"b'7'\"]",
+            "observed": "[\"b'0'\", \"b'7'\"]"
+          },
+          {
+            "desc": "[pipeline-last/SIGWINCH] setup (non-gating observation): heimdall-proto is a pipeline member whose process group holds the terminal foreground",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[pipeline-last] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "K6d delivery counts per layout and signal (non-gating observation; duplicates are allowed by K6b)",
+            "ok": true,
+            "gating": false,
+            "expected": ">= 1 each",
+            "observed": "{\"sh-c\": {\"SIGINT\": 1, \"SIGTERM\": 1, \"SIGHUP\": 1, \"SIGQUIT\": 1, \"SIGWINCH\": 1}, \"pipeline-first\": {\"SIGINT\": 1, \"SIGTERM\": 1, \"SIGHUP\": 1, \"SIGQUIT\": 1, \"SIGWINCH\": 1}, \"pipeline-last\": {\"SIGINT\": 1, \"SIGTERM\": 1, \"SIGHUP\": 1, \"SIGQUIT\": 1, \"SIGWINCH\": 1}}"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigint.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigint.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigterm.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigterm.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sighup.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sighup.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigquit.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigquit.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigwinch.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in sh-c-sigwinch.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-pipeline-first.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-pipeline-first.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-pipeline-last.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-pipeline-last.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[sh-c-sigint] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[sh-c-sigterm] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[sh-c-sighup] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[sh-c-sigquit] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[sh-c-sigwinch] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[bash-i-pipeline-first] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[bash-i-pipeline-last] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [],
+        "notes": {
+          "k6d_setups": {
+            "sh-c/SIGINT": {
+              "pid": 28,
+              "ppid": 27,
+              "pgrp": 26,
+              "stdin_pipe": false,
+              "stdout_pipe": false,
+              "proto_pid": 27,
+              "proto_pgrp": 26,
+              "fg_pgrp": 26,
+              "job_leader_pgrp": 26,
+              "shared": true
+            },
+            "sh-c/SIGTERM": {
+              "pid": 32,
+              "ppid": 31,
+              "pgrp": 30,
+              "stdin_pipe": false,
+              "stdout_pipe": false,
+              "proto_pid": 31,
+              "proto_pgrp": 30,
+              "fg_pgrp": 30,
+              "job_leader_pgrp": 30,
+              "shared": true
+            },
+            "sh-c/SIGHUP": {
+              "pid": 36,
+              "ppid": 35,
+              "pgrp": 34,
+              "stdin_pipe": false,
+              "stdout_pipe": false,
+              "proto_pid": 35,
+              "proto_pgrp": 34,
+              "fg_pgrp": 34,
+              "job_leader_pgrp": 34,
+              "shared": true
+            },
+            "sh-c/SIGQUIT": {
+              "pid": 40,
+              "ppid": 39,
+              "pgrp": 38,
+              "stdin_pipe": false,
+              "stdout_pipe": false,
+              "proto_pid": 39,
+              "proto_pgrp": 38,
+              "fg_pgrp": 38,
+              "job_leader_pgrp": 38,
+              "shared": true
+            },
+            "sh-c/SIGWINCH": {
+              "pid": 44,
+              "ppid": 43,
+              "pgrp": 42,
+              "stdin_pipe": false,
+              "stdout_pipe": false,
+              "proto_pid": 43,
+              "proto_pgrp": 42,
+              "fg_pgrp": 42,
+              "job_leader_pgrp": 42,
+              "shared": true
+            },
+            "pipeline-first/SIGINT": {
+              "pid": 49,
+              "ppid": 47,
+              "pgrp": 47,
+              "stdin_pipe": false,
+              "stdout_pipe": true,
+              "proto_pid": 47,
+              "proto_pgrp": 47,
+              "fg_pgrp": 47,
+              "job_leader_pgrp": 46,
+              "shared": true
+            },
+            "pipeline-first/SIGTERM": {
+              "pid": 52,
+              "ppid": 50,
+              "pgrp": 50,
+              "stdin_pipe": false,
+              "stdout_pipe": true,
+              "proto_pid": 50,
+              "proto_pgrp": 50,
+              "fg_pgrp": 50,
+              "job_leader_pgrp": 46,
+              "shared": true
+            },
+            "pipeline-first/SIGHUP": {
+              "pid": 55,
+              "ppid": 53,
+              "pgrp": 53,
+              "stdin_pipe": false,
+              "stdout_pipe": true,
+              "proto_pid": 53,
+              "proto_pgrp": 53,
+              "fg_pgrp": 53,
+              "job_leader_pgrp": 46,
+              "shared": true
+            },
+            "pipeline-first/SIGQUIT": {
+              "pid": 58,
+              "ppid": 56,
+              "pgrp": 56,
+              "stdin_pipe": false,
+              "stdout_pipe": true,
+              "proto_pid": 56,
+              "proto_pgrp": 56,
+              "fg_pgrp": 56,
+              "job_leader_pgrp": 46,
+              "shared": true
+            },
+            "pipeline-first/SIGWINCH": {
+              "pid": 61,
+              "ppid": 59,
+              "pgrp": 59,
+              "stdin_pipe": false,
+              "stdout_pipe": true,
+              "proto_pid": 59,
+              "proto_pgrp": 59,
+              "fg_pgrp": 59,
+              "job_leader_pgrp": 46,
+              "shared": true
+            },
+            "pipeline-last/SIGINT": {
+              "pid": 66,
+              "ppid": 65,
+              "pgrp": 64,
+              "stdin_pipe": true,
+              "stdout_pipe": false,
+              "proto_pid": 65,
+              "proto_pgrp": 64,
+              "fg_pgrp": 64,
+              "job_leader_pgrp": 63,
+              "shared": true
+            },
+            "pipeline-last/SIGTERM": {
+              "pid": 69,
+              "ppid": 68,
+              "pgrp": 67,
+              "stdin_pipe": true,
+              "stdout_pipe": false,
+              "proto_pid": 68,
+              "proto_pgrp": 67,
+              "fg_pgrp": 67,
+              "job_leader_pgrp": 63,
+              "shared": true
+            },
+            "pipeline-last/SIGHUP": {
+              "pid": 72,
+              "ppid": 71,
+              "pgrp": 70,
+              "stdin_pipe": true,
+              "stdout_pipe": false,
+              "proto_pid": 71,
+              "proto_pgrp": 70,
+              "fg_pgrp": 70,
+              "job_leader_pgrp": 63,
+              "shared": true
+            },
+            "pipeline-last/SIGQUIT": {
+              "pid": 75,
+              "ppid": 74,
+              "pgrp": 73,
+              "stdin_pipe": true,
+              "stdout_pipe": false,
+              "proto_pid": 74,
+              "proto_pgrp": 73,
+              "fg_pgrp": 73,
+              "job_leader_pgrp": 63,
+              "shared": true
+            },
+            "pipeline-last/SIGWINCH": {
+              "pid": 78,
+              "ppid": 77,
+              "pgrp": 76,
+              "stdin_pipe": true,
+              "stdout_pipe": false,
+              "proto_pid": 77,
+              "proto_pgrp": 76,
+              "fg_pgrp": 76,
+              "job_leader_pgrp": 63,
+              "shared": true
+            }
+          },
+          "check_seconds": 10.532
+        },
+        "artifacts": [
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigint.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigint.stderr.txt",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigterm.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigterm.stderr.txt",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sighup.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sighup.stderr.txt",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigquit.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigquit.stderr.txt",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigwinch.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/sh-c-sigwinch.stderr.txt",
+          "arts/run.k6d_shared_mode_explicit_signals/bash-i-pipeline-first.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/bash-i-pipeline-first.stderr.txt",
+          "arts/run.k6d_shared_mode_explicit_signals/bash-i-pipeline-last.raw.bin",
+          "arts/run.k6d_shared_mode_explicit_signals/bash-i-pipeline-last.stderr.txt"
+        ]
+      },
+      {
+        "id": "run.k6e_job_control",
+        "group": "run",
+        "clause": "§4/K6e",
+        "title": "`heimdall-proto run -- <child>` as a job of an interactive job-control shell (bash -i in a pty), as a simple command and inside a command list (`run ...; echo`), 5 iterations each of: Ctrl-Z stops the job (shell reports it, the child stops), `fg` resumes it without a re-stop and the child reads the next typed line; Ctrl-Z, `bg` (the child runs again, nothing left stopped while the shell believes the job runs), `fg` (no re-stop) and the child reads the next line; finally the job exits 0 and no job is left",
+        "outcome": "pass",
+        "hard_bound_s": 240,
+        "duration_ms": 25877.7,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "harness precondition: /bin/bash is executable",
+            "ok": true,
+            "gating": true,
+            "expected": "executable",
+            "observed": "/bin/bash"
+          },
+          {
+            "desc": "[simple] interactive bash printed its prompt",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[simple] harness precondition: bash enabled job control (no 'no job control' notice)",
+            "ok": true,
+            "gating": true,
+            "expected": "job control on",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[simple] the child started under heimdall-proto and reached its first terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 1 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 1 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 1 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 1 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 1 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-1\\n",
+            "observed": "K6E-A-1\n"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 6, \"after_0.4s\": 6, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [20, 37], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 1 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-1\\n",
+            "observed": "K6E-B-1\n"
+          },
+          {
+            "desc": "[simple: iteration 2 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 2 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 2 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 2 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 2 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 2 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-2\\n",
+            "observed": "K6E-A-2\n"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 64, \"after_0.4s\": 64, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [78, 95], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"R\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 2 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-2\\n",
+            "observed": "K6E-B-2\n"
+          },
+          {
+            "desc": "[simple: iteration 3 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 3 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 3 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 3 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 3 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 3 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-3\\n",
+            "observed": "K6E-A-3\n"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 122, \"after_0.4s\": 122, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [135, 153], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 3 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-3\\n",
+            "observed": "K6E-B-3\n"
+          },
+          {
+            "desc": "[simple: iteration 4 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 4 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 4 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 4 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 4 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 4 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-4\\n",
+            "observed": "K6E-A-4\n"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 179, \"after_0.4s\": 179, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [193, 209], \"states\": {\"child\": \"R\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 4 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-4\\n",
+            "observed": "K6E-B-4\n"
+          },
+          {
+            "desc": "[simple: iteration 5 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 5 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 5 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 5 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 5 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 5 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-5\\n",
+            "observed": "K6E-A-5\n"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 235, \"after_0.4s\": 235, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [248, 265], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[simple: iteration 5 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-5\\n",
+            "observed": "K6E-B-5\n"
+          },
+          {
+            "desc": "[simple] all 5 iterations completed without a re-stop or lost input",
+            "ok": true,
+            "gating": true,
+            "expected": "10",
+            "observed": "{\"lines_delivered\": 10}"
+          },
+          {
+            "desc": "[simple] the job finished: the child completed, the job's exit status is 0 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [\"b'0'\", \"b'0'\"]]",
+            "observed": "[true, [\"b'0'\", \"b'0'\"]]"
+          },
+          {
+            "desc": "[simple] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[list] interactive bash printed its prompt",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[list] harness precondition: bash enabled job control (no 'no job control' notice)",
+            "ok": true,
+            "gating": true,
+            "expected": "job control on",
+            "observed": "\\x1b[?2004hHMPS1$ "
+          },
+          {
+            "desc": "[list] the child started under heimdall-proto and reached its first terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 1 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 1 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nK6E_LIST_RC=148\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 1 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 1 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 1 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 1 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-1\\n",
+            "observed": "K6E-A-1\n"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 5, \"after_0.4s\": 5, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [18, 36], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"R\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 1 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-1\\n",
+            "observed": "K6E-B-1\n"
+          },
+          {
+            "desc": "[list: iteration 2 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 2 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 2 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 2 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 2 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 2 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-2\\n",
+            "observed": "K6E-A-2\n"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 63, \"after_0.4s\": 63, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [77, 95], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 2 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-2\\n",
+            "observed": "K6E-B-2\n"
+          },
+          {
+            "desc": "[list: iteration 3 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 3 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 3 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 3 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 3 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 3 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-3\\n",
+            "observed": "K6E-A-3\n"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 122, \"after_0.4s\": 122, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [135, 152], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 3 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-3\\n",
+            "observed": "K6E-B-3\n"
+          },
+          {
+            "desc": "[list: iteration 4 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 4 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 4 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 4 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 4 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 4 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-4\\n",
+            "observed": "K6E-A-4\n"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 179, \"after_0.4s\": 179, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [192, 209], \"states\": {\"child\": \"S\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 4 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-4\\n",
+            "observed": "K6E-B-4\n"
+          },
+          {
+            "desc": "[list: iteration 5 z-fg] the child is back in its terminal read",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 5 z-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 5 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 5 z-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 5 z-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 5 z-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-A-5\\n",
+            "observed": "K6E-A-5\n"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] the child reached its heartbeat phase",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] Ctrl-Z stops the job: the shell reports it stopped and prompts again",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "^Z\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] while the shell reports the job stopped, the child is stopped too (heartbeat frozen)",
+            "ok": true,
+            "gating": true,
+            "expected": "heartbeat unchanged",
+            "observed": "{\"before\": 236, \"after_0.4s\": 236, \"states\": {\"child\": \"T\", \"proto\": \"T\"}}"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+            "ok": true,
+            "gating": true,
+            "expected": "prompt, heartbeat advancing, child not T, no 'Stopped'",
+            "observed": "{\"prompt\": true, \"beat\": [250, 266], \"states\": {\"child\": \"R\", \"proto\": \"S\"}}"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no 'Stopped', no prompt",
+            "observed": "fg\\x0d\n\\x0d\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] after `fg` the child is not in the stopped state",
+            "ok": true,
+            "gating": true,
+            "expected": "not T",
+            "observed": "{\"child\": \"S\", \"proto\": \"S\"}"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] after `fg` heimdall-proto is not in the stopped state (non-gating observation: K6e speaks of the child; a stuck heimdall-proto still fails the final job-status check)",
+            "ok": true,
+            "gating": false,
+            "expected": "not T",
+            "observed": "S"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] the child left its heartbeat phase after `fg`",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "true"
+          },
+          {
+            "desc": "[list: iteration 5 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6E-B-5\\n",
+            "observed": "K6E-B-5\n"
+          },
+          {
+            "desc": "[list] all 5 iterations completed without a re-stop or lost input",
+            "ok": true,
+            "gating": true,
+            "expected": "10",
+            "observed": "{\"lines_delivered\": 10}"
+          },
+          {
+            "desc": "[list] the job finished: the child completed, the job's exit status is 0 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [\"b'0'\", \"b'0'\"]]",
+            "observed": "[true, [\"b'0'\", \"b'0'\"]]"
+          },
+          {
+            "desc": "[list] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-simple.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-simple.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-list.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in bash-i-list.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[bash-i-simple] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[bash-i-list] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [],
+        "notes": {
+          "k6e_steps_simple": [
+            {
+              "step": "simple: iteration 1 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 1 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 1 z-fg line",
+              "received": true,
+              "got": "K6E-A-1\n"
+            },
+            {
+              "step": "simple: iteration 1 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 1 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                20,
+                37
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "simple: iteration 1 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 1 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-1\n"
+            },
+            {
+              "step": "simple: iteration 2 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 2 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 2 z-fg line",
+              "received": true,
+              "got": "K6E-A-2\n"
+            },
+            {
+              "step": "simple: iteration 2 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 2 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                78,
+                95
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "simple: iteration 2 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "R",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 2 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-2\n"
+            },
+            {
+              "step": "simple: iteration 3 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 3 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 3 z-fg line",
+              "received": true,
+              "got": "K6E-A-3\n"
+            },
+            {
+              "step": "simple: iteration 3 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 3 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                135,
+                153
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "simple: iteration 3 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 3 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-3\n"
+            },
+            {
+              "step": "simple: iteration 4 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 4 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 4 z-fg line",
+              "received": true,
+              "got": "K6E-A-4\n"
+            },
+            {
+              "step": "simple: iteration 4 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 4 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                193,
+                209
+              ],
+              "states": {
+                "child": "R",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "simple: iteration 4 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 4 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-4\n"
+            },
+            {
+              "step": "simple: iteration 5 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 5 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 5 z-fg line",
+              "received": true,
+              "got": "K6E-A-5\n"
+            },
+            {
+              "step": "simple: iteration 5 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "simple: iteration 5 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                248,
+                265
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "simple: iteration 5 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "simple: iteration 5 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-5\n"
+            }
+          ],
+          "k6e_steps_list": [
+            {
+              "step": "list: iteration 1 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 1 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 1 z-fg line",
+              "received": true,
+              "got": "K6E-A-1\n"
+            },
+            {
+              "step": "list: iteration 1 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 1 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                18,
+                36
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "list: iteration 1 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "R",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 1 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-1\n"
+            },
+            {
+              "step": "list: iteration 2 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 2 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 2 z-fg line",
+              "received": true,
+              "got": "K6E-A-2\n"
+            },
+            {
+              "step": "list: iteration 2 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 2 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                77,
+                95
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "list: iteration 2 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 2 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-2\n"
+            },
+            {
+              "step": "list: iteration 3 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 3 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 3 z-fg line",
+              "received": true,
+              "got": "K6E-A-3\n"
+            },
+            {
+              "step": "list: iteration 3 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 3 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                135,
+                152
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "list: iteration 3 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 3 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-3\n"
+            },
+            {
+              "step": "list: iteration 4 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 4 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 4 z-fg line",
+              "received": true,
+              "got": "K6E-A-4\n"
+            },
+            {
+              "step": "list: iteration 4 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 4 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                192,
+                209
+              ],
+              "states": {
+                "child": "S",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "list: iteration 4 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 4 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-4\n"
+            },
+            {
+              "step": "list: iteration 5 z-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 5 z-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 5 z-fg line",
+              "received": true,
+              "got": "K6E-A-5\n"
+            },
+            {
+              "step": "list: iteration 5 z-bg-fg ctrl-z",
+              "shell_reported_stop": true,
+              "states": {
+                "child": "T",
+                "proto": "T"
+              }
+            },
+            {
+              "step": "list: iteration 5 z-bg-fg bg",
+              "prompt": true,
+              "beat": [
+                250,
+                266
+              ],
+              "states": {
+                "child": "R",
+                "proto": "S"
+              },
+              "shell_output": "bg\\x0d\n\\x0d[1]+ \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5 &\\x0d\nHMPS1$ "
+            },
+            {
+              "step": "list: iteration 5 z-bg-fg fg",
+              "restopped_or_prompt": false,
+              "states": {
+                "child": "S",
+                "proto": "S"
+              }
+            },
+            {
+              "step": "list: iteration 5 z-bg-fg line",
+              "received": true,
+              "got": "K6E-B-5\n"
+            }
+          ],
+          "check_seconds": 25.856
+        },
+        "artifacts": [
+          "arts/run.k6e_job_control/bash-i-simple.raw.bin",
+          "arts/run.k6e_job_control/bash-i-simple.stderr.txt",
+          "arts/run.k6e_job_control/bash-i-list.raw.bin",
+          "arts/run.k6e_job_control/bash-i-list.stderr.txt"
+        ]
+      },
+      {
+        "id": "tui.large_100_filter_latency",
+        "group": "tui",
+        "clause": "§5/K17",
+        "title": "100-destination fixture: immediate filtering - p95 keystroke-to-screen-update latency in filter mode at most 100 ms over 30 edits (5 cycles of typing 7, 0, 5 and three Backspaces, each update awaited in the pty emulator); scrolling; Down-key latency recorded",
+        "outcome": "pass",
+        "hard_bound_s": 150,
+        "duration_ms": 1243.8,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "selection followed 30 Down presses through the scrolled list",
+            "ok": true,
+            "gating": true,
+            "expected": "null",
+            "observed": "null"
+          },
+          {
+            "desc": "harness precondition: filter counts 100 -> 19 -> 1 -> 0 are strictly decreasing (no stale reads)",
+            "ok": true,
+            "gating": true,
+            "expected": "[100, 19, 1, 0]",
+            "observed": "[100, 19, 1, 0]"
+          },
+          {
+            "desc": "[cycle 1] after typing '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 1] after typing '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 1] after typing '705' status is 0/100",
+            "ok": true,
+            "gating": true,
+            "expected": "0/100",
+            "observed": "[0, 100]"
+          },
+          {
+            "desc": "[cycle 1] after backspace to '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 1] after backspace to '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 1] after backspace to '' status is 100/100",
+            "ok": true,
+            "gating": true,
+            "expected": "100/100",
+            "observed": "[100, 100]"
+          },
+          {
+            "desc": "[cycle 2] after typing '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 2] after typing '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 2] after typing '705' status is 0/100",
+            "ok": true,
+            "gating": true,
+            "expected": "0/100",
+            "observed": "[0, 100]"
+          },
+          {
+            "desc": "[cycle 2] after backspace to '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 2] after backspace to '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 2] after backspace to '' status is 100/100",
+            "ok": true,
+            "gating": true,
+            "expected": "100/100",
+            "observed": "[100, 100]"
+          },
+          {
+            "desc": "[cycle 3] after typing '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 3] after typing '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 3] after typing '705' status is 0/100",
+            "ok": true,
+            "gating": true,
+            "expected": "0/100",
+            "observed": "[0, 100]"
+          },
+          {
+            "desc": "[cycle 3] after backspace to '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 3] after backspace to '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 3] after backspace to '' status is 100/100",
+            "ok": true,
+            "gating": true,
+            "expected": "100/100",
+            "observed": "[100, 100]"
+          },
+          {
+            "desc": "[cycle 4] after typing '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 4] after typing '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 4] after typing '705' status is 0/100",
+            "ok": true,
+            "gating": true,
+            "expected": "0/100",
+            "observed": "[0, 100]"
+          },
+          {
+            "desc": "[cycle 4] after backspace to '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 4] after backspace to '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 4] after backspace to '' status is 100/100",
+            "ok": true,
+            "gating": true,
+            "expected": "100/100",
+            "observed": "[100, 100]"
+          },
+          {
+            "desc": "[cycle 5] after typing '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 5] after typing '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 5] after typing '705' status is 0/100",
+            "ok": true,
+            "gating": true,
+            "expected": "0/100",
+            "observed": "[0, 100]"
+          },
+          {
+            "desc": "[cycle 5] after backspace to '70' status is 1/100",
+            "ok": true,
+            "gating": true,
+            "expected": "1/100",
+            "observed": "[1, 100]"
+          },
+          {
+            "desc": "[cycle 5] after backspace to '7' status is 19/100",
+            "ok": true,
+            "gating": true,
+            "expected": "19/100",
+            "observed": "[19, 100]"
+          },
+          {
+            "desc": "[cycle 5] after backspace to '' status is 100/100",
+            "ok": true,
+            "gating": true,
+            "expected": "100/100",
+            "observed": "[100, 100]"
+          },
+          {
+            "desc": "K17: every one of the 30 filter edits produced its screen update",
+            "ok": true,
+            "gating": true,
+            "expected": "30",
+            "observed": "30"
+          },
+          {
+            "desc": "K17: p95 keystroke-to-screen-update latency in filter mode (nearest rank over 30 edits) <= 100 ms",
+            "ok": true,
+            "gating": true,
+            "expected": "<= 100 ms",
+            "observed": "{\"p95_ms\": 4.3, \"max_ms\": 4.6, \"samples_ms\": [4.6, 2.5, 1.4, 1.1, 2.3, 2.1, 3.5, 2.5, 1.0, 0.8, 2.4, 2.3, 4.2, 2.3, 1.3, 1.1, 2.2, 2.1, 4.2, 2.5, 1.2, 1.1, 2.3, 2.3, 4.3, 2.7, 1.3, 1.1, 2.3, 2.5]}"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in tui1.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in tui1.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[tui1] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [],
+        "notes": {
+          "large100_first_frame_ms": 44.6,
+          "large100_filter_keystroke_ms": [
+            4.6,
+            2.5,
+            1.4,
+            1.1,
+            2.3,
+            2.1,
+            3.5,
+            2.5,
+            1.0,
+            0.8,
+            2.4,
+            2.3,
+            4.2,
+            2.3,
+            1.3,
+            1.1,
+            2.2,
+            2.1,
+            4.2,
+            2.5,
+            1.2,
+            1.1,
+            2.3,
+            2.3,
+            4.3,
+            2.7,
+            1.3,
+            1.1,
+            2.3,
+            2.5
+          ],
+          "large100_down_key_ms": [
+            2.8,
+            1.8,
+            1.9,
+            1.7,
+            1.6,
+            1.3,
+            1.3,
+            1.3,
+            1.2,
+            1.1,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.3,
+            1.1,
+            1.1,
+            1.1,
+            1.1,
+            1.1,
+            1.1,
+            1.1,
+            1.7,
+            1.7,
+            1.7,
+            1.8,
+            1.7,
+            1.6,
+            1.5,
+            1.5
+          ],
+          "check_seconds": 1.23
+        },
+        "artifacts": [
+          "arts/tui.large_100_filter_latency/tui1.raw.bin",
+          "arts/tui.large_100_filter_latency/tui1.stderr.txt"
+        ]
+      }
+    ],
+    "observations": {
+      "k6c_other_inherited_signal_state": {
+        "async-job": {
+          "dispositions": {
+            "SIGQUIT": "SIG_IGN"
+          },
+          "inherited_blocked": [],
+          "still_blocked": [],
+          "proto_exit": 0
+        },
+        "other-ignores-K6c": {
+          "dispositions": {
+            "SIGQUIT": "SIG_IGN",
+            "SIGTERM": "SIG_IGN",
+            "SIGWINCH": "SIG_IGN"
+          },
+          "inherited_blocked": [
+            "SIGUSR2"
+          ],
+          "still_blocked": [
+            "SIGUSR2"
+          ],
+          "proto_exit": 0
+        },
+        "sigpipe-non-python": {
+          "probe": "yes writing into a pipe whose reader closes",
+          "yes": "/usr/bin/yes",
+          "direct": {
+            "default": -13,
+            "ignore": 1
+          },
+          "via_heimdall_proto": {
+            "default": {
+              "proto_rc": 141,
+              "child_exit_code": null,
+              "child_signal": 13
+            },
+            "ignore": {
+              "proto_rc": 141,
+              "child_exit_code": null,
+              "child_signal": 13
+            }
+          },
+          "inherited_sigpipe_ignore_kept": false,
+          "linux_proc_sigign_sigpipe_in_child": false
+        }
+      },
+      "k6d_shared_mode_deliveries": {
+        "sh-c": {
+          "SIGINT": 1,
+          "SIGTERM": 1,
+          "SIGHUP": 1,
+          "SIGQUIT": 1,
+          "SIGWINCH": 1
+        },
+        "pipeline-first": {
+          "SIGINT": 1,
+          "SIGTERM": 1,
+          "SIGHUP": 1,
+          "SIGQUIT": 1,
+          "SIGWINCH": 1
+        },
+        "pipeline-last": {
+          "SIGINT": 1,
+          "SIGTERM": 1,
+          "SIGHUP": 1,
+          "SIGQUIT": 1,
+          "SIGWINCH": 1
+        }
+      },
+      "k6e_job_control": {
+        "simple": {
+          "iterations": 5,
+          "lines_delivered": 10,
+          "ok": true,
+          "first_failed_step": null
+        },
+        "list": {
+          "iterations": 5,
+          "lines_delivered": 10,
+          "ok": true,
+          "first_failed_step": null
+        }
+      },
+      "large100_keystroke_to_update_ms": {
+        "filter": [
+          4.6,
+          2.5,
+          1.4,
+          1.1,
+          2.3,
+          2.1,
+          3.5,
+          2.5,
+          1.0,
+          0.8,
+          2.4,
+          2.3,
+          4.2,
+          2.3,
+          1.3,
+          1.1,
+          2.2,
+          2.1,
+          4.2,
+          2.5,
+          1.2,
+          1.1,
+          2.3,
+          2.3,
+          4.3,
+          2.7,
+          1.3,
+          1.1,
+          2.3,
+          2.5
+        ],
+        "down": [
+          2.8,
+          1.8,
+          1.9,
+          1.7,
+          1.6,
+          1.3,
+          1.3,
+          1.3,
+          1.2,
+          1.1,
+          1.2,
+          1.2,
+          1.2,
+          1.2,
+          1.3,
+          1.1,
+          1.1,
+          1.1,
+          1.1,
+          1.1,
+          1.1,
+          1.1,
+          1.7,
+          1.7,
+          1.7,
+          1.8,
+          1.7,
+          1.6,
+          1.5,
+          1.5
+        ],
+        "filter_p95": 4.3,
+        "k17_bound_ms": 100
+      },
+      "canary_selfcheck": {
+        "registered_canaries": [
+          "fixture invalid-forbidden-key.toml key private_key",
+          "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+          "per-run canary in the HM_G02_SECRET_ENV environment variable",
+          "per-run canary inside [meta] of a generated profile",
+          "per-run canary on the malformed line of a generated profile"
+        ],
+        "pattern": "the canary prefix followed by [A-Za-z0-9]",
+        "artifact_files_scanned": 36,
+        "record_hits": [],
+        "artifact_hits": [],
+        "result": "clean"
+      }
+    },
+    "open_contract_questions": [
+      "Q1 meta for a signal-killed child: contract gives exit_code int|null and signal int|null; harness gates only on signal==9 and launched==true and records exit_code (non-gating).",
+      "Q3 (settled by K6b, recorded here for traceability): duplicate delivery of a terminal-generated signal, or of a group-directed signal from another process (killpg), is recorded and not gated; the harness gates on the child's exit status and records the delivery count (run.sigint_process_group, run.explicit_signal_with_tty).",
+      "Q11 (round 4) K18 makes every OFFENDING input value secret on stdout and stderr; it does not name the values of OTHER keys that an error diagnostic might quote (the unsupported-schema_version case: the profile name, a destination host). The harness gates them in the JSON result (section 2) and records them on stderr as a non-gating observation (observations.value_on_stderr, gating=false). Escalated: confirm, or extend the stderr gate to every input value.",
+      "Q12 (round 4) K6e: after `bg`, a child that reads the terminal is stopped by the kernel (SIGTTIN). A wrapper that does not mirror that stop leaves the child stopped while the shell lists the job as running, until `fg`. run.k6e_job_control avoids that case (the child does not touch the terminal while in the background) and gates 'never left stopped while the shell believes the job is running' only for a child that is not reading the terminal. Escalated: does K6e also require mirroring a background tty-input stop to the shell?",
+      "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating)."
+    ],
+    "not_covered": [
+      "native Windows (named pipe, CommandLineToArgvW, console Ctrl-C)",
+      "WSL",
+      "darwin-arm64 (separate record, K13)"
+    ]
+  },
+  "evidence_paths": [
+    "$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/linux/flake-orig-1.json",
+    "$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/linux/flake-orig-1-artifacts"
+  ],
+  "limitations": [
+    "Windows is NOT covered: named-pipe agent path, CommandLineToArgvW quoting, console Ctrl-C and ConPTY behaviour need a native Windows run (blocked_on: native Windows host).",
+    "WSL is NOT covered (blocked_on: Windows host with WSL).",
+    "Section 7 / K11 build and sidecar rules (clean machine without toolchain, manifest sidecars, sidecar loading from the executable's own directory, environment overrides ignored) are NOT judged by this harness.",
+    "K11 stray-file detection covers the sandbox HOME, TMPDIR and the working directory of each invocation; writes elsewhere (for example a hard-coded /tmp or the per-user temp directory outside TMPDIR) are not detected.",
+    "TUI is judged through a pty plus the pyte VT emulator (with an xterm-compatible double-width cell renderer, see harness.screen_wide_chars), which answers DA and cursor-position queries but not OSC colour/XTVERSION/kitty-keyboard queries (a framework that waits for those answers will show a slower first frame); real terminal emulators may differ. stdout and the TUI frames share the tty, so stdout-vs-stderr separation of TUI output cannot be proven; SELECTED and 'no stdout' are judged on the text after the alternate screen is left.",
+    "Restoration and exit 1 after an internal panic/uncaught exception (K10) cannot be induced black-box and are NOT tested; select, quit, Ctrl-C (also in filter mode), SIGTERM, SIGHUP and terminal hangup paths are.",
+    "After a terminal hangup only the exit status is judged (the terminal is gone, so restoration cannot be observed).",
+    "'No network' and 'no shell invocation' (contract section 1) cannot be proven black-box; only observable effects are tested (no shell metacharacter expansion, sentinel files, no fake-agent contact, no stray files).",
+    "Allocation behaviour ('never allocate from an untrusted length first') is inferred from fast, correct failure on 0x7fffffff / nkeys 100000 frames, not measured.",
+    "Timing thresholds (500 ms SIGINT, 100 ms resize, 100 ms p95 filter update (K17), 2 s malformed-agent failure) are wall-clock on a possibly loaded machine; SIGINT uses best-of-3, resize best-of-5, and the record stores the load average before/after so a loaded run can be recognised and repeated.",
+    "Signal counts use the child's wakeup fd (one byte per delivery), but the kernel still merges two identical standard signals sent while the first is pending, so a heimdall-proto that forwards twice back-to-back may be seen once; exact-once is reliable for deliveries that are separated in time (terminal vs forwarded) and is a best-effort lower bound otherwise.",
+    "Invalid UTF-8 handling uses isolated invalid bytes (each one U+FFFD); runs of invalid bytes are deliberately not tested because the contract does not define replacement-character counting.",
+    "Every check runs under a hard wall-clock bound (default 120 s, cleanup 30 s); a check that hits it is recorded as 'error', never as pass.",
+    "The disposable keys are generated per run, private halves deleted immediately; fingerprints are cross-checked against /usr/bin/ssh-keygen -lf.",
+    "K6b precedence (K6a, then K6, then the section 4 terminal-SIGINT rule) is reflected as follows: run.k6a_* gate K6a; run.forward_* and run.explicit_signal_with_tty gate exactly-once for signals sent to the heimdall-proto PID; terminal and killpg duplicate counts are non-gating observations. Giving the child its own foreground group is not penalised where heimdall-proto is alone in its process group (run.explicit_signal_with_tty) and is caught where it is not (run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty).",
+    "K6a is judged on three scenarios only: a pipeline job of bash -i (bash 3.2 on macOS, the image's bash 5.2 on Linux) whose peer reads the tty, a non-job-control script whose `&` job is heimdall-proto (stdin the tty or /dev/null), and inherited SIG_IGN for SIGHUP and for SIGINT (gated, K6c; SIGQUIT, SIGTERM, SIGWINCH, SIGPIPE ignores and an inherited blocked SIGUSR2 are recorded non-gating in observations.k6c_other_inherited_signal_state). Other shells (zsh, fish, dash) and nested job control are not tested; with an ignoring child, 'not forwarded' is observed only through the child's own handler in phase 2.",
+    "K14 uses a FIFO without a writer, a listening AF_UNIX socket, a directory and /dev/null; other devices (blocking or infinite ones such as /dev/zero) are deliberately not used.",
+    "K15 wall time is measured by tests/g02/rss_wrap.py from spawn to reap (includes process start-up); peak RSS is the os.wait4 rusage of the binary and the descendants it waited for (descendants it did not wait for are not counted). The tui variant's first-frame time also includes the pty shim's and the wrapper's start-up. Shapes: deep inline tables, arrays, arrays of inline tables, inline tables of arrays, dotted keys, a table header, and wide tables, each at most 1 MiB.",
+    "K16 detects only executions resolved through PATH of the names tmux, tput, infocmp, stty, sh, bash, ssh and git; an execution by absolute path (for example /usr/bin/tput) or of another name is not detected.",
+    "K6d (shared mode) is judged in three layouts: heimdall-proto as the child of a foreground non-job-control `/bin/sh -c` script (sh is bash 3.2 in POSIX mode on macOS, dash in the Linux image), and as the first and as the last member of a `bash -i` pipeline job; one explicit kill(<pid>, sig) per signal and layout, delivery awaited 3 s. Other shells, Makefiles proper, nested scripts and rapid repeats are not exercised. A delivery that the kernel merges with a pending identical signal is counted once.",
+    "K6e (job control) is judged under `bash -i` only (bash 3.2 on macOS, bash 5.2 in the Linux image), 5 iterations of Ctrl-Z/fg (child blocked in a terminal read) and Ctrl-Z/bg/fg (child running without terminal access); 'not re-stopped' is judged 0.5 s after `fg` (shell output and the /bin/ps or /proc state of the child and heimdall-proto). A re-stop that happens later than that, races needing more iterations, zsh/fish job control and a background terminal read (Q12) are not covered.",
+    "K17 is measured like the earlier latency observation: from writing the keystroke to the pty master until the pyte emulator shows the expected status line (2 ms polling), 30 edits on large-100.toml, p95 by nearest rank; it includes pty and emulator overhead and is wall-clock on a possibly loaded machine (load average recorded).",
+    "K6c SIGPIPE: the inherited SIGPIPE ignore is observed with a non-Python child (`yes` writing into a pipe whose reader closes: exit 1 on EPIPE means the ignore was kept, death by SIGPIPE means it was reset; on Linux also /bin/cat /proc/self/status SigIgn). Non-gating (K6c).",
+    "K13: this record covers linux-arm64 only (container image heimdall-g02-harness:ac0f6cf382a4); the darwin-arm64 run is a separate record. Linux runs of tests/g02/linux/run.sh use Docker Desktop's arm64 Linux VM (linuxkit kernel, native arm64, not emulation), a digest-pinned image, --network none, a non-root user and a read-only repository mount; behaviour on other kernels/distributions is not covered.",
+    "Evidence incomplete (status in_progress): partial selection, skipped or errored checks; verdict inconclusive.",
+    "Partial run (--only run.k6d_shared_mode_explicit_signals,run.k6e_job_control,tui.large_100_filter_latency,run.k6a_inherited_ignore): 4 of 135 checks selected; cannot be 'verified'."
+  ]
+}

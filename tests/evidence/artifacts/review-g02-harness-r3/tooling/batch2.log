@@ -1,0 +1,13 @@
+mut-base2 start=2026-10-04T05:54:04Z end=2026-10-04T05:54:46Z exit=0
+mut-base2 start=2026-10-04T05:54:46Z end=2026-10-04T05:55:27Z exit=0
+mut-rv_jc2 start=2026-10-04T05:55:27Z end=2026-10-04T05:56:09Z exit=0
+mut-rv_jc2 start=2026-10-04T05:56:09Z end=2026-10-04T05:56:50Z exit=0
+mut-rv_jc_no_tty_after_fg2 start=2026-10-04T05:56:50Z end=2026-10-04T05:57:08Z exit=1
+mut-rv_jc_no_tty_after_fg2 start=2026-10-04T05:57:08Z end=2026-10-04T05:57:25Z exit=1
+mut-rv_jc_bg_no_cont2 start=2026-10-04T05:57:25Z end=2026-10-04T05:57:46Z exit=1
+mut-rv_jc_bg_no_cont2 start=2026-10-04T05:57:46Z end=2026-10-04T05:58:05Z exit=1
+mut-rv_jc_no_selfstop2 start=2026-10-04T05:58:05Z end=2026-10-04T05:58:38Z exit=1
+mut-rv_jc_no_selfstop2 start=2026-10-04T05:58:38Z end=2026-10-04T05:59:10Z exit=1
+runall-rv_jc2 start=2026-10-04T05:59:10Z end=2026-10-04T06:00:12Z exit=0
+runall-rv_jc2 start=2026-10-04T06:00:12Z end=2026-10-04T06:01:12Z exit=0
+BATCH2_DONE

@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=darwin-arm64 bin=/tmp/r3rev/m/rv_hup_exit_early/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            61 ms  
+PASS  run.exit_codes                                  200 ms  
+PASS  run.meta_child_exited                           101 ms  
+PASS  run.argv_exact                                   51 ms  
+PASS  run.argv_invalid_utf8                            50 ms  
+PASS  run.meta_state                                  183 ms  
+PASS  run.path_lookup                                  52 ms  
+PASS  run.launch_failure_missing_absolute              36 ms  
+PASS  run.launch_failure_missing_path                  36 ms  
+PASS  run.launch_failure_not_executable                36 ms  
+PASS  run.child_killed_by_signal                       48 ms  
+PASS  run.forward_sigterm                             577 ms  
+PASS  run.forward_sigint                              591 ms  
+FAIL  run.forward_sighup                              601 ms  exit code is the child's (7); meta file was written
+PASS  run.forward_sigquit                             599 ms  
+PASS  run.forward_sigwinch                            661 ms  
+PASS  run.repeated_signals                           3620 ms  
+PASS  run.sigint_process_group                        873 ms  
+FAIL  run.explicit_signal_with_tty                   7207 ms  [SIGHUP] heimdall-proto exited with the child's status (7)
+PASS  run.stdio_inherited                             328 ms  
+PASS  run.proto_silent_stdout                         108 ms  
+PASS  run.cwd_env_inherited                            47 ms  
+PASS  run.no_surviving_child                           45 ms  
+PASS  run.usage_errors                                123 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2062 ms  
+PASS  run.k6a_background_script_tty                  2573 ms  
+PASS  run.k6a_inherited_ignore                       2786 ms  
+FAIL  run.k6d_shared_mode_explicit_signals          10800 ms  [sh-c/SIGHUP] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0; [pi
+PASS  run.k6e_job_control                           26801 ms  
+
+summary: {'total': 29, 'pass': 26, 'fail': 3, 'error': 0, 'skipped': 0}  status=in_progress verdict=fail  record=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/darwin/runall-rv_hup_exit_early.json

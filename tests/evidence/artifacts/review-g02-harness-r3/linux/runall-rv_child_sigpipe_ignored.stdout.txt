@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            46 ms  
+PASS  run.exit_codes                                  143 ms  
+PASS  run.meta_child_exited                            67 ms  
+PASS  run.argv_exact                                   43 ms  
+PASS  run.argv_invalid_utf8                            45 ms  
+PASS  run.meta_state                                  150 ms  
+PASS  run.path_lookup                                  34 ms  
+PASS  run.launch_failure_missing_absolute              27 ms  
+PASS  run.launch_failure_missing_path                  27 ms  
+PASS  run.launch_failure_not_executable                26 ms  
+PASS  run.child_killed_by_signal                       37 ms  
+PASS  run.forward_sigterm                             562 ms  
+PASS  run.forward_sigint                              559 ms  
+PASS  run.forward_sighup                              550 ms  
+PASS  run.forward_sigquit                             555 ms  
+PASS  run.forward_sigwinch                            631 ms  
+PASS  run.repeated_signals                           3447 ms  
+PASS  run.sigint_process_group                        864 ms  
+PASS  run.explicit_signal_with_tty                   7471 ms  
+PASS  run.stdio_inherited                             278 ms  
+PASS  run.proto_silent_stdout                          64 ms  
+PASS  run.cwd_env_inherited                            32 ms  
+PASS  run.no_surviving_child                           29 ms  
+PASS  run.usage_errors                                 94 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2029 ms  
+PASS  run.k6a_background_script_tty                  2477 ms  
+PASS  run.k6a_inherited_ignore                       2703 ms  
+PASS  run.k6d_shared_mode_explicit_signals          10306 ms  
+PASS  run.k6e_job_control                           25717 ms  
+
+summary: {'total': 29, 'pass': 29, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/out/runall-rv_child_sigpipe_ignored.json

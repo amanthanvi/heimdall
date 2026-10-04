@@ -1,0 +1,25 @@
+hogs started:       18 (yes > /dev/null, 18 host CPUs)
+stress18-orig-1 start=2026-10-04T06:03:29Z end=2026-10-04T06:04:10Z exit=0
+stress18-orig-1 start=2026-10-04T06:04:10Z end=2026-10-04T06:04:51Z exit=0
+stress18-orig-2 start=2026-10-04T06:04:51Z end=2026-10-04T06:05:32Z exit=0
+stress18-orig-2 start=2026-10-04T06:05:32Z end=2026-10-04T06:06:13Z exit=0
+./stress.sh: line 15: 77879 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77880 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77881 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77882 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77883 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77884 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77885 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77886 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77887 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77888 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77889 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77890 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77891 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77892 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77893 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77894 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77895 Terminated: 15          yes > /dev/null
+./stress.sh: line 15: 77896 Terminated: 15          yes > /dev/null
+hogs left:        0
+STRESS_DONE

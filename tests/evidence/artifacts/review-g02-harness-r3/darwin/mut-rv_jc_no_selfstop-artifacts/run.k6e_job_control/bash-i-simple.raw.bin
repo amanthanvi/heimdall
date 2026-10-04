@@ -1,0 +1,6 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5
+^Zexit
+exit
+Killed: 9
+HMPS1$ exit
+exit

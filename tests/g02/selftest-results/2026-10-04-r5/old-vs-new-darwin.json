@@ -1,0 +1,1310 @@
+{
+ "what": "M00-T05-harness-r3-fix: the round-4 harness (2.2.0, copy taken before any edit) versus the fixed harness on the injected defects of the round-3 review, run on the darwin host against tests/g02/reference_impl.py with --only scopes. Exit codes are the real exit status of conformance.py; records were written under /tmp and are summarised here (paths omitted).",
+ "runs": [
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "rows_lag",
+   "REF_MUTATE": "tui_rows_lag",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:07Z",
+   "end_utc": "2026-10-04T06:21:08Z",
+   "exit": 1,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 0.6,
+    "max_ms": 0.7,
+    "first_keystroke_per_session_ms": null
+   },
+   "note": "comparison-setup failure, not evidence: the copied old harness could not find schemas/g02/result.schema.json (symlink added, re-run below)"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "first_key",
+   "REF_MUTATE": "tui_slow_first_filter_key",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:08Z",
+   "end_utc": "2026-10-04T06:21:08Z",
+   "exit": 1,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 1.3,
+    "max_ms": 154.4,
+    "first_keystroke_per_session_ms": null
+   },
+   "note": "comparison-setup failure, not evidence: the copied old harness could not find schemas/g02/result.schema.json (symlink added, re-run below)"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "v80",
+   "REF_MUTATE": "tui_filter_80ms",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:08Z",
+   "end_utc": "2026-10-04T06:21:08Z",
+   "exit": 1,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 86.4,
+    "max_ms": 86.8,
+    "first_keystroke_per_session_ms": null
+   },
+   "note": "comparison-setup failure, not evidence: the copied old harness could not find schemas/g02/result.schema.json (symlink added, re-run below)"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "sigpipe",
+   "REF_MUTATE": "run_child_sigpipe_ignored",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:08Z",
+   "end_utc": "2026-10-04T06:21:08Z",
+   "exit": 1,
+   "checks": {
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": null,
+    "inherited_sigpipe_ignore_kept": true,
+    "via_heimdall_proto": {
+     "default": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     },
+     "ignore": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     }
+    }
+   },
+   "note": "comparison-setup failure, not evidence: the copied old harness could not find schemas/g02/result.schema.json (symlink added, re-run below)"
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "rows_lag",
+   "REF_MUTATE": "tui_rows_lag",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:08Z",
+   "end_utc": "2026-10-04T06:21:16Z",
+   "exit": 1,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "fail",
+     "first_failed": "K17: p95 keystroke-to-screen-update latency in filter mode (nearest rank over 30 edits in 5 filter sessions) <= 100 ms",
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 173.9,
+    "max_ms": 175.6,
+    "first_keystroke_per_session_ms": [
+     160.6,
+     162.5,
+     169.3,
+     160.8,
+     175.6
+    ]
+   },
+   "note": "early working copy (before the SU/SD emulator fix, the SU/SD-scrolling reference TUI and the 80->70 ms variant change); the final code is proven by the self-test"
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "first_key",
+   "REF_MUTATE": "tui_slow_first_filter_key",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:16Z",
+   "end_utc": "2026-10-04T06:21:20Z",
+   "exit": 1,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "fail",
+     "first_failed": "K17: p95 keystroke-to-screen-update latency in filter mode (nearest rank over 30 edits in 5 filter sessions) <= 100 ms",
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 156.4,
+    "max_ms": 156.5,
+    "first_keystroke_per_session_ms": [
+     154.5,
+     156.5,
+     156.4,
+     156.4,
+     152.0
+    ]
+   },
+   "note": "early working copy (before the SU/SD emulator fix, the SU/SD-scrolling reference TUI and the 80->70 ms variant change); the final code is proven by the self-test"
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "v80",
+   "REF_MUTATE": "tui_filter_80ms",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:20Z",
+   "end_utc": "2026-10-04T06:21:26Z",
+   "exit": 0,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 86.5,
+    "max_ms": 86.7,
+    "first_keystroke_per_session_ms": [
+     86.4,
+     82.2,
+     86.5,
+     84.8,
+     82.6
+    ]
+   },
+   "note": "early working copy (before the SU/SD emulator fix, the SU/SD-scrolling reference TUI and the 80->70 ms variant change); the final code is proven by the self-test"
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "sigpipe",
+   "REF_MUTATE": "run_child_sigpipe_ignored",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:26Z",
+   "end_utc": "2026-10-04T06:21:29Z",
+   "exit": 0,
+   "checks": {
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": "child_always_ignores",
+    "inherited_sigpipe_ignore_kept": false,
+    "via_heimdall_proto": {
+     "default": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     },
+     "ignore": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     }
+    }
+   },
+   "note": "early working copy (before the SU/SD emulator fix, the SU/SD-scrolling reference TUI and the 80->70 ms variant change); the final code is proven by the self-test"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "rows_lag",
+   "REF_MUTATE": "tui_rows_lag",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:40Z",
+   "end_utc": "2026-10-04T06:21:41Z",
+   "exit": 0,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 0.6,
+    "max_ms": 0.7,
+    "first_keystroke_per_session_ms": null
+   },
+   "note": "old harness against an earlier reference working copy; see final-* for the final reference"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "first_key",
+   "REF_MUTATE": "tui_slow_first_filter_key",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:41Z",
+   "end_utc": "2026-10-04T06:21:43Z",
+   "exit": 0,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 1.3,
+    "max_ms": 154.4,
+    "first_keystroke_per_session_ms": null
+   },
+   "note": "old harness against an earlier reference working copy; see final-* for the final reference"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "v80",
+   "REF_MUTATE": "tui_filter_80ms",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:43Z",
+   "end_utc": "2026-10-04T06:21:47Z",
+   "exit": 0,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 86.4,
+    "max_ms": 86.8,
+    "first_keystroke_per_session_ms": null
+   },
+   "note": "old harness against an earlier reference working copy; see final-* for the final reference"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "sigpipe",
+   "REF_MUTATE": "run_child_sigpipe_ignored",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:21:47Z",
+   "end_utc": "2026-10-04T06:21:50Z",
+   "exit": 0,
+   "checks": {
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": null,
+    "inherited_sigpipe_ignore_kept": true,
+    "via_heimdall_proto": {
+     "default": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     },
+     "ignore": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     }
+    }
+   },
+   "note": "old harness against an earlier reference working copy; see final-* for the final reference"
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "restop_late",
+   "REF_MUTATE": "run_fg_restop_late",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:22:09Z",
+   "end_utc": "2026-10-04T06:22:19Z",
+   "exit": 1,
+   "checks": {
+    "run.k6e_job_control": {
+     "outcome": "fail",
+     "first_failed": "[simple: iteration 2 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+     "error": null
+    }
+   }
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "jc",
+   "REF_MUTATE": "run_job_control_own_group",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:22:19Z",
+   "end_utc": "2026-10-04T06:23:21Z",
+   "exit": 0,
+   "checks": {
+    "run.stdio_passthrough": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.exit_codes": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.meta_child_exited": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.argv_exact": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.argv_invalid_utf8": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.meta_state": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.path_lookup": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.launch_failure_missing_absolute": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.launch_failure_missing_path": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.launch_failure_not_executable": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.child_killed_by_signal": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigterm": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigint": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sighup": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigquit": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigwinch": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.repeated_signals": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.sigint_process_group": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.explicit_signal_with_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.stdio_inherited": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.proto_silent_stdout": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.cwd_env_inherited": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.no_surviving_child": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.usage_errors": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6a_pipeline_peer_not_stopped": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6a_background_script_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6d_shared_mode_explicit_signals": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6e_job_control": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": null,
+    "inherited_sigpipe_ignore_kept": false,
+    "via_heimdall_proto": {
+     "default": {
+      "proto_rc": 141,
+      "child_exit_code": null,
+      "child_signal": 13
+     },
+     "ignore": {
+      "proto_rc": 141,
+      "child_exit_code": null,
+      "child_signal": 13
+     }
+    }
+   }
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "restop_late",
+   "REF_MUTATE": "run_fg_restop_late",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:23:21Z",
+   "end_utc": "2026-10-04T06:23:47Z",
+   "exit": 1,
+   "checks": {
+    "run.k6e_job_control": {
+     "outcome": "fail",
+     "first_failed": "[simple: iteration 2 z-fg] the job is not stopped again after `fg`: no 'Stopped' notice and the child is not stopped from the `fg` until the next step (1.5 s window, observed 1.51 s)",
+     "error": null
+    }
+   },
+   "note": "early working copy (before the SU/SD emulator fix, the SU/SD-scrolling reference TUI and the 80->70 ms variant change); the final code is proven by the self-test"
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "jc",
+   "REF_MUTATE": "run_job_control_own_group",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:23:47Z",
+   "end_utc": "2026-10-04T06:25:59Z",
+   "exit": 0,
+   "checks": {
+    "run.stdio_passthrough": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.exit_codes": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.meta_child_exited": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.argv_exact": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.argv_invalid_utf8": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.meta_state": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.path_lookup": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.launch_failure_missing_absolute": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.launch_failure_missing_path": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.launch_failure_not_executable": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.child_killed_by_signal": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigterm": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigint": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sighup": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigquit": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.forward_sigwinch": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.repeated_signals": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.sigint_process_group": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.explicit_signal_with_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.stdio_inherited": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.proto_silent_stdout": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.cwd_env_inherited": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.no_surviving_child": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.usage_errors": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6a_pipeline_peer_not_stopped": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6a_background_script_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6d_shared_mode_explicit_signals": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "run.k6e_job_control": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": "child_always_default",
+    "inherited_sigpipe_ignore_kept": false,
+    "via_heimdall_proto": {
+     "default": {
+      "proto_rc": 141,
+      "child_exit_code": null,
+      "child_signal": 13
+     },
+     "ignore": {
+      "proto_rc": 141,
+      "child_exit_code": null,
+      "child_signal": 13
+     }
+    }
+   },
+   "note": "early working copy (before the SU/SD emulator fix, the SU/SD-scrolling reference TUI and the 80->70 ms variant change); the final code is proven by the self-test"
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "hm_k6d",
+   "REF_MUTATE": null,
+   "HM_G02_HARNESS_MUTATE": "k6d_env_not_shared",
+   "start_utc": "2026-10-04T06:26:12Z",
+   "end_utc": "2026-10-04T06:26:23Z",
+   "exit": 1,
+   "checks": {
+    "run.k6d_shared_mode_explicit_signals": {
+     "outcome": "error",
+     "first_failed": null,
+     "error": "harness precondition failed (invalid evidence, not a candidate result): harness precondition: in every K6d layout run the job that contains heimdall-proto holds the terminal foreground (sh -c: the scr"
+    }
+   }
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "hm_k6c",
+   "REF_MUTATE": null,
+   "HM_G02_HARNESS_MUTATE": "k6c_probe_no_yes",
+   "start_utc": "2026-10-04T06:26:23Z",
+   "end_utc": "2026-10-04T06:26:26Z",
+   "exit": 0,
+   "checks": {
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": "probe_invalid",
+    "inherited_sigpipe_ignore_kept": null,
+    "via_heimdall_proto": null
+   }
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "hm_jc",
+   "REF_MUTATE": null,
+   "HM_G02_HARNESS_MUTATE": "bash_no_job_control",
+   "start_utc": "2026-10-04T06:26:26Z",
+   "end_utc": "2026-10-04T06:26:26Z",
+   "exit": 1,
+   "checks": {
+    "run.k6e_job_control": {
+     "outcome": "error",
+     "first_failed": null,
+     "error": "harness precondition failed (invalid evidence, not a candidate result): [simple] harness precondition: bash enabled job control (no 'no job control' notice)"
+    }
+   }
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "base_tui",
+   "REF_MUTATE": null,
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:34:16Z",
+   "end_utc": "2026-10-04T06:34:36Z",
+   "exit": 0,
+   "checks": {
+    "harness.screen_scroll_region": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.non_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.first_frame": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_basic": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_unicode": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_case_insensitive": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_matches_host": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_backspace": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.esc_clears_filter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_enter_keeps_filter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.select_down_enter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.select_jk_keys": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.quit_q": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.ctrl_c": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.ctrl_c_in_filter_mode": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.sigterm_restores_terminal": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.sighup_exit_129": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.hangup_exit_129": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_edit_resets_selection": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.no_color": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_narrow_hides_host": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_relayout_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_tiny_no_crash": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.start_tiny_no_crash": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.no_agent_contact": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.non_regular_file": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.parser_resource_bound": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 4.8,
+    "max_ms": 5.1,
+    "first_keystroke_per_session_ms": [
+     4.0,
+     4.4,
+     5.1,
+     4.1,
+     4.8
+    ]
+   }
+  },
+  {
+   "harness": "2.3.0 working copy at run time",
+   "label": "hm_noscroll",
+   "REF_MUTATE": null,
+   "HM_G02_HARNESS_MUTATE": "emulator_no_scroll",
+   "start_utc": "2026-10-04T06:34:36Z",
+   "end_utc": "2026-10-04T06:34:54Z",
+   "exit": 1,
+   "checks": {
+    "harness.screen_scroll_region": {
+     "outcome": "fail",
+     "first_failed": "harness screen: after SU 8 in region 1-23 the list shows rows 8-30 and the status line is untouched",
+     "error": null
+    },
+    "tui.non_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.first_frame": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_basic": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_unicode": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_case_insensitive": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_matches_host": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_backspace": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.esc_clears_filter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_enter_keeps_filter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.select_down_enter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.select_jk_keys": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.quit_q": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.ctrl_c": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.ctrl_c_in_filter_mode": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.sigterm_restores_terminal": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.sighup_exit_129": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.hangup_exit_129": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_edit_resets_selection": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.no_color": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_narrow_hides_host": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_relayout_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_tiny_no_crash": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.start_tiny_no_crash": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.large_100_filter_latency": {
+     "outcome": "fail",
+     "first_failed": "[session 1] in filter mode with an empty filter the list shows the first destinations of large-100 in fixture order, from the first (list capacity measured: 23 rows)",
+     "error": null
+    },
+    "tui.no_agent_contact": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.non_regular_file": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.parser_resource_bound": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": null,
+    "max_ms": null,
+    "first_keystroke_per_session_ms": []
+   }
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "base_tui_newref",
+   "REF_MUTATE": null,
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:34:54Z",
+   "end_utc": "2026-10-04T06:35:12Z",
+   "exit": 0,
+   "checks": {
+    "tui.non_tty": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.first_frame": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_basic": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_unicode": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_case_insensitive": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_matches_host": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_backspace": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.esc_clears_filter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_enter_keeps_filter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.select_down_enter": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.select_jk_keys": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.quit_q": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.ctrl_c": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.ctrl_c_in_filter_mode": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.sigterm_restores_terminal": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.sighup_exit_129": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.hangup_exit_129": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.filter_edit_resets_selection": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.no_color": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_narrow_hides_host": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_relayout_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.resize_tiny_no_crash": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.start_tiny_no_crash": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.no_agent_contact": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.non_regular_file": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    },
+    "tui.parser_resource_bound": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 2.4,
+    "max_ms": 3.1,
+    "first_keystroke_per_session_ms": null
+   }
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "final-rows_lag",
+   "REF_MUTATE": "tui_rows_lag",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:55:26Z",
+   "end_utc": "2026-10-04T06:55:27Z",
+   "exit": 0,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 1.6,
+    "max_ms": 2.1,
+    "first_keystroke_per_session_ms": null
+   }
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "final-first_key",
+   "REF_MUTATE": "tui_slow_first_filter_key",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:55:27Z",
+   "end_utc": "2026-10-04T06:55:29Z",
+   "exit": 0,
+   "checks": {
+    "tui.large_100_filter_latency": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k17": {
+    "p95_ms": 1.9,
+    "max_ms": 156.4,
+    "first_keystroke_per_session_ms": null
+   }
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "final-sigpipe",
+   "REF_MUTATE": "run_child_sigpipe_ignored",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:55:29Z",
+   "end_utc": "2026-10-04T06:55:32Z",
+   "exit": 0,
+   "checks": {
+    "run.k6a_inherited_ignore": {
+     "outcome": "pass",
+     "first_failed": null,
+     "error": null
+    }
+   },
+   "k6c_sigpipe": {
+    "classification": null,
+    "inherited_sigpipe_ignore_kept": true,
+    "via_heimdall_proto": {
+     "default": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     },
+     "ignore": {
+      "proto_rc": 1,
+      "child_exit_code": 1,
+      "child_signal": null
+     }
+    }
+   }
+  },
+  {
+   "harness": "2.2.0 (round 4, before this fix)",
+   "label": "final-restop_late",
+   "REF_MUTATE": "run_fg_restop_late",
+   "HM_G02_HARNESS_MUTATE": null,
+   "start_utc": "2026-10-04T06:55:32Z",
+   "end_utc": "2026-10-04T06:55:42Z",
+   "exit": 1,
+   "checks": {
+    "run.k6e_job_control": {
+     "outcome": "fail",
+     "first_failed": "[simple: iteration 2 z-bg-fg] after `bg` the child runs again (heartbeat advances) and is not left stopped while the shell believes the job is running",
+     "error": null
+    }
+   }
+  }
+ ]
+}

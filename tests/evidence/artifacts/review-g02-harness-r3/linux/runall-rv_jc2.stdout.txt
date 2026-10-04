@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            34 ms  
+PASS  run.exit_codes                                  112 ms  
+PASS  run.meta_child_exited                            89 ms  
+PASS  run.argv_exact                                   41 ms  
+PASS  run.argv_invalid_utf8                            34 ms  
+PASS  run.meta_state                                  117 ms  
+PASS  run.path_lookup                                  32 ms  
+PASS  run.launch_failure_missing_absolute              24 ms  
+PASS  run.launch_failure_missing_path                  24 ms  
+PASS  run.launch_failure_not_executable                24 ms  
+PASS  run.child_killed_by_signal                       29 ms  
+PASS  run.forward_sigterm                             564 ms  
+PASS  run.forward_sigint                              571 ms  
+PASS  run.forward_sighup                              571 ms  
+PASS  run.forward_sigquit                             580 ms  
+PASS  run.forward_sigwinch                            629 ms  
+PASS  run.repeated_signals                           3519 ms  
+PASS  run.sigint_process_group                        869 ms  
+PASS  run.explicit_signal_with_tty                   7497 ms  
+PASS  run.stdio_inherited                             307 ms  
+PASS  run.proto_silent_stdout                          58 ms  
+PASS  run.cwd_env_inherited                            33 ms  
+PASS  run.no_surviving_child                           38 ms  
+PASS  run.usage_errors                                104 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2026 ms  
+PASS  run.k6a_background_script_tty                  2494 ms  
+PASS  run.k6a_inherited_ignore                       2756 ms  
+PASS  run.k6d_shared_mode_explicit_signals          10376 ms  
+PASS  run.k6e_job_control                           25814 ms  
+
+summary: {'total': 29, 'pass': 29, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/out/runall-rv_jc2.json

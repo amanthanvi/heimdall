@@ -1,0 +1,30 @@
+33a34,36
+> RM = set(x for x in os.environ.get("REV_MUTATE", "").split(",") if x)
+> 
+> 
+74c77
+<         narrow = cols < 50 and "tui_ignore_resize_hide" not in MUT
+---
+>         narrow = cols < (60 if "tui_narrow_threshold_60" in RM else 50) and "tui_ignore_resize_hide" not in MUT
+83c86
+<         status = "%d/%d  /%s%s" % (len(sh), len(dests), st["filter"], "_" if st["filtering"] else "")
+---
+>         status = "%d/%d  /%s%s" % (len(sh), len(dests), st["filter"] if (st["filtering"] or "tui_status_filter_only_while_typing" not in RM) else "", "_" if st["filtering"] else "")
+179a183,186
+>             elif key == "BACKSPACE" and "tui_slow_filter" in RM and len(dests) > 50:
+>                 time.sleep(1.0)
+>                 st["filter"] = st["filter"][:-1]
+>                 st["sel"] = 0
+186a194,195
+>                 if "tui_slow_filter" in RM and len(dests) > 50:
+>                     time.sleep(1.0)
+254a264,272
+>     if "tui_stty_absolute" in RM:
+>         import subprocess
+>         subprocess.run(["/bin/stty", "-g"], stdin=0, capture_output=True, timeout=5)
+>     if "tui_tmux_probe_by_term" in RM and os.environ.get("TERM", "").startswith(("tmux", "screen")):
+>         import subprocess
+>         try:
+>             subprocess.run(["tmux", "display-message", "-p", "x"], capture_output=True, timeout=5)
+>         except (OSError, subprocess.SubprocessError):
+>             pass

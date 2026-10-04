@@ -1,0 +1,342 @@
+[
+ {
+  "mutation": "type_error_echoes_value",
+  "description": "revision/port error message quotes the offending value (serde-style 'invalid value: 70000')",
+  "scope": "usage.*,profile.*,version.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 32,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 32,
+   "duration_s": 5.3
+  },
+  "seconds": 5.4
+ },
+ {
+  "mutation": "malformed_echo_source_line",
+  "description": "malformed TOML: stderr shows the source line(s) around the error (toml-crate style snippet)",
+  "scope": "usage.*,profile.*,version.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 32,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 32,
+   "duration_s": 5.3
+  },
+  "seconds": 5.4
+ },
+ {
+  "mutation": "schema_version_warning_echoes_name",
+  "description": "unsupported-schema_version warning also quotes the value of `name`",
+  "scope": "usage.*,profile.*,version.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 32,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 32,
+   "duration_s": 5.3
+  },
+  "seconds": 5.4
+ },
+ {
+  "mutation": "dup_check_quadratic",
+  "description": "duplicate id/alias detection uses lists (O(n^2) in the number of destinations)",
+  "scope": "usage.*,profile.*,version.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 32,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 32,
+   "duration_s": 5.3
+  },
+  "seconds": 5.4
+ },
+ {
+  "mutation": "profile_tmp_hardcoded",
+  "description": "profile show writes a cache file to a hard-coded /tmp path (K11)",
+  "scope": "usage.*,profile.*,version.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 32,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 32,
+   "duration_s": 5.3
+  },
+  "seconds": 5.4
+ },
+ {
+  "mutation": "agent_per_read_timeout",
+  "description": "--timeout-ms restarts before every read (per-read socket timeout, not a total deadline)",
+  "scope": "agent.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 10.1
+  },
+  "seconds": 10.2
+ },
+ {
+  "mutation": "agent_default_timeout_60s",
+  "description": "default timeout without --timeout-ms is 60 s instead of 5 s",
+  "scope": "agent.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 10.1
+  },
+  "seconds": 10.2
+ },
+ {
+  "mutation": "agent_nkeys_short_tolerated",
+  "description": "nkeys within the bound but fewer keys in the frame: returns the keys present (AGENT_OK)",
+  "scope": "agent.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 10.6
+  },
+  "seconds": 10.7
+ },
+ {
+  "mutation": "agent_zero_frame_crash",
+  "description": "reply frame of length 0 is indexed: IndexError traceback, exit 1",
+  "scope": "agent.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 10.3
+  },
+  "seconds": 10.4
+ },
+ {
+  "mutation": "agent_short_answer_crash",
+  "description": "type-12 frame shorter than 5 bytes: struct.error traceback, exit 1",
+  "scope": "agent.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 10.4
+  },
+  "seconds": 10.5
+ },
+ {
+  "mutation": "agent_keyblob_inner_clamp",
+  "description": "key-type string length inside key_blob exceeding the blob is clamped instead of rejected",
+  "scope": "agent.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 10.6
+  },
+  "seconds": 10.6
+ },
+ {
+  "mutation": "run_second_signal_exits",
+  "description": "a second SIGINT/SIGTERM makes heimdall-proto exit at once (force-quit), not waiting for the child",
+  "scope": "run.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 29,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 29,
+   "duration_s": 20.2
+  },
+  "seconds": 20.3
+ },
+ {
+  "mutation": "run_pump_output",
+  "description": "child stdout/stderr are pipes copied byte-exactly by heimdall-proto (child loses the inherited fds / tty)",
+  "scope": "run.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 29,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 29,
+   "duration_s": 20.1
+  },
+  "seconds": 20.2
+ },
+ {
+  "mutation": "run_child_new_session",
+  "description": "child started in a new session (setsid): no controlling terminal, /dev/tty unavailable",
+  "scope": "run.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 29,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 29,
+   "duration_s": 20.2
+  },
+  "seconds": 20.3
+ },
+ {
+  "mutation": "run_meta_tmp_sibling",
+  "description": "--meta-file written via '<path>.tmp' which is left next to it (K11 write outside named paths)",
+  "scope": "run.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 29,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 29,
+   "duration_s": 20.2
+  },
+  "seconds": 20.3
+ },
+ {
+  "mutation": "tui_narrow_threshold_60",
+  "description": "alias-only layout below 60 columns instead of below 50",
+  "scope": "tui.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 19.4
+  },
+  "seconds": 19.5
+ },
+ {
+  "mutation": "tui_slow_filter",
+  "description": "each filter edit on a >50-destination profile takes 1.0 s",
+  "scope": "tui.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 25.6
+  },
+  "seconds": 25.7
+ },
+ {
+  "mutation": "tui_status_filter_only_while_typing",
+  "description": "status line shows the active filter only while in filter mode (lost after Enter)",
+  "scope": "tui.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 19.4
+  },
+  "seconds": 19.4
+ },
+ {
+  "mutation": "tui_stty_absolute",
+  "description": "TUI executes /bin/stty -g by absolute path at start (K16 helper process)",
+  "scope": "tui.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 19.7
+  },
+  "seconds": 19.8
+ },
+ {
+  "mutation": "tui_tmux_probe_by_term",
+  "description": "TUI runs `tmux display-message` (PATH lookup) when TERM starts with tmux/screen (K16)",
+  "scope": "tui.*,common.*,canary.*",
+  "exit_code": 0,
+  "caught": false,
+  "failing_checks": [],
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 19.5
+  },
+  "seconds": 19.6
+ }
+]

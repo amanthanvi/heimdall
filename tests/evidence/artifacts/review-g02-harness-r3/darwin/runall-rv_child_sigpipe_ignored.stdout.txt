@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=darwin-arm64 bin=/tmp/r3rev/m/rv_child_sigpipe_ignored/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            56 ms  
+PASS  run.exit_codes                                  183 ms  
+PASS  run.meta_child_exited                            95 ms  
+PASS  run.argv_exact                                   48 ms  
+PASS  run.argv_invalid_utf8                            48 ms  
+PASS  run.meta_state                                  172 ms  
+PASS  run.path_lookup                                  48 ms  
+PASS  run.launch_failure_missing_absolute              33 ms  
+PASS  run.launch_failure_missing_path                  35 ms  
+PASS  run.launch_failure_not_executable                33 ms  
+PASS  run.child_killed_by_signal                       46 ms  
+PASS  run.forward_sigterm                             577 ms  
+PASS  run.forward_sigint                              587 ms  
+PASS  run.forward_sighup                              603 ms  
+PASS  run.forward_sigquit                             606 ms  
+PASS  run.forward_sigwinch                            667 ms  
+PASS  run.repeated_signals                           3503 ms  
+PASS  run.sigint_process_group                        903 ms  
+PASS  run.explicit_signal_with_tty                   7877 ms  
+PASS  run.stdio_inherited                             328 ms  
+PASS  run.proto_silent_stdout                         108 ms  
+PASS  run.cwd_env_inherited                            45 ms  
+PASS  run.no_surviving_child                           45 ms  
+PASS  run.usage_errors                                120 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2057 ms  
+PASS  run.k6a_background_script_tty                  2575 ms  
+PASS  run.k6a_inherited_ignore                       2892 ms  
+PASS  run.k6d_shared_mode_explicit_signals          10786 ms  
+PASS  run.k6e_job_control                           26180 ms  
+
+summary: {'total': 29, 'pass': 29, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/darwin/runall-rv_child_sigpipe_ignored.json

@@ -1,0 +1,116 @@
+{
+ "harness_env_had": "SSH_AUTH_SOCK=/tmp/hm-review-sentinel-agent.sock (nonexistent sentinel, not a real agent)",
+ "observed": [
+  {
+   "invocation": [
+    "frobnicate"
+   ],
+   "env_keys": [
+    "HM_G02_SECRET_ENV",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "TERM",
+    "TMPDIR",
+    "__CF_USER_TEXT_ENCODING"
+   ],
+   "HOME_in_sandbox": true,
+   "TMPDIR_in_sandbox": true,
+   "SSH_AUTH_SOCK_present": false,
+   "harness_SSH_AUTH_SOCK_sentinel_leaked": false,
+   "HM_G02_SECRET_ENV_is_canary": true,
+   "PATH_entry_count": 30,
+   "PATH_entries_under_/Users": 11,
+   "isatty_0_1_2": [
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "invocation": [
+    "version",
+    "--json"
+   ],
+   "env_keys": [
+    "HM_G02_SECRET_ENV",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "TERM",
+    "TMPDIR",
+    "__CF_USER_TEXT_ENCODING"
+   ],
+   "HOME_in_sandbox": true,
+   "TMPDIR_in_sandbox": true,
+   "SSH_AUTH_SOCK_present": false,
+   "harness_SSH_AUTH_SOCK_sentinel_leaked": false,
+   "HM_G02_SECRET_ENV_is_canary": true,
+   "PATH_entry_count": 30,
+   "PATH_entries_under_/Users": 11,
+   "isatty_0_1_2": [
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "invocation": [
+    "agent",
+    "list"
+   ],
+   "env_keys": [
+    "HM_G02_SECRET_ENV",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "TERM",
+    "TMPDIR",
+    "__CF_USER_TEXT_ENCODING"
+   ],
+   "HOME_in_sandbox": true,
+   "TMPDIR_in_sandbox": true,
+   "SSH_AUTH_SOCK_present": false,
+   "harness_SSH_AUTH_SOCK_sentinel_leaked": false,
+   "HM_G02_SECRET_ENV_is_canary": true,
+   "PATH_entry_count": 30,
+   "PATH_entries_under_/Users": 11,
+   "isatty_0_1_2": [
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "invocation": [
+    "tui",
+    "--file"
+   ],
+   "env_keys": [
+    "HM_G02_SECRET_ENV",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "TERM",
+    "TMPDIR",
+    "__CF_USER_TEXT_ENCODING"
+   ],
+   "HOME_in_sandbox": true,
+   "TMPDIR_in_sandbox": true,
+   "SSH_AUTH_SOCK_present": false,
+   "harness_SSH_AUTH_SOCK_sentinel_leaked": false,
+   "HM_G02_SECRET_ENV_is_canary": true,
+   "PATH_entry_count": 30,
+   "PATH_entries_under_/Users": 11,
+   "isatty_0_1_2": [
+    true,
+    true,
+    false
+   ]
+  }
+ ]
+}

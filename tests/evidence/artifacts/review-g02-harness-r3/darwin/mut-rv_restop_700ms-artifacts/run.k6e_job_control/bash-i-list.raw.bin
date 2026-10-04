@@ -1,0 +1,30 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5; echo "K6E_LIST_RC=$?"
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E_LIST_RC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-2
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ exit
+exit
+There are stopped jobs.
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ exit
+exit

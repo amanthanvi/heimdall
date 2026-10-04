@@ -1,0 +1,67 @@
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5; echo "K6E_LIST_RC=$?"
+[?2004l^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E_LIST_RC=148
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-2
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-2
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-3
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-3
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-4
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-4
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-5
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-5
+[?2004hHMPS1$ echo "K6E_RC=$? K6E_JOBS=$(jobs -p | wc -l)"
+[?2004lK6E_RC=0 K6E_JOBS=0
+[?2004hHMPS1$ exit
+[?2004lexit
+exit

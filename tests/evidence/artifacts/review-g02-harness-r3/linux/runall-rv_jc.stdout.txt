@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            40 ms  
+PASS  run.exit_codes                                  112 ms  
+PASS  run.meta_child_exited                            54 ms  
+PASS  run.argv_exact                                   30 ms  
+PASS  run.argv_invalid_utf8                            30 ms  
+PASS  run.meta_state                                  103 ms  
+PASS  run.path_lookup                                  30 ms  
+PASS  run.launch_failure_missing_absolute              22 ms  
+PASS  run.launch_failure_missing_path                  22 ms  
+PASS  run.launch_failure_not_executable                22 ms  
+PASS  run.child_killed_by_signal                       28 ms  
+PASS  run.forward_sigterm                             566 ms  
+PASS  run.forward_sigint                              584 ms  
+PASS  run.forward_sighup                              572 ms  
+PASS  run.forward_sigquit                             576 ms  
+PASS  run.forward_sigwinch                            663 ms  
+PASS  run.repeated_signals                           3530 ms  
+PASS  run.sigint_process_group                        877 ms  
+PASS  run.explicit_signal_with_tty                   7610 ms  
+PASS  run.stdio_inherited                             253 ms  
+PASS  run.proto_silent_stdout                          70 ms  
+PASS  run.cwd_env_inherited                            30 ms  
+PASS  run.no_surviving_child                           27 ms  
+PASS  run.usage_errors                                112 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2030 ms  
+PASS  run.k6a_background_script_tty                  2512 ms  
+PASS  run.k6a_inherited_ignore                       2752 ms  
+PASS  run.k6d_shared_mode_explicit_signals          10611 ms  
+FAIL  run.k6e_job_control                           12012 ms  [simple: iteration 1 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it); [simple] 
+
+summary: {'total': 29, 'pass': 28, 'fail': 1, 'error': 0, 'skipped': 0}  status=in_progress verdict=fail  record=/out/runall-rv_jc.json

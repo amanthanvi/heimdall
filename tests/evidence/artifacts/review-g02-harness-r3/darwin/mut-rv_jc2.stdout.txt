@@ -1,0 +1,7 @@
+G02 conformance: candidate=go platform=darwin-arm64 bin=/tmp/r3rev/m/rv_jc2/heimdall-proto checks=4 pyte=yes
+PASS  run.k6a_inherited_ignore                       2855 ms  
+PASS  run.k6d_shared_mode_explicit_signals          11033 ms  
+PASS  run.k6e_job_control                           26767 ms  
+PASS  tui.large_100_filter_latency                   1262 ms  
+
+summary: {'total': 4, 'pass': 4, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/darwin/mut-rv_jc2.json

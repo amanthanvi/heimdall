@@ -1,0 +1,13 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ bg
+[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+HMPS1$ exit
+exit
+exit

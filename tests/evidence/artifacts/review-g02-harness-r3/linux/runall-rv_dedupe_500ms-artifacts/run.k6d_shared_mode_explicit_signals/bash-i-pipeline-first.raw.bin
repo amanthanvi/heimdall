@@ -1,0 +1,12 @@
+[?2004hHMPS1$ "$P" run -- "$Y" /tmp/hmg02-tlxq0zpz/066-k6d-pipeline-first-sigint/c.py /tmp/hmg02-tlxq0zpz/066-k6d-pipeline-first-sigint | /bin/cat; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 7 0
+[?2004hHMPS1$ "$P" run -- "$Y" /tmp/hmg02-tlxq0zpz/067-k6d-pipeline-first-sigterm/c.py /tmp/hmg02-tlxq0zpz/067-k6d-pipeline-first-sigterm | /bin/cat; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 7 0
+[?2004hHMPS1$ "$P" run -- "$Y" /tmp/hmg02-tlxq0zpz/068-k6d-pipeline-first-sighup/c.py /tmp/hmg02-tlxq0zpz/068-k6d-pipeline-first-sighup | /bin/cat; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 7 0
+[?2004hHMPS1$ "$P" run -- "$Y" /tmp/hmg02-tlxq0zpz/069-k6d-pipeline-first-sigquit/c.py /tmp/hmg02-tlxq0zpz/069-k6d-pipeline-first-sigquit | /bin/cat; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 7 0
+[?2004hHMPS1$ "$P" run -- "$Y" /tmp/hmg02-tlxq0zpz/070-k6d-pipeline-first-sigwinch/c.py /tmp/hmg02-tlxq0zpz/070-k6d-pipeline-first-sigwinch | /bin/cat; echo "K6D_DONE ${PIPESTATUS[*]}"
+[?2004lK6D_DONE 7 0
+[?2004hHMPS1$ exit
+[?2004lexit

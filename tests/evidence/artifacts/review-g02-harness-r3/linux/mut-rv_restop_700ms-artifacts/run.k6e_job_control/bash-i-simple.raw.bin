@@ -1,0 +1,29 @@
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004l^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-B-1
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-2
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ bg
+[?2004l[1]+ "$P" run -- "$Y" "$D/c.py" "$D" 5 &
+[?2004hHMPS1$ exit
+[?2004lexit
+There are stopped jobs.
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+[?2004hHMPS1$ exit
+[?2004lexit

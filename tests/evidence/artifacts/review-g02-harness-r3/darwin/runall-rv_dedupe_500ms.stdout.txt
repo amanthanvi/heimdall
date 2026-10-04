@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=darwin-arm64 bin=/tmp/r3rev/m/rv_dedupe_500ms/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            65 ms  
+PASS  run.exit_codes                                  217 ms  
+PASS  run.meta_child_exited                           108 ms  
+PASS  run.argv_exact                                   57 ms  
+PASS  run.argv_invalid_utf8                            59 ms  
+PASS  run.meta_state                                  211 ms  
+PASS  run.path_lookup                                  57 ms  
+PASS  run.launch_failure_missing_absolute              39 ms  
+PASS  run.launch_failure_missing_path                  41 ms  
+PASS  run.launch_failure_not_executable                40 ms  
+PASS  run.child_killed_by_signal                       55 ms  
+PASS  run.forward_sigterm                             579 ms  
+PASS  run.forward_sigint                              596 ms  
+PASS  run.forward_sighup                              575 ms  
+PASS  run.forward_sigquit                             600 ms  
+PASS  run.forward_sigwinch                            653 ms  
+FAIL  run.repeated_signals                           3511 ms  [sigint+sigint] child received both signals, once each, in order; [sigterm+sigterm] child received both signal
+PASS  run.sigint_process_group                        863 ms  
+FAIL  run.explicit_signal_with_tty                   7606 ms  [SIGINT twice] the child received both explicitly sent signals, once each
+PASS  run.stdio_inherited                             332 ms  
+PASS  run.proto_silent_stdout                         100 ms  
+PASS  run.cwd_env_inherited                            51 ms  
+PASS  run.no_surviving_child                           52 ms  
+PASS  run.usage_errors                                132 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2059 ms  
+PASS  run.k6a_background_script_tty                  2531 ms  
+PASS  run.k6a_inherited_ignore                       2844 ms  
+PASS  run.k6d_shared_mode_explicit_signals          10808 ms  
+PASS  run.k6e_job_control                           26217 ms  
+
+summary: {'total': 29, 'pass': 27, 'fail': 2, 'error': 0, 'skipped': 0}  status=in_progress verdict=fail  record=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/darwin/runall-rv_dedupe_500ms.json

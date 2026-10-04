@@ -1,0 +1,110 @@
+34a35,36
+> RM = set(x for x in os.environ.get("REV_MUTATE", "").split(",") if x)
+> _TO = {"s": 5.0}
+265c267,268
+<             "unsupported schema_version %s" % (sv if is_int(sv) else "(non-integer)")]
+---
+>             "unsupported schema_version %s" % (sv if is_int(sv) else "(non-integer)")
+>             + ((" in profile %s" % doc.get("name")) if "schema_version_warning_echoes_name" in RM else "")]
+279c282
+<         return bad("revision", "revision must be an integer >= 1")
+---
+>         return bad("revision", "revision must be an integer >= 1" + (" (invalid value: %r)" % (rev,) if "type_error_echoes_value" in RM else ""))
+284c287
+<     ids, aliases = set(), set()
+---
+>     ids, aliases = (([], []) if "dup_check_quadratic" in RM else (set(), set()))
+297c300
+<             return bad("%s.port" % base, "port must be an integer in 1..65535")
+---
+>             return bad("%s.port" % base, "port must be an integer in 1..65535" + (" (invalid value: %r)" % (port,) if "type_error_echoes_value" in RM else ""))
+308,309c311,312
+<         ids.add(d["id"])
+<         aliases.add(d["alias"])
+---
+>         (ids.append if isinstance(ids, list) else ids.add)(d["id"])
+>         (aliases.append if isinstance(aliases, list) else aliases.add)(d["alias"])
+350c353,360
+<     except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+---
+>     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as _e:
+>         if "malformed_echo_source_line" in RM:
+>             import re as _re
+>             _m = _re.search(r"line (\d+)", str(_e))
+>             _lines = raw.decode("utf-8", "replace").splitlines()
+>             _n = int(_m.group(1)) if _m else len(_lines)
+>             for _k in range(max(1, _n - 1), min(len(_lines), _n) + 1):
+>                 err("  %d | %s" % (_k, _lines[_k - 1]))
+380a391,393
+>     if "profile_tmp_hardcoded" in RM:
+>         with open("/tmp/hm-review-k11-%d.cache" % os.getuid(), "w") as fh:
+>             fh.write("x")
+407a421,423
+>         if "agent_per_read_timeout" in RM and not getattr(_wait_readable, "_armed", False):
+>             _wait_readable._armed = True
+>             deadline = time.monotonic() + _TO["s"]
+412a429
+>             _wait_readable._armed = False
+468c485
+<     if len(body) < 5:
+---
+>     if len(body) < 5 and "agent_short_answer_crash" not in RM:
+476a494,495
+>         if "agent_nkeys_short_tolerated" in RM and pos >= len(body):
+>             break
+481c500,504
+<         kt, _ = _take_string(blob, 0)
+---
+>         if "agent_keyblob_inner_clamp" in RM and len(blob) >= 4:
+>             (_n,) = struct.unpack(">I", blob[:4])
+>             kt = blob[4:4 + _n]
+>         else:
+>             kt, _ = _take_string(blob, 0)
+537c560
+<             if length == 0:
+---
+>             if length == 0 and "agent_zero_frame_crash" not in RM:
+566c589,590
+<         timeout_ms = int(flags.get("--timeout-ms", "5000"))
+---
+>         timeout_ms = int(flags.get("--timeout-ms", "60000" if "agent_default_timeout_60s" in RM else "5000"))
+>         _TO["s"] = timeout_ms / 1000.0
+597a622,624
+>     if "run_meta_tmp_sibling" in RM:
+>         with open(path + ".tmp", "w", encoding="utf-8") as fh:
+>             fh.write(json.dumps(doc, ensure_ascii=False) + "\n")
+632a660,664
+>     if "run_pump_output" in RM:
+>         popen_kw["stdout"] = subprocess.PIPE
+>         popen_kw["stderr"] = subprocess.PIPE
+>     if "run_child_new_session" in RM:
+>         popen_kw["start_new_session"] = True
+640a673,675
+>     if "run_leaves_tty_raw" in RM and os.isatty(0):
+>         import tty as _tty
+>         _tty.setraw(0)          # pty-proxy style raw mode, never restored
+664a700,701
+> 
+>     _seen = {}
+666a704,707
+>         if "run_second_signal_exits" in RM and signum in (signal.SIGINT, signal.SIGTERM):
+>             _seen[signum] = _seen.get(signum, 0) + 1
+>             if _seen[signum] >= 2:
+>                 os._exit(128 + signum)
+702a744,755
+>     if "run_pump_output" in RM:
+>         import threading as _th
+>         def _pump(src, fd):
+>             while True:
+>                 b = os.read(src.fileno(), 65536)
+>                 if not b:
+>                     return
+>                 while b:
+>                     b = b[os.write(fd, b):]
+>         _ts = [_th.Thread(target=_pump, args=(child.stdout, 1)), _th.Thread(target=_pump, args=(child.stderr, 2))]
+>         for _t in _ts:
+>             _t.start()
+703a757,759
+>     if "run_pump_output" in RM:
+>         for _t in _ts:
+>             _t.join()

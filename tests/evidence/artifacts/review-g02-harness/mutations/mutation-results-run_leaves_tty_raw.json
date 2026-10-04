@@ -1,0 +1,35 @@
+[
+ {
+  "mutation": "run_leaves_tty_raw",
+  "description": "when stdin is a tty, heimdall-proto puts it in raw mode for the child and never restores it",
+  "scope": "run.*,common.*,canary.*",
+  "exit_code": 1,
+  "caught": true,
+  "failing_checks": [
+   {
+    "id": "run.explicit_signal_with_tty",
+    "outcome": "fail",
+    "first": "[terminal Ctrl-C] heimdall-proto exited with the child's status (7)"
+   },
+   {
+    "id": "run.k6a_pipeline_peer_not_stopped",
+    "outcome": "fail",
+    "first": "the peer's tty read returned the typed line (not stopped by SIGTTIN, no EIO)"
+   },
+   {
+    "id": "run.k6a_background_script_tty",
+    "outcome": "fail",
+    "first": "[stdin-tty] the script's tty read returned the typed line (no EIO)"
+   }
+  ],
+  "summary": {
+   "pass": 26,
+   "fail": 3,
+   "error": 0,
+   "skipped": 0,
+   "total": 29,
+   "duration_s": 27.4
+  },
+  "seconds": 27.5
+ }
+]

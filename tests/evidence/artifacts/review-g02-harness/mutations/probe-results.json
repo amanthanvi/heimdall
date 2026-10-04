@@ -1,0 +1,303 @@
+[
+ {
+  "mutation": "agent_zero_frame_crash",
+  "unmutated": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "seconds": 0.031,
+   "stderr_has_traceback": false
+  },
+  "mutant": {
+   "exit": 1,
+   "code": null,
+   "seconds": 0.039,
+   "stderr_has_traceback": true
+  },
+  "deciding_observation": "length-0 frame",
+  "observable_defect": true
+ },
+ {
+  "mutation": "agent_short_answer_crash",
+  "unmutated": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "seconds": 0.032,
+   "stderr_has_traceback": false
+  },
+  "mutant": {
+   "exit": 1,
+   "code": null,
+   "seconds": 0.044,
+   "stderr_has_traceback": true
+  },
+  "deciding_observation": "type-12 frame of 3 bytes",
+  "observable_defect": true
+ },
+ {
+  "mutation": "agent_nkeys_short_tolerated",
+  "unmutated": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "seconds": 0.031,
+   "stderr_has_traceback": false
+  },
+  "mutant": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "seconds": 0.031,
+   "stderr_has_traceback": false
+  },
+  "deciding_observation": "nkeys=3 with 2 keys in the frame",
+  "observable_defect": true
+ },
+ {
+  "mutation": "agent_keyblob_inner_clamp",
+  "unmutated": {
+   "exit": 5,
+   "code": "AGENT_PROTOCOL_ERROR",
+   "seconds": 0.03,
+   "stderr_has_traceback": false
+  },
+  "mutant": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "seconds": 0.031,
+   "stderr_has_traceback": false
+  },
+  "deciding_observation": "key_blob inner string length 500 > blob (contract does not name this case: ambiguity)",
+  "observable_defect": true
+ },
+ {
+  "mutation": "agent_per_read_timeout",
+  "unmutated": {
+   "exit": 5,
+   "code": "AGENT_UNAVAILABLE",
+   "seconds": 1.039,
+   "stderr_has_traceback": false
+  },
+  "mutant": {
+   "exit": 0,
+   "code": "AGENT_OK",
+   "seconds": 11.14,
+   "stderr_has_traceback": false
+  },
+  "deciding_observation": "reply of 72 bytes dripped at 1 byte/150 ms with --timeout-ms 1000",
+  "observable_defect": true
+ },
+ {
+  "mutation": "agent_default_timeout_60s",
+  "unmutated": {
+   "exit": 5,
+   "seconds": 5.043,
+   "timed_out_at_12s": false
+  },
+  "mutant": {
+   "exit": null,
+   "seconds": 12,
+   "timed_out_at_12s": true
+  },
+  "deciding_observation": "silent agent, default --timeout-ms",
+  "observable_defect": true
+ },
+ {
+  "mutation": "type_error_echoes_value",
+  "unmutated": {
+   "exit": 2,
+   "value_70000_echoed": false
+  },
+  "mutant": {
+   "exit": 2,
+   "value_70000_echoed": true
+  },
+  "deciding_observation": "invalid-port.toml value 70000 in output",
+  "observable_defect": true
+ },
+ {
+  "mutation": "malformed_echo_source_line",
+  "unmutated": {
+   "exit": 2,
+   "secret_marker_in_output": false
+  },
+  "mutant": {
+   "exit": 2,
+   "secret_marker_in_output": true
+  },
+  "deciding_observation": "malformed TOML whose error line holds a secret-like value",
+  "observable_defect": true
+ },
+ {
+  "mutation": "schema_version_warning_echoes_name",
+  "unmutated": {
+   "exit": 2,
+   "warnings": [
+    "unsupported schema_version 2"
+   ],
+   "name_value_in_warning": false
+  },
+  "mutant": {
+   "exit": 2,
+   "warnings": [
+    "unsupported schema_version 2 in profile homelab"
+   ],
+   "name_value_in_warning": true
+  },
+  "deciding_observation": "warning text",
+  "observable_defect": true
+ },
+ {
+  "mutation": "dup_check_quadratic",
+  "unmutated": {
+   "exit": 0,
+   "wall_s": 0.1477,
+   "maxrss_mib": 37.7,
+   "destinations": 14667,
+   "bytes": 1048514
+  },
+  "mutant": {
+   "exit": 0,
+   "wall_s": 1.2051,
+   "maxrss_mib": 38.1,
+   "destinations": 14667,
+   "bytes": 1048514
+  },
+  "deciding_observation": "K15: 1 MiB profile of 14667 [[destinations]] tables (shape not in the harness's 13)",
+  "observable_defect": false,
+  "note": "unmutated reference K15 verdict on this shape: wall 0.15 s (bound 2 s)"
+ },
+ {
+  "mutation": "profile_tmp_hardcoded",
+  "unmutated": {
+   "file_written_in_/tmp": false
+  },
+  "mutant": {
+   "file_written_in_/tmp": true
+  },
+  "deciding_observation": "file created in /tmp (outside TMPDIR)",
+  "observable_defect": true
+ },
+ {
+  "mutation": "run_second_signal_exits",
+  "unmutated": {
+   "proto_exit": 7,
+   "child_finished_before_proto_exit": true,
+   "child_finished_eventually": true
+  },
+  "mutant": {
+   "proto_exit": 130,
+   "child_finished_before_proto_exit": false,
+   "child_finished_eventually": false
+  },
+  "deciding_observation": "two SIGINTs 200 ms apart to the proto pid",
+  "observable_defect": true
+ },
+ {
+  "mutation": "run_pump_output",
+  "unmutated": {
+   "isatty": [
+    true,
+    true,
+    false
+   ],
+   "sid_eq_parent": true,
+   "dev_tty": true
+  },
+  "mutant": {
+   "isatty": [
+    true,
+    false,
+    false
+   ],
+   "sid_eq_parent": true,
+   "dev_tty": true
+  },
+  "deciding_observation": "child's isatty(stdout, stderr) under a pty",
+  "observable_defect": true
+ },
+ {
+  "mutation": "run_child_new_session",
+  "unmutated": {
+   "isatty": [
+    true,
+    true,
+    false
+   ],
+   "sid_eq_parent": true,
+   "dev_tty": true
+  },
+  "mutant": {
+   "isatty": [
+    true,
+    true,
+    false
+   ],
+   "sid_eq_parent": false,
+   "dev_tty": false
+  },
+  "deciding_observation": "child can open /dev/tty (controlling terminal) under a pty (contract: 'inherits' does not name the ctty)",
+  "observable_defect": true
+ },
+ {
+  "mutation": "run_meta_tmp_sibling",
+  "unmutated": {
+   "files_in_meta_dir": [
+    "meta.json"
+   ]
+  },
+  "mutant": {
+   "files_in_meta_dir": [
+    "meta.json",
+    "meta.json.tmp"
+   ]
+  },
+  "deciding_observation": "files next to --meta-file",
+  "observable_defect": true
+ },
+ {
+  "mutation": "tui_narrow_threshold_60",
+  "unmutated": {
+   "cols": 55,
+   "shows_account_at_host": true
+  },
+  "mutant": {
+   "cols": 55,
+   "shows_account_at_host": false
+  },
+  "deciding_observation": "55-column terminal (contract: host shown at >= 50)",
+  "observable_defect": true
+ },
+ {
+  "mutation": "tui_status_filter_only_while_typing",
+  "unmutated": {
+   "status_line_after_enter": "1/3  /nas",
+   "filter_text_shown": true
+  },
+  "mutant": {
+   "status_line_after_enter": "1/3  /",
+   "filter_text_shown": false
+  },
+  "deciding_observation": "status line after Enter keeps filter 'nas' active",
+  "observable_defect": true
+ },
+ {
+  "mutation": "tui_slow_filter",
+  "unmutated": {
+   "keystroke_to_update_ms": 2
+  },
+  "mutant": {
+   "keystroke_to_update_ms": 1007
+  },
+  "deciding_observation": "large-100 keystroke-to-update latency",
+  "observable_defect": true
+ },
+ {
+  "mutation": "tui_tmux_probe_by_term",
+  "unmutated": {
+   "tripwire_tmux_ran": false
+  },
+  "mutant": {
+   "tripwire_tmux_ran": true
+  },
+  "deciding_observation": "TERM=tmux-256color with a tmux tripwire on PATH",
+  "observable_defect": true
+ }
+]

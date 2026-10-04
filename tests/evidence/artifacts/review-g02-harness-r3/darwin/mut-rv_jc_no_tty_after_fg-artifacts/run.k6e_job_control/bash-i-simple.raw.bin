@@ -1,0 +1,12 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5
+^Z
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ fg
+"$P" run -- "$Y" "$D/c.py" "$D" 5
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" "$D" 5
+HMPS1$ exit
+exit
+There are stopped jobs.
+HMPS1$ exit
+exit

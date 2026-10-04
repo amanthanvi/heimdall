@@ -1,0 +1,12 @@
+7c1a609e136b5754  tests/g02/conformance.py
+13b92df6d9776620  tests/g02/harness_lib.py
+dcbe77b74e193944  tests/g02/minischema.py
+7ce947695e42dba0  tests/g02/pty_shim.py
+4250bc335327eaa5  tests/g02/reference_impl.py
+e2b2fee2473948d5  tests/g02/reference_tui.py
+a150ea37791bfd88  tests/g02/rss_wrap.py
+82be146bff926335  tests/g02/selftest.py
+3489f76ca5546438  tests/g02/linux/Dockerfile
+52517558892c4581  tests/g02/linux/Dockerfile.dockerignore
+ed541efe159cc4fd  tests/g02/linux/run.sh
+a2b8808093c1bbcf  tests/fixtures/fake-agent/fake_agent.py

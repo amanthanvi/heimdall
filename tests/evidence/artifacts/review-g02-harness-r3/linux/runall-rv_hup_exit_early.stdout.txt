@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            32 ms  
+PASS  run.exit_codes                                  106 ms  
+PASS  run.meta_child_exited                            53 ms  
+PASS  run.argv_exact                                   30 ms  
+PASS  run.argv_invalid_utf8                            30 ms  
+PASS  run.meta_state                                  104 ms  
+PASS  run.path_lookup                                  29 ms  
+PASS  run.launch_failure_missing_absolute              22 ms  
+PASS  run.launch_failure_missing_path                  22 ms  
+PASS  run.launch_failure_not_executable                22 ms  
+PASS  run.child_killed_by_signal                       28 ms  
+PASS  run.forward_sigterm                             549 ms  
+PASS  run.forward_sigint                              576 ms  
+FAIL  run.forward_sighup                              710 ms  [trap] no process left in the process group after exit; exit code is the child's (7)
+PASS  run.forward_sigquit                             576 ms  
+PASS  run.forward_sigwinch                            625 ms  
+PASS  run.repeated_signals                           3461 ms  
+PASS  run.sigint_process_group                        854 ms  
+FAIL  run.explicit_signal_with_tty                   6939 ms  [SIGHUP] heimdall-proto exited with the child's status (7); [tty-sighup] no process of the command's group lef
+PASS  run.stdio_inherited                             253 ms  
+PASS  run.proto_silent_stdout                          76 ms  
+PASS  run.cwd_env_inherited                            30 ms  
+PASS  run.no_surviving_child                           26 ms  
+PASS  run.usage_errors                                 86 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2030 ms  
+PASS  run.k6a_background_script_tty                  2501 ms  
+PASS  run.k6a_inherited_ignore                       2693 ms  
+FAIL  run.k6d_shared_mode_explicit_signals          10298 ms  [sh-c/SIGHUP] heimdall-proto exited with the child's status (the script saw RC=7) and the script exited 0; [sh
+PASS  run.k6e_job_control                           25822 ms  
+
+summary: {'total': 29, 'pass': 26, 'fail': 3, 'error': 0, 'skipped': 0}  status=in_progress verdict=fail  record=/out/runall-rv_hup_exit_early.json

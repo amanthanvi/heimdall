@@ -1,0 +1,7 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" "$D" 5; echo "K6E_LIST_RC=$?"
+^Zexit
+exit
+Killed: 9
+K6E_LIST_RC=137
+HMPS1$ exit
+exit

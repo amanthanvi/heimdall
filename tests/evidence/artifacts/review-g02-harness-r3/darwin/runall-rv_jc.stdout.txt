@@ -1,0 +1,32 @@
+G02 conformance: candidate=go platform=darwin-arm64 bin=/tmp/r3rev/m/rv_jc/heimdall-proto checks=29 pyte=yes
+PASS  run.stdio_passthrough                            58 ms  
+PASS  run.exit_codes                                  186 ms  
+PASS  run.meta_child_exited                            94 ms  
+PASS  run.argv_exact                                   48 ms  
+PASS  run.argv_invalid_utf8                            48 ms  
+PASS  run.meta_state                                  177 ms  
+PASS  run.path_lookup                                  48 ms  
+PASS  run.launch_failure_missing_absolute              34 ms  
+PASS  run.launch_failure_missing_path                  35 ms  
+PASS  run.launch_failure_not_executable                33 ms  
+PASS  run.child_killed_by_signal                       47 ms  
+PASS  run.forward_sigterm                             575 ms  
+PASS  run.forward_sigint                              603 ms  
+PASS  run.forward_sighup                              581 ms  
+PASS  run.forward_sigquit                             605 ms  
+PASS  run.forward_sigwinch                            668 ms  
+PASS  run.repeated_signals                           3624 ms  
+PASS  run.sigint_process_group                        899 ms  
+PASS  run.explicit_signal_with_tty                   7627 ms  
+PASS  run.stdio_inherited                             319 ms  
+PASS  run.proto_silent_stdout                         100 ms  
+PASS  run.cwd_env_inherited                            51 ms  
+PASS  run.no_surviving_child                           50 ms  
+PASS  run.usage_errors                                132 ms  
+PASS  run.k6a_pipeline_peer_not_stopped              2073 ms  
+PASS  run.k6a_background_script_tty                  2594 ms  
+PASS  run.k6a_inherited_ignore                       2864 ms  
+PASS  run.k6d_shared_mode_explicit_signals          11020 ms  
+FAIL  run.k6e_job_control                           12257 ms  [simple: iteration 1 z-bg-fg] the child reads the line typed after `fg` (terminal input reaches it); [simple] 
+
+summary: {'total': 29, 'pass': 28, 'fail': 1, 'error': 0, 'skipped': 0}  status=in_progress verdict=fail  record=$HOME/GitRepos/heimdall/tests/evidence/artifacts/review-g02-harness-r3/darwin/runall-rv_jc.json

@@ -1,0 +1,496 @@
+{
+ "generated_utc": "2026-10-04T00:45:37Z",
+ "host": "darwin-arm64",
+ "subject": "tests/g02 harness v2.0.0 vs reviewer mutations of a /tmp copy of reference_impl.py/reference_tui.py (diffs in mutations/scripts)",
+ "baseline_on_patched_copy_without_REV_MUTATE": {
+  "exit_code": 0,
+  "summary": "124/124 pass"
+ },
+ "mutations_total": 21,
+ "caught": [
+  "run_leaves_tty_raw"
+ ],
+ "missed_with_observable_defect": [
+  "type_error_echoes_value",
+  "malformed_echo_source_line",
+  "schema_version_warning_echoes_name",
+  "profile_tmp_hardcoded",
+  "agent_per_read_timeout",
+  "agent_default_timeout_60s",
+  "agent_nkeys_short_tolerated",
+  "agent_zero_frame_crash",
+  "agent_short_answer_crash",
+  "agent_keyblob_inner_clamp",
+  "run_second_signal_exits",
+  "run_pump_output",
+  "run_child_new_session",
+  "run_meta_tmp_sibling",
+  "tui_narrow_threshold_60",
+  "tui_slow_filter",
+  "tui_status_filter_only_while_typing",
+  "tui_tmux_probe_by_term"
+ ],
+ "missed_not_independently_probed": [
+  "tui_stty_absolute"
+ ],
+ "missed_but_not_a_defect_at_measured_size": [
+  "dup_check_quadratic"
+ ],
+ "rows": [
+  {
+   "mutation": "type_error_echoes_value",
+   "description": "revision/port error message quotes the offending value (serde-style 'invalid value: 70000')",
+   "harness_scope": "usage.*,profile.*,version.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "invalid-port.toml value 70000 in output",
+    "unmutated": {
+     "exit": 2,
+     "value_70000_echoed": false
+    },
+    "mutant": {
+     "exit": 2,
+     "value_70000_echoed": true
+    }
+   }
+  },
+  {
+   "mutation": "malformed_echo_source_line",
+   "description": "malformed TOML: stderr shows the source line(s) around the error (toml-crate style snippet)",
+   "harness_scope": "usage.*,profile.*,version.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "malformed TOML whose error line holds a secret-like value",
+    "unmutated": {
+     "exit": 2,
+     "secret_marker_in_output": false
+    },
+    "mutant": {
+     "exit": 2,
+     "secret_marker_in_output": true
+    }
+   }
+  },
+  {
+   "mutation": "schema_version_warning_echoes_name",
+   "description": "unsupported-schema_version warning also quotes the value of `name`",
+   "harness_scope": "usage.*,profile.*,version.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "warning text",
+    "unmutated": {
+     "exit": 2,
+     "warnings": [
+      "unsupported schema_version 2"
+     ],
+     "name_value_in_warning": false
+    },
+    "mutant": {
+     "exit": 2,
+     "warnings": [
+      "unsupported schema_version 2 in profile homelab"
+     ],
+     "name_value_in_warning": true
+    }
+   }
+  },
+  {
+   "mutation": "dup_check_quadratic",
+   "description": "duplicate id/alias detection uses lists (O(n^2) in the number of destinations)",
+   "harness_scope": "usage.*,profile.*,version.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": false,
+    "deciding": "K15: 1 MiB profile of 14667 [[destinations]] tables (shape not in the harness's 13)",
+    "unmutated": {
+     "exit": 0,
+     "wall_s": 0.1477,
+     "maxrss_mib": 37.7,
+     "destinations": 14667,
+     "bytes": 1048514
+    },
+    "mutant": {
+     "exit": 0,
+     "wall_s": 1.2051,
+     "maxrss_mib": 38.1,
+     "destinations": 14667,
+     "bytes": 1048514
+    }
+   }
+  },
+  {
+   "mutation": "profile_tmp_hardcoded",
+   "description": "profile show writes a cache file to a hard-coded /tmp path (K11)",
+   "harness_scope": "usage.*,profile.*,version.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "file created in /tmp (outside TMPDIR)",
+    "unmutated": {
+     "file_written_in_/tmp": false
+    },
+    "mutant": {
+     "file_written_in_/tmp": true
+    }
+   }
+  },
+  {
+   "mutation": "agent_per_read_timeout",
+   "description": "--timeout-ms restarts before every read (per-read socket timeout, not a total deadline)",
+   "harness_scope": "agent.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "reply of 72 bytes dripped at 1 byte/150 ms with --timeout-ms 1000",
+    "unmutated": {
+     "exit": 5,
+     "code": "AGENT_UNAVAILABLE",
+     "seconds": 1.039,
+     "stderr_has_traceback": false
+    },
+    "mutant": {
+     "exit": 0,
+     "code": "AGENT_OK",
+     "seconds": 11.14,
+     "stderr_has_traceback": false
+    }
+   }
+  },
+  {
+   "mutation": "agent_default_timeout_60s",
+   "description": "default timeout without --timeout-ms is 60 s instead of 5 s",
+   "harness_scope": "agent.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "silent agent, default --timeout-ms",
+    "unmutated": {
+     "exit": 5,
+     "seconds": 5.043,
+     "timed_out_at_12s": false
+    },
+    "mutant": {
+     "exit": null,
+     "seconds": 12,
+     "timed_out_at_12s": true
+    }
+   }
+  },
+  {
+   "mutation": "agent_nkeys_short_tolerated",
+   "description": "nkeys within the bound but fewer keys in the frame: returns the keys present (AGENT_OK)",
+   "harness_scope": "agent.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "nkeys=3 with 2 keys in the frame",
+    "unmutated": {
+     "exit": 5,
+     "code": "AGENT_PROTOCOL_ERROR",
+     "seconds": 0.031,
+     "stderr_has_traceback": false
+    },
+    "mutant": {
+     "exit": 0,
+     "code": "AGENT_OK",
+     "seconds": 0.031,
+     "stderr_has_traceback": false
+    }
+   }
+  },
+  {
+   "mutation": "agent_zero_frame_crash",
+   "description": "reply frame of length 0 is indexed: IndexError traceback, exit 1",
+   "harness_scope": "agent.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "length-0 frame",
+    "unmutated": {
+     "exit": 5,
+     "code": "AGENT_PROTOCOL_ERROR",
+     "seconds": 0.031,
+     "stderr_has_traceback": false
+    },
+    "mutant": {
+     "exit": 1,
+     "code": null,
+     "seconds": 0.039,
+     "stderr_has_traceback": true
+    }
+   }
+  },
+  {
+   "mutation": "agent_short_answer_crash",
+   "description": "type-12 frame shorter than 5 bytes: struct.error traceback, exit 1",
+   "harness_scope": "agent.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "type-12 frame of 3 bytes",
+    "unmutated": {
+     "exit": 5,
+     "code": "AGENT_PROTOCOL_ERROR",
+     "seconds": 0.032,
+     "stderr_has_traceback": false
+    },
+    "mutant": {
+     "exit": 1,
+     "code": null,
+     "seconds": 0.044,
+     "stderr_has_traceback": true
+    }
+   }
+  },
+  {
+   "mutation": "agent_keyblob_inner_clamp",
+   "description": "key-type string length inside key_blob exceeding the blob is clamped instead of rejected",
+   "harness_scope": "agent.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "key_blob inner string length 500 > blob (contract does not name this case: ambiguity)",
+    "unmutated": {
+     "exit": 5,
+     "code": "AGENT_PROTOCOL_ERROR",
+     "seconds": 0.03,
+     "stderr_has_traceback": false
+    },
+    "mutant": {
+     "exit": 0,
+     "code": "AGENT_OK",
+     "seconds": 0.031,
+     "stderr_has_traceback": false
+    }
+   }
+  },
+  {
+   "mutation": "run_second_signal_exits",
+   "description": "a second SIGINT/SIGTERM makes heimdall-proto exit at once (force-quit), not waiting for the child",
+   "harness_scope": "run.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "two SIGINTs 200 ms apart to the proto pid",
+    "unmutated": {
+     "proto_exit": 7,
+     "child_finished_before_proto_exit": true,
+     "child_finished_eventually": true
+    },
+    "mutant": {
+     "proto_exit": 130,
+     "child_finished_before_proto_exit": false,
+     "child_finished_eventually": false
+    }
+   }
+  },
+  {
+   "mutation": "run_pump_output",
+   "description": "child stdout/stderr are pipes copied byte-exactly by heimdall-proto (child loses the inherited fds / tty)",
+   "harness_scope": "run.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "child's isatty(stdout, stderr) under a pty",
+    "unmutated": {
+     "isatty": [
+      true,
+      true,
+      false
+     ],
+     "sid_eq_parent": true,
+     "dev_tty": true
+    },
+    "mutant": {
+     "isatty": [
+      true,
+      false,
+      false
+     ],
+     "sid_eq_parent": true,
+     "dev_tty": true
+    }
+   }
+  },
+  {
+   "mutation": "run_child_new_session",
+   "description": "child started in a new session (setsid): no controlling terminal, /dev/tty unavailable",
+   "harness_scope": "run.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "child can open /dev/tty (controlling terminal) under a pty (contract: 'inherits' does not name the ctty)",
+    "unmutated": {
+     "isatty": [
+      true,
+      true,
+      false
+     ],
+     "sid_eq_parent": true,
+     "dev_tty": true
+    },
+    "mutant": {
+     "isatty": [
+      true,
+      true,
+      false
+     ],
+     "sid_eq_parent": false,
+     "dev_tty": false
+    }
+   }
+  },
+  {
+   "mutation": "run_meta_tmp_sibling",
+   "description": "--meta-file written via '<path>.tmp' which is left next to it (K11 write outside named paths)",
+   "harness_scope": "run.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "files next to --meta-file",
+    "unmutated": {
+     "files_in_meta_dir": [
+      "meta.json"
+     ]
+    },
+    "mutant": {
+     "files_in_meta_dir": [
+      "meta.json",
+      "meta.json.tmp"
+     ]
+    }
+   }
+  },
+  {
+   "mutation": "tui_narrow_threshold_60",
+   "description": "alias-only layout below 60 columns instead of below 50",
+   "harness_scope": "tui.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "55-column terminal (contract: host shown at >= 50)",
+    "unmutated": {
+     "cols": 55,
+     "shows_account_at_host": true
+    },
+    "mutant": {
+     "cols": 55,
+     "shows_account_at_host": false
+    }
+   }
+  },
+  {
+   "mutation": "tui_slow_filter",
+   "description": "each filter edit on a >50-destination profile takes 1.0 s",
+   "harness_scope": "tui.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "large-100 keystroke-to-update latency",
+    "unmutated": {
+     "keystroke_to_update_ms": 2
+    },
+    "mutant": {
+     "keystroke_to_update_ms": 1007
+    }
+   }
+  },
+  {
+   "mutation": "tui_status_filter_only_while_typing",
+   "description": "status line shows the active filter only while in filter mode (lost after Enter)",
+   "harness_scope": "tui.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "status line after Enter keeps filter 'nas' active",
+    "unmutated": {
+     "status_line_after_enter": "1/3  /nas",
+     "filter_text_shown": true
+    },
+    "mutant": {
+     "status_line_after_enter": "1/3  /",
+     "filter_text_shown": false
+    }
+   }
+  },
+  {
+   "mutation": "tui_stty_absolute",
+   "description": "TUI executes /bin/stty -g by absolute path at start (K16 helper process)",
+   "harness_scope": "tui.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": null
+  },
+  {
+   "mutation": "tui_tmux_probe_by_term",
+   "description": "TUI runs `tmux display-message` (PATH lookup) when TERM starts with tmux/screen (K16)",
+   "harness_scope": "tui.*,common.*,canary.*",
+   "harness_exit_code": 0,
+   "harness_caught": false,
+   "failing_checks": [],
+   "independent_probe": {
+    "defect_observable": true,
+    "deciding": "TERM=tmux-256color with a tmux tripwire on PATH",
+    "unmutated": {
+     "tripwire_tmux_ran": false
+    },
+    "mutant": {
+     "tripwire_tmux_ran": true
+    }
+   }
+  },
+  {
+   "mutation": "run_leaves_tty_raw",
+   "description": "when stdin is a tty, heimdall-proto puts it in raw mode for the child and never restores it",
+   "harness_scope": "run.*,common.*,canary.*",
+   "harness_exit_code": 1,
+   "harness_caught": true,
+   "failing_checks": [
+    "run.explicit_signal_with_tty",
+    "run.k6a_pipeline_peer_not_stopped",
+    "run.k6a_background_script_tty"
+   ],
+   "independent_probe": null
+  }
+ ]
+}

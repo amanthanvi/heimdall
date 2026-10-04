@@ -1,0 +1,12 @@
+[?1034hHMPS1$ "$P" run -- "$Y" /tmp/hmg02-fl9l7y5_/011-k6d-pipeline-first-sigint/c.py / tmp/hmg02-fl9l7y5_/011-k6d-pipeline-first-sigint | /bin/cat; echo "K6D_DONE ${PI PESTATUS[*]}"
+K6D_DONE 7 0
+HMPS1$ "$P" run -- "$Y" /tmp/hmg02-fl9l7y5_/012-k6d-pipeline-first-sigterm/c.py  /tmp/hmg02-fl9l7y5_/012-k6d-pipeline-first-sigterm | /bin/cat; echo "K6D_DONE ${ PIPESTATUS[*]}"
+K6D_DONE 7 0
+HMPS1$ "$P" run -- "$Y" /tmp/hmg02-fl9l7y5_/013-k6d-pipeline-first-sighup/c.py / tmp/hmg02-fl9l7y5_/013-k6d-pipeline-first-sighup | /bin/cat; echo "K6D_DONE ${PI PESTATUS[*]}"
+K6D_DONE 7 0
+HMPS1$ "$P" run -- "$Y" /tmp/hmg02-fl9l7y5_/014-k6d-pipeline-first-sigquit/c.py  /tmp/hmg02-fl9l7y5_/014-k6d-pipeline-first-sigquit | /bin/cat; echo "K6D_DONE ${ PIPESTATUS[*]}"
+K6D_DONE 7 0
+HMPS1$ "$P" run -- "$Y" /tmp/hmg02-fl9l7y5_/015-k6d-pipeline-first-sigwinch/c.py  /tmp/hmg02-fl9l7y5_/015-k6d-pipeline-first-sigwinch | /bin/cat; echo "K6D_DONE  ${PIPESTATUS[*]}"
+K6D_DONE 7 0
+HMPS1$ exit
+exit

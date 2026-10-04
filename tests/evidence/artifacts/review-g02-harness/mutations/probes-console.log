@@ -1,0 +1,19 @@
+agent_zero_frame_crash               defect=True  length-0 frame
+agent_short_answer_crash             defect=True  type-12 frame of 3 bytes
+agent_nkeys_short_tolerated          defect=True  nkeys=3 with 2 keys in the frame
+agent_keyblob_inner_clamp            defect=True  key_blob inner string length 500 > blob (contract does not name this case: ambiguity)
+agent_per_read_timeout               defect=True  reply of 72 bytes dripped at 1 byte/150 ms with --timeout-ms 1000
+agent_default_timeout_60s            defect=True  silent agent, default --timeout-ms
+type_error_echoes_value              defect=True  invalid-port.toml value 70000 in output
+malformed_echo_source_line           defect=True  malformed TOML whose error line holds a secret-like value
+schema_version_warning_echoes_name   defect=True  warning text
+dup_check_quadratic                  defect=False  K15: 1 MiB profile of 14667 [[destinations]] tables (shape not in the harness's 13)
+profile_tmp_hardcoded                defect=True  file created in /tmp (outside TMPDIR)
+run_second_signal_exits              defect=True  two SIGINTs 200 ms apart to the proto pid
+run_pump_output                      defect=True  child's isatty(stdout, stderr) under a pty
+run_child_new_session                defect=True  child can open /dev/tty (controlling terminal) under a pty (contract: 'inherits' does not name the ctty)
+run_meta_tmp_sibling                 defect=True  files next to --meta-file
+tui_narrow_threshold_60              defect=True  55-column terminal (contract: host shown at >= 50)
+tui_status_filter_only_while_typing  defect=True  status line after Enter keeps filter 'nas' active
+tui_slow_filter                      defect=True  large-100 keystroke-to-update latency
+tui_tmux_probe_by_term               defect=True  TERM=tmux-256color with a tmux tripwire on PATH
