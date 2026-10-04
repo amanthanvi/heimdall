@@ -1,0 +1,9 @@
+$ sh -c d=$(mktemp -d /tmp/g03gc-XXXX); printf "[core]\n\tsshCommand = /x/secret-path ssh -i /home/someone/key\n" > "$d/g"; mkdir "$d/s d"; git --version; echo "--- set in a temporary global config:"; HOME="$d" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$d/g" git -C "$d/s d" config --show-scope --name-only --get-regexp "^core\.sshcommand$"; echo "rc=$?"; echo "--- unset:"; HOME="$d" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git -C "$d/s d" config --show-scope --name-only --get-regexp "^core\.sshcommand$"; echo "rc=$?"; rm -rf "$d"
+started: 2026-10-03T21:25:21Z
+git version 2.54.0 (Apple Git-157)
+--- set in a temporary global config:
+global	core.sshcommand
+rc=0
+--- unset:
+rc=1
+exit=0

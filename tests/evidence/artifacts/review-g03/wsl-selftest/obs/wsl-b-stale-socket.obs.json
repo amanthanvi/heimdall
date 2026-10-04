@@ -1,0 +1,5 @@
+{
+ "old_generation_exit": "6",
+ "second_start_while_live_exit": "3",
+ "socket_after_sigkill": "600 501 socket 134334922"
+}

@@ -1,0 +1,46 @@
+{
+  "case_id": "G03-win-identityagent-forms",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-03",
+    "R-RT-03"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261003T191454Z-1d8979",
+    "os": {
+      "platform": "Unix",
+      "version": "27.0.0",
+      "arch": "Arm64"
+    },
+    "powershell": {
+      "version": "7.6.6",
+      "edition": "Core",
+      "native_argument_passing": "Standard"
+    },
+    "dotnet": ".NET 10.0.12",
+    "elevated": null,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "1aa6f32dd383696ccb41581d55fb610059e5321a9d18831b8d344f9881ae3635",
+      "G03Common.psm1": "389beaf2cd7cb6d790257748573d8e60cb87ee57ec93783f2ce46cd4a7d7b7f3",
+      "InstrumentedAgent.ps1": "a60eec359a92fe89aedbdf058c9b1b03e5f2825c465ce46b180ada342fc4303e",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "not provided",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [],
+  "started_at": "2026-10-03T19:14:54Z",
+  "commands_or_harness": [],
+  "observed_result": null,
+  "evidence_paths": [],
+  "limitations": [],
+  "blocked_on": "native Windows 11 (or Windows 10 22H2) x86-64 host with the in-box OpenSSH client (Win32-OpenSSH; exact build recorded at run time); this run was not on Windows"
+}

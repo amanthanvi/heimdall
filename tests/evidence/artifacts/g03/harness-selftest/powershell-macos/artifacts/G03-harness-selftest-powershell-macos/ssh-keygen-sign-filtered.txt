@@ -1,0 +1,10 @@
+label: ssh-keygen-sign-filtered
+file: /usr/bin/ssh-keygen
+arguments: -Y sign -U -f "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-42967d/probe dir üø/agent-selftest-23d197/probe-key-2.pub" -n heimdall-g03 "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-42967d/probe dir üø/message.txt"
+started_utc: 2026-10-03T21:25:23.1144460Z
+exit_code: 255
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Couldn't find key in agent

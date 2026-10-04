@@ -1,0 +1,5 @@
+$ sh -c cd tests/native/wsl && shellcheck --version | sed -n 2p && shellcheck -x -s bash *.sh && cd "$0" && shellcheck -s bash tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix2/scripts/*.sh && echo clean <home>/GitRepos/heimdall
+started: 2026-10-03T21:25:19Z
+version: 0.11.0
+clean
+exit=0

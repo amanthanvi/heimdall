@@ -1,0 +1,4 @@
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-socket-deletion/list-after-recreate.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-socket-deletion/list-after-recreate.stderr
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-socket-deletion/client-after-deletion.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-socket-deletion/client-after-deletion.stderr

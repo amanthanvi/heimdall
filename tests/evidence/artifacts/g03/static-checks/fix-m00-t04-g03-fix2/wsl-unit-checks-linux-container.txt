@@ -1,0 +1,43 @@
+$ docker run --rm --network none -v <home>/GitRepos/heimdall:/repo:ro debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417 bash -c uname -sm; bash --version | head -1; bash /repo/tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix2/scripts/wsl-unit-checks.sh /repo
+started: 2026-10-03T21:25:21Z
+Linux aarch64
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+--- D4 g03_net_mode_word allowlist
+Mirrored -> mirrored                                             got=mirrored ok
+NAT -> nat                                                       got=nat ok
+consomme                                                         got=consomme ok
+path-like value not recorded                                     got=<unrecognized value, not recorded> ok
+empty                                                            got=<empty> ok
+--- D4 g03_net_mode_obs with stubs (wslinfo absent / present)
+wsl2 key read, word recorded                                     got=wslconfig_networkingMode=mirrored ok
+wslinfo absent recorded                                          got=wslinfo_networking_mode=unavailable ok
+key outside [wsl2] ignored                                       got=wslconfig_networkingMode=<key absent: documented default nat> ok
+unknown value not recorded                                       got=wslconfig_networkingMode=<unrecognized value, not recorded> ok
+  no raw value anywhere in obs                                   got=0 ok
+no .wslconfig                                                    got=wslconfig_networkingMode=<no .wslconfig: documented default nat> ok
+wslinfo present -> its word                                      got=wslinfo_networking_mode=mirrored ok
+  .wslconfig not read when wslinfo present                       got=wslconfig_networkingMode=<not read: wslinfo available> ok
+--- D7 g03_wslenv_check
+WENV carries SSH_AUTH_SOCK/w                                     got=WSLENV=SSH_AUTH_SOCK/w ok
+no cmd.exe / no /mnt/c here -> mismatch (refuse ssh.exe)         got=mismatch ok
+real check, stub cmd.exe echoes value -> ok                      got=ok ok
+real check, stub cmd.exe sees no value -> mismatch               got=mismatch ok
+--- D8 PYTHONDONTWRITEBYTECODE exported by g03_init
+g03_init exports PYTHONDONTWRITEBYTECODE=1                       got=1 ok
+--- D6 keepalive target scripts (extracted from run_g03_wsl_lifecycle.sh)
+t_keep.sh extracted                                              got=#!/usr/bin/env bash ok
+t_keepstop.sh extracted                                          got=#!/usr/bin/env bash ok
+t_keep.sh bash -n                                                got=0 ok
+t_keepstop.sh bash -n                                            got=0 ok
+no pidfile                                                       got=keepalive=no-pidfile ok
+bad pidfile                                                      got=keepalive=bad-pidfile ok
+pidfile pid = started pid (exec keeps pid)                       got=184 ok
+comm became sleep                                                got=sleep ok
+wrong start token -> not stopped                                 got=keepalive=identity-mismatch-not-stopped ok
+  process still alive                                            got=alive ok
+matching token but comm != sleep -> not stopped                  got=keepalive=identity-mismatch-not-stopped ok
+exact match -> stopped                                           got=keepalive=stopped ok
+after stop -> already-exited                                     got=keepalive=already-exited ok
+  recorded token was non-empty                                   got=yes ok
+FAILURES=0
+exit=0

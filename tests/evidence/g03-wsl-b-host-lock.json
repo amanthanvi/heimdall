@@ -1,0 +1,42 @@
+{
+  "case_id": "G03-wsl-b-host-lock",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-EN-03",
+    "R-QU-02"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": null,
+  "environment": {
+    "recorded_on": "macOS 27.0 arm64 development host; the target platform is not available to this environment",
+    "recorded_at": "2026-10-03T21:25:45Z",
+    "task": "M00-T04-G03 (harness revised by M00-T04-G03-fix and M00-T04-G03-fix2)",
+    "harness": {
+      "path": "tests/native/wsl/run_g03_wsl_probes.sh",
+      "sha256": "0db86dfb1f84811e84d0589ef2137912743708240c3b8b97fd8165bf5ee6ee49",
+      "supporting_sha256": {
+        "tests/native/wsl/g03_common.sh": "78fbabd193db9f835d61c7c48b16ee46d017d184b7ab7cce6e6a3163984cafce",
+        "tests/native/wsl/evidence.py": "50a3f7e7cbf5e108858d84028b95bee2e74d81ac317273c12fbda3d71e4825a1",
+        "tests/native/wsl/agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+        "tests/native/wsl/agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+        "tests/native/wsl/agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+        "tests/native/wsl/exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+        "tests/native/wsl/argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402"
+      }
+    }
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": "tests/native/wsl/run_g03_wsl_probes.sh --probes b-lock --lock-window-minutes N",
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g03-windows-wsl.md",
+    "tests/native/wsl/run_g03_wsl_probes.sh"
+  ],
+  "limitations": [
+    "Not executed on the target platform: no Windows/WSL host is available to this environment, so there is no observation (plan.md sec. 6.5). Mocks, cross-compiles and the macOS harness self-tests do not close this record.",
+    "Probe P-B07; acceptance input A13; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.3.",
+    "Unknown until executed: Endpoint survival across Windows session lock; provider availability while locked (G04)."
+  ],
+  "blocked_on": "WSL2 distribution with interop enabled (e.g. Ubuntu 24.04, python3 + OpenSSH client) on a native Windows 11 x86-64 host running WSL 3.0.1 or the G01-selected version; an operator present to lock and unlock the Windows session"
+}

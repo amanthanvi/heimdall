@@ -1,0 +1,4 @@
+$ /tmp/g03-venv/bin/python /tmp/g03fix/validate.py
+started: 2026-10-03T18:28:01Z
+files=49 invalid=0
+exit=0

@@ -1,0 +1,6 @@
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-teardown-deadline/before-deadline.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-teardown-deadline/before-deadline.stderr
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-teardown-deadline/after-deadline.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-teardown-deadline/after-deadline.stderr
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-teardown-deadline/upstream-after-stop.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-teardown-deadline/upstream-after-stop.stderr

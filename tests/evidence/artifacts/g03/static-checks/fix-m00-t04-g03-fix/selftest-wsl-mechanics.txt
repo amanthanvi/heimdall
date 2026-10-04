@@ -1,0 +1,10 @@
+$ bash tests/native/wsl/selftest_unix.sh
+started: 2026-10-03T18:27:40Z
+G03-harness-selftest-unix-wsl-b-endpoint-perms in_progress
+G03-harness-selftest-unix-wsl-b-unauthorized-key verified
+G03-harness-selftest-unix-wsl-b-socket-deletion verified
+<home>/GitRepos/heimdall/tests/native/wsl/g03_common.sh: line 171: 44782 Killed: 9               "$PY" "$G03_HERE/agent_proxy.py" --listen "$sock" --log "$log" --ready-file "$ready" --generation-file "$G03_SCRATCH/proxy-$name.gen" "$@"
+G03-harness-selftest-unix-wsl-b-stale-socket verified
+G03-harness-selftest-unix-wsl-b-teardown-deadline verified
+[g03 18:28:00] records: <home>/GitRepos/heimdall/tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/records
+exit=0

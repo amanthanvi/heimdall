@@ -1,0 +1,9 @@
+date: 2026-10-03T01:03:20Z
+host: macOS 27.0 arm64
+7.6.6
+G03Common.psm1: ok
+InstrumentedAgent.ps1: ok
+Invoke-G03WindowsProbes.ps1: ok
+PipeStdioRelay.ps1: ok
+Test-G03HarnessSelf.ps1: ok
+exit=0

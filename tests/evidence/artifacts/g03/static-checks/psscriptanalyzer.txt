@@ -1,0 +1,64 @@
+date: 2026-10-03T01:03:21Z
+PSScriptAnalyzer 1.24.0
+[31;1mInvoke-ScriptAnalyzer: [31;1mA parameter cannot be found that matches parameter name 'Function'.[0m
+G03Common.psm1:49 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:83 [Warning] PSUseSingularNouns
+G03Common.psm1:92 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:129 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:148 [Warning] PSReviewUnusedParameter
+G03Common.psm1:209 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:212 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:215 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:288 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:292 [Warning] PSUseSingularNouns
+G03Common.psm1:319 [Warning] PSUseSingularNouns
+G03Common.psm1:414 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:444 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:464 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:472 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:480 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:491 [Warning] PSAvoidUsingEmptyCatchBlock
+G03Common.psm1:534 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:564 [Warning] PSUseShouldProcessForStateChangingFunctions
+G03Common.psm1:574 [Warning] PSUseSingularNouns
+InstrumentedAgent.ps1:27 [Warning] PSReviewUnusedParameter
+InstrumentedAgent.ps1:28 [Warning] PSReviewUnusedParameter
+InstrumentedAgent.ps1:34 [Warning] PSReviewUnusedParameter
+InstrumentedAgent.ps1:119 [Warning] PSUseShouldProcessForStateChangingFunctions
+InstrumentedAgent.ps1:175 [Warning] PSAvoidUsingEmptyCatchBlock
+InstrumentedAgent.ps1:189 [Warning] PSUseShouldProcessForStateChangingFunctions
+InstrumentedAgent.ps1:314 [Warning] PSAvoidUsingEmptyCatchBlock
+InstrumentedAgent.ps1:324 [Warning] PSAvoidUsingEmptyCatchBlock
+InstrumentedAgent.ps1:326 [Warning] PSAvoidUsingEmptyCatchBlock
+Invoke-G03WindowsProbes.ps1:52 [Warning] PSReviewUnusedParameter
+Invoke-G03WindowsProbes.ps1:53 [Warning] PSReviewUnusedParameter
+Invoke-G03WindowsProbes.ps1:54 [Warning] PSReviewUnusedParameter
+Invoke-G03WindowsProbes.ps1:55 [Warning] PSReviewUnusedParameter
+Invoke-G03WindowsProbes.ps1:62 [Warning] PSReviewUnusedParameter
+Invoke-G03WindowsProbes.ps1:114 [Warning] PSAvoidUsingEmptyCatchBlock
+Invoke-G03WindowsProbes.ps1:121 [Warning] PSUseShouldProcessForStateChangingFunctions
+Invoke-G03WindowsProbes.ps1:126 [Warning] PSUseShouldProcessForStateChangingFunctions
+Invoke-G03WindowsProbes.ps1:127 [Warning] PSUseShouldProcessForStateChangingFunctions
+Invoke-G03WindowsProbes.ps1:145 [Warning] PSUseShouldProcessForStateChangingFunctions
+Invoke-G03WindowsProbes.ps1:154 [Warning] PSUseSingularNouns
+Invoke-G03WindowsProbes.ps1:158 [Warning] PSUseSingularNouns
+Invoke-G03WindowsProbes.ps1:376 [Warning] PSUseShouldProcessForStateChangingFunctions
+Invoke-G03WindowsProbes.ps1:390 [Warning] PSAvoidUsingEmptyCatchBlock
+Invoke-G03WindowsProbes.ps1:522 [Warning] PSAvoidUsingWriteHost
+Invoke-G03WindowsProbes.ps1:522 [Warning] PSAvoidUsingWriteHost
+Invoke-G03WindowsProbes.ps1:717 [Warning] PSUseSingularNouns
+Invoke-G03WindowsProbes.ps1:791 [Warning] PSAvoidUsingWriteHost
+Invoke-G03WindowsProbes.ps1:792 [Warning] PSAvoidUsingWriteHost
+Invoke-G03WindowsProbes.ps1:793 [Warning] PSAvoidUsingWriteHost
+Invoke-G03WindowsProbes.ps1:819 [Warning] PSAvoidUsingWriteHost
+Invoke-G03WindowsProbes.ps1:831 [Warning] PSAvoidUsingWriteHost
+PipeStdioRelay.ps1:34 [Warning] PSAvoidUsingEmptyCatchBlock
+errors: 0
+compat findings: 0
+warnings by rule:
+  15 PSUseShouldProcessForStateChangingFunctions
+  14 PSAvoidUsingEmptyCatchBlock
+  9 PSReviewUnusedParameter
+  7 PSAvoidUsingWriteHost
+  7 PSUseSingularNouns
+exit=0

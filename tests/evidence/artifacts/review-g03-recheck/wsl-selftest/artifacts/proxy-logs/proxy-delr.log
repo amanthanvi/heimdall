@@ -1,0 +1,8 @@
+{"allowed": ["SHA256:J5KEAKoUH/6umIVtiJdkMtqTSjae4dWt1U4pY/7b+hc"], "event": "listening", "generation": "ddce06170179", "mode": "600", "path": "/tmp/hg03-v6spe0/hg03-c8807f/agent.sock", "proxy_pid": 26969, "ts": "2026-10-03T19:14:34Z"}
+{"action": "recreate", "event": "endpoint_missing", "old_generation": "ddce06170179", "proxy_pid": 26969, "ts": "2026-10-03T19:14:34Z"}
+{"allowed": ["SHA256:J5KEAKoUH/6umIVtiJdkMtqTSjae4dWt1U4pY/7b+hc"], "event": "listening", "generation": "7dd048fa9f97", "mode": "600", "path": "/tmp/hg03-v6spe0/hg03-c8807f/agent.sock", "proxy_pid": 26969, "ts": "2026-10-03T19:14:34Z"}
+{"conn": 1, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 26969, "ts": "2026-10-03T19:14:36Z"}
+{"conn": 1, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 26969, "result": "identities:1/2", "ts": "2026-10-03T19:14:36Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 26969, "ts": "2026-10-03T19:14:36Z"}
+{"event": "unlinked_own_endpoint", "generation": "7dd048fa9f97", "proxy_pid": 26969, "ts": "2026-10-03T19:14:36Z"}
+{"event": "exit", "exit_code": 0, "proxy_pid": 26969, "ts": "2026-10-03T19:14:36Z"}

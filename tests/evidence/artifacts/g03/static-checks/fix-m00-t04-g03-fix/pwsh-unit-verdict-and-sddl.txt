@@ -1,0 +1,17 @@
+$ pwsh -NoProfile -File /tmp/g03fix/unit-checks.ps1
+started: 2026-10-03T18:27:29Z
+all true -> verified/pass                                  got=verified/pass want=verified/pass ok
+one false -> verified/fail                                 got=verified/fail want=verified/fail ok
+  failed_criteria lists b                                  got=b want=b ok
+null + false -> in_progress/inconclusive                   got=in_progress/inconclusive want=in_progress/inconclusive ok
+  failed_criteria still lists b                            got=b want=b ok
+no criteria -> in_progress/inconclusive                    got=in_progress/inconclusive want=in_progress/inconclusive ok
+AU codes                                                   got=RP want=RP ok
+IU codes                                                   got=CC,LC,SW,LO,CR,RC want=CC,LC,SW,LO,CR,RC ok
+non-admin can start (RP)                                   got=True want=True ok
+non-admin can stop (WP)                                    got=False want=False ok
+non-admin can reconfigure (DC/WD/WO)                       got=False want=False ok
+no cross-boundary match (OC not granted)                   got=False want=False ok
+substring would have matched                               got=True want=True ok
+FAILURES=0
+exit=0

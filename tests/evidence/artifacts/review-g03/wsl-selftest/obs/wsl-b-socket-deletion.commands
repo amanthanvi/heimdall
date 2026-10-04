@@ -1,0 +1,2 @@
+env SSH_AUTH_SOCK=/tmp/hg03-esioQM/hg03-ee58bb/agent.sock HOME=/tmp/hg03-esioQM/home /usr/bin/ssh-add -l (exit 0)
+env SSH_AUTH_SOCK=/tmp/hg03-esioQM/hg03-9523c6/agent.sock HOME=/tmp/hg03-esioQM/home /usr/bin/ssh-add -l (exit 2)

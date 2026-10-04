@@ -1,0 +1,4 @@
+date: 2026-10-03T01:03:28Z
+ShellCheck - shell script analysis tool
+version: 0.11.0
+exit=0

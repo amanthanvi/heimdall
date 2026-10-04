@@ -1,0 +1,841 @@
+G03 source excerpts (verbatim, short) from pinned snapshots; see source-pins.json for URLs/commits/sha256.
+
+=== G03-S02 default agent pipe when SSH_AUTH_SOCK unset (v10.0.0.0)  [osp/contrib/win32/win32compat/wmain_common.c:53-54]
+	if (getenv("SSH_AUTH_SOCK") == NULL)
+		_putenv("SSH_AUTH_SOCK=\\\\.\\pipe\\openssh-ssh-agent");
+
+=== G03-S03 same in v8.1.0.0  [t_v8.1.0.0/wmain_common.c:53-54]
+	if (getenv("SSH_AUTH_SOCK") == NULL)
+		_putenv("SSH_AUTH_SOCK=\\\\.\\pipe\\openssh-ssh-agent");
+
+=== G03-S03 same in v9.5.0.0  [t_v9.5.0.0/wmain_common.c:54-55]
+	if (getenv("SSH_AUTH_SOCK") == NULL)
+		_putenv("SSH_AUTH_SOCK=\\\\.\\pipe\\openssh-ssh-agent");
+
+=== G03-S02 client agent socket path from env  [osp/authfd.c:120-131]
+ */
+int
+ssh_get_authentication_socket(int *fdp)
+{
+	const char *authsocket;
+
+	if (fdp != NULL)
+		*fdp = -1;
+
+	authsocket = getenv(SSH_AUTHSOCKET_ENV_NAME);
+	if (authsocket == NULL || *authsocket == '\0')
+		return SSH_ERR_AGENT_NOT_PRESENT;
+
+=== G03-S02 AF_UNIX connect = CreateFileW on the path, SECURITY_IDENTIFICATION, PIPE_BUSY retry  [osp/contrib/win32/win32compat/fileio.c:136-160]
+	if ((name_w = utf8_to_utf16(name)) == NULL) {
+		errno = ENOMEM;
+		return -1;
+	}
+	
+	do {
+		h = CreateFileW(name_w, GENERIC_READ | GENERIC_WRITE, 0,
+			NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, NULL);
+	
+		if (h != INVALID_HANDLE_VALUE)
+			break;
+		if (GetLastError() != ERROR_PIPE_BUSY)
+			break;
+	
+		debug4("waiting for agent connection, retrying after 1 sec");
+		if ((ret = wait_for_any_event(NULL, 0, 1000) != 0) != 0)
+			goto cleanup;
+	} while(1);
+
+	if (h == INVALID_HANDLE_VALUE) {
+		debug3("unable to connect to pipe %ls, error: %d", name_w, GetLastError());
+		errno = errno_from_Win32LastError();
+		ret = -1;
+		goto cleanup;
+	}
+
+=== G03-S02 AF_UNIX sockets emulated; no Unix-domain server sockets  [osp/contrib/win32/win32compat/w32fd.c:316-320]
+		return -1;
+	
+	if (domain == AF_UNIX && type == SOCK_STREAM) {
+		pio = fileio_afunix_socket();		
+		if (pio == NULL)
+
+=== G03-S02 (cont.)  [osp/contrib/win32/win32compat/w32fd.c:346-349]
+	if (fd_table.w32_ios[fd]->type == NONSOCK_FD) {
+		errno = ENOTSUP;
+		verbose("Unix domain server sockets are not supported");
+		return -1;
+
+=== G03-S02 IdentityAgent expansion (tilde, percent, env)  [osp/ssh.c:1518-1524]
+
+	if (options.identity_agent != NULL) {
+		p = tilde_expand_filename(options.identity_agent, getuid());
+		cp = default_client_percent_dollar_expand(p, cinfo);
+		free(p);
+		free(options.identity_agent);
+		options.identity_agent = cp;
+
+=== G03-S02 IdentityAgent -> SSH_AUTH_SOCK / none  [osp/ssh.c:1792-1813]
+	/* optionally set the SSH_AUTHSOCKET_ENV_NAME variable */
+	if (options.identity_agent &&
+	    strcmp(options.identity_agent, SSH_AUTHSOCKET_ENV_NAME) != 0) {
+		if (strcmp(options.identity_agent, "none") == 0) {
+			unsetenv(SSH_AUTHSOCKET_ENV_NAME);
+		} else {
+			cp = options.identity_agent;
+			/* legacy (limited) format */
+			if (cp[0] == '$' && cp[1] != '{') {
+				if (!valid_env_name(cp + 1)) {
+					fatal("Invalid IdentityAgent "
+					    "environment variable name %s", cp);
+				}
+				if ((p = getenv(cp + 1)) == NULL)
+					unsetenv(SSH_AUTHSOCKET_ENV_NAME);
+				else
+					setenv(SSH_AUTHSOCKET_ENV_NAME, p, 1);
+			} else {
+				/* identity_agent specifies a path directly */
+				setenv(SSH_AUTHSOCKET_ENV_NAME, cp, 1);
+			}
+		}
+
+=== G03-S02 config lines tokenized with argv_split  [osp/readconf.c:1202-1206]
+	opcode = parse_token(keyword, filename, linenum,
+	    options->ignored_unknown);
+	if (argv_split(str, &oac, &oav, 1) != 0) {
+		error("%s line %d: invalid quotes", filename, linenum);
+		return -1;
+
+=== G03-S02 argv_split escape rules  [osp/misc.c:2176-2197]
+		/* Copy the token in, removing escapes */
+		for (j = 0; s[i] != '\0'; i++) {
+			if (s[i] == '\\') {
+				if (s[i + 1] == '\'' ||
+				    s[i + 1] == '\"' ||
+				    s[i + 1] == '\\' ||
+				    (quote == 0 && s[i + 1] == ' ')) {
+					i++; /* Skip '\' */
+					arg[j++] = s[i];
+				} else {
+					/* Unrecognised escape */
+					arg[j++] = s[i];
+				}
+			} else if (quote == 0 && (s[i] == ' ' || s[i] == '\t'))
+				break; /* done */
+			else if (quote == 0 && (s[i] == '\"' || s[i] == '\''))
+				quote = s[i]; /* quote start */
+			else if (quote != 0 && s[i] == quote)
+				quote = 0; /* quote end */
+			else
+				arg[j++] = s[i];
+		}
+
+=== G03-S03 v8.1.0.0 IdentityAgent parsed with strdelim (no backslash escapes)  [t_v8.1.0.0/readconf.c:1739-1745]
+	case oIdentityAgent:
+		charptr = &options->identity_agent;
+		arg = strdelim(&s);
+		if (!arg || *arg == '\0')
+			fatal("%.200s line %d: Missing argument.",
+			    filename, linenum);
+		/* Extra validation if the string represents an env var. */
+
+=== G03-S02 Match exec runs via system() on Windows  [osp/readconf.c:540-548]
+execute_in_shell(const char *cmd)
+{
+	char *shell;
+	pid_t pid;
+	int status;
+
+#ifdef WINDOWS
+	return system(cmd);
+#else
+
+=== G03-S02 agent pipe name  [osp/contrib/win32/win32compat/ssh-agent/agent.c:50-50]
+#define AGENT_PIPE_ID L"\\\\.\\pipe\\openssh-ssh-agent"
+
+=== G03-S02 agent pipe DACL and flags  [osp/contrib/win32/win32compat/ssh-agent/agent.c:106-131]
+	sa.nLength = sizeof(sa);
+	/*
+	 * SDDL - GA to System and Builtin/Admins and restricted access to Authenticated users
+	 * 0x12019b - FILE_GENERIC_READ/WRITE minus FILE_CREATE_PIPE_INSTANCE
+	 */
+	sddl_str = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;AU)";
+	if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl_str, SDDL_REVISION_1,
+		&sa.lpSecurityDescriptor, &sa.nLength))
+		fatal("cannot convert sddl ERROR:%d", GetLastError());
+
+	sa.bInheritHandle = FALSE;
+
+	while (1) {
+		pipe = CreateNamedPipeW(
+			AGENT_PIPE_ID,		  // pipe name 
+			PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,       // read/write access 
+			PIPE_TYPE_BYTE |       // message type pipe 
+			PIPE_READMODE_BYTE |   // message-read mode 
+			PIPE_REJECT_REMOTE_CLIENTS | // no remote client connections allowed
+			PIPE_WAIT,                // blocking mode 
+			PIPE_UNLIMITED_INSTANCES, // max. instances  
+			BUFSIZE,                  // output buffer size 
+			BUFSIZE,                  // input buffer size 
+			0,                        // client time-out 
+			&sa);
+
+
+=== G03-S02 per-user key store via client impersonation  [osp/contrib/win32/win32compat/ssh-agent/keyagent-request.c:66-89]
+static int
+get_user_root(struct agent_connection* con, HKEY *root)
+{
+	int r = 0;
+	LONG ret;
+	*root = HKEY_LOCAL_MACHINE;
+	
+	if (con->client_type <= ADMIN_USER) {
+		if (ImpersonateLoggedOnUser(con->client_impersonation_token) == FALSE)
+			return -1;
+		*root = NULL;
+		/* 
+		 * TODO - check that user profile is loaded, 
+		 * otherwise, this will return default profile 
+		 */
+		if ((ret = RegOpenCurrentUser(KEY_ALL_ACCESS, root)) != ERROR_SUCCESS) {
+			debug("unable to open user's registry hive, ERROR - %d", ret);
+			r = -1;
+		}
+			
+		RevertToSelf();
+	}
+	return r;
+}
+
+=== G03-S02 add-time constraints: only sk-provider accepted  [osp/contrib/win32/win32compat/ssh-agent/keyagent-request.c:264-286]
+static int
+parse_key_constraints(struct sshbuf *m)
+{
+	int r;
+	u_char ctype;
+
+	while (sshbuf_len(m)) {
+		if ((r = sshbuf_get_u8(m, &ctype)) != 0) {
+			error("get constraint type returned %d", r);
+			return r;
+		}
+		switch (ctype) {
+		case SSH_AGENT_CONSTRAIN_EXTENSION:
+			if ((r = parse_key_constraint_extension(m)) != 0)
+				return r;
+			break;
+		default:
+			error("Unknown constraint %d", ctype);
+			return SSH_ERR_FEATURE_UNSUPPORTED;
+		}
+	}
+
+	return 0;
+
+=== G03-S02 installer service registration and service DACL (GitHub distribution)  [osp/contrib/win32/openssh/install-sshd.ps1:164-166]
+New-Service -Name ssh-agent -DisplayName "OpenSSH Authentication Agent" -BinaryPathName "`"$sshagentpath`"" -Description $agentDesc -StartupType Manual | Out-Null
+sc.exe sdset ssh-agent "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;RP;;;AU)"
+sc.exe privs ssh-agent SeAssignPrimaryTokenPrivilege/SeTcbPrivilege/SeBackupPrivilege/SeRestorePrivilege/SeImpersonatePrivilege
+
+=== G03-S04 OpenSSH 8.7 stricter config parser  [openssh-release-8.7.txt:84-92]
+ * ssh(1)/sshd(8): both the client and server are now using a
+   stricter configuration file parser. The new parser uses more
+   shell-like rules for quotes, space and escape characters. It is
+   also more strict in rejecting configurations that include options
+   lacking arguments. Previously some options (e.g. DenyUsers) could
+   appear on a line with no subsequent arguments. This release will
+   reject such configurations. The new parser will also reject
+   configurations with unterminated quotes and multiple '='
+   characters after the option name.
+
+=== G03-S07 wiki: agent options and persistence  [w32wiki/Various-Considerations.md:9-9]
+- ssh-agent only supports '-l' '-L' 'd' and '-D' options. It ignores '-c' and '-t' options of ssh-add. It persistently and permanently stores the user's private key.
+
+=== G03-S07 wiki: agent design (historical)  [w32wiki/About-Win32-OpenSSH-and-Design-Details.md:90-93]
+ssh-agent will be reimplemented for Windows as a Windows service, running as LocalSystem 
+. Unlike in Unix, ssh-agent will listen on a known static IPC port. This is done as a security measure to protect ssh-agent port from hijack/spoof attacks. It serves the following "key-agent" requests that need be processed at SYSTEM privilege level:
++ Register a host key - All host keys, to be used by ssh deamon for host authentication can be securely registered with ssh-agent.  The registration process will be similar to ssh-add usage in Unix. Host keys will be internally encrypted using DPAPI using OS System account.
++ Register a user key - User keys, can be securely one-time registered with ssh-agent for a single sign-on experience. These keys are DPAI encrypted using user's password and ACL'ed as SYSTEM only. This ensures that malware running under user's context can never steal key material.
+
+=== G03-S08 Microsoft: ssh-agent disabled by default; elevated to enable  [ms_OpenSSH_KeyManagement.md:120-134]
+You can use `ssh-agent` to securely store your private keys within a Windows security context that's associated with your Windows account. To configure the `ssh-agent` service to start automatically each time your computer is restarted, and to use `ssh-add` to store the private key, run the following commands at an elevated PowerShell prompt on your server:
+
+```powershell
+# By default, the ssh-agent service is disabled. Configure it to start automatically.
+# Run the following command as an administrator.
+Get-Service ssh-agent | Set-Service -StartupType Automatic
+
+# Start the service.
+Start-Service ssh-agent
+
+# The following command should return a status of Running.
+Get-Service ssh-agent
+
+# Load your key files into ssh-agent.
+ssh-add $env:USERPROFILE\.ssh\id_ecdsa
+
+=== G03-S08 Microsoft: in-box FOD vs fork releases  [ms_OpenSSH_Install_FirstUse.md:20-22]
+This article uses the in-box OpenSSH Feature on Demand in Windows and Windows Server. Microsoft supports and services this version through Windows Update, so it's the recommended option for most users.
+
+Microsoft also maintains [PowerShell/openssh-portable](https://github.com/PowerShell/openssh-portable), a fork of the upstream, open-source OpenSSH project. Its releases might differ from the version in Windows.
+
+=== G03-S09 default named pipe security descriptor  [w32_pipe_security.md:13-13]
+You can specify a [security descriptor](/windows/desktop/SecAuthZ/security-descriptors) for a named pipe when you call the [**CreateNamedPipe**](/windows/desktop/api/Winbase/nf-winbase-createnamedpipea) function. The security descriptor controls access to both client and server ends of the named pipe. If you specify **NULL**, the named pipe gets a default security descriptor. The ACLs in the default security descriptor for a named pipe grant full control to the LocalSystem account, administrators, and the creator owner. They also grant read access to members of the Everyone group and the anonymous account.
+
+=== G03-S11 device path identification and separator canonicalization  [dotnet_file-path-formats.md:120-125]
+### Identify the path
+
+The first step in path normalization is identifying the type of path. Paths fall into one of a few categories:
+
+- They are device paths; that is, they begin with two separators and a question mark or period (`\\?` or `\\.`).
+- They are UNC paths; that is, they begin with two separators without a question mark or period.
+
+=== G03-S11 (cont.)  [dotnet_file-path-formats.md:153-156]
+### Canonicalize separators
+
+All forward slashes (`/`) are converted into the standard Windows separator, the back slash (`\`). If they are present, a series of slashes that follow the first two slashes are collapsed into a single slash.
+
+
+=== G03-S12 1Password: Windows fixed pipe claim  [op/ssh_agent_advanced.md:67-69]
+### Windows
+
+No changes to the SSH configuration need to be made on Windows. Windows doesn't have the same flexibility with the `~/.ssh/config` file as macOS and Linux, because Microsoft OpenSSH listens to a fixed pipe `(\\.\pipe\openssh-ssh-agent)`. If you want to use the 1Password SSH agent on Windows, it will authenticate for all hosts.
+
+=== G03-S12 1Password: disable OpenSSH agent service; takes over system-wide pipe  [op/ssh_get-started.md:180-192]
+    #### Check if the OpenSSH Authentication Agent service is installed and running
+
+    Before you can turn on the SSH agent in 1Password, you'll need to check if the OpenSSH Authentication Agent service is installed:
+
+    1. Go to **Services** > **OpenSSH Authentication Agent** (press <kbd>Win</kbd> + <kbd>R</kbd> on your keyboard to open the Run window, type `services.msc` and press <kbd>Enter</kbd> or select **OK**).
+    2. Look for the **OpenSSH Authentication Agent** in the list of services.
+       If you don't see the OpenSSH Authentication Agent in the list, skip ahead to the steps to [turn on the SSH agent in 1Password](/ssh/get-started/#turn-on-the-ssh-agent-in-1password).
+       If you do see the OpenSSH Authentication Agent in the list, continue with these steps to disable it from startup and make sure it's not running:
+    3. Select **OpenSSH Authentication Agent** in the list of services and press <kbd>Enter</kbd>.
+    4. In the "Startup type" menu, select **Disabled**. If the service status shows the agent is running, select **Stop**.
+    5. Select **Apply** > **OK**.
+
+    The 1Password SSH Agent can then take over and listen on the system-wide pipe at `\\.\pipe\openssh-ssh-agent`.
+
+=== G03-S12 1Password: Git for Windows core.sshCommand  [op/ssh_get-started.md:296-312]
+  <Tab title="Windows">
+    Additional configuration to use the SSH agent for authentication with your SSH clients isn't required.
+
+    To use the SSH agent with Git, configure the [`core.sshCommand`](https://git-scm.com/docs/git-config#Documentation/git-config.txt-coresshCommand) variable in your Git config to use Microsoft OpenSSH:
+
+    ```text theme={null}
+    git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"
+    ```
+
+    You can also manually edit your [`gitconfig` file](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup#:~:text=On%20Windows%20systems):
+
+    ```text theme={null}
+    [core]
+      sshCommand = C:/Windows/System32/OpenSSH/ssh.exe
+    ```
+
+    For the best Git experience with 1Password, install the latest version of [Git for Windows](https://gitforwindows.org/) (version `2.33` or later).
+
+=== G03-S12 1Password: approve for all applications restricted only by socket/pipe permissions  [op/ssh_agent_security.md:43-43]
+* **Per key, once for every process running on the user’s system**: You can see this option on a per-request basis for a specific SSH key by selecting the **Approve for all applications** checkbox on the authorization prompt. This temporarily authorizes all processes running under the current OS user to use that key for the duration of the agent session. Access is only restricted by file permissions on the agent socket or named pipe. This option doesn't affect your other settings.
+
+=== G03-S13 Git: SSH command precedence  [git_connect.c:1168-1179]
+static const char *get_ssh_command(void)
+{
+	const char *ssh;
+
+	if ((ssh = getenv("GIT_SSH_COMMAND")))
+		return ssh;
+
+	if (!repo_config_get_string_tmp(the_repository, "core.sshcommand", &ssh))
+		return ssh;
+
+	return NULL;
+}
+
+=== G03-S14 Git for Windows installer: external OpenSSH  [gfw_install.iss:2295-2299]
+
+        // 3rd choice
+        RdbSSH[GS_ExternalOpenSSH]:=CreateRadioButton(SSHChoicePage,'Use external OpenSSH',
+            'This uses an external ssh.exe. Git will not install its own OpenSSH'+#13+
+            '(and related) binaries but use them as found on the PATH.',
+
+=== G03-S15 WSL: parameters passed unmodified; WSLENV flags  [wsl_filesystems.md:152-190]
+Parameters are passed to the Windows binary unmodified. As an example, the following command will open `C:\temp\foo.txt` in `notepad.exe`:
+
+```bash
+notepad.exe "C:\temp\foo.txt"
+```
+
+This will also work:
+
+```bash
+notepad.exe C:\\temp\\foo.txt
+```
+
+## Share environment variables between Windows and WSL with WSLENV
+
+WSL and Windows share a special environment variable, `WSLENV`, created to bridge Windows and Linux distributions running on WSL.
+
+Properties of `WSLENV` variable:
+
+- It is shared; it exists in both Windows and WSL environments.
+- It is a list of environment variables to share between Windows and WSL.
+- It can format environment variables to work well in Windows and WSL.
+- It can assist in the flow between WSL and Win32.
+
+> [!NOTE]
+> Prior to 17063, only Windows environment variable that WSL could access was `PATH` (so you could launch Win32 executables from under WSL). Starting in 17063, `WSLENV` begins being supported.
+> WSLENV is case sensitive.
+
+## WSLENV flags
+
+There are four flags available in `WSLENV` to influence how the environment variable is translated.
+
+`WSLENV` flags:
+
+- `/p` - translates the path between WSL/Linux style paths and Win32 paths.
+- `/l` - indicates the environment variable is a list of paths.
+- `/u` - indicates that this environment variable should only be included when running WSL from Win32.
+- `/w` - indicates that this environment variable should only be included when running Win32 from WSL.
+
+Flags can be combined as needed.
+
+=== G03-S15 WSL: \wsl$ uses the distribution default user  [wsl_file-permissions.md:88-90]
+### Accessing Linux files from Windows using `\\wsl$`
+
+Accessing Linux files via `\\wsl$` will use the default user of your WSL distribution. Therefore any Windows app accessing Linux files will have the same permissions as the default user.
+
+=== G03-S15 WSL: idle timeouts  [wsl_wsl-config.md:245-245]
+| `vmIdleTimeout`¹ | number | `60000` | The number of milliseconds that a VM is idle, before it is shut down.|
+
+=== G03-S15 WSL: instanceIdleTimeout  [wsl_wsl-config.md:280-280]
+| `instanceIdleTimeout` | number | `15000` | The number of milliseconds that a distro is idle, before it is shut down. Set to -1 to disable auto shutdown |
+
+=== G03-S16 WSL security model  [wslsrc_security.md:1-33]
+# WSL security model
+
+WSL provides a Linux environment that is deeply integrated with Windows. It is not a security sandbox for running untrusted code.
+
+## Trust boundaries
+
+Code running in WSL should be treated as having the same trust level as code running under the Windows account that launched it.
+WSL distributions provide functional process and file system separation, but a distribution is not a security boundary from the
+Windows host or from other distributions running for the same user.
+
+The Linux `root` user has full control of its distribution and can change its configuration. Linux `root` is not the same as a
+Windows administrator, but the distribution is not a security boundary from the associated Windows user.
+
+WSL 2 distributions and sessions for the same Windows user can share a utility virtual machine. Launching WSL from elevated and
+non-elevated Windows processes does not create separate guest security boundaries. Resources made available to the utility virtual
+machine by an elevated session can remain available for the lifetime of that virtual machine. Workloads that require separation
+between elevated and non-elevated activity should use separate Windows security contexts or separately managed virtual machines.
+
+Documented Windows security boundaries and security features continue to apply. Suspected violations of those boundaries or
+features should be reported to MSRC for assessment.
+
+## Configuration settings
+
+WSL configuration settings control product behavior. Unless a setting is explicitly documented as a security control, do not use
+it as a containment boundary.
+
+For example:
+
+- `[interop] enabled=false` in `/etc/wsl.conf` disables the normal workflow for launching Windows processes from that distribution.
+- `[automount] enabled=false` in `/etc/wsl.conf` disables automatic mounting of Windows drives.
+- `.wslconfig` settings configure the WSL 2 virtual machine and its features.
+
+These settings change the available integration features, but they do not turn a distribution into a sandbox or isolate it from
+
+=== G03-S16 WSL namespaces and shared /mnt/wsl  [wslsrc_init.md:5-16]
+## WSL2 specific distributions startup
+
+Each WSL2 distributions runs in a separate mount, pid and UTS namespace. This allows distributions to run in parallel, without "seeing" each other. 
+
+When a WSL2 distribution starts, [mini_init](mini_init.md):
+
+- Mounts the distribution VHD
+- Clones into a child namespace
+- Chroots in the VHD mountpoint
+- Executes init (see the `LxMiniInitMessageLaunchInit` message).
+
+While each distribution runs in its own mount namespace, the `/mnt/wsl` mountpoint is shared between all distributions.
+
+=== G03-S16 WSL NAT localhost relay  [wslsrc_localhost.md:1-12]
+# Localhost
+
+`localhost` is a WSL2 Linux process, created by [mini_init](mini_init.md). Its role is to forward network traffic between the WSL2 virtual machine, and Windows.
+
+
+## NAT networking 
+
+When `wsl2.networkingMode` is set to NAT, `localhost` will watch for bound TCP ports, and relay the network traffic to Windows via [wslrelay.exe](wslrelay.exe.md)
+
+## Mirrored networking
+
+In mirrored mode, `localhost` registers a BPF program to intercept calls to `bind()`, and forward the calls to Windows via [wslservice.exe](wslservice.exe.md) so Windows can route the network traffic directly to the WSL2 virtual machine.
+
+
+# Added by M00-T04-G03-fix (2026-10-03T18:2xZ) from the same pinned snapshots.
+
+=== G03-S02 private-key file permission check on Windows (sshkey_perm_ok)  [osp/authfile.c:93-125]
+sshkey_perm_ok(int fd, const char *filename)
+{
+	struct stat st;
+
+	if (fstat(fd, &st) == -1)
+		return SSH_ERR_SYSTEM_ERROR;
+	/*
+	 * if a key owned by the user is accessed, then we check the
+	 * permissions of the file. if the key owned by a different user,
+	 * then we don't care.
+	 */
+#ifdef HAVE_CYGWIN
+	if (check_ntsec(filename))
+#endif
+		
+#ifdef WINDOWS  /*implement permission checks on Windows*/
+	if(check_secure_file_permission(filename, NULL, 0) != 0) {
+		error("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+		error("@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @");
+		error("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+		error("Permissions for '%s' are too open.", filename);
+#else
+	if ((st.st_uid == getuid()) && (st.st_mode & 077) != 0) {
+		error("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+		error("@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @");
+		error("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+		error("Permissions 0%3.3o for '%s' are too open.",
+		    (u_int)st.st_mode & 0777, filename);
+#endif /* !WINDOWS */
+		error("It is required that your private key files are NOT accessible by others.");
+		error("This private key will be ignored.");
+		return SSH_ERR_KEY_BAD_PERMISSIONS;
+	}
+
+=== G03-S02 private-key load always checks permissions  [osp/authfile.c:128-147]
+
+int
+sshkey_load_private_type(int type, const char *filename, const char *passphrase,
+    struct sshkey **keyp, char **commentp)
+{
+	int fd, r;
+
+	if (keyp != NULL)
+		*keyp = NULL;
+	if (commentp != NULL)
+		*commentp = NULL;
+
+	if ((fd = open(filename, O_RDONLY)) == -1)
+		return SSH_ERR_SYSTEM_ERROR;
+
+	r = sshkey_perm_ok(fd, filename);
+	if (r != 0)
+		goto out;
+
+	r = sshkey_load_private_type_fd(fd, type, passphrase, keyp, commentp);
+
+=== G03-S02 check_secure_file_permission: owner and allow-ACE rule  [osp/contrib/win32/win32compat/w32-sshfileperm.c:50-140]
+
+/*
+* The function is to check if current user is secure to access to the file. 
+* Check the owner of the file is one of these types: Local Administrators groups, system account, current user account
+* Check the users have access permission to the file don't voilate the following rules:	
+	1. no user other than local administrators group, system account, and pwd user have write permission on the file
+* Returns 0 on success and -1 on failure
+*/
+int
+check_secure_file_permission(const char *input_path, struct passwd * pw, int read_ok)
+{	
+	PSECURITY_DESCRIPTOR pSD = NULL;
+	wchar_t * path_utf16 = NULL;
+	PSID owner_sid = NULL, user_sid = NULL, ti_sid = NULL;
+	PACL dacl = NULL;
+	DWORD error_code = ERROR_SUCCESS; 
+	BOOL is_valid_sid = FALSE, is_valid_acl = FALSE;
+	char *bad_user = NULL;
+	int ret = 0;
+
+	if ((user_sid = get_sid(pw ? pw->pw_name : NULL)) == NULL) {
+		ret = -1;
+		goto cleanup;
+	}
+
+	if ((path_utf16 = resolved_path_utf16(input_path)) == NULL) {
+		ret = -1;
+		goto cleanup;
+	}
+
+	ti_sid = get_sid("NT SERVICE\\TrustedInstaller");
+
+	/*Get the owner sid of the file.*/
+	if ((error_code = GetNamedSecurityInfoW(path_utf16, SE_FILE_OBJECT,
+		OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+		&owner_sid, NULL, &dacl, NULL, &pSD)) != ERROR_SUCCESS) {
+		debug3("failed to retrieve the owner sid and dacl of file %S with error code: %d", path_utf16, error_code);
+		errno = EOTHER;
+		ret = -1;
+		goto cleanup;
+	}
+	if (((is_valid_sid = IsValidSid(owner_sid)) == FALSE) || ((is_valid_acl = IsValidAcl(dacl)) == FALSE)) {
+		debug3("IsValidSid: %d; is_valid_acl: %d", is_valid_sid, is_valid_acl);		
+		ret = -1;
+		goto cleanup;
+	}
+	if (!IsWellKnownSid(owner_sid, WinBuiltinAdministratorsSid) &&
+	    !IsWellKnownSid(owner_sid, WinLocalSystemSid) &&
+	    !EqualSid(owner_sid, user_sid) &&
+	    !(ti_sid && EqualSid(owner_sid, ti_sid))) {
+		debug3("Bad owner on %S", path_utf16);
+		ret = -1;
+		goto cleanup;
+	}
+	/*
+	iterate all aces of the file to find out if there is voilation of the following rules:
+		1. no others than administrators group, system account, and current user account have write permission on the file
+	*/
+	for (DWORD i = 0; i < dacl->AceCount; i++) {
+		PVOID current_ace = NULL;
+		PACE_HEADER current_aceHeader = NULL;
+		PSID current_trustee_sid = NULL;
+		ACCESS_MASK current_access_mask = 0;		
+
+		if (!GetAce(dacl, i, &current_ace)) {
+			debug3("GetAce() failed");
+			errno = EOTHER;
+			ret = -1;
+			goto cleanup;
+		}
+
+		current_aceHeader = (PACE_HEADER)current_ace;
+		/* only interested in Allow ACE */
+		if(current_aceHeader->AceType != ACCESS_ALLOWED_ACE_TYPE)
+			continue;
+		
+		PACCESS_ALLOWED_ACE pAllowedAce = (PACCESS_ALLOWED_ACE)current_ace;
+		current_trustee_sid = &(pAllowedAce->SidStart);
+		current_access_mask = pAllowedAce->Mask;	
+		
+		/*no need to check administrators group, pwd user account, and system account*/
+		if (IsWellKnownSid(current_trustee_sid, WinBuiltinAdministratorsSid) ||
+		    IsWellKnownSid(current_trustee_sid, WinLocalSystemSid) ||
+		    EqualSid(current_trustee_sid, user_sid) ||
+		    (ti_sid && EqualSid(current_trustee_sid, ti_sid))) {
+			continue;
+		} else if (read_ok && (current_access_mask & (FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA)) == 0 ) {
+			/* if read is allowed, allow ACES that do not give write access*/
+			continue;
+		} else {
+
+
+=== G03-S10 CreateNamedPipe: FILE_FLAG_FIRST_PIPE_INSTANCE second instance fails ERROR_ACCESS_DENIED  [sdk_createnamedpipea.md:139-146]
+<td width="40%"><a id="FILE_FLAG_FIRST_PIPE_INSTANCE"></a><a id="file_flag_first_pipe_instance"></a><dl>
+<dt><b>FILE_FLAG_FIRST_PIPE_INSTANCE</b></dt>
+<dt>0x00080000</dt>
+</dl>
+</td>
+<td width="60%">
+If you attempt to create multiple instances of a pipe with this flag, creation of the first instance succeeds, but creation of the next instance fails with <b>ERROR_ACCESS_DENIED</b>.
+
+
+=== G03-S10 CreateNamedPipe: instance creation needs FILE_CREATE_PIPE_INSTANCE; mismatched parameters give ERROR_ACCESS_DENIED  [sdk_createnamedpipea.md:399-404]
+
+To create an instance of a named pipe by using 
+<b>CreateNamedPipe</b>, the user must have <b>FILE_CREATE_PIPE_INSTANCE</b> access to the named pipe object. If a new named pipe is being created, the access control list (ACL) from the security attributes parameter defines the discretionary access control for the named pipe.
+
+All instances of a named pipe must specify the same pipe type (byte-type or message-type), pipe access (duplex, inbound, or outbound), instance count, and time-out value. If different values are used, this function fails and <a href="/windows/desktop/api/errhandlingapi/nf-errhandlingapi-getlasterror">GetLastError</a> returns <b>ERROR_ACCESS_DENIED</b>.
+
+
+=== G03-S10 CreateNamedPipe: nMaxInstances must match across instances  [sdk_createnamedpipea.md:365-369]
+### -param nMaxInstances [in]
+
+The maximum number of instances that can be created for this pipe. The first instance of the pipe can specify this value; the same number must be specified for other instances of the pipe. Acceptable values are in the range 1 through <b>PIPE_UNLIMITED_INSTANCES</b> (255).
+
+If this parameter is <b>PIPE_UNLIMITED_INSTANCES</b>, the number of pipe instances that can be created is limited only by the availability of system resources. If <i>nMaxInstances</i> is greater than <b>PIPE_UNLIMITED_INSTANCES</b>, the return value is <b>INVALID_HANDLE_VALUE</b> and <a href="/windows/desktop/api/errhandlingapi/nf-errhandlingapi-getlasterror">GetLastError</a> returns <b>ERROR_INVALID_PARAMETER</b>.
+
+=== G03-S09 named pipe security: FILE_CREATE_PIPE_INSTANCE check; FILE_GENERIC_WRITE includes it  [w32_pipe_security.md:17-17]
+When a thread calls [**CreateNamedPipe**](/windows/desktop/api/Winbase/nf-winbase-createnamedpipea) to open a handle to the server end of an existing named pipe, the system performs an access check before returning the handle. The access check compares the thread's access token and the requested [access rights](/windows/desktop/SecAuthZ/access-rights-and-access-masks) against the DACL in the named pipe's security descriptor. In addition to the requested access rights, the DACL must allow the calling thread FILE\_CREATE\_PIPE\_INSTANCE access to the named pipe.
+
+=== G03-S09 (cont.)  [w32_pipe_security.md:37-37]
+FILE\_GENERIC\_WRITE access for a named pipe combines the rights to write data to the pipe, append data to it, write pipe attributes, write extended attributes, and read the pipe's DACL. Because FILE\_APPEND\_DATA and FILE\_CREATE\_PIPE\_INSTANCE have the same definition, so FILE\_GENERIC\_WRITE enables permission to create the pipe. To avoid this problem, use the individual rights instead of using FILE\_GENERIC\_WRITE.
+
+=== G03-S15 WSL networkingMode values and NAT/Consomme fallback  [wsl_wsl-config.md:247-247]
+| `networkingMode`¹² | string | `NAT` | Available values are: `none`, `nat`, `bridged` (deprecated), `mirrored`, `consomme` (This has been called `virtioproxy` in the past). If the value is `none`, the WSL network is disconnected. If the value is `nat` or an unknown value, NAT network mode is used (starting from WSL 2.3.25, if NAT network mode fails, it falls back to using Consomme network mode). If the value is `bridged`, the bridged network mode is used (this mode has been marked as deprecated since WSL 2.4.5). If the value is `mirrored`, the mirrored network mode is used. If the value is `consomme` the Consomme network mode is used. |
+
+=== G03-S16 WSL localhost relay per networking mode (NAT, mirrored, Consomme)  [wslsrc_localhost.md:1-20]
+# Localhost
+
+`localhost` is a WSL2 Linux process, created by [mini_init](mini_init.md). Its role is to forward network traffic between the WSL2 virtual machine, and Windows.
+
+
+## NAT networking 
+
+When `wsl2.networkingMode` is set to NAT, `localhost` will watch for bound TCP ports, and relay the network traffic to Windows via [wslrelay.exe](wslrelay.exe.md)
+
+## Mirrored networking
+
+In mirrored mode, `localhost` registers a BPF program to intercept calls to `bind()`, and forward the calls to Windows via [wslservice.exe](wslservice.exe.md) so Windows can route the network traffic directly to the WSL2 virtual machine.
+
+## Consomme networking
+
+When `wsl2.networkingMode` is set to `Consomme`, the VM is given a virtio-net adapter whose host side is backed by [Consomme][consomme], the user-mode NAT from the [OpenVMM][openvmm] project. The guest sees a normal network (a DHCP-assigned address, a default gateway, and working DNS), but rather than going through a host NAT or bridge, its raw Ethernet frames are parsed by a user-mode process on the host and translated into ordinary host sockets. Because all traffic flows through standard host sockets, host networking policies (firewall, VPN routing, proxy settings) apply just as they would for any other host application.
+
+Bound guest ports are tracked and forwarded to the host, optionally via [wslrelay.exe](wslrelay.exe.md).
+
+When guest IPv6 is disabled at boot with `kernelCommandLine=ipv6.disable=1`, loopback initialization ignores missing IPv6 sysctl errors and continues configuring IPv4 localhost forwarding.
+
+=== G03-S10 CreateNamedPipe: PIPE_REJECT_REMOTE_CLIENTS  [sdk_createnamedpipea.md:353-362]
+<td width="40%"><a id="PIPE_REJECT_REMOTE_CLIENTS"></a><a id="pipe_reject_remote_clients"></a><dl>
+<dt><b>PIPE_REJECT_REMOTE_CLIENTS</b></dt>
+<dt>0x00000008</dt>
+</dl>
+</td>
+<td width="60%">
+Connections from remote clients are automatically rejected.
+
+</td>
+</tr>
+
+=== G03-S21 .NET NamedPipeServerStream (Windows): FIRST_PIPE_INSTANCE when max instances is 1; pipe mode carries only the transmission mode (no PIPE_REJECT_REMOTE_CLIENTS)  [dotnet/runtime@6f1d9331 src/libraries/System.IO.Pipes/src/System/IO/Pipes/NamedPipeServerStream.Windows.cs:120-146]
+                // Remove it, while keeping others untouched since historically this has been used as a way to pass flags to CreateNamedPipe
+                // that were not defined in the enumeration.
+                options &= ~PipeOptions.CurrentUserOnly;
+            }
+
+            int openMode = ((int)direction) |
+                           (maxNumberOfServerInstances == 1 ? Interop.Kernel32.FileOperations.FILE_FLAG_FIRST_PIPE_INSTANCE : 0) |
+                           (int)options |
+                           (int)additionalAccessRights;
+
+            // We automatically set the ReadMode to match the TransmissionMode.
+            int pipeModes = (int)transmissionMode << 2 | (int)transmissionMode << 1;
+
+            // Convert -1 to 255 to match win32 (we asserted that it is between -1 and 254).
+            if (maxNumberOfServerInstances == MaxAllowedServerInstances)
+            {
+                maxNumberOfServerInstances = 255;
+            }
+
+            GCHandle pinningHandle = default;
+            try
+            {
+                Interop.Kernel32.SECURITY_ATTRIBUTES secAttrs = GetSecAttrs(inheritability, pipeSecurity, ref pinningHandle);
+                SafePipeHandle handle = Interop.Kernel32.CreateNamedPipe(fullPipeName, openMode, pipeModes,
+                    maxNumberOfServerInstances, outBufferSize, inBufferSize, 0, ref secAttrs);
+
+                if (handle.IsInvalid)
+
+=== G03-S23 CreateProcessWithLogonW lpCommandLine limit and lpEnvironment (sdk-api c12073e4; added by M00-T04-G03-fix2)  [sdk_createprocesswithlogonw.md:153,191]
+The command line to be executed. The maximum length of this string is 1024 characters. If <i>lpApplicationName</i> is <b>NULL</b>, the module name portion of <i>lpCommandLine</i> is limited to <b>MAX_PATH</b> characters.
+A pointer to an environment block for the new process. If this parameter is <b>NULL</b>, the new process uses an environment created from the profile of the user specified by <i>lpUsername</i>. 
+
+=== G03-S22 Start-Process -Credential -> CreateProcessWithLogonW with the full command line and the caller environment block (PowerShell caeff5e8; added by M00-T04-G03-fix2)  [ps_Process.cs:2520,2532-2540,2547-2560]
+            StringBuilder cmdLine = BuildCommandLine(startinfo.FileName, startinfo.Arguments);
+                if (!UseNewEnvironment)
+                {
+                    var environmentVars = startinfo.EnvironmentVariables;
+                    if (environmentVars != null)
+                    {
+                        // All Windows Operating Systems that we support are Windows NT systems, so we use Unicode for environment.
+                        creationFlags |= 0x400;
+
+                        pinnedEnvironmentBlock = GCHandle.Alloc(ConvertEnvVarsToByteArray(environmentVars), GCHandleType.Pinned);
+                if (_credential != null)
+                {
+                    // Run process as another user.
+                    ProcessNativeMethods.LogonFlags logonFlags = 0;
+                    if (startinfo.LoadUserProfile)
+                    {
+                        logonFlags = ProcessNativeMethods.LogonFlags.LOGON_WITH_PROFILE;
+                    }
+
+                    IntPtr password = IntPtr.Zero;
+                    try
+                    {
+                        password = (startinfo.Password == null) ? Marshal.StringToCoTaskMemUni(string.Empty) : Marshal.SecureStringToCoTaskMemUnicode(startinfo.Password);
+                        flag = ProcessNativeMethods.CreateProcessWithLogonW(startinfo.UserName, startinfo.Domain, password, logonFlags, null, cmdLine, creationFlags, AddressOfEnvironmentBlock, startinfo.WorkingDirectory, lpStartupInfo, ref lpProcessInformation);
+
+=== G03-S22 non-admin caller may not get the process handle for another user's process  [ps_Process.cs:2095-2096,2117-2122]
+                using ProcessInformation processInfo = StartWithCreateProcess(startInfo);
+                process = Process.GetProcessById(processInfo.ProcessId);
+                catch (Win32Exception e)
+                {
+                    // If the caller was not an admin and the process was started with another user's credentials .NET
+                    // won't be able to retrieve the process handle. As this is not a critical failure we treat this as
+                    // a warning.
+                    if (PassThru)
+
+=== G03-S21 Disconnect allowed from Connected/Broken; new wait allowed after Disconnected (dotnet/runtime 6f1d9331; added by M00-T04-G03-fix2)  [NamedPipeServerStream.cs:169-208]
+        private void CheckConnectOperationsServer()
+        {
+            // we're not checking whether already connected; this allows us to throw IOException
+            // "pipe is being closed" if other side is closing (as does win32) or no-op if
+            // already connected
+
+            if (State == PipeState.Closed)
+            {
+                throw Error.GetPipeNotOpen();
+            }
+            if (InternalHandle != null && InternalHandle.IsClosed) // only check IsClosed if we have a handle
+            {
+                throw Error.GetPipeNotOpen();
+            }
+            if (State == PipeState.Broken)
+            {
+                throw new IOException(SR.IO_PipeBroken);
+            }
+        }
+
+        // Server is allowed to disconnect from connected and broken states
+        private void CheckDisconnectOperations()
+        {
+            if (State == PipeState.WaitingToConnect)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_PipeNotYetConnected);
+            }
+            if (State == PipeState.Disconnected)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_PipeAlreadyDisconnected);
+            }
+            if (InternalHandle == null && CheckOperationsRequiresSetHandle)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_PipeHandleNotSet);
+            }
+            if ((State == PipeState.Closed) || (InternalHandle != null && InternalHandle.IsClosed))
+            {
+                throw Error.GetPipeNotOpen();
+            }
+        }
+
+=== G03-S21 Windows Disconnect = DisconnectNamedPipe on the same handle  [NamedPipeServerStream.Windows.cs:209-220]
+        public void Disconnect()
+        {
+            CheckDisconnectOperations();
+
+            // Disconnect the pipe.
+            if (!Interop.Kernel32.DisconnectNamedPipe(InternalHandle!))
+            {
+                throw Win32Marshal.GetExceptionForLastWin32Error();
+            }
+
+            State = PipeState.Disconnected;
+        }
+
+=== G03-S21 Unix Disconnect keeps the listening socket (new accept on the same instance)  [NamedPipeServerStream.Unix.cs:146-152]
+        public void Disconnect()
+        {
+            CheckDisconnectOperations();
+            State = PipeState.Disconnected;
+            InternalHandle!.Dispose();
+            InitializeHandle(null, false, false);
+        }
+
+=== G03-S15 WSLENV flags (MicrosoftDocs/WSL a1473a69; excerpt added by M00-T04-G03-fix2)  [wsl_filesystems.md:183-188]
+`WSLENV` flags:
+
+- `/p` - translates the path between WSL/Linux style paths and Win32 paths.
+- `/l` - indicates the environment variable is a list of paths.
+- `/u` - indicates that this environment variable should only be included when running WSL from Win32.
+- `/w` - indicates that this environment variable should only be included when running Win32 from WSL.
+
+=== G03-S15 networkingMode values (excerpt added by M00-T04-G03-fix2)  [wsl_wsl-config.md:247]
+| `networkingMode`¹² | string | `NAT` | Available values are: `none`, `nat`, `bridged` (deprecated), `mirrored`, `consomme` (This has been called `virtioproxy` in the past). If the value is `none`, the WSL network is disconnected. If the value is `nat` or an unknown value, NAT network mode is used (starting from WSL 2.3.25, if NAT network mode fails, it falls back to using Consomme network mode). If the value is `bridged`, the bridged network mode is used (this mode has been marked as deprecated since WSL 2.4.5). If the value is `mirrored`, the mirrored network mode is used. If the value is `consomme` the Consomme network mode is used. |

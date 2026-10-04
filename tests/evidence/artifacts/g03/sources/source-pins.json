@@ -1,0 +1,549 @@
+{
+  "task": "M00-T04-G03",
+  "retrieved_at_utc": "2026-10-03T00:20:00Z/2026-10-03T00:48:00Z",
+  "method": "gh api / curl / git clone of primary sources into a scratch directory; content not committed, sha256 of each snapshot recorded",
+  "sources": [
+    {
+      "id": "G03-S01",
+      "url": "https://github.com/PowerShell/Win32-OpenSSH/releases",
+      "pin": "GitHub releases API listing retrieved 2026-10-03; latest 10.0.0.0p2-Preview published 2025-10-27, labeled 'preview-release (non-production ready)'",
+      "kind": "release metadata"
+    },
+    {
+      "id": "G03-S05",
+      "url": "https://github.com/PowerShell/Win32-OpenSSH/issues/1949",
+      "pin": "issue state open, last updated 2024-10-10 (retrieved 2026-10-03)",
+      "kind": "community issue report (not vendor-confirmed)"
+    },
+    {
+      "id": "G03-S06",
+      "url": "https://github.com/PowerShell/Win32-OpenSSH/issues/1987",
+      "pin": "issue state open, last updated 2022-10-14 (retrieved 2026-10-03)",
+      "kind": "community issue report"
+    },
+    {
+      "id": "G03-S17",
+      "url": "https://github.com/microsoft/WSL/issues/5961",
+      "pin": "issue state open, label feature, last updated 2024-09-29 (retrieved 2026-10-03)",
+      "kind": "community issue report"
+    },
+    {
+      "id": "G03-S18",
+      "url": "https://github.com/jstarks/npiperelay",
+      "pin": "commit 4997d3bf5f2e512608b39b51f37412206758051b (v0.1.0 2020-07-02), MIT; metadata only, not downloaded",
+      "kind": "third-party tool (reference only)"
+    },
+    {
+      "id": "G03-S19",
+      "url": "https://github.com/microsoft/WSL/releases",
+      "pin": "latest release 3.0.1 published 2026-09-29 (metadata retrieved 2026-10-03)",
+      "kind": "release metadata"
+    },
+    {
+      "id": "G03-S20",
+      "url": "https://github.com/git-for-windows/git/releases",
+      "pin": "latest v2.56.0.windows.1 published 2026-09-28 (metadata retrieved 2026-10-03)",
+      "kind": "release metadata"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://codeload.github.com/PowerShell/openssh-portable/tar.gz/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "pin": "PowerShell/openssh-portable tag v10.0.0.0 commit b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source archive",
+      "local_snapshot": "osp-v10.tar.gz",
+      "sha256": "45f316a54fdc0d81a2f8e503ecf78958e0ffc953936a022efc8405b7f14dae0d"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/win32compat/wmain_common.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/win32compat/wmain_common.c",
+      "sha256": "248603baffe3e0403164176997a11f49c72fc66d9c1690df4f8c0ce584aab66f"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/win32compat/fileio.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/win32compat/fileio.c",
+      "sha256": "2b0efe0178e4dec3e9bbc52320c54eddb83ee6ac263c353a8fb21c5d483bbccf"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/win32compat/w32fd.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/win32compat/w32fd.c",
+      "sha256": "088fe4fdc8702b4fb1772bf7dac66326e3c7632a261f3e8463e1d2ae6b127186"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/authfd.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/authfd.c",
+      "sha256": "106aa18a34ec6978fde156dc51de1a56fb8154771c2e30a75ab8cfa0a34c8bc6"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/ssh.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/ssh.c",
+      "sha256": "61e7507efc8f46f8315aa03d86a750d594bb27fb80636a913e7bb2bbefdd4dcb"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/readconf.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/readconf.c",
+      "sha256": "c96638bd67e6611d5bd02f287e34f28d3bb77348bd41bf87a667c32de3a55e20"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/misc.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/misc.c",
+      "sha256": "07857027eec42b567be40594d12b64125bc4ee16a02bbc19290ec775de6e3680"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/win32compat/ssh-agent/agent.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/win32compat/ssh-agent/agent.c",
+      "sha256": "bf7fb1bc45b87509a8e0d2d5ffd0aa9696ff28ef3a90af8479cb004b072f3e59"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/win32compat/ssh-agent/keyagent-request.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/win32compat/ssh-agent/keyagent-request.c",
+      "sha256": "900a22b774241a6f590993d5297b1ef7fe7ff4c725398e2ec1a3bad1ad6da2e4"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/openssh/install-sshd.ps1",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/openssh/install-sshd.ps1",
+      "sha256": "21596beb3a5bc1e23112f7bc820ffec27055066d01f9514a8287426f29c34c7c"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/ssh_config.5",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/ssh_config.5",
+      "sha256": "5b196bcd9b4f49f94ee903fede196e02035521fb21f9060a51030d1fd2d4eb34"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/ssh.1",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/ssh.1",
+      "sha256": "a9626bad0a33076acd1549d9bf3d8d2c0034004f5447cea57cf96f13375548ea"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/ssh-agent.1",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+      "kind": "source file",
+      "local_snapshot": "osp/ssh-agent.1",
+      "sha256": "e8571002b5693cb68e0bff51b2b0b2440eadf2b3ccb1d3966b4cd3a740485101"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/59aba65cf2e2f423c09d12ad825c3b32a11f408f/ssh.c",
+      "pin": "v9.5.0.0 59aba65cf2e2f423c09d12ad825c3b32a11f408f",
+      "kind": "source file",
+      "local_snapshot": "t_v9.5.0.0/ssh.c",
+      "sha256": "4070b34fbeb382f7b4915cb8f8ee1cb97c63eab69aa8e7b93158e768cdd96c5a"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/59aba65cf2e2f423c09d12ad825c3b32a11f408f/readconf.c",
+      "pin": "v9.5.0.0 59aba65cf2e2f423c09d12ad825c3b32a11f408f",
+      "kind": "source file",
+      "local_snapshot": "t_v9.5.0.0/readconf.c",
+      "sha256": "26b304201aa83b22e28ff5cbf65c0242a85f812dd285420a123c1c818a9a2a2e"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/59aba65cf2e2f423c09d12ad825c3b32a11f408f/contrib/win32/win32compat/wmain_common.c",
+      "pin": "v9.5.0.0 59aba65cf2e2f423c09d12ad825c3b32a11f408f",
+      "kind": "source file",
+      "local_snapshot": "t_v9.5.0.0/wmain_common.c",
+      "sha256": "0358ec6fc43945a892d569e68f8cb825a42bcbd8d30ed6ca5cd1f9ee8b4a5ec1"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/ee11c8e15eb11c48afbe98270080c728243c4300/ssh.c",
+      "pin": "v8.1.0.0 ee11c8e15eb11c48afbe98270080c728243c4300",
+      "kind": "source file",
+      "local_snapshot": "t_v8.1.0.0/ssh.c",
+      "sha256": "32b79e7b973710f9b2c6d867363aa5694da7cb136575aa9bd8291d94f9dbe638"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/ee11c8e15eb11c48afbe98270080c728243c4300/readconf.c",
+      "pin": "v8.1.0.0 ee11c8e15eb11c48afbe98270080c728243c4300",
+      "kind": "source file",
+      "local_snapshot": "t_v8.1.0.0/readconf.c",
+      "sha256": "239b7d44a3b25be0359e749440d7a4f2f4e144ed421892fa195d17a23e9c0ae3"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/ee11c8e15eb11c48afbe98270080c728243c4300/misc.c",
+      "pin": "v8.1.0.0 ee11c8e15eb11c48afbe98270080c728243c4300",
+      "kind": "source file",
+      "local_snapshot": "t_v8.1.0.0/misc.c",
+      "sha256": "954aef2a2d5f75be5b948d8c8632aa096ba0c4e46b6eaa408089433f74c8dd94"
+    },
+    {
+      "id": "G03-S03",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/ee11c8e15eb11c48afbe98270080c728243c4300/contrib/win32/win32compat/wmain_common.c",
+      "pin": "v8.1.0.0 ee11c8e15eb11c48afbe98270080c728243c4300",
+      "kind": "source file",
+      "local_snapshot": "t_v8.1.0.0/wmain_common.c",
+      "sha256": "9c89fdf9662cd6da35727c747cafcfc3c0e02b9be1ba07bd29227fee83e9bc31"
+    },
+    {
+      "id": "G03-S04",
+      "url": "https://www.openssh.com/txt/release-8.7",
+      "pin": "retrieved 2026-10-03",
+      "kind": "release notes",
+      "local_snapshot": "openssh-release-8.7.txt",
+      "sha256": "db6db85162c54094fab283303a680904033a687ebbbd0bc2fcaf7d3f4794eb76"
+    },
+    {
+      "id": "G03-S08",
+      "url": "https://github.com/MicrosoftDocs/windowsserverdocs/blob/f4adef534c26f2b47b03bfa0115bce5659cee3a8/WindowsServerDocs/administration/OpenSSH/openssh-overview.md",
+      "pin": "windowsserverdocs main f4adef534c26f2b47b03bfa0115bce5659cee3a8",
+      "kind": "documentation source (learn.microsoft.com)",
+      "local_snapshot": "ms_openssh-overview.md",
+      "sha256": "74be938f9225febacfe1fd614e49421d6532995c66c87b4e39ddef8e34f3c3c5"
+    },
+    {
+      "id": "G03-S08",
+      "url": "https://github.com/MicrosoftDocs/windowsserverdocs/blob/f4adef534c26f2b47b03bfa0115bce5659cee3a8/WindowsServerDocs/administration/OpenSSH/OpenSSH_Install_FirstUse.md",
+      "pin": "windowsserverdocs main f4adef534c26f2b47b03bfa0115bce5659cee3a8",
+      "kind": "documentation source (learn.microsoft.com)",
+      "local_snapshot": "ms_OpenSSH_Install_FirstUse.md",
+      "sha256": "132ebf6c7091271cdca788d5eafa3424fc580ed23481728f411f3caa89a4acc3"
+    },
+    {
+      "id": "G03-S08",
+      "url": "https://github.com/MicrosoftDocs/windowsserverdocs/blob/f4adef534c26f2b47b03bfa0115bce5659cee3a8/WindowsServerDocs/administration/OpenSSH/OpenSSH_KeyManagement.md",
+      "pin": "windowsserverdocs main f4adef534c26f2b47b03bfa0115bce5659cee3a8",
+      "kind": "documentation source (learn.microsoft.com)",
+      "local_snapshot": "ms_OpenSSH_KeyManagement.md",
+      "sha256": "f34f751705809e06ead67f25effb248f063f932588983edb0e3ce2bcd56950d1"
+    },
+    {
+      "id": "G03-S08",
+      "url": "https://github.com/MicrosoftDocs/windowsserverdocs/blob/f4adef534c26f2b47b03bfa0115bce5659cee3a8/WindowsServerDocs/administration/OpenSSH/openssh-server-configuration.md",
+      "pin": "windowsserverdocs main f4adef534c26f2b47b03bfa0115bce5659cee3a8",
+      "kind": "documentation source (learn.microsoft.com)",
+      "local_snapshot": "ms_openssh-server-configuration.md",
+      "sha256": "adb3a5cd7e48bd3fd1ef0edc1c5e1031e9360a04299dada87a5babdb20532b7e"
+    },
+    {
+      "id": "G03-S09",
+      "url": "https://github.com/MicrosoftDocs/win32/blob/e103fa4e8810bd8d42c4777e17081e24dbe62dbd/desktop-src/ipc/named-pipe-security-and-access-rights.md",
+      "pin": "win32 docs e103fa4e8810bd8d42c4777e17081e24dbe62dbd",
+      "kind": "documentation source",
+      "local_snapshot": "w32_pipe_security.md",
+      "sha256": "03e1ee9f8e0ade99f01a6423b0799b6a0d9c2465dab871dbce1821aa90512d06"
+    },
+    {
+      "id": "G03-S10",
+      "url": "https://github.com/MicrosoftDocs/sdk-api/blob/c12073e417d5780fe796278ada21b90cef1b0568/sdk-api-src/content/winbase/nf-winbase-createnamedpipea.md",
+      "pin": "sdk-api docs c12073e417d5780fe796278ada21b90cef1b0568",
+      "kind": "documentation source",
+      "local_snapshot": "sdk_createnamedpipea.md",
+      "sha256": "f679a4b3a9d38aafb94625bf50e136bbf5b9a82d058008fb71a41be80d7ca1f8"
+    },
+    {
+      "id": "G03-S10",
+      "url": "https://github.com/MicrosoftDocs/sdk-api/blob/c12073e417d5780fe796278ada21b90cef1b0568/sdk-api-src/content/namedpipeapi/nf-namedpipeapi-impersonatenamedpipeclient.md",
+      "pin": "sdk-api docs c12073e417d5780fe796278ada21b90cef1b0568",
+      "kind": "documentation source",
+      "local_snapshot": "sdk_impersonate.md",
+      "sha256": "8c9d60652f212ca2ecf03d79b9fb0f06e868de9551c021659f77d9289edafc5c"
+    },
+    {
+      "id": "G03-S11",
+      "url": "https://github.com/dotnet/docs/blob/641989c37ca888cab4dbee859c8d57aa7109c95d/docs/standard/io/file-path-formats.md",
+      "pin": "dotnet/docs main 641989c37ca888cab4dbee859c8d57aa7109c95d",
+      "kind": "documentation source",
+      "local_snapshot": "dotnet_file-path-formats.md",
+      "sha256": "82ed20b86d1d6fc189337703f40e95de6ec9ab624439662a8ed6ea1348cfc64c"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/integrations/wsl.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_integrations_wsl.md",
+      "sha256": "e32b709ef8d2a241b0a2ee59ae99bb4d68a37984331d3d2bd38dab09b091f091"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/agent/advanced.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_agent_advanced.md",
+      "sha256": "db4f993ca851f8dfb02ab2e6fcd30b80558f1d005b12de2fe219b6eb71abc324"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/agent/security.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_agent_security.md",
+      "sha256": "2e296a911c2ca5be8ff4897ab6812df59e36b75b851cd4d25cc89543477d60ab"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/agent/authorization.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_agent_authorization.md",
+      "sha256": "2cfc2014942d409db6dfdd3e0674f04dd61155850429f852cd02f7542b6095b5"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/agent/config.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_agent_config.md",
+      "sha256": "f233e25f82257db2e3651b5b113a40f7944ba548c1261db06e7bea93024eab8a"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/agent/compatibility.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_agent_compatibility.md",
+      "sha256": "688f28bde3e7fc00f8d6dc7fe2a3c8df6022add09f62e954aac7ddc6c9cdc6d4"
+    },
+    {
+      "id": "G03-S12",
+      "url": "https://www.1password.dev/ssh/get-started.md",
+      "pin": "retrieved 2026-10-03T00:2xZ (mutable vendor docs; markdown rendition of the page)",
+      "kind": "vendor documentation",
+      "local_snapshot": "op/ssh_get-started.md",
+      "sha256": "f18aebc90d8746dbe3d39f096d1187268bfb6389c4d074fbf281b862ae4a5839"
+    },
+    {
+      "id": "G03-S13",
+      "url": "https://github.com/git-for-windows/git/blob/53e90d5e633672f1dc5e08618474720ca367873f/connect.c",
+      "pin": "git-for-windows tag v2.56.0.windows.1 53e90d5e633672f1dc5e08618474720ca367873f",
+      "kind": "source file",
+      "local_snapshot": "git_connect.c",
+      "sha256": "f1d2efdf3705362292218c982e986d6daf6d026c0d467c6cf8c976c630ed68ec"
+    },
+    {
+      "id": "G03-S13",
+      "url": "https://github.com/git-for-windows/git/blob/53e90d5e633672f1dc5e08618474720ca367873f/Documentation/config/core.adoc",
+      "pin": "v2.56.0.windows.1 53e90d5e633672f1dc5e08618474720ca367873f",
+      "kind": "documentation source",
+      "local_snapshot": "git_core.adoc",
+      "sha256": "9189b5836901bcc968489e2f3b13e364fd583ccae1491e67b6c6076e34558372"
+    },
+    {
+      "id": "G03-S13",
+      "url": "https://github.com/git-for-windows/git/blob/53e90d5e633672f1dc5e08618474720ca367873f/Documentation/git.adoc",
+      "pin": "v2.56.0.windows.1 53e90d5e633672f1dc5e08618474720ca367873f",
+      "kind": "documentation source",
+      "local_snapshot": "git_git.adoc",
+      "sha256": "050c5330f1a231be22bee3db27c7ef90d8ba22bb7bd6c72c8bab462f6f0a1f79"
+    },
+    {
+      "id": "G03-S14",
+      "url": "https://github.com/git-for-windows/build-extra/blob/43a5d8a015a8aefa6ff15c043aa1b9b89f60e615/installer/install.iss",
+      "pin": "build-extra main 43a5d8a015a8aefa6ff15c043aa1b9b89f60e615",
+      "kind": "installer source",
+      "local_snapshot": "gfw_install.iss",
+      "sha256": "e718dc65cf50062bbfbe0cce634e09d34fd927e07f79b3b10c38dd4962b13e66"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/filesystems.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_filesystems.md",
+      "sha256": "412b592d0079c5d3e0c9dd9076e2c719d7220cd0572a5bc77d285b831391a3d2"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/wsl-config.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_wsl-config.md",
+      "sha256": "2f84606529d3486b0b62dadea3afcbcb26cbccdd20ceb6cc0e4470b1520eee74"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/file-permissions.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_file-permissions.md",
+      "sha256": "910ef106c864cd8e462e218626904e8967659a09e11158d6beaf855472975109"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/compare-versions.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_compare-versions.md",
+      "sha256": "d7888d7dc6598e5dbeeebbd26b2ac71065168a2cadff65a0b112820c62ecfd0d"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/basic-commands.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_basic-commands.md",
+      "sha256": "6af0d2fc7bc4ca65e1f3a51f579df29ee362cf377256e4861fed095044c003a0"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/networking.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_networking.md",
+      "sha256": "9424768507d37fa40965f27bf0b685ede58448331b77bddc65066f0ccc302ee8"
+    },
+    {
+      "id": "G03-S15",
+      "url": "https://github.com/MicrosoftDocs/WSL/blob/a1473a69d10c9eacdfe5e99f7496652795af28d9/WSL/release-notes.md",
+      "pin": "MicrosoftDocs/WSL main a1473a69d10c9eacdfe5e99f7496652795af28d9",
+      "kind": "documentation source (learn.microsoft.com/windows/wsl)",
+      "local_snapshot": "wsl_release-notes.md",
+      "sha256": "7c8890227146c81681f8d743ad9ff8a1675310c52c22d7e54f4b4c08c89a57dd"
+    },
+    {
+      "id": "G03-S16",
+      "url": "https://github.com/microsoft/WSL/blob/a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd/doc/docs/technical-documentation/security.md",
+      "pin": "microsoft/WSL master a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd",
+      "kind": "project technical documentation",
+      "local_snapshot": "wslsrc_security.md",
+      "sha256": "d5f7a484facca9062787efdfdd8a63a9b42e02d8444cba4ca9c3c8dfd829270e"
+    },
+    {
+      "id": "G03-S16",
+      "url": "https://github.com/microsoft/WSL/blob/a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd/doc/docs/technical-documentation/init.md",
+      "pin": "microsoft/WSL master a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd",
+      "kind": "project technical documentation",
+      "local_snapshot": "wslsrc_init.md",
+      "sha256": "4afad1353af4b3a6d98277d7e65a07005a80a03ea823b0ec98c55a758da4f090"
+    },
+    {
+      "id": "G03-S16",
+      "url": "https://github.com/microsoft/WSL/blob/a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd/doc/docs/technical-documentation/interop.md",
+      "pin": "microsoft/WSL master a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd",
+      "kind": "project technical documentation",
+      "local_snapshot": "wslsrc_interop.md",
+      "sha256": "734732e4bfb5fa4bf107edc3e5c3be0be6e4724f749256b3a2f7b7b2e4a56133"
+    },
+    {
+      "id": "G03-S16",
+      "url": "https://github.com/microsoft/WSL/blob/a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd/doc/docs/technical-documentation/localhost.md",
+      "pin": "microsoft/WSL master a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd",
+      "kind": "project technical documentation",
+      "local_snapshot": "wslsrc_localhost.md",
+      "sha256": "7dd4962ea03157d3f1dcaabd58f5e8f540a3ce5bbaf0260a11d81969eef3dc78"
+    },
+    {
+      "id": "G03-S16",
+      "url": "https://github.com/microsoft/WSL/blob/a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd/doc/docs/technical-documentation/mini_init.md",
+      "pin": "microsoft/WSL master a4b297c31cb1d3f48e28a5ca3477fe7929ffdefd",
+      "kind": "project technical documentation",
+      "local_snapshot": "wslsrc_mini_init.md",
+      "sha256": "d126797c4fdaedb122ce605d89fe68add093ae93aa113a31c7a410c4867c366d"
+    },
+    {
+      "id": "G03-S07",
+      "url": "https://github.com/PowerShell/Win32-OpenSSH/wiki/Various-Considerations",
+      "pin": "wiki commit b73e3c3d921aee67a33c7db99763c40e18e1d003",
+      "kind": "project wiki (mutable, partly historical)",
+      "local_snapshot": "w32wiki/Various-Considerations.md",
+      "sha256": "c162e402b061edf6bff081f488ff042d42da067dfcb812aca8d7646714bb2814"
+    },
+    {
+      "id": "G03-S07",
+      "url": "https://github.com/PowerShell/Win32-OpenSSH/wiki/About-Win32-OpenSSH-and-Design-Details",
+      "pin": "wiki commit b73e3c3d921aee67a33c7db99763c40e18e1d003",
+      "kind": "project wiki (mutable, partly historical)",
+      "local_snapshot": "w32wiki/About-Win32-OpenSSH-and-Design-Details.md",
+      "sha256": "89afa5a02325b365630a707d391f7fddf5ad1b4842fcbdafab110a912756242b"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/authfile.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332 (extracted from the pinned tarball osp-v10.tar.gz; added by M00-T04-G03-fix)",
+      "kind": "source file",
+      "local_snapshot": "osp/authfile.c",
+      "sha256": "5cde6cd7d220cc947ab50d195bae1f13c34a004ee6d59bceec8d136fe694d0cb"
+    },
+    {
+      "id": "G03-S02",
+      "url": "https://github.com/PowerShell/openssh-portable/blob/b8c08ef9da9450a94a9c5ef717d96a7bd83f3332/contrib/win32/win32compat/w32-sshfileperm.c",
+      "pin": "v10.0.0.0 b8c08ef9da9450a94a9c5ef717d96a7bd83f3332 (extracted from the pinned tarball osp-v10.tar.gz; added by M00-T04-G03-fix)",
+      "kind": "source file",
+      "local_snapshot": "osp/contrib/win32/win32compat/w32-sshfileperm.c",
+      "sha256": "f9c34495a8f24a4ea2eb05ec65f580ee796ac6ac06f50eea229a90bf82de4be8"
+    },
+    {
+      "id": "G03-S21",
+      "url": "https://github.com/dotnet/runtime/blob/6f1d9331b9b477df73982a0fabedefe27f36d8a3/src/libraries/System.IO.Pipes/src/System/IO/Pipes/NamedPipeServerStream.Windows.cs",
+      "pin": "dotnet/runtime main at commit 6f1d9331b9b477df73982a0fabedefe27f36d8a3, retrieved 2026-10-03T18:3xZ by M00-T04-G03-fix (the independent review cited the same file on main, unpinned)",
+      "kind": "source file (.NET; .NET Framework 4.x used by Windows PowerShell 5.1 not checked)",
+      "local_snapshot": "NamedPipeServerStream.Windows.cs (scratch snapshot, not committed, like every snapshot in this file; re-fetch at the pinned commit to reproduce)",
+      "sha256": "bca7a69cfa4be51ae4be2e75f72b84675252d1d67de4ef4bdea99eb74fca5f6e"
+    },
+    {
+      "id": "G03-S21",
+      "url": "https://github.com/dotnet/runtime/blob/6f1d9331b9b477df73982a0fabedefe27f36d8a3/src/libraries/System.IO.Pipes/src/System/IO/Pipes/NamedPipeServerStream.cs",
+      "pin": "dotnet/runtime commit 6f1d9331b9b477df73982a0fabedefe27f36d8a3 (same pin as the S21 Windows file), retrieved 2026-10-03 by M00-T04-G03-fix2",
+      "kind": "source file (.NET; Disconnect/re-wait state rules; .NET Framework 4.x not checked)",
+      "local_snapshot": "NamedPipeServerStream.cs (scratch, not committed)",
+      "sha256": "41cc2fc3e722cc9b52c4e5b2b272d5d3dbaef25016d6980c4052730ccff5a871"
+    },
+    {
+      "id": "G03-S21",
+      "url": "https://github.com/dotnet/runtime/blob/6f1d9331b9b477df73982a0fabedefe27f36d8a3/src/libraries/System.IO.Pipes/src/System/IO/Pipes/NamedPipeServerStream.Unix.cs",
+      "pin": "dotnet/runtime commit 6f1d9331b9b477df73982a0fabedefe27f36d8a3 (same pin as the S21 Windows file), retrieved 2026-10-03 by M00-T04-G03-fix2",
+      "kind": "source file (.NET; Disconnect/re-wait state rules; .NET Framework 4.x not checked)",
+      "local_snapshot": "NamedPipeServerStream.Unix.cs (scratch, not committed)",
+      "sha256": "d110b69a4f93c9bd6b219f2aac7c955f04ad0a1a703bf1bc5bc12614e974bdc3"
+    },
+    {
+      "id": "G03-S22",
+      "url": "https://github.com/PowerShell/PowerShell/blob/caeff5e8a57953a414a50fe014a6670797b6770b/src/Microsoft.PowerShell.Commands.Management/commands/management/Process.cs",
+      "pin": "PowerShell/PowerShell master at commit caeff5e8a57953a414a50fe014a6670797b6770b, retrieved 2026-10-03 by M00-T04-G03-fix2 (Windows PowerShell 5.1 source is not public; its behavior is inferred [I])",
+      "kind": "source file (Start-Process: StartWithCreateProcess -> CreateProcessWithLogonW with the caller environment block; process handle may be unobtainable for a non-admin caller)",
+      "local_snapshot": "ps_Process.cs (scratch, not committed)",
+      "sha256": "9f49e22b71a8ea6ae76a3731187634cffa3912bde8d3c0c9f0c8db13cf0df184"
+    },
+    {
+      "id": "G03-S23",
+      "url": "https://github.com/MicrosoftDocs/sdk-api/blob/c12073e417d5780fe796278ada21b90cef1b0568/sdk-api-src/content/winbase/nf-winbase-createprocesswithlogonw.md",
+      "pin": "sdk-api docs c12073e417d5780fe796278ada21b90cef1b0568 (same pin as G03-S10), retrieved 2026-10-03 by M00-T04-G03-fix2",
+      "kind": "documentation source (lpCommandLine maximum 1024 characters; lpEnvironment semantics)",
+      "local_snapshot": "sdk_createprocesswithlogonw.md (scratch, not committed)",
+      "sha256": "bd612ef2b761c61c5b6e234a6122606ad2272df54cab86a0fe3b29a3fc5313e0"
+    }
+  ],
+  "notes": [
+    "2026-10-03 M00-T04-G03-fix: added authfile.c and w32-sshfileperm.c pins (Windows private-key permission rule, P-W12); excerpts appended to excerpts.txt from existing snapshots (CreateNamedPipe instance rules, PIPE_REJECT_REMOTE_CLIENTS, WSL networkingMode, localhost modes).",
+    "2026-10-03 M00-T04-G03-fix2: ID convention made explicit - an id names a pinned repository/collection at one commit and may cover several documents (as S02, S03, S08, S12, S15, S16 already do); G03-S10 covers CreateNamedPipe and ImpersonateNamedPipeClient from sdk-api c12073e4, and citations that need one document name it (e.g. \"CreateNamedPipe docs [G03-S10]\"). No snapshot in this file is committed (method above); S21 no longer names a /tmp path. Added S21 (NamedPipeServerStream.cs, .Unix.cs), S22 (PowerShell Process.cs), S23 (CreateProcessWithLogonW docs); re-checked S15 filesystems.md (412b592d) and wsl-config.md (2f846065) hashes against the pins; excerpts appended."
+  ]
+}

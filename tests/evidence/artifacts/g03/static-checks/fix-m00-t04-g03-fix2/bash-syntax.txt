@@ -1,0 +1,7 @@
+$ sh -c for f in tests/native/wsl/*.sh; do bash -n "$f" || exit 1; echo "ok $f"; done
+started: 2026-10-03T21:25:21Z
+ok tests/native/wsl/g03_common.sh
+ok tests/native/wsl/run_g03_wsl_lifecycle.sh
+ok tests/native/wsl/run_g03_wsl_probes.sh
+ok tests/native/wsl/selftest_unix.sh
+exit=0

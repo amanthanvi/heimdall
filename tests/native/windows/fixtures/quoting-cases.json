@@ -1,0 +1,29 @@
+{
+  "description": "G03 argument/path quoting fixtures shared by the Windows and WSL harnesses. Each value must arrive at the remote POSIX shell's printf byte-for-byte. Values are inert strings; none is executed except as a printf argument inside POSIX single quotes.",
+  "remote_argument_cases": [
+    {"id": "plain", "value": "plain"},
+    {"id": "space", "value": "with space"},
+    {"id": "unicode", "value": "ünïcødé ☃"},
+    {"id": "emoji", "value": "dragon 🐉"},
+    {"id": "double-quote", "value": "double\"quote"},
+    {"id": "single-quote", "value": "single'quote"},
+    {"id": "backslashes", "value": "back\\slash\\\\double"},
+    {"id": "trailing-backslash", "value": "trailing\\"},
+    {"id": "backslash-before-quote", "value": "a\\\"b"},
+    {"id": "percent", "value": "percent %PATH% %%"},
+    {"id": "cmd-metachars", "value": "caret^ amp& pipe| lt< gt>"},
+    {"id": "bang", "value": "bang !x!"},
+    {"id": "posix-expansion", "value": "dollar $HOME $(id) `id`"},
+    {"id": "tab", "value": "tab\there"},
+    {"id": "semicolon", "value": "semi;colon"},
+    {"id": "leading-dash", "value": "-o"},
+    {"id": "empty", "value": ""}
+  ],
+  "path_cases": [
+    {"id": "space-unicode-dir", "relative": "probe dir üø/prøfile ssh config"},
+    {"id": "percent-dollar-dir", "relative": "pct %h dollar $x/known_hosts"}
+  ],
+  "pipe_name_cases": [
+    {"id": "space-unicode", "name_prefix": "heimdall g03 ü"}
+  ]
+}

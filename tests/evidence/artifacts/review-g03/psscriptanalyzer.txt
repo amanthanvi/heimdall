@@ -1,0 +1,6 @@
+  15 Warning, PSUseShouldProcessForStateChangingFunctions
+  14 Warning, PSAvoidUsingEmptyCatchBlock
+   9 Warning, PSReviewUnusedParameter
+   7 Warning, PSAvoidUsingWriteHost
+   7 Warning, PSUseSingularNouns
+errors=0

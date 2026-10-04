@@ -1,0 +1,7 @@
+{
+ "proxy_denials": {
+  "denied_extension": 1,
+  "denied_key": 1,
+  "denied_mutation": 4
+ }
+}

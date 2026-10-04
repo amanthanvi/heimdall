@@ -1,0 +1,66 @@
+{
+  "case_id": "G03-harness-selftest-unix-wsl-b-stale-socket",
+  "status": "verified",
+  "requirement_ids": [],
+  "build_commit": "b44c3128003563495854a210931eeae923974605",
+  "artifact_digest": null,
+  "environment": {
+    "arch": "arm64",
+    "bash": "3.2.57(1)-release",
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "50a3f7e7cbf5e108858d84028b95bee2e74d81ac317273c12fbda3d71e4825a1",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "78fbabd193db9f835d61c7c48b16ee46d017d184b7ab7cce6e6a3163984cafce",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+    "harness_sha256_run_g03_wsl_probes.sh": "0db86dfb1f84811e84d0589ef2137912743708240c3b8b97fd8165bf5ee6ee49",
+    "is_wsl": false,
+    "kernel": "Darwin 27.0.0",
+    "linux_ssh": "OpenSSH_10.3p1, LibreSSL 3.3.6",
+    "python": "Python 3.14.8",
+    "run_id": "20261003T212523Z-b77174",
+    "systemd_pid1": false,
+    "wsl_distro_name": "<not WSL>",
+    "wsl_interop_binfmt_present": false,
+    "xdg_runtime_dir_present": false
+  },
+  "provider_versions": [
+    {
+      "name": "linux ssh",
+      "version": "OpenSSH_10.3p1, LibreSSL 3.3.6"
+    }
+  ],
+  "started_at": "2026-10-03T21:25:23Z",
+  "commands_or_harness": [
+    "env SSH_AUTH_SOCK=/tmp/hg03-5gr0a9/hg03-ea758a/agent.sock HOME=/tmp/hg03-5gr0a9/home /usr/bin/ssh-add -l (exit 2)",
+    "env SSH_AUTH_SOCK=/tmp/hg03-5gr0a9/hg03-ea758a/agent.sock HOME=/tmp/hg03-5gr0a9/home /usr/bin/ssh-add -l (exit 0)"
+  ],
+  "observed_result": {
+    "old_generation_exit": "6",
+    "second_start_while_live_exit": "3",
+    "sigkill_live_generation": "signalled-KILL",
+    "socket_after_sigkill": "600 501 socket 135553814",
+    "criteria": {
+      "client_on_stale_socket_fails_cleanly": true,
+      "old_generation_did_not_remove_replacement": true,
+      "refuses_to_replace_live_endpoint": true,
+      "stale_not_replaced_without_flag": true,
+      "stale_replaced_with_flag": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/client-on-stale.stdout",
+    "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/client-on-stale.stderr",
+    "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/list-via-replacement.stdout",
+    "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/list-via-replacement.stderr"
+  ],
+  "limitations": [
+    "Harness self-test outside WSL: NOT G03 evidence and names no product requirement. Exercises the probe proxy/client mechanics on this host only; WSL distribution, interop, Windows and multi-distribution behavior are not exercised."
+  ],
+  "blocked_on": null
+}

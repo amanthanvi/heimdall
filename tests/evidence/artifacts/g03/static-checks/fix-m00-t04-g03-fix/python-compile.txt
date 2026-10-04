@@ -1,0 +1,5 @@
+$ sh -c python3 --version; PYTHONPYCACHEPREFIX=/tmp/g03fix/pyc python3 -m py_compile tests/native/wsl/*.py && echo ok
+started: 2026-10-03T18:27:38Z
+Python 3.14.8
+ok
+exit=0

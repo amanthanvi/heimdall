@@ -1,0 +1,10 @@
+label: ssh-add-D
+file: /usr/bin/ssh-add
+arguments: -D
+started_utc: 2026-10-03T21:25:23.1573730Z
+exit_code: 1
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Failed to remove all identities.

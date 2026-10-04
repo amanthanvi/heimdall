@@ -1,0 +1,10 @@
+label: ssh-keygen-verify
+file: /usr/bin/ssh-keygen
+arguments: -Y verify -f "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-384a22/probe dir üø/allowed_signers" -I probe@heimdall -n heimdall-g03 -s "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-384a22/probe dir üø/message.txt.sig"
+started_utc: 2026-10-03T01:09:08.1669550Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+Good "heimdall-g03" signature for probe@heimdall with ECDSA key SHA256:eyFeP+FpJO1npTpa26TVLPEimWLyuDas2FBqMt2M0ZM
+
+--- stderr ---

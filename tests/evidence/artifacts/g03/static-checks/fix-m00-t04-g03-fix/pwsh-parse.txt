@@ -1,0 +1,9 @@
+$ pwsh -NoProfile -Command $n=0; foreach ($f in Get-ChildItem tests/native/windows -Include *.ps1,*.psm1 -Recurse) { $t=$null; $e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$t,[ref]$e); $n += $e.Count; "{0} errors={1}" -f $f.Name,$e.Count; foreach ($x in $e) { "  {0}: {1}" -f $x.Extent.StartLineNumber,$x.Message } }; "TOTAL=$n"; if ($n) { exit 1 }
+started: 2026-10-03T18:27:28Z
+G03Common.psm1 errors=0
+InstrumentedAgent.ps1 errors=0
+Invoke-G03WindowsProbes.ps1 errors=0
+PipeStdioRelay.ps1 errors=0
+Test-G03HarnessSelf.ps1 errors=0
+TOTAL=0
+exit=0

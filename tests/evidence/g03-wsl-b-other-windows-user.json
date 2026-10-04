@@ -1,0 +1,41 @@
+{
+  "case_id": "G03-wsl-b-other-windows-user",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-EN-03",
+    "R-SE-03",
+    "R-QU-02"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": null,
+  "environment": {
+    "recorded_on": "macOS 27.0 arm64 development host; the target platform is not available to this environment",
+    "recorded_at": "2026-10-03T21:25:45Z",
+    "task": "M00-T04-G03 (harness revised by M00-T04-G03-fix and M00-T04-G03-fix2)",
+    "harness": {
+      "path": "tests/native/windows/Invoke-G03WindowsProbes.ps1",
+      "sha256": "c5802bb8b468da219e4bedbe27bbc0722378c95df96b5a1d1d8a80a155038a4b",
+      "supporting_sha256": {
+        "tests/native/windows/G03Common.psm1": "57d295c1fbf92086a2f6d1f1c986811bc2eda562c9534c828243f0c4eb57378c",
+        "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+        "tests/native/windows/PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+      }
+    }
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": "pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -Probes wslotheruser -WslDistro .. -OtherUserCredential ..",
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g03-windows-wsl.md",
+    "tests/native/windows/Invoke-G03WindowsProbes.ps1"
+  ],
+  "limitations": [
+    "Not executed on the target platform: no Windows/WSL host is available to this environment, so there is no observation (plan.md sec. 6.5). Mocks, cross-compiles and the macOS harness self-tests do not close this record.",
+    "Probe P-B11; acceptance input A13; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.3.",
+    "Unknown until executed: Whether another Windows user can list, launch, or browse this user's distribution (Q29).",
+    "Revised (M00-T04-G03-fix): wsl.exe --version positive control as the other user; launch denial counts only with a recognized distribution-not-found message.",
+    "Revised (M00-T04-G03-fix2): other-user script staged as in P-W05 (previous -EncodedCommand line 3751 characters, above the 1024-character CreateProcessWithLogonW limit)."
+  ],
+  "blocked_on": "native Windows 11 x86-64 host (exact build recorded at run time; G01 selects floors) with the in-box Win32-OpenSSH client (version unknown until P-W01 runs) and Windows PowerShell 5.1 / PowerShell 7.4+; WSL2 with a disposable distribution registered to the probe user; a second disposable non-administrator local Windows account (Secondary Logon available)"
+}

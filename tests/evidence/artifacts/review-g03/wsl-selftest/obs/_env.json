@@ -1,0 +1,22 @@
+{
+ "arch": "arm64",
+ "bash": "3.2.57(1)-release",
+ "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+ "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+ "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+ "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+ "harness_sha256_evidence.py": "7ba927764f94d5ffd98056d4b4923b81a2cd11825d0b8d1fc34a6915f83eccb5",
+ "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+ "harness_sha256_g03_common.sh": "800d3b1ae8c845d8f14819db9923151af4a5efa6e5cb8c7e35dada9111cdfa57",
+ "harness_sha256_run_g03_wsl_lifecycle.sh": "b1553a6de7f7347d1145a983e8a1aecb13454e59bfd5e616c0dd43df62120b68",
+ "harness_sha256_run_g03_wsl_probes.sh": "d01be46515411134b10ab37d05bfe5fb8cb0362ece5903a8d7a4e21e137c77e5",
+ "is_wsl": false,
+ "kernel": "Darwin 27.0.0",
+ "linux_ssh": "OpenSSH_10.3p1, LibreSSL 3.3.6",
+ "python": "Python 3.14.8",
+ "run_id": "20261003T010845Z-244d37",
+ "systemd_pid1": false,
+ "wsl_distro_name": "<not WSL>",
+ "wsl_interop_binfmt_present": false,
+ "xdg_runtime_dir_present": false
+}

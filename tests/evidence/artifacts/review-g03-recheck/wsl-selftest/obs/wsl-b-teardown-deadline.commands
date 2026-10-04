@@ -1,0 +1,3 @@
+env SSH_AUTH_SOCK=/tmp/hg03-v6spe0/hg03-a9ea9e/agent.sock HOME=/tmp/hg03-v6spe0/home /usr/bin/ssh-add -l (exit 0)
+python3 <home>/GitRepos/heimdall/tests/native/wsl/agent_client.py --socket /tmp/hg03-v6spe0/hg03-a9ea9e/agent.sock list (exit 0)
+env SSH_AUTH_SOCK=/tmp/hg03-v6spe0/up/agent.sock /usr/bin/ssh-add -l (exit 0)

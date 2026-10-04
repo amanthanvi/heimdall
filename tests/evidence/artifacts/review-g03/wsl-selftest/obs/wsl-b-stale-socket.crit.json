@@ -1,0 +1,7 @@
+{
+ "client_on_stale_socket_fails_cleanly": true,
+ "old_generation_did_not_remove_replacement": true,
+ "refuses_to_replace_live_endpoint": true,
+ "stale_not_replaced_without_flag": true,
+ "stale_replaced_with_flag": true
+}

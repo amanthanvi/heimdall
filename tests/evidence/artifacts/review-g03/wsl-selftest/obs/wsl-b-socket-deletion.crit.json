@@ -1,0 +1,6 @@
+{
+ "client_fails_cleanly": true,
+ "recreated_after_deletion": true,
+ "serves_after_recreate": true,
+ "stops_with_distinct_code_when_deleted": true
+}

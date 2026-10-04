@@ -1,0 +1,20 @@
+$ pwsh -NoProfile -File tests/native/windows/Test-G03HarnessSelf.ps1
+started: 2026-10-03T18:27:38Z
+self-test verdict: pass record: <home>/GitRepos/heimdall/tests/evidence/artifacts/g03/harness-selftest/powershell-macos/records/g03-harness-selftest-powershell-macos.json
+  agent_ready = True
+  list_exit_0 = True
+  list_contains_allowed_key = True
+  list_excludes_filtered_key = True
+  sign_allowed_exit_0 = True
+  verify_exit_0 = True
+  verify_good_signature = True
+  sign_filtered_nonzero_exit = True
+  crafted_sign_filtered_key_failure_reply = True
+  crafted_sign_unknown_key_failure_reply = True
+  remove_all_refused_nonzero_exit = True
+  log_has_signed = True
+  log_has_denied_filtered = True
+  log_has_denied_unknown = True
+  log_has_denied_remove_all = True
+  no_canary_leak = True
+exit=0

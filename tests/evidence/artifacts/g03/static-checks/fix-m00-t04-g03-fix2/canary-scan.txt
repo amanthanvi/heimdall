@@ -1,0 +1,4 @@
+$ sh -c if grep -rl "HEIMDALL_""CANARY_" tests/evidence/artifacts/g03 tests/evidence/g03-*.json docs/research/g03-windows-wsl.md tests/native; then echo "CANARY FOUND"; exit 1; else echo "no canary strings"; fi
+started: 2026-10-03T21:25:45Z
+no canary strings
+exit=0

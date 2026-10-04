@@ -1,0 +1,8 @@
+{"allowed": ["SHA256:V6iO+wmGPjgINheW1WLrVO1TF6MHwi8ebFa08tbtVPs"], "event": "listening", "generation": "b8318de68de9", "mode": "600", "path": "/tmp/hg03-5gr0a9/hg03-ce0ce2/agent.sock", "proxy_pid": 43804, "ts": "2026-10-03T21:25:25Z"}
+{"action": "recreate", "event": "endpoint_missing", "old_generation": "b8318de68de9", "proxy_pid": 43804, "ts": "2026-10-03T21:25:26Z"}
+{"allowed": ["SHA256:V6iO+wmGPjgINheW1WLrVO1TF6MHwi8ebFa08tbtVPs"], "event": "listening", "generation": "99626b2a1460", "mode": "600", "path": "/tmp/hg03-5gr0a9/hg03-ce0ce2/agent.sock", "proxy_pid": 43804, "ts": "2026-10-03T21:25:26Z"}
+{"conn": 1, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 43804, "ts": "2026-10-03T21:25:28Z"}
+{"conn": 1, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 43804, "result": "identities:1/2", "ts": "2026-10-03T21:25:28Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 43804, "ts": "2026-10-03T21:25:28Z"}
+{"event": "unlinked_own_endpoint", "generation": "99626b2a1460", "proxy_pid": 43804, "ts": "2026-10-03T21:25:28Z"}
+{"event": "exit", "exit_code": 0, "proxy_pid": 43804, "ts": "2026-10-03T21:25:28Z"}

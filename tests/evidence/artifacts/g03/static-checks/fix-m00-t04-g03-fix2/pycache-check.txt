@@ -1,0 +1,4 @@
+$ sh -c find tests/native/windows tests/native/wsl -name __pycache__ -print; echo "count (owned harness paths)=$(find tests/native/windows tests/native/wsl -name __pycache__ | wc -l | tr -d " ")"
+started: 2026-10-03T21:25:45Z
+count (owned harness paths)=0
+exit=0

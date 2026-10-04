@@ -1,0 +1,13 @@
+G03-win-env-inventory                      blocked
+G03-win-sshauthsock-selection              blocked
+G03-win-identityagent-forms                blocked
+G03-win-git-ssh-selection                  blocked
+G03-win-pipe-acl-other-user                blocked
+G03-win-stale-squat-pipe                   blocked
+G03-win-process-io                         blocked
+G03-win-path-quoting                       blocked
+G03-win-service-elevation                  blocked
+G03-win-1password-coexistence              blocked
+G03-win-agent-constraints                  blocked
+G03-wsl-b-other-windows-user               blocked
+Records: /Users/<redacted>/GitRepos/heimdall/tests/evidence/artifacts/review-g03/win-orch/records

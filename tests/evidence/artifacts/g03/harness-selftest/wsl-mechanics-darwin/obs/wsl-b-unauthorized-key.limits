@@ -1,0 +1,1 @@
+Filtering is enforced by the probe proxy for callers that use this endpoint; any process able to reach the upstream directly bypasses it (filtered convenience, not isolation).

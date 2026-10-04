@@ -1,0 +1,6 @@
+G03Common.psm1 parse_errors=0
+InstrumentedAgent.ps1 parse_errors=0
+Invoke-G03WindowsProbes.ps1 parse_errors=0
+PipeStdioRelay.ps1 parse_errors=0
+Test-G03HarnessSelf.ps1 parse_errors=0
+total=0

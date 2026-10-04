@@ -1,0 +1,21 @@
+{
+  "run_id": "20261003T191454Z-1d8979",
+  "finished_at": "2026-10-03T19:14:55Z",
+  "records": [
+    "g03-win-env-inventory.json",
+    "g03-win-sshauthsock-selection.json",
+    "g03-win-identityagent-forms.json",
+    "g03-win-git-ssh-selection.json",
+    "g03-win-pipe-acl-other-user.json",
+    "g03-win-stale-squat-pipe.json",
+    "g03-win-process-io.json",
+    "g03-win-path-quoting.json",
+    "g03-win-service-elevation.json",
+    "g03-win-1password-coexistence.json",
+    "g03-win-agent-constraints.json",
+    "g03-wsl-b-other-windows-user.json",
+    "g03-win-key-file-permissions.json"
+  ],
+  "owned_process_cleanup": null,
+  "canary_leaks": []
+}

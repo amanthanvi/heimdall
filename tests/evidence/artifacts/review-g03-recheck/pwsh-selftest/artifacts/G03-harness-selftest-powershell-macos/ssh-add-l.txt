@@ -1,0 +1,10 @@
+label: ssh-add-l
+file: /usr/bin/ssh-add
+arguments: -l
+started_utc: 2026-10-03T19:14:53.7032480Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+256 SHA256:fvArSliz0Fx/rUu+ZIxfDxxWBktQKILUR80OSa0oiHw heimdall-g03-probe-1 (ECDSA)
+
+--- stderr ---

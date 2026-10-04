@@ -1,0 +1,73 @@
+{
+  "case_id": "G03-harness-selftest-powershell-macos",
+  "status": "verified",
+  "requirement_ids": [],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": null,
+  "environment": {
+    "os": {
+      "platform": "Unix",
+      "version": "27.0.0",
+      "arch": "Arm64"
+    },
+    "powershell": "7.6.6",
+    "edition": "Core",
+    "dotnet": ".NET 10.0.12",
+    "openssh": {
+      "path": "/usr/bin/ssh",
+      "version_banner": "OpenSSH_10.3p1, LibreSSL 3.3.6",
+      "file_version": null,
+      "sha256": "c7f9f9779c1dd141b04889c6cb214859d0702687e7fde34511bb5fa7af8951f1",
+      "exit_code": 0
+    },
+    "harness": {
+      "InstrumentedAgent": "a60eec359a92fe89aedbdf058c9b1b03e5f2825c465ce46b180ada342fc4303e",
+      "G03Common": "389beaf2cd7cb6d790257748573d8e60cb87ee57ec93783f2ce46cd4a7d7b7f3"
+    }
+  },
+  "provider_versions": [],
+  "started_at": "2026-10-03T19:14:53Z",
+  "commands_or_harness": [
+    "pwsh -NoProfile -File tests/native/windows/Test-G03HarnessSelf.ps1"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "checks": {
+      "agent_ready": true,
+      "list_exit_0": true,
+      "list_contains_allowed_key": true,
+      "list_excludes_filtered_key": true,
+      "sign_allowed_exit_0": true,
+      "verify_exit_0": true,
+      "verify_good_signature": true,
+      "sign_filtered_nonzero_exit": true,
+      "crafted_sign_filtered_key_failure_reply": true,
+      "crafted_sign_unknown_key_failure_reply": true,
+      "remove_all_refused_nonzero_exit": true,
+      "log_has_signed": true,
+      "log_has_denied_filtered": true,
+      "log_has_denied_unknown": true,
+      "log_has_denied_remove_all": true,
+      "no_canary_leak": true
+    },
+    "agent_stop": {
+      "kind": "instrumented-agent",
+      "pid": 27636,
+      "result": "stopped"
+    }
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/review-g03-recheck/pwsh-selftest/artifacts/G03-harness-selftest-powershell-macos/ssh-add-l.txt",
+    "tests/evidence/artifacts/review-g03-recheck/pwsh-selftest/artifacts/G03-harness-selftest-powershell-macos/ssh-keygen-sign-allowed.txt",
+    "tests/evidence/artifacts/review-g03-recheck/pwsh-selftest/artifacts/G03-harness-selftest-powershell-macos/ssh-keygen-verify.txt",
+    "tests/evidence/artifacts/review-g03-recheck/pwsh-selftest/artifacts/G03-harness-selftest-powershell-macos/ssh-keygen-sign-filtered.txt",
+    "tests/evidence/artifacts/review-g03-recheck/pwsh-selftest/artifacts/G03-harness-selftest-powershell-macos/ssh-add-D.txt"
+  ],
+  "limitations": [
+    "Harness self-test only: NOT G03 evidence. Establishes the instrumented agent protocol/ECDSA encoding against the local OpenSSH tools; says nothing about Windows named pipes, DACLs, Win32-OpenSSH endpoint selection, or WSL.",
+    "On non-Windows hosts .NET maps the named pipe to a Unix-domain socket; Windows-only code paths (CreateNamedPipeW with SDDL DACL, PIPE_REJECT_REMOTE_CLIENTS, FILE_FLAG_FIRST_PIPE_INSTANCE, max instances, client PID/SID) are not exercised.",
+    "Names no product requirement: a harness self-test is not requirement evidence (tests/evidence/README.md).",
+    "Windows PowerShell 5.1 compatibility is not exercised by this run."
+  ],
+  "blocked_on": null
+}

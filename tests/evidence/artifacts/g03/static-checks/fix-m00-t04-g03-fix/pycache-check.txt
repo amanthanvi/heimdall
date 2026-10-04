@@ -1,0 +1,5 @@
+$ find tests/native/wsl tests/native/windows tests/evidence/artifacts/g03 -name __pycache__
+started: 2026-10-03T18:28:33Z
+count=0
+note: scoped to this task's write ownership; the earlier pre-existing tests/native/wsl/__pycache__ (agent_proto.cpython-314.pyc, left by a previous compile) was removed by this task
+exit=0

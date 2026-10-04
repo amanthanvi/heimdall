@@ -1,0 +1,6 @@
+$ sh -c echo "agent_proxy.py processes: $(pgrep -f tests/native/wsl/agent_proxy.py | wc -l | tr -d " ")"; echo "InstrumentedAgent.ps1 processes: $(pgrep -f tests/native/windows/InstrumentedAgent.ps1 | wc -l | tr -d " ")"; echo "ssh-agent pids (exact name): $(pgrep -x ssh-agent | tr "\n" " ")"
+started: 2026-10-03T18:28:01Z
+agent_proxy.py processes: 0
+InstrumentedAgent.ps1 processes: 0
+ssh-agent pids (exact name): 12855 38351 38364 38379 
+exit=0

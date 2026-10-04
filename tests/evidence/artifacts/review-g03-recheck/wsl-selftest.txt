@@ -1,0 +1,7 @@
+G03-harness-selftest-unix-wsl-b-endpoint-perms in_progress
+G03-harness-selftest-unix-wsl-b-unauthorized-key verified
+G03-harness-selftest-unix-wsl-b-socket-deletion verified
+<repo>/tests/native/wsl/g03_common.sh: line 171: 27113 Killed: 9               "$PY" "$G03_HERE/agent_proxy.py" --listen "$sock" --log "$log" --ready-file "$ready" --generation-file "$G03_SCRATCH/proxy-$name.gen" "$@"
+G03-harness-selftest-unix-wsl-b-stale-socket verified
+G03-harness-selftest-unix-wsl-b-teardown-deadline verified
+[g03 19:14:51] records: tests/evidence/artifacts/review-g03-recheck/wsl-selftest/records

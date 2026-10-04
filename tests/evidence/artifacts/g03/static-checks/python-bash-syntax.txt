@@ -1,0 +1,7 @@
+date: 2026-10-03T01:03:29Z
+Python 3.14.7
+exit=0
+bash -n tests/native/wsl/g03_common.sh exit=0
+bash -n tests/native/wsl/run_g03_wsl_lifecycle.sh exit=0
+bash -n tests/native/wsl/run_g03_wsl_probes.sh exit=0
+bash -n tests/native/wsl/selftest_unix.sh exit=0

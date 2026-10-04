@@ -1,0 +1,9 @@
+$ bash tests/native/wsl/selftest_unix.sh
+started: 2026-10-03T21:25:23Z
+G03-harness-selftest-unix-wsl-b-endpoint-perms in_progress
+G03-harness-selftest-unix-wsl-b-unauthorized-key verified
+G03-harness-selftest-unix-wsl-b-socket-deletion verified
+G03-harness-selftest-unix-wsl-b-stale-socket verified
+G03-harness-selftest-unix-wsl-b-teardown-deadline verified
+[g03 21:25:43] records: <home>/GitRepos/heimdall/tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/records
+exit=0

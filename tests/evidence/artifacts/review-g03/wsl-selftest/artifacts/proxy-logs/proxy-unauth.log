@@ -1,0 +1,27 @@
+{"allowed": ["SHA256:3d4bbq+QE+WkPyDGea/s/Qq9bczB0aZsZOjipcIajLA"], "event": "listening", "generation": "8566ae145432", "mode": "600", "path": "/tmp/hg03-esioQM/hg03-09815c/agent.sock", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 1, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 1, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 47061, "result": "identities:1/2", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 2, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 2, "event": "request", "key_fp": "SHA256:Q+gteACRkL1o9ZMWwRUUWyNMA3bSmM1f5zM7odI75zQ", "msg_name": "SSH2_AGENTC_SIGN_REQUEST", "msg_type": 13, "proxy_pid": 47061, "result": "denied_key_not_allowed", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 2, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 3, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 3, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 47061, "result": "identities:1/2", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 3, "event": "request", "key_fp": "SHA256:3d4bbq+QE+WkPyDGea/s/Qq9bczB0aZsZOjipcIajLA", "msg_name": "SSH2_AGENTC_SIGN_REQUEST", "msg_type": 13, "proxy_pid": 47061, "result": "forwarded_reply_type:14", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 3, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 4, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 4, "event": "request", "msg_name": "SSH2_AGENTC_ADD_IDENTITY", "msg_type": 17, "proxy_pid": 47061, "result": "denied_mutation", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 4, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 5, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 5, "event": "request", "msg_name": "SSH2_AGENTC_REMOVE_ALL_IDENTITIES", "msg_type": 19, "proxy_pid": 47061, "result": "denied_mutation", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 5, "event": "request", "msg_name": "SSH_AGENTC_REMOVE_ALL_RSA_IDENTITIES", "msg_type": 9, "proxy_pid": 47061, "result": "denied_mutation", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 5, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 6, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 6, "event": "request", "msg_name": "SSH_AGENTC_LOCK", "msg_type": 22, "proxy_pid": 47061, "result": "denied_mutation", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 6, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 7, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 7, "event": "request", "extension": "query@openssh.com", "msg_name": "SSH_AGENTC_EXTENSION", "msg_type": 27, "proxy_pid": 47061, "result": "denied_extension", "ts": "2026-10-03T01:08:47Z"}
+{"conn": 7, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 8, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 8, "detail": "bad_length:262145", "event": "error", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}
+{"conn": 8, "event": "disconnect", "proxy_pid": 47061, "ts": "2026-10-03T01:08:47Z"}

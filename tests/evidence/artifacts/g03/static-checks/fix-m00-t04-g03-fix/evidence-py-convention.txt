@@ -1,0 +1,8 @@
+$ bash /tmp/g03fix/ev-check.sh
+started: 2026-10-03T18:27:38Z
+all true             verified/pass reqs=R-EN-03 failed=                      ok
+one false            verified/fail reqs=R-EN-03 failed=b                     ok
+null and false       in_progress/inconclusive reqs= failed=b                 ok
+empty criteria       in_progress/inconclusive reqs= failed=                  ok
+FAILURES=0
+exit=0

@@ -1,0 +1,5 @@
+{"event": "stale_replaced", "path": "/tmp/hg03-esioQM/hg03-0e61e3/agent.sock", "proxy_pid": 47654, "ts": "2026-10-03T01:08:54Z"}
+{"allowed": ["SHA256:3d4bbq+QE+WkPyDGea/s/Qq9bczB0aZsZOjipcIajLA"], "event": "listening", "generation": "f6e1fddfc5a1", "mode": "600", "path": "/tmp/hg03-esioQM/hg03-0e61e3/agent.sock", "proxy_pid": 47654, "ts": "2026-10-03T01:08:54Z"}
+{"action": "stop_without_unlink", "event": "endpoint_replaced", "generation": "f6e1fddfc5a1", "proxy_pid": 47654, "ts": "2026-10-03T01:08:54Z"}
+{"event": "left_path_untouched", "generation": "f6e1fddfc5a1", "proxy_pid": 47654, "ts": "2026-10-03T01:08:55Z"}
+{"event": "exit", "exit_code": 6, "proxy_pid": 47654, "ts": "2026-10-03T01:08:55Z"}

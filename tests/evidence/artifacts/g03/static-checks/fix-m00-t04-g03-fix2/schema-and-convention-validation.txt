@@ -1,0 +1,4 @@
+$ /tmp/g03-venv/bin/python tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix2/scripts/validate.py
+started: 2026-10-03T21:25:45Z
+files=49 invalid=0 placeholders_hash_checked=30
+exit=0

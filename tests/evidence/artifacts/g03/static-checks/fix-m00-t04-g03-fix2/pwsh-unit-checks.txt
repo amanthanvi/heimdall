@@ -1,0 +1,51 @@
+$ pwsh -NoProfile -File tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix2/scripts/unit-checks.ps1
+started: 2026-10-03T21:25:06Z
+--- verdict convention and service SDDL (unchanged from fix, re-run)
+all true -> verified/pass                                          got=verified/pass want=verified/pass ok
+one false -> verified/fail                                         got=verified/fail want=verified/fail ok
+null + false -> in_progress/inconclusive                           got=in_progress/inconclusive want=in_progress/inconclusive ok
+AU codes                                                           got=RP want=RP ok
+no cross-boundary match (OC)                                       got=False want=False ok
+--- D1 staging: staged scripts parse; command line short; old -EncodedCommand length
+other-user staged script parse errors                              got=0 want=0 ok
+other-user new command line <= 1024 (length 193)                   got=True want=True ok
+other-user old -EncodedCommand line exceeds 1024 (length 16871)    got=True want=True ok
+squat staged script parse errors                                   got=0 want=0 ok
+squat new command line <= 1024 (length 188)                        got=True want=True ok
+squat old -EncodedCommand line exceeds 1024 (length 14327)         got=True want=True ok
+wsl-other-user staged script parse errors                          got=0 want=0 ok
+wsl-other-user new command line <= 1024 (length 197)               got=True want=True ok
+wsl-other-user old -EncodedCommand line exceeds 1024 (length 3751) got=True want=True ok
+arg line refuses a double quote in the path                        got=True want=True ok
+--- D1 staged preamble/finally executed by pwsh on this host (trivial body that throws)
+staged child exit code is non-zero (body threw)                    got=True want=True ok
+done marker written by finally despite the throw                   got=True want=True ok
+TEMP reset to the staged tmp dir                                   got=True want=True ok
+TMP reset to the staged tmp dir                                    got=True want=True ok
+staged tmp dir created                                             got=True want=True ok
+inherited SSH_AUTH_SOCK cleared                                    got=False want=False ok
+inherited PSModulePath replaced                                    got=False want=False ok
+--- D6 Wait-OtherUser completion and kill policy
+done marker, no handle -> completion                               got=done_marker want=done_marker ok
+  kill not needed                                                  got=not_needed want=not_needed ok
+  result data read                                                 got=True want=True ok
+no marker, no handle -> timeout                                    got=timeout/True want=timeout/True ok
+  no PID-only kill attempted                                       got=True want=True ok
+  running test without handle/marker -> running                    got=True want=True ok
+held handle, timeout -> killed via held handle                     got=killed_via_held_handle want=killed_via_held_handle ok
+  owned sleep process exited                                       got=True want=True ok
+  process info records command_line_length                         got=150 want=150 ok
+--- D2 Invoke-DeadSockClient fallback judgement (mocked platform calls)
+present + exit 2 -> judged, no fallback                            got=True/True want=True/True ok
+  stdout not saved (no transcript)                                 got=0 want=0 ok
+  command entry says stdout not saved                              got=True want=True ok
+present + exit 0 (fell back) -> no_fallback false                  got=True/False/1 want=True/False/1 ok
+absent, not disposable -> not judged                               got=False/True want=False/True ok
+  reason names the gate                                            got=True want=True ok
+absent, disposable, service running -> no decoy, not judged        got=False/none want=False/none ok
+decoy listening, 0 connections -> no fallback                      got=True/True want=True/True ok
+  decoy served the default name                                    got=openssh-ssh-agent want=openssh-ssh-agent ok
+decoy contacted -> fallback detected                               got=True/False want=True/False ok
+decoy failed to start -> not judged                                got=False/none want=False/none ok
+FAILURES=0
+exit=0

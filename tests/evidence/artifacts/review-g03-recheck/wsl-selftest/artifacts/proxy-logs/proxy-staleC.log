@@ -1,0 +1,4 @@
+{"allowed": ["SHA256:J5KEAKoUH/6umIVtiJdkMtqTSjae4dWt1U4pY/7b+hc"], "event": "listening", "generation": "58ba51a5c754", "mode": "600", "path": "/tmp/hg03-v6spe0/hg03-7907c1/agent.sock", "proxy_pid": 27197, "ts": "2026-10-03T19:14:40Z"}
+{"conn": 1, "event": "connect", "peer_pid": null, "peer_uid": 501, "proxy_pid": 27197, "ts": "2026-10-03T19:14:42Z"}
+{"conn": 1, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 27197, "result": "identities:1/2", "ts": "2026-10-03T19:14:42Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 27197, "ts": "2026-10-03T19:14:42Z"}

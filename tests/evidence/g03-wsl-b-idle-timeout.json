@@ -1,0 +1,43 @@
+{
+  "case_id": "G03-wsl-b-idle-timeout",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-EN-03",
+    "R-RT-01"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": null,
+  "environment": {
+    "recorded_on": "macOS 27.0 arm64 development host; the target platform is not available to this environment",
+    "recorded_at": "2026-10-03T21:25:45Z",
+    "task": "M00-T04-G03 (harness revised by M00-T04-G03-fix and M00-T04-G03-fix2)",
+    "harness": {
+      "path": "tests/native/wsl/run_g03_wsl_lifecycle.sh",
+      "sha256": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+      "supporting_sha256": {
+        "tests/native/wsl/g03_common.sh": "78fbabd193db9f835d61c7c48b16ee46d017d184b7ab7cce6e6a3163984cafce",
+        "tests/native/wsl/evidence.py": "50a3f7e7cbf5e108858d84028b95bee2e74d81ac317273c12fbda3d71e4825a1",
+        "tests/native/wsl/agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+        "tests/native/wsl/agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+        "tests/native/wsl/agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+        "tests/native/wsl/exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+        "tests/native/wsl/argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402"
+      }
+    }
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": "tests/native/wsl/run_g03_wsl_lifecycle.sh --probes idle --target-distro .. --allow-terminate-target",
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g03-windows-wsl.md",
+    "tests/native/wsl/run_g03_wsl_lifecycle.sh"
+  ],
+  "limitations": [
+    "Not executed on the target platform: no Windows/WSL host is available to this environment, so there is no observation (plan.md sec. 6.5). Mocks, cross-compiles and the macOS harness self-tests do not close this record.",
+    "Probe P-B10; acceptance input A13; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.3.",
+    "Unknown until executed: Whether a detached endpoint keeps a distribution running past instanceIdleTimeout (Q30).",
+    "Revised (M00-T04-G03-fix): target-side stop signals only PIDs with a matching recorded start time."
+  ],
+  "blocked_on": "two WSL2 distributions (controller + disposable target, python3 + OpenSSH client) with interop on a native Windows 11 x86-64 host; permission to terminate the disposable target"
+}

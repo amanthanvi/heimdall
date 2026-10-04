@@ -1,0 +1,11 @@
+label: ssh-keygen-sign-allowed
+file: /usr/bin/ssh-keygen
+arguments: -Y sign -U -f "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-384a22/probe dir üø/agent-selftest-c07ceb/probe-key-1.pub" -n heimdall-g03 "/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-384a22/probe dir üø/message.txt"
+started_utc: 2026-10-03T01:09:08.1011210Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Signing file /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-384a22/probe dir üø/message.txt
+Write signature to /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/heimdall-g03-selftest-384a22/probe dir üø/message.txt.sig

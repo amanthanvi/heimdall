@@ -1,0 +1,4 @@
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/client-on-stale.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/client-on-stale.stderr
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/list-via-replacement.stdout
+tests/evidence/artifacts/review-g03-recheck/wsl-selftest/artifacts/G03-harness-selftest-unix-wsl-b-stale-socket/list-via-replacement.stderr

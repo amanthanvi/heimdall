@@ -1,0 +1,33 @@
+$ bash tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix2/scripts/wsl-unit-checks.sh <home>/GitRepos/heimdall
+started: 2026-10-03T21:25:21Z
+--- D4 g03_net_mode_word allowlist
+Mirrored -> mirrored                                             got=mirrored ok
+NAT -> nat                                                       got=nat ok
+consomme                                                         got=consomme ok
+path-like value not recorded                                     got=<unrecognized value, not recorded> ok
+empty                                                            got=<empty> ok
+--- D4 g03_net_mode_obs with stubs (wslinfo absent / present)
+wsl2 key read, word recorded                                     got=wslconfig_networkingMode=mirrored ok
+wslinfo absent recorded                                          got=wslinfo_networking_mode=unavailable ok
+key outside [wsl2] ignored                                       got=wslconfig_networkingMode=<key absent: documented default nat> ok
+unknown value not recorded                                       got=wslconfig_networkingMode=<unrecognized value, not recorded> ok
+  no raw value anywhere in obs                                   got=0 ok
+no .wslconfig                                                    got=wslconfig_networkingMode=<no .wslconfig: documented default nat> ok
+wslinfo present -> its word                                      got=wslinfo_networking_mode=mirrored ok
+  .wslconfig not read when wslinfo present                       got=wslconfig_networkingMode=<not read: wslinfo available> ok
+--- D7 g03_wslenv_check
+WENV carries SSH_AUTH_SOCK/w                                     got=WSLENV=SSH_AUTH_SOCK/w ok
+no cmd.exe / no /mnt/c here -> mismatch (refuse ssh.exe)         got=mismatch ok
+SKIPPED (/mnt/c cannot exist on this host): real g03_wslenv_check against a stub cmd.exe
+--- D8 PYTHONDONTWRITEBYTECODE exported by g03_init
+g03_init exports PYTHONDONTWRITEBYTECODE=1                       got=1 ok
+--- D6 keepalive target scripts (extracted from run_g03_wsl_lifecycle.sh)
+t_keep.sh extracted                                              got=#!/usr/bin/env bash ok
+t_keepstop.sh extracted                                          got=#!/usr/bin/env bash ok
+t_keep.sh bash -n                                                got=0 ok
+t_keepstop.sh bash -n                                            got=0 ok
+no pidfile                                                       got=keepalive=no-pidfile ok
+bad pidfile                                                      got=keepalive=bad-pidfile ok
+SKIPPED (/proc absent on this host): keepalive start/stop identity checks
+FAILURES=0
+exit=0

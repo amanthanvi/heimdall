@@ -1,0 +1,41 @@
+{
+  "case_id": "G03-win-git-ssh-selection",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-03",
+    "R-EN-02"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "artifact_digest": null,
+  "environment": {
+    "recorded_on": "macOS 27.0 arm64 development host; the target platform is not available to this environment",
+    "recorded_at": "2026-10-03T21:25:45Z",
+    "task": "M00-T04-G03 (harness revised by M00-T04-G03-fix and M00-T04-G03-fix2)",
+    "harness": {
+      "path": "tests/native/windows/Invoke-G03WindowsProbes.ps1",
+      "sha256": "c5802bb8b468da219e4bedbe27bbc0722378c95df96b5a1d1d8a80a155038a4b",
+      "supporting_sha256": {
+        "tests/native/windows/G03Common.psm1": "57d295c1fbf92086a2f6d1f1c986811bc2eda562c9534c828243f0c4eb57378c",
+        "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+        "tests/native/windows/PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+      }
+    }
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": "pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -Probes git -GitRemoteUrl ..",
+  "observed_result": null,
+  "evidence_paths": [
+    "docs/research/g03-windows-wsl.md",
+    "tests/native/windows/Invoke-G03WindowsProbes.ps1"
+  ],
+  "limitations": [
+    "Not executed on the target platform: no Windows/WSL host is available to this environment, so there is no observation (plan.md sec. 6.5). Mocks, cross-compiles and the macOS harness self-tests do not close this record.",
+    "Probe P-W04; acceptance input A14, A12; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.1.",
+    "Unknown until executed: Default ssh used by Git for Windows per installer choice and precedence on the shipped build (Q12/Q13).",
+    "Revised (M00-T04-G03-fix): Git's default ssh is never executed in default mode (it could read %USERPROFILE%\\.ssh); default_ssh_resolution is passive, and the live default_no_override row needs -IAmOnADisposableHost and an empty profile .ssh.",
+    "Revised (M00-T04-G03-fix2): the live default_no_override row (only with -IAmOnADisposableHost) now also requires %USERPROFILE%\\.ssh absent or empty and no %PROGRAMDATA%\\ssh\\ssh_config (existence/count checks only)."
+  ],
+  "blocked_on": "native Windows 11 x86-64 host (exact build recorded at run time; G01 selects floors) with the in-box Win32-OpenSSH client (version unknown until P-W01 runs) and Windows PowerShell 5.1 / PowerShell 7.4+; Git for Windows v2.56.0.windows.1 (bundled and external OpenSSH installs); a disposable SSH fixture reachable from that host (e.g. tests/fixtures/ssh, M00-T03) with its known_hosts serving a disposable Git repository"
+}

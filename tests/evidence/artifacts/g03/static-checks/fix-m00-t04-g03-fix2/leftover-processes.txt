@@ -1,0 +1,6 @@
+$ sh -c echo "agent_proxy.py processes: $(pgrep -f tests/native/wsl/agent_proxy.py | wc -l | tr -d " ")"; echo "InstrumentedAgent.ps1 processes: $(pgrep -f tests/native/windows/InstrumentedAgent.ps1 | wc -l | tr -d " ")"; echo "containers from this check still running (debian digest): $(docker ps -q --filter ancestor=debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417 | wc -l | tr -d " ")"
+started: 2026-10-03T21:25:45Z
+agent_proxy.py processes: 0
+InstrumentedAgent.ps1 processes: 0
+containers from this check still running (debian digest): 0
+exit=0

@@ -1,0 +1,6 @@
+$OtherUserWin32: embedded script parse errors=0
+  G03OU compiled: True
+$OtherUserProbeScript: embedded script parse errors=0
+$SquatScript: embedded script parse errors=0
+$WslOtherUserScript: embedded script parse errors=0
+G03PipeInfo compiled: True; G03PipeCreate compiled: True

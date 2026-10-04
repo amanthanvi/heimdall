@@ -1,0 +1,1 @@
+pwsh selftest exit=0
