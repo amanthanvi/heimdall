@@ -33,6 +33,6 @@
 
 ## Next actions
 
-1. Integrate the round-3 verdicts and the ADR review into ADR-0002.
-2. Present the decision package to the owner: G02 language, plus the batched questions (Q1 approvals, G04 D1–D5/Q4, G03 E-2..E-5, sources E1/E6/E8, the fixture status convention).
-3. After the owner's decision: archive the losing prototypes and start M01.
+1. Wait for round 3 (wf_37282f1c-f61): harness K6d/K6e/K17, the reviewer's attempt to defeat it, and the final conformance runs on the unchanged round-2 artifacts.
+2. Round 3b (fairness, from ADR review M1–M3). Go's shared-mode signal choice was made before K6b, K6d and K6e existed, so Go gets one fix round under those rulings, plus the terminfo bound and the K10 panic exit code. Rust gets an equal round for any new-check failures and its §4 thread-spawn orphan. For TS, research only: can compiled Bun binaries disable BUN_OPTIONS, BUN_INSPECT and BUN_BE_BUN, and do musl targets exist (review M5). Then the final conformance runs and fresh targeted reviews.
+3. Rewrite ADR-0002 against every finding in `tests/evidence/artifacts/review-adr-0002/review.md` (M1–M6, m1–m14), then present the decision package.
