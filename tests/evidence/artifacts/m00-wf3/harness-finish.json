@@ -1,0 +1,79 @@
+{
+ "task_id": "M00-T05-harness-finish",
+ "status": "verified",
+ "files_changed": [
+  "tests/fixtures/fake-agent/fake_agent.py",
+  "tests/g02/conformance.py",
+  "tests/g02/harness_lib.py",
+  "tests/g02/reference_impl.py",
+  "tests/g02/reference_tui.py",
+  "tests/g02/selftest.py",
+  "tests/g02/README.md",
+  "tests/g02/SELFTEST.md"
+ ],
+ "commands_run": [
+  {
+   "command": "python3 tests/g02/conformance.py --bin tests/g02/reference_impl.py --candidate go --selftest --only 'harness.*' (state left by the interrupted agent, before my edits)",
+   "exit_code": 0,
+   "observed": "10/10 harness.* pass. The fixes for (a), (b) and (c) from the interrupted agent were present. Its SELFTEST.md (97/97, 111 checks) was current for the code at that point."
+  },
+  {
+   "command": "python3 /tmp/hm-k3a/probe.py and probe2.py (AF_UNIX reset probes on Darwin)",
+   "exit_code": 0,
+   "observed": "Every variant gave EOF on recv and EPIPE on send, never ECONNRESET: SO_LINGER 0, closing with the request unread, and closing a listener while a connection was pending. So Darwin AF_UNIX stream sockets cannot produce a K3a reset."
+  },
+  {
+   "command": "python3 /tmp/hm-t05/oldclose.py flood|exited (legacy teardown: close the control pipe, wait for the shim without draining)",
+   "exit_code": 0,
+   "observed": "{old_close_finished: false, seconds: 6.0} in both modes. Defect (b) reproduces on this macOS."
+  },
+  {
+   "command": "conformance.py --bin <copy of prototypes/rust/dist/darwin-arm64/heimdall-proto in /tmp> --candidate rust --only 'tui.*' (read-only reproduction, not a verdict)",
+   "exit_code": 0,
+   "observed": "25/25 tui.* pass with no hang. Replaying the saved pty streams through stock pyte 0.8.2 raised IndexError for 7 sessions (filter_basic, filter_unicode, filter_case_insensitive, filter_matches_host, filter_backspace, filter_enter_keeps_filter, ctrl_c_in_filter_mode). The harness renderer handled all of them. This reproduces defect (a)."
+  },
+  {
+   "command": "conformance.py against the reference with the new Ratatui-style diff renderer --only 'tui.*'; then a stock-pyte replay of the artifacts",
+   "exit_code": 0,
+   "observed": "25/25 pass. 7 recorded sessions raise IndexError in stock pyte, so the baseline now exercises fix (a) end to end."
+  },
+  {
+   "command": "conformance.py against the reference --only 'harness.*,agent.*' (after the K3a additions)",
+   "exit_code": 0,
+   "observed": "37/37 pass. observations.k3a_reset_delivery = EOF for both modes on Darwin. The record's limitations carry the K3a note. legacy-teardown observation: 'still blocked after 2.0 s (the original defect)'."
+  },
+  {
+   "command": "docker run --rm --network none -v repo:/repo:ro python:3.13-alpine conformance.py --only harness.fake_agent_modes,agent.eof_*,agent.reset_*,agent.malformed_truncated (REF_MUTATE = none / agent_reset_unhandled / agent_eof_as_protocol / agent_partial_eof_unavailable)",
+   "exit_code": 1,
+   "observed": "Linux 7.0.14-linuxkit: k3a_reset_delivery = ECONNRESET for both modes. Unmutated: the 5 keyless checks pass. agent.malformed_truncated errors because the image has no /usr/bin/ssh-keygen, which is why that check was dropped from the container scope. agent_reset_unhandled fails both agent.reset_* checks. The two EOF mutations fail their eof_* and reset_* checks."
+  },
+  {
+   "command": "python3 tests/g02/selftest.py --only agent_reset_unhandled,tui_stderr_canary,agent_eof_as_protocol,agent_partial_eof_unavailable --linux-image python:3.13-alpine --out /tmp/hm-t05/SELFTEST-partial.md",
+   "exit_code": 0,
+   "observed": "SELFTEST PASS. Baseline 113/113. All 4 mutations caught; agent_reset_unhandled was caught in the Linux container."
+  },
+  {
+   "command": "python3 tests/g02/selftest.py --repeat-baseline 3 --linux-image python:3.13-alpine --workdir /tmp/hm-t05/st-full (started 2026-10-03T19:28:08Z, ended 19:55:32Z)",
+   "exit_code": 0,
+   "observed": "SELFTEST PASS. Minischema exit 0. Baseline plus 3 repeats: each exit 0 with 113/113 pass, status verified, verdict pass, about 46-47 s each. Flaky checks: none. Candidate mismatch: exit 1. Linux container: exit 0, 5/5 pass, ECONNRESET observed. Mutations caught: 99/99, of which 28 had to be caught by their intended check(s) and 1 is platform-gated (caught in Linux)."
+  }
+ ],
+ "requirement_ids": [],
+ "evidence_records": [
+  "tests/g02/SELFTEST.md (regenerated 2026-10-03T15:28:08-04:00; it is newer than every harness code file, last code edit 15:27:18 local)",
+  "/tmp/hm-t05/selftest-full.log and /tmp/hm-t05/st-full/ (per-run records, including linux/ container records; temporary, not persisted)"
+ ],
+ "escalations": [
+  "K3a cannot be exercised on macOS: Darwin AF_UNIX stream sockets never report ECONNRESET (measured: SO_LINGER 0, unread data and listener-close all give EOF). On darwin-arm64, agent.reset_before_reply and agent.reset_after_partial_header only test the EOF-equivalent path. Each record says so in limitations and observations.k3a_reset_delivery. Judging a candidate's real reset handling needs a Linux run of that candidate (Linux container linuxkit delivers ECONNRESET; the harness detects this and gates normally there). Orchestrator decision needed: require Linux candidate runs for the K3a verdict, or accept the macOS EOF-equivalent result with the recorded limitation.",
+  "Interpretation that needs confirming: tui.hangup_exit_129 requires exit 129 in two cases. One is a shell-like hangup (SIGHUP plus EOF). The other is a 'bare' hangup where the session leader does not forward SIGHUP, so the TUI only sees EOF/EIO on the tty. I read K10's 'terminal hangup' as covering both. This check predates my session, and I kept it gating.",
+  "Still open, carried over: Q8 (K10 '143/129' as an exit status vs. restore-then-re-raise, which gives wait status 'killed by signal'); Q1 (meta exit_code for a signalled child); Q3 (delivery count for a terminal-generated SIGINT). These are non-gating or strict as documented in the README."
+ ],
+ "limitations": [
+  "No independent adversarial review: I did not delegate a reviewer. All verification is the harness self-test plus my own reproductions, which is not independent evidence.",
+  "The full catalogue has run on macOS Darwin arm64 only. On Linux only the 5 keyless K3/K3a checks ran, in a Docker Desktop linuxkit container; the Alpine image has no ssh-keygen. Windows and WSL are not covered (blocked_on: native Windows host; Windows host with WSL).",
+  "The prototype run (rust tui.*) was a read-only reproduction of defects (a) and (b) on a /tmp copy of a binary that was changing at the time. It is not a conformance verdict.",
+  "Pre-existing sandboxes /tmp/hmg02-1e89yzcf, /tmp/hmg02-selftest-ly0uee24 and /tmp/hmg02-vho6kh0m (dated 2026-10-02 21:31 and 2026-10-03 14:12) came from earlier interrupted runs, not mine. I left them in place. My own temp files are in /tmp/hm-t05; the rust binary copy and /tmp/hm-k3a were removed.",
+  "Panic/exception restoration (K10 exit 1) and the §7/K11 sidecar and manifest rules are still not judged. Writes outside HOME, TMPDIR and the cwd (for example a hard-coded /tmp) are not detected (listed in the README)."
+ ],
+ "summary": "The G02 harness is finished and re-proved: the regenerated self-test passes with 99/99 mutations caught, and four full runs against the reference (baseline plus 3 repeats) were each 113/113 with no flaky checks.\n\nOne thing needs your decision. On macOS the K3a reset checks only test the end-of-file path, because Darwin Unix-domain sockets never report a connection reset. In the Linux container the harness gets a real reset and gates on it normally, but a macOS candidate binary can only be judged on the end-of-file equivalent. Either we require Linux runs of each candidate for K3a, or we accept the macOS result with the limitation that every record already states.\n\n**Starting point.** The interrupted agent had already fixed (a), (b) and (c). Its 97/97 self-test was current for the code at that point. I re-ran the harness self-checks, reproduced each defect, then added what was missing and re-ran everything.\n\n**Defect (a), split wide characters.** Confirmed: replaying the Rust prototype's terminal output through stock pyte 0.8.2 raises IndexError in exactly the 7 sessions that had errored. The harness renderer handles them.\n- New regression case in `harness.screen_wide_chars`: the literal byte sequence Ratatui emitted must render as a blank row. Stock pyte's IndexError on the same input is recorded but does not gate.\n- `reference_tui.py` now draws like Ratatui, writing only changed cells. Clearing the `vps-東京` row overwrites only the left halves of the wide characters, so the baseline TUI checks exercise fix (a). 7 of their recorded sessions raise IndexError in stock pyte.\n\n**Defect (b), undrained pty output.** Confirmed: the old non-draining teardown was still blocked after 6 s in both scenarios on macOS.\n- `harness.pty_close_undrained` now also runs the old teardown and records that it is still blocked after 2 s (non-gating). It then checks that the fixed `close()` finishes the same session within 10 s (it took 0.01 s).\n- Further hardening: the pty session's stderr pipe is drained and scanned for the canary (it was never read before), and the harness's own slave descriptor is closed non-blocking after the master.\n\n**Defect (c), hard bound.** Unchanged and still proven by `harness.check_bound`: a check blocked in `waitpid` and a blocked cleanup are both recorded as errors within the bound.\n\n**K3a, connection reset.** New fake-agent modes `reset_before_reply` and `reset_after_byte` read the request without consuming it, optionally send one header byte, then close with `SO_LINGER 0`.\n- New checks: `agent.reset_before_reply` (expects `AGENT_UNAVAILABLE`) and `agent.reset_after_partial_header` (expects `AGENT_PROTOCOL_ERROR`). Each records how the kernel delivered the reset.\n- New mutation `agent_reset_unhandled` (a reset not handled) can only be caught where a real reset occurs. `selftest.py` therefore runs those checks in a Docker Linux container (no network, repository read-only), where it is caught.\n\n**Other §9 checks.** K1, K2, K3, K4, K5, K6, K8, K9, K10 and K11 checks were already present and correct; K8 is a normal gating check.\n- The `run.forward_*` checks are now labelled K6, since they cover an explicit kill with no controlling terminal.\n- New mutation `tui_stderr_canary` proves the new stderr canary scan works.\n- The clause pattern now accepts IDs like K3a.\n\n**README.** The check catalogue is regenerated and maps all 113 check ids to a contract clause, a K id or `harness`. Also updated: the K coverage table (new K3a row), the fake-agent modes, the robustness notes for (a)-(c), the limitations (K3a on macOS; Linux coverage is only the container run) and the maintenance notes. No note treats invalid-UTF-8 argv as non-gating.\n\nOther open points:\n- No independent review was done.\n- The full catalogue has only run on macOS; Windows and WSL are not covered.\n- Still to confirm: whether a terminal hangup where the TUI only sees end-of-file (no SIGHUP) must also exit 129. The harness requires it.\n- Still open from before: Q1, Q3 and Q8.\n\nFiles are in <repo>/tests/g02/:\n- conformance.py\n- harness_lib.py\n- reference_impl.py\n- reference_tui.py\n- selftest.py\n- README.md\n- SELFTEST.md\n\nplus <repo>/tests/fixtures/fake-agent/fake_agent.py."
+}

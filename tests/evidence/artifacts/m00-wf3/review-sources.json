@@ -1,0 +1,179 @@
+{
+ "subject": "M00-T02 sources: docs/decisions/0003-source-pins.md, docs/sources/pins.json, docs/sources/excerpts/notes.md (producer result tests/evidence/artifacts/m00-wf1/sources.json)",
+ "reexecuted_commands": [
+  {
+   "command": "python3 tests/evidence/artifacts/review-sources/my_fetch.py (curl -sL GET of all 34 fetched_url values from pins.json)",
+   "exit_code": 0,
+   "observed": "34/34 HTTP 200, curl rc 0. Raw-body sha256 equals the pinned raw hash for 17 (S01-S05, S10, S16, S18, S19, S23, S27-S30, S34, plus S17 excluded below). Raw differs for 17: S06-S09, S11-S15, S17, S20-S22, S24-S26, S31-S33. S17 differs because t3code commit 9333509 touched the file on 2026-10-03T04:42Z, after the pin. Other differences are not attributable (HTML chrome vs real content change). Two back-to-back fetches of S07/S13/S14/S22 gave identical raw hashes."
+  },
+  {
+   "command": "python3 tests/evidence/artifacts/review-sources/excerpt_check.py plus grepx.py/mdcheck.py manual greps of quoted excerpts in fresh bodies and .md variants",
+   "exit_code": 0,
+   "observed": "All substantive excerpts found on the live pages after allowing for curly quotes, link markup and mid-quote ellipses. Exception: S26's quote 'Be very specific about your end goal' is not on S26; it is on S31 (reasoning-best-practices)."
+  },
+  {
+   "command": "attempt to reproduce pins.json text_sha256 from fresh bodies using 5 extraction variants (raw, tag-stripped joined, space-joined, line-wise, stripped)",
+   "exit_code": 0,
+   "observed": "0 of 34 text hashes reproducible. Extraction algorithm and build.py are not in the repo (find build.py: none)."
+  },
+  {
+   "command": "curl GET registry.npmjs.org for @opentui/core, react, solid, keymap, ssh, @number0/iroh",
+   "exit_code": 0,
+   "observed": "All versions, dates, licenses, engines (core and ssh: bun >=1.3.0, node >=26.4.0; iroh node >=20.3.0), peer/optional deps, shasum fad26be1... and the 11 @number0/iroh platform packages (no darwin-x64) match pins.json. Full integrity sha512-tfQ+PWQyeBnYloB3diEcPqbILv14xemH5jjAEICfPuyNDtGBqrjhUtThrhbvFRuPMcj6IEeXrAk6VE8e91h0kg== exists but pins.json stores a truncated form. @opentui/core exports map has both a 'bun' and a 'node' condition (main index.node.js). nodejs.org dist index confirms Node 26.x exists (v26.10.0, 2026-09-21)."
+  },
+  {
+   "command": "curl GET crates.io API for ratatui, ratatui-crossterm, crossterm, iroh, iroh-pigeons, iroh-tickets; curl proxy.golang.org charm.land/bubbletea/v2/@latest",
+   "exit_code": 0,
+   "observed": "All versions, created_at, licenses, rust_version, not yanked, match pins.json (ratatui 0.30.2 MIT 1.88; ratatui-crossterm 0.1.2; crossterm 0.29.0 2025-04-05 MIT; iroh 1.3.0 MIT OR Apache-2.0 rust 1.91; iroh-pigeons 0.2.1; iroh-tickets 1.0.0). Go proxy @latest = v2.0.10 at charm.land/bubbletea/v2."
+  },
+  {
+   "command": "bash tests/evidence/artifacts/review-sources/gh_releases.sh (gh api GET only)",
+   "exit_code": 0,
+   "observed": "Latest releases/dates/licenses match: bubbletea v2.0.10 MIT; ratatui-v0.30.2 MIT; crossterm GH latest 0.28 (2024-07-31) lags crates 0.29.0; opentui v0.5.14 MIT; iroh v1.3.0 Apache-2.0 per GH; iroh-ffi v1.1.0; pigeons v0.2.1; Win32-OpenSSH 10.0.0.0p2-Preview (prerelease flag false, name says Preview), all 5 latest are Preview; step-ca v0.30.2 Apache-2.0; step cli v0.31.0 Apache-2.0. Win32-OpenSSH default branch L1-Prod root has no LICENSE (404)."
+  },
+  {
+   "command": "gh api commits?until=2026-10-02T23:56:00Z per repo; gh api contents/blob SHAs for S16,S18,S34,S19,S27,S29; gh api pigeons Cargo.toml and releases/latest assets",
+   "exit_code": 0,
+   "observed": "All 10 candidate repo head SHAs and dates match pins.json (96d69d2, 7767679, f6cb075, de8dc97, b4c8fc6, 3103bf5, 7800c52, 39d8050, fdeb6fd, 8301c0d). Blob SHAs for S16/S18/S34/S19/S27/S29 and path-last-commits match. Pigeons Cargo.toml: license MIT OR Apache-2.0, rust-version 1.91, edition 2024; 5 release assets match."
+  },
+  {
+   "command": "grep man-page footers, Last-Modified header, 1Password dateModified, ms.date/updated_at and Smallstep 'Last updated' in fresh bodies",
+   "exit_code": 0,
+   "observed": "All pins verified: S01 Sep 20, S02 Sep 5, S04 Sep 2, S05 Sep 17, S10 Oct 1, S30 Sep 18 2026; S03 Last-Modified Tue 22 Sep 2026 19:18:50 GMT; S06/S07/S08/S09/S12 dateModified values; S13 ms.date 2025-10-03, updated_at 2026-04-21T17:36Z; S11 Feb 3 2026."
+  },
+  {
+   "command": "python3 cross-check of ADR table rows against pins.json (url, timestamp, pin prefix, hash prefix, status)",
+   "exit_code": 0,
+   "observed": "34 ADR rows vs 34 pins.json sources, zero mismatches; 34 supported. ADR candidate table consistent with pins.json candidates."
+  },
+  {
+   "command": "curl GET .md variants of OpenAI pages S24,S25,S26,S31,S32,S33 (learn.chatgpt.com for S25)",
+   "exit_code": 0,
+   "observed": "All HTTP 200 text/markdown. S32 deprecation dates (read-only 2026-10-31, shutdown 2026-11-30), S24 'fewer than 20 functions' and 'Offload the burden', S25 progressive disclosure, S31 avoid chain-of-thought, S33 untrusted variables and structured outputs all present."
+  },
+  {
+   "command": "gh api PowerShell/Win32-OpenSSH branches/contents and PowerShell/openssh-portable",
+   "exit_code": 0,
+   "observed": "Win32-OpenSSH README says active development is in PowerShell/openssh-portable (default branch latestw_all, pushed 2026-09-25, has LICENCE: BSD-style 'OpenSSH contains no GPL code'). Win32-OpenSSH master/L1 branches also carry LICENCE. Head 39d8050 on L1-Prod is an issue-triage bot commit ('Use supported model for agentic issue triage')."
+  }
+ ],
+ "confirmed_claims": [
+  "S07 (E1): live page says timed remembering (4/12/24 h) keeps key approvals through a lock and still requires unlocking 1Password for private-key access. S06 also says the agent keeps only authorization, not private keys, while locked. Producer excerpt and E1 facts are accurate.",
+  "S22 (E4): live page says macOS arm64 (no Intel build), Node 20.3.0+; npm @number0/iroh 1.1.0 has exactly 11 optional platform packages with no darwin-x64.",
+  "S27: Go proxy and README confirm charm.land/bubbletea/v2 v2.0.10 MIT; no stale github.com import path in plan.md, spec.md, docs or prototypes/go (prototype uses charm.land).",
+  "OpenTUI: @opentui/core 0.5.14 MIT engines bun >=1.3.0 and node >=26.4.0, peer web-tree-sitter 0.25.10, 8 platform optional packages; README says dev needs Bun 1.4.1+ and Zig 0.16.0.",
+  "All 34 URLs fetch HTTP 200; all 34 pin date markers (footer date, Last-Modified, dateModified, ms.date, Smallstep marker, git blob and path-commit SHAs) verified live, except S17, which has legitimately moved on since the pin.",
+  "All candidate versions, release dates, licenses, rust-version/engines and repo head SHAs verified against crates.io, npm, the Go proxy and gh api.",
+  "pins.json and ADR source table agree on all 34 rows; status vocabulary is honest (implemented_unverified, no 'verified' claimed); no scripts, commands, or listeners touching ~/.ssh, agents, or keychains were found in the subject files.",
+  "Spec section 19 entries S01-S34 in spec.md match pins.json URLs; no spec/plan requirement is weakened by the ADR. The 'supported' verdicts are supported by page text for all 34 claims, subject to the S26 misattributed quote noted below."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "pins.json S26 excerpt: the quote 'Be very specific about your end goal' supports S26 (latest-model guide)",
+   "evidence": "The phrase appears only on S31 (reasoning-best-practices .md); grep of S26 HTML and .md returns 0 hits. The S26 claim is still supportable from other text on the page (intended-outcome and follow-through prompts, 'Testing and verification', skill-file conflict guidance), but the quoted excerpt is misattributed."
+  },
+  {
+   "claim": "ADR: 'All 34 text hashes were re-fetched about 10 minutes later and matched, so the text hash is a usable drift detector'",
+   "evidence": "Not reproducible: 0/34 pinned text_sha256 values can be regenerated from fresh bodies using five plausible extraction methods, and the extraction code (build.py) is not in the repo. For 17 sources even the raw hash differs from the pinned one. For a third party the text hash is not a usable detector as delivered."
+  },
+  {
+   "claim": "ADR E6 / pins.json: Win32-OpenSSH has 'no LICENSE file at repo root' and maintenance 'head 39d8050 on 2026-09-23'",
+   "evidence": "True only for the L1-Prod default branch, which contains just README/ISSUE_TEMPLATE. Its README says active development is in PowerShell/openssh-portable (default branch latestw_all, pushed 2026-09-25, has a LICENCE file with BSD-style terms). The L1-Prod head is a triage-bot commit, not code. The licensing and maintenance conclusion rests on the wrong repo."
+  },
+  {
+   "claim": "E4 / ADR line 81: 'OpenTUI core needs node >=26.4 or Bun >=1.3' and notes.md 'loaded via Bun FFI'",
+   "evidence": "npm engines lists both keys (bun >=1.3.0 AND node >=26.4.0) and no 'or' appears in any source. The package exports map has distinct 'bun' and 'node' conditions (main index.node.js), so a Node entry point exists. 'Loaded via Bun FFI' is inferred from the bun-ffi-structs dependency name and is not source-backed. The 'or' reading and the FFI loading mechanism must be labelled inference until G02 tests."
+  },
+  {
+   "claim": "pins.json S07 note: 'Spec sentence is true for keys, not for approvals' / E1 framed as a contradiction with spec line 323",
+   "evidence": "Spec line 323 says remembered approvals do not keep private keys available after lock. S06 and S07 both support that literally (agent keeps only authorization while locked; unlock needed for key access). The spec sentence is accurate. The real gap is that the spec omits that timed approvals survive a lock. E1 is better stated as a suggested clarification, not a contradiction."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Statuses honest (no verified without executed evidence; native items blocked with platform)",
+   "verdict": "pass",
+   "evidence": "ADR and progress.md use implemented_unverified; 'supported' is explicitly scoped to page-text consistency, not behavioral evidence. No native-platform claim is made."
+  },
+  {
+   "gate": "Every factual claim has a source or an inference label",
+   "verdict": "fail",
+   "evidence": "Most do. Exceptions: 'loaded via Bun FFI' and 'needs node >=26.4 or Bun >=1.3' are unlabelled inference; the S26 quote is misattributed; Win32-OpenSSH licence/maintenance statements rest on the wrong repo. E2 (Match exec) is labelled inference, though S01 'exec keyword executes the specified command' and S02 '-G ... after evaluating Host and Match blocks' support it textually."
+  },
+  {
+   "gate": "Immutable snapshot pinned for relied-upon mutable docs (plan section 1.4, line 54, risk row 606, spec R-QU-01/R-DI-08)",
+   "verdict": "fail",
+   "evidence": "24 of 34 sources (all non-GitHub HTML, man pages, OpenAI docs) are 'pinned' only by hash or by a mutable date marker. No snapshot text or archive URL is stored, and the hash cannot be regenerated (0/34). Only 10 GitHub-hosted sources have commit/blob permalinks. Plan line 54 asks to 'store source snapshots or commit references'."
+  },
+  {
+   "gate": "Scripts safe and runnable",
+   "verdict": "uncertain",
+   "evidence": "The subject contains no scripts; the generator build.py named in the producer report is not stored, so its safety cannot be checked and it cannot be re-run. The producer's reported commands were read-only GETs. My own re-fetch and gh scripts ran with exit 0 and are in review-sources/."
+  },
+  {
+   "gate": "Pass/fail criterion discriminating",
+   "verdict": "fail",
+   "evidence": "'supported' (page text consistent with a one-line claim) cannot distinguish a faithful excerpt from a misattributed one (S26 quote passed as supported). Drift detection by text hash is unreproducible. The S17 drift after the pin is not flagged by any stored check."
+  },
+  {
+   "gate": "No contradiction with spec.md/plan.md; no requirement weakened",
+   "verdict": "pass",
+   "evidence": "Spec section 19 URLs and claims are reproduced faithfully; no weakening found. Producer escalations are escalations, not decisions."
+  },
+  {
+   "gate": "Safety boundaries (no ~/.ssh, owner agent, keychain, public listeners, kill by pattern)",
+   "verdict": "pass",
+   "evidence": "The subject files contain no such operations. All checks I ran used GET only and unset SSH_AUTH_SOCK."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "Pins are not immutable or independently reproducible for 24/34 sources. text_sha256 cannot be regenerated (0/34), the extraction script is not retained, and no snapshot text or web-archive URL is stored. The ADR's 'usable drift detector' claim is unsupported for any later verifier. Suggest committing the extraction script and storing compressed raw bodies or archive.org snapshot URLs under docs/sources, and making the raw-body sha256 the primary pin where it is stable (17/34 reproduced exactly).",
+   "location": "docs/decisions/0003-source-pins.md Method section; docs/sources/pins.json pin.text_sha256"
+  },
+  {
+   "severity": "major",
+   "description": "Win32-OpenSSH licence and maintenance pin examined the wrong repository. Active code lives in PowerShell/openssh-portable (latestw_all, LICENCE with BSD-style terms, pushed 2026-09-25). The L1-Prod head 39d8050 is a triage-bot commit. E6 ('no root LICENSE, owner decision on licensing') should be restated: the licence is in openssh-portable as LICENCE (British spelling, which also defeats a LICENSE-named check) and the open question is Preview-only releases and the support baseline.",
+   "location": "docs/sources/pins.json candidates.win32_openssh; ADR candidate table row and E6"
+  },
+  {
+   "severity": "minor",
+   "description": "S26 excerpt includes a quote that is on S31, not S26. The claim remains supported by other S26 text, but the excerpt is misattributed.",
+   "location": "docs/sources/pins.json S26.excerpt"
+  },
+  {
+   "severity": "minor",
+   "description": "OpenTUI runtime requirement is under-specified and partly inferred. engines lists bun >=1.3.0 and node >=26.4.0 as separate keys; the 'or' wording and 'loaded via Bun FFI' are inference. The exports map shows both bun and node conditions. G02 must test the actual runtime (Node 26.4+ and Bun) rather than rely on this note. Verified that Node 26.x exists.",
+   "location": "ADR E4 line and OpenTUI native components paragraph; docs/sources/pins.json candidates.opentui.native_components"
+  },
+  {
+   "severity": "minor",
+   "description": "S17 (t3code connection-runtime.md) has already drifted since the pin: a new commit 9333509 (2026-10-03T04:42Z) changed the blob from 301e1e0 to 35c8b0a. Quoted excerpts still hold in the new text. The ADR reopen condition is technically triggered. The permalink pin to 99641fd remains valid, so this is a note, not a pin error.",
+   "location": "docs/sources/pins.json S17; ADR reopen conditions"
+  },
+  {
+   "severity": "minor",
+   "description": "Pigeons telemetry is omitted. S19 README documents opt-in anonymous metrics sent to iroh-services, sampled once a minute, with the sending endpoint ID visible to the collector. It also documents a system service that runs as root and `pigeons add` writing to ~/.ssh/config. These are relevant to spec section 458's infrastructure disclosure and to CLAUDE.md's boundary on touching the real ~/.ssh and installing privileged services. Fixtures must set HOME to a scratch dir and avoid service install. S22 also says Endpoint.bind uses the n0 preset (public discovery plus default relays) by default.",
+   "location": "ADR Pigeons integration paragraph; docs/sources/pins.json candidates.pigeons.integration"
+  },
+  {
+   "severity": "minor",
+   "description": "pins.json stores a truncated npm integrity string for @opentui/core ('sha512-tfQ+PWQyeBnYloB3diEcPqb... (see npm dist.integrity)'). Truncated integrity is not a pin; the full value (sha512-tfQ+PWQyeBnYloB3diEcPqbILv14xemH5jjAEICfPuyNDtGBqrjhUtThrhbvFRuPMcj6IEeXrAk6VE8e91h0kg==) is retrievable. Other candidate packages carry no integrity or checksum.",
+   "location": "docs/sources/pins.json candidates.opentui.npm.@opentui/core.integrity"
+  },
+  {
+   "severity": "minor",
+   "description": "S27 pin commit 96d69d2 is the repo head at retrieval, not the v2.0.10 release commit (Go proxy origin hash for v2.0.10 is d5bfd5c...). The ADR row lists both without saying they differ. Also E1 (S07) wording in pins.json calls the spec sentence untrue for approvals, which misreads the spec sentence.",
+   "location": "docs/sources/pins.json S27 and S07 notes"
+  }
+ ],
+ "unverifiable_here": [
+  "Producer's claim that all 34 text hashes matched across two fetches 10 minutes apart (the extraction method is absent, so neither run can be reproduced).",
+  "Whether the 16 non-GitHub raw-hash differences (S06-S09, S11-S15, S20-S22, S24-S26, S31-S33) are page chrome or real content changes since the 2026-10-02T23:56Z pin; excerpts still hold on the live pages.",
+  "Behavioral claims (E2 Match exec under ssh -G, OpenTUI running under Node 26.4 vs Bun, Iroh JS on Intel macOS) were not tested; they are G02, G07 and G09 matters.",
+  "The producer's build.py and the heredoc ADR writer; neither exists in the repo.",
+  "Python, Swift and Kotlin Iroh bindings (the producer also did not check them)."
+ ],
+ "summary": "The factual content of the sources subject holds up. I re-fetched all 34 URLs (HTTP 200) and re-checked every pin date marker, the 10 repo head SHAs, the blob and path-commit SHAs, and every candidate version, date and license against crates.io, npm, the Go proxy and gh api. The ADR table and pins.json agree on all 34 rows. S07, S22, S27 and the OpenTUI engines (bun >=1.3.0, node >=26.4.0) all match the producer's claims; E1 is accurate in substance but is not a contradiction with the spec sentence. Five problems need fixing before this counts as a trustworthy pin set. (1) The pins are not independently reproducible: 0/34 text hashes can be regenerated, the extraction script is missing, and no snapshots or archive URLs are stored, which falls short of plan line 54 for the 24 non-git sources. (2) The Win32-OpenSSH licence and maintenance statements look at the wrong repository (active code and a LICENCE file are in PowerShell/openssh-portable). (3) The S26 excerpt quotes a sentence that is on S31. (4) The OpenTUI 'node or Bun' and 'via Bun FFI' wording is unlabelled inference. (5) The Pigeons telemetry, root-service and ~/.ssh/config-writing behaviors documented on S19 are missing from the pins and fixture guidance. S17 has also moved since the pin; its quotes still hold and its permalink pin remains valid. My scripts and outputs are in <repo>/tests/evidence/artifacts/review-sources/. That directory also contained earlier files that were already there when I started (fetch_all.py, gh_checks.*, refetch.json); I did not rely on them. Overall verdict: factual claims mostly confirmed, with the major pinning-reproducibility gap and the E6 repository error outstanding. M00-T02 should stay implemented_unverified until those are addressed.\""
+}

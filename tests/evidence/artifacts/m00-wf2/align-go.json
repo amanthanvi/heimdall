@@ -1,0 +1,139 @@
+{
+ "task_id": "M00-T05-go-align",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/prototypes/go/internal/profile/profile.go",
+  "<repo>/prototypes/go/internal/profile/profile_test.go",
+  "<repo>/prototypes/go/internal/agent/frame.go",
+  "<repo>/prototypes/go/internal/agent/probe.go",
+  "<repo>/prototypes/go/internal/agent/agent_test.go",
+  "<repo>/prototypes/go/internal/run/run_unix.go",
+  "<repo>/prototypes/go/internal/tui/tui.go",
+  "<repo>/prototypes/go/internal/tui/tui_test.go",
+  "<repo>/prototypes/go/cmd/heimdall-proto/main.go",
+  "<repo>/prototypes/go/cmd/heimdall-proto/main_test.go",
+  "<repo>/prototypes/go/cmd/heimdall-proto/tui_k10_test.go",
+  "<repo>/prototypes/go/cmd/heimdall-proto/pty_darwin_test.go",
+  "<repo>/prototypes/go/cmd/heimdall-proto/pty_linux_test.go",
+  "<repo>/prototypes/go/dist/manifest.json",
+  "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+  "<repo>/prototypes/go/dist/linux-x64/heimdall-proto",
+  "<repo>/prototypes/go/dist/linux-arm64/heimdall-proto",
+  "<repo>/prototypes/go/dist/windows-x64/heimdall-proto.exe",
+  "<repo>/prototypes/go/REPORT.md",
+  "<repo>/tests/evidence/g02-go-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/selftest.py",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/schema_check.py",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/k-align-20261003/ (new directory: 18 logs + previous-tools/)"
+ ],
+ "commands_run": [
+  {
+   "command": "go test -count=1 -v ./... (prototypes/go, darwin-arm64, before changes)",
+   "exit_code": 0,
+   "observed": "all 5 packages ok (baseline)"
+  },
+  {
+   "command": "go test -count=1 -run TestK2 ./internal/profile/ with hasControl stubbed to false (red check)",
+   "exit_code": 1,
+   "observed": "FAIL: name with \\u001f etc. got <nil>; with the fix restored: ok"
+  },
+  {
+   "command": "go test -count=1 -run TestK3 ./internal/agent/ with the zero-byte EOF branch disabled (red check)",
+   "exit_code": 1,
+   "observed": "FAIL; with the fix restored: ok"
+  },
+  {
+   "command": "go test -count=1 -v ./... (final, darwin-arm64) > k-align-20261003/darwin-arm64-go-test.txt",
+   "exit_code": 0,
+   "observed": "5 packages ok; all TestK* pass (K1,K2,K3,K4,K5,K9,K10 x3)"
+  },
+  {
+   "command": "go vet ./... for darwin/arm64, linux/amd64, linux/arm64, windows/amd64; windows go test -c per package; gofmt -l; go mod verify; go mod tidy -diff",
+   "exit_code": 0,
+   "observed": "vet exit 0 on all 4; windows test compile exit 0 x5; gofmt empty; all modules verified; tidy -diff exit 0"
+  },
+  {
+   "command": "cd / && sh prototypes/go/build.sh (run twice)",
+   "exit_code": 0,
+   "observed": "4/4 targets built; identical sha256 across both runs; darwin-arm64 sha256 8a3a4fcc136bfe4df7b098f180bb97a9c100c4bc034a9a7ad945a805b9c7f64c, 5,207,474 bytes"
+  },
+  {
+   "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py prototypes/go/dist/darwin-arm64/heimdall-proto <repo> (plus 3 repeats)",
+   "exit_code": 0,
+   "observed": "SUMMARY 59/59 passed, 4 of 4 runs"
+  },
+  {
+   "command": "python3 selftest.py prototypes/go/bin/heimdall-proto <repo> (pre-change dev build reference)",
+   "exit_code": 1,
+   "observed": "49/58: FAIL agent.k3_eof_zero_bytes (AGENT_PROTOCOL_ERROR), 6x profile.k2_* (exit 0 PROFILE_OK, canary on stdout), tui.k10_sighup (exit -1, not restored), tui.k10_hangup (exit -1)"
+  },
+  {
+   "command": "python3 selftest.py /tmp/hp-k6-red/heimdall-proto-oldrun (current sources + attempt-1 run_unix.go)",
+   "exit_code": 1,
+   "observed": "57/58: FAIL run.k6_bg_fg_explicit_and_terminal_once_each exit=12 (want 13)"
+  },
+  {
+   "command": "go test -run TestK10TerminalHangupNoSignal with main.go lacking the hangupInput wrapper (red check, darwin)",
+   "exit_code": 1,
+   "observed": "tui did not exit after terminal hangup (5 s)"
+  },
+  {
+   "command": "docker run --network none hp-g02-alpine-{arm64,amd64}:3.22 <linux test binaries> (10 runs)",
+   "exit_code": 0,
+   "observed": "exit 0 for every package on linux/arm64 and linux/amd64 (emulated), including TestK10TerminalHangupNoSignalExits129 (EIO path)"
+  },
+  {
+   "command": "docker run --network none hp-g02-python-{arm64,amd64}:3.13-alpine python3 selftest.py dist/linux-*/heimdall-proto",
+   "exit_code": 0,
+   "observed": "59/59 on both; an earlier linux-x64 run before the emulator control gave 58/59 (exit 1): k11 saw $HOME/.cache/rosetta, which /bin/true also creates under Rosetta"
+  },
+  {
+   "command": "/tmp/hp-go-ev/venv/bin/python schema_check.py dist/darwin-arm64/heimdall-proto <repo>",
+   "exit_code": 0,
+   "observed": "23/23 documents valid + manifest shape PASS"
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json",
+   "exit_code": 0,
+   "observed": "no go on PATH; VERSION_OK; links libSystem, libresolv only"
+  },
+  {
+   "command": "docker pull --platform linux/{amd64,arm64} alpine:3.22 python:3.13-alpine; docker tag -> hp-g02-*",
+   "exit_code": 0,
+   "observed": "same index digests as attempt 1; local per-platform tags created because the classic store holds one platform per tag"
+  },
+  {
+   "command": "PYTHONDONTWRITEBYTECODE=1 python3 tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/hp-go-harness/... (informational, read-only)",
+   "exit_code": 0,
+   "observed": "111/111 pass (harness in flux; not used as verdict)"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/g02-go-selftest.json (attempt 1 kept verbatim in observed_result.attempts[0]; attempt 2 added; status blocked on Windows; verdict inconclusive overall, verdict_executed_scope pass)",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/k-align-20261003/"
+ ],
+ "escalations": [
+  "K3 does not say how to classify a connection reset (not EOF) after one or more response bytes but before a complete frame. The prototype currently returns AGENT_UNAVAILABLE there (EOF in the same position is AGENT_PROTOCOL_ERROR, as K3 requires). The reset case is untested. This needs an orchestrator ruling if the harness will test it.",
+  "tests/evidence/README.md says harness self-test records carry no product requirement IDs. g02-go-selftest.json (a prototype self-test, not a harness self-test) keeps the R-* IDs from attempt 1 with the 'prototype-level only' limitation. The orchestrator may want to confirm or strip them."
+ ],
+ "limitations": [
+  "Windows: nothing executed. K6/K10 behavior and all Windows paths are compile-checked only.",
+  "linux-x64 ran only under Docker (Rosetta) emulation; linux-arm64 ran in Docker Desktop's VM.",
+  "K6 was validated with pty-driven Python leaders (an explicit kill, and tcsetpgrp standing in for 'fg' without SIGCONT), not with interactive bash/zsh. Ctrl-Z / bg / fg after a stop is still implemented_unverified.",
+  "The K10 panic path is tested in-process with a test-only panicking model wrapper; the shipped binary has no panic trigger.",
+  "The K11 no-writes check observes only an isolated HOME/TMPDIR/cwd, not the whole filesystem.",
+  "Timing-based pty checks passed 4/4 times on darwin and once in each Linux container; flakiness under load is not characterized.",
+  "Red checks for K2/K3/K10-SIGHUP used prototypes/go/bin/heimdall-proto. That is a stale dev build whose source is only inferred from mtime, and its K6 behavior differs from the attempt-1 source. K6 red check used the preserved attempt-1 run_unix.go instead.",
+  "The selftest leaks empty /tmp/hpa* socket directories; these were left in place because they cannot be attributed by name across agents.",
+  "The shared harness was run only as information (111/111), not as the verdict.",
+  "No independent review: the tests were written by the prototype agents."
+ ],
+ "summary": "The Go prototype now follows all twelve §9 rulings on darwin-arm64 and in Linux containers. Four needed code changes, six already conformed (each now has a native test), and K7 and K12 needed only a statement. Windows has not been run.\n\nYour starting positions held up. K2 and K3 were real gaps. K1, K4, K5 and K10's SIGTERM path already conformed. K10 also needed SIGHUP and panic handling. There was one gap you hadn't listed, in K6.\n\n| Ruling | Result | Proof |\n|---|---|---|\n| K1 | already conformed | `TestK1ControlCharactersInIdentity`, selftest `agent.k1_controls_replaced` |\n| K2 | **changed**: `profile.go` rejects control characters in `name`, `id`, `alias`, `host`, `account` and labels with SCHEMA_INVALID; `key_path` names the key and the value is never echoed. `[meta]` is still tolerated. | `TestK2ControlCharactersInValues`, selftest `profile.k2_*`. Before the fix: exit 0 with the canary on stdout. |\n| K3 | **changed**: `frame.go` / `probe.go` report a close before any response byte as AGENT_UNAVAILABLE; EOF after one or more bytes is still AGENT_PROTOCOL_ERROR. | `TestK3EOFClassification`, selftest `agent.k3_*` |\n| K4 | already conformed | `TestK4FailureFrameShape`, selftest `agent.k4_*` |\n| K5 | already conformed | `TestK5MetaState`, selftest `run.k5_meta_state` |\n| K6 | **changed**: `run_unix.go` rewritten (details below) | selftest `run.k6_*`; with the old `run_unix.go` the same check fails (exit 12, want 13) |\n| K7 | statement: a `.`/empty PATH match is refused with exit 127 | none needed |\n| K8 | already conformed | `TestInvalidUTF8ArgBytes`, selftest `run.k8_invalid_utf8_argv_bytes` |\n| K9 | already conformed | `TestK9SelectionAfterFilterEdit`, selftest `tui.k9_*` |\n| K10 | **changed**: `main.go` (new `runTUI`) and `tui.go` | three real-pty tests (panic exits 1, SIGHUP exits 129, hangup with no signal exits 129) and selftest `tui.k10_*`. Before: SIGHUP killed the process and left the terminal unrestored. |\n| K11 | already conformed: one static file per target, no sidecars, no extraction | selftest `k11.no_writes_no_sidecars` |\n| K12 | statement: plain-text output, same exit codes | none needed |\n\n**K6 change.** The old design kept the child in heimdall's process group when heimdall started as a background job. After `fg`, it then dropped an explicit `kill -INT <heimdall pid>`. Now the child always gets its own process group, and every signal heimdall receives is forwarded exactly once. A 50 ms watcher hands the terminal to the child whenever heimdall's group is in the foreground, and job-control stops are mirrored without taking the terminal after `bg`.\n\n**K10 detail.** On macOS, Bubble Tea treats input EOF as a silent stop, so a terminal hangup without SIGHUP left the picker running. A small input wrapper now maps EOF/EIO to 129; without it the hangup test fails.\n\n**Tests and build:**\n- Native: `go test ./...` exit 0 on darwin-arm64, and exit 0 for every package in linux/arm64 and linux/amd64 (emulated) containers.\n- `go vet` exit 0 on all four targets. Windows test compile exit 0. `go.mod` unchanged.\n- `build.sh` exit 0 for all 4 targets, with identical sha256 across two runs. darwin-arm64 is `8a3a4fcc…`. `dist/manifest.json` is updated; there are no sidecars, so it has no `sidecars` array.\n- Black-box selftest: 59/59 on darwin (4 runs) and 59/59 in each Linux container.\n- An earlier linux-x64 run failed the K11 check (58/59). The emulator, not heimdall, writes `$HOME/.cache/rosetta`: `/bin/true` creates the same directory. The selftest now subtracts what a control program writes.\n- Schema check: 23/23.\n- The shared harness, run read-only for information only, reported 111/111.\n\n**Docs and evidence:**\n- `REPORT.md` was written directly (the write was not refused). Stale statements are marked inline with \"[§9 update]\", and the \"§9 alignment (2026-10-03)\" section with the table is appended.\n- `g02-go-selftest.json` keeps attempt 1 verbatim and adds attempt 2. Status stays `blocked` (Windows); overall verdict is `inconclusive`, with everything executed passing.\n\n**Escalations:**\n- K3 doesn't say how to classify a connection reset after some bytes. The prototype returns AGENT_UNAVAILABLE there, and that case is untested.\n- The record keeps the R-* requirement IDs; the evidence README says harness self-test records should not carry them.\n\n**Other limits:** `prototypes/go/bin/heimdall-proto` is a stale build of uncertain source and not a deliverable. Ctrl-Z/`bg`/`fg` after a stop is still unverified, and there was no independent review.\n\nPaths: `<repo>/prototypes/go/REPORT.md`, `<repo>/tests/evidence/g02-go-selftest.json`, `<repo>/tests/evidence/artifacts/g02-go/selftest/k-align-20261003/`."
+}

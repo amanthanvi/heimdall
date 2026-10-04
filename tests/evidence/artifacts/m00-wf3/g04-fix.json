@@ -1,0 +1,136 @@
+{
+ "task_id": "M00-T04-G04-fix",
+ "status": "verified",
+ "files_changed": [
+  "docs/research/g04-managed-credentials.md",
+  "tests/native/g04/e7_mux_preconnected.py",
+  "tests/native/g04/e7_mux_preconnected.sh",
+  "tests/native/g04/e7_mux_after_expiry.sh",
+  "tests/native/g04/e7_mux_stop_race.sh",
+  "tests/native/g04/e5_issuer_separation.sh",
+  "tests/native/g04/run_all.sh",
+  "tests/native/g04/make_records.py",
+  "tests/native/g04/README.md",
+  "tests/native/macos/g04_lock_probe.sh",
+  "tests/native/macos/README.md",
+  "tests/evidence/g04-exp-e1-dedicated-agent.json",
+  "tests/evidence/g04-exp-e2-cert-expiry.json",
+  "tests/evidence/g04-exp-e3-principal-scope.json",
+  "tests/evidence/g04-exp-e4-account-ca-principals.json",
+  "tests/evidence/g04-exp-enroll-marker-key.json",
+  "tests/evidence/g04-exp-e5-issuer-separation.json",
+  "tests/evidence/g04-exp-e6-fresh-login-verification.json",
+  "tests/evidence/g04-exp-g09-prelim-mux-after-expiry.json",
+  "tests/evidence/g04-exp-g09-prelim-mux-preconnected-after-stop.json",
+  "tests/evidence/g04-exp-g09-prelim-mux-stop-race.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002226Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002454Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002636Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002755Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002820Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T192414Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T193955Z.json",
+  "tests/evidence/artifacts/g04/experiments/20261003T192323Z/** (new full run: logs, results.tsv, exit-codes, fixture lifecycle logs, review.json)",
+  "tests/evidence/artifacts/g04/experiments/dev-fix-e7p-192131/** (dev run of phase 5)",
+  "tests/evidence/artifacts/g04/research/lock-probe/20261003T192414Z-smoke/**",
+  "tests/evidence/artifacts/g04/research/lock-probe/20261003T193955Z-smoke/**"
+ ],
+ "commands_run": [
+  {
+   "command": "tests/fixtures/ssh/up.sh (dev fixture for phase-5 development)",
+   "exit_code": 0,
+   "observed": "Fixture up; ports.env written. Log redacted into experiments/dev-fix-e7p-192131/fixture-up.log."
+  },
+  {
+   "command": "G04_RUN_STAMP=dev-fix-e7p-192131 G04_E7P_VALID=20 G04_E7P_DELAY2=8 tests/native/g04/e7_mux_preconnected.sh",
+   "exit_code": 0,
+   "observed": "All 10 control CHECKs passed. H2e, H2e2, H2f, H2g and H2h were REFUTED: pre-accepted connections got a session, a local forward, a remote forward and a stdio forward after -O stop. H2d-held, H2d-exit, H3c and H3d were CONFIRMED. Cleanup clean."
+  },
+  {
+   "command": "G04_RUN_STAMP=20261003T192323Z tests/native/g04/fresh_run.sh (down-pre, up, smoke, run_all: 10 experiments)",
+   "exit_code": 0,
+   "observed": "down-pre 0, up 0, smoke 0 (pass=60 fail=0). Every experiment exited 0. Every CHECK passed. In e7-mux-preconnected, the five criterion hypotheses were REFUTED (admitted at stop+2.039 s and stop+15.032 s after expiry; forwards admitted at about stop+2.04 s; bastion logged 0 new connections and 0 Accepted lines). All CLEANUP rows were clean. E2 boundary: 153 attempts, 80 accepted / 73 refused as expired, none accepted starting after valid_before. Race: 0 of 25 post-stop starters admitted, 1 of 7 overlapping admitted. E7 H1/H1b/H2a-d/H3/H3b confirmed. E5 findings: same-user boundary and CA file readable confirmed."
+  },
+  {
+   "command": "tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5 (probe v2), keychain search-list/default digests taken before and after",
+   "exit_code": 0,
+   "observed": "status=verified, verdict=pass, requirement_ids []. Agent signing and keychain read 5/5. Cleanup complete. Search list and default keychain unchanged. Record g04-macos-lock-probe-smoke-20261003T192414Z.json."
+  },
+  {
+   "command": "tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5 --fixture-runtime tests/fixtures/ssh/runtime (real fixture, after the run)",
+   "exit_code": 0,
+   "observed": "status=verified, verdict=pass. Fresh SSH login 5/5. Negative controls rc 255. Cleanup complete. Search list unchanged. Record g04-macos-lock-probe-smoke-20261003T193955Z.json."
+  },
+  {
+   "command": "tests/fixtures/ssh/down.sh (after the run; saved as experiments/20261003T192323Z/fixture-down-post.log)",
+   "exit_code": 0,
+   "observed": "CLEANUP CONFIRMED: containers 0, networks 0, image 0, runtime dir 0, 21 private keys overwritten and removed. Separate docker ps and image ls checks also gave 0."
+  },
+  {
+   "command": "tests/native/g04/.venv/bin/python tests/native/g04/make_records.py 20261003T192323Z --validate",
+   "exit_code": 0,
+   "observed": "Wrote 10 records, all schema-valid. 9 are verified/pass. g04-exp-g09-prelim-mux-preconnected-after-stop.json is verified/fail."
+  },
+  {
+   "command": "shasum -a 256 -c experiments/20261003T192323Z/script-sha256.txt",
+   "exit_code": 0,
+   "observed": "All script digests match the scripts as run. The grep for non-OK lines found none."
+  },
+  {
+   "command": "tests/native/g04/.venv/bin/python tests/evidence/artifacts/review-g04/validate_records.py (reviewer's validator, all g04 records)",
+   "exit_code": 0,
+   "observed": "27/27 records schema-valid and convention-ok, including the 5 corrected legacy smoke records."
+  },
+  {
+   "command": "grep for the canary prefix and 'PRIVATE KEY' in new artifacts/records/doc; grep for $HOME and /private/var/folders in new artifacts; grep for pattern kills in tests/native",
+   "exit_code": 1,
+   "observed": "No matches in any of the three scans."
+  }
+ ],
+ "requirement_ids": [
+  "R-AU-05",
+  "R-AU-08",
+  "R-AU-04",
+  "R-CR-02",
+  "R-CR-03",
+  "R-CR-04",
+  "R-EN-04"
+ ],
+ "evidence_records": [
+  "tests/evidence/g04-exp-g09-prelim-mux-preconnected-after-stop.json",
+  "tests/evidence/g04-exp-g09-prelim-mux-after-expiry.json",
+  "tests/evidence/g04-exp-g09-prelim-mux-stop-race.json",
+  "tests/evidence/g04-exp-e1-dedicated-agent.json",
+  "tests/evidence/g04-exp-e2-cert-expiry.json",
+  "tests/evidence/g04-exp-e3-principal-scope.json",
+  "tests/evidence/g04-exp-e4-account-ca-principals.json",
+  "tests/evidence/g04-exp-enroll-marker-key.json",
+  "tests/evidence/g04-exp-e5-issuer-separation.json",
+  "tests/evidence/g04-exp-e6-fresh-login-verification.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T192414Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T193955Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002226Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002454Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002636Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002755Z.json",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002820Z.json"
+ ],
+ "escalations": [
+  "Q4 (authority semantics, recorded in the research doc §9, not decided). The question is whether the §6.5 'maximum residual remote-access window' and the A07 'maximum residual validity' are satisfied by stating the window in three parts. The parts are: new authentication ≤ certificate validity ≤ D; live connections only until Heimdall closes the ones it owns; unmanaged connections and remote processes unbounded. A related question: after a revocation (not an expiry), must Heimdall close owned dedicated connections, or may the graceful policy keep them as it does at expiry (spec §6.6/§6.7)?",
+  "Reviewer's proposed record tests/evidence/artifacts/review-g04/proposed-record-g09-prelim-mux-preconnected-after-stop.json has the same case_id as the new harness record tests/evidence/g04-exp-g09-prelim-mux-preconnected-after-stop.json, which supersedes it. Do not persist the proposed record into tests/evidence/ as a second file. It remains review evidence under review-g04/.",
+  "Producer dev-run residue outside my write ownership was left untouched: 13 world-readable files from 2026-10-02, /tmp/hmg04-dev-*.out, /tmp/hmg04-dev-stamp, /tmp/hmg04-final-runall.out and /tmp/hmg04-final-stamp. The reviewer found no secrets in them. The orchestrator may authorize their removal.",
+  "progress.md is not in my ownership. M00-T04 status lines should be updated: E1-E7 are executed and verified; E7 phase 5 has verdict fail; F-7 is triggered for pre-accepted control connections; the lock probe is v2."
+ ],
+ "limitations": [
+  "The lock-probe v2 lock-mode status and verdict logic was edited but not executed. It needs an owner-driven screen-lock cycle on the macOS 27.0 arm64 host, so P1 stays blocked. Only the smoke path (with and without the real fixture) was executed with v2.",
+  "Pre-accepted control connections were made by a raw mux protocol v4 client in the harness (Python 3.9, fd passing), not by /usr/bin/ssh. The forward tests ran on the bastion fixture without certificate expiry; the session-after-expiry test ran on ca1. MUX_C_PROXY, dynamic and streamlocal forwards were not tested. Only one client version (Apple OpenSSH_10.3p1) was used.",
+  "The remote-forward admission was shown by the remote listener accepting a TCP connection inside the bastion container. The forwarded connection was not carried to a client-side service.",
+  "It is still untested whether removing a CA or key trust line closes established connections; the doc labels this [I]. Detached remote processes (nohup/setsid) were not tested.",
+  "The legacy smoke records (v1) were corrected in place. Their verdicts were derived from the observations already in each record, not re-run. Their artifact_digest still names probe v1.",
+  "The fixes in this task have not been independently re-reviewed. The records' common limitation and the research doc header say so.",
+  "The E7 phase-1-4 and race records keep verdict pass against their pre-stated criteria. The criteria are now explicitly scoped to NEW control connections, and the summaries and limitations state that this does not show -O stop stops admissions. The new phase-5 record carries the fail verdict.",
+  "Older run directories (20261003T011647Z, 20261003T182153Z, dev-*) remain as historical artifacts. The current records point only to 20261003T192323Z."
+ ],
+ "summary": "I checked the reviewer's findings, fixed the ones that held up, and re-ran everything I changed from scratch. All runs exited 0, fixtures were brought down afterwards (CLEANUP CONFIRMED), and no containers, images or runtime directory remain.\n\n**MAJOR 1 (`-O stop` \"admissions stopped\") is confirmed and fixed.** I took the reviewer's probe into the harness as E7 phase 5 (`tests/native/g04/e7_mux_preconnected.py`, with a `.sh` wrapper so `run_all.sh` can run it). It also tests the other admission paths:\n- `MUX_C_OPEN_FWD` local and remote, and `MUX_C_NEW_STDIO_FWD`, on the bastion fixture.\n- Whether the stopped master stays alive while an idle connection is open.\n- `-O exit`, and SIGTERM to the exact master PID.\n\nOn a fresh fixture (run `20261003T192323Z`), every control check passed. Then control connections opened before `-O stop` were still served after it returned rc 0:\n- A new session at stop+2.039 s and another at stop+15.032 s, both after certificate expiry. The remote command ran as `cert`, with no new connection and no new Accepted line.\n- A local forward: `MUX_S_OK`, and the target's SSH banner came back through the new 127.0.0.1 listener.\n- A remote forward: `MUX_S_REMOTE_PORT`, and the listener accepted a connection inside the container.\n- A stdio forward: `MUX_S_SESSION_OPENED`, with the banner.\n\nThe new record `g04-exp-g09-prelim-mux-preconnected-after-stop.json` is verified with verdict fail. Two further findings:\n- A stopped master stays alive while an idle connection opened before the stop exists, and exits once that connection closes.\n- `-O exit` and exact-PID SIGTERM do close those connections and their forward listeners.\n\nIn the E7 and race records, the criteria now say they cover only connections opened after the stop, and the summaries no longer claim \"admissions stopped\". \"Stopped or closed\" became \"closed\". H2d now states its condition. Their pass verdicts stand only against those scoped criteria.\n\n**MAJOR 2 (residual window equated with certificate validity) is confirmed and fixed in the research doc.** The residual window is now stated in three parts:\n1. New authentication: at most the certificate validity, which is at most the deadline D.\n2. Live connections: certificate expiry doesn't bound them. Heimdall-owned ones last until Heimdall closes them, and only while its supervisor on that device is running. Unmanaged connections aren't bounded at all.\n3. Remote processes: not bounded.\n\nThis now runs through §3.1, §3.2 (residual window and lost-device rows), §3.3, the custody table, §4, §6 and §7 (reason 2 and the non-claims). Other doc changes:\n- §2 item 8 is rewritten with the observations.\n- New §1.3 lists the experiment runs and records.\n- F-7 is marked as triggered, with a falsifier-outcomes list: F-2, F-3 and F-4 not triggered (F-4 only on its stated criterion), F-1, F-5 and F-6 still open.\n- The §8.1 E7 row describes phase 5.\n- Q2 is marked resolved, and a new escalation Q4 is added.\n- §10 statuses are updated.\n\n**Minor findings:**\n- **Lock-probe smoke records:** fixed. The probe (now v2) follows the gate-probe convention: status describes the evidence, `observed_result.verdict` and the criterion are written into the record, smoke records carry no requirement IDs, and exit 0 means verified and pass. The five old smoke records were corrected in place with a documented limitation. Two new v2 smoke runs passed, one of them against the real fixture.\n- **E5:** fixed. A new finding records that the fixture CA private key file stayed readable by the same user from the worker environment. The summary and limitations now say the separation is environment and endpoint only.\n- **step-ca durations:** citation fixed. The 16 h default is quoted from the tutorial; the 5m/24h/16h values are labelled as the example configuration.\n- **/tmp residue:** not removed, because it is outside my write ownership; escalated.\n\nAll 27 g04 records pass the reviewer's validator (exit 0). Script digests match the run. Scans for the canary prefix, private keys, home paths and pattern kills found nothing.",
+ "doc_updates": []
+}

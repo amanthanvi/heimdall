@@ -1,0 +1,230 @@
+{
+ "subject": "M00-T05-review2-rust: independent adversarial review (round 2) of the Rust + Ratatui + crossterm G02 prototype (prototypes/rust, untracked on b44c312, rustc 1.99.0)",
+ "reexecuted_commands": [
+  {
+   "command": "rsync -a --exclude dist --exclude target --exclude __pycache__ prototypes/rust/ /tmp/heimdall-review2-rust/src-copy/",
+   "exit_code": 0,
+   "observed": "Made a clean source copy at a different checkout path."
+  },
+  {
+   "command": "cd /tmp/heimdall-review2-rust/src-copy && CARGO_ZIGBUILD=<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild sh ./build.sh",
+   "exit_code": 0,
+   "observed": "All 4 targets built (10/9/9/9 s). Every sha256 and the notices file are identical to prototypes/rust/dist/manifest.json: darwin-arm64 d9838f89…, linux-x64 28c8dee0…, linux-arm64 77d10192…, windows-x64 07b1cbc4…. Reproducible from a different checkout path."
+  },
+  {
+   "command": "grep -c $HOME / username / standalone 'tput' in the 4 artifacts; codesign -dv; otool -L; DYLD_PRINT_LIBRARIES=1 heimdall-proto version --json",
+   "exit_code": 0,
+   "observed": "No home path or username in any artifact. Every 'tput' hit is inside 'output'/'InputOutputError' (round-1 artifacts held a standalone 'tput'). darwin flags=0x10002(adhoc,runtime): hardened runtime, ad-hoc only, TeamIdentifier not set. Links only libiconv and libSystem. DYLD_PRINT_LIBRARIES printed nothing."
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --bin /tmp/heimdall-review2-rust/src-copy/dist/darwin-arm64/heimdall-proto --candidate rust --out tests/evidence/artifacts/g02-rust/review2/conformance-darwin/record.json --artifacts-dir …/artifacts --case-id G02-rust-review2-darwin",
+   "exit_code": 0,
+   "observed": "133 total, 133 pass, 0 fail/error/skip. status=verified, verdict=pass, artifact_digest sha256:d9838f89…. Darwin reset delivery is EOF (non-gating). signal duplicate probe [2,2,2,2,1,2,2,2,2,2] (non-gating)."
+  },
+  {
+   "command": "sh tests/g02/linux/run.sh --artifact-dir /tmp/heimdall-review2-rust/src-copy/dist/linux-arm64 --candidate rust --out …/review2/conformance-linux/record.json --artifacts-out …/artifacts --case-id G02-rust-review2-linux-arm64",
+   "exit_code": 0,
+   "observed": "133/133 pass, status=verified, verdict=pass, digest 77d10192…. Image id sha256:c0ee4be7…, base python:3.13-slim-bookworm@sha256:5024f48b…, Docker 29.8.1 linux/arm64. Duplicate-probe [1×10]. K6a /proc SigIgn checks pass."
+  },
+  {
+   "command": "python3 review2/probes/run_probe.py <darwin bin> run_probe_darwin.json",
+   "exit_code": 0,
+   "observed": "Explicit INT/TERM/HUP/QUIT/WINCH to the hp PID: the child counted each exactly once and was in hp's pgrp. killpg INT/TERM: counted twice (K6b, recorded). SIGUSR1/USR2/ALRM to the hp PID killed hp (exit -30/-31/-14) and the child kept running (orphan). SIGKILL to the hp PID left the child running. trap '' HUP INT and nohup: the child sees them ignored and survives. The '&' job child has INT and QUIT ignored. Caller-blocked SIGUSR1 is still blocked in the child ([30]). No HANDLED signal leaks blocked ([]). hp waited for a TERM-trapping child (exit 7). 8 MiB binary round-trip is equal. /dev/null stdin gives EOF. `yes|head`: meta signal 13. 4 MiB slow reader: all bytes arrived. FIFO meta without a reader: no hang (4 ms), exit stays 0, stderr diagnostic. Launch failures: 127 with CHILD_LAUNCH_FAILED. RUST_MIN_STACK=999999999999999: exit 1 with a 'failed to spawn thread' panic."
+  },
+  {
+   "command": "docker run … heimdall-g02-harness:ac0f6cf382a4 python3 /probes/run_probe.py /artifact/heimdall-proto … (Linux arm64, uid 10001, --network none, --cap-drop ALL)",
+   "exit_code": 0,
+   "observed": "Same results as darwin: explicit signals once; killpg twice; USR1/USR2/ALRM and SIGKILL to hp orphan the child; inherited ignores kept; blocked SIGUSR1 kept ([10]); RUST_MIN_STACK panic exit 1."
+  },
+  {
+   "command": "sh review2/probes/min_stack_probe.sh <bin> (darwin and Linux)",
+   "exit_code": 0,
+   "observed": "With RUST_MIN_STACK=999999999999999, `run --meta-file M -- sh -c 'sleep 1; …'` exited 1 at once with no meta file. The child wrote its marker 1 s later, after hp exited: an orphan (darwin ppid=1). `agent list` under the same variable gives exit 1, INTERNAL."
+  },
+  {
+   "command": "sh review2/probes/sigpipe_mask_probe.sh <bin> (darwin and Linux)",
+   "exit_code": 0,
+   "observed": "With trap '' PIPE (no heimdall-proto), `yes` gets EPIPE ('Broken pipe'). Through `hp run` the child is killed by SIGPIPE (meta signal 13). Linux /proc: child SigIgn 0x200 (USR1 kept, PIPE dropped) vs exec baseline 0x1200. This confirms the documented SIGPIPE stack limitation, and shows the harness's Python-based K6c 'SIGPIPE: SIG_IGN' observation is an artifact of CPython."
+  },
+  {
+   "command": "python3 review2/probes/agent_probe.py <bin> (darwin) and in the Linux harness container",
+   "exit_code": 0,
+   "observed": "All 38 crafted cases matched expectations on both platforms (all_ok true). Covered:\n- frame lengths 262145 and 0xffffffff, and an exact 262144-byte valid frame\n- nkeys 1024 ok, 1025 and 0xffffffff rejected\n- blob/key-type overruns, empty blob, trailing bytes, nkeys over present\n- FAILURE len 1 gives REFUSED; FAILURE with payload, type 6, type 14 and zero-length give PROTOCOL\n- EOF at 0 / 2 / 4 / 6 bytes; RST before any byte\n- no-read close after 0 / 1 / 3 / 6 bytes (K3a), and a full frame before an unread close\n- drip within and beyond the timeout, hang timeout\n- second frame ignored\n- socket path is a file / dir / FIFO / missing\n- SIGINT gives 130 CANCELLED in 6–13 ms\nThe client only ever sent 00000001 0b."
+  },
+  {
+   "command": "python3 review2/probes/reset_delivery.py (darwin; Linux container)",
+   "exit_code": 0,
+   "observed": "A plain client receives 000000 and then: darwin END=EOF, Linux END=ConnectionResetError. So the Linux no-read cases really exercise the K3a ECONNRESET path."
+  },
+  {
+   "command": "docker build (python:3.13-slim-bookworm@sha256:5024f48b… + apt strace procps) -t heimdall-review2-strace:1",
+   "exit_code": 0,
+   "observed": "Installed strace 6.1-0.1 and procps 2:4.0.2-3. Image id sha256:2ac2024a7aae… (local only, not pushed)."
+  },
+  {
+   "command": "docker run … heimdall-review2-strace:1 python3 /probes/strace_probe.py /artifact/heimdall-proto /fixtures /probes/strace_linux.json (TERM=tmux-256color, TMUX, TERM_PROGRAM, TERMINFO set)",
+   "exit_code": 0,
+   "observed": "strace -f over version, profile ok/invalid/FIFO, a usage error, agent ok/missing, run true/missing, and tui (keys + resize + quit, select, hangup, no tty).\n- execve: only heimdall-proto itself plus the run child's PATH lookups.\n- File writes: only the named meta file (O_NONBLOCK). The TUI hangup opens /dev/tty O_RDWR (ENXIO).\n- No mkdir/rename/unlink/memfd.\n- Sockets: only AF_UNIX connect to the named agent path.\n- No terminfo or config files opened."
+  },
+  {
+   "command": "python3 review2/probes/k15_probe.py <bin> (darwin; Linux container)",
+   "exit_code": 0,
+   "observed": "13 adversarial inputs of ≤1 MiB, all within bounds, each PROFILE_OK or SCHEMA_INVALID. Deep nesting is rejected in 13–28 ms at about 51–73 MiB. The worst case is a wide int array in [meta]: 141.0 MiB on darwin, 97.8 MiB on Linux, 45–55 ms. 16k destinations: 57–65 ms."
+  },
+  {
+   "command": "python3 review2/probes/tui_signal_probe.py <bin> homelab.toml (darwin; Linux container)",
+   "exit_code": 0,
+   "observed": "kill TERM gives 143, HUP 129, INT 130: alt screen left, cursor shown, termios restored (Linux; darwin termios is unobservable because the slave is revoked). kill QUIT ends by signal 3 and USR1 by signal (-10 Linux, -30 darwin): the alternate screen is not left and termios is not restored on Linux. TSTP+CONT and WINCH×3 keep running, then q exits 0."
+  },
+  {
+   "command": "python3 review2/probes/early_sigint.py <bin> (darwin; Linux container), 30 runs per delay",
+   "exit_code": 0,
+   "observed": "darwin: 0 ms and 0.5 ms 30/30 killed with no JSON; 1 ms 20/30 CANCELLED; 2 ms and 5 ms 30/30 CANCELLED. Linux: 0 ms 30/30 killed; 0.5 ms 24/30 CANCELLED; ≥1 ms 30/30 CANCELLED. Consistent with the residual exec→main window that REPORT documents."
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin darwin binary profile show (spaced/Unicode path); alpine:3.22@sha256:5291449c… arm64 container version/profile/run",
+   "exit_code": 0,
+   "observed": "No cargo/rustc/go/node/bun on PATH; artifacts run (PROFILE_OK, VERSION_OK, run exit 9 passthrough)."
+  },
+  {
+   "command": "cargo test --locked --offline in relocated copy with HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02 (wrong dir, my error)",
+   "exit_code": 101,
+   "observed": "16 lib tests failed with NotFound because the variable must name the profiles directory. This was operator error, not a product defect. Only cli.rs gives a clear message; the lib tests just unwrap."
+  },
+  {
+   "command": "cargo test --locked --offline with HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02/profiles",
+   "exit_code": 0,
+   "observed": "lib 49, bin 4, cli 26 passed (matches REPORT)."
+  },
+  {
+   "command": "cargo tree -e normal,no-proc-macro per target vs dist/THIRD-PARTY-NOTICES.txt; rust-src library/Cargo.lock vs LICENSES.md",
+   "exit_code": 0,
+   "observed": "All 69 crates linked across the 4 targets appear in the notices. The std vendored crates (addr2line 0.27.1, gimli 0.34.0, hashbrown 0.17.1, miniz_oxide 0.9.1, object 0.39.1, rustc-demangle 0.1.28, adler2 2.0.1) match the toolchain lock. musl, libunwind, mingw-w64 and crtbegin are covered."
+  },
+  {
+   "command": "python3 OSV querybatch (116 registry packages) + crates.io API for 13 key crates",
+   "exit_code": 0,
+   "observed": "No OSV advisories. Every key crate is locked at its latest stable release. crossterm 0.29.0 was last released 2025-04-05, winapi 0.3.9 on 2020-06-26 (Windows only). Duplicates: hashbrown 0.16/0.17, signal-hook 0.3/0.4, syn 2/3 (build-time). Cargo.lock has 117 packages, not REPORT §2's 91."
+  },
+  {
+   "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9_-]{8,}' tests/evidence/artifacts/g02-rust/review2",
+   "exit_code": 1,
+   "observed": "0 files with a canary value. Only the bare prefix appears (1092 redaction or assertion-text occurrences)."
+  }
+ ],
+ "confirmed_claims": [
+  "The round-2 conformance verdict reproduces from an independent rebuild. My /tmp build is bit-identical to dist/manifest.json for all four targets and the notices file. The shared harness gives exit 0, 133/133 on darwin-arm64 and on linux-arm64 (digest-pinned container, native arm64 kernel). K13 holds for Rust.",
+  "Round-1 defect K3a is fixed. Linux delivers ECONNRESET (plain-client check). With that, resets or unread-closes after 1, 3 and 6 bytes give AGENT_PROTOCOL_ERROR, and with 0 bytes AGENT_UNAVAILABLE. Shown by the harness agent.reset_* checks and my crafted probe on Linux.",
+  "Round-1 defect inherited SIG_IGN is fixed for HUP, INT, QUIT, TERM and WINCH. trap ''/nohup ignores reach the child and are not forwarded (darwin and Linux, harness plus my probe; Linux /proc SigIgn keeps USR1). SIGPIPE is not preserved, as documented (confirmed with a non-Python child).",
+  "Round-1 defect terminal takeover is fixed by exec semantics. The child shares heimdall-proto's pgrp and session (probe), and the harness k6a_pipeline_peer_not_stopped and k6a_background_script_tty checks pass on both platforms.",
+  "K6: an explicit INT, TERM, HUP, QUIT or WINCH sent to the heimdall-proto PID reaches the child exactly once, on darwin and Linux. A killpg reaches it twice; K6b allows this and REPORT documents it.",
+  "Round-1 FIFO --meta-file hang is fixed: 3–4 ms, stderr diagnostic. K14 non-regular --file gives USAGE_ERROR (harness, plus strace profile_fifo exit 2).",
+  "The Windows SQOS flag is fixed (code review only, not native evidence). `security_qos_flags(0x0001_0000)` makes std set SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION.",
+  "The round-1 notices defect is fixed. THIRD-PARTY-NOTICES.txt covers all 69 crates linked across the 4 targets, the std vendored crates (versions match the toolchain lock), musl, libunwind, mingw-w64 and the GCC crt objects.",
+  "Round-1 release hygiene is fixed:\n- No artifact embeds the home path or username.\n- The darwin LC_UUID and the Windows PE timestamp no longer vary: the digests are identical from another checkout path.\n- The darwin binary has the hardened runtime (DYLD_PRINT_LIBRARIES is inert).\n- build.sh refuses any rustc other than 1.99.0.",
+  "K16 holds. strace on Linux shows no execve except the run child, including with TERM=tmux-256color, TMUX and TERM_PROGRAM set, and in TUI resize and hangup. No standalone 'tput' string is left in the artifacts. The harness tripwire is empty on both platforms.",
+  "Writes stay within named paths (strace, Linux). The only file opened for writing is the named meta file. There are no mkdir/rename/unlink/memfd calls, no sockets besides the named agent path, and no terminfo or config reads.",
+  "K15 holds on my own 13 adversarial 1 MiB inputs on both platforms: each finished in ≤65 ms and ≤141 MiB, ending PROFILE_OK or SCHEMA_INVALID.",
+  "Agent framing holds on 38 crafted cases on darwin and Linux. The client never sends anything but `00000001 0b`, never allocates past the bounds, and K1 removes C0/DEL/C1 and invalid UTF-8.",
+  "Distribution without a toolchain works. darwin runs under env -i. The linux-arm64 static binary runs in alpine:3.22 with no toolchain on PATH.",
+  "REPORT test counts (lib 49, bin 4, cli 26) are reproduced in a relocated copy. The test-portability fix works when HEIMDALL_G02_FIXTURES names the profiles directory.",
+  "Dependencies: no OSV advisories across 116 registry packages, and all key crates are at their latest stable versions.",
+  "The CLI and TUI share profile::load_file and ListModel (code review). The TUI only renders and decodes keys.",
+  "The residual exec→main early-SIGINT window is real and small, as REPORT says. darwin: ≤0.5 ms always killed, 2 ms always CANCELLED. Linux: 0 ms killed, ≥1 ms always CANCELLED."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "REPORT §13 Remaining gaps: \"The child's blocked-signal mask is reset to empty by std's spawn (exec would keep it).\"",
+   "evidence": "A blocked SIGUSR1 inherited by heimdall-proto is still blocked in the run child: [30] on darwin and [10] on Linux arm64 (review2/probes/run_probe_*.json, blocked_mask_in_child). The shared harness's own K6c observation agrees: still_blocked ['SIGUSR2'] on both platforms. The mask is preserved, so this stated limitation does not exist with rustc 1.99.0."
+  },
+  {
+   "claim": "REPORT §2: \"91 crate versions in the lock across all four targets.\" Also §4/§6 stated as current: \"terminal Ctrl-C delivered to the child exactly once\" and \"heimdall-proto stops itself with SIGSTOP\".",
+   "evidence": "Cargo.lock now has 117 packages (116 from the registry). Round 2 switched to exec semantics: there is no self-SIGSTOP. On darwin a terminal Ctrl-C reaches the child twice (§13 and the harness duplicate probe [2,2,2,2,1,2,…]). These earlier sections are stale and not marked as superseded, though §13 is accurate."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Correctness of child/IPC behavior",
+   "verdict": "pass",
+   "evidence": "Every contract-binding rule (§3, §4, §5, K1–K16, K3a, K6a/b/c) passes in the shared harness on darwin-arm64 and linux-arm64 (133/133 each) against my independent rebuild. My own probes confirm the following on both platforms:\n- explicit signals reach the child exactly once\n- inherited ignores are kept\n- the child stays in the same pgrp\n- stdin EOF, 8 MiB binary passthrough and backpressure work; SIGPIPE behaves as default\n- the exit/signal mapping and meta output are correct\n- launch failures give 127\n- 38 crafted agent frames give the right results, including K3a on a real Linux ECONNRESET\n- SIGINT cancel takes 6–13 ms\n\nOutside the contract or on error paths:\n- RUST_MIN_STACK, or any thread-spawn failure, makes `run` exit 1 after spawning, leaving an orphaned child and no meta file.\n- SIGUSR1/USR2/ALRM or SIGKILL to the heimdall-proto PID orphans the child.\n- TUI SIGQUIT/USR1 leave the terminal unrestored.\n- The startup SIGINT window is about 1 ms.\n\nNone of these violates a binding ruling. All are minor."
+  },
+  {
+   "gate": "Viable Windows/WSL path",
+   "verdict": "uncertain",
+   "evidence": "Code review only, not native evidence.\n- windows-x64 cross-builds reproducibly (07b1cbc4…).\n- The named pipe is opened with SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION.\n- Open: no pipe-server identity check, no WaitNamedPipe retry, a synchronous ReadFile with process-exit cancel, no job object in run.\n- Console Ctrl-C uses a no-op handler in run. The TUI uses crossterm's console reader and size (no tput path on Windows).\nNative runs are blocked: they need a Windows 10/11 x64 host. WSL is blocked: it needs a Windows host with WSL2."
+  },
+  {
+   "gate": "No unsupported security assumption",
+   "verdict": "uncertain",
+   "evidence": "Unix is clean in my evidence:\n- strace: no helper execs, no writes except the named meta file, no sockets except the named agent path, no config or terminfo reads.\n- Environment variables read: PATH (child lookup), NO_COLOR, RUST_BACKTRACE (panic only) and RUST_MIN_STACK. RUST_MIN_STACK can force the orphaning panic path.\n- darwin has the hardened runtime, so DYLD_* is inert. Linux is static musl.\n- No canary value appears in any record or artifact.\n\nThe verdict stays uncertain because the Windows assumptions (pipe-server identity unverified, native behavior) are code review only, and the Unix agent socket peer is not verified (not required by the contract)."
+  },
+  {
+   "gate": "Practical distribution",
+   "verdict": "uncertain",
+   "evidence": "darwin-arm64 and linux-arm64/x64 are single-file artifacts with no sidecars. They are reproducible across checkout paths and run without any toolchain (env -i on darwin, alpine:3.22 arm64). Remaining gaps: darwin is ad-hoc signed only (Developer ID and notarization need owner authority), the Windows native run is blocked, and native linux-x64 was not run here. build.sh needs python3 and the pinned rustc 1.99.0."
+  },
+  {
+   "gate": "Maintained dependencies",
+   "verdict": "pass",
+   "evidence": "OSV querybatch: 0 advisories for 116 registry packages. The key crates are at their latest stable versions:\n- ratatui 0.30.2 (2026-06)\n- toml 1.1.6 (2026-09)\n- rustix 1.1.5 (2026-09)\n- libc 0.2.190 (2026-10)\n- nix 0.31.3 and signal-hook 0.4.4\nCaveats: crossterm 0.29.0 was last released 2025-04-05 and its event/size code is now bypassed on Unix. winapi 0.3.9 (2020) is Windows only. signal-hook and hashbrown each appear in two versions."
+  },
+  {
+   "gate": "Compatible licensing",
+   "verdict": "pass",
+   "evidence": "Every linked crate is permissive (MIT/Apache, Zlib, BSL-1.0 or Unlicense alternatives). The notices file covers all 69 linked crates, the std vendored crates, musl, libunwind, the GCC crt objects (GPL-3.0 WITH GCC-exception) and mingw-w64 (ZPL-2.1 with marked parts). Two limits remain: the zig substitution of mingw and musl objects was not traced object by object (stated in LICENSES.md), and the project license is still the UNLICENSED placeholder."
+  },
+  {
+   "gate": "Ability to share domain operations across CLI/TUI",
+   "verdict": "pass",
+   "evidence": "The library crate holds profile, agent, runner, list_model, keys and text. The CLI and the TUI both call profile::load_file. All selection and filter state is in ListModel (49 lib tests pass). tui.rs only renders, decodes keys and handles signals."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "minor",
+   "description": "`run` can exit before its child and leave it orphaned. A thread-spawn failure after the child is spawned (forced with RUST_MIN_STACK=999999999999999, and realistic under a pids cgroup or RLIMIT_NPROC limit) panics in std::thread::spawn. catch_unwind in main then exits 1 immediately. The child keeps running (reparented), no --meta-file is written, and the exit status is not the child's. Observed on darwin and Linux arm64. This breaks §4's \"waits for the child and does not exit first\" on that path. `agent list` gives INTERNAL under the same condition. Fix: use std::thread::Builder::spawn and fall back to waiting without forwarding, or spawn the forwarder before the child.",
+   "location": "prototypes/rust/src/runner.rs (std::thread::spawn of the forwarder after Command::spawn); review2/probes/min_stack_probe.sh, min_stack_darwin.log, min_stack_linux.log"
+  },
+  {
+   "severity": "minor",
+   "description": "Launcher transparency beyond the contract's 5 signals. SIGUSR1, SIGUSR2, SIGALRM and other default-terminate signals sent to the heimdall-proto PID kill heimdall-proto and leave the child running as an orphan. Under exec semantics the program itself would receive them. SIGKILL to the PID also orphans the child: there is no PR_SET_PDEATHSIG on Linux and no supervisor. Not a binding-ruling violation; it is input for the production launcher design.",
+   "location": "prototypes/rust/src/sigdisp.rs HANDLED, src/runner.rs; review2/probes/run_probe_{darwin,linux}.json unhandled_* and sigkill_hp_pid"
+  },
+  {
+   "severity": "minor",
+   "description": "In the TUI, kill -QUIT (and other unhandled signals such as SIGUSR1) end the process by default action. The alternate screen is not left, the cursor is not shown and termios is not restored (raw mode left on, observed on Linux). §5 says \"on exit by any path\", but its list and K10 name only select, quit, Ctrl-C, SIGTERM, SIGHUP and panic.",
+   "location": "prototypes/rust/src/tui.rs install_signal_flags (TERM/HUP/INT/WINCH only); review2/probes/tui_signal_{darwin,linux}.json kill_QUIT, kill_USR1"
+  },
+  {
+   "severity": "minor",
+   "description": "REPORT accuracy:\n- §13 states that std resets the child's blocked-signal mask. In fact the mask is preserved (refuted on both platforms, and by the harness K6c observation).\n- §2 states 91 lock entries; there are 117.\n- §4 and §6 still describe the round-1 job-control mechanism as current (terminal Ctrl-C exactly once, self-SIGSTOP) without marking it superseded.",
+   "location": "prototypes/rust/REPORT.md §2, §4, §6, §13 Remaining gaps"
+  },
+  {
+   "severity": "minor",
+   "description": "Harness observation defect (non-gating, K6c). The probe child is CPython, which sets SIGPIPE to SIG_IGN itself at startup. So the record reports SIGPIPE 'SIG_IGN' as if the inherited ignore were preserved. A non-Python child shows the opposite: Rust std resets it (child killed by SIGPIPE; Linux SigIgn 0x200 vs exec baseline 0x1200). The record's K6c data is misleading as an ADR input for SIGPIPE.",
+   "location": "tests/g02/conformance.py K6A_IGN_CHILD (~lines 3084-3100) and the other-ignores-K6c variant (~line 3231); review2/probes/sigpipe_{darwin,linux}.log"
+  },
+  {
+   "severity": "minor",
+   "description": "A residual early-SIGINT window remains. A SIGINT within about 0.5–1 ms of exec kills `agent list` by default action, with no CANCELLED JSON (darwin: 0.5 ms 30/30 killed, 1 ms 10/30 killed; Linux: 0 ms 30/30, 0.5 ms 6/30). REPORT documents it as not fixable in user space. The round-1 escalation (does \"SIGINT while waiting\" cover start-up?) has no ruling in §9.1/§9.2.",
+   "location": "prototypes/rust/src/main.rs block_early; review2/probes/early_sigint_{darwin,linux}.json"
+  },
+  {
+   "severity": "minor",
+   "description": "Amplification observation, within the bound: a 1 MiB [meta] array of integers reaches 141 MiB peak RSS on darwin (97.8 MiB on Linux). That is 55% of the K15 256 MiB budget for one input. Not a violation.",
+   "location": "prototypes/rust/src/profile.rs parse_bytes (toml Table); review2/probes/k15_{darwin,linux}.json meta_wide_array_ints"
+  }
+ ],
+ "unverifiable_here": [
+  "Native Windows behavior for §3–§5: named pipe with SQOS, pipe-server identity, busy pipe, console Ctrl-C/Ctrl-Break, CreateProcess quoting, console resize and the TUI, exit codes. Blocked: needs a Windows 10/11 x64 host. Code review only.",
+  "WSL1/WSL2 behavior of the static Linux binary, including agent interop with Windows. Blocked: needs a Windows host with WSL2.",
+  "Native linux-x64 execution. Not run here; linux-arm64 ran on the Docker Desktop VM's native arm64 kernel.",
+  "Darwin syscall-level proof of no helper execs and no stray writes. No dtruss without sudo. darwin relies on the harness K16 tripwire and common.no_stray_writes (both pass), plus the Linux strace evidence for the shared code.",
+  "Gatekeeper and notarization of a quarantined darwin download: the binary is ad-hoc signed only, and Developer ID needs owner authority.",
+  "TUI termios restoration after QUIT/USR1 on darwin. The pty slave is revoked when the session leader exits, so termios cannot be observed there; it was observed on Linux.",
+  "The agent request-write EPIPE race (code review, inferred). A peer that sends ≥1 response byte and closes before heimdall-proto writes its request would yield AGENT_UNAVAILABLE (write error) rather than PROTOCOL_ERROR. I could not force this ordering, and it is arguably outside K3 because the bytes precede the request.",
+  "Object-level provenance of the zig-substituted musl and mingw CRT objects in the Linux and Windows artifacts."
+ ],
+ "summary": "The round-2 claim that the Rust prototype passes the common slice on both platforms holds up. I could not refute it by independent execution. I found no blocker or major defect.\n\n**Rebuild and harness.** I rebuilt from source in /tmp/heimdall-review2-rust/src-copy, a different checkout path. build.sh exited 0, and all four artifacts plus the notices file are bit-identical to dist/manifest.json:\n\n| Target | sha256 |\n|---|---|\n| darwin-arm64 | d9838f89… |\n| linux-x64 | 28c8dee0… |\n| linux-arm64 | 77d10192… |\n| windows-x64 | 07b1cbc4… |\n\nOn my build the full shared harness gave exit 0 with 133/133 on darwin, and exit 0 with 133/133 on linux-arm64 (pinned harness image, native arm64). K13 holds.\n\n**Round-1 defects re-checked.**\n- **Fixed and verified:** K3a (the Linux ECONNRESET path is confirmed real); inherited SIG_IGN for HUP/INT/QUIT/TERM/WINCH; terminal takeover; group-SIGKILL orphan; FIFO meta file; FIFO profile/tui (K14); notices (all 69 linked crates, std vendored crates, CRTs); home path; reproducibility; hardened runtime; toolchain pin; O(n²); test portability (49/4/26 reproduced).\n- **Honestly recorded as limitations:** SIGPIPE ignore not preserved (confirmed with a non-Python child); the early-SIGINT window (confirmed, about 0.5–1 ms); Windows pipe-server identity and WaitNamedPipe; symlinks and atomicity for the meta file.\n\n**Beyond the harness.**\n- strace on Linux shows the program executes only itself and the run child, writes only the named meta file, and connects only to the named socket. This held with TMUX/TERM set, in TUI resize and hangup.\n- 38 crafted agent frames were correct on both platforms, and the client only ever sends type 11.\n- My own K15 inputs stayed within bounds (≤65 ms, ≤141 MiB).\n- The artifacts run without a toolchain (env -i on darwin, alpine:3.22).\n- OSV reports no advisories.\n\n**New minor defects.**\n- A thread-spawn failure in run (forced with RUST_MIN_STACK, or a pids limit) exits 1 and leaves the child orphaned, with no meta file.\n- SIGUSR1/USR2/ALRM or SIGKILL sent to heimdall-proto orphans the child.\n- In the TUI, SIGQUIT or USR1 leaves the terminal in raw mode and the alternate screen.\n- REPORT is inaccurate in places. It says std resets the child's blocked mask, but it is preserved. Its \"91 crates\" count is stale (117 now), and §4/§6 are stale.\n- A harness defect (non-gating): the K6c SIGPIPE observation comes from CPython's own SIGPIPE ignore.\n\n**Hard gates.**\n\n| Gate | Verdict |\n|---|---|\n| Child/IPC correctness | pass (minor out-of-contract defects above) |\n| Windows/WSL | uncertain (blocked: needs a native Windows 10/11 x64 host and WSL2) |\n| Security assumptions | uncertain (Unix clean; Windows by code review only) |\n| Distribution | uncertain (Windows native blocked; darwin ad-hoc signing only) |\n| Maintained dependencies | pass |\n| Licensing | pass |\n| Shared CLI/TUI operations | pass |\n\n**Artifacts.** Everything is under <repo>/tests/evidence/artifacts/g02-rust/review2/:\n- conformance-darwin/ and conformance-linux/: record.json, console.log, harness_exit_code.txt = 0\n- probes/: scripts plus darwin and Linux JSON/logs\n- build/: build log, manifest, results.tsv, cargo-test-relocated.log\n- review-summary.json\n\n**Downloads and processes.** I added a local image, heimdall-review2-strace:1 (pinned python base plus strace 6.1-0.1 and procps from apt; not pushed), and made OSV and crates.io API reads. Nothing was committed. No processes I started remain. A running dist/darwin-arm64 heimdall-proto under /usr/bin/time belongs to another agent and was left alone."
+}

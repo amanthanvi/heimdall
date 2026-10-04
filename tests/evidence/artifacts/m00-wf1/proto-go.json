@@ -1,0 +1,182 @@
+{
+ "task_id": "M00-T05-go",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "<repo>/prototypes/go/go.mod",
+  "<repo>/prototypes/go/go.sum",
+  "<repo>/prototypes/go/build.sh",
+  "<repo>/prototypes/go/LICENSES.md",
+  "<repo>/prototypes/go/cmd/heimdall-proto/main.go",
+  "<repo>/prototypes/go/cmd/heimdall-proto/main_test.go",
+  "<repo>/prototypes/go/internal/result/result.go",
+  "<repo>/prototypes/go/internal/profile/profile.go",
+  "<repo>/prototypes/go/internal/profile/profile_test.go",
+  "<repo>/prototypes/go/internal/agent/frame.go",
+  "<repo>/prototypes/go/internal/agent/probe.go",
+  "<repo>/prototypes/go/internal/agent/dial_unix.go",
+  "<repo>/prototypes/go/internal/agent/dial_windows.go",
+  "<repo>/prototypes/go/internal/agent/agent_test.go",
+  "<repo>/prototypes/go/internal/run/run.go",
+  "<repo>/prototypes/go/internal/run/run_unix.go",
+  "<repo>/prototypes/go/internal/run/run_windows.go",
+  "<repo>/prototypes/go/internal/run/run_test.go",
+  "<repo>/prototypes/go/internal/tui/tui.go",
+  "<repo>/prototypes/go/internal/tui/tui_test.go",
+  "<repo>/prototypes/go/dist/ (gitignored build output: darwin-arm64, linux-x64, linux-arm64, windows-x64, manifest.json)",
+  "<repo>/prototypes/go/bin/heimdall-proto (gitignored dev build)",
+  "<repo>/tests/evidence/g02-go-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/selftest.py",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/schema_check.py",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/{toolchain.txt,build.log,manifest.json,artifact-sha256.txt,darwin-arm64-go-test.txt,go-vet.txt,windows-compile-check.txt,linux-container-unit-tests.txt,linux-container-artifact-run.txt,darwin-arm64-no-toolchain-run.txt,darwin-arm64-blackbox-selftest.txt,linux-arm64-container-blackbox-selftest.txt,linux-x64-container-blackbox-selftest.txt,darwin-arm64-schema-check.txt,darwin-arm64-startup-memory.txt,go-licenses-report.txt,govulncheck.txt}"
+ ],
+ "commands_run": [
+  {
+   "command": "curl proxy.golang.org/<module>/@latest for bubbletea (v1, v2, charm.land v2/v3), lipgloss, go-winio, x/sys, toml libs, iroh, iroh-ffi; crates.io iroh/iroh-ffi; GitHub API",
+   "exit_code": 0,
+   "observed": "charm.land/bubbletea/v2 v2.0.10 (2026-09-24) is current; the github.com path's go.mod declares charm.land/bubbletea/v2; no v3 exists. go-winio v0.6.2 (2024-04-09). Rust iroh 1.3.0. No official Go iroh binding."
+  },
+  {
+   "command": "go mod init; go get charm.land/bubbletea/v2@v2.0.10 github.com/BurntSushi/toml@v1.6.0 github.com/Microsoft/go-winio@v0.6.2 github.com/charmbracelet/x/ansi; go mod tidy",
+   "exit_code": 0,
+   "observed": "go.mod/go.sum pinned; x/sys v0.46.0 selected by MVS"
+  },
+  {
+   "command": "go mod verify",
+   "exit_code": 0,
+   "observed": "all modules verified"
+  },
+  {
+   "command": "CGO_ENABLED=0 go vet ./... for darwin/arm64, linux/amd64, linux/arm64, windows/amd64",
+   "exit_code": 0,
+   "observed": "exit 0 for all four (go-vet.txt)"
+  },
+  {
+   "command": "go test -count=1 -v ./... (first run)",
+   "exit_code": 1,
+   "observed": "TestForwardSignalsAndReap failed only because the test compared signal names ('window changed' vs darwin 'window size changes'); test switched to signal numbers"
+  },
+  {
+   "command": "go test -count=1 -v ./... (darwin-arm64 native, final)",
+   "exit_code": 0,
+   "observed": "cmd/heimdall-proto, agent, profile, run, tui all ok"
+  },
+  {
+   "command": "cd / && sh prototypes/go/build.sh (final)",
+   "exit_code": 0,
+   "observed": "built darwin-arm64 5190642 B, linux-x64 5406880 B, linux-arm64 5111968 B, windows-x64 5073920 B; manifest.json written"
+  },
+  {
+   "command": "sh build.sh again + shasum compare",
+   "exit_code": 0,
+   "observed": "identical sha256 for all 4 artifacts across two builds"
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin HOME=/tmp dist/darwin-arm64/heimdall-proto version --json",
+   "exit_code": 0,
+   "observed": "no go on PATH; VERSION_OK with tui_framework_version v2.0.10; otool -L shows only libSystem and libresolv"
+  },
+  {
+   "command": "docker run --rm --network none --platform linux/{arm64,amd64} alpine:3.22 dist/linux-*/heimdall-proto version/profile show/run",
+   "exit_code": 0,
+   "observed": "no go on PATH; version exit 0, profile (spaced Unicode path) exit 0, run -- sh -c 'exit 9' exit 9, signal child exit 143"
+  },
+  {
+   "command": "GOOS=linux GOARCH={arm64,amd64} go test -c per package; docker run alpine:3.22 --network none running each test binary",
+   "exit_code": 0,
+   "observed": "all 5 packages exit 0 on linux/arm64 and linux/amd64 (emulated)"
+  },
+  {
+   "command": "GOOS=windows GOARCH=amd64 go test -c per package",
+   "exit_code": 0,
+   "observed": "compile ok for all packages (run package has no windows tests)"
+  },
+  {
+   "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py dist/darwin-arm64/heimdall-proto <repo> (first attempts)",
+   "exit_code": 1,
+   "observed": "harness-side bugs: macOS revokes the pty slave after session leader exit (fixed by reading termios via master); color check failed because TERM was unset so Bubble Tea downsampled colors (fixed by setting TERM=xterm-256color)"
+  },
+  {
+   "command": "python3 selftest.py dist/darwin-arm64/heimdall-proto <repo> (final)",
+   "exit_code": 0,
+   "observed": "35/35 PASS: byte passthrough, signal meta, group SIGINT once, tty Ctrl-C once, background->fg once each, 11 TUI flows with alt-screen/cursor/termios restore, resize 20x5..120x40 redraw <100ms, NO_COLOR zero color SGR, agent crafted frames, timeout 0.305s, SIGINT cancel 2.1ms exit 130"
+  },
+  {
+   "command": "docker run --network none python:3.13-alpine (linux/arm64 and linux/amd64) selftest.py with dist/linux-*",
+   "exit_code": 0,
+   "observed": "35/35 PASS on each"
+  },
+  {
+   "command": "/tmp/hp-go-ev/venv/bin/python schema_check.py dist/darwin-arm64/heimdall-proto <repo> (first)",
+   "exit_code": 1,
+   "observed": "agent:ok failed because the test's crafted frame declared comment length 5 for 4 bytes; prototype correctly returned AGENT_PROTOCOL_ERROR; test fixed"
+  },
+  {
+   "command": "/tmp/hp-go-ev/venv/bin/python schema_check.py (final)",
+   "exit_code": 0,
+   "observed": "21/21 documents valid against schemas/g02/result.schema.json; manifest shape ok"
+  },
+  {
+   "command": "go-licenses v2.0.1 report ./cmd/heimdall-proto for GOOS darwin, linux, windows",
+   "exit_code": 0,
+   "observed": "all linked deps MIT or BSD-3-Clause"
+  },
+  {
+   "command": "govulncheck v1.8.0 ./... for GOOS darwin, linux, windows",
+   "exit_code": 0,
+   "observed": "No vulnerabilities found (each)"
+  },
+  {
+   "command": "startup/memory timing (50 runs after warm-up, /usr/bin/time -l)",
+   "exit_code": 0,
+   "observed": "version --json median 2.85ms, max RSS 7225344 B; profile show large-100 median 3.34ms, max RSS 7979008 B"
+  },
+  {
+   "command": "jsonschema validate tests/evidence/g02-go-selftest.json against tests/evidence/record.schema.json; check evidence_paths exist",
+   "exit_code": 0,
+   "observed": "record valid; no missing paths"
+  },
+  {
+   "command": "ls tests/g02 (checked 3 times during work)",
+   "exit_code": 0,
+   "observed": "conformance.py never present (only harness_lib.py, minischema.py, reference_impl.py, reference_tui.py); shared harness not run"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/g02-go-selftest.json (status blocked; blocked_on native Windows x64 host; darwin/linux portions executed and passed)",
+  "<repo>/tests/evidence/artifacts/g02-go/selftest/"
+ ],
+ "escalations": [
+  "REPORT.md was not written. The task asks for prototypes/go/REPORT.md, but the subagent tool policy refused it as a report file ('Subagents should return findings as text'). I did not get around this with a shell write. The full report text is in the summary field. The orchestrator needs to write it to prototypes/go/REPORT.md.",
+  "Contract §1 vs §3 conflict on agent comments and key types. §3 says to replace only invalid UTF-8 with U+FFFD. §1 says no ANSI escapes in JSON strings. The prototype also replaces C0, DEL and C1 control characters, including TAB, with U+FFFD (agent.SafeText). A harness that expects control characters to round-trip exactly would fail.",
+  "Profile values containing control characters (TOML allows \\u001b) are output JSON-escaped by `profile show`, so the decoded string contains ESC. The contract does not say whether validation should reject or replace them. The TUI and the SELECTED line replace them with U+FFFD.",
+  "The contract does not specify the TUI's exit code on SIGTERM. The prototype exits 143 after restoring the terminal.",
+  "A zero-byte agent response followed by EOF is classified as AGENT_PROTOCOL_ERROR (truncated frame), not AGENT_UNAVAILABLE. This is ambiguous in the contract.",
+  "SSH_AGENT_FAILURE followed by trailing bytes is classified as AGENT_PROTOCOL_ERROR (fail closed), not AGENT_REFUSED.",
+  "State values in the run meta file are not specified. CHILD_EXITED uses 'succeeded' even when the child exits non-zero or is killed by a signal. CHILD_LAUNCH_FAILED uses 'failed'. The schema does not constrain this.",
+  "Output without --json for profile show, agent list and version is undefined in the contract. The prototype prints plain text to stdout.",
+  "PATH lookup: Go's exec.ErrDot refuses commands found through a current-directory PATH entry. This is treated as launch failure (exit 127), which differs from execvp semantics."
+ ],
+ "limitations": [
+  "Nothing was run on Windows. The windows-x64 .exe was built, and every package compiles for windows/amd64. The named-pipe agent probe (go-winio), console Ctrl-C handling, CreateProcess quoting and the console TUI were never run: no native Windows x64 host.",
+  "On Windows, .bat and .cmd targets are not handled. os/exec quotes arguments with CommandLineToArgvW rules, but cmd.exe re-parses the line (an argument-injection risk). Go's own docs state this.",
+  "The shared harness tests/g02/conformance.py did not exist while I worked, so it was never run. All conformance results come from my own tests: native unit tests, a pty black-box selftest, and a jsonschema check.",
+  "linux-x64 ran only under Docker emulation on Apple silicon. linux-arm64 ran in Docker Desktop's Linux VM. Neither ran on bare metal or a clean distro install.",
+  "The toolchain-free test on macOS used env -i on the development host, not a clean macOS machine. The darwin binary is not signed or notarized, and Gatekeeper was not tested.",
+  "Not verified: the Ctrl-Z stop/resume path in `run`, because process groups in the pty selftest are orphaned and the kernel discards stop signals there. TUI terminal restore after a panic relies on Bubble Tea's recover handler, and the contract gives no way to trigger it.",
+  "In foreground mode, a terminal hangup may deliver SIGHUP to the child twice.",
+  "Small race on macOS: a forwarded signal could hit a reused PID in the microseconds between reaping the child and marking it reaped (no pidfd on macOS).",
+  "SIGKILL to heimdall leaves the child running.",
+  "Unix-socket peer credentials are not checked, and the Windows pipe server's identity is not verified.",
+  "The artifacts do not ship third-party license notices (MIT and BSD require them in binary distributions).",
+  "No independent or adversarial review: the same agent wrote all code and all tests.",
+  "Startup and memory figures come from one development host and include Python subprocess overhead."
+ ],
+ "summary": "The Go + Bubble Tea prototype covers contract sections 2–7. All four targets build. The prototype's own tests pass on darwin-arm64 and on Linux in containers. Two gaps: Windows was never run (no host), and the shared conformance harness did not exist yet, so it was not run. REPORT.md could not be written (the subagent tool policy refused it); its full text is below for the orchestrator to save as prototypes/go/REPORT.md.\n\n=== REPORT.md CONTENT (for prototypes/go/REPORT.md) ===\n\n# G02 Go + Bubble Tea prototype — report (M00-T05-go)\n\nThis is disposable gate evidence, not production code. Contract: docs/g02/slice-contract.md. Every result below was observed from commands run 2026-10-02/03 UTC. Raw outputs are in tests/evidence/artifacts/g02-go/selftest/. Base commit: 18bb8dfa841c488247421952c43e50d12980a4f2 (prototype files are uncommitted). The shared harness tests/g02/conformance.py did not exist during the work and was NOT run.\n\n## 1. Versions (observed)\n- Go: go1.27.1 darwin/arm64. Latest releases listed on go.dev: go1.27.1 and go1.26.8.\n- Bubble Tea: charm.land/bubbletea/v2 v2.0.10, released 2026-09-24. Its go.mod declares the charm.land path; the github.com/charmbracelet/bubbletea/v2 path resolves to the same commit. No v3 exists; the v1 line ends at v1.3.10.\n- TOML: BurntSushi/toml v1.6.0.\n- Named pipes: Microsoft/go-winio v0.6.2 (MIT).\n- Terminal helpers: charmbracelet/x/ansi v0.11.8 and x/term v0.2.2.\n- x/sys: v0.46.0 (chosen by MVS; latest is v0.48.0).\n- Lockfile: go.mod + go.sum; `go mod verify` reports all modules verified.\n- Audit tools: go-licenses v2.0.1, govulncheck v1.8.0. govulncheck found no vulnerabilities for darwin, linux or windows.\n- Docker 29.8.0 with alpine:3.22 and python:3.13-alpine.\n- User-level additions: Go module downloads into ~/go/pkg/mod, tools installed in /tmp/hp-go-ev/bin, a Python venv at /tmp/hp-go-ev/venv (jsonschema 4.25.1), and the Docker image pulls above.\n\n## 2. Structure (domain code shared by CLI and TUI)\n- cmd/heimdall-proto: CLI wiring only.\n- internal/result: JSON envelope and exit-code mapping.\n- internal/profile: Load/Parse/validate, plus a pure Filter function.\n- internal/agent: a pure bounded frame parser (frame.go), the probe (probe.go), and dial_unix.go / dial_windows.go.\n- internal/run: run.go, run_unix.go, run_windows.go.\n- internal/tui: the Bubble Tea model, which uses profile.Load and profile.Filter.\n\nTotal: 2,218 lines including tests.\n\n## 3. Contract coverage\n- §1: every emitted JSON document validates against the schema (21/21).\n- §2 profile show: all 9 fixtures, the oversize file and the missing file give the expected code and exit. The canary never appears in any output. Spaced and Unicode paths work. A file of exactly 1 MiB is accepted; 1 MiB+1 is rejected before parsing.\n- §3 agent list, Unix: implemented and tested. All crafted bad frames are rejected: oversize length, length 0xFFFFFFFF, huge or above-limit nkeys, nkeys larger than the frame, a string past the frame end, trailing bytes, truncated header or body, wrong message type, failure, failure plus trailing bytes, and a bad key type inside the blob. The request sent is exactly 00 00 00 01 0b. SIGINT cancel latency was 2.1 ms; a 300 ms timeout returned in 0.305 s.\n- §3 Windows named pipe: compile-checked only, never run.\n- §4 run, Unix:\n  - argv passes through byte-for-byte: spaces, quotes, $, ;, *, newlines, non-ASCII, empty strings, backslashes, invalid UTF-8.\n  - stdin/stdout bytes pass through unchanged (NUL, invalid UTF-8, ESC).\n  - Exit codes pass through; death by signal gives 128+N with `signal` set in the meta file.\n  - Launch failure gives exit 127 and CHILD_LAUNCH_FAILED.\n  - SIGINT, SIGHUP, SIGWINCH and SIGTERM are each forwarded exactly once.\n  - The child is reaped (no zombie).\n  - Ctrl-C in a pty reaches the child once. A signal to heimdall's process group reaches the child once. Background job then `fg`: each signal reaches the child once.\n- §4 Windows: compile-checked only.\n- §5 TUI (tested in a pty):\n  - Enters the alternate screen and hides the cursor.\n  - On select, q, Ctrl-C and SIGTERM it exits 0, 0, 130 and 143. Each time it leaves the alternate screen, shows the cursor, and leaves termios byte-identical to before.\n  - SELECTED is printed after leaving the alternate screen.\n  - Filtering works with 東京, Backspace, Esc (clears) and Enter (keeps), and on the 100-destination fixture.\n  - Resizes to 20x5, 49x10 and 120x40 redraw within 100 ms.\n  - With NO_COLOR set there are zero color SGR sequences. Without a TTY it exits 2.\n  - Restore after a panic relies on Bubble Tea's recover handler; not verified.\n- §6 version: tui_framework_version is read from the embedded build info (v2.0.10).\n- §7 build: all four targets build.\n\n## 4. Build (`sh build.sh` run from /, exit 0; CGO_ENABLED=0 -trimpath -buildvcs=false -ldflags \"-s -w\")\n\n| Target | Bytes | sha256 | Run without toolchain? |\n|---|---|---|---|\n| darwin-arm64 | 5,190,642 | dd1d270c… | yes, via env -i; links only libSystem and libresolv |\n| linux-x64 | 5,406,880 | ed97bf84… | yes; static ELF, alpine under Docker emulation |\n| linux-arm64 | 5,111,968 | 7279c8af… | yes; static ELF, alpine in the Docker VM |\n| windows-x64 | 5,073,920 | c16f99d2… | BLOCKED, never executed |\n\n- Two builds in a row gave identical sha256 for all four artifacts. That is a local repeat-build check, not a reproducible-build claim.\n- The darwin binary is unsigned (ad-hoc signature only) and not notarized.\n- Startup on an M5 Max: `version --json` median 2.85 ms, max RSS 7.2 MB; `profile show large-100` median 3.34 ms, max RSS 8.0 MB.\n\n## 5. Tests (exit codes)\n- `go test ./...` on darwin-arm64: 0.\n- Cross-compiled tests in alpine linux/arm64 and linux/amd64: 0 for every package.\n- `go vet` on all four targets: 0.\n- Windows `go test -c` (compile only): 0.\n- Black-box selftest: 35/35 on darwin and 35/35 in each Linux container.\n- Schema check: 21/21.\n- One mistake in my own test (a wrong frame length) was correctly rejected by the prototype; I fixed the test, not the prototype.\n\n## 6. Time, difficulty, workarounds\nAbout 25 minutes from module init to green tests on all runnable platforms. The hard part was `run` signal semantics; the TUI was easy.\n- Go's os/signal gives no siginfo, so heimdall cannot tell a terminal-generated SIGINT from an explicit kill. The workaround picks one of three modes at launch:\n  - (a) heimdall owns the terminal foreground: the child gets its own process group and becomes the foreground group (Setpgid + Foreground + Ctty). Anything heimdall receives is then explicit and is forwarded.\n  - (b) a terminal exists but heimdall is a background job: the child stays in heimdall's group. SIGINT, SIGQUIT and SIGWINCH are not forwarded while that group holds the terminal foreground.\n  - (c) no terminal: the child gets its own group and every signal is forwarded.\n- Because of this, the code waits with wait4(WUNTRACED) directly and propagates job-control stops itself.\n- Bubble Tea maps SIGTERM to the same quit message as `q`. Fix: WithoutSignalHandler plus a custom handler.\n- Bubble Tea reads TEA_TRACE and TEA_DEBUG from the environment and writes files when they are set, which breaks the no-file-writes rule. Fix: unset both before starting.\n- Bubble Tea drops color when TERM is unset; NO_COLOR is honored.\n- macOS pty quirk in the selftest: the slave fd is revoked when the session leader exits, so termios is read through the master.\n\n## 7. Known defects\n- Windows was not executed.\n- .bat/.cmd targets: cmd.exe re-parses the command line, so Go's CommandLineToArgvW quoting does not protect them (Go's docs say so). Not mitigated.\n- Windows Ctrl-C: the console delivers it to the child directly; heimdall swallows its own copy and does not forward it. No CTRL_BREAK or close-event handling.\n- macOS: a small race could forward a signal to a reused PID right after the child is reaped.\n- A terminal hangup can deliver SIGHUP to the child twice.\n- The Ctrl-Z path is not verified.\n- SIGKILL to heimdall leaves the child running.\n- No peer-credential check on the Unix socket, and no check of the Windows pipe server's identity.\n- ErrDot gives exit 127.\n- Control characters in profile values are JSON-escaped in `profile show`.\n- Output without --json is plain text.\n- No NOTICE file is shipped.\n- No independent review.\n\n## 8. Native/unsafe components\n- CGO_ENABLED=0. Linux binaries are fully static; macOS links libSystem as every Go binary does.\n- No `unsafe` in prototype code. Dependencies (x/sys, go-winio, charmbracelet/x/windows, termios) use syscalls and unsafe internally; not audited.\n- No runtime downloads and no network access at runtime.\n\n## 9. Windows notes (compile-checked only)\n- Agent probe: winio.DialPipeContext. Paths must start with \\\\.\\pipe\\. Uses a deadline and closes the connection on cancel. x/sys/windows would be a dependency-free alternative.\n- Ctrl-C arrives as os.Interrupt.\n- Command lines are built by os/exec makeCmdLine/appendEscapeArg.\n- No ConPTY: the child inherits the console, so resize is native. Bubble Tea v2 reads console input through charmbracelet/x/windows and ultraviolet.\n- run_test.go is Unix-only.\n\n## 10. Maintenance signals\n- Bubble Tea v2.0.10 (2026-09-24); repo active.\n- Bubble Tea pins an untagged pseudo-version of charmbracelet/ultraviolet. Ultraviolet has no release tags at all; the latest pseudo-version is from 2026-10-01. This is a stability and supply-chain signal.\n- x/ansi v0.11.8 (2026-08-11); colorprofile v0.4.3 (2026-03-09).\n- toml v1.6.0 (2025-12-18).\n- go-winio v0.6.2 is an old tag (2024-04-09), but the repo was pushed 2026-09-30.\n- cancelreader v0.2.2 dates from 2022.\n- Bubble Tea pins xo/terminfo at a 2022 pseudo-version, while v1.2.0 exists (2026-09-13).\n\n## 11. Iroh for Go\n- Rust iroh is at 1.3.0 (crates.io).\n- There is no official Go binding. iroh-ffi v1.1.0 covers Python, Swift, Kotlin and JS.\n- The community binding git.coopcloud.tech/decentral1se/iroh-go (v0.0.0-20260830120307-d6233351aba3, no tags) calls itself \"Highly Experimental\". It needs CGO_ENABLED=1 and a Rust staticlib, targets iroh 1.0.3, and supports linux-musl x86_64/aarch64 only.\n- Assessment: Go would need a supervised Rust helper built against iroh 1.3.0, which adds a second toolchain and a second artifact. This is an observation, not a decision.\n\n## 12. Licensing\n- Linked dependencies are all MIT or BSD-3-Clause (see LICENSES.md, generated with go-licenses v2.0.1). Attribution notices are required in binary distributions and are not shipped yet.\n- The prototype itself has no license.\n- iroh is Apache-2.0 OR MIT.\n\n## 13. Escalations\nSee the escalations list."
+}

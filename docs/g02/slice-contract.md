@@ -182,3 +182,173 @@ Policy engine, persistence, real SSH connections, signing, service/daemon
 behavior, Iroh. Each prototype records (not implements) how Iroh would be
 integrated in that language (embedded library vs. supervised helper) with
 pinned version evidence.
+
+## 9. Clarifications (orchestrator decisions, 2026-10-03)
+
+The prototype builds and the harness surfaced gaps in this contract. These
+rulings settle them for the G02 comparison only. They do not decide the
+production CLI or any public contract. Each ruling is binding on all three
+candidates and on the harness. The ID is cited in fixes and in the ADR.
+
+- **K1. Control characters in agent output** (§1, §3). In `comment` and
+  `key_type`, invalid UTF-8 becomes U+FFFD, and so does every C0 control
+  (U+0000–U+001F, including TAB), DEL (U+007F) and C1 control (U+0080–U+009F)
+  code point. The decoded JSON string values contain none of these code
+  points. JSON-escaping them (`\u001b`) does not satisfy §1.
+- **K2. Control characters in profile values** (§1, §2). A string value
+  outside `[meta]` that contains a C0, DEL or C1 control code point fails with
+  exit 2 `SCHEMA_INVALID`. `key_path` names the key, and the message never
+  contains the value. Content inside `[meta]` is still tolerated and not
+  echoed.
+- **K3. Agent EOF** (§3). If the peer closes or resets the connection before
+  sending any response byte, the result is `AGENT_UNAVAILABLE`. EOF after at
+  least one byte but before a complete frame is `AGENT_PROTOCOL_ERROR`.
+- **K3a. Agent connection reset** (§3, added 2026-10-03). A connection reset
+  (`ECONNRESET` or equivalent) is classified like EOF in the same position.
+  Before any response byte it is `AGENT_UNAVAILABLE`. After at least one byte
+  but before a complete frame it is `AGENT_PROTOCOL_ERROR`.
+- **K4. Failure frame shape** (§3). An `SSH_AGENT_FAILURE` frame must have
+  length exactly 1. A type-5 frame that carries any payload is
+  `AGENT_PROTOCOL_ERROR`.
+- **K5. Meta `state`** (§4). `CHILD_EXITED` uses `state: "succeeded"` whatever
+  the child's exit status: the launch-and-wait operation succeeded, and the
+  child status is in `data`. `CHILD_LAUNCH_FAILED` uses `state: "failed"`.
+- **K6. Signal mechanism** (§4). Any mechanism that meets the observable rules
+  is acceptable, including running the child as its own foreground process
+  group (job control). An explicitly sent signal to `heimdall-proto` (for
+  example `kill -INT <pid>`) must still reach the child exactly once in every
+  state. REPORT.md documents the mechanism and its known gaps. The harness
+  judges only observable behavior.
+- **K7. PATH lookup** (§4). The program may refuse a match found through an
+  empty or `.` PATH entry and report it as launch failure (exit 127). That is
+  stricter than execvp and is allowed. It is not tested.
+- **K8. Invalid UTF-8 argv** (§4). This is in scope on Unix. "Byte-for-byte"
+  includes argv elements that are not valid UTF-8. The harness check for it
+  gates the result. A stack that cannot pass it records a stack limitation and
+  does not route around it. Reaching raw argv through FFI to private libc
+  entry points (for example `_NSGetArgv` or `/proc/self/cmdline` parsing
+  through `bun:ffi`) counts as routing around. Record such a path as a
+  production option, not as conformance.
+- **K9. Selection after a filter edit** (§5). Each filter change (an appended
+  character, Backspace, or the `Esc` clear) resets the selection to the first
+  shown row. Leaving filter mode with `Enter` keeps the selection.
+- **K10. TUI exit codes for other paths** (§5). On SIGTERM, restore the
+  terminal and exit 143 with no stdout. On SIGHUP or terminal hangup, restore
+  what is possible and exit 129. On an internal panic or exception, restore
+  the terminal and exit 1. None of these paths writes to stdout.
+- **K11. Native code and sidecars** (§1, §7). `dist/<target>/` may be a
+  directory holding `heimdall-proto[.exe]` plus sidecar files. Single-file
+  output is not required. Sidecars are listed in `manifest.json` under an
+  optional per-target `sidecars` array (`path`, `bytes`, `sha256`). At runtime
+  the executable loads sidecars only from its own directory, resolved from the
+  executable's real location, and ignores inherited environment overrides of
+  that location. "Its own directory" includes subdirectories of
+  `dist/<target>/` (for example `@opentui/core-<platform>/`). At runtime the program writes nothing outside the paths named
+  on its command line. Extracting executable code to a shared temporary
+  location breaks §1 if the code is reused there without verifying its content
+  or is left behind.
+- **K12. Output without `--json`** (§2, §3, §6). Without `--json`, the output
+  of `profile show`, `agent list` and `version` is unspecified and is not
+  judged. Exit codes are the same as with `--json`.
+
+### 9.1 Round-2 rulings (2026-10-03, after the round-1 adversarial reviews)
+
+- **K6a. Job and signal transparency** (§4). `run` must not take
+  terminal-foreground ownership away from any other process. It must not stop
+  another member of its own job, for example a pipeline peer that reads the
+  tty, or the script that started it as an `&` job of a non-job-control shell.
+  A signal whose disposition `heimdall-proto` inherited as ignored (`nohup`,
+  `trap '' HUP`, the SIGINT/SIGQUIT ignore of a non-interactive `&` job) stays
+  ignored in the child and is not forwarded. This is exec semantics.
+- **K10 confirmation.** "Terminal hangup" includes a hangup that the TUI sees
+  only as EOF or EIO on the tty, with no SIGHUP. The harness check
+  `tui.hangup_exit_129` (both variants) is correct.
+- **K13. Platforms for the G02 verdict.** A candidate passes the common slice
+  only if the full harness passes on darwin-arm64 **and** on linux-arm64. The
+  Linux run uses the `linux-arm64` artifact in a digest-pinned container on
+  the Docker Desktop arm64 VM: a native arm64 kernel, not emulation. Darwin
+  delivers an AF_UNIX reset as EOF, so K3a is judged on Linux.
+- **K14. Non-regular input files** (§2, §5). If `--file` names something that
+  is not a regular file (a FIFO, socket, device or directory), the result is
+  exit 2 `USAGE_ERROR` within 2 s, and the program never blocks waiting on it.
+- **K15. Parser resource bound** (§2, §5). Parsing any input up to the 1 MiB
+  bound, including deeply nested inline tables or arrays inside `[meta]`, must
+  finish within 2 s and below 256 MiB peak RSS. The input is either accepted
+  or rejected with `SCHEMA_INVALID`.
+- **K16. No helper processes** (§1). Apart from the `run` child,
+  `heimdall-proto` never executes another program. That includes terminal
+  capability or multiplexer probes such as `tmux`, `tput` or `infocmp`. This
+  holds whatever `TMUX`, `TERM`, `TERM_PROGRAM` or similar variables say.
+
+TypeScript was frozen after round 1. It failed K8, a gating stack limitation,
+and the review found environment-driven code loading in the Bun runtime that
+the application cannot disable. Following plan §3 G02 "do not keep polishing
+losing prototypes", the round-2 rulings were not applied to it. Its round-2
+harness results are recorded for completeness only.
+
+### 9.2 Signal-semantics priority (2026-10-03, after the round-2 fixes)
+
+- **K6b. Precedence when the signal rules conflict** (§4, K6, K6a). Darwin
+  gives a terminal-generated signal the same `siginfo` as `kill(2)`. Go's
+  `os/signal` exposes no `siginfo` at all. So a launcher that shares its
+  caller's process group cannot always tell a terminal signal from an explicit
+  one. When the rules cannot all be met, they apply in this order:
+  1. K6a: never take the terminal from, or stop, another process, and keep
+     inherited ignores for SIGHUP and SIGINT.
+  2. K6: a signal sent explicitly to the `heimdall-proto` PID reaches the
+     child exactly once.
+  3. §4: a terminal-generated SIGINT is not delivered twice.
+
+  A candidate may give the child its own foreground group only when it can
+  show it is alone in its process group and K6a still holds. Duplicate
+  delivery of a terminal-generated signal where the platform or stack cannot
+  tell its origin is allowed, as long as it is documented in REPORT.md. The
+  harness treats it as non-gating, as its open question Q3 already does. A
+  group-directed signal from another process (`killpg`) may reach the child
+  twice. That is recorded, not gated.
+- **K6c. Gated inherited-ignore scope.** K6a's inherited-ignore requirement
+  gates SIGHUP (`nohup`) and SIGINT (the non-interactive `&` job). Where a
+  stack resets other inherited ignored dispositions (SIGQUIT, SIGTERM,
+  SIGWINCH, SIGPIPE) or the blocked-signal mask in the child, record it as a
+  stack limitation with the production remedy (for example a cgo constructor).
+  It is non-gating for G02 and goes into ADR-0002 as an input.
+- **Still unspecified and not gated:** refusing to launch when `--meta-file`
+  is unwritable, whether to follow symlinks on that path, and whether to write
+  it atomically. The same goes for bidi and zero-width code points in
+  displayed strings. Both are product-design inputs for M01 and do not affect
+  the G02 comparison.
+
+### 9.3 Round-3 rulings (2026-10-04): harness coverage only, no prototype changes
+
+- **K6d. Shared mode** (§4, K6, K6b). K6's "exactly once in every state"
+  covers a `heimdall-proto` that shares its process group with the terminal's
+  foreground job: a pipeline member, or a child of a foreground
+  non-job-control script, Makefile recipe or `sh -c`. A SIGINT, SIGTERM,
+  SIGHUP, SIGQUIT or SIGWINCH sent explicitly to the `heimdall-proto` PID
+  reaches the child at least once. Duplicate delivery is allowed under K6b
+  where the origin cannot be told apart. Silent loss is a failure.
+- **K6e. Job control** (§4). Under an interactive job-control shell, Ctrl-Z
+  stops the `run` job, and `fg` resumes it with the child receiving terminal
+  input again. `bg` followed by `fg` also works. The child is never left
+  stopped while the shell believes the job is running, and the job is never
+  re-stopped right after `fg`.
+- **K17. Filter latency** (§5 "immediate filtering"). On the 100-destination
+  fixture, the p95 keystroke-to-screen-update latency in filter mode is at
+  most 100 ms. That is the spec §15.1 key budget. It is measured by the harness
+  in its pty emulator, using the same method as the existing latency
+  observation.
+- **K18. Value non-echo scope** (§1, §2). Every offending input value counts as
+  potentially secret. It must not appear on stdout **or** stderr. Key names
+  may appear. This settles harness question Q9.
+- **K10 exit form.** "Exit 143/129" means the process exit status. A
+  re-raised signal that yields wait status "killed by signal" also
+  conforms. This settles Q8.
+- **Start-up window.** A signal that arrives before the program's own code
+  runs (between exec and the language runtime's `main`) is outside the
+  contract. It is documented as residual, not gated.
+- **Not gated, recorded for ADR-0002:**
+  - TUI exits by an unhandled signal such as SIGQUIT or SIGUSR1 without
+    restoring the terminal.
+  - Signals beyond the five forwarded ones, and SIGKILL, orphan the child.
+  - Unbounded reads of terminfo or similar environment-selected files.
+  - A child started with fd 1 closed gets a working fd 1.

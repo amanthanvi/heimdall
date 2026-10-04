@@ -1,0 +1,91 @@
+{
+ "task_id": "M00-T05-rust-align",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/prototypes/rust/src/agent.rs",
+  "<repo>/prototypes/rust/src/list_model.rs",
+  "<repo>/prototypes/rust/src/profile.rs",
+  "<repo>/prototypes/rust/src/runner.rs",
+  "<repo>/prototypes/rust/tests/cli.rs",
+  "<repo>/prototypes/rust/tests/pty_tui.py",
+  "<repo>/prototypes/rust/selftest.sh",
+  "<repo>/prototypes/rust/REPORT.md",
+  "<repo>/prototypes/rust/dist/** (rebuilt by build.sh, manifest.json updated)",
+  "<repo>/tests/evidence/g02-rust-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-2-k-align/** (new; attempt-1 artifacts untouched)"
+ ],
+ "commands_run": [
+  {
+   "command": "cargo test --locked -- --test-threads=4 (baseline, before changes)",
+   "exit_code": 0,
+   "observed": "lib 39, bin 4, cli 14 passed"
+  },
+  {
+   "command": "HEIMDALL_PROTO_BIN=<attempt-1 darwin binary sha256 98d7c498...> <cli test bin> k --test-threads=1 (red proof)",
+   "exit_code": 101,
+   "observed": "k3_k4_eof_and_failure_frame_shape FAILED: zero-byte EOF gave AGENT_PROTOCOL_ERROR (producer K3 claim confirmed); k1, k5, k6 passed on the old binary"
+  },
+  {
+   "command": "pty_tui.py t_k6, t_k9, t_k10 against the attempt-1 binary (red proof)",
+   "exit_code": 1,
+   "observed": "k9-filter-edit-resets-selection failed (selection stayed on vps-東京 after '/e'); k6 and k10 passed"
+  },
+  {
+   "command": "cargo fmt --check; cargo clippy --locked --all-targets -- -D warnings",
+   "exit_code": 0,
+   "observed": "both exit 0 (after cargo fmt applied to my edits)"
+  },
+  {
+   "command": "HP_SELFTEST_OUT=.../selftest/attempt-2-k-align HP_SELFTEST_SKIP_HARNESS=1 /bin/sh prototypes/rust/selftest.sh",
+   "exit_code": 0,
+   "observed": "all 20 steps exit 0: host tests lib 43/bin 4/cli 18; windows cargo check; build.sh built all 4 targets; darwin dist cli 18/18 (env -i); darwin pty 18/18; linux-arm64 native 43+18+4; linux-x64 (emulated) 43+18+4; linux-arm64 pty 18/18"
+  },
+  {
+   "command": "env -i PATH=':/usr/bin:/bin' and PATH='.:/usr/bin:/bin' dist/darwin-arm64/heimdall-proto run -- k7probe",
+   "exit_code": 0,
+   "observed": "the executable in cwd ran in both cases (execvp semantics; allowed by K7)"
+  },
+  {
+   "command": "timeout 900 tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out /tmp/hp-rs-align/harness-record.json (read-only, informational)",
+   "exit_code": 124,
+   "observed": "73 PASS, 3 ERR (pyte IndexError inside harness on tui.filter_basic/unicode/case_insensitive), then hung on tui.filter_matches_host until timeout; no record written; no leftover rust heimdall-proto process afterwards"
+  },
+  {
+   "command": "minischema.validate(record.schema.json, g02-rust-selftest.json) (harness module imported read-only)",
+   "exit_code": 0,
+   "observed": "errors: []"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/g02-rust-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-2-k-align/summary.json",
+  "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-2-k-align/red-proof-cli-k-tests-vs-pre-binary.log",
+  "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-2-k-align/red-proof-pty-k-cases-vs-pre-binary.log",
+  "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-2-k-align/k7-path-lookup-observation.log",
+  "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-2-k-align/harness-informational-darwin.log",
+  "<repo>/prototypes/rust/dist/manifest.json"
+ ],
+ "escalations": [
+  "Shared harness (owned by another agent): the read-only run of 2026-10-03T18:12:41Z still shows the attempt-1 harness-side defects: a pyte IndexError on tui.filter_basic, filter_unicode and filter_case_insensitive, and a hang on tui.filter_matches_host that only the 900 s timeout ended (exit 124, no record written). The check list it ran had no K-specific check names.",
+  "K3 does not say what a connection reset (not EOF) after at least one response byte should be. The Rust prototype keeps AGENT_UNAVAILABLE for it. The orchestrator may want to rule on this so all three candidates match.",
+  "Toolchain drift: rustup stable moved from rustc 1.98.1 to 1.99.0 between attempt 1 and attempt 2, and the prototype has no rust-toolchain.toml pin. This was recorded, not pinned (out of scope). The orchestrator may want a pin for G02 comparability."
+ ],
+ "limitations": [
+  "Windows x64 was built and cargo-checked only. Native run is blocked: needs a Windows 10/11 x64 host.",
+  "linux-x64 tests ran under Docker Desktop amd64 emulation on an arm64 host, not native x86-64.",
+  "The darwin no-toolchain run used env -i PATH=/usr/bin:/bin on the build machine, not a clean macOS machine.",
+  "K6 was tested with no controlling terminal, as a foreground job, and as a background job (INT and TERM). Not tested: an explicit signal while heimdall-proto is itself stopped after Ctrl-Z.",
+  "Known gap outside K6's explicit-to-PID rule: in background-job mode a process-group-wide signal reaches the child twice.",
+  "The shared harness verdict was not used: it is in flux and hit harness-side errors. The verdict rests on native runs only.",
+  "Attempt-2 digests differ from attempt 1 partly because of toolchain drift (1.98.1 -> 1.99.0), not only the code changes.",
+  "The evidence record keeps the attempt-1 requirement_ids. Under tests/evidence/README.md they are context, not evidence that any requirement is met."
+ ],
+ "summary": "The Rust prototype now follows every §9 ruling. Two behaviors changed: K3 and K9. The rest already conformed and now each has a dedicated native test; K7, K11 and K12 are statements only. The full native suite passes on macOS arm64 and Linux, and build.sh built all four targets.\n\n**K1–K12**\n\n| Ruling | Result | Proof |\n|---|---|---|\n| K1 | Already conformed | agent::tests::k1_all_control_classes_replaced_in_comment_and_key_type; cli k1_agent_strings_have_no_control_code_points |\n| K2 | Already conformed | profile::tests::k2_control_chars_in_values_rejected_outside_meta |\n| K3 | **Changed**: src/agent.rs `read_frame` now reports `AGENT_UNAVAILABLE` when the peer closes before sending any byte | cli k3_k4_eof_and_failure_frame_shape; agent::tests::truncated_rejected updated |\n| K4 | Already conformed | agent::tests::k4_failure_with_payload_is_protocol_error; cli k3_k4_eof_and_failure_frame_shape |\n| K5 | Already conformed | cli k5_meta_state; runner meta_shapes now asserts `state` |\n| K6 | Already conformed, now tested in all three terminal states (none, foreground job, background job), for INT and TERM | cli k6_explicit_signal_to_pid_reaches_child_exactly_once (no terminal); pty k6-explicit-kill-reaches-child-once-fg-and-bg (state confirmed by process groups) |\n| K7 | Statement: empty and `.` PATH entries are followed, which K7 allows. Observed in k7-path-lookup-observation.log; not tested. | — |\n| K8 | Already conformed | cli run_argv_bytes_passthrough |\n| K9 | **Changed**: src/list_model.rs `refilter` resets the selection to the first row on every filter edit; Enter keeps it | list_model::tests::k9_filter_edit_resets_selection_enter_keeps_it; pty k9-filter-edit-resets-selection |\n| K10 | Already conformed: SIGHUP 129, SIGTERM 143, terminal hangup 129, panic 1, nothing on stdout | pty k10-sighup-129-sigterm-143-no-stdout; pty tui-panic-restores (stderr now captured separately) |\n| K11 | Statement: one self-contained executable per target, no sidecars, nothing extracted at runtime | — |\n| K12 | Statement: output without `--json` is not judged | — |\n\n**Producer claims checked:**\n- **K3:** confirmed wrong before the fix. The attempt-1 binary (sha256 98d7c498…) returned `AGENT_PROTOCOL_ERROR` on a zero-byte EOF; the new cli test fails against it (exit 101).\n- **K9:** the producer listed it as conforming, but the attempt-1 binary fails the new pty case (exit 1).\n- **K6 and K10:** the producer's positions hold. Both pass on the old binary too.\n\n**Test results:** Every one of the 20 self-test steps exited 0. Host tests: 43 lib, 4 bin, 18 cli. CLI suite against the darwin build: 18/18. pty driver: 18/18 on macOS and on Linux arm64. Linux arm64 native and Linux x64 (emulated) each ran 43+18+4.\n\n**Build:** build.sh built all four targets and dist/manifest.json is updated. darwin-arm64 is 755,840 B (sha256 4f852143…). There are no sidecars to list.\n\n**Records:**\n- The evidence record keeps attempt 1 verbatim under `attempts`; attempt 2 is `verified` with verdict `pass`, and its new artifacts are in their own directory.\n- REPORT.md has a new §12 \"§9 alignment (2026-10-03)\" with the table, and I corrected the statements that had gone stale.\n\n**Test-tooling changes:**\n- pty_tui.py can now start the target as a background job, capture stderr separately, and survive a terminal hangup.\n- selftest.sh can write to a per-attempt directory and skip the shared harness.\n\n**Shared harness:** I ran it read-only, for information only. It hit the same harness-side errors as attempt 1 and timed out (exit 124), so I did not use it as the verdict.\n\n**Open points, escalated:**\n- K3 doesn't cover a connection reset after some bytes have arrived. The prototype still reports `AGENT_UNAVAILABLE` there.\n- The Rust toolchain moved from 1.98.1 to 1.99.0 between attempts, and the prototype has no toolchain pin.\n\nNothing was committed."
+}

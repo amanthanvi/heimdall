@@ -1,0 +1,111 @@
+{
+ "task_id": "M00-T04-G04-experiments-finish",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/tests/native/g04/lib.sh",
+  "<repo>/tests/native/g04/e2_cert_expiry.sh",
+  "<repo>/tests/native/g04/e3_principal_scope.sh",
+  "<repo>/tests/native/g04/e4_account_ca_principals.sh",
+  "<repo>/tests/native/g04/e5_issuer_separation.sh",
+  "<repo>/tests/native/g04/e7_mux_stop_race.sh",
+  "<repo>/tests/native/g04/run_all.sh",
+  "<repo>/tests/native/g04/make_records.py",
+  "<repo>/tests/native/g04/fresh_run.sh (new)",
+  "<repo>/tests/native/g04/README.md (new)",
+  "<repo>/tests/evidence/g04-exp-e1-dedicated-agent.json",
+  "<repo>/tests/evidence/g04-exp-e2-cert-expiry.json",
+  "<repo>/tests/evidence/g04-exp-e3-principal-scope.json",
+  "<repo>/tests/evidence/g04-exp-e4-account-ca-principals.json",
+  "<repo>/tests/evidence/g04-exp-enroll-marker-key.json",
+  "<repo>/tests/evidence/g04-exp-e5-issuer-separation.json",
+  "<repo>/tests/evidence/g04-exp-e6-fresh-login-verification.json",
+  "<repo>/tests/evidence/g04-exp-g09-prelim-mux-after-expiry.json",
+  "<repo>/tests/evidence/g04-exp-g09-prelim-mux-stop-race.json",
+  "<repo>/tests/evidence/artifacts/g04/experiments/20261003T182153Z/** (new evidence run: per-experiment .log/.results.tsv/.stdout.txt and extras, exit-codes.txt, run.env, script-sha256.txt, fixture-versions.txt, fixture-down-pre.log, fixture-up.log, fixture-smoke.log, fixture-down-post.log, fresh_run.stdout.txt, review.json)",
+  "<repo>/tests/evidence/artifacts/g04/experiments/20261003T011647Z/NOTE.md (new; interrupted run otherwise unchanged)",
+  "<repo>/tests/evidence/artifacts/g04/experiments/dev-finish-181308/ (dev run E3/E4/E5)",
+  "<repo>/tests/evidence/artifacts/g04/experiments/dev-finish-e2-181350/ (dev run + NOTE.md)",
+  "<repo>/tests/evidence/artifacts/g04/experiments/dev-finish-race-182028/ (dev run + NOTE.md)",
+  "<repo>/tests/evidence/artifacts/g04/experiments/dev-finish-race2-182121/ (dev run)"
+ ],
+ "commands_run": [
+  {
+   "command": "G04_RUN_STAMP=dev-finish-181308 G04_E5_CHILD_LIFE=15 tests/native/g04/{e3_principal_scope,e4_account_ca_principals,e5_issuer_separation}.sh (dev check of tightened checks against the old, still-running fixtures)",
+   "exit_code": 0,
+   "observed": "e3 rc=0, e4 rc=0, e5 rc=0; all CHECKs PASS including the new failed_with_id/reason conditions, the E4 seed-only ops control and E5-child-cert-narrower"
+  },
+  {
+   "command": "G04_RUN_STAMP=dev-finish-e2-181350 G04_E2_LEAD=30 tests/native/g04/e2_cert_expiry.sh (dev)",
+   "exit_code": 1,
+   "observed": "New E2-after-expiry-dkA-cert-not-in-agent PASS. E2-boundary FAIL was a harness defect: perl -e '...' -0.011 2.009 parsed the negative number as a switch (replayed: perl exit 25). Fixed with '--' in e2_cert_expiry.sh, lib.sh clock_offset and e7_mux_stop_race.sh; replay after the fix: negative case exit 0, over-limit case exit 1"
+  },
+  {
+   "command": "G04_RUN_STAMP=dev-finish-race-182028 G04_RACE_N=12 tests/native/g04/e7_mux_stop_race.sh (dev)",
+   "exit_code": 1,
+   "observed": "New validity check E7R-post-stop-clients-exercised FAIL: only 1/12 clients started after -O stop returned with equal 0-40 ms delays (stop call takes ~10 ms). Client delay range widened to 0-60 ms (G04_RACE_CLIENT_MAX_MS)"
+  },
+  {
+   "command": "G04_RUN_STAMP=dev-finish-race2-182121 G04_RACE_N=16 tests/native/g04/e7_mux_stop_race.sh (dev)",
+   "exit_code": 0,
+   "observed": "7/16 post-stop clients, 0 admitted; all checks pass"
+  },
+  {
+   "command": "G04_RUN_STAMP=20261003T182153Z nohup tests/native/g04/fresh_run.sh (down.sh -> up.sh -> smoke.sh -> run_all.sh), run detached",
+   "exit_code": 0,
+   "observed": "down-pre exit 0 (CLEANUP CONFIRMED, 21 keys disposed); up exit 0 (new keys/CA/host keys/containers; image layers from Docker build cache, same image id); smoke exit 0 (pass=60 fail=0); run_all 18:22:09Z-18:35:38Z, exit-codes.txt: e1 0, e2 0, e3 0, e4 0, enroll_marker_key 0, e5 0, e6 0, e7_mux_after_expiry 0, e7_mux_stop_race 0"
+  },
+  {
+   "command": "tests/fixtures/ssh/down.sh (output redacted into 20261003T182153Z/fixture-down-post.log)",
+   "exit_code": 0,
+   "observed": "CLEANUP CONFIRMATION containers_remaining=0 networks_remaining=0 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=21 problems=0; CLEANUP CONFIRMED. Independent check: docker containers=0, networks=0, image=0 for label heimdall.fixture=m00-t03; tests/fixtures/ssh/runtime absent; no ssh/ssh-agent process started by this task remains (only PID 12855 /usr/bin/ssh-agent, PPID 1, started 2026-09-26, not ours, untouched)"
+  },
+  {
+   "command": "tests/native/g04/.venv/bin/python tests/native/g04/make_records.py 20261003T182153Z --validate",
+   "exit_code": 0,
+   "observed": "9 records written, all status=verified verdict=pass; schema (tests/evidence/record.schema.json, jsonschema 4.25.1) valid 9/9, INVALID 0; every evidence_path exists; no 'PRIVATE KEY', HEIMDALL_CANARY or raw $HOME path in the records, the new run dir or README"
+  },
+  {
+   "command": "tests/native/g04/.venv/bin/python tests/native/g04/make_records.py 20261003T011647Z --validate (generator test on the interrupted run)",
+   "exit_code": 0,
+   "observed": "Classifier behaved as designed (E5 correctly in_progress for a missing new validity row; E7/race absent). The 7 test records were deleted right away and regenerated from the new run"
+  }
+ ],
+ "requirement_ids": [
+  "R-CR-02",
+  "R-CR-03",
+  "R-CR-04",
+  "R-CR-05",
+  "R-CR-06",
+  "R-CR-07",
+  "R-AU-05",
+  "R-AU-07",
+  "R-AU-08"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/g04-exp-e1-dedicated-agent.json",
+  "<repo>/tests/evidence/g04-exp-e2-cert-expiry.json",
+  "<repo>/tests/evidence/g04-exp-e3-principal-scope.json",
+  "<repo>/tests/evidence/g04-exp-e4-account-ca-principals.json",
+  "<repo>/tests/evidence/g04-exp-enroll-marker-key.json",
+  "<repo>/tests/evidence/g04-exp-e5-issuer-separation.json",
+  "<repo>/tests/evidence/g04-exp-e6-fresh-login-verification.json",
+  "<repo>/tests/evidence/g04-exp-g09-prelim-mux-after-expiry.json",
+  "<repo>/tests/evidence/g04-exp-g09-prelim-mux-stop-race.json"
+ ],
+ "escalations": [
+  "G09 finding (not decided here): -O exit closed the master and the open no-tty session S2 (rc 255, no heartbeats after exit), but S2's remote shell (bash pid 845 in ca1) was still running 7 s and 20 s later (H3b). Spec 6.6 only says detached remote processes are not terminated; this shows that non-detached no-tty remote commands also outlive a strict close. Strict-mode wording and mechanism need an owner/G09 decision so the UX does not imply that remote work stops.",
+  "G09 policy input (not decided here): certificate expiry alone did NOT stop new multiplexed sessions on an existing master (H1/H1b confirmed, including a client with no usable credential). ssh -O stop did stop admissions on this one client/server pair (0/32 post-stop clients admitted in the race). Spec 6.6 allows keeping masters open only if 'a tested mechanism can stop admissions independently'. Whether this preliminary single-version evidence meets that bar, or masters must be closed at expiry, is the G09 ordinary/strict decision (spec P06)."
+ ],
+ "limitations": [
+  "Self-review only. No independent or adversarial review of the scripts or results was done (this subagent did not delegate one). The records say so.",
+  "OpenSSH mechanism evidence only: host /usr/bin/ssh OpenSSH_10.3p1 (macOS 27.0 arm64) against sshd OpenSSH_10.0p2 Debian-7+deb13u4 in Docker Desktop containers. This is not Heimdall behavior, and not lock/sleep/logout/reboot/secure-store evidence. No native Windows/WSL/Linux-host claim.",
+  "Host and containers share the Docker VM clock (offset 0.007-0.017 s measured), so skewed or rolled-back server clocks were not tested. Fixture image layers came from the Docker build cache (same image id as earlier runs); keys, CA, host keys and containers were fresh.",
+  "Race: ordering is from host-side ms timestamps. 1 of 7 clients that overlapped the stop call was admitted, and it cannot be ordered against MUX_S_OK. The verdict counts only the 32 clients that started after the stop call returned. Not a proof that no race exists.",
+  "E5 separation is by agent endpoint within one OS user. A same-user process given the issuer socket path obtained a certificate (recorded finding).",
+  "make_records.py was edited after run_all.sh captured script-sha256.txt (record generator only). All experiment .sh files match the digests that ran; each record's artifact_digest includes the generator digest.",
+  "Not created by this task and left in place: the previous agent's /tmp/hmg04-dev-*.out, /tmp/hmg04-final-runall.out, /tmp/hmg04-dev-stamp and /tmp/hmg04-final-stamp. Also its tests/evidence/artifacts/g04/experiments/fixture-lifecycle/up.attempt1.log and up.final.log, which contain an unredacted home path (username; not a secret). The new records do not reference them; the orchestrator should redact or exclude them before commit.",
+  "docs/research/g04-managed-credentials.md is outside my write ownership. Its sections 1.2, 8.1 and 10 still describe E1-E7 as not yet run, so the orchestrator may want to cite the new records there. On this fixture, falsifiers F-2, F-3, F-4 and F-7 were not triggered."
+ ],
+ "summary": "I ran every experiment on fresh fixtures (stamp 20261003T182153Z). All nine exited 0, all nine records are schema-valid with status verified and verdict pass, and the fixtures are down. This is OpenSSH mechanism evidence on container fixtures, not Heimdall or desktop-lock evidence.\n\n**G09-prelim, what was observed:**\n- **New session after certificate expiry: yes, admitted.** At valid_before + 10 s a fresh login was refused (rc 255, 'Certificate invalid: expired'). A new multiplexed session through the existing master still got in (rc 0, no new connection, no new Accepted line), and so did a client that had no usable key (rc 0). Expiry alone does not stop admissions.\n- **ssh -O stop: admissions stopped.** stop rc 0, socket removed, master kept running as 'ssh: [stopped mux]', -O check rc 255. A client using the old ControlPath opened a new connection and was refused as expired (rc 255); a client with no key was not admitted. In the 50-iteration race, 0 of the 32 clients that started after the stop call returned were admitted. 1 of 7 that overlapped the stop call was admitted; it can't be ordered against the stop acknowledgement.\n- **Already-open session S1: continued.** 9 heartbeats after stop, the last one 44 s later. It ended normally (rc 0), and the master exited within 0.5 s of S1 ending despite ControlPersist=10m.\n- **-O exit (found while testing):** master gone, open session S2 killed (rc 255), socket removed. But S2's remote shell was still running in the container 7 s and 20 s later.\n\n**Other experiments:**\n- **E1:** a dedicated temp-socket agent was the only signer used, and signing stopped at the ssh-add -t lifetime.\n- **E2:** across 163 boundary logins, the first refusal came 0.000 s after valid_before and every refusal was logged as expired. Refusal after expiry was the same whether or not the agent still held the certificate.\n- **E3:** a one-principal certificate worked on its own host only. The two-principal certificate worked on both hosts and is recorded as \"usable on both\", never as scoped. The username principal, rogue CA and bare key were refused on both.\n- **E4:** only the hm:fx-enroll:enroll principal was accepted. Removing our line restored the seed bytes exactly.\n- **Enrollment:** a fresh login with only the marker key worked after the add and failed before and after. Unrelated bytes and a concurrent admin edit were preserved.\n- **E5:** the worker path could not see or use the CA, and no CA material was found in it. The servers enforced the child's narrower principals and earlier expiry.\n- **E6:** the verification login produced exactly one new authentication; reusing the master produced none.\n\n**Script fixes, so each pass criterion can actually tell pass from fail:**\n- E3, E4 and E5 rejections now count only if the server actually evaluated that certificate, with the intended reason where one applies.\n- E4 has a new control: our CA's `ops` certificate against the seed's own `ops` line, before our line exists.\n- E2 now repeats the after-expiry login once the agent has dropped the certificate, which the design's criterion needs.\n- E5 reads back the issued certificates to confirm the child's principals and expiry are narrower.\n- Fixed a harness bug that would have given a false E2 failure: perl read a negative number argument as a switch.\n- The race now needs at least 5 clients starting after the stop call returns to count as valid, and the client delay range is wider so that happens.\n\nmake_records.py now follows the gate-probe convention (status = evidence state, verdict pass/fail/inconclusive against the criterion stated in each record). I added README.md and a fresh_run.sh wrapper that does down, up, smoke and all experiments in one go.\n\nThe interrupted run directory is unchanged apart from a NOTE.md saying it was interrupted and superseded. down.sh printed CLEANUP CONFIRMED, and a separate check found no containers, networks, image or runtime directory left. Every process I started was stopped by its exact PID; the owner's own ssh-agent was not touched.\n\nTwo findings need an owner/G09 decision and are in escalations. First, strict close leaves remote no-tty commands running. Second, expiry alone does not stop multiplexed admissions, and whether -O stop on one version pair is enough to keep masters open is the ordinary/strict policy choice. There was no independent review.\n\nEverything is in `tests/native/g04/` and `tests/evidence/`: the nine `g04-exp-*.json` records and `artifacts/g04/experiments/20261003T182153Z/`.",
+ "doc_updates": []
+}

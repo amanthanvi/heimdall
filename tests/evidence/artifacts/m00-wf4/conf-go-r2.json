@@ -1,0 +1,20 @@
+{
+ "candidate": "go",
+ "darwin": {
+  "harness_exit_code": 0,
+  "evidence_record": "<repo>/tests/evidence/g02-go-conformance.json",
+  "passed": 133,
+  "failed": 0,
+  "errored": 0
+ },
+ "linux": {
+  "harness_exit_code": 0,
+  "evidence_record": "<repo>/tests/evidence/g02-go-conformance-linux.json",
+  "passed": 133,
+  "failed": 0,
+  "errored": 0,
+  "image_digest": "sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3"
+ },
+ "failures": [],
+ "summary": "I rebuilt the Go prototype with `sh prototypes/go/build.sh` (exit 0) and ran the full harness on both platforms. All 133 checks passed on darwin-arm64 and on linux-arm64. Nothing failed, errored or was skipped, so there was nothing to classify and no flake re-runs were needed.\n\nArtifact sha256 after the rebuild:\n- darwin-arm64: 20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1\n- linux-arm64: f7d383185190bbaf385082e7c6455f3d714823d3951cd545d385f7d712a10f61\n\n**Darwin.** I ran `conformance.py` against `dist/darwin-arm64/heimdall-proto` with `SSH_AUTH_SOCK` unset. The exit code was 0. The record has status verified and verdict pass.\n\n**Linux.** I ran `tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64`. The exit code was 0. The record has status verified and verdict pass, with `environment.platform` linux-arm64. The image is `heimdall-g02-harness:ac0f6cf382a4`, id sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3, base python:3.13-slim-bookworm@sha256:5024f48b…. Docker server 29.8.1 linux/arm64, `--network none`, user 10001.\n\n**K3a.** On Linux, `agent.reset_before_reply` and `agent.reset_after_partial_header` passed with their gating precondition that the reset reaches the reader as ECONNRESET. On Darwin the same two checks passed through the EOF-equivalent path only, because the kernel delivers EOF. The darwin record states this in its limitations.\n\n**Canary scan.** I grepped both records and all new artifacts for `HEIMDALL_CANARY_`. The only matches are the bare prefix, in assertion text such as \"no HEIMDALL_CANARY_ in X.stdout\". No match has any value characters after the prefix, so I found no leaked canary value and no harness defect. The harness canary self-check also did not fire (exit 3 never occurred).\n\n**Archive.** Previous contents of `tests/evidence/artifacts/g02-go/conformance/` moved to `prev-20261004T015951Z/`, together with `_prev-record-darwin.json` and `_prev-record-linux.json`. An older `prev-20261003T233623Z/` was already there and I left it alone. New darwin artifacts are in `conformance/`, and new Linux artifacts are in `conformance/linux/`.\n\n**Limits:**\n- `build_commit` in both records is b44c3128003563495854a210931eeae923974605+dirty, because `prototypes/` is untracked. Whoever commits should re-confirm the artifact sha256 values above.\n- The linux-arm64 artifact directory contains only the executable, with no sidecars. The harness does not judge the section 7 / K11 sidecar and manifest rules, and neither platform's run exercised them.\n- Not covered: Windows and WSL (blocked on a native Windows host or WSL). Linux was judged only on Docker Desktop's arm64 VM.\n- On Darwin the double-forward probe saw both signals in 5 of 10 trials. On Linux it saw them in 0 of 10, so a double signal forward would not be caught by the exact-once checks there.\n- Load average on the darwin run was 1.74 to 3.14, which is not high enough to suggest timing noise, and the Linux container was idle."
+}

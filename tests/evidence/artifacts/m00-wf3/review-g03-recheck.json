@@ -1,0 +1,175 @@
+{
+ "subject": "g03-recheck: independent re-review of the M00-T04-G03-fix resolution of tests/evidence/artifacts/m00-wf1/review-g03.json (docs/research/g03-windows-wsl.md, tests/native/windows/**, tests/native/wsl/**, tests/evidence/g03-*.json)",
+ "reexecuted_commands": [
+  {
+   "command": "env -u SSH_AUTH_SOCK bash tests/native/wsl/selftest_unix.sh --out tests/evidence/artifacts/review-g03-recheck/wsl-selftest",
+   "exit_code": 0,
+   "observed": "Reproduced. unauthorized-key, socket-deletion, stale-socket and teardown-deadline are verified/pass. endpoint-perms is in_progress/inconclusive (no second Linux account). All 5 records have requirement_ids []. The only console noise is the bash 'Killed: 9' job message from the intended SIGKILL in stale-socket. 0 agent_proxy or InstrumentedAgent processes were left."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Test-G03HarnessSelf.ps1 -OutDir tests/evidence/artifacts/review-g03-recheck/pwsh-selftest",
+   "exit_code": 0,
+   "observed": "Record is verified/pass, requirement_ids []. The checks printed no_canary_leak = True, log_has_denied_unknown = True and log_has_denied_remove_all = True. The transport was a Unix socket, not a named pipe, so this is not G03 evidence."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -OutDir tests/evidence/artifacts/review-g03-recheck/win-orch",
+   "exit_code": 0,
+   "observed": "13 records, all blocked with the non-Windows reason, including the new G03-win-key-file-permissions. Only the non-Windows branch ran."
+  },
+  {
+   "command": "(cd tests/native/wsl && shellcheck -x -s bash *.sh); bash -n tests/native/wsl/*.sh; PYTHONPYCACHEPREFIX=/tmp/rc-pyc python3 -m py_compile tests/native/wsl/*.py",
+   "exit_code": 0,
+   "observed": "All three exited 0 (shellcheck=0, bash -n=0, py_compile=0). The selftest run re-created tests/native/wsl/__pycache__/agent_proto.cpython-314.pyc as a by-product. I deleted that file and the empty directory, so tests/native/wsl has no __pycache__ now."
+  },
+  {
+   "command": "pwsh Parser::ParseFile over tests/native/windows/*.ps1,*.psm1",
+   "exit_code": 0,
+   "observed": "parse errors=0."
+  },
+  {
+   "command": "pwsh Invoke-ScriptAnalyzer -Path tests/native/windows -Recurse -Severity Error,Warning with PSUseCompatibleSyntax 5.1/7.4 (module from /tmp/g03-psmodules)",
+   "exit_code": 0,
+   "observed": "errors=0, compat=0, total=56 style warnings (matches the fix report)."
+  },
+  {
+   "command": "pwsh -File tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix/scripts/check-embedded.ps1",
+   "exit_code": 0,
+   "observed": "All 4 here-string scripts parse with 0 errors. The C# types G03OU, G03PipeInfo and G03PipeCreate compile under PowerShell 7's Roslyn. Windows PowerShell 5.1's C# 5 compiler was not exercised."
+  },
+  {
+   "command": "pwsh -File tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix/scripts/unit-checks.ps1",
+   "exit_code": 0,
+   "observed": "FAILURES=0. The verdict convention holds: all true gives verified/pass, one false gives verified/fail, null+false gives in_progress/inconclusive. Service-right parsing gives AU=RP only and no cross-code match. The old substring approach would have matched."
+  },
+  {
+   "command": "/tmp/g03-venv/bin/python jsonschema validation of record.schema.json over tests/evidence/g03-*.json (30) plus my rerun records (19), with convention checks and a sha256 recheck of the harness and supporting files named in each placeholder",
+   "exit_code": 0,
+   "observed": "49 files, 0 invalid, 0 hash mismatches. All 30 placeholders are blocked with observed_result null and blocked_on set. Rerun records follow the status/verdict convention. Self-test records carry no requirement IDs."
+  },
+  {
+   "command": "curl raw sources at their pins: dotnet/runtime@6f1d9331 NamedPipeServerStream.Windows.cs; MicrosoftDocs/sdk-api@c12073e4 CreateNamedPipe; PowerShell/openssh-portable@b8c08ef9 authfile.c and w32-sshfileperm.c",
+   "exit_code": 0,
+   "observed": "All four sha256 prefixes match source-pins.json (bca7a69c, f679a4b3, f9c34495, 5cde6cd7). .NET adds FILE_FLAG_FIRST_PIPE_INSTANCE when max instances is 1, and pipeModes carries only the transmission mode. The CreateNamedPipe doc says mismatched type, access, instance count or time-out returns ERROR_ACCESS_DENIED, as does the first-instance flag. sshkey_perm_ok calls check_secure_file_permission(filename, NULL, 0). The owner may be Administrators, SYSTEM, the current user or TrustedInstaller. With read_ok=0 any other trustee ACE is rejected. authfile.c emits 'UNPROTECTED PRIVATE KEY FILE'."
+  },
+  {
+   "command": "WebFetch MicrosoftDocs/sdk-api CreateProcessWithLogonW doc",
+   "exit_code": 0,
+   "observed": "The doc states: 'The maximum length of this string is 1024 characters.' for lpCommandLine. Relevant to the new defect D1 below."
+  },
+  {
+   "command": "manual read of Invoke-G03WindowsProbes.ps1, G03Common.psm1, InstrumentedAgent.ps1, run_g03_wsl_probes.sh, run_g03_wsl_lifecycle.sh, g03_common.sh and README.md; grep for pkill, killall, taskkill, Stop-Process, .ssh, USERPROFILE, SSH_AUTH_SOCK and sudo",
+   "exit_code": 0,
+   "observed": "No kill-by-name or pattern anywhere. Every Windows ssh, ssh-add and keygen child goes through Invoke-G03Native with an explicit SSH_AUTH_SOCK (fixture pipe or sentinel) and a scratch HOME. Every ssh run passes -F plus the base options, except ssh-add and keygen, which take no -F. Windows ssh.exe launched from WSL always gets a decoy or sentinel SSH_AUTH_SOCK through WSLENV. The remaining owner-data touches are listed in defects D3 and D4."
+  }
+ ],
+ "confirmed_claims": [
+  "Review major 1 (Git default ssh reaching owner ~/.ssh/agent) is resolved. Invoke-ProbeGit no longer runs the default_no_override case in default mode. Default_ssh_resolution is passive (Test-Path and Get-Command only). The live row needs -IAmOnADisposableHost and no config or id_* names in %USERPROFILE%\\.ssh. Remaining cases pass core.sshCommand or GIT_SSH_COMMAND with the System32 ssh, -F, IdentityFile=none, fixture known_hosts, and a fixture/decoy SSH_AUTH_SOCK. README and header claims were narrowed accurately.",
+  "Review major 2 (P-W05 non-discriminating) is resolved by redesign, and the redesign is sound on inspection. Three 4-instance fixtures use identical parameters (duplex+overlapped, PIPE_REJECT_REMOTE_CLIENTS, 64 KiB, timeout 0) and differ only in DACL. The other user uses raw CreateNamedPipeW and CreateFileW and records Win32 errors. Denial criteria require error 5. An instance_allowed control (AU granted 0x12019f) and an AU connect control (reply type 12) turn the dependent criteria into null (inconclusive) when they fail. I checked the pipe-parameter match between G03OU.TryCreateInstance and G03PipeCreate by reading both. The fix's refinement is correct: the CreateNamedPipe doc returns the same ERROR_ACCESS_DENIED for FIRST_PIPE_INSTANCE and for parameter mismatch, so a bare UnauthorizedAccessException check would still not discriminate.",
+  "P-W06 (duplicate and pre-squat refusal) now has a same-parameter no-first-instance-flag control that must join the name. The refusal criteria are nulled if the control does not listen.",
+  "Refuted claim 3 (InstrumentedAgent 'remote clients rejected by OS default') is resolved. The header now cites S10/S21 and the fixture creates its pipe with CreateNamedPipeW, an SDDL DACL, PIPE_REJECT_REMOTE_CLIENTS, explicit max instances and the first-instance flag. G03-S21 verified at its pin.",
+  "Refuted claim 1 (README 'never reads owner SSH config or keys') is resolved. The README now states the narrower, accurate model, and the claim is consistent with the code in default mode.",
+  "P-B11 has a wsl.exe --version positive control. Launch denial counts only with a recognized distro-not-found message (labeled [U]); other failures give null (inconclusive).",
+  "P-B04 filtered-key criterion now also needs a proxy denied_key_not_allowed log entry and zero Windows SIGN_REQUESTs for key 2's fingerprint. The relay-lifetime criterion is measured while the proxy is running, with a held-connection control.",
+  "P-A01 now serves a decoy pipe and passes it (or a non-existent sentinel) as Windows-side SSH_AUTH_SOCK through WSLENV for every WSL ssh.exe run. Environment visibility is measured with cmd.exe, not ssh. The unset-variable ssh row runs only after a passive check that \\\\.\\pipe\\openssh-ssh-agent does not exist, and an empty or failed enumeration means not run.",
+  "P-W09 now creates an owner-only fixture pipe and uses it with System32 ssh-add. The observation text is conditional. Service rights are parsed as exact two-letter codes (verified by unit checks, FAILURES=0).",
+  "Self-test records carry requirement_ids [] (all 6 rerun records). Process stops in both harnesses require a start-time match and refuse when it is unknown (Stop-G03Owned, g03_verify_owned, g03_signal_pid, g03_stop_pid, and t_stop.sh with non-empty token). The P-B05 SIGKILL goes through g03_signal_pid.",
+  "WSL networking mode is recorded (.wslconfig networkingMode value only, plus wslinfo when present). New probe P-W12 (G03-win-key-file-permissions) covers the spec section 8.4 key-file rule. Its source claims check out against the pinned authfile.c and w32-sshfileperm.c.",
+  "Status honesty holds. All 30 tests/evidence/g03-*.json are blocked with observed_result null and a specific blocked_on. All 49 records validate against the schema, with 0 hash mismatches. The only verified or pass records are macOS harness self-tests labeled 'NOT G03 evidence'. Doc section 7 and 8 say no fix has run on Windows or WSL and the fixes have not been independently re-reviewed.",
+  "Nothing found contradicting spec.md or plan.md. Global takeover and unauthenticated TCP stay rejected, and the E-2 escalation remains open rather than decided."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "Fix report and doc section 8 imply that all other-user probes (P-W05, P-W06 pre-squat, P-B11) are ready to run on Windows once a second account exists.",
+   "evidence": "Start-AsOtherUser passes the whole script as powershell.exe -EncodedCommand <base64> through Start-Process -Credential. By my measurement the encoded string is about 16.4K characters for P-W05 and about 3.5K for P-B11. Even the smallest script is far above the 1024-character limit documented for lpCommandLine of CreateProcessWithLogonW. I confirmed the doc sentence. I did not confirm that PowerShell's Start-Process -Credential uses that API, and I did not execute it. Source-derived, unexecuted. If it holds, no other-user result file is written, the three probes end as in_progress/inconclusive harness failures, and the cross-user DACL, squat and WSL-distro boundary evidence stays unobtainable until the staging mechanism is changed (for example a script file in a shared directory, or a short command line). This does not produce a false pass. It is a pre-existing design the fix enlarged, and the doc lists 'Start-Process -Credential' as unexecuted but not this limit."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Every status is honest (nothing verified without executed evidence; native items blocked with exact platform)",
+   "verdict": "pass",
+   "evidence": "30/30 tests/evidence/g03-*.json are blocked with observed_result null and a named blocked_on platform (native Windows 11, WSL2 with interop, second account, disposable 1Password, and so on). Hashes recorded in each placeholder match the current harness files (0 mismatches). The verified/pass records are only macOS harness self-tests with requirement_ids [] and an explicit 'NOT G03 evidence' limitation. The doc states the fixes are not independently re-reviewed and nothing ran on target."
+  },
+  {
+   "gate": "Every factual claim has a source or an inference/unknown label",
+   "verdict": "pass",
+   "evidence": "New claims are labeled: [U] for the distro-not-found pattern, wslinfo --networking-mode and the WSL fallback mode; [I] for Git default-ssh resolution; [D S10] and [S] for pipe and key-permission behavior. I re-fetched G03-S21, G03-S10 (CreateNamedPipe), authfile.c and w32-sshfileperm.c, and all four hashes and quoted behaviors match. Minor: the S21 local snapshot is /tmp/g03fix/NamedPipeServerStream.Windows.cs, not committed, so reproduction depends on re-fetching the pinned commit. The pins file also reuses id G03-S10 for two different documents."
+  },
+  {
+   "gate": "Scripts are safe by default (no ~/.ssh, owner agent, login keychain, public listeners, pattern kills)",
+   "verdict": "pass",
+   "evidence": "The prior breach is closed in default mode. No pkill, killall, taskkill or kill-by-name exists. Listeners are loopback, abstract or /mnt/wsl, inside the disposable target only. Provider contact and system-agent mutation stay gated behind switches plus an authorization note. Residual items, none reaching owner keys or agents: D3 (default-mode git config --get-all core.sshCommand reads owner Git config), D4 (.wslconfig networkingMode read), D5 (the -IAmOnADisposableHost live row checks only config and id_* names). The WSL harness uses sudo -n -u only behind --other-linux-user in a disposable distro. Unexecuted: no Windows host."
+  },
+  {
+   "gate": "Scripts actually run where runnable here (re-run)",
+   "verdict": "pass",
+   "evidence": "selftest_unix.sh, Test-G03HarnessSelf.ps1 and the orchestrator non-Windows branch each exited 0 with the stated statuses. Parse, PSScriptAnalyzer (0 errors, 0 compat), shellcheck, bash -n, py_compile, embedded-script parse, C# compile and unit checks all exited 0. All Windows-only and WSL-only paths remain unexecuted."
+  },
+  {
+   "gate": "Failure criteria are observable / pass criteria cannot pass while the requirement fails",
+   "verdict": "uncertain",
+   "evidence": "The specific non-discriminating criteria from the review (P-W05 create-instance, P-B04 filtered key, P-B04 relay lifetime, P-B11, P-A01, P-W09) are now discriminating on inspection, each with a control. Remaining weaknesses are D2 (the client_fails_cleanly_no_fallback criterion is only 'ssh-add exits 2'), D6 (the live default_no_override row is observation-only and can stop at host-key checking), and D1, which could prevent three other-user probes from producing any result. None of these can produce a false pass on a boundary requirement, but none could be run to confirm."
+  },
+  {
+   "gate": "Nothing contradicts spec.md/plan.md",
+   "verdict": "pass",
+   "evidence": "Designs still reject global takeover, unauthenticated TCP and socat-to-global-pipe. The stable Windows/WSL V1 stays blocked. E-2 (A13 vs the documented non-boundary), E-3, E-4 and E-5 remain open escalations, not decided."
+  },
+  {
+   "gate": "No requirement quietly weakened",
+   "verdict": "pass",
+   "evidence": "The prior gaps are now addressed: key-file permissions have P-W12; networking mode is recorded; the P-B09 restart limitation is disclosed. The status convention is applied as the orchestrator ruled: any null criterion gives in_progress/inconclusive, with failed_criteria listed alongside. A definite false can therefore sit under an inconclusive verdict. This follows the ruling but is worth knowing when promoting records."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "minor",
+   "description": "D1 (unexecuted, source-derived). Other-user staging may not work. Start-AsOtherUser passes the full script as -EncodedCommand through Start-Process -Credential. The encoded command line is about 16.4K chars (P-W05), about 3.5K (P-B11) and larger than 1024 for the squat script. Microsoft documents a 1024-character limit on lpCommandLine for CreateProcessWithLogonW. I did not confirm that Start-Process -Credential uses that API or enforces the limit. If it does, P-W05, P-W06 pre-squat and P-B11 can only end as harness-error or inconclusive, never as pass. Suggested fix: write the script to the shared directory and pass a short -File argument, and add this to the doc as an unexecuted assumption.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1 Start-AsOtherUser (lines ~428-440); users: Invoke-ProbeOtherUser, Invoke-ProbeStalePipe, Invoke-ProbeWslOtherUser"
+  },
+  {
+   "severity": "minor",
+   "description": "D2. Fixture agent recreates its pipe with FILE_FLAG_FIRST_PIPE_INSTANCE after each disconnect (New-AgentServer reuses $FirstInstance). On the AU and instance_allowed fixtures the other user's TryCreateInstance runs right after its connect probe. If that transient instance is alive when the agent recreates, the agent logs recreate_failed_possible_squat and exits 4. Window is microseconds against milliseconds, so low probability, and the criteria read earlier results. It could only add noise to the agent-contact observations. Also, P-W06 client_fails_cleanly_no_fallback is only 'ssh-add exits 2' with no decoy to prove the absence of a fallback.",
+   "location": "tests/native/windows/InstrumentedAgent.ps1 New-AgentServer and the disconnect loop; Invoke-G03WindowsProbes.ps1 P-W06 criteria"
+  },
+  {
+   "severity": "minor",
+   "description": "D3. Default-mode P-W01 runs 'git config --show-origin --get-all core.sshCommand' without HOME or GIT_CONFIG redirection. This reads the owner's global Git config. The value is recorded in the evidence record and artifact. It does not touch SSH keys, config or agents, and the README does not claim it avoids Git config (the WSL header's 'global Git config' claim concerns changes). A core.sshCommand value could carry owner paths or usernames, and it depends on Protect-G03Text redaction.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1 Invoke-ProbeEnv (~lines 189-194)"
+  },
+  {
+   "severity": "minor",
+   "description": "D4. Default-mode WSL probes read the owner's %USERPROFILE%\\.wslconfig (networkingMode value only is emitted). This is not in the list of protected owner data, but the WSL header says default mode never touches ~/.ssh, agents or global Git config, and does not mention .wslconfig.",
+   "location": "tests/native/wsl/g03_common.sh g03_net_mode_obs; docs Q28"
+  },
+  {
+   "severity": "minor",
+   "description": "D5. The -IAmOnADisposableHost live default_no_override row checks only for names 'config' and 'id_*' in %USERPROFILE%\\.ssh. It does not check other keys (for example *.pem), known_hosts, or %PROGRAMDATA%\\ssh\\ssh_config (an IdentityAgent there would override the fixture SSH_AUTH_SOCK). The row also runs without BatchMode, so ssh may stop at host-key checking before contacting the agent. It is gated behind an explicit owner declaration and recorded only as an observation, so impact is low. The README table should say the check is name-based.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1 Invoke-ProbeGit (~lines 380-392)"
+  },
+  {
+   "severity": "minor",
+   "description": "D6. Process hygiene details. keepalive() stops only the subshell PID, not the wsl.exe child it spawned, so a 'sleep 900' session in the target can outlive the probe (disposable target, harmless). Wait-OtherUser kills the other-user process via the Process handle inside try/catch and silently ignores a failed kill (possible access denied). Start-G03InstrumentedAgent redirects stdout and stderr but never drains them.",
+   "location": "tests/native/wsl/run_g03_wsl_lifecycle.sh keepalive; tests/native/windows/Invoke-G03WindowsProbes.ps1 Wait-OtherUser; G03Common.psm1 Start-G03InstrumentedAgent"
+  },
+  {
+   "severity": "minor",
+   "description": "D7. The WSLENV '/w' flag semantics (include the variable only when running Win32 from WSL) are relied on by the new P-A01 decoy wiring and the env-form row. The research doc cites no pinned source for the flag semantics, and I could not verify them offline. If the semantics were reversed, the decoy would never reach ssh.exe and the harness would fall back to the sentinel pipe set only on the Linux side, so ssh.exe would see an unset SSH_AUTH_SOCK. In that case the Windows default pipe could be contacted by a build that falls back. The unset-variable row has a passive guard; the other rows do not. Label as [U] and verify on first run.",
+   "location": "tests/native/wsl/g03_common.sh g03_win_sock_env; run_g03_wsl_probes.sh probe_a_exec"
+  },
+  {
+   "severity": "minor",
+   "description": "D8. Source-pin hygiene. G03-S21's local snapshot is under /tmp and not committed. The pins file uses id G03-S10 for two different documents (CreateNamedPipe and ImpersonateNamedPipeClient). Both can mislead later citations. Also, running selftest_unix.sh re-creates tests/native/wsl/__pycache__ because it does not set PYTHONDONTWRITEBYTECODE, which reintroduces the stray file the fix removed. I removed it after my run.",
+   "location": "tests/evidence/artifacts/g03/sources/source-pins.json; tests/native/wsl/selftest_unix.sh"
+  }
+ ],
+ "unverifiable_here": [
+  "Every Windows-only and WSL-only code path: CreateNamedPipeW with SDDL, the other-user Win32 helper (CreateFileW, CreateNamedPipeW, ConnectNamedPipe), ConnectNamedPipe/client PID/SID capture, Start-Process -Credential, Get-Acl/Set-Acl on the disposable key, sc.exe parsing, WSLENV propagation, Win32_Process relay counting, wsl.exe interop, lifecycle start/stop on a target distribution. No Windows host or WSL distribution is available.",
+  "Whether Start-Process -Credential enforces the 1024-character CreateProcessWithLogonW limit (defect D1). The doc limit is confirmed; the PowerShell behavior is not.",
+  "Windows PowerShell 5.1 runtime behavior and C# 5 compilation of the embedded C# (only PowerShell 7's Roslyn compiled it). Also NamedPipeServerStream(direction, isAsync, isConnected, SafePipeHandle) under 5.1.",
+  "Whether shipped in-box Win32-OpenSSH builds match v10.0.0.0 source behavior (no default-pipe fallback after IdentityAgent unsetenv; 'Bad permissions' text on ssh-keygen -y).",
+  "WSLENV '/w' semantics, the distro-not-found message pattern, and wslinfo --networking-mode availability (all unpinned).",
+  "The 2.56.0.windows.1 Git for Windows version in the blocked_on text was not re-checked.",
+  "This review is independent of the fix agent but is a single reviewer, with no second-opinion pass."
+ ],
+ "summary": "Verdict: the fix resolves every defect and refuted claim in review-g03.json, with no new default-mode path found that reaches owner keys, owner SSH config or any agent. I checked each fix by reading the code and re-running the self-tests and static checks. Nothing could run on Windows or WSL, so every fixed Windows/WSL path is still unexecuted.\n\n**Re-run results (all exit 0):**\n- The WSL mechanics self-test gives 4 verified/pass records and endpoint-perms in_progress/inconclusive.\n- The PowerShell self-test gives verified/pass.\n- The orchestrator on macOS gives 13 blocked records.\n- Parse, PSScriptAnalyzer (0 errors, 0 compatibility findings, 56 style warnings), shellcheck, bash -n, py_compile, embedded-script parse and C# compile (PowerShell 7 only), and the verdict/SDDL unit checks (0 failures) all pass.\n- 49 records validate against the schema with 0 hash mismatches.\n\n**Status honesty:** all 30 tests/evidence/g03-*.json are blocked with observed_result null and a named missing platform. The only verified records are macOS harness self-tests that carry no requirement IDs and are labeled \"NOT G03 evidence\".\n\n**Source claims:** I re-fetched G03-S21, the CreateNamedPipe doc, and the pinned authfile.c and w32-sshfileperm.c. Hashes and quoted behavior match.\n\n**What changed in the two major findings:**\n- **Git default ssh:** default mode never executes it now. The live row needs -IAmOnADisposableHost and a profile .ssh with no config or id_* files.\n- **P-W05:** the redesign uses same-parameter fixtures that differ only in DACL, raw Win32 error 5 criteria, and two controls that turn dependent criteria inconclusive when they fail.\n\n**Newly found, all minor:**\n- **D1:** the other-user helpers pass a long -EncodedCommand through Start-Process -Credential. Microsoft documents a 1024-character limit for CreateProcessWithLogonW, and the encoded strings are about 3.5K to 16K characters. This is unexecuted and unconfirmed for PowerShell, but if it holds, P-W05, P-W06 pre-squat and P-B11 can only end inconclusive. It cannot produce a false pass.\n- **D2 to D8:** an agent-recreate race, default-mode reads of owner Git config and .wslconfig (neither touches SSH keys, config or agents), a name-based check in the live default-ssh row, process-stop edge cases, an unsourced WSLENV /w assumption, and source-pin hygiene.\n\n**Cleanup:** my selftest run re-created tests/native/wsl/__pycache__/agent_proto.cpython-314.pyc, outside my write ownership. I deleted that file and the empty directory. The harness leaves no processes behind. My console outputs are in tests/evidence/artifacts/review-g03-recheck/."
+}

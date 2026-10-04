@@ -1,0 +1,147 @@
+{
+ "subject": "M00-T03 disposable SSH fixtures (tests/fixtures/ssh/**, tests/fixtures/MANIFEST.md, tests/evidence/m00-t03-fixtures.json)",
+ "reexecuted_commands": [
+  {
+   "command": "docker info; docker ps -a --filter label=heimdall.fixture=m00-t03 (precondition, no other fixture users)",
+   "exit_code": 0,
+   "observed": "Docker available; 0 fixture containers, so no one else's run was disturbed."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK tests/fixtures/ssh/up.sh",
+   "exit_code": 0,
+   "observed": "Built image, started 6 containers. Ports published only as 127.0.0.1:<ephemeral> (lsof showed the 5 listeners bound to 127.0.0.1). versions.txt: openssh-server 1:10.0p1-7+deb13u4, OpenSSH_10.0p2, host ssh OpenSSH_10.3p1, docker 29.8.0, base digest f324c7ff... as claimed. Log: tests/evidence/artifacts/review-fixtures/up.log"
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK tests/fixtures/ssh/smoke.sh (run 3 times consecutively)",
+   "exit_code": 0,
+   "observed": "All 3 runs exit 0, pass=60 fail=0 each, no FAIL lines. Logs smoke.run1-3.log in the review-fixtures artifacts dir."
+  },
+  {
+   "command": "Fault injection: docker exec ... chown fixed:fixed on the fixed registry and home, then smoke.sh",
+   "exit_code": 1,
+   "observed": "smoke.sh exit 1 with FAIL on fixed:append-registry-denied, fixed:create-~/.ssh-denied, fixed:registry-unchanged. The fixed-auth checks are discriminating, not vacuous."
+  },
+  {
+   "command": "Fault injection: append '# dirty' to enroll authorized_keys, then smoke.sh",
+   "exit_code": 1,
+   "observed": "smoke.sh exit 1 with FAIL on enroll:seed-intact, enroll:unrelated+concurrent-bytes-identical, enroll:restored-sha256 (plus the earlier fixed-registry failures, which I had not repaired)."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK tests/fixtures/ssh/reset.sh, then smoke.sh",
+   "exit_code": 0,
+   "observed": "reset.sh exit 0; smoke.sh after reset exit 0, 60 PASS, 0 FAIL. Reset repairs both injected faults."
+  },
+  {
+   "command": "/usr/bin/ssh -F runtime/ssh_config -v -W 127.0.0.1:22 bastion; -W hm-m00t03-target:22 bastion; -vv fixed-auth true (read-only probes)",
+   "exit_code": null,
+   "observed": "-W to a non-permitted destination: 'administratively prohibited: open failed' (so the weak non-zero-exit check has the right cause). -W to the permitted target returned the sshd banner. -vv offered only runtime/keys/user_fixed, no agent. Generated ssh_config contains no ~/.ssh path. sshd -T on the fixed container shows persourcepenalties no, allowagentforwarding no, passwordauthentication no. (exit code of the pipelines not captured individually)"
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK tests/fixtures/ssh/down.sh",
+   "exit_code": 0,
+   "observed": "'CLEANUP CONFIRMATION ...: containers_remaining=0 networks_remaining=0 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=21 problems=0' then CLEANUP CONFIRMED. Independently afterwards: 0 labelled containers, 0 labelled networks, 0 m00t03 networks, 0 fixture images, runtime/ absent, no non-.pub key files under tests/fixtures. The pre-existing debian:trixie base image was left in place (as designed)."
+  },
+  {
+   "command": "shasum -a 256 of the 7 fixture scripts vs artifact_digest in the evidence JSON",
+   "exit_code": 0,
+   "observed": "All 7 hashes match the recorded values, so the evidence describes the scripts as they are now."
+  }
+ ],
+ "confirmed_claims": [
+  "up.sh, smoke.sh, reset.sh and down.sh all run and exit 0 here, with smoke 60/60 on 3 consecutive runs and again after reset (I re-ran them myself).",
+  "down.sh leaves zero fixture containers, networks and images and no runtime/ private keys; 21 keys disposed (matches the producer's number); the fixtures are left DOWN by me.",
+  "Observed versions match the manifest: openssh-server 1:10.0p1-7+deb13u4, sshd OpenSSH_10.0p2, host ssh 10.3p1, Docker 29.8.0, base digest f324c7ff... .",
+  "Published ports are loopback-only (docker port plus lsof); the target container publishes nothing; the bastion's PermitOpen refusal is a real 'administratively prohibited' denial.",
+  "Original run logs exist for up, smoke.run1-3, reset, smoke.after-reset and down, each ending in exit=0 with pass=60 fail=0 and CLEANUP CONFIRMED.",
+  "The 7-failure attempt: attempt-smoke.1.log contains exactly 7 FAIL lines, consistent with the producer's account of faulty checks.",
+  "Smoke checks are discriminating: injected faults (writable fixed registry, dirtied enroll registry) made smoke.sh exit 1 with the expected FAIL lines, and reset.sh restored a 60/60 pass.",
+  "Evidence JSON has all required schema fields and uses only the allowed status vocabulary (manual field check; jsonschema was not installed, so full schema validation was not run).",
+  "The statuses are honest: rows 1-5 verified by executed checks, row 6 implemented_unverified, row 7 not assessed, rows 9-10 and 13-18 not_started, rows 8 and 12 blocked with an exact platform (real FIDO2/interactive OS lock; native Windows with WSL2), row 11 split between not_started and blocked on a Windows host.",
+  "Safety: scripts unset SSH_AUTH_SOCK, call /usr/bin/ssh explicitly, use -F with IdentityAgent none and IdentitiesOnly, point UserKnownHostsFile at the fixture file, and never read the local ~/.ssh (every ~/.ssh reference is a path inside a container). Cleanup only touches resources carrying the heimdall.fixture=m00-t03 label, and the only kill is a HUP of the in-container sshd pid file. Nothing kills host processes by name or pattern.",
+  "The broad two-principal certificate working on both CA hosts matches spec 7.6, and the producer did not turn it into a policy decision."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "MANIFEST.md (Layout/PerSourcePenalties paragraph) and the evidence JSON cite tests/evidence/artifacts/m00-t03/attempt-smoke.3-after-reset.log as showing a flaky failure whose ca1 log shows 'drop connection ... penalty: failed authentication'.",
+   "evidence": "attempt-smoke.3-after-reset.log ends 'pass=60 fail=0 exit=0' and has 60 PASS lines. The only FAIL lines in any attempt log are the 7 in attempt-smoke.1.log. grep -i penalt over the whole m00-t03 artifacts dir returns nothing. The log of the failing flaky run, and the ca1 server log excerpt that supposedly identifies PerSourcePenalties as the cause, were not retained. The attempt-smoke.2 and .3 logs both predate the final up.sh edit (up.sh mtime 20:03, those logs 20:02) and both show passes. The root-cause claim and the claim that PerSourcePenalties no fixes the flake are therefore unevidenced. Four passes after the fix (and my 4 passes) cannot confirm a cure for an intermittent fault. The setting is present (sshd -T) and the penalty mechanism is real in OpenSSH 9.8+, but the causal link is inference."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Statuses honest, nothing verified without executed evidence",
+   "verdict": "pass",
+   "evidence": "Rows 1-5 verified by smoke checks that I re-executed and fault-injected. Non-runnable rows are blocked with exact platform or not_started. Row 6 is correctly implemented_unverified. Caveat: the top-level record status 'verified' covers only the rows 1-5 scope stated in limitations; acceptable because limitations spell this out."
+  },
+  {
+   "gate": "Native items blocked with exact platform",
+   "verdict": "pass",
+   "evidence": "Row 8 blocked on a real FIDO2/sk authenticator or interactive native OS lock; rows 11 (named pipe) and 12 blocked on native Windows host with WSL2; macOS 27.0 arm64 plus Docker Desktop stated as the only platform."
+  },
+  {
+   "gate": "Every factual claim has source or inference label",
+   "verdict": "fail",
+   "evidence": "One claim is mis-sourced: the PerSourcePenalties flake and its root cause point at a log that does not contain it (see refuted claim). The final-cycle result claims are backed by logs, and my re-runs reproduce them."
+  },
+  {
+   "gate": "Scripts safe (no ~/.ssh, owner agent, keychain, public listeners, kill by name)",
+   "verdict": "pass",
+   "evidence": "Static read of all scripts plus runtime probes: ssh -vv offered only the fixture key; ports bound to 127.0.0.1 per docker port and lsof; the generated ssh_config has no ~/.ssh path; no pkill/killall; cleanup is label-scoped. No keychain or password-manager use."
+  },
+  {
+   "gate": "Scripts actually run where runnable",
+   "verdict": "pass",
+   "evidence": "up/smoke x3/reset/smoke/down all executed here with real exit codes 0; fault-injected smoke exits 1 as designed."
+  },
+  {
+   "gate": "Failure criteria observable",
+   "verdict": "pass",
+   "evidence": "smoke.sh exits non-zero iff any check FAILs (demonstrated exit=1 under fault injection), and down.sh exits 1 with CLEANUP INCOMPLETE unless every remaining count is 0 (the success path only was exercised; the failure path was not)."
+  },
+  {
+   "gate": "Nothing contradicts spec.md/plan.md; no requirement quietly weakened",
+   "verdict": "pass",
+   "evidence": "Plan 6.2 attributes (owner, image, versions, role, reset, cleanup) are present for all rows. Spec 7.6 caveat and the host-verification stance (StrictHostKeyChecking yes, never accept-new) are respected. The fixture sshd deviation (PerSourcePenalties no) is disclosed rather than hidden. Versions are observed, not pinned, which is disclosed."
+  },
+  {
+   "gate": "Leaves no containers/networks/runtime private keys after down.sh",
+   "verdict": "pass",
+   "evidence": "Independently verified after my own down.sh: 0 containers, 0 labelled networks, 0 fixture images, runtime/ absent, no private key files under tests/fixtures."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "Evidence mis-citation: MANIFEST.md and m00-t03-fixtures.json (attempt_history) say attempt-smoke.3-after-reset.log shows the PerSourcePenalties flake with the ca1 'drop connection ... penalty' log line. That file is a clean 60/60 pass and no artifact contains the penalty text; the failing rerun and the server-log excerpt were never saved. The root cause is inference and the fix is unproven for an intermittent fault. Fix: relabel the claim as unretained/inferred, or reproduce the flake and save the log.",
+   "location": "tests/fixtures/MANIFEST.md lines 46-50 and 95-98; tests/evidence/m00-t03-fixtures.json observed_result.attempt_history"
+  },
+  {
+   "severity": "minor",
+   "description": "Vacuous check: 'bastion:effective config' is called with a hard-coded success value (check ... 0), so it always passes and counts toward the 60/60 total. The 'bastion:PermitOpen blocks other destinations' check only tests for a non-zero ssh exit and does not match the 'administratively prohibited' message, although I confirmed that is the real cause.",
+   "location": "tests/fixtures/ssh/smoke.sh (bastion section)"
+  },
+  {
+   "severity": "minor",
+   "description": "Bastion half of A15 and the 'administrable destination with managed credential recipe' are not exercised (forwarding recipe, issuance); the record's top-level status is a single 'verified' for case M00-T03-fixtures, which a skimming reader could read as covering the whole inventory. The limitations list is accurate but the status field is coarse.",
+   "location": "tests/evidence/m00-t03-fixtures.json status"
+  },
+  {
+   "severity": "minor",
+   "description": "Evidence was produced from uncommitted scripts; build_commit is the parent HEAD. This is disclosed and the script hashes match the current files, but the digest binds to a working tree, not a commit.",
+   "location": "tests/evidence/m00-t03-fixtures.json build_commit/artifact_digest"
+  },
+  {
+   "severity": "minor",
+   "description": "down.sh's failure branch (CLEANUP INCOMPLETE, exit 1) and smoke checks for host-key substitution via hostname/DNS or bastion hop were never exercised; only the success path and the loopback+HostKeyAlias route are tested (the latter is disclosed).",
+   "location": "tests/fixtures/ssh/down.sh; tests/fixtures/ssh/smoke.sh"
+  }
+ ],
+ "unverifiable_here": [
+  "That the original producer runs (as opposed to my re-runs) occurred as logged: I verified the logs and script hashes are consistent, not the process.",
+  "That PerSourcePenalties was the cause of the original intermittent CA failure (log not retained).",
+  "Linux-host, amd64, native Windows and WSL behaviour: only macOS 27.0 arm64 with Docker Desktop was available.",
+  "Full JSON Schema validation of the evidence record (jsonschema module absent; I checked only required-key presence and the status enum by hand).",
+  "Whether apt would resolve the same openssh-server version on a later rebuild (version floats; observed only).",
+  "Fake-agent fixture row 7 (owned by another agent, not assessed)."
+ ],
+ "summary": "The fixtures work as claimed. I re-ran up.sh, smoke.sh three times, reset.sh, a post-reset smoke.sh and down.sh. Every command exited 0 with smoke at 60/60. Fault injection made smoke.sh exit 1 and reset.sh repaired it. I independently confirmed after down.sh that no containers, networks, images, runtime/ or private key files remained. The scripts are safe. They never touch ~/.ssh, an agent or a keychain, ports are bound to 127.0.0.1, and cleanup is label-scoped with no kills by name. Statuses are honest: rows 1-5 verified, row 6 implemented_unverified, and rows 8, 11 and 12 blocked on named platforms. The recorded script hashes match the files on disk. One major defect: the PerSourcePenalties flake, which the manifest and evidence record cite to attempt-smoke.3-after-reset.log, is not in that log. That file is a clean 60/60 pass, no artifact contains the penalty text, and the failing run's logs were never kept. Treat the root cause and the fix as inference until the flake is reproduced or the claim relabeled. Minor issues: one always-pass check in smoke.sh, a coarse top-level 'verified' status, and evidence tied to uncommitted scripts. My logs are in <repo>/tests/evidence/artifacts/review-fixtures/. The fixtures are left DOWN.\""
+}

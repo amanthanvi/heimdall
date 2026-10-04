@@ -1,0 +1,10 @@
+{
+ "candidate": "go",
+ "harness_exit_code": 0,
+ "evidence_record": "tests/evidence/g02-go-conformance.json",
+ "passed": 113,
+ "failed": 0,
+ "errored": 0,
+ "failures": [],
+ "summary": "Rebuilt the Go prototype with sh prototypes/go/build.sh (exit 0, darwin-arm64 binary built Oct 3 15:58). Then ran python3 tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go, with the output and artifacts paths given in the task. The harness exit code was 0. All 113 checks passed with 0 failed, 0 errored and 0 skipped, with pyte available, so the tui.* checks ran. The record at tests/evidence/g02-go-conformance.json shows status=verified and observed_result.verdict=pass. There was nothing to classify and no flaky checks, so no --only reruns were needed. No earlier conformance round existed under tests/evidence/artifacts/g02-go/conformance, so nothing was moved to an r<N> directory. Artifacts are in tests/evidence/artifacts/g02-go/conformance. The harness log is /tmp/go-conf.log and the build log is /tmp/go-build.log. No escalations were recorded and no doc_updates are needed."
+}

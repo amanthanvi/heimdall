@@ -1,0 +1,107 @@
+{
+ "task_id": "M00-T05-ts-fix",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/prototypes/ts/src/tui/tui.ts",
+  "<repo>/prototypes/ts/test/tui.test.ts",
+  "<repo>/prototypes/ts/test/bare_hangup.py",
+  "<repo>/prototypes/ts/REPORT.md",
+  "<repo>/prototypes/ts/dist/** (rebuilt by build.sh; new manifest.json)",
+  "<repo>/tests/evidence/g02-ts-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix/ (build.log, manifest.json, typecheck.log, test-source.log, test-dist-darwin-arm64.log, negative-control-prefix-binary.log, harness-recheck.log, harness-recheck-summary.json, harness-hangup-only.log, argv-k8.log, stdin-event-probe.ts, stdin-event-probe-drive.py, stdin-event-probe.log)"
+ ],
+ "commands_run": [
+  {
+   "command": "python3 tests/g02/conformance.py --bin prototypes/ts/dist/darwin-arm64/heimdall-proto --candidate ts --only tui.hangup_exit_129 --out /tmp/ts-fix-hup-pre.json (pre-fix binary sha256 cbc197f6...)",
+   "exit_code": null,
+   "observed": "FAIL tui.hangup_exit_129 '[bare hangup] exit status 129'. The defect reproduced. The exit code was masked by a pipe to tail, so it was not captured; the record shows verdict fail."
+  },
+  {
+   "command": "PROBE_LOG=... python3 /tmp/ts-fix-probe/drive.py bare bun probe.ts (Bun stdin-event probe under tests/g02/pty_shim.py --no-hup-forward, pty master closed)",
+   "exit_code": 0,
+   "observed": "Probe log: ready, end, close, timeout-still-alive (probe child rc 3). No SIGHUP was delivered. Bun emits stdin 'end' and 'close' on a bare hangup."
+  },
+  {
+   "command": "bunx tsc --noEmit (prototypes/ts)",
+   "exit_code": 0,
+   "observed": "no output"
+  },
+  {
+   "command": "./build.sh (prototypes/ts, started 2026-10-03T20:01:53Z)",
+   "exit_code": 0,
+   "observed": "4/4 targets built. darwin-arm64 executable sha256 dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2, 67147506 bytes. Sidecars unchanged."
+  },
+  {
+   "command": "python3 tests/g02/conformance.py ... --only tui.hangup_exit_129,tui.sighup_exit_129 --out /tmp/ts-fix-hup-post.json (post-fix)",
+   "exit_code": 0,
+   "observed": "PASS both (2/2)"
+  },
+  {
+   "command": "python3 tests/g02/conformance.py ... --only tui.hangup_exit_129 x3 (post-fix, --out /tmp/ts-fix-hup-rep{1,2,3}.json)",
+   "exit_code": 0,
+   "observed": "exit 0 x3, PASS x3"
+  },
+  {
+   "command": "python3 tests/g02/conformance.py ... --only run.argv_invalid_utf8 --out /tmp/ts-fix-argv.json",
+   "exit_code": 1,
+   "observed": "FAIL 'every argument byte-identical, including the invalid UTF-8 ones'; observed_hex efbfbd..."
+  },
+  {
+   "command": "bun -e 'print hex of process.argv/Bun.argv last element' -- $'a\\xffb'",
+   "exit_code": 0,
+   "observed": "61efbfbd62 and 61efbfbd62. Bun decodes argv to U+FFFD before any user code runs."
+  },
+  {
+   "command": "bun test --timeout 30000 test/tui.test.ts -t hangup with HEIMDALL_PROTO_BIN=dist/darwin-arm64/heimdall-proto",
+   "exit_code": 0,
+   "observed": "2 pass, 0 fail"
+  },
+  {
+   "command": "HEIMDALL_PROTO_BIN=/tmp/ts-fix-neg/bin/heimdall-proto bun test --timeout 30000 test/tui.test.ts -t hangup (negative control: pre-fix tui.ts, sha256 b7355eaf...)",
+   "exit_code": 1,
+   "observed": "1 pass, 1 fail: the new bare-hangup test got Expected 129, Received null"
+  },
+  {
+   "command": "bun test --timeout 30000 (prototypes/ts, source)",
+   "exit_code": 0,
+   "observed": "154 pass, 0 fail, 7 files"
+  },
+  {
+   "command": "HEIMDALL_PROTO_BIN=$PWD/dist/darwin-arm64/heimdall-proto bun test --timeout 30000",
+   "exit_code": 0,
+   "observed": "154 pass, 0 fail"
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --bin prototypes/ts/dist/darwin-arm64/heimdall-proto --candidate ts --out /tmp/heimdall-g02-ts-recheck.json --artifacts-dir /tmp/heimdall-g02-ts-recheck-art (conformance.py sha256 f2ccd7e7..., 2026-10-03T20:03:27Z-20:04:14Z)",
+   "exit_code": 1,
+   "observed": "113 checks: 112 pass, 1 fail (run.argv_invalid_utf8), 0 error, 0 skipped. Record status verified, verdict fail."
+  },
+  {
+   "command": "python3 minischema.validate(record.schema.json, tests/evidence/g02-ts-selftest.json)",
+   "exit_code": 0,
+   "observed": "errors: []"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/g02-ts-selftest.json"
+ ],
+ "escalations": [
+  "K10 reading (as the orchestrator noted): I fixed this on the reading that 'terminal hangup' includes a hangup seen only as EOF/EIO with no SIGHUP. In raw mode, EOF on the tty can only mean the terminal is gone, so the fix does not change any other path. If the orchestrator rules the other way, the fix is about 6 lines in src/tui/tui.ts (STDIN_GONE / onStdinGone) and can be reverted.",
+  "K8 / E2 still open: run.argv_invalid_utf8 still fails. That is the recorded Bun stack limitation: Bun decodes argv before user code runs. The only route to raw bytes is bun:ffi (_NSGetArgv, /proc/self/cmdline), and K8 forbids it as routing around. I left it unchanged."
+ ],
+ "limitations": [
+  "The bare-hangup fix was verified on macOS (darwin-arm64) only. Linux containers were not re-run, so Linux pty EOF-vs-EIO behaviour is unverified. The Windows console-close path is blocked: it needs a Windows x64 host.",
+  "The new native test depends on python3 and uses tests/g02/pty_shim.py read-only.",
+  "The full harness re-run wrote only to /tmp. I did not rewrite tests/evidence/g02-ts-conformance.json because I do not own it. I also did not copy the full harness record into artifacts, because its check descriptions quote fixture canary values; a compact per-check summary is stored instead.",
+  "I captured the exit code of the first pre-fix reproduction run badly (a pipe to tail masked it). The fail verdict comes from the record itself.",
+  "The negative-control binary was built in /tmp/ts-fix-neg from a copy of the current sources with the stdin-gone listener lines removed. It was not rebuilt through build.sh."
+ ],
+ "summary": "tui.hangup_exit_129 is fixed. run.argv_invalid_utf8 still fails as a recorded stack limitation; I did not work around it.\n\n1. tui.hangup_exit_129, bare variant: I reproduced it on the pre-fix binary. A probe showed that when the pty master closes and nothing forwards SIGHUP, Bun emits stdin 'end' and 'close'. tui.ts only exited on SIGHUP, so the TUI kept running. The fix in <repo>/prototypes/ts/src/tui/tui.ts makes stdin 'end', 'close' or 'error' take the same restore-then-exit-129 path as SIGHUP. In raw mode Ctrl-D arrives as a byte, so tty EOF means the terminal is gone. The listeners are removed on exit. New native test 'K10: bare terminal hangup' uses test/bare_hangup.py, which runs the shim with --no-hup-forward. It failed on a pre-fix build (rc null, exit 1) and passes after the fix. In the harness, this check alone passed 3 times out of 3.\n\n2. run.argv_invalid_utf8: Bun already holds U+FFFD in process.argv and Bun.argv before any user code runs (61 ff 62 arrives as 61 ef bf bd 62). The only route to the raw bytes is bun:ffi, which K8 forbids, so I recorded it as the stack limitation and made no change.\n\nResults:\n- tsc: exit 0.\n- build.sh: exit 0, 4/4 targets. The new darwin-arm64 executable has sha256 dd7a771d...\n- bun test: 154/154, from source and against the darwin-arm64 binary, exit 0 both.\n- Full shared harness, read-only to /tmp/heimdall-g02-ts-recheck.json: exit 1, 112 of 113 pass. The only failure is run.argv_invalid_utf8.\n\nREPORT.md has a new 'Conformance fixes' section; the direct write worked. The selftest record now has attempt 3, with attempt 2 kept in observed_result.attempts, and it validates against the schema."
+}

@@ -1,0 +1,236 @@
+{
+ "subject": "M00-T05-harness-review: independent adversarial review of the shared G02 conformance harness (tests/g02/** v2.0.0, tests/fixtures/fake-agent/**) against docs/g02/slice-contract.md incl. §9, §9.1, §9.2",
+ "reexecuted_commands": [
+  {
+   "command": "env -u SSH_AUTH_SOCK python3 tests/g02/selftest.py --out tests/evidence/artifacts/review-g02-harness/selftest-run/SELFTEST-review.md --json-out .../selftest-review.json --workdir /tmp/hm-review-selftest --repeat-baseline 1 --linux  (2026-10-03T23:36:25Z .. 2026-10-04T00:43:21Z)",
+   "exit_code": 0,
+   "observed": "SELFTEST PASS. Darwin: 2 full baselines 124/124 pass (exit 0, 61.9 s / 62.7 s), 107/107 reference mutations caught (agent_reset_unhandled not observable: Darwin delivers EOF), 2/2 harness canary mutations exit 3, wrong --candidate exit 1. Linux container (run.sh --selftest, image heimdall-g02-harness:ac0f6cf382a4, linux/arm64, network none, uid 10001): exit 0 in 1950 s, 2 baselines 124/124, 107/107 caught (run_double_signal not observable: 0/10 duplicate deliveries), K3a delivered as ECONNRESET. No flaky checks. Machine load average was about 4.4-6.7 on 18 CPUs during the runs."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK python3 tests/g02/conformance.py --bin /tmp/hm-review-mut/reference_impl.py --candidate go --out /tmp/hm-review-runs/baseline.json --pass-env REV_MUTATE --selftest  (patched copy, REV_MUTATE unset)",
+   "exit_code": 0,
+   "observed": "124/124 pass, status verified, verdict pass. This proves that the reviewer patches are inert without REV_MUTATE. Baseline margins: SIGINT-to-exit 2.9-4.5 ms (bound 500), resize best 3.5 ms (bound 100), K15 worst 164 ms / 44 MiB (bounds 2 s / 256 MiB)."
+  },
+  {
+   "command": "python3 /tmp/hm-review-mut/run_mutations.py  (20 reviewer mutations, each: conformance.py --only <group scope> with REV_MUTATE=<name>)",
+   "exit_code": 1,
+   "observed": "Every one of the 20 harness runs exited 0 with every check passing, so all 20 mutations were missed. The composite shell exit 1 came from a trailing cleanup `ls /tmp/hm-review-k11-*` that matched no files (zsh no-match), not from run_mutations.py. Per-mutation results: tests/evidence/artifacts/review-g02-harness/mutations/mutation-results.json"
+  },
+  {
+   "command": "python3 /tmp/hm-review-mut/run_mutations.py run_leaves_tty_raw",
+   "exit_code": 0,
+   "observed": "The harness run for this mutation exited 1, so it was caught. Failing checks: run.explicit_signal_with_tty, run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty"
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK tests/g02/.venv/bin/python /tmp/hm-review-mut/probes.py /tmp/hm-review-runs/probe-results.json",
+   "exit_code": 0,
+   "observed": "Independent unmutated-vs-mutant probes, run in a private sandbox. 18 of 19 probed mutations show an observable defect. Examples: zero-length agent frame gives exit 1 with a traceback (reference: exit 5); a 1-byte/150 ms drip with --timeout-ms 1000 gives AGENT_OK after 11.1 s (reference: AGENT_UNAVAILABLE at 1.04 s); 70000 is echoed in the invalid-port error; a secret marker from a malformed TOML line appears on stderr; two SIGINTs make the proto exit 130 before the child (reference: 7); the child's stdout is not a tty under a pty; meta.json.tmp is left behind; the host is hidden at 55 columns; 1007 ms keystroke-to-update on large-100. dup_check_quadratic is not a defect at the measured size: 14667 destinations in 1 MiB took 1.21 s, under the 2 s bound."
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --list-md  + clause validator + diff against the README catalogue",
+   "exit_code": 0,
+   "observed": "124 checks. Every non-harness check carries a valid §N / §N/Kn clause that matches its group section; the 13 harness.* checks are labelled 'harness'. The README catalogue is identical to --list-md."
+  },
+  {
+   "command": "SSH_AUTH_SOCK=/tmp/hm-review-sentinel-agent.sock python3 tests/g02/conformance.py --bin /tmp/hm-review-envprobe/envprobe.py --candidate go --only version.valid,usage.unknown_subcommand_plain,tui.first_frame,agent.normal_identities --out /tmp/hm-review-runs/envprobe.json",
+   "exit_code": 1,
+   "observed": "Exit 1 is expected because the probe binary does not conform. In all 4 invocations the binary saw only HM_G02_SECRET_ENV, HOME, LANG, LC_ALL, PATH, TERM, TMPDIR (plus macOS __CF_USER_TEXT_ENCODING). HOME, TMPDIR and cwd were inside /tmp/hmg02-*. SSH_AUTH_SOCK was absent: the harness's sentinel did not leak. PATH is the harness's full PATH (30 entries, including user directories)."
+  },
+  {
+   "command": "python3 canary scan (regex HEIMDALL_CANARY_[A-Za-z0-9], gz decompressed) over /tmp/hm-review-selftest, /tmp/hm-review-runs, tests/evidence/artifacts/review-g02-harness",
+   "exit_code": 0,
+   "observed": "32221 files scanned, 0 full canary values. Records and artifacts produced by harness v2.0.0 in this review are clean."
+  },
+  {
+   "command": "python3 canary scan over tests/evidence/** and tests/g02/selftest-results/** (read-only)",
+   "exit_code": 0,
+   "observed": "10989 files scanned, 13 files contain full canary values. 9 are evidence records written by harness_version 1.0.0 (hits at $.observed_result.checks[].assertions[].desc, the round-1 defect) under g02-ts/, g02-rust/ and g02-go/ artifact dirs. The other 4 are under g02-go/: selftest.py and schema_check.py (literal canary-prefixed test values) and two profile-probes-darwin logs (a key_path echo)."
+  },
+  {
+   "command": "shasum -a 256 -c tests/evidence/artifacts/review-g02-harness/selftest-run/tested-files.sha256",
+   "exit_code": 0,
+   "observed": "All harness, fixture and linux-runner files hash the same as at the start of the review. I did not modify the harness."
+  }
+ ],
+ "confirmed_claims": [
+  "SELFTEST.md claims hold when re-run: the full catalogue (124 checks) passes against the reference on darwin-arm64 and in the linux-arm64 container. 107/107 reference mutations are caught on each platform where the condition is observable. Both harness canary mutations trip exit 3. No flaky checks across 2 baselines per platform.",
+  "Every check id maps to a valid contract clause (§1-§6 or §N/K1..K16, K3a; harness checks labelled 'harness'), and the README catalogue matches --list-md exactly.",
+  "Environment isolation for the binary under test works: the environment is built from scratch, HOME, TMPDIR and cwd are a private /tmp/hmg02-* sandbox, the harness's SSH_AUTH_SOCK is not passed (verified with a sentinel), and the per-run canary is in HM_G02_SECRET_ENV. The fake agent gets PATH and LANG only. Keys come from /usr/bin/ssh-keygen with HOME set to the key dir, and private halves are deleted.",
+  "The canary self-check works on the current harness: no full canary value appeared in any record or artifact from this review's 30+ harness runs (32221 files scanned).",
+  "Platform gating does not skip silently: a missing pyte gives 'skipped', exit 1 and status in_progress. K3a is a gating ECONNRESET precondition on Linux and a documented non-gating observation on Darwin. The run_double_signal and agent_reset_unhandled mutations are proven on the other platform.",
+  "The Linux runner isolates as claimed: --network none, uid 10001, --cap-drop ALL, no-new-privileges, read-only repo and artifact mounts, digest-pinned base image, arm64 enforced.",
+  "Timing bounds have large margins on the reference (SIGINT 3-5 ms vs 500 ms, resize best 3.5 ms vs 100 ms, K15 at most 164 ms / 44 MiB), and best-of-N plus load recording mitigate flakiness.",
+  "The harness catches a run wrapper that leaves the tty in raw mode (reviewer mutation run_leaves_tty_raw) through 3 tty-based run checks."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "README 'Contract clause coverage': §2 error results never include the offending value (profile.invalid_*, control_chars_rejected)",
+   "evidence": "Value non-echo is checked only for the two canary fixtures and the k2val- markers. The harness passed mutations that echo the invalid port and revision values (type_error_echoes_value), print the malformed TOML source line containing a secret to stderr (malformed_echo_source_line, typical of TOML-crate error snippets), and put another key's value into the schema_version warning (schema_version_warning_echoes_name). All three exited 0 with 124/124 scoped checks passing; probes confirmed the values in the output."
+  },
+  {
+   "claim": "README: §3 'bounds and malformed replies' are covered (truncated frame, any string length exceeding the remaining frame, ... → AGENT_PROTOCOL_ERROR)",
+   "evidence": "No fake-agent mode sends a zero-length frame, a type-12 frame shorter than 5 bytes, or nkeys at most 1024 with fewer keys than declared. Mutants that crash with a traceback and exit 1 on the first two, and return AGENT_OK on the third, all passed the harness (exit 0). Probes: the unmutated reference gives exit 5 AGENT_PROTOCOL_ERROR for each."
+  },
+  {
+   "claim": "README: §3 '--timeout-ms is honoured' (agent.slow_timeout)",
+   "evidence": "Only a silent agent is tested. A per-read timeout passed the harness; against a reply dripped at 1 byte every 150 ms with --timeout-ms 1000 it returned AGENT_OK after 11.1 s (reference: AGENT_UNAVAILABLE at 1.04 s). The default 5000 ms is never exercised: a 60 s default passed."
+  },
+  {
+   "claim": "README: §4 'signal forwarding, wait for child' covered by run.forward_*, run.explicit_signal_with_tty",
+   "evidence": "Every forward check sends exactly one non-SIGWINCH signal. A 'second Ctrl-C/SIGTERM force-quits' wrapper passed; the probe shows the proto exits 130 before the child finishes (reference: 7)."
+  },
+  {
+   "claim": "README: §4 'Child inherits stdin, stdout, stderr' covered by run.stdio_passthrough and the cwd/env checks",
+   "evidence": "A wrapper that pipes the child's stdout and stderr and copies them byte-exactly passed every run.* check, including the tty-based ones. The probe shows that under a pty the child's isatty(1) is False (reference: True)."
+  },
+  {
+   "claim": "README: §5 'tui.large_100_filter_latency: immediate filtering'",
+   "evidence": "Latency is only recorded; each step waits up to 3 s and nothing gates a bound. A 1.0 s-per-keystroke filter passed (probe: 1007 ms vs 2 ms)."
+  },
+  {
+   "claim": "README: K16 covered 'whatever TMUX/TERM say'",
+   "evidence": "TERM is always xterm-256color, including in common.no_helper_processes. A tmux probe triggered by TERM=tmux-* or screen* passed the harness, and the probe confirms the tmux tripwire runs. An absolute-path /bin/stty execution also passed; that gap is documented."
+  },
+  {
+   "claim": "README: §1/K11 'no writes outside named paths' via per-invocation assertions",
+   "evidence": "Only HOME, TMPDIR and cwd are scanned. The directory of --meta-file is not scanned, so a left-behind meta.json.tmp passed. A hard-coded /tmp write also passed; that gap is documented."
+  },
+  {
+   "claim": "README: §5 'width < 50 shows only alias' covered by tui.resize_narrow_hides_host",
+   "evidence": "Only 40 and 80 columns are tested, so any threshold in (40, 80] passes. Probe: a threshold of 60 hides account@host at 55 columns and still passed the harness."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Self-test re-run on macOS (selftest.py --repeat-baseline 1)",
+   "verdict": "pass",
+   "evidence": "exit 0; 124/124 twice; 107/107 mutations; 2/2 harness mutations; artifacts in tests/evidence/artifacts/review-g02-harness/selftest-run/"
+  },
+  {
+   "gate": "Linux runner against the reference (K13, run.sh --selftest via selftest.py --linux)",
+   "verdict": "pass",
+   "evidence": "linux self-test exit 0 in 1950 s; 124/124 twice; 107/107 caught; ECONNRESET delivered"
+  },
+  {
+   "gate": "Harness discriminates realistic wrong implementations (at least 10 new mutations)",
+   "verdict": "fail",
+   "evidence": "21 new mutations. 1 caught (run_leaves_tty_raw). 18 missed and independently confirmed as observable defects. tui_stty_absolute missed (documented K16 limitation; not separately probed). dup_check_quadratic missed but is not a defect at the measured size (1.21 s < 2 s)."
+  },
+  {
+   "gate": "Every check id maps to a contract clause",
+   "verdict": "pass",
+   "evidence": "Clause validator over --list-md: 0 mismatches. README catalogue matches the code."
+  },
+  {
+   "gate": "Records/artifacts contain no canary values (current harness v2.0.0)",
+   "verdict": "pass",
+   "evidence": "0 hits in 32221 files from this review's runs"
+  },
+  {
+   "gate": "Repository evidence tree contains no canary values",
+   "verdict": "fail",
+   "evidence": "13 files under tests/evidence/artifacts/g02-{ts,rust,go}/ contain full canary values. 9 are harness v1.0.0 records (assertion desc); 4 are g02-go selftest/probe files. These are not this harness version's output but violate the canary rule before commit."
+  },
+  {
+   "gate": "Sandboxing: HOME/TMPDIR/env isolation, no SSH_AUTH_SOCK leak, owner environment untouched",
+   "verdict": "pass",
+   "evidence": "envprobe: allow-listed env only, sandbox HOME/TMPDIR/cwd, sentinel SSH_AUTH_SOCK not passed. Caveats (minor): PATH is inherited verbatim, and --pass-env is not restricted to --selftest."
+  },
+  {
+   "gate": "Platform gating never skips silently",
+   "verdict": "pass",
+   "evidence": "Skipped checks give exit 1 and status in_progress. Darwin K3a is non-gating with a limitation, and K13 requires the Linux record."
+  },
+  {
+   "gate": "Timing bounds are neither flaky nor meaningless",
+   "verdict": "uncertain",
+   "evidence": "No flakes in 4 baselines under load of about 5/18 CPUs, with wide margins. But the 'immediate filtering' check has no gating bound at all (meaningless), and margins for real candidates were not measured in this review."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "Value non-echo (§1, §2: 'must never include the offending value') is enforced only for the canary fixtures and the K2 markers. Error messages that quote invalid values (port, revision), stderr TOML-error snippets that print the offending source line (which can hold a secret), and warnings that quote other keys' values all pass. This favours stacks whose TOML libraries print source snippets.",
+   "location": "tests/g02/conformance.py invalid_case() lines 953-981; profile.invalid_malformed/invalid_port/invalid_schema_version; profile.generated_invalid_matrix 1032-1064 (no value markers)"
+  },
+  {
+   "severity": "major",
+   "description": "Agent framing gaps: no fake-agent mode for a zero-length frame, a type-12 frame shorter than 5 bytes, or nkeys within the bound with fewer keys than declared. A parser that crashes (exit 1, traceback) or returns AGENT_OK on these passes every agent.* check.",
+   "location": "tests/fixtures/fake-agent/fake_agent.py MODES/answer(); tests/g02/conformance.py malformed_check list lines 1334-1338"
+  },
+  {
+   "severity": "major",
+   "description": "--timeout-ms is tested only against a silent agent. A per-read (idle) timeout passes, so a slow-drip agent can hold `agent list` far beyond --timeout-ms (11.1 s with --timeout-ms 1000 in the probe). The default 5000 ms is never exercised.",
+   "location": "tests/g02/conformance.py agent.slow_timeout lines 1398-1409"
+  },
+  {
+   "severity": "major",
+   "description": "run signal checks send exactly one signal each. A 'second SIGINT/SIGTERM force-quits' wrapper, a common real-world pattern, exits before the child and passes every run.* check.",
+   "location": "tests/g02/conformance.py forward_check/trap_run lines 1772-1849, run.explicit_signal_with_tty 1877-1923"
+  },
+  {
+   "severity": "major",
+   "description": "§4 inheritance of stdout and stderr is not verified. Pipe-and-copy wrappers pass because byte-exactness is checked through pipes and no run check asserts the child's isatty or fd identity under a pty.",
+   "location": "tests/g02/conformance.py run.stdio_passthrough 1588-1604; run.explicit_signal_with_tty uses a child that never inspects its fds"
+  },
+  {
+   "severity": "major",
+   "description": "'Immediate filtering' on the 100-destination fixture has no gating latency bound (only recorded; waits up to 3 s per step). A 1 s/keystroke TUI passes. This is relevant to a language and framework choice. The contract gives no number, so a bound needs an orchestrator ruling.",
+   "location": "tests/g02/conformance.py tui.large_100_filter_latency lines 2485-2534"
+  },
+  {
+   "severity": "major",
+   "description": "K16 says 'whatever TMUX, TERM, TERM_PROGRAM ... say', but TERM is fixed to xterm-256color everywhere. A helper-process probe triggered by TERM=tmux-*/screen* goes undetected.",
+   "location": "tests/g02/conformance.py Ctx.env line 186, K16_ENV lines 2587-2588"
+  },
+  {
+   "severity": "major",
+   "description": "Repository evidence still holds full canary values: 9 harness-v1.0.0 records (assertion desc) and 4 g02-go files. This violates the tests/evidence/README.md canary rule and must be redacted or removed before the orchestrator commits. These are other owners' paths; I did not touch them.",
+   "location": "tests/evidence/artifacts/g02-ts/r1/g02-ts-conformance.json; g02-ts/conformance/prev-20261003T233626Z/{g02-ts-conformance.record.json,r2/g02-ts-conformance.json}; g02-ts/review/harness/g02-ts-review-conformance.json; g02-rust/selftest/harness-core-record.json; g02-rust/review/linux-harness-full/record.json; g02-rust/review/conformance/g02-rust-conformance-review.json; g02-go/conformance/prev-20261003T233623Z/_prev-record-darwin.json; g02-go/review/conformance/g02-go-conformance-review.json; g02-go/selftest/{selftest.py,schema_check.py}; g02-go/review/probes/profile-probes-darwin{,.full}.log"
+  },
+  {
+   "severity": "minor",
+   "description": "Narrow-layout threshold is tested only at 40 and 80 columns, so thresholds anywhere in (40, 80], including an off-by-one at 50, pass.",
+   "location": "tests/g02/conformance.py tui.resize_narrow_hides_host 2409-2420, resize_relayout_latency 2423-2444"
+  },
+  {
+   "severity": "minor",
+   "description": "K11 scans only HOME, TMPDIR and cwd. Sibling files next to --meta-file (for example a left-behind .tmp) and hard-coded /tmp writes are undetected. The /tmp gap is documented; the meta-directory gap is not.",
+   "location": "tests/g02/conformance.py Ctx.k11_roots line 213, T.k11_check 326-345"
+  },
+  {
+   "severity": "minor",
+   "description": "The status line's filter text is asserted only while in filter mode. After Enter keeps the filter (§5: status shows the active filter text), its absence passes.",
+   "location": "tests/g02/conformance.py tui.filter_basic 2134, tui.filter_enter_keeps_filter 2206-2221"
+  },
+  {
+   "severity": "minor",
+   "description": "--pass-env is documented as 'solely for the self-test' but is accepted without --selftest. It can forward any harness env var, for example a real SSH_AUTH_SOCK, into the binary under test, and the record does not flag it.",
+   "location": "tests/g02/conformance.py argparse line 3684, Ctx.__init__ line 151, main() 3717-3720 (only HM_G02_HARNESS_MUTATE is gated)"
+  },
+  {
+   "severity": "minor",
+   "description": "The binary's PATH is the harness's full PATH (30 entries, including user directories, on this host). Outside common.no_helper_processes a candidate can execute the owner's real tools. The sandbox HOME limits the impact, but the owner environment is not fully excluded.",
+   "location": "tests/g02/conformance.py Ctx.env line 184"
+  },
+  {
+   "severity": "minor",
+   "description": "Weak assertions. (a) invalid_schema_version accepts any warning containing the character '2'. (b) The row-format regex uses \\s+ where §5 says two spaces. (c) meta_not_echoed_homelab and generated_valid_variants reject the literal word 'meta' in stderr of a successful run, which could fail a correct implementation that prints a harmless stderr diagnostic (§1 allows diagnostics on stderr).",
+   "location": "tests/g02/conformance.py lines 1002, 2113-2115, 1096-1097, 1159-1161"
+  },
+  {
+   "severity": "minor",
+   "description": "Contract ambiguities the harness silently does not test (escalate, do not decide): (1) a key_blob whose inner key-type string length exceeds the blob (clamp vs AGENT_PROTOCOL_ERROR); (2) a run child started in a new session loses its controlling terminal, which may or may not violate 'inherits'.",
+   "location": "docs/g02/slice-contract.md §3, §4; reviewer mutations agent_keyblob_inner_clamp, run_child_new_session"
+  }
+ ],
+ "unverifiable_here": [
+  "Native Windows and WSL behaviour (named pipe, CommandLineToArgvW, console Ctrl-C): blocked on a native Windows host and a Windows host with WSL. The harness itself refuses non-POSIX hosts.",
+  "Whether the missed defect classes exist in the actual Go/Rust/TS prototypes: candidate binaries were not run in this review (outside the task packet).",
+  "Reviewer mutations were run through the harness on darwin-arm64 only, not inside the Linux container. They are platform-independent by construction, except that run_pump_output and run_child_new_session would also need a Linux run to confirm.",
+  "Timing-bound flakiness for real candidates (Bun/Go/Rust start-up, first frame) under load: measured only against the Python reference.",
+  "tui_stty_absolute: miss confirmed through the harness, but not separately probed (it is a documented K16 limitation).",
+  "Three leftover /tmp/hmg02-* sandboxes dated 2026-10-02/03 predate this review and come from other runs. I did not inspect or remove them."
+ ],
+ "summary": "I re-ran the harness self-test on both platforms. It passes on darwin-arm64 and in the linux-arm64 container (exit 0; 124/124 checks twice each; 107/107 reference mutations; 2/2 canary mutations; no flakes). Every check maps to a valid contract clause. Sandboxing holds: HOME, TMPDIR and cwd are private, env is allow-listed, and the harness's SSH_AUTH_SOCK did not leak (tested with a sentinel). No canary values appeared in any of this review's 32k output files.\n\nThe mutation set the self-test relies on is not representative, though. Of 21 new realistic defects I injected into a /tmp copy of the reference, the harness caught only 1 (a tty left in raw mode). Independent probes confirmed 18 of the misses as observable defects:\n- **Value leaks in errors:** messages that quote invalid values, and malformed-TOML stderr snippets that print the offending line, which can contain a secret.\n- **Agent parsing:** crashes (exit 1) on a zero-length frame or a short type-12 frame, and AGENT_OK when nkeys is larger than the keys actually present.\n- **Timeouts:** a per-read timeout passes; it held a slow-drip agent 11 s past `--timeout-ms 1000`. The default 5000 ms is never tested.\n- **run:** a second signal makes the wrapper exit before the child, and pipe-and-copy stdout/stderr (child not on the tty) passes.\n- **K11:** a file left next to `--meta-file` and a write to hard-coded /tmp go undetected.\n- **TUI:** any narrow-layout threshold between 40 and 80 columns passes, a missing filter text after Enter passes, and 1 s per filter keystroke passes because the latency check has no gating bound.\n- **K16:** a tmux probe triggered by TERM goes undetected.\n\nOne more miss (an absolute-path stty call) is a documented limitation. The remaining mutation is not a defect at the measured size.\n\nSeparately, 13 existing evidence files written by other agents (9 records from harness v1.0.0, plus 4 g02-go files) still contain full canary values and must be redacted before commit. Contract ambiguities to escalate: a key_blob inner-string overrun, a run child that loses its controlling terminal, and a numeric bound for 'immediate filtering'.\n\nAll evidence is in <repo>/tests/evidence/artifacts/review-g02-harness/: selftest-run/, mutations/ (scripts, diffs, compressed records, probe results), envprobe/ and review-summary.json. The mutation scripts are also in /tmp/hm-review-mut. I did not edit the harness; sha256 hashes of the harness files are unchanged."
+}

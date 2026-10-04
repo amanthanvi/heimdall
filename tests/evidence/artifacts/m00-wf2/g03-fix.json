@@ -1,0 +1,144 @@
+{
+ "task_id": "M00-T04-G03-fix",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "docs/research/g03-windows-wsl.md",
+  "tests/native/windows/InstrumentedAgent.ps1",
+  "tests/native/windows/Invoke-G03WindowsProbes.ps1",
+  "tests/native/windows/G03Common.psm1",
+  "tests/native/windows/Test-G03HarnessSelf.ps1",
+  "tests/native/windows/README.md",
+  "tests/native/wsl/g03_common.sh",
+  "tests/native/wsl/run_g03_wsl_probes.sh",
+  "tests/native/wsl/run_g03_wsl_lifecycle.sh",
+  "tests/native/wsl/evidence.py",
+  "tests/native/wsl/README.md",
+  "tests/native/wsl/__pycache__ (removed: an earlier compile left agent_proto.cpython-314.pyc here)",
+  "tests/evidence/g03-*.json (all 29 existing placeholders: harness and supporting sha256 refreshed, revision notes added; all still blocked)",
+  "tests/evidence/g03-win-key-file-permissions.json (new placeholder for P-W12, blocked)",
+  "tests/evidence/artifacts/g03/harness-selftest/powershell-macos/** (regenerated)",
+  "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/** (regenerated)",
+  "tests/evidence/artifacts/g03/harness-selftest/windows-orchestrator-on-macos/** (regenerated)",
+  "tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix/** (new transcripts plus the scripts that produced them)",
+  "tests/evidence/artifacts/g03/sources/excerpts.txt (appended)",
+  "tests/evidence/artifacts/g03/sources/source-pins.json (authfile.c and w32-sshfileperm.c pins; G03-S21 dotnet/runtime@6f1d9331)"
+ ],
+ "commands_run": [
+  {
+   "command": "bash /tmp/g03fix/final-checks.sh (copied to tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix/scripts/final-checks.sh); ran 2026-10-03T18:27:28Z to 18:28:01Z",
+   "exit_code": 0,
+   "observed": "Every sub-step exited 0. Transcripts are in static-checks/fix-m00-t04-g03-fix/."
+  },
+  {
+   "command": "pwsh: [Parser]::ParseFile over tests/native/windows/*.ps1,*.psm1",
+   "exit_code": 0,
+   "observed": "0 parse errors in 5 files."
+  },
+  {
+   "command": "pwsh -File check-embedded.ps1 (parses the 4 here-string scripts sent to the other user and compiles the G03OU, G03PipeInfo and G03PipeCreate C# with Add-Type; no native call is made)",
+   "exit_code": 0,
+   "observed": "0 parse errors; all three types compiled with the PowerShell 7 (Roslyn) compiler. Windows PowerShell 5.1's C# 5 compiler was not exercised."
+  },
+  {
+   "command": "pwsh -File unit-checks.ps1 (Set-Verdict, ConvertFrom-ServiceSddlRights and Test-AnyTrusteeRight extracted from the orchestrator AST; uses the pinned install-sshd.ps1 SDDL)",
+   "exit_code": 0,
+   "observed": "13/13 checks matched. all true -> verified/pass; one false -> verified/fail; null+false -> in_progress/inconclusive; empty -> in_progress/inconclusive. AU rights = RP only. The old substring match would have matched 'OC' in 'SWLOCR'; the new parser does not."
+  },
+  {
+   "command": "Invoke-ScriptAnalyzer -Path tests/native/windows -Recurse -Severity Error,Warning (PSUseCompatibleSyntax 5.1/7.4; PSScriptAnalyzer 1.24.0 from /tmp/g03-psmodules)",
+   "exit_code": 0,
+   "observed": "errors=0, compatibility_findings=0. 56 style warnings: 16 ShouldProcess, 14 empty catch, 10 unused parameter (script-scope false positives), 9 plural nouns, 7 Write-Host."
+  },
+  {
+   "command": "(cd tests/native/wsl && shellcheck -x -s bash *.sh)",
+   "exit_code": 0,
+   "observed": "ShellCheck 0.11.0 reported nothing."
+  },
+  {
+   "command": "bash -n tests/native/wsl/*.sh; PYTHONPYCACHEPREFIX=/tmp/g03fix/pyc python3 -m py_compile tests/native/wsl/*.py",
+   "exit_code": 0,
+   "observed": "All 4 scripts and 6 modules passed."
+  },
+  {
+   "command": "bash ev-check.sh (evidence.py record with synthetic criteria)",
+   "exit_code": 0,
+   "observed": "4/4 cases match the convention. With no --req, requirement_ids is []."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Test-G03HarnessSelf.ps1",
+   "exit_code": 0,
+   "observed": "All 16 checks true. The record is verified/pass with requirement_ids []. The agent was stopped after its start time was checked. A Unix socket was the transport: not G03 evidence."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK bash tests/native/wsl/selftest_unix.sh",
+   "exit_code": 0,
+   "observed": "unauthorized-key, socket-deletion, stale-socket and teardown-deadline are verified/pass. In stale-socket, the SIGKILL went through g03_signal_pid (signalled-KILL). endpoint-perms is in_progress/inconclusive because no second account was used. Every record has requirement_ids []. 0 agent_proxy processes were left."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -OutDir tests/evidence/artifacts/g03/harness-selftest/windows-orchestrator-on-macos",
+   "exit_code": 0,
+   "observed": "13 probes, including the new G03-win-key-file-permissions, were recorded blocked with the non-Windows reason. Only the non-Windows branch ran."
+  },
+  {
+   "command": "/tmp/g03-venv/bin/python validate.py (jsonschema 4.25.1 against record.schema.json, plus convention checks)",
+   "exit_code": 0,
+   "observed": "files=49 invalid=0. That is 30 placeholders plus 19 self-test/orchestrator records. Checked: verdict is pass, fail or inconclusive; inconclusive => in_progress; pass/fail => verified; blocked => null observed_result and blocked_on; self-test records name no requirement IDs. All 30 placeholders are blocked with observed_result null."
+  },
+  {
+   "command": "pgrep counts for agent_proxy.py and InstrumentedAgent.ps1; pgrep -x ssh-agent; ps -o pid=,ppid=,lstart=,comm= for the ssh-agent PIDs",
+   "exit_code": 0,
+   "observed": "0 harness processes were left. Three /usr/bin/ssh-agent processes (38351, 38364, 38379) were started at 2026-10-03T18:24:13Z by another session's /bin/bash (PPID 38210), before the final run. They were not touched. The other ssh-agent, 12855, dates from Sep 26."
+  },
+  {
+   "command": "canary grep over tests/evidence/artifacts/g03, tests/evidence/g03-*.json and the research doc; find __pycache__ in the owned paths",
+   "exit_code": 0,
+   "observed": "No canary strings were found. 0 __pycache__ directories exist in the owned paths."
+  },
+  {
+   "command": "gh api repos/dotnet/runtime/commits/main; curl raw NamedPipeServerStream.Windows.cs at 6f1d9331",
+   "exit_code": 0,
+   "observed": "sha256 bca7a69c...; lines 125-131: openMode adds FILE_FLAG_FIRST_PIPE_INSTANCE when maxNumberOfServerInstances == 1, and pipeModes holds only the transmission mode (PIPE_REJECT_REMOTE_CLIENTS cannot be set). The file is pinned as G03-S21."
+  }
+ ],
+ "requirement_ids": [
+  "R-EN-01",
+  "R-EN-02",
+  "R-EN-03",
+  "R-SS-03",
+  "R-RT-03",
+  "R-DI-02",
+  "R-SE-03",
+  "R-QU-02"
+ ],
+ "evidence_records": [
+  "tests/evidence/g03-win-git-ssh-selection.json",
+  "tests/evidence/g03-win-pipe-acl-other-user.json",
+  "tests/evidence/g03-win-stale-squat-pipe.json",
+  "tests/evidence/g03-win-service-elevation.json",
+  "tests/evidence/g03-win-key-file-permissions.json",
+  "tests/evidence/g03-wsl-a-executable-selection.json",
+  "tests/evidence/g03-wsl-b-relay-attribution.json",
+  "tests/evidence/g03-wsl-b-multi-distro-exposure.json",
+  "tests/evidence/g03-wsl-b-other-windows-user.json",
+  "tests/evidence/g03-wsl-env-inventory.json",
+  "tests/evidence/artifacts/g03/harness-selftest/powershell-macos/records/g03-harness-selftest-powershell-macos.json",
+  "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/records/",
+  "tests/evidence/artifacts/g03/harness-selftest/windows-orchestrator-on-macos/records/",
+  "tests/evidence/artifacts/g03/static-checks/fix-m00-t04-g03-fix/"
+ ],
+ "escalations": [
+  "Not a dispute, a refinement of the review's suggested P-W05 fix. Requiring UnauthorizedAccessException alone would still not discriminate. Per the CreateNamedPipe docs (G03-S10, pinned excerpt), creation fails with the same ERROR_ACCESS_DENIED when FILE_FLAG_FIRST_PIPE_INSTANCE is set and when the pipe type, access, instance count or time-out differ. The redesign therefore relies on same-parameter controls, not on the error type. The orchestrator should be aware of this if it reuses the review's wording elsewhere.",
+  "Already open in the research doc §6 and not decided here: E-2 (A13 non-exposure vs Microsoft's documented non-boundary), E-3 (Mode B upstreams at V1), E-4 (packaged alternative Windows client) and E-5 (provider attribution through relays). E-1 is now resolved by the orchestrator's convention."
+ ],
+ "limitations": [
+  "No Windows host or WSL distribution was available. Every native G03 record (30, including the new P-W12) stays blocked with the exact missing platform. None of the fixes ran on the target platform: CreateNamedPipeW + SDDL in InstrumentedAgent.ps1, the other-user Win32 helper (CreateFileW, CreateNamedPipeW, ConnectNamedPipe), Get-Acl/Set-Acl on the disposable key, the WSLENV decoy wiring, Win32_Process relay counting, the networking-mode capture, and the lifecycle t_start/t_stop tokens.",
+  "The embedded C# compiled only with PowerShell 7's compiler on macOS. Compilation under Windows PowerShell 5.1 (C# 5 / .NET Framework) is unverified, as is the 5.1 runtime behavior of NamedPipeServerStream(direction, isAsync, isConnected, SafePipeHandle).",
+  "The P-B11 distribution-not-found matcher (WSL_E_DISTRO_NOT_FOUND / 'no distribution with the supplied name') does not come from a pinned source. It is labeled [U], and an unmatched failure is inconclusive rather than a pass.",
+  "wslinfo --networking-mode is not in the pinned sources [U]. The documented signal is the .wslconfig networkingMode key, of which only that key's value is read. Neither shows the effective mode if WSL fell back (for example, NAT to Consomme).",
+  "The P-W04 default-ssh resolution is passive and inferred [I]. Which ssh Git actually runs is observed only by the live row, which needs -IAmOnADisposableHost and a profile .ssh with no config or id_* files.",
+  "These fixes have not had an independent re-review. Self-review is not independent evidence.",
+  "The harness-selftest/windows-orchestrator-on-macos records keep their product requirement IDs. They are blocked G03 case records from the non-Windows branch, not self-test records."
+ ],
+ "summary": "I resolved all findings from the G03 adversarial review (tests/evidence/artifacts/m00-wf1/review-g03.json). I checked each one against the harness and the pinned sources first; I dispute none of them. Section 8 of docs/research/g03-windows-wsl.md has a table of each finding and its resolution. Overall status is implemented_unverified: nothing ran on Windows or WSL, and all 30 G03 records stay blocked with the exact missing platform.\n\n**Major 1: Git's default ssh could reach the owner's keys and agent.** Default mode now never runs Git's default ssh. P-W04 instead records which ssh Git would use without running it: whether a bundled ssh.exe exists, and PATH order. The live default_no_override case runs only with -IAmOnADisposableHost, and only if %USERPROFILE%\\.ssh holds no config or id_* file. Only file names are checked, never contents. The safety claims in the README and script header now say exactly this.\n\n**Major 2: P-W05 could pass with a permissive pipe DACL.** The review was right, and the problem goes further than it said. CreateNamedPipe returns the same ERROR_ACCESS_DENIED for FILE_FLAG_FIRST_PIPE_INSTANCE and for mismatched pipe parameters. So the suggested \"require UnauthorizedAccessException\" check would still not discriminate. Separately, PowerShell's exception wrapping meant the old connect-denied check could never pass.\n- I redesigned the probe around three 4-instance fixtures with identical parameters that differ only in DACL: owner-only, Authenticated Users connect-only (0x12019b, the Win32-OpenSSH agent's mask), and Authenticated Users with FILE_CREATE_PIPE_INSTANCE.\n- The other user now makes raw CreateNamedPipeW and CreateFileW calls with the same parameters, and the denial criteria require Win32 error 5.\n- Two controls must hold: instance creation must succeed on the third fixture, and the connect-only pipe must answer. If either fails, the dependent criteria are recorded as inconclusive.\n- P-W06 had the same flaw. Its duplicate and pre-squat cases now have a control that starts without the first-instance flag.\n\n**Fixture rewrite.** InstrumentedAgent.ps1 now creates its pipe with CreateNamedPipeW, an SDDL DACL, PIPE_REJECT_REMOTE_CLIENTS, and explicit max instances and first-instance flag. That replaces the unsourced \"remote clients rejected by default\" claim, which was wrong. The supporting .NET source is pinned as G03-S21.\n\n**Minor findings, all fixed:**\n- **P-B11:** the other user's `wsl.exe --version` is a positive control. A launch counts as refused only with a recognized distribution-not-found message.\n- **P-B04 filtering:** the filtered-key check also requires a proxy denial in the log and no Windows SIGN_REQUEST for key 2.\n- **P-B04 relay timing:** relays are counted while the proxy is still running, with a held-connection control.\n- **P-A01:** the Windows side now serves a decoy pipe. Every WSL ssh.exe run gets it as SSH_AUTH_SOCK through WSLENV. Environment visibility is measured with cmd.exe, and the unset-variable ssh case runs only while \\\\.\\pipe\\openssh-ssh-agent does not exist.\n- **P-W09:** creates an owner-only pipe and uses it with System32 ssh-add. It also parses service rights as exact two-letter codes.\n- **Process stops:** both harnesses stop a process only after a start-time match, and refuse when the start time is unknown. The lifecycle target's stop script and the P-B05 SIGKILL were fixed the same way.\n- **Networking mode:** the WSL networking mode is now recorded (Q28 updated).\n- **Key-file permissions:** new probe P-W12 (G03-win-key-file-permissions) covers the Windows key-file permission rule from spec §8.4, read from authfile.c and w32-sshfileperm.c.\n\n**Status convention.** Both harnesses now follow the gate-probe convention: a false criterion gives verified with verdict fail; incomplete evidence or a failed control gives in_progress with verdict inconclusive. Self-test records carry no requirement IDs.\n\n**Checks run on this macOS host**, all exit 0:\n- PowerShell parse; parse of the embedded scripts; C# compile.\n- Unit checks of the verdict logic and service-right parsing.\n- PSScriptAnalyzer (0 errors, 0 compatibility findings), ShellCheck, bash -n, py_compile.\n- The evidence.py convention test.\n- Both self-tests and the non-Windows branch of the Windows orchestrator.\n- Schema and convention validation: 49 records, 0 invalid.\n\nNo harness processes were left running. Three ssh-agent processes started at 18:24:13Z by another session were present; I left them alone.",
+ "doc_updates": []
+}

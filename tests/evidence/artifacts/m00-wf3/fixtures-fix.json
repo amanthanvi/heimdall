@@ -1,0 +1,99 @@
+{
+ "task_id": "M00-T03-fix",
+ "status": "verified",
+ "summary": "All four review items were resolved with executed evidence, and the fixtures are left DOWN. (1) The PerSourcePenalties claim is now directly evidenced and the mis-citation is corrected. I added penalty-repro.sh, which starts two throwaway sshd containers from the fixture image. With the default setting, valid logins were dropped after repeated failed authentications (exit 255, empty client output). sshd logged 'activating ipv4 penalty of 16 seconds' and 'drop connection ... penalty: failed authentication', and logins recovered after about 20 s. The control with PerSourcePenalties no showed no drops. Two runs agreed. I also injected the default setting into the running ca1 and ca2 and ran the unmodified smoke.sh. The 4th injected run, launched immediately after the 3rd, exited 1 with the same two CA failures as the original flake ('ca:p-host1 cert -> host1 accepted' and the broad-cert check), and the ca1 log shows the penalty drop. The earlier 3 injected runs passed 61/61, so the flake is timing dependent. MANIFEST.md and the evidence record now state that attempt-smoke.3-after-reset.log is a clean pass, and that the original failing run and its log were never retained, so its cause is inferred. (2) The 'bastion:effective config' check now asserts forwardagent no, proxyjump bastion and identityagent none. A negative control (logged outside smoke.sh) shows the same assertion fails under an injected ForwardAgent=yes. The PermitOpen check now requires a non-zero exit AND 'administratively prohibited', and a new positive control confirms the permitted target returns the sshd banner. smoke.sh now has 61 checks. (3) observed_result.per_fixture gives a status for each inventory row, and the top-level status is set to in_progress on purpose (see escalations). The build_commit caveat is recorded in artifact_digest and limitations: the scripts are untracked, so the evidence binds to per-file sha256 digests, not a commit. (4) down.sh's failure branch was exercised by a new down-failure-case.sh: an unlabelled network named hm-m00t03-internal made down.sh leave it alone, print networks_remaining=1 problems=1 and CLEANUP INCOMPLETE, and exit 1. The injected network was then removed by its exact name. Other failure causes (container or image removal failing, key disposal failing) remain unexercised. Real exit codes: up 0; smoke x3 0,0,0 (61/61); penalty-repro x2 0,0; injected smoke 0,0,0,1; reset 0; smoke after reset x2 0,0 (61/61); down 0 (CLEANUP CONFIRMED, 23 keys disposed); down-failure-case 0. Confirmed after cleanup: 0 labelled containers, 0 hm-m00t03* networks, 0 fixture images, runtime/ absent, 0 private key files under tests/fixtures. Docker Engine was 29.8.1 this cycle (29.8.0 in the original runs) and is recorded. Full JSON Schema validation was not run (jsonschema is not installed); I checked required keys, the status enum and evidence-path existence by hand.",
+ "files_changed": [
+  "tests/fixtures/ssh/smoke.sh",
+  "tests/fixtures/ssh/penalty-repro.sh",
+  "tests/fixtures/ssh/down-failure-case.sh",
+  "tests/fixtures/MANIFEST.md",
+  "tests/evidence/m00-t03-fixtures.json",
+  "tests/evidence/artifacts/m00-t03/fix/ (new: up, smoke.run1-3, reset, smoke.after-reset, smoke.after-reset2, down, down-failure-case, penalty-repro.1-2, smoke-with-default-penalties*, negctl-effective-config logs plus after-reset-persourcepenalties.txt, versions.txt, docker-ps-ports.txt, networks.txt)"
+ ],
+ "commands_run": [
+  {
+   "command": "tests/fixtures/ssh/up.sh",
+   "exit_code": 0,
+   "observed": "Built image and started 6 containers on loopback ports; versions recorded (openssh-server 1:10.0p1-7+deb13u4, Docker 29.8.1)."
+  },
+  {
+   "command": "tests/fixtures/ssh/smoke.sh x3 consecutive",
+   "exit_code": 0,
+   "observed": "All three runs exited 0 with pass=61 fail=0. The new bastion checks show the ssh -W refusal 'administratively prohibited' and the control banner SSH-2.0-OpenSSH_10.0p2."
+  },
+  {
+   "command": "effective-config negative-control snippet (/bin/bash, sourcing lib.sh)",
+   "exit_code": 0,
+   "observed": "No override: check would PASS. Injected ForwardAgent=yes: missing '[forwardagent no]', check would FAIL."
+  },
+  {
+   "command": "tests/fixtures/ssh/penalty-repro.sh (run twice)",
+   "exit_code": 0,
+   "observed": "Both runs printed REPRODUCED. Default variant: 3 failed auths answered, 5 more dropped, 3/3 later valid logins refused, recovery in ~20s, penalty and drop lines in the sshd log. Control: 0 refused, 0 penalty lines."
+  },
+  {
+   "command": "docker exec sed '/^PerSourcePenalties/d' + kill -HUP of sshd on ca1 and ca2, then smoke.sh x4 (the last launched immediately after the 3rd)",
+   "exit_code": 1,
+   "observed": "Runs 1-3 passed 61/61 (exit 0). Run 4 exited 1 with 59 pass and 2 FAIL: 'ca:p-host1 cert -> host1 accepted' and 'ca:broad cert works on BOTH hosts'. The ca1 log shows 'drop connection ... penalty: failed authentication'."
+  },
+  {
+   "command": "tests/fixtures/ssh/reset.sh; sshd -T on ca1 and ca2; smoke.sh x2",
+   "exit_code": 0,
+   "observed": "reset exit 0; persourcepenalties no on both containers; both smoke runs exit 0 with 61/61."
+  },
+  {
+   "command": "tests/fixtures/ssh/down.sh",
+   "exit_code": 0,
+   "observed": "CLEANUP CONFIRMATION containers_remaining=0 networks_remaining=0 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=23 problems=0, then CLEANUP CONFIRMED."
+  },
+  {
+   "command": "tests/fixtures/ssh/down-failure-case.sh",
+   "exit_code": 0,
+   "observed": "Injected unlabelled network hm-m00t03-internal. down.sh exited 1 with 'left alone', networks_remaining=1 problems=1 and CLEANUP INCOMPLETE. The injected network was removed afterwards; the script printed DOWN-FAILURE-CASE OK."
+  },
+  {
+   "command": "post-cleanup checks (docker ps -a, docker network ls, docker images, ls runtime, find private key files)",
+   "exit_code": 0,
+   "observed": "0 containers, 0 networks, 0 images, runtime/ absent, 0 private key files."
+  },
+  {
+   "command": "python3 field and path validation of tests/evidence/m00-t03-fixtures.json",
+   "exit_code": 0,
+   "observed": "Required keys present, status in enum, all 42 evidence_paths exist. jsonschema is not installed, so full schema validation was not run."
+  }
+ ],
+ "requirement_ids": [
+  "R-EN-06",
+  "R-SS-06",
+  "R-CR-05",
+  "R-CR-06",
+  "R-CR-07",
+  "R-SE-04",
+  "R-UX-01",
+  "R-AU-05"
+ ],
+ "evidence_records": [
+  "tests/evidence/m00-t03-fixtures.json",
+  "tests/evidence/artifacts/m00-t03/fix/penalty-repro.1.log",
+  "tests/evidence/artifacts/m00-t03/fix/penalty-repro.2.log",
+  "tests/evidence/artifacts/m00-t03/fix/smoke-with-default-penalties.rerun2.run2.full.log",
+  "tests/evidence/artifacts/m00-t03/fix/down-failure-case.log",
+  "tests/evidence/artifacts/m00-t03/fix/negctl-effective-config.log",
+  "tests/fixtures/MANIFEST.md"
+ ],
+ "escalations": [
+  "Orchestrator ruling needed (low impact): I changed the top-level status of m00-t03-fixtures.json from 'verified' to 'in_progress' because the review asked for per-fixture status instead of one coarse status. Per-fixture statuses are in observed_result.per_fixture (rows 1-5 verified, row 6 implemented_unverified, rows 8, 11 (Windows variant) and 12 blocked with exact platforms, the rest not_started). The tests/evidence/README.md convention does not cover multi-row inventory records, so I did not decide the convention. Revert it to 'verified' (rows 1-5 scope) if you prefer.",
+  "The reproduced fixture-sshd behavior (a dropped connection shows as silent exit 255 with empty output at the default client LogLevel) bears on the plan.md section 6.4 retry and failure-classification design. I recorded it as a note and made no decision.",
+  "Docker Desktop updated from 29.8.0 to 29.8.1 between the original and fix cycles. I recorded both versions; older artifacts under artifacts/m00-t03/*.log still say 29.8.0."
+ ],
+ "limitations": [
+  "The original intermittent failure of the first cycle was never retained; its cause stays inferred. What is evidenced is that the same symptom (two CA positive checks failing on a rerun, ca1 log showing a penalty drop) is reproducible with the default setting and absent with PerSourcePenalties no.",
+  "The reproduced smoke flake was timing dependent (1 failure in 4 injected runs). Five as-shipped runs passing does not rule out other flakes.",
+  "The effective-config check was negative-controlled by re-running its assertion logic with an injected override, not by running smoke.sh against a broken ssh_config.",
+  "down.sh's failure branch was exercised for one cause only (a foreign unlabelled network). Failures to remove containers or images, and key disposal failures, are unexercised.",
+  "Scripts are untracked, so evidence is bound to per-script sha256 digests, not to a commit (build_commit 18bb8df is the parent HEAD).",
+  "Docker Desktop on macOS 27.0 arm64 only. Rows 8, 11 (Windows variant) and 12 stay blocked. Rows 6, 9, 10, 13-18 stay implemented_unverified or not_started.",
+  "Full JSON Schema validation was not run (jsonschema not installed); checked required keys, the status enum and path existence by hand.",
+  "The pre-fix logs under artifacts/m00-t03/*.log (60-check smoke.sh, older digests) are kept as history and labelled as such. The final-run logs are in artifacts/m00-t03/fix/."
+ ]
+}

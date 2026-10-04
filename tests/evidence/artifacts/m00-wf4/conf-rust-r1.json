@@ -1,0 +1,20 @@
+{
+ "candidate": "rust",
+ "darwin": {
+  "harness_exit_code": 0,
+  "evidence_record": "tests/evidence/g02-rust-conformance.json",
+  "passed": 124,
+  "failed": 0,
+  "errored": 0
+ },
+ "linux": {
+  "harness_exit_code": 0,
+  "evidence_record": "tests/evidence/g02-rust-conformance-linux.json",
+  "passed": 124,
+  "failed": 0,
+  "errored": 0,
+  "image_digest": "heimdall-g02-harness:ac0f6cf382a4 / image id sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3 / base python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed"
+ },
+ "failures": [],
+ "summary": "Rebuilt the Rust prototype with prototypes/rust/build.sh (exit 0, all four targets built). The new artifact sha256s are identical to the pre-rebuild ones, so the build is reproducible: darwin-arm64 d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3ef65a67e11, linux-arm64 77d10192ec9192d09370b13b97ae04af1c59b11e3bda8604825597581a6ccb42 (linux-x64 28c8dee0...1272 was also rebuilt, not judged).\n\nDarwin-arm64: tests/g02/conformance.py against dist/darwin-arm64/heimdall-proto exited 0. 124 of 124 checks passed, 0 failed, 0 errored, 0 skipped. The record has status verified and verdict pass. It was written to tests/evidence/g02-rust-conformance.json (sha256 69352bad...4cd4) and the artifacts are in tests/evidence/artifacts/g02-rust/conformance/. Build commit b44c312 plus dirty.\n\nLinux-arm64: tests/g02/linux/run.sh against dist/linux-arm64 exited 0. The container was heimdall-g02-harness:ac0f6cf382a4 on the Docker Desktop arm64 linuxkit VM (kernel 7.0.14), with --network none, user 10001 and the read-only repo mount. 124 of 124 checks passed, 0 failed, 0 errored, 0 skipped. The record has status verified and verdict pass. It was written to tests/evidence/g02-rust-conformance-linux.json (sha256 7b57eac0...854e) and the artifacts are in tests/evidence/artifacts/g02-rust/conformance/linux/. I ran the Linux catalogue twice, once with artifacts in a temporary directory, to get a clean evidence path, and again into conformance/linux. Both runs passed 124 of 124. The temporary directory was removed.\n\nK3a: on Linux the agent.reset_before_reply and agent.reset_after_partial_header preconditions passed, so the reset reached the reader as ECONNRESET. The Darwin record carries the expected limitation that only the EOF-equivalent path was exercised there.\n\nClassification: there are no failed or errored checks on either platform, so there is nothing to classify and no flaky re-runs were needed (0/0).\n\nCanary: a grep of both new records and all new artifacts found only the bare prefix HEIMDALL_CANARY_ (890 occurrences, from assertion text and redaction markers). No full canary value was found, and the harness exit code was not 3.\n\nArchive: the previous conformance artifacts were moved to tests/evidence/artifacts/g02-rust/conformance/prev-20261003T233634Z/. I also copied the old darwin record into that directory as _record.json before it was overwritten. That old round-1 record contained two full canary values in the previous harness version's output. I replaced both with 'HEIMDALL_CANARY_<redacted-by-r1-archive>' in the archived copy only, so no full value remains in anything I wrote. Only the label fragment PRIVATE_KEY_MATERIAL, without the prefix, is left in the archive.\n\nObservations for the orchestrator, none of which is a failure:\n- The Linux record's evidence_paths holds absolute host paths. The darwin record uses repo-relative paths. This is cosmetic and comes from the --path-map handling in the Linux runner.\n- Both records' limitations list the known weak spot in the K6 exactly-once check. In the harness's own double-forward probe, Darwin saw both signals in 9 of 10 trials and Linux in 0 of 10. The run.forward_* checks therefore cannot catch a back-to-back double forward on Linux.\n- The records still carry the K13 limitations that Windows and WSL are not covered. Each record covers one platform only; the K13 common-slice verdict needs both, and both now pass for Rust."
+}

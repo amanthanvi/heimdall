@@ -1,0 +1,188 @@
+{
+ "task_id": "M00-T04-G03",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "<repo>/docs/research/g03-windows-wsl.md",
+  "<repo>/tests/native/windows/README.md",
+  "<repo>/tests/native/windows/Invoke-G03WindowsProbes.ps1",
+  "<repo>/tests/native/windows/G03Common.psm1",
+  "<repo>/tests/native/windows/InstrumentedAgent.ps1",
+  "<repo>/tests/native/windows/PipeStdioRelay.ps1",
+  "<repo>/tests/native/windows/Test-G03HarnessSelf.ps1",
+  "<repo>/tests/native/windows/fixtures/quoting-cases.json",
+  "<repo>/tests/native/wsl/README.md",
+  "<repo>/tests/native/wsl/run_g03_wsl_probes.sh",
+  "<repo>/tests/native/wsl/run_g03_wsl_lifecycle.sh",
+  "<repo>/tests/native/wsl/selftest_unix.sh",
+  "<repo>/tests/native/wsl/g03_common.sh",
+  "<repo>/tests/native/wsl/agent_proto.py",
+  "<repo>/tests/native/wsl/agent_proxy.py",
+  "<repo>/tests/native/wsl/agent_client.py",
+  "<repo>/tests/native/wsl/exposure_listener.py",
+  "<repo>/tests/native/wsl/argv_fidelity.py",
+  "<repo>/tests/native/wsl/evidence.py",
+  "<repo>/tests/evidence/g03-win-env-inventory.json",
+  "<repo>/tests/evidence/g03-win-sshauthsock-selection.json",
+  "<repo>/tests/evidence/g03-win-identityagent-forms.json",
+  "<repo>/tests/evidence/g03-win-git-ssh-selection.json",
+  "<repo>/tests/evidence/g03-win-pipe-acl-other-user.json",
+  "<repo>/tests/evidence/g03-win-stale-squat-pipe.json",
+  "<repo>/tests/evidence/g03-win-process-io.json",
+  "<repo>/tests/evidence/g03-win-path-quoting.json",
+  "<repo>/tests/evidence/g03-win-service-elevation.json",
+  "<repo>/tests/evidence/g03-win-1password-coexistence.json",
+  "<repo>/tests/evidence/g03-win-agent-constraints.json",
+  "<repo>/tests/evidence/g03-wsl-env-inventory.json",
+  "<repo>/tests/evidence/g03-wsl-a-executable-selection.json",
+  "<repo>/tests/evidence/g03-wsl-a-process-io.json",
+  "<repo>/tests/evidence/g03-wsl-a-path-quoting.json",
+  "<repo>/tests/evidence/g03-wsl-a-git.json",
+  "<repo>/tests/evidence/g03-wsl-a-cert-change.json",
+  "<repo>/tests/evidence/g03-wsl-a-elevation.json",
+  "<repo>/tests/evidence/g03-wsl-b-endpoint-perms.json",
+  "<repo>/tests/evidence/g03-wsl-b-unauthorized-key.json",
+  "<repo>/tests/evidence/g03-wsl-b-relay-attribution.json",
+  "<repo>/tests/evidence/g03-wsl-b-socket-deletion.json",
+  "<repo>/tests/evidence/g03-wsl-b-stale-socket.json",
+  "<repo>/tests/evidence/g03-wsl-b-teardown-deadline.json",
+  "<repo>/tests/evidence/g03-wsl-b-host-lock.json",
+  "<repo>/tests/evidence/g03-wsl-b-multi-distro-exposure.json",
+  "<repo>/tests/evidence/g03-wsl-b-distro-restart.json",
+  "<repo>/tests/evidence/g03-wsl-b-idle-timeout.json",
+  "<repo>/tests/evidence/g03-wsl-b-other-windows-user.json",
+  "<repo>/tests/evidence/artifacts/g03/sources/source-pins.json",
+  "<repo>/tests/evidence/artifacts/g03/sources/excerpts.txt",
+  "<repo>/tests/evidence/artifacts/g03/static-checks/ (pwsh-parse.txt, psscriptanalyzer.txt, shellcheck.txt, python-bash-syntax.txt, record-schema-validation.txt)",
+  "<repo>/tests/evidence/artifacts/g03/harness-selftest/ (powershell-macos/, windows-orchestrator-on-macos/, wsl-mechanics-darwin/: records, transcripts, proxy logs, console.txt)"
+ ],
+ "commands_run": [
+  {
+   "command": "gh api repos/PowerShell/Win32-OpenSSH/releases; gh api repos/PowerShell/openssh-portable/tags; curl codeload tarball of openssh-portable v10.0.0.0 (b8c08ef9…); gh api contents at v9.5.0.0 and v8.1.0.0",
+   "exit_code": 0,
+   "observed": "Source snapshots fetched; tarball sha256 45f316a5…dae0d; default pipe, IdentityAgent, argv_split, agent DACL, constraint code read (excerpts.txt)."
+  },
+  {
+   "command": "gh api MicrosoftDocs/windowsserverdocs, MicrosoftDocs/win32, MicrosoftDocs/sdk-api, MicrosoftDocs/WSL, microsoft/WSL technical docs, dotnet/docs, git-for-windows/git + build-extra at pinned commits; curl 1Password *.md pages; curl openssh release-8.7; git clone Win32-OpenSSH wiki; gh api issues #1949 #1987 (Win32-OpenSSH) #5961 (WSL)",
+   "exit_code": 0,
+   "observed": "62 source entries pinned with commit or retrieval time and sha256 in tests/evidence/artifacts/g03/sources/source-pins.json."
+  },
+  {
+   "command": "pwsh [Parser]::ParseFile over tests/native/windows/*.ps1,*.psm1",
+   "exit_code": 0,
+   "observed": "0 parse errors in 5 files (static-checks/pwsh-parse.txt)."
+  },
+  {
+   "command": "Save-Module PSScriptAnalyzer 1.24.0 -Path /tmp/g03-psmodules; Invoke-ScriptAnalyzer -Recurse with PSUseCompatibleSyntax 5.1/7.4",
+   "exit_code": 0,
+   "observed": "0 errors, 0 compatibility findings; style warnings and Split-Path false positives only (static-checks/psscriptanalyzer.txt)."
+  },
+  {
+   "command": "shellcheck -x -s bash g03_common.sh run_g03_wsl_probes.sh run_g03_wsl_lifecycle.sh selftest_unix.sh",
+   "exit_code": 0,
+   "observed": "Clean after fixes (initial runs exit 1 with SC2155/SC2034/SC1003/SC2016 findings, fixed or deliberately suppressed with comments)."
+  },
+  {
+   "command": "python3 -m py_compile (6 WSL modules); bash -n (4 scripts)",
+   "exit_code": 0,
+   "observed": "ok (static-checks/python-bash-syntax.txt)."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Test-G03HarnessSelf.ps1",
+   "exit_code": 0,
+   "observed": "Final run pass: real OpenSSH_10.3p1 ssh-add -l filtered, ssh-keygen -Y sign -U then -Y verify 'Good signature', crafted filtered/unknown-key sign refused, ssh-add -D refused (earlier runs exit 1 exposed two harness bugs, fixed). Harness self-test only."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK bash tests/native/wsl/selftest_unix.sh",
+   "exit_code": 0,
+   "observed": "Mode B mechanics on macOS vs disposable /usr/bin/ssh-agent: unauthorized-key, socket-deletion, stale-socket, teardown-deadline pass; endpoint-perms inconclusive (no second account). First run hit bash 3.2 case-in-$() parse errors, fixed."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -OutDir <harness-selftest/windows-orchestrator-on-macos>",
+   "exit_code": 0,
+   "observed": "All 12 probes recorded blocked with the platform reason; only the non-Windows branch executed."
+  },
+  {
+   "command": "python3 -m venv /tmp/g03-venv && pip install jsonschema==4.25.1; validate tests/evidence/g03-*.json + harness-selftest records against tests/evidence/record.schema.json",
+   "exit_code": 0,
+   "observed": "47 records valid, 0 invalid (static-checks/record-schema-validation.txt)."
+  },
+  {
+   "command": "python3 tests/native/wsl/evidence.py redact-tree tests/evidence/artifacts/g03; grep for username/PRIVATE KEY/canary prefix",
+   "exit_code": 0,
+   "observed": "No username, private key material, or canary strings remain in G03 outputs; harness sources assemble the canary prefix at run time."
+  }
+ ],
+ "requirement_ids": [
+  "R-EN-01",
+  "R-EN-02",
+  "R-EN-03",
+  "R-SS-03",
+  "R-RT-03",
+  "R-DI-02",
+  "R-QU-02",
+  "R-SS-04",
+  "R-RT-01",
+  "R-RT-04",
+  "R-RT-07",
+  "R-SE-03",
+  "R-CR-01",
+  "R-CR-07",
+  "R-CR-08",
+  "R-AU-05"
+ ],
+ "evidence_records": [
+  "tests/evidence/g03-win-env-inventory.json (blocked)",
+  "tests/evidence/g03-win-sshauthsock-selection.json (blocked)",
+  "tests/evidence/g03-win-identityagent-forms.json (blocked)",
+  "tests/evidence/g03-win-git-ssh-selection.json (blocked)",
+  "tests/evidence/g03-win-pipe-acl-other-user.json (blocked)",
+  "tests/evidence/g03-win-stale-squat-pipe.json (blocked)",
+  "tests/evidence/g03-win-process-io.json (blocked)",
+  "tests/evidence/g03-win-path-quoting.json (blocked)",
+  "tests/evidence/g03-win-service-elevation.json (blocked)",
+  "tests/evidence/g03-win-1password-coexistence.json (blocked)",
+  "tests/evidence/g03-win-agent-constraints.json (blocked)",
+  "tests/evidence/g03-wsl-env-inventory.json (blocked)",
+  "tests/evidence/g03-wsl-a-executable-selection.json (blocked)",
+  "tests/evidence/g03-wsl-a-process-io.json (blocked)",
+  "tests/evidence/g03-wsl-a-path-quoting.json (blocked)",
+  "tests/evidence/g03-wsl-a-git.json (blocked)",
+  "tests/evidence/g03-wsl-a-cert-change.json (blocked)",
+  "tests/evidence/g03-wsl-a-elevation.json (blocked)",
+  "tests/evidence/g03-wsl-b-endpoint-perms.json (blocked)",
+  "tests/evidence/g03-wsl-b-unauthorized-key.json (blocked)",
+  "tests/evidence/g03-wsl-b-relay-attribution.json (blocked)",
+  "tests/evidence/g03-wsl-b-socket-deletion.json (blocked)",
+  "tests/evidence/g03-wsl-b-stale-socket.json (blocked)",
+  "tests/evidence/g03-wsl-b-teardown-deadline.json (blocked)",
+  "tests/evidence/g03-wsl-b-host-lock.json (blocked)",
+  "tests/evidence/g03-wsl-b-multi-distro-exposure.json (blocked)",
+  "tests/evidence/g03-wsl-b-distro-restart.json (blocked)",
+  "tests/evidence/g03-wsl-b-idle-timeout.json (blocked)",
+  "tests/evidence/g03-wsl-b-other-windows-user.json (blocked)",
+  "tests/evidence/artifacts/g03/harness-selftest/powershell-macos/records/g03-harness-selftest-powershell-macos.json (verified as a harness self-test only; not G03 evidence)",
+  "tests/evidence/artifacts/g03/harness-selftest/wsl-mechanics-darwin/records/g03-harness-selftest-unix-wsl-b-*.json (4 verified, 1 in_progress/inconclusive; harness self-tests only)",
+  "tests/evidence/artifacts/g03/harness-selftest/windows-orchestrator-on-macos/records/*.json (12 blocked; non-Windows branch run)"
+ ],
+ "escalations": [
+  "E-1 Status vocabulary has no 'failed': the harness records an executed probe with a false criterion as in_progress plus observed_result.verdict='fail' (or 'inconclusive'). The orchestrator should confirm or replace this convention before any real runs are promoted.",
+  "E-2 A13 says 'no unintended distribution exposure', but Microsoft's WSL security model (microsoft/WSL doc/docs/technical-documentation/security.md @a4b297c3) says a distribution is not a security boundary from the same Windows user or from that user's other distributions, and interop=false is not containment. My proposed reading is 'default non-exposure plus a same-user convenience label', but that is an authority-semantics interpretation of spec §8.4/A13, so I did not decide it. It needs the owner, and possibly a spec change.",
+  "E-3 Which upstreams Mode B must support at V1: with 1Password or the Windows agent as upstream, the scoped bridge is filtered convenience. Real per-binding scope requires a Heimdall-held credential, which ties this to G04.",
+  "E-4 A packaged alternative Windows SSH client (spec §8.4 allows one if installed visibly) is an owner decision. It only arises if P-W03 shows the in-box ssh.exe cannot select a Heimdall pipe on a supported build.",
+  "E-5 Provider attribution through relays: 1Password authorizes per application, so bridged requests are attributed to the relay or runtime process. Spec §14.4 requires disclosure; the owner must decide whether to accept this and how to disclose it.",
+  "D-G03-02 No real-hardware runner exists. A disposable Windows 11 VM with WSL2, two distributions, and a second local account is needed; until then every G03 record stays blocked and the stable Windows/WSL V1 claim stays blocked.",
+  "Source conflicts to resolve on hardware. 1Password docs say Windows OpenSSH 'listens to a fixed pipe' with no IdentityAgent flexibility, but the pinned Win32-OpenSSH source (and community issue #1949) show IdentityAgent and SSH_AUTH_SOCK both reach CreateFileW on any pipe path. The Win32-OpenSSH wiki says ssh-add -t/-c are 'ignored', while v10.0 source rejects all add-time constraints except sk-provider.",
+  "No independent second-agent review: no delegation tool was available to this subagent, and the only Codex-related skill is restricted to its rescue subagent. The orchestrator should arrange adversarial review of the §3 security analysis and the harness."
+ ],
+ "limitations": [
+  "No Windows, WSL, or Windows-hosted provider was available, so every native G03 probe (29 records) is blocked with the exact platform, and observed_result is null. No Windows or WSL behavior was observed.",
+  "Every Windows-only harness code path is unexecuted: DACL creation (NamedPipeServerStreamAcl on PS7, the PipeSecurity constructor on 5.1), FirstPipeInstance, client PID/SID capture through ImpersonateNamedPipeClient, Start-Process -Credential, sc.exe parsing, Git/MSYS behavior, and the Windows PowerShell 5.1 runtime. Only parse checks and PSScriptAnalyzer syntax compatibility were checked. Expect harness fixes on the first real run.",
+  "All WSL code paths are unexecuted: interop argv conversion, wslpath/UNC handling, the relay through powershell.exe, the lifecycle script (wsl.exe --terminate, multi-distribution staging that assumes the default /mnt automount root), LogonUI-based lock detection (a heuristic), and Windows process counting (approximate).",
+  "The harness self-tests ran on macOS arm64, over .NET Unix-socket 'pipes' and a fixture /usr/bin/ssh-agent. They validate the agent protocol, ECDSA encoding, and the probe-proxy mechanics only. They are not G03 evidence and do not close any native record.",
+  "In the research doc's question matrix, source-derived [S] answers come from GitHub tags (v8.1.0.0, v9.5.0.0, v10.0.0.0). The in-box Windows OpenSSH version for each Windows build is not documented in the fetched Microsoft pages and remains unknown until P-W01 runs.",
+  "1Password and wiki pages are mutable. They are pinned only by retrieval time (2026-10-03) and content sha256; their content was not committed, only hashes and short excerpts.",
+  "The blocked records hash only the entry harness script, not the shared modules.",
+  "Toolchain additions, all temporary and outside the repo and user profile: PSScriptAnalyzer 1.24.0 via Save-Module to /tmp/g03-psmodules, jsonschema 4.25.1 in the /tmp/g03-venv venv, and source snapshots in /tmp/g03src. Nothing was installed system-wide; no brew, sudo, or service installation was used. No real agent, ~/.ssh, keychain, 1Password, or live host was touched. The only pre-existing ssh-agent process on this Mac was left alone."
+ ],
+ "summary": "G03 is ready to run on real hardware, but every native result is blocked because this environment has no Windows/WSL host. 29 schema-valid placeholder records in tests/evidence/g03-*.json each name the exact missing platform and have observed_result null. The harness only ran on macOS (self-tests, and the Windows orchestrator taking its non-Windows path). No Windows or WSL behavior was observed.\n\n**Research doc** (docs/research/g03-windows-wsl.md): 20 pinned primary sources with commit or retrieval time and sha256 (source-pins.json, excerpts.txt), and a 31-row question matrix where every answer is labeled documented, source-derived, community report, inference or unknown. Five source-derived findings that are not yet verified on hardware:\n- On Windows, an unset SSH_AUTH_SOCK silently means `\\\\.\\pipe\\openssh-ssh-agent` (wmain_common.c in v8.1, v9.5 and v10.0). Disabling the agent needs `IdentityAgent none`.\n- IdentityAgent and SSH_AUTH_SOCK reach CreateFileW on any pipe path. This contradicts 1Password's 'fixed pipe' statement.\n- OpenSSH 8.7+ config parsing turns `\\\\.\\pipe\\x` into `\\.\\pipe\\x`, so the safe form is `//./pipe/x`.\n- Any local user can connect to the Windows agent pipe, but they reach only their own key store.\n- v10.0 source rejects every add-time constraint except sk-provider.\n\nOn WSL, Microsoft documents that a distribution is not a security boundary from the same Windows user or that user's other distributions, `/mnt/wsl` is shared across distributions, and the NAT localhost relay forwards WSL TCP listeners to Windows.\n\nThe candidate designs are honest about who can connect, how the bridge is authenticated, real scope versus filtered convenience, and lifecycle:\n- **Native Windows:** keep the global pipe, or use per-binding Heimdall pipes. Taking over the global pipe is rejected.\n- **Mode A:** WSL runs Windows ssh.exe.\n- **Mode B:** a supervised, scoped bridge. socat+npiperelay and a loopback TCP bridge are rejected as defaults.\n\nThe doc also has the per-probe plan with pass/fail criteria, failure actions per plan §3 G03, and owned decisions.\n\n**Harnesses:**\n- **Windows** (PowerShell, written for 5.1 and 7.x): an orchestrator with 12 probes and an instrumented in-memory-key named-pipe agent, including other-OS-user, pipe-squatting, Git precedence and quoting probes. Contacting the provider and mutating the system agent are both off unless a flag and an owner-authorization note are given.\n- **WSL** (bash plus stdlib Python): Mode A and Mode B probes in the distribution, a controller-to-target script for multi-distribution, restart and idle-timeout probes, a filtering probe proxy, and a stdio relay.\n\n**Checks run here** (exit codes in static-checks/): parse, PSScriptAnalyzer, ShellCheck, py_compile and schema validation all passed. The PowerShell protocol self-test against real OpenSSH 10.3 passed. The WSL-mechanics self-test passed, except endpoint-perms, which is inconclusive because no second account was used.\n\n**Escalations:** E-1 through E-5 need a decision. The key one is E-2: spec A13's 'no unintended distribution exposure' versus Microsoft's documented lack of a boundary between distributions.\n\n**Independent review was not performed.**"
+}

@@ -1,0 +1,93 @@
+{
+ "candidate": "ts",
+ "darwin": {
+  "harness_exit_code": 1,
+  "evidence_record": "<repo>/tests/evidence/g02-ts-conformance.json",
+  "passed": 118,
+  "failed": 6,
+  "errored": 0
+ },
+ "linux": {
+  "harness_exit_code": 1,
+  "evidence_record": "<repo>/tests/evidence/g02-ts-conformance-linux.json",
+  "passed": 118,
+  "failed": 6,
+  "errored": 0,
+  "image_digest": "heimdall-g02-harness:ac0f6cf382a4 image id sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3, base python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed"
+ },
+ "failures": [
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "K8 (gating). Invalid-UTF-8 argv elements 0-6 reach the child with each bad byte replaced by U+FFFD (fffe2d78 arrives as efbfbdefbfbd2d78); element 7 (valid UTF-8) is intact. Cause: Bun decodes argv into JS strings before user code (REPORT.md K8 row, a documented stack limitation). K8 says to record the limitation, not route around it via FFI. Harness check matches K8 text."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "Identical to darwin. Same observed bytes, same differing indexes 0-6. Stack limitation of the Bun runtime (K8), not a harness or environment effect."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "profile.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "K14. Only the FIFO variant fails. The process hangs until the harness kills it (exit -9 after 8 s, no stdout). Socket, directory and device variants pass with exit 2 USAGE_ERROR within 2 s. Cause in src/platform/files.ts readBounded: openSync(path,'r') blocks on a FIFO with no writer, and the fstat isFile() check comes after the open. Not a harness defect: K14 requires never blocking."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "profile.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "Identical to darwin. The FIFO variant times out at 8 s (exit -9). Other variants pass. Same open-before-fstat blocking in readBounded."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "tui.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "K14, TUI path. FIFO variant: still running after the bound, killed, so no exit 2 within 2 s. Socket, directory and device variants pass. Same root cause as profile.non_regular_file (blocking open on the FIFO). Round-2 ruling on a frozen candidate: recorded, not fixed."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "tui.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "Identical to darwin. FIFO variant never exits within the bound. Other variants pass."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.k6a_pipeline_peer_not_stopped",
+   "classification": "prototype_defect",
+   "detail": "K6a. In 'a | b' where heimdall-proto run is a pipeline member, bash reports '[1]+ Stopped' and PIPE_DONE never prints. Both pipeline members are left in state T (pids 66189/66190). The peer's tty read never returned. This matches the round-1 K6 mechanism in REPORT.md: the child gets its own process group via posix_spawn SETPGROUP and heimdall-proto tcsetpgrp()s the terminal to it, taking the foreground from its own job. The peer is then stopped by SIGTTIN. K6a was not applied to the frozen candidate."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.k6a_pipeline_peer_not_stopped",
+   "classification": "prototype_defect",
+   "detail": "Identical to darwin. Shell shows Stopped, members left in T state (986/987, 992 zombie). Same foreground takeover by tcsetpgrp."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.k6a_background_script_tty",
+   "classification": "prototype_defect",
+   "detail": "K6a. A non-job-control script that starts heimdall-proto as an & job: the script's tty read gets EIO in both the stdin-tty and stdin-devnull variants. The terminal foreground group moved to the child's group (fg1 66926 vs script pgrp 66923) and was restored only afterwards. This is the same tcsetpgrp takeover. The child's tcsetpgrp occurs even though heimdall-proto itself is not the foreground group, because an fd 0-2 terminal was found."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.k6a_background_script_tty",
+   "classification": "prototype_defect",
+   "detail": "Identical to darwin. EIO on the script's tty read, foreground group moved to the child's group (fg1 1001 vs pgrp 995)."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.k6a_inherited_ignore",
+   "classification": "prototype_defect",
+   "detail": "K6a/K6c gated scope. nohup phase: the child's SIGHUP disposition is SIG_DFL, not SIG_IGN, and heimdall-proto died with 129 on the signal. async-job phase: SIGINT is 'handler' in the child, and heimdall-proto exited 130. Cause: platform/run.ts installs process.on handlers for INT, TERM, HUP, QUIT and WINCH, which replaces the inherited ignore, and posix_spawn SETSIGDEF resets every signal in the child. Both are in the gated scope (SIGHUP and SIGINT only)."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.k6a_inherited_ignore",
+   "classification": "prototype_defect",
+   "detail": "Identical to darwin, with extra /proc/self/status SigIgn confirmation: SIGHUP bit clear (nohup) and SIGINT bit clear (async-job) in the child. Exit 129 and 130 respectively."
+  }
+ ],
+ "summary": "I rebuilt the TS prototype with build.sh and ran the full 124-check harness on both platforms. Each run gave 118 pass, 6 fail, 0 error, 0 skipped, with exit code 1 and verdict fail. K13 is not met: the candidate fails on darwin-arm64 and on linux-arm64, and the failures are the same on both.\n\n**Failing checks (same 6 on each platform).** All 12 failures are classified prototype_defect; none is a harness defect, contract ambiguity or environment effect.\n- `run.argv_invalid_utf8` (K8): Bun decodes argv to U+FFFD before user code runs. This is a stack limitation.\n- `profile.non_regular_file` and `tui.non_regular_file` (K14): only the FIFO variant fails. `readBounded` calls `openSync` before the `fstat` isFile check, so it blocks on a FIFO with no writer. The socket, directory and device variants pass.\n- `run.k6a_pipeline_peer_not_stopped` and `run.k6a_background_script_tty` (K6a): the round-1 K6 mechanism takes the terminal foreground with `tcsetpgrp`. This stops the pipeline peer (state T, bash prints Stopped) and gives the backgrounded script EIO on its tty read.\n- `run.k6a_inherited_ignore` (K6a/K6c): the child gets SIGHUP as SIG_DFL and SIGINT as a handler instead of the inherited ignore, so heimdall-proto exits 129 and 130. Linux `/proc/self/status` SigIgn confirms the bits are clear.\n\nAll of these are round-2 rulings, or K8, on a candidate frozen after round 1. They are recorded, not fixed.\n\n**Rebuild.** `build.sh` exited 0, and the output sha256s match the earlier build exactly, so the build is reproducible. Per-target hashes are listed below.\n\n**Reruns.** I re-ran the 6 failing checks 3 times each on darwin and 3 times each on linux. The same 6 failed in all 6 runs (6/6 deterministic), so none of them is flaky. Rerun output is in `/tmp/ts-rerun`.\n\n**Canary.** A grep of both records and all new artifacts found no full `HEIMDALL_CANARY_` value, only the bare prefix in assertion text, so there is no harness_defect. The harness's own final canary self-check did not exit 3.\n\n**Linux run.** `tests/g02/linux/run.sh` ran in the digest-pinned container on an aarch64 Docker server, using the whole `dist/linux-arm64` directory with its sidecar. No heimdall-proto, pty_shim or fake_agent processes were left running.\n\n**Previous artifacts.** The old conformance artifacts and a copy of the old darwin record are in `prev-20261003T233626Z`.\n\nArtifact sha256s:\n- darwin-arm64 `heimdall-proto`: dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2\n- darwin-arm64 `libopentui.dylib`: 708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6\n- linux-arm64 `heimdall-proto`: ac48d2a6c789bb073168a6d9a8a5eed485fb93d8419c953bdaf3198be27807e2\n- linux-arm64 `libopentui.so`: a9b0e0a95dd3d5c8515a4c94bff42d2e061c7f9ad1860f88ff86a509c916554e\n\nFiles are in `<repo>`:\n- `tests/evidence/g02-ts-conformance.json`\n- `tests/evidence/g02-ts-conformance-linux.json`\n- `tests/evidence/artifacts/g02-ts/conformance/` (darwin artifacts, with the Linux ones in `linux/`)\n- `tests/evidence/artifacts/g02-ts/conformance/prev-20261003T233626Z/`"
+}

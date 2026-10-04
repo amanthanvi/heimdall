@@ -1,0 +1,100 @@
+{
+ "task_id": "M00-T03",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/tests/fixtures/ssh/Dockerfile",
+  "<repo>/tests/fixtures/ssh/entrypoint.sh",
+  "<repo>/tests/fixtures/ssh/lib.sh",
+  "<repo>/tests/fixtures/ssh/up.sh",
+  "<repo>/tests/fixtures/ssh/down.sh",
+  "<repo>/tests/fixtures/ssh/reset.sh",
+  "<repo>/tests/fixtures/ssh/smoke.sh",
+  "<repo>/tests/fixtures/ssh/conflicting-config/ssh_config",
+  "<repo>/tests/fixtures/MANIFEST.md",
+  "<repo>/tests/evidence/m00-t03-fixtures.json",
+  "<repo>/tests/evidence/artifacts/m00-t03/ (up.log, smoke.run1-3.log, reset.log, smoke.after-reset.log, down.log, versions.txt, docker-ps-ports.txt, networks.txt, conflicting-config-G-*.txt, attempt-*.log)"
+ ],
+ "commands_run": [
+  {
+   "command": "docker info / docker pull debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1",
+   "exit_code": 0,
+   "observed": "Docker Desktop 29.8.0 up immediately; digest pull succeeded (image already present, id sha256:1c833814c4af...)."
+  },
+  {
+   "command": "tests/fixtures/ssh/up.sh (attempt 1)",
+   "exit_code": 0,
+   "observed": "Built image, generated keys, started 6 containers; 5 loopback ports published."
+  },
+  {
+   "command": "tests/fixtures/ssh/smoke.sh (attempt 1)",
+   "exit_code": 1,
+   "observed": "53 pass / 7 fail. All 7 were faulty checks in smoke.sh (grep matched a comment, wc whitespace in port check, wrong-key control was additive). Fixed in the script. Log kept as attempt-smoke.1.log."
+  },
+  {
+   "command": "down.sh; up.sh; smoke.sh (attempt 2)",
+   "exit_code": 0,
+   "observed": "down.sh CLEANUP CONFIRMED; smoke 60/60 pass on that run. An immediate rerun of smoke.sh exited 1 with 2 intermittent CA check failures on ca1; ca1 log showed OpenSSH PerSourcePenalties 'drop connection ... penalty: failed authentication'. Fixed with PerSourcePenalties no in the fixture sshd_config. Logs kept as attempt-*.log."
+  },
+  {
+   "command": "tests/fixtures/ssh/up.sh (final cycle)",
+   "exit_code": 0,
+   "observed": "openssh-server 1:10.0p1-7+deb13u4, sshd OpenSSH_10.0p2 Debian-7+deb13u4 observed in containers; ports published on 127.0.0.1 only; target publishes nothing."
+  },
+  {
+   "command": "tests/fixtures/ssh/smoke.sh x3 consecutive (final cycle)",
+   "exit_code": 0,
+   "observed": "60 pass / 0 fail on each of the three runs."
+  },
+  {
+   "command": "tests/fixtures/ssh/reset.sh after dirtying the enrollable registry, then smoke.sh",
+   "exit_code": 0,
+   "observed": "reset exit 0; smoke after reset 60 pass / 0 fail."
+  },
+  {
+   "command": "tests/fixtures/ssh/down.sh (final)",
+   "exit_code": 0,
+   "observed": "CLEANUP CONFIRMED: containers_remaining=0 networks_remaining=0 image_remaining=0 runtime_dir_remaining=0 private_keys_overwritten_and_removed=21 problems=0. Independent post-check: zero fixture containers, networks and images; runtime/ absent."
+  },
+  {
+   "command": "/usr/bin/ssh -G -F tests/fixtures/ssh/conflicting-config/ssh_config conflict-a",
+   "exit_code": 0,
+   "observed": "Resolved config dumped without connecting (first-value-wins plus merged directives); saved as artifact. Not part of smoke.sh."
+  },
+  {
+   "command": "grep for private key blocks / HEIMDALL_CANARY in artifacts and fixtures",
+   "exit_code": 0,
+   "observed": "No match in artifacts. The only hit is smoke.sh, which contains the search pattern itself. Treated as not a leak."
+  }
+ ],
+ "requirement_ids": [
+  "R-EN-06",
+  "R-SS-06",
+  "R-CR-05",
+  "R-CR-06",
+  "R-CR-07",
+  "R-SE-04",
+  "R-UX-01",
+  "R-AU-05"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/m00-t03-fixtures.json"
+ ],
+ "escalations": [
+  "None required. Two semantics notes for the orchestrator, not decided here. (1) A broad certificate carrying both p-host1 and p-host2 is accepted by both CA hosts, which confirms spec 7.6: per-destination scope exists only through server-side principal mapping. (2) Heimdall's retry policy for repeated authentication failures should account for OpenSSH 9.8+ PerSourcePenalties, which drops connections from the source and caused one flaky false failure in this fixture."
+ ],
+ "limitations": [
+  "Verified scope is manifest rows 1-5 only: fixed-auth, account-enrollable, two CA hosts, bastion plus internal target, host-key substitution. These show the targets behave as designed, not that any Heimdall behavior works.",
+  "Manifest row 6 (conflicting SSH config) is implemented_unverified: observed only via ssh -G, not part of smoke.sh. Row 7 (fake agent) is owned by another agent and was not assessed.",
+  "Rows 9-11, 13-18 are not_started: replay/oversize agent messages, delayed issuer, stale Unix socket, concurrent environments, partial enrollment response loss, paired runner, limited management client, local Linux container, Iroh.",
+  "Row 8 (locked provider) is blocked_on a real FIDO2 authenticator or interactive native OS lock. Row 11 Windows named pipe and row 12 native Windows plus WSL are blocked_on a native Windows host with WSL2. Only macOS 27.0 arm64 with Docker Desktop was available.",
+  "openssh-server version is observed, not pinned: apt floats at build time. The base image is pinned by digest.",
+  "Host-key substitution was tested only via loopback port plus HostKeyAlias, not a DNS or hostname change or a bastion-hop substitution.",
+  "Not covered: cert expiry during a live session or multiplexing (A23), interrupted mutation, and forwarding tests.",
+  "The fixture sshd sets PerSourcePenalties no, which differs from default OpenSSH 10 behavior.",
+  "Key disposal is overwrite then unlink, which does not guarantee erasure on APFS/SSD. The keys are valid only for destroyed containers.",
+  "The evidence record's build_commit is the parent HEAD 18bb8dfa; the fixture files were uncommitted when run, so script sha256 hashes are listed in artifact_digest.",
+  "The schema validator (jsonschema) is not installed; the record was checked by hand for required keys and the requirement-id pattern and parses as JSON, but was not machine-validated against record.schema.json.",
+  "Fixtures are left DOWN as required; run tests/fixtures/ssh/up.sh to bring them up."
+ ],
+ "summary": "The disposable SSH fixtures under tests/fixtures/ssh/ work. up.sh, smoke.sh, reset.sh and down.sh all ran, and the fixtures are left DOWN. In the final cycle smoke.sh passed 60/60 checks on each of four runs (three consecutive, one after reset.sh with a dirtied registry). down.sh exited 0 with CLEANUP CONFIRMED and zero containers, networks, images or runtime/ left. The base is debian@sha256:f324c7ff...e9ffc4b1, and the containers run openssh-server 1:10.0p1-7+deb13u4 (sshd OpenSSH_10.0p2). The host client is /usr/bin/ssh 10.3p1. Verified scenarios: fixed-auth host with a root-owned registry, the enrollable host (add and remove a marker key, unrelated bytes identical, a concurrent edit preserved), two CA hosts with different principal files, bastion ProxyJump without agent forwarding to an internal-only target, and host-key substitution failing hard. Two findings are worth knowing. A certificate with both principals works on both CA hosts, which confirms the spec 7.6 scope caveat. OpenSSH PerSourcePenalties caused one flaky false failure, so the fixture sshd sets PerSourcePenalties no. Earlier failed attempts (7 faulty checks in smoke.sh, then that flake) are kept as attempt-*.log. tests/fixtures/MANIFEST.md lists every fixture in plan 6.2 with owner, versions, role, reset, cleanup, status and the key-disposal procedure. Windows/WSL and locked-provider fixtures are blocked, and the rest are not_started or implemented_unverified.\""
+}

@@ -1,0 +1,132 @@
+{
+ "task_id": "M00-T05-rust-round2-fix",
+ "status": "verified",
+ "files_changed": [
+  "prototypes/rust/Cargo.toml",
+  "prototypes/rust/Cargo.lock",
+  "prototypes/rust/src/agent.rs",
+  "prototypes/rust/src/keys.rs",
+  "prototypes/rust/src/lib.rs",
+  "prototypes/rust/src/list_model.rs",
+  "prototypes/rust/src/main.rs",
+  "prototypes/rust/src/profile.rs",
+  "prototypes/rust/src/runner.rs",
+  "prototypes/rust/src/sigdisp.rs",
+  "prototypes/rust/src/tui.rs",
+  "prototypes/rust/tests/cli.rs",
+  "prototypes/rust/tests/pty_tui.py",
+  "prototypes/rust/build.sh",
+  "prototypes/rust/selftest.sh",
+  "prototypes/rust/tools/inventory.py",
+  "prototypes/rust/tools/gen_licenses.py",
+  "prototypes/rust/tools/gen_notices.py",
+  "prototypes/rust/tools/early_sigint_probe.py",
+  "prototypes/rust/tools/linux_tests.sh",
+  "prototypes/rust/tools/linux_pty.sh",
+  "prototypes/rust/LICENSES.md",
+  "prototypes/rust/REPORT.md",
+  "prototypes/rust/dist/** (gitignored; rebuilt: 4 targets, manifest.json, THIRD-PARTY-NOTICES.txt)",
+  "tests/evidence/g02-rust-selftest.json",
+  "tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2/**",
+  "tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2-harness-informational/**"
+ ],
+ "commands_run": [
+  {
+   "command": "sh prototypes/rust/selftest.sh (final run, started 2026-10-03T21:45:45Z)",
+   "exit_code": 0,
+   "observed": "34 steps; summary.json all_expectations_met=true. Every exit0 step exited 0. The red-proof steps that run the round-1 binaries against the new tests exited non-zero as expected: darwin cli 101, darwin pty 1, linux-arm64 cli 101, linux-arm64 pty 1."
+  },
+  {
+   "command": "cargo test --locked (host macOS arm64, HEIMDALL_G02_FIXTURES set)",
+   "exit_code": 0,
+   "observed": "lib 49, bin 4, cli 26 passed"
+  },
+  {
+   "command": "cargo fmt --check; cargo clippy --all-targets -D warnings (host and --target x86_64-pc-windows-gnu)",
+   "exit_code": 0,
+   "observed": "clean"
+  },
+  {
+   "command": "sh build.sh",
+   "exit_code": 0,
+   "observed": "All 4 targets built with rustc 1.99.0: darwin 717,904 B d9838f89..., linux-x64 869,648 B 28c8dee0..., linux-arm64 806,528 B 77d10192..., windows-x64 841,728 B 07b1cbc4.... Notices file 302,235 B. 0 home-path strings in every artifact. No 'tput', 'tmux' or 'infocmp' strings in any artifact."
+  },
+  {
+   "command": "selftest step repro-other-checkout (full build.sh from a different checkout path)",
+   "exit_code": 0,
+   "observed": "Identical sha256 for all four targets and for THIRD-PARTY-NOTICES.txt"
+  },
+  {
+   "command": "tools/linux_tests.sh arm64 (debian:bookworm-slim@sha256:0c8bbb8e..., native arm64 kernel, --network none)",
+   "exit_code": 0,
+   "observed": "49+26+4 passed against dist/linux-arm64. k3a test confirmed a real reset: the plain client got 3 bytes, then ConnectionReset."
+  },
+  {
+   "command": "tools/linux_pty.sh arm64 (python:3.13-slim-bookworm@sha256:5024f48b...)",
+   "exit_code": 0,
+   "observed": "24/24 pty cases, including terminal Ctrl-C delivered to the child once"
+  },
+  {
+   "command": "python3 tests/pty_tui.py dist/darwin-arm64/heimdall-proto --panic-binary target/panic/debug/heimdall-proto",
+   "exit_code": 0,
+   "observed": "24 cases: 23 pass, 1 known_limitation (terminal SIGINT seen 2 times on Darwin)"
+  },
+  {
+   "command": "tools/linux_tests.sh arm64 ... target/round1-dist/linux-arm64/heimdall-proto (red proof)",
+   "exit_code": 101,
+   "observed": "6 of 26 cli tests failed: k3a, k14, both k6a disposition tests, group SIGKILL orphan, FIFO meta"
+  },
+  {
+   "command": "linux_pty.sh with the round-1 linux-arm64 binary (red proof)",
+   "exit_code": 1,
+   "observed": "6 of 23 failed. The K16 case shows the helper programs executed: ['tput cols', 'tput lines']"
+  },
+  {
+   "command": "C siginfo probe in a pty on macOS 27 (/tmp)",
+   "exit_code": 0,
+   "observed": "Terminal ^C, ^\\ and resize, kill(pid) and killpg all report si_code=0 and si_pid = the process writing to the pty master. Darwin cannot tell them apart."
+  },
+  {
+   "command": "mutation build (kernel SIGHUP never forwarded) + session-leader hangup case, Linux arm64",
+   "exit_code": 0,
+   "observed": "Mutant: child saw count=0. Real build: count=1. The session-leader SIGHUP rule is required. Source restored and verified."
+  },
+  {
+   "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin <copy of dist/darwin-arm64> --candidate rust (informational, harness in flux)",
+   "exit_code": 0,
+   "observed": "123/123 pass, verdict pass. Not used as the verdict."
+  },
+  {
+   "command": "rustup component add rust-src --toolchain stable-aarch64-apple-darwin",
+   "exit_code": 0,
+   "observed": "User-level download at 2026-10-03T21:24:40Z, used for the standard-library license inventory"
+  }
+ ],
+ "requirement_ids": [],
+ "evidence_records": [
+  "tests/evidence/g02-rust-selftest.json",
+  "tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2/summary.json",
+  "tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2/manifest.json",
+  "tests/evidence/artifacts/g02-rust/selftest/attempt-3-round2-harness-informational/NOTE.txt"
+ ],
+ "escalations": [
+  "Darwin contract tension (K6/K6a/§4). Darwin gives a terminal-generated signal the same siginfo as kill(2), observed directly. A launcher that stays in its caller's process group therefore cannot meet all three of these: §4 'terminal SIGINT not delivered twice', K6 'explicit signal exactly once in every state', and K6a. Round 1's job-control topology violates K6a whenever another process shares the group. The prototype now chooses K6a + K6, so on Darwin terminal INT/QUIT/WINCH reach the child twice. The harness counts this as non-gating (Q3). This affects any stack, so it needs an orchestrator ruling.",
+  "Group-directed signals from another process (killpg, e.g. a supervisor) reach the child directly and are also forwarded (si_code SI_USER), so the child sees them twice on all platforms. The contract only rules on terminal-generated and PID-directed signals.",
+  "Early SIGINT (review question). Does 'SIGINT while waiting' cover the start-up window? The window between execve and main cannot be closed in user space by any stack. Inside main it is now closed.",
+  "--meta-file failure semantics are unspecified. Should an unwritable or missing meta path be rejected before the child is launched? Should symlinks be followed, and should the write be atomic? Only the FIFO hang was fixed.",
+  "Are SIGPIPE and the blocked-signal mask in K6a scope? Rust std resets an inherited ignored SIGPIPE, and resets the signal mask to empty, in spawned children. Both are recorded as stack behavior; the SIGPIPE one has a test that asserts the limitation."
+ ],
+ "limitations": [
+  "Darwin: terminal-generated INT/QUIT/WINCH reach a 'run' child twice. Linux: exactly once, via the si_code SI_KERNEL filter.",
+  "Stack limitation: Rust std does not preserve an inherited ignored SIGPIPE in spawned children. The opt-out is nightly-only; workarounds that bypass the std runtime were not applied.",
+  "The early-SIGINT gain is small and noisy (recorded: darwin 1 ms 20/30 vs 17/30 cancelled; Linux 0.5 ms 26/30 vs 9/30). At 0 ms every run of both versions is killed.",
+  "Windows x64 is built and clippy-checked only, including SECURITY_IDENTIFICATION on the pipe open. Pipe-server identity check, WaitNamedPipe and a job object are not implemented. Native run blocked: needs a Windows 10/11 x64 host. WSL blocked: needs a Windows host with WSL2.",
+  "linux-x64 tests ran under emulation (alpine 3.22 amd64 image ID c83674e1...), not native x86-64.",
+  "No Linux arm64 run of the shared harness (K13) by this task. The darwin harness run (123/123) is informational because tests/g02 was in flux.",
+  "darwin is ad-hoc signed with the hardened runtime, not Developer-ID signed or notarized (needs owner authority). Toolchain pin is enforced by build.sh refusing rustc != 1.99.0; there is no rust-toolchain.toml.",
+  "Notice inventory: which musl/mingw objects zig substitutes was not traced object by object. The musl license text is zig's copy.",
+  "The K15 bound already held in round 1 (worst case 140 MiB darwin, 116 MiB Linux, 77 ms); round 2 only adds the test.",
+  "The O(n^2) duplicate-check fix has no timing test; its behavior is covered by the existing duplicate tests."
+ ],
+ "summary": "Round 2 for the Rust + Ratatui prototype is done. All 34 self-test steps met expectations on macOS arm64 and in Linux arm64 containers (native kernel), with real exit codes. Each fix has a native test that the round-1 artifacts fail; those red runs are recorded in the evidence.\n\n**Fixes**\n- **K3a (major):** a connection reset after at least one response byte is now `AGENT_PROTOCOL_ERROR`. Fixed in `src/agent.rs` (`read_full`). The Linux test first proves its own probe produces a real ECONNRESET, then checks the result.\n- **K6a (majors):** `run` now uses exec semantics. The child stays in heimdall-proto's process group, and nothing calls `tcsetpgrp` or stops itself, so `&` jobs in scripts and pipeline peers keep the terminal. Signals inherited as ignored stay ignored in the child and are not forwarded (`src/sigdisp.rs`, one query-only `sigaction` call, the only `unsafe` in the crate). A group SIGKILL no longer leaves an orphaned child.\n- **Signal forwarding:** each caught signal carries its siginfo (signal-hook `WithRawSiginfo`, no C). On Linux, kernel-generated signals (`si_code > 0`) are not forwarded, because the child in the same foreground group already received them. The exception is a hangup SIGHUP when heimdall-proto is the session leader; a mutation build showed that rule is needed.\n- **Darwin limitation:** Darwin reports a terminal signal exactly like `kill(2)` (observed with a C probe), so there every signal is forwarded and the child sees terminal Ctrl-C twice. This is recorded as a known limitation and escalated.\n- **K14:** `--file` is opened non-blocking and checked with `fstat`; anything that is not a regular file is `USAGE_ERROR`. The FIFO `--meta-file` hang is also fixed.\n- **K15:** already held in round 1; a 12-input adversarial test now covers it (worst case 140 MiB, 77 ms).\n- **K16:** on Linux the round-1 build ran `tput cols` and `tput lines` through crossterm's `terminal::size()`. On Unix the TUI now decodes input itself (`src/keys.rs`), takes the size from `tcgetwinsize`, and never calls crossterm's event or size functions. This also removed round 1's watchdog thread, and hangups now exit 129 on the main thread.\n- **Windows named pipe:** opened with `SECURITY_IDENTIFICATION` (compile-checked only).\n\n**Smaller fixes**\n- Early-SIGINT handling now starts at the top of `main`; the pre-`main` window remains for any stack.\n- `LICENSES.md` now covers the crates, the Rust standard library and its vendored crates, and native runtime parts (musl, libunwind, GCC crt objects, mingw-w64). The license texts ship as `dist/THIRD-PARTY-NOTICES.txt`.\n- Builds no longer embed the builder's home path, and rebuilding from a different checkout path gives identical digests for all four targets. This uses darwin `-oso_prefix`, Windows `/Brepro` and remapped paths. darwin is signed ad-hoc with the hardened runtime.\n- Tests find fixtures through `HEIMDALL_G02_FIXTURES`, so a copy outside the repo passes.\n- The duplicate id/alias check is now linear time.\n\n**Stack limitation:** an inherited ignored SIGPIPE is not preserved in the child, because Rust std resets it. A test asserts this.\n\nREPORT.md section 13, \"Round 2 (2026-10-03)\", has the defect/ruling table, the mechanism now used and the remaining gaps. The evidence record is attempt 3, with the history kept. An informational darwin run of the in-flux shared harness passed 123/123; it is not the verdict."
+}

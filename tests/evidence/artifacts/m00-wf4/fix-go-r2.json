@@ -1,0 +1,158 @@
+{
+ "task_id": "M00-T05-go-round2-fix",
+ "status": "verified",
+ "files_changed": [
+  "prototypes/go/cmd/heimdall-proto/main.go",
+  "prototypes/go/cmd/heimdall-proto/meta_unix.go",
+  "prototypes/go/cmd/heimdall-proto/meta_windows.go",
+  "prototypes/go/cmd/heimdall-proto/helper_test.go",
+  "prototypes/go/cmd/heimdall-proto/k15_test.go",
+  "prototypes/go/cmd/heimdall-proto/k16_test.go",
+  "prototypes/go/cmd/heimdall-proto/meta_fifo_test.go",
+  "prototypes/go/cmd/heimdall-proto/main_test.go",
+  "prototypes/go/internal/agent/frame.go",
+  "prototypes/go/internal/agent/reset_unix.go",
+  "prototypes/go/internal/agent/reset_windows.go",
+  "prototypes/go/internal/agent/k3a_test.go",
+  "prototypes/go/internal/profile/profile.go",
+  "prototypes/go/internal/profile/guard.go",
+  "prototypes/go/internal/profile/open_unix.go",
+  "prototypes/go/internal/profile/open_windows.go",
+  "prototypes/go/internal/profile/guard_test.go",
+  "prototypes/go/internal/profile/k14_test.go",
+  "prototypes/go/internal/profile/profile_test.go",
+  "prototypes/go/internal/run/run.go",
+  "prototypes/go/internal/run/run_unix.go",
+  "prototypes/go/internal/run/group_darwin.go",
+  "prototypes/go/internal/run/group_linux.go",
+  "prototypes/go/internal/run/group_other.go",
+  "prototypes/go/internal/run/errdot_test.go",
+  "prototypes/go/internal/testfix/testfix.go",
+  "prototypes/go/go.mod",
+  "prototypes/go/build.sh",
+  "prototypes/go/LICENSES.md",
+  "prototypes/go/REPORT.md",
+  "prototypes/go/dist/manifest.json",
+  "prototypes/go/dist/darwin-arm64/heimdall-proto",
+  "prototypes/go/dist/linux-x64/heimdall-proto",
+  "prototypes/go/dist/linux-arm64/heimdall-proto",
+  "prototypes/go/dist/windows-x64/heimdall-proto.exe",
+  "tests/evidence/g02-go-selftest.json",
+  "tests/evidence/artifacts/g02-go/selftest/selftest.py",
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/ (all files: k15_probe.py, startup_probe.py, logs, JSON results, manifest.json)"
+ ],
+ "commands_run": [
+  {
+   "command": "go test -count=1 -v ./... (prototypes/go, darwin-arm64 native, final sources)",
+   "exit_code": 0,
+   "observed": "All 5 packages ok, 48 top-level tests pass. TestGuardAcceptsValidCorpus: 289 parser-valid toml-test documents accepted. Log: round2-20261003/darwin-arm64-go-test.txt"
+  },
+  {
+   "command": "go vet on darwin/arm64, linux/amd64, linux/arm64, windows/amd64; gofmt -l; go mod verify; go mod tidy -diff; GOOS=windows go test -c for each package",
+   "exit_code": 0,
+   "observed": "Every step exits 0; gofmt reports nothing. Log: go-vet-and-windows-compile.txt"
+  },
+  {
+   "command": "go test -run '^$' -fuzz FuzzGuard -fuzztime 30s ./internal/profile/",
+   "exit_code": 0,
+   "observed": "No crash or hang in 30 s. Log: darwin-arm64-fuzz-guard.txt"
+  },
+  {
+   "command": "red/green on darwin: the round-2 tests (K3a|K14|K15|K16|DotPath|MetaFIFO) against the round-1 source snapshot, then against the round-2 sources",
+   "exit_code": 0,
+   "observed": "Before: exit 1, with 6 tests failing (K15, K16, MetaFIFO, K3aResetClassificationReadFrame, K14, DotPath). After: exit 0, all pass. Log: red-green-darwin-arm64.txt"
+  },
+  {
+   "command": "linux/arm64 go test -c binaries, before and after, run in docker alpine@sha256:5291449c... with --network none (native arm64 kernel 7.0.14-linuxkit)",
+   "exit_code": 0,
+   "observed": "Before: the new tests fail; TestK3aResetEndToEnd fails 3 subtests with real ECONNRESET. After: exit 0 for all 5 packages, and the K3a test confirms the kernel delivered ECONNRESET. Logs: linux-arm64-go-test-before-after.txt, k3a-linux-arm64-red-green.txt"
+  },
+  {
+   "command": "cd / && sh prototypes/go/build.sh (run twice)",
+   "exit_code": 0,
+   "observed": "4/4 targets built and the two manifests are identical. Artifacts: darwin-arm64 20e8c5c1... (ad-hoc signature with hardened runtime), linux-arm64 f7d38318..., linux-x64 ee6d2dc5..., windows-x64 31b958ac.... Logs: build.log, build-repeat.log, manifest.json"
+  },
+  {
+   "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py dist/darwin-arm64/heimdall-proto <repo> (2 runs)",
+   "exit_code": 0,
+   "observed": "68/68 in both runs, including the new run.k6a_* checks (6 pipeline/job checks with controls, inherited-ignore int/hup, ctty not on stdio) and k6_foreground_explicit_sigint_once_stderr_piped. An OBSERVE line, not counted, shows the child gets SIGQUIT=dfl."
+  },
+  {
+   "command": "selftest.py with dist/linux-arm64 in python@sha256:2dd78ad5... (alpine, busybox ash) and python@sha256:5024f48b... (bookworm, bash)",
+   "exit_code": 0,
+   "observed": "68/68 in each image. Red reference (round-1 artifact): Linux 61/68, darwin 63/68, exit 1."
+  },
+  {
+   "command": "python3 round2-20261003/k15_probe.py <bin> (32 shapes up to 1 MiB; limits 2 s / 256 MiB), before and after, darwin and linux-arm64",
+   "exit_code": 0,
+   "observed": "After: 32/32 on both, worst accepted case 75.8 MiB (darwin) / 77.1 MiB (Linux), max 0.083 s. Before: exit 1, 25/32 on both, with some runs killed by the probe above 1 GiB."
+  },
+  {
+   "command": "review/probe-scripts/agent_probe.py in Linux arm64 container, before and after",
+   "exit_code": 0,
+   "observed": "Before: exit 1, 3 K3a mismatches. After: 34/34 OK."
+  },
+  {
+   "command": "review/probe-scripts/pipeline_tty_probe.py (darwin bash 3.2; Linux PROBE_SHELL=/bin/sh ash), before and after",
+   "exit_code": 0,
+   "observed": "Before: 2/4 heimdall cases (darwin) and 4/4 (Linux) never got the line. After: every case got it. All controls pass."
+  },
+  {
+   "command": "review/probe-scripts/tui_env_probe.py darwin, before and after",
+   "exit_code": 0,
+   "observed": "Before: a fake tmux on PATH is executed whenever TMUX is set. After: tmux is never executed."
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin DYLD_INSERT_LIBRARIES=<test dylib> <darwin bin> version --json, before and after",
+   "exit_code": 0,
+   "observed": "Before: INJECTED_DYLIB_LOADED. After (hardened runtime, flags 0x10002): no injection."
+  },
+  {
+   "command": "/tmp/hp-go-ev/venv/bin/python schema_check.py dist/darwin-arm64/heimdall-proto <repo>",
+   "exit_code": 0,
+   "observed": "All documents valid; manifest shape passes."
+  },
+  {
+   "command": "INFORMATIONAL: tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate go (final build)",
+   "exit_code": 1,
+   "observed": "123/124. Only run.k6a_inherited_ignore fails, on its async-job SIGQUIT clause: the child had SIG_DFL and heimdall exited 131. The first round-2 build also failed run.explicit_signal_with_tty (it treated a piped stderr as a pipeline); that is fixed and covered by a new selftest check. Not a verdict: the harness is in flux."
+  },
+  {
+   "command": "python3 startup_probe.py dist/darwin-arm64/heimdall-proto <repo>",
+   "exit_code": 0,
+   "observed": "version --json: median 2.96 ms, max RSS 7.1 MiB. profile show large-100: median 3.51 ms, max RSS 7.7 MiB (n=50)."
+  }
+ ],
+ "requirement_ids": [
+  "G02",
+  "K3a",
+  "K6",
+  "K6a",
+  "K7",
+  "K13",
+  "K14",
+  "K15",
+  "K16"
+ ],
+ "evidence_records": [
+  "tests/evidence/g02-go-selftest.json"
+ ],
+ "escalations": [
+  "K6a inherited-ignored SIGQUIT (and SIGTERM, SIGWINCH) is a Go stack limitation. The runtime installs its own handler whatever the inherited disposition: runtime/signal_unix.go sigInstallGoHandler respects SIG_IGN only for SIGHUP and SIGINT. clearSignalHandlers then resets these signals to SIG_DFL in the exec'd child, and os/signal.Ignored cannot see the original disposition. I did not route around it with a heuristic or with linkname to runtime.fwdSig. Decision needed: is this a gating K6a failure for Go in G02, or an accepted limitation? The production fix would be a cgo pre-runtime constructor using sigaction, which means cgo and a dynamic libc.",
+  "Contract gap: an unwritable --meta-file is detected only after the child has run. Heimdall keeps the child's exit status and prints one stderr line. The contract has no code or exit status for refusing the launch, so whether to refuse is an authority-semantics choice for the orchestrator.",
+  "Bidi and zero-width code points (U+202E, U+200B) pass unchanged through agent comments and profile values. This complies with K1/K2, which define the replacement set exactly. Replacing or flagging them is a product decision, not a prototype fix."
+ ],
+ "limitations": [
+  "Windows was not executed. The new Windows code (reset_windows.go mapping, open_windows.go, meta_windows.go) is compile-checked only, and the run/K6/K10 Windows behavior is unchanged and unexecuted.",
+  "linux-x64 was built but not executed in round 2. linux-arm64 ran in the Docker Desktop arm64 VM (native arm64 kernel), not on bare metal.",
+  "Without siginfo in os/signal, modeShared has two gaps. An explicit SIGINT, SIGQUIT, SIGWINCH or SIGHUP sent to heimdall's PID while its group holds the terminal foreground is not forwarded. A killpg of the shared group delivers SIGTERM and SIGHUP twice.",
+  "The K6a mode choice is a heuristic over observable state: process-group membership (sysctl/proc), whether stdin or stdout is a pipe or socket, and the controlling terminal. It misses a peer that joins heimdall's group after the start check without a pipe. Stop mirroring does not re-check membership.",
+  "The K15 guard bounds (depth 32, 65,536 units, 2 MiB of key-path bytes) were tuned from measurements of 32 shapes against BurntSushi/toml v1.6.0. An unmodeled shape could cost more per unit. Valid profiles larger than the bounds (for example about 14,000 destinations) are rejected with SCHEMA_INVALID, which K15 allows.",
+  "The child inheriting a working fd 1 when heimdall starts with stdout closed is a Go runtime behavior (runtime/fds_unix.go). It is not fixed.",
+  "Unchanged gaps: Ctrl-Z/bg/fg after a stop is not automated; there is a PID-reuse window after reap on macOS; SIGKILL of heimdall leaves the child in exclusive and no-tty modes; a terminal hangup can deliver SIGHUP twice in exclusive mode.",
+  "The darwin artifact is ad-hoc signed with hardened runtime only. It is not notarized and has no Developer ID.",
+  "Round 2 has no independent review of its own. The prototype agent wrote all tests; the round-1 reviewer's probes were re-run as before/after evidence.",
+  "The shared harness runs are informational only: another agent is changing tests/g02 concurrently."
+ ],
+ "summary": "Round 2 fixed all four major defects from the round-1 review and the round-2 rulings K14, K15 and K16, but one part of K6a cannot be met in Go: an inherited-ignored SIGQUIT. I recorded that as a stack limitation instead of working around it. Every fix has a native test that fails on the round-1 code and passes now, on darwin-arm64 and in Linux arm64 containers with pinned images.\n\n**The four major defects (all fixed):**\n- **Agent connection reset (K3a):** a reset after at least one response byte now gives AGENT_PROTOCOL_ERROR. On Linux arm64 the test fails unless the kernel really sent a reset. The reviewer's agent probe went from 31/34 to 34/34.\n- **Profile parser memory blow-up (K15):** a fast pre-scan now rejects over-deep or over-large structure with SCHEMA_INVALID before the TOML parser sees the file. Limits: 32 levels of nesting, 65,536 keys and containers, 2 MiB of key-path text. The K15 probe went from 25/32 to 32/32 on both platforms. The worst accepted file used 77 MiB and took 0.08 s.\n- **`run` taking the terminal from its own pipeline (K6a):** `internal/run/run_unix.go` now chooses one of three modes before starting the child:\n  - **No terminal:** the child runs in its own process group and every signal is forwarded once.\n  - **Exclusive** (heimdall is alone in its process group and stdin/stdout are not pipes): the child gets its own group and the terminal foreground.\n  - **Shared** (pipeline peers, or a script that started heimdall in the background): the child stays in heimdall's group and heimdall never touches the terminal.\n\n  A program that reads the terminal in the same pipeline is no longer stopped (6 of 6 cases pass on macOS bash, Linux ash and Linux bash). Inherited-ignored SIGINT and SIGHUP stay ignored in the child. heimdall now also finds the terminal through /dev/tty when stdin, stdout and stderr are redirected.\n- **TUI running `tmux info` (K16):** the TUI now picks its color setting without running anything. Tests with fake tmux, tput, infocmp, stty and screen on PATH confirm nothing is executed.\n\n**Other fixes:**\n- **Non-regular `--file` (K14):** a FIFO, socket, device or directory now gives USAGE_ERROR at once instead of blocking.\n- **GODEBUG:** GODEBUG=execerrdot=0 can no longer re-enable running a command found through `.` in PATH.\n- **FIFO `--meta-file`:** no longer blocks forever when nothing reads the FIFO.\n- **macOS signing:** the darwin build is now signed ad-hoc with the hardened runtime, which blocks DYLD_INSERT_LIBRARIES injection.\n- **Documentation:** LICENSES.md (termios, colorprofile) and the Filter comment are corrected, and REPORT.md has its stale numbers marked and a \"Round 2 (2026-10-03)\" section added.\n- **Relocatable tests:** they find the fixtures through HEIMDALL_G02_FIXTURES or a parent directory.\n\n**A regression I caught and fixed:** the first round-2 build counted a redirected stderr as a pipeline, which made the shared harness's explicit-signal check fail. Only stdin and stdout count now, and a new selftest check covers it.\n\n**Stack limitations:**\n- **Inherited-ignored SIGQUIT (also SIGTERM, SIGWINCH):** the Go runtime installs its own handler for these signals even when heimdall started with them ignored, and the child then gets the default action. Go gives no way to see the original setting without cgo or private runtime access. Observed on both platforms; the informational harness run fails only on this (123/124).\n- **Closed stdout:** if heimdall is started with stdout closed, the Go runtime reopens it to /dev/null, so the child gets a working stdout.\n\n**Minors not fixed, with reasons:** SIGKILL of heimdall leaving the child running, the unwritable-meta-file timing, bidi and zero-width characters, the small PID-reuse window on macOS, the startup SIGTERM race, and the Go runtime environment variables (GOTRACEBACK and similar).\n\n**Results:**\n- Go tests pass on both platforms.\n- Selftest: 68/68 on macOS (two runs) and in both Linux images.\n- `build.sh` builds all four targets, and two builds produced identical checksums.\n- The selftest record now has attempt 3, with verdict `fail` because of the SIGQUIT clause. Its status stays `blocked`: Windows was compiled but not executed.\n\nKey paths:\n- <repo>/prototypes/go/REPORT.md\n- <repo>/prototypes/go/internal/run/run_unix.go\n- <repo>/prototypes/go/internal/profile/guard.go\n- <repo>/tests/evidence/g02-go-selftest.json\n- <repo>/tests/evidence/artifacts/g02-go/selftest/round2-20261003/"
+}

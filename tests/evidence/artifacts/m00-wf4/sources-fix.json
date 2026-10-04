@@ -1,0 +1,89 @@
+{
+ "task_id": "M00-T02-fix",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "<repo>/docs/decisions/0003-source-pins.md",
+  "<repo>/docs/sources/pins.json",
+  "<repo>/docs/sources/README.md",
+  "<repo>/docs/sources/excerpts/notes.md",
+  "<repo>/docs/sources/tools/fetch_pins.py",
+  "<repo>/docs/sources/fetch-baseline.json",
+  "<repo>/docs/sources/fetch-repeat.json",
+  "<repo>/docs/sources/archive-lookups.json",
+  "<repo>/docs/sources/snapshots/README.md",
+  "<repo>/docs/sources/snapshots/ (27 files: S01-S15, S20-S26, S28, S30-S33 .txt.gz)"
+ ],
+ "commands_run": [
+  {
+   "command": "python3 docs/sources/tools/fetch_pins.py fetch --out run1.json ; same --out run2.json ; compare run1 run2 (initial version of script, GET of 34 sources)",
+   "exit_code": 0,
+   "observed": "34/34 HTTP 200. compare: raw identical 34, normalized identical 34."
+  },
+  {
+   "command": "curl GET https://archive.org/wayback/available?url=... via fetch_pins.py archive, two passes (read-only, no save requests)",
+   "exit_code": 0,
+   "observed": "Snapshot found for S01, S03, S11, S15, S20, S23, S25, S30 only (all dated before the pin, Aug-Sep 2026). API inconsistent between passes (503s, snapshots present in one pass and absent in the other). Only S03 archive normalized hash matched the baseline; none matched raw."
+  },
+  {
+   "command": "fetch_pins.py fetch run3 and run4 after adding pinned-commit fetching and git blob sha1 check; compare run3 run4; compare run1 run3",
+   "exit_code": 0,
+   "observed": "run3 vs run4: 34/34 raw and normalized identical. run1 vs run3: 33 identical, S17 differs as expected (run1 fetched main, run3 fetched pinned commit 99641fd). git_blob_matches_pin true for all 7 GitHub sources (S16, S17, S18, S19, S27, S29, S34). The first run3 attempt crashed on a format-string bug (TypeError) and was fixed before the reported runs."
+  },
+  {
+   "command": "fetch_pins.py fetch --out docs/sources/fetch-baseline.json --snapshots-dir docs/sources/snapshots --snapshot-ids <27 ids>; then fetch --out /tmp/.../second.json --snapshots-dir /tmp/.../snap7 (final script version); compare; diff of shasum of all snapshot .gz",
+   "exit_code": 0,
+   "observed": "Both runs rc 0. compare: 34 sources, raw identical 34, normalized identical 34 (markers also equal). Snapshot .gz files byte-identical between the two runs (27/27). Baseline retrieval 2026-10-03T21:17:52Z-21:18:23Z."
+  },
+  {
+   "command": "fetch_pins.py fetch --out final.json ; compare docs/sources/fetch-baseline.json final.json ; fetch_pins.py verify for each of 27 snapshots",
+   "exit_code": 0,
+   "observed": "Third fetch ~3 minutes after baseline: 34/34 raw and normalized identical, compare exit 0. verify: all 27 snapshot normalized hashes match the baseline; no FAIL."
+  },
+  {
+   "command": "gh api GET PowerShell/openssh-portable (repo, contents, commits, releases) and PowerShell/Win32-OpenSSH releases; curl raw LICENCE at e581929 and README files",
+   "exit_code": 0,
+   "observed": "openssh-portable default branch latestw_all, head e581929 2026-09-25T17:09:31Z (merge of v10.3P1), pushed 2026-09-25, not archived, GitHub license NOASSERTION. LICENCE blob aeb3017e, 21140 bytes, raw sha256 5bb5b160...; says all components BSD or freer, no GPL code. Win32-OpenSSH README says active development is in openssh-portable. 5 latest Win32-OpenSSH tags all Preview (latest 10.0.0.0p2-Preview, 2025-10-27). No releases listed on openssh-portable."
+  },
+  {
+   "command": "curl GET registry.npmjs.org/@opentui/core/0.5.14; gh api t3code commits for S17 path; proxy.golang.org v2.0.10.info; curl Pigeons README at 7800c52; read S26/S31/S22 snapshots",
+   "exit_code": 0,
+   "observed": "OpenTUI engines bun >=1.3.0 and node >=26.4.0 (two keys); exports '.' has bun, node, import, types conditions; full integrity sha512-tfQ+PWQy...kg== recorded. S17 drift commit 9333509 (2026-10-03T04:42:36Z), blob now 35c8b0a. Bubble Tea v2.0.10 origin hash d5bfd5c. Pigeons README confirms opt-in telemetry, root service, ~/.ssh/config write, .ssh/pigeons_ed25519. 'Be very specific about your end goal' found in S31 snapshot, not S26. S22 'Endpoint.bind applies the n0 preset' found."
+  },
+  {
+   "command": "python3 validation: json.load of 4 JSON files; ADR table rows vs pins.json ids; snapshot gz_sha256 vs files; grep HEIMDALL_CANARY over pins.json, baseline, all snapshots",
+   "exit_code": 0,
+   "observed": "All JSON valid; 34 ADR rows match pins.json order; snapshot hashes match; 0 canary hits (grep -c 0, rc 1 means no match)."
+  }
+ ],
+ "requirement_ids": [
+  "R-QU-01",
+  "R-QU-07",
+  "R-DI-08",
+  "plan 1.4",
+  "G01"
+ ],
+ "evidence_records": [
+  "docs/sources/fetch-baseline.json",
+  "docs/sources/fetch-repeat.json",
+  "docs/sources/archive-lookups.json",
+  "docs/sources/pins.json (pin_v2)",
+  "docs/decisions/0003-source-pins.md"
+ ],
+ "escalations": [
+  "E6 (restated): the Win32-OpenSSH licence is a BSD-style LICENCE in PowerShell/openssh-portable, so the licensing question is closed as factual; the owner decision that remains is whether a Preview-only release line (all 5 latest tags Preview, latest 2025-10-27, source head ahead with OpenSSH 10.3p1 merged) may be a 'supported' Windows OpenSSH baseline.",
+  "E8 (new): 27 compressed normalized-text snapshots of third-party docs are committed under docs/sources/snapshots/ for verification. Owner decides whether to keep, replace with hashes plus archive URLs, or remove them before any publication. Only the visible text needed for claim checking is stored; copyright stays with publishers.",
+  "E1 (restated, owner wording decision): suggested spec clarification that remembered key approvals can survive a 1Password lock under the timed option while key access still needs unlock. Not a contradiction with spec line 323.",
+  "E4 (restated): OpenTUI engines lists bun >=1.3.0 and node >=26.4.0 as separate keys; whether either runtime suffices and how native code loads under Node are inference until G02 tests them."
+ ],
+ "limitations": [
+  "Not re-reviewed independently after this fix; status stays implemented_unverified.",
+  "Raw-hash stability across hours is shown only for 15 sources (one ~21 h interval vs v1). 13 sources changed raw bytes since v1 and 6 OpenAI/ChatGPT .md pages have no v1 raw hash, so those 19 use the normalized-text hash as primary. Reproducibility of the new baseline was shown over minutes (baseline, repeat, and a third fetch ~3 min later), not over days.",
+  "Normalized hashes depend on Python html.parser/unicodedata behavior; baseline produced with Python 3.14.8. A mismatch should be checked against the snapshot before being treated as drift.",
+  "archive.org availability API was inconsistent across passes, so absence of an archive URL is not proof of absence; every archive snapshot found predates the pin and only S03's text matches. Archive URLs are hints, not the copy of record. No save requests were made.",
+  "Win32-OpenSSH Windows-specific source files were sampled (one file), not audited for licence headers.",
+  "OpenTUI runtime/FFI claims, E2 Match exec behavior and Iroh JS on Intel macOS remain untested inference (G02, G07, G09).",
+  "Only @opentui/core has a full npm integrity pin; other candidate packages have no integrity or checksum pin yet.",
+  "The v1 text_sha256 values are kept only as legacy_text_sha256_unreproducible; the v1 claim that all 34 text hashes matched on re-fetch is withdrawn as unverifiable."
+ ],
+ "summary": "Both major review defects and all listed minors are addressed in docs/sources/** and ADR-0003 (status implemented_unverified, not re-reviewed). (1) Reproducible pins: docs/sources/tools/fetch_pins.py (stdlib, GET only, documented normalizer v1) is committed. Baseline in fetch-baseline.json: 34/34 HTTP 200, raw and normalized sha256 per source. Two back-to-back runs (plus two earlier pairs and a third fetch ~3 min later) gave 34/34 identical raw and normalized hashes, and the 27 snapshot .gz files are byte-identical across runs. Primary pin is raw sha256 for the 15 sources whose v1 raw hash reproduced ~21 h later and normalized-text sha256 for the other 19; GitHub sources are fetched at the pinned commit and all 7 git blob sha1 values match. archive.org (read-only availability GET, two inconsistent passes) found snapshots for only 8 sources, all older than the pin and only S03 matching, so archive URLs are recorded as hints and 27 deterministic compressed normalized-text snapshots are stored in docs/sources/snapshots/ with a copyright/scope README (owner decision E8). The v1 text hashes are kept only as legacy_unreproducible. (2) Win32-OpenSSH now cites PowerShell/openssh-portable (latestw_all, head e581929 2026-09-25, LICENCE blob aeb3017e with the BSD-style text, release repo vs source repo distinguished); E6 restated as a Preview-only support-baseline decision. Minors: S26 excerpt corrected (quote moved to S31); OpenTUI engines recorded as two separate keys with exports conditions and full integrity, with the 'or' reading and Bun-FFI loading labelled inference; S17 drift (commit 9333509) noted with the pin kept at the commit permalink; S27 pin vs tag commit noted; Pigeons telemetry, root service, ~/.ssh/config write, dedicated key and fixture rule recorded (S22 n0 preset default also noted); E1 restated as a suggested spec clarification, not a contradiction. Canary scan of all written files: 0 hits.\""
+}

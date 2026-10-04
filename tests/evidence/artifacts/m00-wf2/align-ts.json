@@ -1,0 +1,113 @@
+{
+ "task_id": "M00-T05-ts-align",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/prototypes/ts/src/domain/result.ts",
+  "<repo>/prototypes/ts/src/domain/agent.ts",
+  "<repo>/prototypes/ts/src/domain/profile.ts",
+  "<repo>/prototypes/ts/src/domain/listview.ts",
+  "<repo>/prototypes/ts/src/cli.ts",
+  "<repo>/prototypes/ts/src/platform/run.ts",
+  "<repo>/prototypes/ts/src/platform/posix-spawn.ts (new)",
+  "<repo>/prototypes/ts/src/platform/tty.ts (deleted)",
+  "<repo>/prototypes/ts/build.sh",
+  "<repo>/prototypes/ts/scripts/manifest.ts",
+  "<repo>/prototypes/ts/test/agent.test.ts",
+  "<repo>/prototypes/ts/test/profile.test.ts",
+  "<repo>/prototypes/ts/test/run.test.ts",
+  "<repo>/prototypes/ts/test/units.test.ts",
+  "<repo>/prototypes/ts/test/tui.test.ts",
+  "<repo>/prototypes/ts/test/dist.test.ts (new)",
+  "<repo>/prototypes/ts/REPORT.md",
+  "<repo>/prototypes/ts/LICENSES.md",
+  "<repo>/prototypes/ts/dist/** (rebuilt, 4 targets + sidecars, manifest.json)",
+  "<repo>/tests/evidence/g02-ts-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/k-align/ (new: build.log, build-started.txt, manifest.json, typecheck.log, test-source.log, test-dist-darwin-arm64.log, negative-control-old-binary.log, probes.sh, probes.log, ctest-k.sh, linux-container-smoke.log, shared-harness-preview.log, source-vs-pre-alignment.diff)"
+ ],
+ "commands_run": [
+  {
+   "command": "prototypes/ts: ./node_modules/.bin/tsc --noEmit -p .",
+   "exit_code": 0,
+   "observed": "no errors (final run after all edits)"
+  },
+  {
+   "command": "sh prototypes/ts/build.sh (started 2026-10-03T18:21:18Z)",
+   "exit_code": 0,
+   "observed": "4/4 built with sidecars: darwin-arm64 67147506 B cbc197f6...; linux-x64 86205920 B 8feca43b...; linux-arm64 86165800 B 31ee3c33...; windows-x64 90981888 B 79e58273...; rebuild at 18:24:56Z after a comment-only edit had a byte-identical manifest (cmp exit 0)"
+  },
+  {
+   "command": "prototypes/ts: bun test --timeout 30000 (source, final)",
+   "exit_code": 0,
+   "observed": "153 pass, 0 fail, 7 files"
+  },
+  {
+   "command": "prototypes/ts: HEIMDALL_PROTO_BIN=$PWD/dist/darwin-arm64/heimdall-proto bun test --timeout 30000 (final)",
+   "exit_code": 0,
+   "observed": "153 pass, 0 fail"
+  },
+  {
+   "command": "prototypes/ts: bun test --timeout 30000 test/run.test.ts (x3, after the Ctrl-Z test was added)",
+   "exit_code": 0,
+   "observed": "15 pass each time"
+  },
+  {
+   "command": "HEIMDALL_PROTO_BIN=/tmp/g02ts-negctl/old-run/heimdall-proto bun test --timeout 30000 (negative control: binary built from reconstructed pre-alignment sources)",
+   "exit_code": 1,
+   "observed": "143 pass, 9 fail: K1 e2e, K2 CLI, K6 PTY (the doubled WINCH) + own-pgid, K9 PTY Esc selection, K11 x4. K3, K4 and K10 tests passed on the old binary (already conformed)."
+  },
+  {
+   "command": "docker run --rm --network none --platform linux/arm64 debian:trixie sh /s/ctest-k.sh (dist/linux-arm64)",
+   "exit_code": 0,
+   "observed": "K5 states ok; launch failure gives CHILD_LAUNCH_FAILED 127; env 61 ff 62 kept; argv 61 ff 62 arrives as 61 ef bf bd 62 (K8); child pgid==pid; no-tty explicit INT=1 QUIT=1; script(1) PTY: terminal ^C + explicit kill -INT gives INT=2, shell pgrp == tty fg after; TUI with fresh TMPDIR and hostile OTUI_ASSET_ROOT/OPENTUI_LIBC: exit 0, rendered, fresh TMPDIR empty, no .bun-* in /tmp; missing sidecar gives tui exit 1"
+  },
+  {
+   "command": "docker run --rm --network none --platform linux/amd64 debian:trixie sh /s/ctest-k.sh (dist/linux-x64, emulated)",
+   "exit_code": 0,
+   "observed": "same results as arm64 (final build). An earlier build without the Bun.which pre-check gave CHILD_EXITED 127 for a missing command under emulation; fixed and re-run."
+  },
+  {
+   "command": "OLD_BIN=/tmp/g02ts-negctl/old-run/heimdall-proto sh tests/evidence/artifacts/g02-ts/selftest/k-align/probes.sh",
+   "exit_code": 0,
+   "observed": "K8 argv 61 ff 62 arrives as 61 ef bf bd 62; env 61 ff 62 unchanged; BUN_BE_BUN=1 -e evaluated code (exit 0); .env not loaded; profile/version/run/tui leave a fresh TMPDIR empty; K6 explicit kill -INT while proto is the PTY fg group: child INT count 1 (new) vs 0 (pre-alignment)"
+  },
+  {
+   "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate ts --out /tmp/g02ts-harness/out.json (INFORMATIONAL, harness in flux, read-only)",
+   "exit_code": 0,
+   "observed": "95/95 pass; run.argv_invalid_utf8 is non-gating in this harness version and recorded ok:false (expected fffe2d78, observed efbfbdefbfbd2d78)"
+  },
+  {
+   "command": "bun ajv validation of tests/evidence/g02-ts-selftest.json against tests/evidence/record.schema.json",
+   "exit_code": 0,
+   "observed": "schema valid"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "<repo>/tests/evidence/g02-ts-selftest.json"
+ ],
+ "escalations": [
+  "E1 (K11 'its own directory'): OpenTUI resolves assets as OTUI_ASSET_ROOT/<pkg>/<file>, so the sidecar sits in a subdirectory: dist/<target>/@opentui/core-<platform>/<lib>, located from the executable's real path. I read 'its own directory' as including this subtree. A flat layout would need a patched OpenTUI. Please confirm.",
+  "E2 (K8): raw argv bytes can be reached through bun:ffi (_NSGetArgv on macOS, /proc/self/cmdline on Linux) and could be passed to the posix_spawnp call that K6 already uses. Not implemented, because K8 forbids routing around a stack limitation. This needs a ruling on whether bun:ffi counts as 'the stack' for K8.",
+  "E3 (harness): the in-flux tests/g02/conformance.py (sha256 75b23fbe...) still marks run.argv_invalid_utf8 non-gating ('README open question Q2'), which contradicts K8. For the harness owner. The TS candidate fails that check.",
+  "E4 (scope): Ctrl-Z propagation (child stop -> proto takes the terminal back and SIGSTOPs itself; on SIGCONT it hands the terminal back and continues the child) goes beyond the letter of §9. I added it only because the K6 terminal hand-off would otherwise leave the terminal owned by a stopped child. About 10 lines, with its own PTY test."
+ ],
+ "limitations": [
+  "Native Windows execution blocked: needs a Windows x64 host. The windows-x64 artifact and its opentui.dll sidecar build, but the Windows paths are compile-checked only (named pipe, console Ctrl-C, CreateProcess quoting, sidecar loading).",
+  "No clean bare-metal macOS or Linux machine: macOS ran on the development host; Linux ran in Docker containers, with linux-x64 emulated. debian:trixie was re-pulled from the registry for each platform; the containers themselves ran with --network none.",
+  "K8 and BUN_BE_BUN=1 are Bun stack limitations: recorded, not worked around.",
+  "K6 gaps, not tested: a signal arriving before posix_spawnp returns is not forwarded; if heimdall-proto is SIGKILLed while the child holds the terminal, the child stays in the foreground; children that do their own job control were not tried. If the Ctrl-Z test fails mid-way, it may leave a stopped child.",
+  "The negative-control binary was built from pre-alignment sources reconstructed from the captured listing of the original files (diff saved). Its digest differs from the first build's because the output file name is embedded.",
+  "Startup, RSS and first-frame measurements were not repeated for the new build.",
+  "The shared harness run is informational only: the harness is being changed concurrently.",
+  "I did not create or remove the pre-existing $TMPDIR/.bun-501-* files in the owner's real TMPDIR. The negative-control runs of the old binary reused one of them. Two orphaned processes from my negative-control runs (old proto PIDs 16567 and 22452, Python children 16578 and 22453; identity checked by executable path and start time) were stopped by SIGKILL of the exact child PIDs; nothing remains. The two K6 PTY tests now write the child's stop file in `finally`.",
+  "REPORT.md and LICENSES.md were edited in place with a python heredoc through the shell. No write was refused, so doc_updates is empty."
+ ],
+ "summary": "I brought the TS prototype into line with all twelve §9 rulings except K8, which can't be met on Bun and is recorded as a stack limitation. All four targets build (exit 0); the 153 native tests pass against both the source and the darwin-arm64 binary (exit 0 both). The evidence record is \"verified\" with verdict \"fail\" (because of K8). Native Windows runs are blocked: no Windows x64 host.\n\n| Ruling | Result | Proof |\n|---|---|---|\n| K1 | Changed. Control characters (C0 incl. TAB, DEL, C1) and invalid UTF-8 in `comment` and `key_type` now become U+FFFD instead of `\\u001b`-style text. A `key_type` that is not valid UTF-8 now gives U+FFFD, not a protocol error. Files: `src/domain/result.ts`, `src/domain/agent.ts`. | Three K1 tests in `agent.test.ts`, one of them end-to-end through a fake agent socket |\n| K2 | Changed. A control character in a profile string value outside `[meta]` gives `SCHEMA_INVALID`; `key_path` names the key and the value is never echoed. File: `src/domain/profile.ts`. | Six domain tests, one CLI test and one `[meta]`-tolerance test in `profile.test.ts` |\n| K3 | Already conformed | New close and reset tests in `agent.test.ts` |\n| K4 | Already conformed | Existing domain test plus a new end-to-end test |\n| K5 | Already conformed | `run.test.ts` now asserts `state` |\n| K6 | Changed (see below) | Three tests in `run.test.ts`, the probe script, and both Linux containers |\n| K7 | Statement only | — |\n| K8 | Stack limitation | `61 ff 62` arrives as `61 ef bf bd 62` on macOS and both Linux containers. No workaround added. |\n| K9 | Changed. Each filter edit (append, Backspace, Esc) selects the first shown row; Enter keeps the selection. File: `src/domain/listview.ts`. | Unit test plus an assertion in the real-PTY filter test |\n| K10 | Already conformed | Added \"no SELECTED output\" checks and a terminal-hangup test (exit 129) |\n| K11 | Changed (see below) | Five tests in the new `test/dist.test.ts`, the probe script, and both Linux containers |\n| K12 | Statement only | — |\n\n**K6.** The fix needed about 170 lines of unsafe `bun:ffi` code in a new `src/platform/posix-spawn.ts`, because `Bun.spawn` can't put the child in its own process group.\n- **How it works.** The child is launched with `posix_spawnp` in its own process group, with default signal handling and no leaked file descriptors. When `heimdall-proto` is the terminal's foreground group, it hands the terminal to the child and takes it back afterwards. Every signal it receives is forwarded exactly once.\n- **Proof.** An explicit `kill -INT` while `heimdall-proto` is in the foreground now reaches the child once; the old build delivered it 0 times.\n- **Old double-delivery.** The old build also delivered a terminal resize (SIGWINCH) twice; that is fixed.\n- **Launch-failure pre-check.** I added a `Bun.which` lookup before spawning. Without it, the emulated linux-x64 container reported a missing command as a normal exit 127.\n- **Ctrl-Z.** I added handling so it doesn't leave the terminal owned by a stopped child.\n\n**K11.** `build.sh` no longer embeds the OpenTUI library.\n- **Sidecar layout.** It ships the library as `dist/<target>/@opentui/core-<platform>/<lib>`. Each target's library is listed under `sidecars` in `dist/manifest.json`.\n- **Loading.** The program loads it only from its own real directory and overrides inherited `OTUI_ASSET_ROOT` and `OPENTUI_LIBC`. If the sidecar is missing, the TUI exits 1 with no fallback.\n- **TMPDIR.** A fresh empty TMPDIR stays empty for every command, on macOS and in both Linux containers.\n- **Still open.** `BUN_BE_BUN=1` still turns the binary into a general Bun runtime. No build flag disables it, so it is recorded as a stack limitation.\n\n**Negative control.** I ran the new suite against a binary rebuilt from the old sources. It failed 9 tests, exactly on the changed behaviors; the K3, K4 and K10 tests passed, as expected for already-conformed rulings.\n\n**Shared harness.** An informational, read-only run scored 95/95. That harness version still treats the invalid-UTF-8 argv check as non-gating (contrary to K8); the check itself recorded the mismatch.\n\n**Other updates.** I appended the \"§9 alignment (2026-10-03)\" section to `REPORT.md` and marked the statements it made stale. I also corrected `LICENSES.md`: judging by the size drop, the old Linux binaries embedded the musl library as well as the glibc one.\n\n**Decisions for you:**\n- **E1.** The sidecar sits in a subdirectory of the executable's directory, because OpenTUI's lookup path forces it. A flat layout would need a patched OpenTUI. Does that count as \"its own directory\" under K11?\n- **E2.** The raw argv bytes are reachable through `bun:ffi` and could be passed to the spawn call K6 already uses, which would fix K8. I didn't do it because K8 says not to route around a stack limitation; does `bun:ffi` count as \"the stack\"?\n- **E3.** The harness owner should make the argv check gating to match K8.\n- **E4.** The Ctrl-Z handling (about 10 lines, own test) goes beyond §9; keep it or drop it.",
+ "doc_updates": []
+}

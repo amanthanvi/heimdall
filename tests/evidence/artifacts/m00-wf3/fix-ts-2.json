@@ -1,0 +1,88 @@
+{
+ "task_id": "M00-T05-ts-fix",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/prototypes/ts/REPORT.md",
+  "<repo>/tests/evidence/g02-ts-selftest.json",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/started.txt",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/build.log",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/manifest.json",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/typecheck.log",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/test-source.log",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/test-dist-darwin-arm64.log",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/test-dist-darwin-arm64-relative-bin-invocation-error.log",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/harness-recheck.log",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/harness-recheck-summary.json",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/argv-k8-probe.py",
+  "<repo>/tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/argv-k8-probe.log",
+  "<repo>/prototypes/ts/dist/** (rebuilt by build.sh; darwin-arm64 output byte-identical)"
+ ],
+ "commands_run": [
+  {
+   "command": "shasum -a 256 tests/g02/conformance.py",
+   "exit_code": 0,
+   "observed": "f2ccd7e7238683214c4ec7ca906072ce991c659284fe2ba5b3819f45a6593a81. The run.argv_invalid_utf8 check is declared gating, which matches K8."
+  },
+  {
+   "command": "python3 argv-k8-probe.py (bun -e printing hex of process.argv and Bun.argv for a\\xffb, caf\\xe9, 'valid \\xc3\\xbc')",
+   "exit_code": 0,
+   "observed": "Both APIs show 61efbfbd62, 636166efbfbd and 76616c696420c3bc. Invalid bytes become U+FFFD before user code runs, and valid UTF-8 is intact."
+  },
+  {
+   "command": "grep -rn argv node_modules/bun-types/*.d.ts",
+   "exit_code": 0,
+   "observed": "Only string[] argv APIs exist (Bun.argv, process.argv, execArgv). There is no raw-bytes argv API."
+  },
+  {
+   "command": "cd prototypes/ts && ./build.sh",
+   "exit_code": 0,
+   "observed": "All 4 targets built. darwin-arm64 sha256 dd7a771d81ef... is byte-identical to the previous build, and the sidecar libopentui.dylib is 708d89cc..."
+  },
+  {
+   "command": "cd prototypes/ts && bunx tsc --noEmit",
+   "exit_code": 0,
+   "observed": "No errors."
+  },
+  {
+   "command": "cd prototypes/ts && bun test --timeout 30000",
+   "exit_code": 0,
+   "observed": "154 pass, 0 fail, 7 files."
+  },
+  {
+   "command": "cd prototypes/ts && HEIMDALL_PROTO_BIN=dist/darwin-arm64/heimdall-proto bun test --timeout 30000 (relative path)",
+   "exit_code": 1,
+   "observed": "150 pass, 4 fail. All 4 are ENOENT from posix_spawn of the relative path, in tests that change cwd or copy the binary. This was my invocation error, and the log is kept."
+  },
+  {
+   "command": "cd prototypes/ts && HEIMDALL_PROTO_BIN=<repo>/prototypes/ts/dist/darwin-arm64/heimdall-proto bun test --timeout 30000",
+   "exit_code": 0,
+   "observed": "154 pass, 0 fail."
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --candidate ts --bin <abs>/prototypes/ts/dist/darwin-arm64/heimdall-proto --out /tmp/heimdall-g02-ts-recheck.json --artifacts-dir /tmp/heimdall-g02-ts-recheck-artifacts",
+   "exit_code": 1,
+   "observed": "113 checks: 112 pass, 1 fail, 0 error, 0 skipped. The failure is run.argv_invalid_utf8: differing_indexes 0-6, and index 7 (valid UTF-8) matches. The record has status verified and verdict fail. Ran 2026-10-03T20:08:57Z to 20:09:44Z."
+  },
+  {
+   "command": "python3 -c 'minischema.validate(record.schema.json, g02-ts-selftest.json)'",
+   "exit_code": 0,
+   "observed": "errors: [] (an earlier call with the arguments reversed raised SchemaUnsupported; that was my mistake)."
+  }
+ ],
+ "requirement_ids": [],
+ "evidence_records": [
+  "<repo>/tests/evidence/g02-ts-selftest.json"
+ ],
+ "escalations": [
+  "E2 (carried forward, not decided here): the only way to get raw argv bytes in this stack is bun:ffi to _NSGetArgv (macOS) or /proc/self/cmdline (Linux), passed into the posix_spawnp path the prototype already uses. K8 explicitly classes this as routing around, so it was not implemented. It is recorded as a production option only. The G02 comparison should score TS as failing gating check run.argv_invalid_utf8 because of the stack limitation.",
+  "Harness owner (not my write scope): the harness --out record (/tmp/heimdall-g02-ts-recheck.json) has assertion descriptions that quote the literal fixture canary values. The descriptions are 'output never contains the offending value HEIMDALL_CANARY_<redacted>…' and '…HEIMDALL_CANARY_<redacted>…' from invalid-forbidden-key.toml and invalid-unknown-dest-key.toml. The prototype output had no canaries: all no-canary assertions passed, and grep found 0 hits in the artifact dir. Under CLAUDE.md any canary string in output is a defect, so any copy of the full record into the repo would carry them. I copied only a redacted summary, as the previous pass also did.",
+  "Stale escalation E3 in prototypes/ts/REPORT.md: the current harness gates run.argv_invalid_utf8, so E3 no longer applies. The new REPORT section says so. The original E3 text was left in place as history."
+ ],
+ "limitations": [
+  "The prototype source is unchanged. The one remaining failure is a K8 stack limitation, so no conformant fix exists in this stack without the excluded bun:ffi route. The shared harness still exits 1 (112/113).",
+  "Verified on macOS arm64 only. I did not re-run the Linux containers. Native Windows is blocked: no Windows x64 host.",
+  "tests/evidence/g02-ts-conformance.json was not rewritten (owned by the conformance runner). The harness run was read-only, to /tmp.",
+  "The rebuild produced a byte-identical darwin-arm64 artifact, so this pass adds no new behavioral evidence beyond re-confirmation."
+ ],
+ "summary": "I couldn't fix `run.argv_invalid_utf8` within the contract. It is a stack limitation under K8, so I made no source change; the harness still exits 1 (112/113 pass) and this is the only failure. Bun turns invalid UTF-8 argv bytes into U+FFFD before user code runs (`process.argv` and `Bun.argv` both give `61efbfbd62` for the input `61 ff 62`), and `bun-types` has no raw-bytes argv API. The only way around it is `bun:ffi` to `_NSGetArgv` or `/proc/self/cmdline`, which K8 counts as routing around, so I recorded it as a production option and did not take it.\n\nThis is not a harness defect. The current harness (`conformance.py` sha256 `f2ccd7e7…`) gates the check, which matches K8, so the old E3 note in `REPORT.md` is stale.\n\nRe-verification, with real exit codes:\n- **Build:** `build.sh` exit 0, all 4 targets. The darwin-arm64 executable is byte-identical to the previous build (`dd7a771d…`).\n- **Typecheck:** `tsc --noEmit` exit 0.\n- **Native tests:** exit 0, 154/154, both from source and against the built binary.\n- **Full harness:** read-only, output to `/tmp/heimdall-g02-ts-recheck.json`, exit 1, 112/113. `run.argv_invalid_utf8` fails on elements 0–6; element 7, the valid UTF-8 one, matches.\n\nMy first test run against the built binary used a relative path and exited 1 with 4 file-not-found failures in tests that change directory. That was my mistake, not a prototype defect; the rerun with an absolute path passed, and I kept the failed log.\n\nI appended a \"Conformance fixes, second pass\" section to `prototypes/ts/REPORT.md`, added the evidence under `tests/evidence/artifacts/g02-ts/selftest/conformance-fix-2/`, and updated `tests/evidence/g02-ts-selftest.json` as attempt 4 with attempt 3 archived. The record validates against the schema. The REPORT.md write succeeded, so no `doc_updates` are needed.\n\nFor the harness owner: the full harness record quotes two fixture canary values inside its own assertion text. The prototype's output contained no canaries. I copied only a redacted summary into the repo."
+}

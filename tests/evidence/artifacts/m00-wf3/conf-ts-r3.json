@@ -1,0 +1,16 @@
+{
+ "candidate": "ts",
+ "harness_exit_code": 1,
+ "evidence_record": "tests/evidence/g02-ts-conformance.json",
+ "passed": 112,
+ "failed": 1,
+ "errored": 0,
+ "failures": [
+  {
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "Contract §4/K8 gates byte-for-byte passing of non-UTF-8 argv elements on Unix. Observed in the harness record: elements 0-6 differ (e.g. expected fffe2d78, observed efbfbdefbfbd2d78; 61 ff 62 style bytes become U+FFFD); element 7 (valid UTF-8) matches. All other assertions in the check pass (exit 0, stderr empty, meta valid, no stray writes). The harness precondition that the args are not valid UTF-8 passed, and conformance.py (sha256 f2ccd7e7...) marks the check gating, consistent with K8, so this is not a harness defect. Cause per prototypes/ts/REPORT.md: Bun decodes argv to JS strings before user code runs. It is a stack limitation, but K8 says a stack that cannot pass records the limitation and still fails the check; the FFI route (_NSGetArgv, /proc/self/cmdline) is explicitly ruled as routing around, so it is not conformance. Deterministic: failed 3 of 3 isolated reruns with --only (exit 1 each) in addition to the full run. I verified the failure output myself but did not independently reproduce the Bun-decoding cause beyond the REPORT."
+  }
+ ],
+ "summary": "Rebuilt via sh prototypes/ts/build.sh (exit 0, 4 targets, darwin-arm64 sha dd7a771d...). The full harness run (exit 1) scored 112/113 with 0 errors. The only failure is run.argv_invalid_utf8 (K8), classified as prototype_defect due to a Bun stack limitation. It is deterministic: 3 of 3 isolated reruns failed. Earlier-round outputs were moved to tests/evidence/artifacts/g02-ts/conformance/r2 (r1 already sits at artifacts/g02-ts/r1). The new artifacts are in tests/evidence/artifacts/g02-ts/conformance. Build log is /tmp/ts-build-r3.log and the harness log is /tmp/ts-conf-r3.log. The rerun outputs are /tmp/ts-only-{1,2,3}.json."
+}

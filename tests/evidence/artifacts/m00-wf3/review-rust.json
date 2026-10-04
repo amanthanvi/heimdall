@@ -1,0 +1,322 @@
+{
+ "subject": "M00-T05-review-rust: independent adversarial review of the Rust + Ratatui + crossterm G02 prototype (prototypes/rust, untracked, on top of 18bb8df)",
+ "reexecuted_commands": [
+  {
+   "command": "rsync -a --exclude dist --exclude target --exclude __pycache__ prototypes/rust/ /tmp/heimdall-review-rust/",
+   "exit_code": 0,
+   "observed": "Made a clean copy of the source to build in."
+  },
+  {
+   "command": "cd /tmp/heimdall-review-rust && CARGO_ZIGBUILD=<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild sh ./build.sh",
+   "exit_code": 0,
+   "observed": "Built all 4 targets (7, 5, 6, 5 s). darwin-arm64 sha256 5984d60f... (manifest has 4f852143...), same size 755840. linux-x64 10e6bf89... and linux-arm64 9bbd19c3... are bit-identical to the producer manifest. windows-x64 73a9231a... differs (manifest 6a177ad4...)."
+  },
+  {
+   "command": "cmp -l producer vs reviewer darwin binary; otool -l | grep LC_UUID",
+   "exit_code": 0,
+   "observed": "47 bytes differ: the LC_UUID plus the ad-hoc signature hashes."
+  },
+  {
+   "command": "rm -rf target/aarch64-apple-darwin && cargo build --release --locked --target aarch64-apple-darwin (same dir), then the same in /tmp/heimdall-review-rust-b",
+   "exit_code": 0,
+   "observed": "Same directory: 5984d60f... (identical to the first reviewer build). Different directory: 766ce995... So the darwin digest depends on the absolute build path and is not reproducible across checkouts."
+  },
+  {
+   "command": "cargo-zigbuild zigbuild --release --locked --target x86_64-pc-windows-gnu (clean rebuild, same dir)",
+   "exit_code": 0,
+   "observed": "d8271dbd... vs 73a9231a...: only 2 bytes differ, at offsets 0x80-0x81 (COFF TimeDateStamp)."
+  },
+  {
+   "command": "strings -a dist/*/heimdall-proto* | grep -c amanthanvi",
+   "exit_code": 0,
+   "observed": "62-65 embedded /Users/<builder>/.cargo/registry/... paths in every artifact (no path remapping)."
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --bin /tmp/heimdall-review-rust/dist/darwin-arm64/heimdall-proto --candidate rust --out tests/evidence/artifacts/g02-rust/review/conformance/g02-rust-conformance-review.json --artifacts-dir .../review/conformance/artifacts",
+   "exit_code": 0,
+   "observed": "113 total, 113 pass, 0 fail, 0 error, 0 skipped. status=verified, verdict=pass. Matches the recorded darwin verdict."
+  },
+  {
+   "command": "docker run --network none --platform linux/arm64 python:3.13-alpine python3 tests/g02/conformance.py --bin /dist/linux-arm64/heimdall-proto --only agent.reset_before_reply,agent.reset_after_partial_header,agent.eof_before_reply,agent.eof_after_partial_header,harness.fake_agent_modes",
+   "exit_code": 1,
+   "observed": "4 pass, 1 fail. FAIL agent.reset_after_partial_header: expected AGENT_PROTOCOL_ERROR, observed AGENT_UNAVAILABLE."
+  },
+  {
+   "command": "docker run --network none --platform linux/arm64 python:3.13-alpine python3 tests/g02/conformance.py --bin /dist/linux-arm64/heimdall-proto (full)",
+   "exit_code": 1,
+   "observed": "88 pass, 2 fail, 23 error. The 23 errors are from /usr/bin/ssh-keygen being absent in the image. profile.unreadable_file fails because the container runs as root. Both are harness-environment causes. All run.* and tui.* checks pass on Linux. The only product failure is agent.reset_after_partial_header."
+  },
+  {
+   "command": "python3 /tmp/hr-probe/agent_probe.py <darwin bin> (crafted frames from my own Unix-socket server)",
+   "exit_code": 1,
+   "observed": "29 of 31 cases pass, including: exact 262144-byte frame OK, 262145 and 0xFFFFFFFF lengths rejected, nkeys 1025 and 0xFFFFFFFF rejected, string overruns, trailing bytes, type 6 and 14, FAILURE with payload, EOF positions (K3), slow drip timed out at 510 ms, listener that never accepts (409 ms), socket path that is a file/dir/FIFO/missing/too long, SIGINT at 10-29 ms (exit 130 within 13 ms), and only 000000010b was ever sent. 2 fail: SIGINT at 0-1 ms after spawn kills the process by signal (rc -2) with no JSON, and the agent is never contacted."
+  },
+  {
+   "command": "docker (linux/arm64 python:3.13-alpine) python3 /probe/agent_probe.py /dist/linux-arm64/heimdall-proto",
+   "exit_code": 1,
+   "observed": "Same as darwin. Only sigint_at_0ms and the delay-0 sweep entry fail (startup race)."
+  },
+  {
+   "command": "docker (linux/arm64) python3 /probe/k3a_linux.py /dist/linux-arm64/heimdall-proto",
+   "exit_code": 1,
+   "observed": "Reset before any byte gives UNAVAILABLE (correct). Reset after 1, 3 or 5 bytes gives AGENT_UNAVAILABLE where K3a requires AGENT_PROTOCOL_ERROR."
+  },
+  {
+   "command": "docker (linux/arm64) python3 /probe/k3a_client_observe.py",
+   "exit_code": 0,
+   "observed": "A plain client reads the queued bytes first (00 / 000000 / 00000009 0c) and only then gets ECONNRESET (errno 104). This proves the prototype had received at least 1 byte before the reset."
+  },
+  {
+   "command": "docker (linux/amd64 EMULATED) python3 /probe/k3a_linux.py /dist/linux-x64/heimdall-proto",
+   "exit_code": 1,
+   "observed": "Same 3 K3a failures (emulated, not native evidence)."
+  },
+  {
+   "command": "python3 /tmp/hr-probe/run_probe.py <darwin bin>",
+   "exit_code": 1,
+   "observed": "Passes:\n- 1 MiB binary stdin round trip with EOF; stdin from /dev/null.\n- 4 MiB stderr fully delivered in 0.031 s while stdout was blocked (same as the direct child).\n- Exit 0/255/137/139/127 x3 with correct meta and K5 states; nothing written to stdout.\n- SIGTERM race sweep 0-24 ms: outcomes (-15 before handler, no child spawned), (143), (3, count=1); no orphans.\n- killpg SIGTERM: child got exactly 1 TERM.\n\nFails:\n- Inherited SIG_IGN for HUP/INT/QUIT/TERM: direct child '1 1 1 1', via run '0 0 0 0'.\n- nohup-style: SIGHUP to heimdall-proto killed the child, exit 129.\n\nObservations:\n- killpg SIGKILL left the child alive (orphan; I killed that exact verified pid).\n- A FIFO meta-file hung for more than 3 s.\n- An unwritable meta dir is reported only after the child ran, and the exit code stays 0.\n- A symlink meta path is followed.\n- K7: an empty PATH entry runs the tool in cwd."
+  },
+  {
+   "command": "docker (linux/arm64 debian:bookworm-slim) sh /probe/linux_probe.sh",
+   "exit_code": 0,
+   "observed": "Static binary. Default SigBlk/SigIgn are 0 (same as the direct child). Under trap '' HUP INT QUIT TERM: direct child SigIgn 0x4007, via run 0x0. Background job in a non-interactive sh: direct 0x6, via run 0x0. No zombies after run."
+  },
+  {
+   "command": "python3 /tmp/hr-probe/pty_bg_probe.py <darwin bin>",
+   "exit_code": 0,
+   "observed": "Script 'X & sleep; read' in a pty. Direct: tty_fg == script pgid and the read succeeds. Via 'heimdall-proto run -- sleep &': tty_fg became the child's pgid (52740 vs script 52737), and the script's read failed with 'read error: Input/output error'."
+  },
+  {
+   "command": "python3 /tmp/hr-probe/profile_probe.py <darwin bin>",
+   "exit_code": 1,
+   "observed": "Every leak check is clean: canaries placed in unterminated strings, duplicate keys, bad types, bad escapes, huge integers, invalid UTF-8 lines and schema_version never appeared in stdout or stderr.\n- Size bounds: 1 MiB exact is OK; 1 MiB + 1 and /dev/zero give INPUT_TOO_LARGE; /dev/null gives SCHEMA_INVALID; a directory gives USAGE_ERROR.\n- 16,464 destinations parse in 407 ms (the duplicate check is O(n^2)).\n- Deep nesting fails closed with SCHEMA_INVALID in about 8 ms. The 'fail' verdicts there were my wrong PROFILE_OK expectation, not a product defect.\n- A FIFO profile path with no writer blocks (timed out at 3 s).\n- The script then crashed on the non-UTF-8 filename, which APFS rejects (errno 92); this is the probe's own error."
+  },
+  {
+   "command": "bounded loop: profile show with [meta] x = '['*n + ']'*n for n in 40, 80, 81, 100, 127, 128, 129",
+   "exit_code": 0,
+   "observed": "n <= 80 gives rc 0; n >= 81 gives rc 2. toml 1.1.6 has a nesting limit near 80, so there is no stack overflow."
+  },
+  {
+   "command": "docker (linux/arm64 debian) sh /probe/nonutf8.sh",
+   "exit_code": 0,
+   "observed": "profile show with the path 'bad\\377 name.toml' gives PROFILE_OK, rc 0. run --meta-file with 'meta\\377.json' gives rc 0, and the file was created with its raw bytes."
+  },
+  {
+   "command": "docker (linux/arm64 alpine:3.22) LD_PRELOAD=/nonexistent/evil.so heimdall-proto version --json; printf abc | heimdall-proto run -- cat",
+   "exit_code": 0,
+   "observed": "No cargo/rustc/go/node/bun/python3 on PATH. VERSION_OK rc 0 (LD_PRELOAD has no effect on the static binary). run printed abc, rc 0."
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin DYLD_PRINT_LIBRARIES=1 <darwin bin> version --json",
+   "exit_code": 0,
+   "observed": "dyld honored DYLD_* (it printed the loaded libraries). The binary is ad-hoc/linker-signed (flags 0x20002) with no hardened runtime, so DYLD_INSERT_LIBRARIES would be honored. /bin/ls ignores DYLD_PRINT_LIBRARIES."
+  },
+  {
+   "command": "otool -L / otool -l LC_BUILD_VERSION / codesign -dv / objdump -p windows exe / file",
+   "exit_code": 0,
+   "observed": "darwin links only libiconv and libSystem, minos 11.0, ad-hoc signature, no TeamIdentifier. Linux binaries are static ELF. Windows PE32+ console imports KERNEL32, USER32, ntdll, bcryptprimitives, api-ms-win-core-synch-l1-2-0 and api-ms-win-crt-*. DllCharacteristics 0x8160: ASLR/HEVA/NX, no CFG."
+  },
+  {
+   "command": "cd /tmp/heimdall-review-rust && cargo test --locked",
+   "exit_code": 101,
+   "observed": "lib: 27 pass, 16 fail. All failures are fixture-path panics, because the tests resolve CARGO_MANIFEST_DIR/../../tests/fixtures, which does not exist under /tmp. This is a layout artifact."
+  },
+  {
+   "command": "cd /tmp/hr-nest/prototypes/rust && cargo test --locked (with a copied tests/fixtures tree)",
+   "exit_code": 0,
+   "observed": "lib 43 pass, bin 4 pass, cli 18 pass. Matches REPORT."
+  },
+  {
+   "command": "cargo fmt --check; cargo clippy --locked --all-targets -- -D warnings",
+   "exit_code": 0,
+   "observed": "fmt rc 0; clippy rc 0."
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin <darwin bin> version --json; 60x timing loop",
+   "exit_code": 0,
+   "observed": "VERSION_OK with runtime 'rustc 1.99.0 (b940084d7 2026-09-28)' and ratatui 0.30.2. p50 2.62 ms, p95 3.55 ms. Children maxrss 2,260,992 bytes. Consistent with the recorded 2.57 ms / 2224 KiB."
+  },
+  {
+   "command": "curl crates.io API for ratatui, ratatui-core, ratatui-crossterm, crossterm, toml, serde_json, sha2, base64, signal-hook, rustix, nix, ctrlc, winapi, windows-sys, signal-hook-mio, mio, iroh, iroh-ffi",
+   "exit_code": 0,
+   "observed": "All dates match REPORT §9: crossterm 0.29.0 2025-04-05, winapi 0.3.9 2020-06-26, the rest 2025-10 to 2026-09. iroh 1.3.0 2026-09-28, MIT OR Apache-2.0, rust_version 1.91. iroh-ffi does not exist."
+  },
+  {
+   "command": "GitHub API crossterm-rs/crossterm repo and commits",
+   "exit_code": 0,
+   "observed": "Not archived, pushed_at 2026-10-01, feature/fix commits 2026-08-08 and 2026-08-21, 255 open issues. Actively maintained, but there has been no release for 18 months."
+  },
+  {
+   "command": "OSV querybatch for all 116 registry packages in Cargo.lock",
+   "exit_code": 0,
+   "observed": "No known vulnerabilities returned."
+  },
+  {
+   "command": "cargo tree --locked --target <each of 4> -e normal,build; cargo metadata license tally",
+   "exit_code": 0,
+   "observed": "The union over the 4 targets is 92 packages including the root, so 91 dependencies, matching REPORT. The license tally matches LICENSES.md exactly (54/24/4/2/2/1/1/1/1/1 plus root UNLICENSED). The lock has 117 packages in total (all platforms)."
+  },
+  {
+   "command": "strings -a dist artifacts | grep gimli/addr2line/miniz_oxide/rustc-demangle/hashbrown/libunwind",
+   "exit_code": 0,
+   "observed": "Rust std's own dependencies (addr2line 0.27.1, gimli 0.34.0, miniz_oxide 0.9.1 on Linux, rustc-demangle 0.1.28, hashbrown 0.16.1) and libunwind are linked into every artifact. They are absent from LICENSES.md, and so are static musl (Linux) and the mingw CRT (Windows)."
+  },
+  {
+   "command": "curl raw.githubusercontent.com/rust-lang/rust/1.99.0/library/std/src/sys/fs/windows.rs; grep security_qos",
+   "exit_code": 0,
+   "observed": "In OpenOptions, security_qos_flags defaults to 0. SECURITY_SQOS_PRESENT is set only if the caller calls security_qos_flags(). agent.rs Windows connect does not call it."
+  },
+  {
+   "command": "grep -n '^name = \"cc\"' Cargo.lock; grep fs::write|File::create|OpenOptions|env::var|Command::new src/*.rs",
+   "exit_code": 0,
+   "observed": "There is no cc crate. Runtime writes: only the --meta-file (main.rs:156). Runtime env reads: only NO_COLOR. Command::new is used only on argv[0], with no shell. /dev/tty is opened read/write but never written. forbid(unsafe_code) is present in lib.rs and main.rs."
+  },
+  {
+   "command": "ps -axo pid=,ppid=,stat=,comm= | awk (heimdall-proto / review paths)",
+   "exit_code": 0,
+   "observed": "None of my processes remain. One stopped process from another reviewer (/tmp/heimdall-review-go/...) was seen and left untouched."
+  }
+ ],
+ "confirmed_claims": [
+  "The recorded darwin conformance verdict reproduces. My independent build and run gave harness exit 0, 113/113 pass, status verified, verdict pass.",
+  "build.sh exits 0 and builds all 4 targets. Sizes match manifest/REPORT attempt-2: darwin 755,840; linux-x64 902,776; linux-arm64 838,696; windows 839,168.",
+  "The linux-x64 and linux-arm64 artifacts are bit-reproducible from a different build directory (sha256 identical to the producer manifest).",
+  "The REPORT claim that the windows-x64 digest is not reproducible between identical builds is confirmed. The cause is narrowed to the 2-byte COFF TimeDateStamp.",
+  "Versions: rustc 1.99.0 for attempt 2, ratatui 0.30.2, crossterm 0.29.0, toml 1.1.6, serde_json 1.0.151, sha2 0.11.0, base64 0.23.1, signal-hook 0.4.4 (plus 0.3.18 via crossterm), rustix 1.1.5, nix 0.31.3, ctrlc 3.5.2. version --json reports the compiler actually used.",
+  "91 dependency crate versions across the 4 targets (92 including the root). License summary counts in LICENSES.md match cargo metadata exactly, and all licenses are permissive.",
+  "The crates.io release dates in REPORT §9 are accurate. The Iroh claims are accurate: iroh 1.3.0, 2026-09-28, MIT OR Apache-2.0, needs Rust 1.91, and there is no iroh-ffi crate.",
+  "No known advisories (OSV) for any of the 116 registry packages in Cargo.lock.",
+  "Self-test step counts: cargo test reports lib 43, bin 4, cli 18, all passing (once fixtures are at the expected relative path). fmt and clippy -D warnings are clean. The producer's attempt-2 summary.json lists 20 steps, all exit 0 (read from the record, not re-run).",
+  "No C is compiled from the crate graph (no cc crate). forbid(unsafe_code) is present in both the lib and the bin. The only runtime file write is --meta-file. The only env read is NO_COLOR. No shell is used anywhere.",
+  "The darwin artifact links only libSystem and libiconv (minos 11.0, ad-hoc signed). The Linux artifacts are static and run on debian bookworm-slim and alpine 3.22 arm64 with no toolchain on PATH. The Windows exe imports UCRT api-ms-win-crt-*.",
+  "Agent framing is fail-closed and bounded, checked with my own crafted frames on darwin and on Linux arm64. Length is checked before allocation, the maximum allocation is 256 KiB, nkeys is capped before the loop, and string lengths are checked against the remaining bytes. K1, K3 EOF and K4 hold. Only the 5-byte type-11 request is ever sent.",
+  "run passes stdio straight through to the child, with no relay. It preserves 1 MiB of binary data, propagates stdin EOF, and gives the same large-stderr-with-blocked-stdout behavior as the direct child. Exit code and 128+N mapping and the K5 meta states are correct. An explicit SIGTERM is forwarded exactly once (25-iteration race sweep, no orphans). No zombies.",
+  "K7 observation reproduced: an empty PATH entry resolves to cwd.",
+  "CLI and TUI genuinely share domain operations. Both call heimdall_proto::profile::load_file. All TUI state lives in the library's ListModel (unit-tested). tui.rs only renders it and maps keys.",
+  "Startup and memory are consistent with the measurements: version p50 2.62 ms (recorded 2.57), peak RSS about 2.2 MiB.",
+  "crossterm still receives upstream commits (Aug–Sep 2026), though its last release is 2025-04-05. winapi 0.3.9 (2020) is pulled in only for Windows via crossterm."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "The recorded conformance verdict (harness exit 0, 113/113 pass, verdict pass) is evidence of K3a conformance. REPORT §12 also says K3 does not rule on a reset after at least 1 byte, so reporting AGENT_UNAVAILABLE is acceptable.",
+   "evidence": "K3a (binding, added 2026-10-03) rules that a reset after at least one byte is AGENT_PROTOCOL_ERROR. On native Linux arm64 (Docker VM, --network none), the shared harness fails agent.reset_after_partial_header (expected AGENT_PROTOCOL_ERROR, observed AGENT_UNAVAILABLE; exit 1). My own probe fails for resets after 1, 3 and 5 bytes. A plain client shows the bytes are delivered before ECONNRESET (errno 104). Emulated linux-x64 behaves the same. Darwin passes only because Darwin AF_UNIX turns the reset into EOF. Cause: src/agent.rs read_full maps every read error to Unavailable. The pass verdict is darwin-only and does not carry over to Linux."
+  },
+  {
+   "claim": "REPORT §1/§12 and runner.rs say the job-control mechanism applies when heimdall-proto is the foreground job, and that as a background job the child shares heimdall-proto's group.",
+   "evidence": "detect() uses tcgetpgrp(tty) == getpgrp(). That is also true for an '&' job started by a non-job-control (script) shell, so such a job is treated as Foreground and the terminal is handed to the child. In a pty, 'heimdall-proto run -- sleep 1.5 &' inside sh -c moved the terminal foreground pgid from 52737 to 52740 (the child). The script's next foreground 'read' failed with 'Input/output error'. Run directly, the read succeeded."
+  },
+  {
+   "claim": "The recorded run summary for darwin-arm64 (sha256 4f852143..., reported as the rebuilt artifact) is reproducible from source.",
+   "evidence": "Rebuilt from identical source and toolchain in another directory: 5984d60f... and 766ce995... (two different directories). It is deterministic only within the same directory: the LC_UUID and signature depend on the absolute build path. The digest cannot be reproduced from a different checkout path."
+  },
+  {
+   "claim": "REPORT §11: LICENSES.md covers the licensing of what is shipped.",
+   "evidence": "It covers only the crates from cargo tree. Every artifact also statically links Rust std's own dependencies (addr2line 0.27.1, gimli 0.34.0, rustc-demangle 0.1.28, hashbrown 0.16.1, miniz_oxide 0.9.1 on Linux) and libunwind. The Linux artifacts statically link musl and the Windows artifact links the mingw-w64 CRT. None of these is listed. dist/ ships no third-party notice or license texts. All are permissive, so the licenses are compatible, but the notice obligations are unmet as shipped."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Correctness of child/IPC behavior",
+   "verdict": "fail",
+   "evidence": "Contract-binding failure: K3a is violated on native Linux. The shared harness fails agent.reset_after_partial_header there, and my probe confirms it. The fix is small (classify read errors after at least 1 byte as Protocol).\n\nBeyond the contract, these are real child-behavior defects compared with a transparent launcher:\n- (1) Inherited SIG_IGN for HUP/INT/QUIT/TERM is reset in the child (Linux SigIgn 0x4007 becomes 0; macOS shows the same). nohup is defeated: SIGHUP kills the child, exit 129. Background '&' jobs lose the SIGINT/SIGQUIT ignore.\n- (2) An '&' job in a non-interactive script takes over the terminal (the script's read gets EIO).\n- (3) With no tty, the child is in its own process group, so killpg(SIGKILL) by a supervisor orphans the child (observed).\n- (4) A SIGINT within about 1 ms of start kills agent list with no CANCELLED JSON (the agent is not contacted).\n- (5) A FIFO --meta-file hangs after the child exits.\n\nEverything else passed (stdio, EOF, binary data, exit mapping, K5, explicit-signal sweep, K1/K3/K4 framing, bounds, passivity), on darwin and on Linux arm64."
+  },
+  {
+   "gate": "Viable Windows/WSL path",
+   "verdict": "uncertain",
+   "evidence": "Code review only, not native evidence.\n- windows-x64 cross-builds; native execution is blocked (needs a Windows 10/11 x64 host).\n- Named pipe: opened with std OpenOptions and a synchronous handle. Busy pipe gives immediate AGENT_UNAVAILABLE with no WaitNamedPipe. Timeout and cancel rely on process exit while a worker thread is blocked in ReadFile, which is acceptable for a CLI but not for a long-lived process.\n- run: there is no job object, so the child outlives a terminated parent. ctrlc handles CTRL_C and CTRL_BREAK. std refuses unsafe .bat/.cmd arguments.\n- WSL: the static Linux binary ran on Linux arm64 containers. WSL itself is untested (blocked: needs a Windows host with WSL2)."
+  },
+  {
+   "gate": "No unsupported security assumption",
+   "verdict": "uncertain",
+   "evidence": "Unix side is clean in the code and probes:\n- No shell. Peer lengths are bounded before allocation. Errors never echo profile values (canaries in 8 error paths never leaked).\n- TOML nesting is limited at 80 levels, so a stack overflow is impossible.\n- No runtime code loading. The only write is the named meta path. No env var changes identity.\n\nOpen issues:\n- (a) Windows (code review only, not native evidence): agent connect does not set SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION (std's default is 0, verified in the Rust 1.99.0 std source). A squatting pipe server can therefore impersonate the client at SecurityImpersonation level. The server's identity (owner SID / server PID) is not checked either.\n- (b) The darwin artifact has no hardened runtime, so dyld honors DYLD_* variables (DYLD_PRINT_LIBRARIES demonstrated this). DYLD_INSERT_LIBRARIES would load code.\n- (c) Artifacts embed the builder's home path (/Users/<user>/.cargo/registry), which discloses the builder's username.\n- (d) The Unix agent socket peer is not verified (no getpeereid). The contract does not require it.\n- The signal-disposition reset (child gate) also weakens caller-intended isolation."
+  },
+  {
+   "gate": "Practical distribution",
+   "verdict": "uncertain",
+   "evidence": "Pass on macOS and Linux:\n- Each target is a single file with no sidecars.\n- Linux is static and ran on debian bookworm-slim and alpine 3.22 arm64 with no toolchain, LD_PRELOAD inert.\n- darwin needs only libSystem/libiconv and ran under env -i.\n- Size 0.76–0.90 MB.\n\nOpen:\n- Windows native run is blocked (no Windows host).\n- darwin is ad-hoc signed only (no Developer ID or notarization).\n- The darwin digest depends on the build path and the Windows digest on a PE timestamp; Linux is bit-reproducible.\n- build.sh needs python3, and there is no rust-toolchain pin."
+  },
+  {
+   "gate": "Maintained dependencies",
+   "verdict": "pass",
+   "evidence": "I checked the crates.io registry myself (2026-10-03). The core crates were released between 2026-02 and 2026-09. OSV returns no advisories for the 116 registry packages.\n\nCaveats:\n- crossterm 0.29.0 was last released on 2025-04-05, but the repository is active (commits on 2026-08-21 and 2026-09-14, not archived, 255 open issues). REPORT says it has a hangup bug that needed a watchdog workaround.\n- winapi 0.3.9 (2020) is pulled in only for Windows, via crossterm.\n- signal-hook appears in two major versions."
+  },
+  {
+   "gate": "Compatible licensing",
+   "verdict": "pass",
+   "evidence": "Every dependency carries a permissive license. My cargo metadata tally matches LICENSES.md (MIT/Apache, Zlib, BSL-1.0 alternative, Unlicense alternative, Unicode-3.0 build-only). Notice obligations are incomplete: the statically linked Rust std dependencies, libunwind, musl and the mingw-w64 CRT are not inventoried, and dist/ ships no notice texts. The project license is still the placeholder UNLICENSED (spec §15.3 is open). Adding Iroh would bring in BSD-3/ISC/CDLA-Permissive-2.0 (REPORT §10, not re-verified)."
+  },
+  {
+   "gate": "Ability to share domain operations across CLI/TUI",
+   "verdict": "pass",
+   "evidence": "The library crate (lib.rs) holds envelope, profile, agent, runner, list_model and text. The CLI (main.rs/cli.rs) and the TUI (tui.rs) both call profile::load_file. All selection and filter logic is in ListModel, which has 43 passing lib tests including the K9 cases. tui.rs only renders and maps keys. The CLI is a thin adapter."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "K3a violation on Linux: a connection reset (ECONNRESET) after at least 1 response byte is reported as AGENT_UNAVAILABLE instead of AGENT_PROTOCOL_ERROR. read_full maps every read error to Unavailable, and REPORT §12 predates K3a. The shared harness fails agent.reset_after_partial_header on native Linux arm64. The darwin harness cannot observe this, because Darwin reports EOF instead of a reset.",
+   "location": "prototypes/rust/src/agent.rs:167-183 (read_full Err arm) and :154 (header remainder); evidence tests/evidence/artifacts/g02-rust/review/linux-harness-k3a/, probes/k3a_linux_arm64.log, probes/k3a_client_observe_linux.log"
+  },
+  {
+   "severity": "major",
+   "description": "run does not preserve inherited ignored signal dispositions. signal-hook installs handlers for HUP/INT/QUIT/TERM, so exec resets them to SIG_DFL in the child, and heimdall-proto then forwards signals the caller meant to ignore. 'nohup heimdall-proto run -- job' loses its protection: SIGHUP kills the child, exit 129. Background '&' jobs lose the SIGINT/SIGQUIT ignore. Observed natively: Linux SigIgn 0x4007 becomes 0x0 and 0x6 becomes 0x0; macOS python getsignal shows '1 1 1 1' becoming '0 0 0 0'. The contract (§4) is silent on this. Escalation: should it require dispositions inherited as ignored to stay ignored and not be forwarded?",
+   "location": "prototypes/rust/src/runner.rs:219 (Signals::new(FORWARDED) without checking the prior SIG_IGN disposition); probes/run_probe.json, probes/linux_probe.log"
+  },
+  {
+   "severity": "major",
+   "description": "Terminal takeover when heimdall-proto runs as an '&' job of a non-job-control shell (for example a script run from an interactive terminal). detect() sees pgrp == tcgetpgrp and treats the job as Foreground. It puts the child in a new group and calls tcsetpgrp(child), so the script's own later terminal reads fail with EIO (observed in a pty on macOS).",
+   "location": "prototypes/rust/src/runner.rs:161-169 (detect), :233-246; probes/pty_bg_probe.json"
+  },
+  {
+   "severity": "minor",
+   "description": "Without a controlling terminal, the child gets its own process group. A supervisor's killpg(SIGKILL) on heimdall-proto's group therefore kills heimdall-proto and leaves the child running as an orphan (observed). There is no PR_SET_PDEATHSIG or equivalent. REPORT documents the own-group choice but not this consequence.",
+   "location": "prototypes/rust/src/runner.rs:233-235; probes/run_probe.json killpg_SIGKILL_on_heimdall_group"
+  },
+  {
+   "severity": "minor",
+   "description": "agent list installs its SIGINT handler only in dispatch. A SIGINT within about 0–1 ms of process start terminates the process by default action: no CANCELLED JSON on stdout and wait status 'signal 2'. The agent is never contacted. The same startup window exists for SIGTERM in run, but there the child has not been spawned yet, so nothing is orphaned. Escalation: does 'SIGINT while waiting' cover the pre-connect startup window?",
+   "location": "prototypes/rust/src/main.rs:109-120; probes/agent_probe.json sigint_at_0ms, sigint_race_sweep_0_29ms (darwin and linux-arm64)"
+  },
+  {
+   "severity": "minor",
+   "description": "--meta-file is opened only after the child has finished. If the path is a FIFO with no reader, heimdall-proto blocks forever after the child exits. If the directory is unwritable or missing, the failure is reported only on stderr, after the child's side effects, and the exit code stays the child's. The path is written through symlinks with a non-atomic truncate-then-write.",
+   "location": "prototypes/rust/src/main.rs:155-159; probes/run_probe.json meta_* cases"
+  },
+  {
+   "severity": "minor",
+   "description": "Windows agent client (code review only, not native evidence): the named pipe is opened with std OpenOptions and no security_qos_flags. Std's default is 0, so SECURITY_SQOS_PRESENT is not set and a squatting pipe server can impersonate the client at SecurityImpersonation level. The pipe server's identity is not verified. A busy pipe fails immediately with no WaitNamedPipe retry.",
+   "location": "prototypes/rust/src/agent.rs:238-257"
+  },
+  {
+   "severity": "minor",
+   "description": "Notice inventory is incomplete. LICENSES.md omits the statically linked Rust std dependencies (addr2line, gimli, rustc-demangle, hashbrown 0.16.1, miniz_oxide), libunwind, musl (Linux) and the mingw-w64 CRT (Windows). dist/ ships no license or notice texts, which MIT/Apache binary redistribution requires.",
+   "location": "prototypes/rust/LICENSES.md, prototypes/rust/tools/gen_licenses.py, prototypes/rust/dist/"
+  },
+  {
+   "severity": "minor",
+   "description": "Release hygiene:\n- The darwin digest depends on the absolute build path (LC_UUID).\n- The Windows digest varies with the PE TimeDateStamp.\n- All artifacts embed the builder's home path and username via cargo registry paths (no --remap-path-prefix or trim-paths).\n- The darwin binary has no hardened runtime, so DYLD_* variables are honored.\n- There is no rust-toolchain pin, so rebuilds drift with rustup stable (already 1.98.1 to 1.99.0 between attempts).",
+   "location": "prototypes/rust/Cargo.toml [profile.release], prototypes/rust/build.sh; review/build/reproducibility.txt"
+  },
+  {
+   "severity": "minor",
+   "description": "profile show and tui block indefinitely when --file names a FIFO with no writer. The contract asks for USAGE_ERROR for unreadable files. Also, the duplicate id/alias check is O(n^2): 16,464 destinations within 1 MiB take 407 ms, which is acceptable but grows quadratically.",
+   "location": "prototypes/rust/src/profile.rs:87-122 (File::open on FIFO), :291-306"
+  },
+  {
+   "severity": "minor",
+   "description": "Test portability: the unit and integration tests locate fixtures at CARGO_MANIFEST_DIR/../../tests/fixtures. A copy outside the repo layout gives 16 spurious failures (cargo test exit 101). This is not a product defect, but it makes independent rebuild verification fragile.",
+   "location": "prototypes/rust/src/profile.rs:419, src/list_model.rs:177, tests/cli.rs:23"
+  }
+ ],
+ "unverifiable_here": [
+  "Native Windows behavior of every §3–§5 path: named pipe, console Ctrl-C/Ctrl-Break, CreateProcess quoting, ConPTY/console resize and TUI, NTSTATUS exit codes, and whether bcryptprimitives.dll/USER32 are resolved safely (KnownDLLs). Blocked: needs a Windows 10/11 x64 host.",
+  "WSL1/WSL2 behavior of the static Linux binary, including Windows-side agent interop. Blocked: needs a Windows host with WSL2.",
+  "Native linux-x64 execution. Only emulated x86-64 runs were possible here; arm64 Linux ran natively in the Docker Desktop VM.",
+  "Agent checks that need keys could not run in the Linux harness container (/usr/bin/ssh-keygen is absent and --network none prevents installing it). Equivalent crafted-frame coverage ran via my own probe on Linux arm64.",
+  "Whether zig compiled any C (musl or mingw-w64 CRT) from source at link time, and the exact license or notice terms of the CRT objects linked into the Linux and Windows artifacts.",
+  "Gatekeeper/notarization behavior of a downloaded (quarantined) darwin artifact. Not tested, because the binary is ad-hoc signed only.",
+  "The REPORT attempt-1 historical figures (cold build 11–16 s, attempt-1 sizes, 15/15 pty cases). They are superseded and were not re-run.",
+  "TUI behaviors beyond the harness (SIGTSTP/SIGQUIT by kill, a selection racing with SIGTERM in the watchdog thread, a stdout write blocked during restore). These were reviewed in code only. The harness's 22 tui.* checks passed on darwin and on Linux arm64."
+ ],
+ "summary": "I rebuilt the Rust prototype independently in /tmp/heimdall-review-rust; build.sh exited 0. The two Linux binaries are bit-identical to the producer's manifest. The darwin binary differs (5984d60f... vs 4f852143...), and only the LC_UUID and signature bytes change: it is deterministic in one directory but changes with the build path. Windows differs only by the PE timestamp.\n\nThe full shared harness on my darwin build gives exit 0, 113/113 pass. That matches the recorded verdict.\n\nProbing beyond the harness, native Linux evidence refutes the claim that this verdict is platform-independent. On Linux arm64 (Docker Desktop VM, not emulated), the shared harness fails agent.reset_after_partial_header with exit 1. The cause is a K3a violation: ECONNRESET after at least 1 byte is reported as AGENT_UNAVAILABLE instead of AGENT_PROTOCOL_ERROR. My own probe and a plain-client observation confirm the bytes arrive before the reset. Darwin cannot show this, because it turns the reset into EOF. The fix is small (src/agent.rs read_full).\n\nOther child-correctness defects not covered by the harness:\n- Inherited SIG_IGN for HUP/INT/QUIT/TERM is reset in the child. This defeats nohup: the child is killed by SIGHUP, exit 129. Observed on Linux (SigIgn 0x4007 becomes 0) and macOS.\n- An '&' job in a non-job-control script is misclassified as Foreground and takes the terminal; the script's own read gets EIO.\n- With no tty, a group SIGKILL orphans the child.\n- A SIGINT about 1 ms after start gets no CANCELLED JSON.\n- A FIFO --meta-file hangs.\n\nAgent framing and bounds hold under 31 crafted-frame cases on both platforms, with only type 11 ever sent. stdio passthrough, EOF, the large-stderr case, exit mapping, K5 and explicit-signal forwarding all pass. Profile parsing fails closed: nesting is limited at 80 levels, and no canary leaked in 8 error paths.\n\nOther claims checked against reality:\n- Versions, sizes, test counts (43/4/18), dependency count (91), license tally, crates.io dates, OSV (no advisories) and the Iroh facts all match REPORT.\n- LICENSES.md omits the statically linked std dependencies, libunwind, musl and the mingw CRT, and dist ships no notices.\n- Windows was code review only. The named-pipe open lacks SECURITY_SQOS_PRESENT (std's default is 0), so a squatting pipe server could impersonate the client.\n\nGate verdicts:\n\n| Gate | Verdict |\n|---|---|\n| Child/IPC correctness | fail (K3a on Linux, plus the signal and terminal issues) |\n| Windows/WSL | uncertain (blocked: needs a native Windows 10/11 x64 host and WSL2) |\n| Security assumptions | uncertain (Windows SQOS by code review, darwin DYLD_*, embedded builder paths) |\n| Distribution | uncertain (macOS/Linux good, Windows native blocked) |\n| Maintained dependencies | pass (crossterm is 18 months without a release but the repo is active) |\n| Licensing | pass (notice inventory incomplete) |\n| Shared CLI/TUI operations | pass |\n\nEscalations for the orchestrator:\n1. Should §4 require inherited ignored dispositions to be preserved and not forwarded, and should a non-job-control background caller keep the terminal?\n2. Does \"SIGINT while waiting\" cover the startup window?\n3. Candidate conformance verdicts should include a Linux run for the K3a reset checks.\n\nArtifacts are in <repo>/tests/evidence/artifacts/g02-rust/review/:\n- conformance/: darwin rerun record and logs, harness_exit_code.txt = 0.\n- linux-harness-k3a/ and linux-harness-full/.\n- probes/: probe scripts, JSON and logs.\n- build/: build log, my manifest, reproducibility.txt.\n- review-summary.json.\n\nThe remaining HEIMDALL_CANARY_ strings in the record JSONs are the harness's own \"no HEIMDALL_CANARY_...\" assertion descriptions, not leaks. Nothing was committed, and no processes of mine remain."
+}

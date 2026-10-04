@@ -1,0 +1,243 @@
+{
+ "method": "One methodology for go/rust/ts darwin-arm64 artifacts from prototypes/*/dist (not rebuilt; sha256 recorded and unchanged at end). Two independent passes (A, B) of: startup (version --json, profile show large-100: 10 warmups + 100 samples per candidate per pass, 200 pooled), peak RSS via /usr/bin/time -l (CLI plus a TUI workload), TUI first-frame (homelab and large-100, 30 per pass) and keystroke-to-update latency on large-100 (30 sessions per pass, 20 j + 7 filter chars + Esc each) in a pty with a pyte screen, idle CPU (30 s vs 2 s hold), and first-exec-of-fresh-copy. All members interleaved round-robin with rotating start, plus a no-op control (/usr/bin/true, /usr/bin/printf via pty) showing the launcher floor (~2.2 ms spawn, ~4.4-4.9 ms pty path). Env: PATH=/usr/bin:/bin, private HOME/TMPDIR/cwd, TERM=xterm-256color for TUI, no SSH_AUTH_SOCK, 80x24. Clean-env runs: darwin under `env -i PATH=/usr/bin:/bin TMPDIR=<fresh empty>` (second variant adds fresh HOME and cwd); linux-arm64 native and linux-x64 emulated inside debian bookworm-slim pinned by digest via docker cp with sidecars, --network none, docker diff before/after; fake_agent.py in a digest-pinned python:3.13-alpine container sharing a docker volume socket; windows static inspection only. Bootstrap 95% CIs for p50/p95 are in host-summary.json. Headline p50/p95 below are pooled across both passes; tui_first_frame is large-100, tui_keystroke_ms_p95 pools all keys (j, filter, Esc).",
+ "host": "Apple M5 Max (Mac17,6), 18 logical cores (6 P + 12 E), 64 GiB, macOS 27.0 build 26A428 (Darwin 27.0.0), on AC power, no low-power mode, no thermal warning. 1-minute load average about 4-6 of 18 cores during both passes (other agent work present), one reading of 10.2 at end of pass 2. Docker Desktop 29.8.1, linuxkit 7.0.14 arm64 VM (10 cpus, 8 GiB). Python 3.14.8, pyte 0.8.2 (tests/g02/.venv).",
+ "candidates": [
+  {
+   "candidate": "go",
+   "startup_version_ms_p50": 3.462,
+   "startup_version_ms_p95": 3.94,
+   "profile_large_ms_p50": 3.907,
+   "profile_large_ms_p95": 4.344,
+   "peak_rss_kib_version": 7360,
+   "peak_rss_kib_profile_large": 7936,
+   "tui_first_frame_ms_p50": 30.165,
+   "tui_first_frame_ms_p95": 33.123,
+   "tui_keystroke_ms_p95": 16.463,
+   "artifact_bytes": {
+    "darwin-arm64": {
+     "exe": 5207474,
+     "sidecars": 0,
+     "total": 5207474,
+     "tar_gz9": 2009187
+    },
+    "linux-arm64": {
+     "exe": 5111968,
+     "sidecars": 0,
+     "total": 5111968,
+     "tar_gz9": 1947853
+    },
+    "linux-x64": {
+     "exe": 5423264,
+     "sidecars": 0,
+     "total": 5423264,
+     "tar_gz9": 2157719
+    },
+    "windows-x64": {
+     "exe": 5084160,
+     "sidecars": 0,
+     "total": 5084160,
+     "tar_gz9": 2001403
+    }
+   },
+   "clean_runs": [
+    {
+     "env": "darwin-arm64 env -i PATH=/usr/bin:/bin TMPDIR=fresh, and variant with fresh HOME+cwd",
+     "checks_passed": "13/13 in both variants (version, profile homelab + spaced unicode path, run passthrough/exit 7/SIGTERM->143/binary/stdin/launch-fail 127, agent list, TUI with and without TERM)",
+     "files_created_in_fresh_TMPDIR": [],
+     "files_created_in_fresh_HOME_or_cwd": [],
+     "dynamic_libs": [
+      "libSystem",
+      "libresolv"
+     ]
+    },
+    {
+     "env": "linux-arm64 native, debian bookworm-slim arm64 sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+     "checks_passed": "12/12",
+     "ldd": "not a dynamic executable (static)",
+     "new_files_after_setup": [
+      "only the /out/meta*.json files named on the command line"
+     ]
+    },
+    {
+     "env": "linux-x64 EMULATED x86-64, not native (linux/amd64 under Docker Desktop, cpuinfo VirtualApple, likely Rosetta), debian sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+     "checks_passed": "12/12",
+     "new_files_after_setup": [
+      "only /out/meta*.json"
+     ]
+    },
+    {
+     "env": "alpine 3.22 arm64 (musl) sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8, version only",
+     "result": "rc 0 (static binary runs on musl)"
+    },
+    {
+     "env": "windows-x64 static inspection",
+     "result": "PE32+ x86-64 console, 5084160 bytes, native execution blocked: no Windows host"
+    }
+   ],
+   "notes": "Rust is fastest in every metric, go is mid, ts slowest except keystroke where go is not faster than ts at median. Go keystroke p50 3.75 ms but p95 16.5 ms driven by filter typing (p95 16.5 ms); the ~16 ms tail is consistent with a 60 fps renderer tick (inference, not isolated). TUI workload peak RSS max 12.0 MiB (12336 KiB). Idle CPU estimate 0.45-0.46% of one core over 28 s extra idle (coarse, 10 ms resolution, 4 runs) which is near the spec 0.5% target; rust 0.02-0.04%, ts 0.21%. Homelab first frame p50/p95 25.9/28.9 ms. First exec of a freshly copied file p50 5.3-5.5 ms vs 3.3 ms after. Between-pass drift of p50 about 2-3% on startup, under 2% first-frame. Fresh-start RSS includes the Go runtime; control process RSS floor 1.2 MiB."
+  },
+  {
+   "candidate": "rust",
+   "startup_version_ms_p50": 2.57,
+   "startup_version_ms_p95": 2.954,
+   "profile_large_ms_p50": 3.177,
+   "profile_large_ms_p95": 3.434,
+   "peak_rss_kib_version": 2224,
+   "peak_rss_kib_profile_large": 3456,
+   "tui_first_frame_ms_p50": 9.893,
+   "tui_first_frame_ms_p95": 11.68,
+   "tui_keystroke_ms_p95": 2.356,
+   "artifact_bytes": {
+    "darwin-arm64": {
+     "exe": 755840,
+     "sidecars": 0,
+     "total": 755840,
+     "tar_gz9": 389671
+    },
+    "linux-arm64": {
+     "exe": 838696,
+     "sidecars": 0,
+     "total": 838696,
+     "tar_gz9": 456039
+    },
+    "linux-x64": {
+     "exe": 902776,
+     "sidecars": 0,
+     "total": 902776,
+     "tar_gz9": 460412
+    },
+    "windows-x64": {
+     "exe": 839168,
+     "sidecars": 0,
+     "total": 839168,
+     "tar_gz9": 424023
+    }
+   },
+   "clean_runs": [
+    {
+     "env": "darwin-arm64 env -i PATH=/usr/bin:/bin TMPDIR=fresh, and variant with fresh HOME+cwd",
+     "checks_passed": "13/13 in both variants",
+     "files_created_in_fresh_TMPDIR": [],
+     "files_created_in_fresh_HOME_or_cwd": [],
+     "dynamic_libs": [
+      "libiconv",
+      "libSystem"
+     ]
+    },
+    {
+     "env": "linux-arm64 native, debian bookworm-slim arm64 sha256:0c8bbb8e...",
+     "checks_passed": "12/12",
+     "ldd": "not a dynamic executable (static)",
+     "new_files_after_setup": [
+      "only /out/meta*.json"
+     ]
+    },
+    {
+     "env": "linux-x64 EMULATED x86-64, not native (debian sha256:f3034a6e...)",
+     "checks_passed": "12/12",
+     "new_files_after_setup": [
+      "only /out/meta*.json"
+     ]
+    },
+    {
+     "env": "alpine 3.22 arm64 (musl), version only",
+     "result": "rc 0"
+    },
+    {
+     "env": "windows-x64 static inspection",
+     "result": "PE32+ x86-64 console, 839168 bytes, native execution blocked: no Windows host"
+    }
+   ],
+   "notes": "Fastest and smallest in every metric. Keystroke p50 0.84 ms, p95 2.36 ms (max 3.6 ms over 1680 keys); first byte after key p50 0.83 ms. TUI workload peak RSS max 3.5 MiB (3600 KiB). Idle CPU estimate 0.02-0.04% of one core (10 ms resolution). Homelab first frame p50/p95 6.4/8.7 ms. Artifact is 0.76 MB (darwin) vs go 5.2 MB vs ts 72.7 MB incl. sidecar. Static linux binaries."
+  },
+  {
+   "candidate": "ts",
+   "startup_version_ms_p50": 17.416,
+   "startup_version_ms_p95": 18.459,
+   "profile_large_ms_p50": 19.076,
+   "profile_large_ms_p95": 19.78,
+   "peak_rss_kib_version": 25376,
+   "peak_rss_kib_profile_large": 29168,
+   "tui_first_frame_ms_p50": 55.636,
+   "tui_first_frame_ms_p95": 60.612,
+   "tui_keystroke_ms_p95": 6.928,
+   "artifact_bytes": {
+    "darwin-arm64": {
+     "exe": 67147506,
+     "sidecars": 5560064,
+     "total": 72707570,
+     "tar_gz9": 28044398
+    },
+    "linux-arm64": {
+     "exe": 86165800,
+     "sidecars": 5907256,
+     "total": 92073056,
+     "tar_gz9": 39019234
+    },
+    "linux-x64": {
+     "exe": 86205920,
+     "sidecars": 6314816,
+     "total": 92520736,
+     "tar_gz9": 39111573
+    },
+    "windows-x64": {
+     "exe": 90981888,
+     "sidecars": 6391688,
+     "total": 97373576,
+     "tar_gz9": 42221563
+    }
+   },
+   "clean_runs": [
+    {
+     "env": "darwin-arm64 env -i PATH=/usr/bin:/bin TMPDIR=fresh, and variant with fresh HOME+cwd",
+     "checks_passed": "13/13 in both variants (TUI with sidecar libopentui.dylib loaded, with and without TERM)",
+     "files_created_in_fresh_TMPDIR": [],
+     "files_created_in_fresh_HOME_or_cwd": [],
+     "dynamic_libs": [
+      "libicucore",
+      "libresolv",
+      "libc++",
+      "libSystem"
+     ]
+    },
+    {
+     "env": "linux-arm64 native, debian bookworm-slim arm64 sha256:0c8bbb8e... (glibc 2.36)",
+     "checks_passed": "12/12 incl. TUI loading libopentui.so",
+     "ldd": "dynamic: libc, libpthread, libdl, libm, ld-linux-aarch64",
+     "new_files_after_setup": [
+      "only /out/meta*.json"
+     ]
+    },
+    {
+     "env": "linux-x64 EMULATED x86-64, not native (debian sha256:f3034a6e...)",
+     "checks_passed": "12/12 incl. TUI loading libopentui.so; version 301 ms and TUI first frame ~500 ms under emulation (incidental)",
+     "new_files_after_setup": [
+      "only /out/meta*.json"
+     ]
+    },
+    {
+     "env": "alpine 3.22 arm64 (musl), version only",
+     "result": "FAILS rc 255: exec /opt/hm/heimdall-proto: no such file or directory (glibc-dynamic binary needs the glibc loader; works only on glibc distros)"
+    },
+    {
+     "env": "windows-x64 static inspection",
+     "result": "PE32+ x86-64 console, 90981888 bytes plus opentui.dll 6391688, native execution blocked: no Windows host"
+    }
+   ],
+   "notes": "Slowest startup (~7x go-floor-adjusted rust) but all values far below spec 15.1 budgets (first frame P95 750 ms, key P95 100 ms). Keystroke p50 3.6 ms, p95 6.9 ms (max 26.9 ms). TUI workload peak RSS max 62.7 MiB-equivalent 64.2 MB (62736 KiB), under the 150 MiB target. Idle CPU estimate 0.21% of one core (both passes). Artifact 72.7 MB darwin incl. 5.6 MB sidecar; 28 MB gzip. Needs glibc on Linux (fails on musl/alpine). The embedded Bun runtime is the size and startup cost; version startup 17.4 ms vs 2.6 ms rust. First exec of fresh copy p50 24 ms vs 18 ms after. Sidecars ship in the artifact dir and load from it. First-frame figures are pyte-based; pyte answers only DA/DSR whereas ts sends many capability queries, so real-terminal latency may differ."
+  }
+ ],
+ "evidence_record": "<repo>/tests/evidence/g02-measurements.json (case_id G02-measurements, status verified, observed_result.verdict pass for the scoped criterion; raw data in <repo>/tests/evidence/artifacts/g02-measure/{host-raw.json,host-summary.json,clean-darwin.json,clean-linux.json,clean-windows.json,measure-run.log,clean-linux-run.log}; scripts in <repo>/tools/benchmarks/g02/{g02bench.py,measure.py,clean_env.py,assemble.py}). No doc_updates needed: all writes succeeded. No escalations. Artifact sha256 values are in the record and in clean-*.json; they did not change during the run. Host is the Docker Desktop context; leftover containers/volume labelled heimdall.g02measure: none (verified 0). No heimdall.fixture objects were touched.",
+ "limitations": [
+  "Single machine (Apple M5 Max, macOS 27.0) with other agent workloads present (1-minute load average about 4-6 of 18 cores, one 10.2 reading at end of pass 2); tails include that noise and numbers are not portable to other hardware.",
+  "Latencies are from Python spawn plus a pyte terminal emulator, not a real terminal. The control floor (~2.2 ms spawn, ~4.4-4.9 ms pty path) is included in every figure. pyte answers only DA/DSR; a real terminal answers more capability queries, which could change ts first-frame time.",
+  "Keystroke latency excludes pyte parse time but includes pty/scheduler delay. The go ~16 ms filter-typing tail matching a 60 fps renderer tick is an inference, not isolated.",
+  "RSS is macOS rusage max RSS via /usr/bin/time -l and is not comparable to Windows working set or Linux RSS. The 5-minute idle CPU and idle-memory-over-time samples of spec 15.1 were not taken; idle CPU is a 30 s estimate at 10 ms resolution with 4 runs per candidate (go estimate 0.45% is near the 0.5% target and too coarse to conclude).",
+  "Cold start in the spec sense (reboot or purged page cache) was not measured; cold_first_exec only compares the first run of a freshly copied file with later runs.",
+  "linux-x64 ran emulated (linux/amd64 on an arm64 Docker Desktop VM; cpuinfo VirtualApple suggests Rosetta, an inference), not native x86-64. It shows loading and behavior only; Linux timings are incidental.",
+  "Linux runs used docker cp into containers, root user, --network none; fake-agent socket via a docker volume; TUI via docker exec -it in a host pty. Debian bookworm-slim arm64/amd64 are pinned by per-platform manifest digest (index sha256:3783cc01...); alpine and python:3.13-alpine pinned by digest.",
+  "Native Windows execution blocked: no Windows host. Windows artifacts: file type, size, sha256 and PE header facts only (all PE32+ x86-64 console; ts opentui.dll subsystem is GUI as a DLL).",
+  "macOS artifacts are ad-hoc/linker-signed only, not notarized; Gatekeeper/quarantine behavior on downloaded files untested. The write check lists files in fresh TMPDIR/HOME/cwd only; writes elsewhere on macOS were not traced (no fs_usage/dtruss without privileges). Linux docker diff covers the full container filesystem except mounted volumes.",
+  "All numbers measured fresh; prototype REPORT.md numbers not reused. Conformance was not judged here (ts had 1 failing check per the task packet)."
+ ]
+}

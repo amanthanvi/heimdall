@@ -1,0 +1,89 @@
+{
+ "task_id": "M00-T05-harness-r2-fix",
+ "status": "verified",
+ "files_changed": [
+  "<repo>/tests/g02/conformance.py",
+  "<repo>/tests/g02/reference_impl.py",
+  "<repo>/tests/g02/reference_tui.py",
+  "<repo>/tests/g02/selftest.py",
+  "<repo>/tests/g02/README.md",
+  "<repo>/tests/g02/SELFTEST.md",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-darwin.json",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-darwin.console.log",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-linux.json",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-linux.console.log",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/SELFTEST-linux.md",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/tested-file-sha256-prefixes.txt",
+  "<repo>/tests/fixtures/fake-agent/fake_agent.py"
+ ],
+ "commands_run": [
+  {
+   "command": "python3 tests/g02/conformance.py --bin tests/g02/reference_impl.py --candidate go --selftest --pass-env REF_MUTATE,REF_CANDIDATE --only <26 new/changed checks> (unmutated reference, darwin)",
+   "exit_code": null,
+   "observed": "26/26 PASS (status in_progress for a partial run). The exit code was lost because the command piped through tail; the full-baseline run below is the authoritative one"
+  },
+  {
+   "command": "for each of the 13 new mutations: REF_MUTATE=<m> python3 tests/g02/conformance.py ... --only <intended checks> (darwin)",
+   "exit_code": 1,
+   "observed": "all 13 exit 1, and each intended check FAILs. Old checks still PASS under the new mutants: agent.slow_timeout under agent_per_read_timeout, run.stdio_passthrough under run_pipe_stdio"
+  },
+  {
+   "command": "python3 tests/g02/selftest.py --repeat-baseline 2 ... (first attempt) + tests/g02/linux/run.sh --selftest (first attempt)",
+   "exit_code": null,
+   "observed": "Baseline failed harness.canary_selfcheck on both platforms (expected 4 registered canaries, observed 5 after adding the per-run malformed-line canary). I stopped both of my tasks and the exact container fe3c9e8aa9c3 (identity checked by its /out mount and start time). Then I fixed the expectation (now 5, plus a check that the per-run canaries are registered)"
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --bin tests/g02/reference_impl.py --candidate go --selftest --pass-env REF_MUTATE,REF_CANDIDATE (full catalogue, darwin)",
+   "exit_code": 0,
+   "observed": "133/133 pass, status verified, verdict pass"
+  },
+  {
+   "command": "tests/g02/linux/run.sh --selftest /tmp/hmr3-st/linux -- --repeat-baseline 1",
+   "exit_code": 0,
+   "observed": "Linux arm64 container (image heimdall-g02-harness:ac0f6cf382a4, reused): baseline 133/133 twice; 120/120 observable mutations caught (run_double_signal not observable on Linux); 2/2 harness mutations caught; SELFTEST PASS"
+  },
+  {
+   "command": "python3 tests/g02/selftest.py --repeat-baseline 2 --workdir /tmp/hmr3-st/mac --json-out /tmp/hmr3-st/selftest-darwin.json --linux-results /tmp/hmr3-st/linux/selftest-linux.json --linux-results-wait 7000",
+   "exit_code": 0,
+   "observed": "Darwin: baseline 133/133 three times, no flakes; 120/120 observable mutations caught (agent_reset_unhandled not observable on Darwin, caught on Linux); 2/2 harness mutations caught; no canary values in the work directory; Verdict PASS. SELFTEST.md regenerated"
+  },
+  {
+   "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9]' tests/g02/selftest-results/2026-10-03-r3 tests/g02/SELFTEST.md tests/g02/README.md",
+   "exit_code": 1,
+   "observed": "no full canary values in my outputs"
+  },
+  {
+   "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9]' tests/evidence (names only, read-only)",
+   "exit_code": 0,
+   "observed": "13 files under tests/evidence/artifacts/g02-{go,rust,ts}/ still hold full canary values (other owners' paths; not touched)"
+  }
+ ],
+ "requirement_ids": [
+  "R-QU-07",
+  "R-SE-05",
+  "R-SS-04",
+  "R-SS-02"
+ ],
+ "evidence_records": [
+  "<repo>/tests/g02/SELFTEST.md",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-darwin.json",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-linux.json",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/SELFTEST-linux.md",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-darwin.console.log",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/selftest-linux.console.log",
+  "<repo>/tests/g02/selftest-results/2026-10-03-r3/tested-file-sha256-prefixes.txt"
+ ],
+ "escalations": [
+  "The canary rule is broken in other owners' evidence, and these files must be redacted or removed before the orchestrator commits. I did not touch them; the list was checked read-only on 2026-10-04 at about 01:58Z. 13 files hold full HEIMDALL_CANARY_ values: g02-go/conformance/prev-20261003T233623Z/_prev-record-darwin.json; g02-go/review/conformance/g02-go-conformance-review.json; g02-go/review/probes/profile-probes-darwin.log and .full.log; g02-go/selftest/selftest.py and schema_check.py; g02-rust/review/conformance/g02-rust-conformance-review.json; g02-rust/review/linux-harness-full/record.json; g02-rust/selftest/harness-core-record.json; g02-ts/conformance/prev-20261003T233626Z/g02-ts-conformance.record.json and r2/g02-ts-conformance.json; g02-ts/r1/g02-ts-conformance.json; g02-ts/review/harness/g02-ts-review-conformance.json. All paths are under tests/evidence/artifacts/.",
+  "Q10, contract ambiguity, so the harness is unchanged here: section 5 'immediate filtering' on the 100-destination fixture gives no number. tui.large_100_filter_latency still only records keystroke-to-update latency, so a 1 s-per-keystroke filter passes. Gating needs an orchestrator ruling on a bound (for example the 100 ms resize bound). Recorded in OPEN_QUESTIONS and the README.",
+  "Q9, scope question: section 2 says the error message never includes the offending value, and section 1 forbids secrets on stdout and stderr. The contract does not say whether stderr diagnostics may quote a non-secret offending value (port, revision). The harness now gates every string of the JSON result and secrets everywhere, including a secret on the line a TOML parser reports. A non-secret value on stderr is a non-gating observation (observations.value_on_stderr). Confirm this, or extend the gate to stderr."
+ ],
+ "limitations": [
+  "No copy of the round-2 harness exists because tests/g02 is untracked, so I could not re-run it against the new mutants. The evidence that the old harness missed these defects is the independent reviewer's probes, plus my runs showing the old checks still pass under the new mutants (agent.slow_timeout under agent_per_read_timeout, run.stdio_passthrough under run_pipe_stdio). The other defects were in assertions or modes that did not exist before.",
+  "No independent review of the round-3 changes was obtained. The self-test on both platforms is their only validation.",
+  "Documented gaps that remain: K16 does not detect a helper executed by absolute path (/bin/stty) or under another program name, and covers four environment variants only. K11 does not detect writes to a hard-coded /tmp, outside the sandbox HOME, TMPDIR, cwd and --meta-file directory. Repetition is tested only as two signals 150 ms apart (SIGINT and SIGTERM pairs). Value non-echo uses a sample of 13 generated cases plus 2 fixtures.",
+  "The macOS and Linux self-tests ran concurrently, as in round 2. All baselines passed with no flaky checks.",
+  "The header line in selftest.py still names contract sections 9 and 9.1 only, not 9.2. This is cosmetic, and I did not edit it after the run so the recorded sha256 of the tested files stays accurate."
+ ],
+ "summary": "All 13 reported defects were checked against the contract: 7 refuted-claim gaps (value non-echo, agent framing, the --timeout-ms deadline, repeated signals, stdio inheritance, the TERM variants for K16, and the --meta-file directory scan for K11) plus the width boundary (§5: \"< 50 columns\"). Each was a real harness defect and is fixed. The latency item is a contract ambiguity, so I changed nothing and escalated it as Q10. The canary leak is in other owners' evidence paths and is escalated. The harness version is now 2.1.0 with 133 checks. Each fix has a reference mutation that the self-test requires the named check(s) to catch:\n- **§1/§2 value non-echo.** New check `profile.error_value_not_echoed` covers 11 marked value errors plus 3 malformed files with a per-run canary on the line the parser reports. `profile.invalid_port` and `profile.invalid_schema_version` now also check for the value. Mutations: `type_error_echoes_value`, `malformed_echo_source_line`, `schema_version_warning_echoes_name`.\n- **§3 framing.** New fake-agent modes `zero_length_frame`, `answer_type_only`, `answer_short` and `nkeys_short`, with matching `agent.malformed_*` checks. Their exact wire bytes are verified in `harness.fake_agent_modes`. Mutations: `agent_zero_frame_crash`, `agent_short_answer_crash`, `agent_nkeys_short_ok`.\n- **§3 timeout.** A new `drip` mode sends the reply one byte every 100 ms. `agent.timeout_whole_response` requires `AGENT_UNAVAILABLE` within 0.9 to 2.0 s at `--timeout-ms 1000`, and `agent.timeout_default_5000` requires 4.75 to 7.0 s with no flag. Mutations: `agent_per_read_timeout`, `agent_default_timeout_60s`.\n- **§4/K6 repeated signals.** New `run.repeated_signals` sends four signal pairs. `run.explicit_signal_with_tty` gains an explicit SIGINT twice and a terminal Ctrl-C twice (for the Ctrl-C case only the exit status gates; the delivery count is recorded). Mutation: `run_second_signal_force_quit`.\n- **§4 stdio inheritance.** New `run.stdio_inherited` requires the child's fds 0/1/2 to be the same files (same device and inode) heimdall-proto was given, and all three to be the terminal under a pty. Mutation: `run_pipe_stdio`, which `run.stdio_passthrough` still passes.\n- **§1/K11.** The per-invocation scan now includes the `--meta-file` directory. Mutation: `run_meta_tmp_left`.\n- **K16.** The helper-process battery runs under four environments, including `TERM=tmux-256color`, `TERM=screen-256color` and `TERM=screen`. Mutation: `tui_term_probe`.\n- **§5 width.** `tui.resize_narrow_hides_host` now crosses the boundary both ways at 49 and 50 columns, judged per row. Mutation: `tui_narrow_threshold_60`.\n\nThe self-test passes on both platforms with every mutation caught:\n- **Darwin:** baseline 133/133 three times, no flakes. 120/120 observable mutations caught; `agent_reset_unhandled` cannot be produced here and is caught on Linux. 2/2 harness mutations caught.\n- **Linux arm64 container:** baseline 133/133 twice. 120/120 observable mutations caught; `run_double_signal` cannot be produced here and is caught on Darwin. 2/2 harness mutations caught.\n\n`SELFTEST.md` is regenerated (Verdict PASS). Results are in `tests/g02/selftest-results/2026-10-03-r3/`. The README covers the new checks and limits as guarantee (e), with Q9 and Q10 added to the open questions.\n\nThe first self-test attempt failed `harness.canary_selfcheck` because it expected 4 registered canaries and I had added a fifth. I fixed the expectation and re-ran everything. I stopped only my own tasks and my exact container. I made no commits."
+}

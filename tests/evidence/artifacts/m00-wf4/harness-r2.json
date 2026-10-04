@@ -1,0 +1,115 @@
+{
+ "task_id": "M00-T05-harness-r2",
+ "status": "verified",
+ "files_changed": [
+  "tests/g02/conformance.py",
+  "tests/g02/harness_lib.py",
+  "tests/g02/reference_impl.py",
+  "tests/g02/reference_tui.py",
+  "tests/g02/selftest.py",
+  "tests/g02/rss_wrap.py (new)",
+  "tests/g02/linux/Dockerfile (new)",
+  "tests/g02/linux/Dockerfile.dockerignore (new)",
+  "tests/g02/linux/run.sh (new)",
+  "tests/g02/README.md",
+  "tests/g02/SELFTEST.md (regenerated)",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-darwin.json (new)",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-linux.json (new)",
+  "tests/g02/selftest-results/2026-10-03-r2/SELFTEST-linux.md (new)",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-darwin.console.log (new)",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-linux.console.log (new)",
+  "tests/g02/selftest-results/2026-10-03-r2/tested-file-sha256-prefixes.txt (new)"
+ ],
+ "commands_run": [
+  {
+   "command": "python3 tests/g02/conformance.py --bin tests/g02/reference_impl.py --candidate go --selftest ... (full catalogue, macOS, before selftest)",
+   "exit_code": 0,
+   "observed": "123/123 pass, status verified, verdict pass, no full canary value in record or artifacts (before the duplicate probe was added)"
+  },
+  {
+   "command": "HM_G02_HARNESS_MUTATE=canary_in_desc|canary_in_artifact python3 tests/g02/conformance.py ... --selftest --only 'profile.invalid_forbidden_key,canary.*'",
+   "exit_code": 3,
+   "observed": "both exit 3; record status in_progress, verdict inconclusive; observations.canary_selfcheck names the JSON path / artifact plus a canary label; grep for a full canary value over the record and artifacts finds nothing"
+  },
+  {
+   "command": "HM_G02_HARNESS_MUTATE=canary_in_desc python3 tests/g02/conformance.py ... (without --selftest)",
+   "exit_code": 2,
+   "observed": "refused: harness mutations are accepted only with --selftest"
+  },
+  {
+   "command": "docker build (via tests/g02/linux/run.sh --build), base python:3.13-slim-bookworm@sha256:5024f48b...",
+   "exit_code": 0,
+   "observed": "image heimdall-g02-harness:ac0f6cf382a4 id sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3, arm64"
+  },
+  {
+   "command": "tests/g02/linux/run.sh --reference --out /tmp/hm-r2/linux-base/rec.json",
+   "exit_code": 0,
+   "observed": "123/123 pass on linux-arm64 (linuxkit 7.0.14, Python 3.13.16); K3a delivery ECONNRESET (now gating on Linux); /proc SigIgn confirmed; ru_maxrss KiB normalised (raw 106596 -> 104.1 MiB)"
+  },
+  {
+   "command": "docker run ... exp.py (Linux signal-coalescing experiment, plain sender, with and without CPU pinning)",
+   "exit_code": 0,
+   "observed": "unpinned 30/30 merged, pinned 28/30 merged: a back-to-back double kill() is not observable on Linux"
+  },
+  {
+   "command": "conformance.py --only harness.signal_duplicate_probe (macOS twice, Linux once)",
+   "exit_code": 0,
+   "observed": "macOS duplicates visible in 7/10 and 6/10 trials; Linux 0/6 (earlier probe version) -> run_double_signal treated as platform-gated"
+  },
+  {
+   "command": "tests/g02/linux/run.sh --selftest /tmp/hm-r2/linux-selftest -- --repeat-baseline 1 (final, 22:55:06Z-23:27:31Z)",
+   "exit_code": 0,
+   "observed": "SELFTEST PASS: 2 baselines 124/124, mismatch caught, 107/107 observable mutations caught (run_double_signal not observable on Linux), 2/2 harness mutations exit 3, no flaky checks, no canary value in the work dir"
+  },
+  {
+   "command": "python3 tests/g02/selftest.py --repeat-baseline 2 --linux-results /tmp/hm-r2/linux-selftest/selftest-linux.json --linux-results-wait 5400 --out tests/g02/SELFTEST.md (final, 22:55:09Z-23:30:33Z, concurrent with the Linux run)",
+   "exit_code": 0,
+   "observed": "SELFTEST PASS: 3 macOS baselines 124/124 (flaky: none), 107/107 observable mutations caught (agent_reset_unhandled not observable on Darwin, caught on Linux; run_double_signal caught on macOS), 2/2 harness mutations, 0 '**NO**' rows; tested file hashes identical to the final files"
+  },
+  {
+   "command": "python3 conformance.py with pyte import blocked, --only common.no_helper_processes,run.k6a_*",
+   "exit_code": 1,
+   "observed": "pyte-dependent checks SKIP; status in_progress, verdict inconclusive (no false verified)"
+  },
+  {
+   "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9]' tests/evidence",
+   "exit_code": 0,
+   "observed": "14 existing files outside my write area still contain full canary values (round-1 records and other agents' artifacts), see escalations"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-SS-02",
+  "R-SE-05",
+  "R-QU-07"
+ ],
+ "evidence_records": [
+  "tests/g02/SELFTEST.md (Verdict PASS; macOS host plus Linux container sections; real exit codes)",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-darwin.json",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-linux.json",
+  "tests/g02/selftest-results/2026-10-03-r2/SELFTEST-linux.md",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-darwin.console.log",
+  "tests/g02/selftest-results/2026-10-03-r2/selftest-linux.console.log",
+  "tests/g02/selftest-results/2026-10-03-r2/tested-file-sha256-prefixes.txt",
+  "per-run records and artifacts (transient): /tmp/hm-r2/mac-selftest/, /tmp/hm-r2/linux-selftest/work/"
+ ],
+ "escalations": [
+  "Canary leaks outside my write area: 14 existing files still contain full HEIMDALL_CANARY_ values (2 occurrences each unless noted): tests/evidence/g02-go-conformance.json, g02-rust-conformance.json, g02-ts-conformance.json; tests/evidence/artifacts/g02-go/review/conformance/g02-go-conformance-review.json, g02-go/review/probes/profile-probes-darwin.log and .full.log, g02-go/selftest/selftest.py (7), g02-go/selftest/schema_check.py (1), g02-rust/review/conformance/g02-rust-conformance-review.json, g02-rust/review/linux-harness-full/record.json, g02-rust/selftest/harness-core-record.json, g02-ts/conformance/r2/g02-ts-conformance.json, g02-ts/r1/g02-ts-conformance.json, g02-ts/review/harness/g02-ts-review-conformance.json. Each needs regeneration with harness 2.0.0, or redaction, by whoever owns it.",
+  "K6 double forwarding is not fully observable (decision for the orchestrator, not made here). Standard signals do not queue, so the kernel merges two identical signals sent back to back. A known double-forwarder was seen twice in 0/10 trials on Linux and 6-7/10 on macOS. On Linux, a heimdall-proto that forwards twice back to back looks the same as one that forwards once. The harness records this per run (harness.signal_duplicate_probe, plus a limitation in the record). The self-test requires the run_double_signal mutation to be caught on macOS, where it is observable. No exact-once assertion was relaxed, but this case effectively rests on the darwin run, and is probabilistic there for a fast native double kill().",
+  "K13 'digest-pinned container' interpretation needs confirmation. The base image is pinned by registry index digest (python:3.13-slim-bookworm@sha256:5024f48b...). The runner image is built locally, never pushed, and identified by its local image id (sha256:c0ee4be7...). openssh-client and locales are pinned by Debian version, but their dependencies follow bookworm at build time. Every record stores the image id, base digest and installed package versions.",
+  "Contract §9.2 (K6b/K6c) appeared mid-task and was applied. run.k6a_inherited_ignore now gates only SIGHUP and SIGINT. SIGQUIT/SIGTERM/SIGWINCH/SIGPIPE ignores and an inherited blocked mask are recorded non-gating (observations.k6c_other_inherited_signal_state). Terminal and killpg duplicate counts were already non-gating, so Q3 is now marked settled by K6b. Q8 (exit 143/129 versus re-raised signal) remains open."
+ ],
+ "limitations": [
+  "No independent review: delegate_task returned parent_not_active from this subagent context. The harness changes are validated only by the self-test (mutations on both platforms) and my own review, which is not independent evidence.",
+  "No verdict runs against prototypes (as instructed). The new checks have been run only against reference_impl.py and its mutations.",
+  "The SELFTEST.md header sentence produced by the frozen selftest.py names contract sections 9 and 9.1 but not 9.2. K6c is implemented and tested; the wording was left as is to avoid editing the tested file or the generated report by hand.",
+  "The final macOS and Linux self-tests ran concurrently. Timing margins were large in all runs (SIGINT exit 5-16 ms against 500 ms, resize re-layout under 12 ms against 100 ms), and both PASSed with no flaky checks.",
+  "Linux coverage is Docker Desktop's linuxkit arm64 VM with the pinned Debian 12 image only. linux-x64 artifacts, other kernels and other distributions are not exercised.",
+  "K6a is judged in three scenarios only: a bash -i pipeline whose peer reads the tty (bash 3.2 on macOS, 5.2 on Linux), a non-job-control script whose & job is heimdall-proto (stdin tty or /dev/null), and inherited SIG_IGN for SIGHUP and SIGINT.",
+  "K14 uses a FIFO with no writer, a listening socket, a directory and /dev/null.",
+  "K15 uses 13 adversarial shapes, measured from spawn to reap with wait4 rusage; descendants that are never waited for are not counted. The tui first-frame time includes shim and wrapper start-up.",
+  "K16 detects only PATH-resolved executions of the 8 tripwire names; execution by absolute path (for example /usr/bin/tput) or of other names is not detected.",
+  "Other stale run state outside the repo: a local image heimdall-g02-harness:ac0f6cf382a4 and the pulled python:3.13-slim-bookworm base remain in Docker (no fixture-labelled resources were touched). Scratch output is in /tmp/hm-r2, and a pre-change backup is in /tmp/g02-backup-r2-1791061840."
+ ],
+ "summary": "The G02 harness (version 2.0.0) now follows the round-2 rules. It runs on Linux, and no existing check was weakened. Final self-test PASS on both platforms: SELFTEST exit 0 on macOS and exit 0 in the linux-arm64 container. Every baseline was 124/124 (3 on macOS, 2 on Linux), with no flaky checks. Each platform caught 107 of 107 reference mutations that can be observed there; the one it can't observe is caught on the other platform. Both harness canary mutations made the harness exit 3, with nothing left on disk. The tested code is byte-identical to what's in the repo.\n\n1. **Canary fix.** Canaries are named by fixture and key path only. Fixture values are read from the fixtures at run time and kept in memory. The env and [meta] canaries are random per run, and the env variable is renamed HM_G02_SECRET_ENV. Notes and console lines are redacted. A final self-check scans every string in the record and every artifact the run wrote. On a hit it redacts, sets status in_progress and verdict inconclusive, and exits 3. Two harness mutations prove it fires: canary_in_desc (re-introduces the round-1 leak) and canary_in_artifact. Both are accepted only with --selftest.\n\n2. **New checks.**\n   - K6a: `run.k6a_pipeline_peer_not_stopped` (a real bash -i reports '[1]+ Stopped' under the defect), `run.k6a_background_script_tty`, and `run.k6a_inherited_ignore`, scoped to SIGHUP and SIGINT per the new §9.2 K6c ruling.\n   - K14: `profile.non_regular_file` and `tui.non_regular_file`.\n   - K15: `profile.parser_resource_bound` (13 shapes, each at most 1 MiB) and `tui.parser_resource_bound`, measured by the new rss_wrap.py using os.wait4; `harness.rss_probe` checks the measurement itself.\n   - K16: `common.no_helper_processes`, with 8 tripwire programs on PATH and TMUX, TERM_PROGRAM and COLORTERM set.\n   - Two harness self-checks: `harness.canary_selfcheck` and `harness.signal_duplicate_probe`.\n\n3. **Linux runner.** `tests/g02/linux/run.sh` and its Dockerfile run the full catalogue against an artifact directory. They also support `--reference`, `--selftest` and `--build`. The container runs with --network none, uid 10001, all capabilities dropped and the repository mounted read-only. Records carry environment.platform=linux-arm64 plus the image id, base digest and package pins. On Linux, the K3a ECONNRESET delivery is now a gating precondition.\n\n4. **Reference and self-test.** The reference gains correct K6a, K14 and K15 behaviour and 9 new mutations. selftest.py now covers harness mutations, cross-platform gating in both directions, Linux merging and a canary scan of its whole work directory.\n\n5. **README.** The catalogue, the K-coverage table (including K6b and K6c), the Linux runner section, exit code 3 and the limitations are updated.\n\nThings that need a decision or follow-up are in the escalations: 14 existing evidence files outside my write area still leak canary values; a back-to-back double signal forward can't be observed on Linux and only sometimes on macOS; and K13's 'digest-pinned' needs confirming as I interpreted it."
+}

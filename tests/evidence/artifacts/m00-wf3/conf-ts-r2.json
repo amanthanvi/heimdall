@@ -1,0 +1,16 @@
+{
+ "candidate": "ts",
+ "harness_exit_code": 1,
+ "evidence_record": "<repo>/tests/evidence/g02-ts-conformance.json",
+ "passed": 112,
+ "failed": 1,
+ "errored": 0,
+ "failures": [
+  {
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "Deterministic (failed in the full run and in 3 of 3 --only reruns, exit 1 each). The harness passes argv bytes ff fe 2d 78, 63 61 66 e9, etc.; the child observed efbfbdefbfbd2d78, 636166efbfbd, ... i.e. every invalid byte became U+FFFD (valid UTF-8 element 76616c696420c3bc passed intact). K8 in contract section 9 says invalid-UTF-8 argv is in scope on Unix, the check gates, and a stack that cannot pass it records a stack limitation and must not route around it (FFI via _NSGetArgv or /proc/self/cmdline counts as routing around, to be recorded as a production option only). The harness matches K8, so it is not a harness_defect and there is no contract ambiguity. Root cause per prototypes/ts/REPORT.md: Bun decodes argv to JS strings before user code runs. It is a genuine conformance failure, attributable to the stack. The prototype's own report already lists it as known defect 2 and escalation E2. The earlier E3 claim that the harness treats this check as non-gating is stale: the current harness (conformance.py sha256 f2ccd7e7...) gates it."
+  }
+ ],
+ "summary": "Rebuilt ts via build.sh (exit 0, 4/4 targets; darwin-arm64 sha dd7a771d...). Ran the harness on 2026-10-03T20:06Z onward: exit 1, 112/113 pass, 0 errors, status verified, verdict fail. The single failure, run.argv_invalid_utf8, is deterministic (3/3 reruns fail) and is a K8 stack limitation (Bun turns invalid argv bytes into U+FFFD). The prior round was moved to tests/evidence/artifacts/g02-ts/r1/. New artifacts are in tests/evidence/artifacts/g02-ts/conformance/. Rerun records are under /tmp/ts-only-{1,2,3}.json. The build log is /tmp/ts-build-r2.log and the harness log is /tmp/ts-conf-r2.log. tui.hangup_exit_129 (K10) passes. No intermittent failures were observed."
+}

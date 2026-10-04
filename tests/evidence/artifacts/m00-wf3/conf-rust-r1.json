@@ -1,0 +1,10 @@
+{
+ "candidate": "rust",
+ "harness_exit_code": 0,
+ "evidence_record": "tests/evidence/g02-rust-conformance.json",
+ "passed": 113,
+ "failed": 0,
+ "errored": 0,
+ "failures": [],
+ "summary": "Rebuilt the Rust prototype with `sh prototypes/rust/build.sh`. It exited 0 and built all four targets. The darwin-arm64 binary sha256 is 4f8521433fc3be19d932bcc82a99e6dcdf1868e5b602502faf391b98217f6513. I then ran `python3 tests/g02/conformance.py` with the documented arguments. The real exit code was 0. Summary: 113 total, 113 pass, 0 fail, 0 error, 0 skipped. Record status is verified and the verdict is pass. There were no failures to classify and nothing to rerun, so there were no intermittency counts. No earlier round existed under artifacts/g02-rust/conformance, so nothing was moved to an r<N> directory. The run covered macOS arm64 Unix only; Windows is not covered (blocked_on: native Windows host). Artifacts are in <repo>/tests/evidence/artifacts/g02-rust/conformance/. SSH_AUTH_SOCK was unset for the run. The build log is at /tmp/rust-build.log and the harness stdout at /tmp/rust-conf.log."
+}

@@ -1,0 +1,166 @@
+{
+ "task_id": "M00-T05-rust",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "prototypes/rust/Cargo.toml",
+  "prototypes/rust/Cargo.lock",
+  "prototypes/rust/build.rs",
+  "prototypes/rust/build.sh",
+  "prototypes/rust/selftest.sh",
+  "prototypes/rust/LICENSES.md",
+  "prototypes/rust/src/lib.rs",
+  "prototypes/rust/src/envelope.rs",
+  "prototypes/rust/src/profile.rs",
+  "prototypes/rust/src/agent.rs",
+  "prototypes/rust/src/runner.rs",
+  "prototypes/rust/src/list_model.rs",
+  "prototypes/rust/src/text.rs",
+  "prototypes/rust/src/main.rs",
+  "prototypes/rust/src/cli.rs",
+  "prototypes/rust/src/tui.rs",
+  "prototypes/rust/tests/cli.rs",
+  "prototypes/rust/tests/pty_tui.py",
+  "prototypes/rust/tools/gen_licenses.py",
+  "prototypes/rust/tools/list_test_bins.py",
+  "prototypes/rust/dist/** (gitignored build output: darwin-arm64, linux-x64, linux-arm64, windows-x64, manifest.json, logs)",
+  "prototypes/rust/target/** (gitignored; includes target/tools/bin/cargo-zigbuild 0.23.4)",
+  "tests/evidence/g02-rust-selftest.json",
+  "tests/evidence/artifacts/g02-rust/selftest/** (summary.json, steps.tsv, manifest.json, one .log per step, harness-core/, harness-tui/)"
+ ],
+ "commands_run": [
+  {
+   "command": "cargo test --locked -- --test-threads=4  (host macOS arm64; selftest step host-cargo-test)",
+   "exit_code": 0,
+   "observed": "lib unit tests 39 passed, bin cli-parser tests 4 passed, tests/cli.rs integration 14 passed, 0 failed"
+  },
+  {
+   "command": "cargo fmt --check",
+   "exit_code": 0,
+   "observed": "clean (a previous selftest run had exit 1 before formatting the watchdog edit; fixed and re-run)"
+  },
+  {
+   "command": "cargo clippy --locked --all-targets -- -D warnings",
+   "exit_code": 0,
+   "observed": "no warnings"
+  },
+  {
+   "command": "cargo check --locked --target x86_64-pc-windows-gnu --all-targets",
+   "exit_code": 0,
+   "observed": "Windows code paths compile (named pipe, ctrlc, Command quoting via std)"
+  },
+  {
+   "command": "/bin/sh prototypes/rust/build.sh (run from /tmp and from selftest)",
+   "exit_code": 0,
+   "observed": "darwin-arm64 739264 B, linux-x64 901280 B (static musl), linux-arm64 838328 B (static musl), windows-x64 834048 B (PE32+); dist/manifest.json written with sha256 for all four, built:true"
+  },
+  {
+   "command": "env -i HOME=/tmp PATH=/usr/bin:/bin HEIMDALL_PROTO_BIN=dist/darwin-arm64/heimdall-proto <cli test binary> --test-threads=4",
+   "exit_code": 0,
+   "observed": "14/14 black-box tests pass against the release artifact without cargo/rustc on PATH"
+  },
+  {
+   "command": "python3 tests/pty_tui.py dist/darwin-arm64/heimdall-proto --panic-binary target/panic/debug/heimdall-proto",
+   "exit_code": 0,
+   "observed": "15/15 pty cases pass: select/quit/Ctrl-C(130)/SIGTERM(143)/filter unicode/Esc/resize redraw ~6 ms incl 20x5 and <50-col alias-only/NO_COLOR no color SGR/100 rows/tiny sizes/bad profile no alt screen/hangup exit/run terminal SIGINT delivered once/Ctrl-Z job control/panic restore"
+  },
+  {
+   "command": "docker run --platform linux/arm64 --network none debian:bookworm-slim <musl test bins> (cli suite against dist/linux-arm64)",
+   "exit_code": 0,
+   "observed": "39+14+4 passed; container had no cargo/rustc/go/node/bun/python3 on PATH"
+  },
+  {
+   "command": "docker run --platform linux/amd64 --network none debian:trixie <musl x64 test bins> (emulated)",
+   "exit_code": 0,
+   "observed": "39+14+4 passed under amd64 emulation"
+  },
+  {
+   "command": "docker run --platform linux/arm64 rust:1.98.1-bookworm (PATH=/usr/bin:/bin) python3 tests/pty_tui.py dist/linux-arm64/heimdall-proto --panic-binary ...",
+   "exit_code": 0,
+   "observed": "15/15 pty cases pass on Linux arm64"
+  },
+  {
+   "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate rust --only 'harness.*,version.*,usage.*,profile.*,agent.*,run.*' (read-only run)",
+   "exit_code": 0,
+   "observed": "harness summary total 70 pass 70 fail 0 error 0 skipped 0"
+  },
+  {
+   "command": "conformance.py --only <each tui.* check> (timeout 120 each)",
+   "exit_code": 1,
+   "observed": "13 PASS (non_tty, first_frame, select_down_enter, select_jk_keys, quit_q, ctrl_c, sigterm_restores_terminal, resize_narrow_hides_host, resize_relayout_latency, resize_tiny_no_crash, start_tiny_no_crash, large_100_filter_latency, no_agent_contact); 7 ERR with harness-internal pyte IndexError (filter_basic, filter_unicode, filter_case_insensitive, esc_clears_filter, filter_enter_keeps_filter, ctrl_c_in_filter_mode, no_color); filter_matches_host and filter_backspace exit 124 (harness deadlock until timeout)"
+  },
+  {
+   "command": "first full selftest harness step (single harness run)",
+   "exit_code": 143,
+   "observed": "harness deadlocked in os.waitpid on a pty child stuck exiting (?Es) at tui.filter_matches_host; I terminated my own verified harness process; replaced by per-check bounded runs"
+  },
+  {
+   "command": "rustup target add x86_64-unknown-linux-musl",
+   "exit_code": 0,
+   "observed": "downloaded rust-std component"
+  },
+  {
+   "command": "cargo install --locked cargo-zigbuild --version 0.23.4 --root prototypes/rust/target/tools",
+   "exit_code": 0,
+   "observed": "installed in 7.9 s wall into gitignored target/tools"
+  },
+  {
+   "command": "docker pull --platform linux/arm64 debian:bookworm-slim",
+   "exit_code": 0,
+   "observed": "arm64 digest sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 (new tag; no existing tag re-pointed)"
+  },
+  {
+   "command": "python3 tools/gen_licenses.py > LICENSES.md",
+   "exit_code": 0,
+   "observed": "91 crate versions; all permissive (MIT/Apache variants, Zlib, BSL-1.0 alt, Unlicense alt, Unicode-3.0 build-time only)"
+  },
+  {
+   "command": "curl crates.io API for maintenance signals; cargo info iroh@1.3.0; scratch cargo add iroh@=1.3.0 in /tmp (deleted)",
+   "exit_code": 0,
+   "observed": "iroh 1.3.0 released 2026-09-28, MIT OR Apache-2.0, rust-version 1.91, 363 crates incl ring 0.17.14 (C/asm), tokio 1.53.1; crates.io has no iroh-ffi record"
+  },
+  {
+   "command": "siginfo probe (signal-hook extended-siginfo example) in a pty on macOS 27",
+   "exit_code": 0,
+   "observed": "tty-generated SIGINT and SIGWINCH reported sender pid = the process that wrote to the pty master (Some(Process{pid: driver pid})), cause Unknown — sender-pid dedupe impossible on macOS; approach replaced"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "tests/evidence/g02-rust-selftest.json",
+  "tests/evidence/artifacts/g02-rust/selftest/summary.json",
+  "tests/evidence/artifacts/g02-rust/selftest/steps.tsv",
+  "tests/evidence/artifacts/g02-rust/selftest/manifest.json",
+  "tests/evidence/artifacts/g02-rust/selftest/harness-core-record.json",
+  "tests/evidence/artifacts/g02-rust/selftest/harness-tui/"
+ ],
+ "escalations": [
+  "REPORT.md NOT WRITTEN: the environment blocked this subagent from writing prototypes/rust/REPORT.md ('Subagents should return findings as text, not write report files'). I did not work around the block. The full report text is in this output's summary; the orchestrator needs to save it as prototypes/rust/REPORT.md. LICENSES.md was produced by a generator script and written normally.",
+  "Harness defect 1 (tests/g02, macOS): pyte's Screen.display raises IndexError when a narrow character overwrites the left half of a wide character (the 'vps-東京' row) and the right half is not rewritten. Ratatui's diff emits exactly that, which is legal; xterm blanks the whole wide character. 7 tui.* filter/no_color checks ERR for this reason. My own VT model uses xterm semantics and passes the same scenarios. Harness owner should handle orphan '' cells, not the candidate.",
+  "Harness defect 2 (tests/g02/harness_lib.py PtySession.close, macOS): it calls shim.wait()/kill_group without draining the pty master. On macOS a process exiting with undrained pty output blocks in exit (?Es), so the harness hangs indefinitely in os.waitpid (tui.filter_matches_host, tui.filter_backspace). The selftest runs each tui check with a 120 s timeout so other results stay visible.",
+  "Contract §1 vs §2 ambiguity: profile string values that contain control characters (e.g. a TOML \\u001b escape) are rejected as SCHEMA_INVALID, naming the key path. This is stricter than §2 and was chosen so no ANSI escape reaches JSON or the TUI. Needs an orchestrator decision.",
+  "Contract §3 ambiguity: control characters in the agent comment and key_type are replaced with U+FFFD (§1 forbids escapes in JSON strings). §3 only mentions replacing invalid UTF-8 bytes.",
+  "Contract §3 ambiguity: a peer that closes the connection before sending any response byte is reported as AGENT_PROTOCOL_ERROR (truncated frame), not AGENT_UNAVAILABLE. A type-5 frame with trailing payload is AGENT_PROTOCOL_ERROR, not AGENT_REFUSED.",
+  "Contract §4 ambiguity: the schema does not constrain `state` for meta-file CHILD_EXITED. The prototype uses 'succeeded' whatever the child's exit code, and 'failed' for CHILD_LAUNCH_FAILED.",
+  "Contract §4 semantics choice affecting authority/process boundaries: to deliver terminal SIGINT only once, the child runs in its OWN process group and is made the terminal foreground group (shell-style job control: tcsetpgrp, SIGTTOU blocked on reclaim, Ctrl-Z stop/continue). The same happens with no controlling terminal. A killpg aimed at heimdall-proto's group therefore reaches the child only through forwarding. As a background job the child shares the group and a group-wide signal is delivered twice (documented gap). Needs confirmation as the intended contract reading.",
+  "Exit codes not defined by the contract for these TUI paths: terminal hangup gives 129, SIGTERM/SIGHUP give 128+N, panic gives 1.",
+  "Distribution decision for the owner: Windows was cross-built as x86_64-pc-windows-gnu with zig (UCRT imports api-ms-win-crt-*, needs Windows 10+ or the UCRT update), not MSVC. That windows-x64 artifact's sha256 changed between identical builds (not bit-reproducible); the darwin and linux digests were stable across rebuilds."
+ ],
+ "limitations": [
+  "Windows x64 native execution is blocked: no Windows 10/11 x64 host. The named pipe, console Ctrl-C, CreateProcess quoting and console resize paths are compile-checked only. The PE32+ artifact was built and linked but never run.",
+  "linux-x64 was tested only under Docker Desktop amd64 emulation on an arm64 host, not native x86-64. WSL was not tested.",
+  "The darwin 'no toolchain' check ran on the build machine with env -i PATH=/usr/bin:/bin, not on a clean macOS machine. The darwin artifact has only the linker's ad-hoc signature (not Developer-ID signed or notarized).",
+  "Linux arm64 tests ran in containers on Docker Desktop's Linux VM; the pty tests ran in rust:1.98.1-bookworm (it has python3) with PATH limited to /usr/bin:/bin.",
+  "All results are prototype-level evidence. Nothing here is production verification of R-SS-04, R-UX-05, R-DI-01, R-AP-02 or R-SE-05.",
+  "Workaround for an upstream crossterm 0.29.0 defect: its event loop spins forever on terminal hangup (observed at 98-100% CPU; the source reads in a loop on EOF or EIO). A watchdog thread polls stdin for POLLHUP and exits. There is no Windows equivalent.",
+  "Iroh was neither compiled nor cross-compiled. Only its dependency graph was resolved, in a scratch directory.",
+  "LICENSES.md uses each crate's declared license field; LICENSE files were not cross-checked. Dependencies' internal unsafe code was not audited.",
+  "Measured startup and memory are macOS-only and informal: 30 runs, about 2.6-3.0 ms median, about 2.1 MiB max RSS."
+ ],
+ "summary": "The Rust + Ratatui G02 slice is built and passes every native test I could run on macOS arm64 and Linux. Windows was built and compile-checked but never run, because there is no Windows machine here. Status is `implemented_unverified`. **`prototypes/rust/REPORT.md` was not written**: the environment refused that file from a subagent, so the full report text is below and needs to be saved there.\n\n# REPORT.md content — G02 prototype: Rust + Ratatui (M00-T05-rust)\n\n**Evidence:** `tests/evidence/g02-rust-selftest.json`, plus `tests/evidence/artifacts/g02-rust/selftest/` (`summary.json` with the real exit code of every step, one log per step). Re-run everything with `prototypes/rust/selftest.sh`.\n\n## 1. Layout and the shared-operations gate\n- **Library** (`src/lib.rs`, `#![forbid(unsafe_code)]`): `envelope` (§1), `profile` (§2), `agent` (§3), `runner` (§4), `list_model` (§5 state machine with no terminal), `text`.\n- **Binary**: `main.rs`/`cli.rs` (hand-written argument parsing, paths kept as OsString) and `tui.rs` (Ratatui/crossterm rendering of `list_model`).\n- CLI and TUI share `profile::load_file`, and all TUI behaviour lives in `ListModel`, which has its own unit tests.\n\n## 2. Versions (from command output)\n- **Toolchain:** rustc 1.98.1 (48a229cea 2026-09-01, LLVM 22.1.8), cargo 1.98.1, rustup 1.29.1, zig 0.16.0 (already installed), cargo-zigbuild 0.23.4 (installed into gitignored `target/tools`).\n- **Host:** macOS 27.0 arm64; Docker Desktop 29.8.0.\n- **Exact pins:** ratatui 0.30.2 (crossterm feature: ratatui-core 0.1.2, ratatui-crossterm 0.1.2, crossterm 0.29.0), toml 1.1.6+spec-1.1.0, serde_json 1.0.151, sha2 0.11.0, base64 0.23.1.\n- **Unix only:** signal-hook 0.4.4, rustix 1.1.5, nix 0.31.3. **Windows only:** ctrlc 3.5.2.\n- 91 crate versions in the lock across all four targets.\n\n## 3. Builds (`build.sh` → `dist/manifest.json`, all four built)\n\n| Target | Size | Notes |\n|---|---|---|\n| darwin-arm64 | 739,264 B | links only libSystem and libiconv |\n| linux-x64 | 901,280 B | static musl, zig |\n| linux-arm64 | 838,328 B | static musl, zig |\n| windows-x64 | 834,048 B | windows-gnu via zig; imports UCRT `api-ms-win-crt-*`, so needs Windows 10+ |\n\n- Cold release builds took 11–16 s per target.\n- **Run without a toolchain:**\n  - linux-arm64 ran in a clean `debian:bookworm-slim` with no cargo, rustc, go, node, bun or python3 on PATH.\n  - linux-x64 ran in `debian:trixie`, but only under emulation.\n  - darwin ran with `env -i PATH=/usr/bin:/bin` on the build machine itself.\n  - windows-x64 is **blocked** (needs a Windows 10/11 x64 host).\n- **Speed and memory (macOS):** `version --json` median 2.6 ms; `profile show` on the 100-destination profile median 3.0 ms; about 2.1 MiB peak memory.\n\n## 4. Contract coverage\n- **§1–§2, §6:** implemented; tested on macOS and Linux against every fixture, the oversize file, and the canary.\n- **§3 Unix:** implemented and tested with crafted frames and fake agents in temp dirs: oversize length, nkeys over 1024, string overrun, trailing bytes, truncation, wrong type, refusal, timeout, and SIGINT cancel in under 500 ms. Only type 11 is ever sent.\n- **§4 Unix:** implemented and tested: byte-exact argv including invalid UTF-8, binary stdio, exit code and 128+N, meta file, 127 on launch failure, forwarding of INT/TERM/HUP/QUIT/WINCH, terminal Ctrl-C delivered to the child exactly once, Ctrl-Z job control, no zombie.\n- **§5 Unix:** implemented and tested in a pty on macOS and Linux arm64 (15/15 cases). Covered: `> ` marker, alias-only rows under 50 columns, status line, keys, Unicode filter, NO_COLOR, redraw after resize in about 6 ms including 20×5, 100 rows, and terminal restore after select/quit/Ctrl-C/SIGTERM/panic/hangup.\n- **§7:** done.\n- **Windows (§3–§5):** compile-checked only.\n- **Shared harness, run read-only:**\n  - All 70 non-TUI checks pass.\n  - Of the 22 TUI checks, 13 pass.\n  - 7 hit an `IndexError` inside pyte in the harness.\n  - 2 hang until the timeout because of a harness deadlock.\n  - Both harness problems are escalated as harness-side.\n\n## 5. What was hard, how long, and the workarounds (about 1 h 40 min total; first green tests after about 25 min)\n1. **Double SIGINT (about 25 min).** The first design filtered signals by sender PID via signal-hook's extended-siginfo, which compiles C. On macOS 27, a Ctrl-C typed at the terminal reports the PID of whatever wrote to the pty master, so it looks like `kill(2)`. I replaced it with shell-style job control: the child gets its own process group and the terminal (`tcsetpgrp`), SIGTTOU is blocked via nix's safe `pthread_sigmask` when taking the terminal back, and Ctrl-Z stops and resumes both processes. The C component is gone.\n2. **crossterm 0.29 hangs on terminal hangup (about 15 min).** The TUI spins at 100% CPU forever, because `event::poll` loops on EOF/EIO. A watchdog thread now polls stdin for POLLHUP and checks pending signals, then restores the terminal and exits with 129. There is a regression test.\n3. **Ratatui `Terminal::clear()` sends a cursor-position query (`ESC[6n`)** and waits 2 s on terminals that never answer. I clear the alternate screen with crossterm `Clear(All)` instead.\n4. **macOS test-infrastructure quirks (about 20 min, not product bugs):** a process exiting with unread pty output blocks until it is read; the slave fd is revoked once the session leader exits; Docker could not mount the repo at its `/Users` path, so it is mounted at `/repo` with a symlink.\n5. **Cross-compiling with zig and cargo-zigbuild** worked first time (about 5 min).\n\n## 6. Known defects\n- Background-job mode: a signal sent to the whole process group reaches the child twice.\n- Possible double SIGHUP when the terminal hangs up while the child is in the foreground. This is inferred, not tested.\n- heimdall-proto stops itself with SIGSTOP, so shells print \"Stopped (signal)\". Cosmetic.\n- The watchdog exits from a helper thread; on hangup the terminal restore is best effort.\n- `build.sh` needs python3 on the build host to write the manifest.\n- The darwin binary has only an ad-hoc signature (not Developer-ID signed or notarized).\n- The windows-x64 digest is not reproducible between identical builds.\n\n## 7. Windows notes (compile-checked only; native run blocked)\n- **Named pipe:** `std::fs::OpenOptions` on `\\\\.\\pipe\\name` with a synchronous handle. Timeout and cancel come from a worker thread plus process exit. A busy pipe is reported as `AGENT_UNAVAILABLE` with no retry.\n- **Console Ctrl-C:** `ctrlc` (`SetConsoleCtrlHandler`). In `agent list` it sets the cancel flag. In `run` the parent ignores it so the child, on the same console, handles it. In the TUI, raw mode delivers Ctrl-C as a key.\n- **CreateProcess quoting:** std's `CommandLineToArgvW`-compatible quoting; it refuses unsafe `.bat`/`.cmd` arguments (the CVE-2024-24576 fix). There is no custom quoting code.\n- **Exit codes:** passed through as 32-bit values, so NTSTATUS codes can appear negative; `signal` is always null. There is no job object.\n- **Resize / ConPTY:** crossterm's `WINDOW_BUFFER_SIZE_EVENT`. ConPTY is not involved.\n- **Dependencies:** `winapi` 0.3.9 (last release 2020) via crossterm, which ships prebuilt `.a` import libraries.\n\n## 8. Native code, unsafe code, downloads\n- My code contains no `unsafe` (`forbid(unsafe_code)` in both crates). Dependencies use unsafe internally and were not audited.\n- No C is compiled after the extended-siginfo removal.\n- The binaries download nothing at runtime.\n- Build-time downloads: crates from crates.io, the `x86_64-unknown-linux-musl` rustup target, cargo-zigbuild, and the arm64 `debian:bookworm-slim` image.\n\n## 9. Maintenance signals (crates.io, 2026-10-03)\n\n| Crate | Latest release |\n|---|---|\n| ratatui | 0.30.2, 2026-06-19 |\n| crossterm | 0.29.0, 2025-04-05 (about 18 months old; has the hangup bug) |\n| toml | 2026-09-10 |\n| serde_json | 2026-07-20 |\n| sha2 | 2026-03-25 |\n| base64 | 2026-08-04 |\n| signal-hook | 0.4.4, 2026-04-04 |\n| rustix | 2026-09-16 |\n| nix | 2026-05-11 |\n| ctrlc | 2026-02-10 |\n| windows-sys | 2025-10-06 |\n| winapi | 0.3.9, 2020-06-26 |\n\ncrossterm still pulls signal-hook 0.3.18, so the graph carries two signal-hook versions.\n\n## 10. Iroh path\n- **Embedded library, native to Rust:** `iroh` 1.3.0 (released 2026-09-28, MIT OR Apache-2.0, needs Rust 1.91 or later).\n- A scratch resolve pulled 363 crates, including tokio 1.53.1, rustls 0.23.45, noq 1.3.0, and ring 0.17.14 (C and assembly; cross-compiling it is untested).\n- It would add BSD-3-Clause, ISC, `Apache-2.0 AND ISC`, and CDLA-Permissive-2.0 licenses.\n- Iroh is async, so this synchronous design would need a tokio runtime thread or an optional supervised helper.\n- crates.io has no `iroh-ffi` crate.\n\n## 11. Licensing\n`LICENSES.md` was generated by `tools/gen_licenses.py` from `cargo tree` (cargo 1.98.1), using each crate's declared license field. Everything is permissive. Besides MIT/Apache:\n- ryu: Apache-2.0 OR BSL-1.0\n- foldhash: Zlib\n- memchr: Unlicense OR MIT\n- unicode-ident: Unicode-3.0 (build-time only)\n\nThe prototype's own `license = \"UNLICENSED\"` is a placeholder (spec §15.3 leaves the project license open)."
+}

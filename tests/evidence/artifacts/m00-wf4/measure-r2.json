@@ -1,0 +1,171 @@
+{
+ "method": "Round 2 (M00-T05-measure-r2). Same scripts and arguments as round 1 (measure.py --idle-s 30 --idle-reps 2; defaults passes=2, warmup=10, n=100, rss-n=15, tui-n=30, key-sessions=30, cold-n=5): round-robin interleaving of go/rust/ts plus a no-op control with the start member rotated per iteration, 2 passes in one session, darwin-arm64 artifacts as found in prototypes/*/dist (never rebuilt), env -i style PATH=/usr/bin:/bin, private /tmp HOME/TMPDIR/cwd, no SSH_AUTH_SOCK, pty 80x24 with pyte, RSS via /usr/bin/time -l. New in round 2: idle_long.py, a 300 s idle hold after the first large-100 frame, 3 reps per candidate, round-robin with the start member rotated per rep (orders go,rust,ts / rust,ts,go / ts,go,rust), minus a 2 s control hold (same arithmetic as the 30 s estimate); about 46 min in total. Clean-environment darwin (env -i, 2 variants) and Linux (arm64 native in the Docker Desktop VM, x64 emulated, debian pinned by digest, plus the alpine musl probe) were re-run for go and rust only via a new HM_G02_CANDS=go,rust filter in clean_env.py; ts clean runs are reused from round 1 because the ts artifacts are byte-identical (sha256 verified for all four targets). Windows static PE inspection was re-run for all three (static only). Round-1 files were moved to tests/evidence/artifacts/g02-measure/round1/ and round1-record.json. The record adds a round1-vs-round2 comparison table, per-candidate sha256, and the idle_long_hold_300s block.",
+ "host": "Apple M5 Max (Mac17,6), 18 cores, 64 GiB, macOS 27.0 (26A428), Darwin 27.0.0 arm64, AC power, no thermal warnings recorded; Python 3.14.8, pyte 0.8.2 in tests/g02/.venv; Docker Desktop 29.8.1 (linux/arm64 VM) for the Linux runs. Shared machine: 1-minute load average was about 6-7 at the start of pass 1, about 1.5-2.6 for the rest of the run and the idle hold (round 1 ran at about 4-10). Round 2 window: 2026-10-04T02:14:33Z to 03:12:26Z.",
+ "candidates": [
+  {
+   "candidate": "go",
+   "artifact_sha256_darwin": "20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1",
+   "artifact_bytes": {
+    "darwin-arm64": 5212000,
+    "linux-arm64": 5177504,
+    "linux-x64": 5451936,
+    "windows-x64": 5099008,
+    "round1_darwin-arm64": 5207474,
+    "sha256_same_as_round1": false
+   },
+   "startup_version_ms_p50": 3.635,
+   "startup_version_ms_p95": 4.212,
+   "profile_large_ms_p50": 4.061,
+   "profile_large_ms_p95": 4.663,
+   "tui_first_frame_ms_p50": 29.341,
+   "tui_first_frame_ms_p95": 31.573,
+   "tui_keystroke_ms_p95": 15.994,
+   "peak_rss_kib_version": 7160,
+   "peak_rss_kib_profile_large": 7744,
+   "idle_cpu_pct": 0.3367,
+   "clean_runs": [
+    {
+     "env": "darwin-arm64 env -i, TMPDIR only",
+     "checks": "13/13",
+     "files_created_in_fresh_dirs": 0,
+     "dynamic_libs": [
+      "libSystem.B.dylib",
+      "libresolv.9.dylib"
+     ]
+    },
+    {
+     "env": "darwin-arm64 env -i, TMPDIR+HOME+cwd",
+     "checks": "13/13",
+     "files_created_in_fresh_dirs": 0
+    },
+    {
+     "env": "linux-arm64 native, debian bookworm-slim by digest",
+     "checks": "12/12",
+     "ldd": "not a dynamic executable"
+    },
+    {
+     "env": "linux-x64 emulated (amd64 under Docker Desktop on Apple silicon), debian by digest",
+     "checks": "12/12",
+     "ldd": "not a dynamic executable"
+    },
+    {
+     "env": "alpine (musl) arm64 version probe",
+     "rc": 0
+    }
+   ],
+   "notes": "Idle CPU over 300 s x 3 reps: user+sys 1.00, 1.04, 0.98 s; net 0.334, 0.348, 0.328 percent of one core (max 0.348, pooled 0.337); gross mean 0.336. This is about two thirds of the spec 0.5 percent target on this profile viewer; it confirms the round-1 30 s estimate (0.36 percent in both passes of round 2, 0.46/0.45 in round 1) was in the right range, and the long hold is steady rather than noisy (three runs within 0.02 points). Idle max RSS 11.8-13.4 MB. 30 s estimates in the main run: 0.357 and 0.357 percent. Round 1 to round 2 changes (go changed): startup p50 +5.0 percent (3.462 to 3.635), first frame large p50 -2.7 percent, keystroke p95 -2.8 percent, TUI-workload RSS p50 -8.2 percent (12.03 to 11.05 MB), exe +0.1 percent. These are within the host-load difference between the rounds except possibly the TUI RSS drop, which was not investigated. Keystroke p95 of about 16 ms on filter typing is unchanged and consistent with, but not proven to be, a 60 fps renderer tick. Clean-run fake-agent contact: 4 connections across go and rust, each exactly one type-11 message. Conformance counts quoted from the task packet, not re-verified here: 133p/0f/0e darwin and linux."
+  },
+  {
+   "candidate": "rust",
+   "artifact_sha256_darwin": "d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3ef65a67e11",
+   "artifact_bytes": {
+    "darwin-arm64": 717904,
+    "linux-arm64": 806528,
+    "linux-x64": 869648,
+    "windows-x64": 841728,
+    "round1_darwin-arm64": 755840,
+    "sha256_same_as_round1": false
+   },
+   "startup_version_ms_p50": 2.67,
+   "startup_version_ms_p95": 3.24,
+   "profile_large_ms_p50": 3.258,
+   "profile_large_ms_p95": 3.686,
+   "tui_first_frame_ms_p50": 9.558,
+   "tui_first_frame_ms_p95": 10.933,
+   "tui_keystroke_ms_p95": 2.678,
+   "peak_rss_kib_version": 2192,
+   "peak_rss_kib_profile_large": 3440,
+   "idle_cpu_pct": 0.0358,
+   "clean_runs": [
+    {
+     "env": "darwin-arm64 env -i, TMPDIR only",
+     "checks": "13/13",
+     "files_created_in_fresh_dirs": 0,
+     "dynamic_libs": [
+      "libiconv.2.dylib",
+      "libSystem.B.dylib"
+     ]
+    },
+    {
+     "env": "darwin-arm64 env -i, TMPDIR+HOME+cwd",
+     "checks": "13/13",
+     "files_created_in_fresh_dirs": 0
+    },
+    {
+     "env": "linux-arm64 native, debian bookworm-slim by digest",
+     "checks": "12/12",
+     "ldd": "not a dynamic executable"
+    },
+    {
+     "env": "linux-x64 emulated (amd64 under Docker Desktop on Apple silicon), debian by digest",
+     "checks": "12/12",
+     "ldd": "not a dynamic executable"
+    },
+    {
+     "env": "alpine (musl) arm64 version probe",
+     "rc": 0
+    }
+   ],
+   "notes": "Idle CPU over 300 s x 3 reps: user+sys 0.11, 0.10, 0.11 s; net 0.037, 0.034, 0.037 percent of one core (max 0.037, pooled 0.036), about one fourteenth of the spec 0.5 percent target on this profile viewer. 30 s estimates in the main run: 0.036 and 0.018 percent (round 1: 0.036, 0.018), consistent. Idle max RSS about 3.4 MB. Round 1 to round 2 changes (rust changed): startup p50 +3.9 percent (2.570 to 2.670), first frame large p50 -3.4 percent, keystroke p50 -13.2 percent (0.839 to 0.728 ms) but keystroke p95 +13.7 percent (2.356 to 2.678 ms), TUI-workload RSS p50 unchanged (3.65 MB), exe size -5.0 percent (755840 to 717904 bytes). The keystroke and startup deltas are small in absolute terms (sub-millisecond) and within the load differences between rounds. Clean-run fake-agent contact: 4 connections across go and rust, each exactly one type-11 message. Conformance counts quoted from the task packet, not re-verified here: 133p/0f/0e darwin and linux."
+  },
+  {
+   "candidate": "ts",
+   "artifact_sha256_darwin": "dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2",
+   "artifact_bytes": {
+    "darwin-arm64": 67147506,
+    "darwin-arm64_sidecar_libopentui.dylib": 5560064,
+    "darwin-arm64_total": 72707570,
+    "linux-arm64": 86165800,
+    "linux-x64": 86205920,
+    "windows-x64": 90981888,
+    "sha256_same_as_round1": true
+   },
+   "startup_version_ms_p50": 17.427,
+   "startup_version_ms_p95": 19.117,
+   "profile_large_ms_p50": 19.162,
+   "profile_large_ms_p95": 20.682,
+   "tui_first_frame_ms_p50": 54.314,
+   "tui_first_frame_ms_p95": 60.036,
+   "tui_keystroke_ms_p95": 7.379,
+   "peak_rss_kib_version": 25344,
+   "peak_rss_kib_profile_large": 29056,
+   "idle_cpu_pct": 0.0638,
+   "clean_runs": [
+    {
+     "env": "REUSED FROM ROUND 1 (artifacts byte-identical): darwin-arm64 env -i, both variants",
+     "checks": "13/13 each",
+     "sidecar_sha256": "708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6"
+    },
+    {
+     "env": "REUSED FROM ROUND 1: linux-arm64 native",
+     "checks": "12/12"
+    },
+    {
+     "env": "REUSED FROM ROUND 1: linux-x64 emulated",
+     "checks": "12/12"
+    },
+    {
+     "env": "REUSED FROM ROUND 1: alpine (musl) arm64 probe",
+     "rc": 255,
+     "stderr": "exec /opt/hm/heimdall-proto: no such file or directory (glibc-dynamic binary does not run on musl)"
+    }
+   ],
+   "notes": "Idle CPU over 300 s x 3 reps: user+sys 0.28, 0.28, 0.24 s; net 0.068, 0.068, 0.055 percent of one core (max 0.068, pooled 0.064); gross mean 0.089 (the 2 s control hold costs 0.07-0.08 s CPU for ts, so the subtraction matters more here). Idle max RSS about 57.5 MB. ts artifacts are unchanged since round 1, so round-to-round differences are noise and a free estimate of the run-to-run noise floor: startup p50 +0.1 percent, first frame large p50 -2.4 percent, keystroke p95 +6.5 percent, startup p95 +3.6 percent, RSS p50 unchanged, TUI-workload RSS p50 63.4 MB. ts still fails 7 (darwin) and 6 (linux) conformance checks per the task packet; this record does not judge conformance, so ts timings are for a candidate that does not pass the slice."
+  }
+ ],
+ "evidence_record": "<repo>/tests/evidence/g02-measurements.json (status verified, observed_result.verdict pass; criterion = comparable fresh measurements of all three candidates with one methodology plus clean-environment runs; not a candidate selection and not a product-requirement verdict). Raw and summary data in <repo>/tests/evidence/artifacts/g02-measure/: host-raw.json, host-summary.json, idle-long-raw.json, idle-long-summary.json, clean-darwin.json, clean-linux.json, clean-windows.json, run logs. Round-1 record preserved at <repo>/tests/evidence/artifacts/g02-measure/round1-record.json with the round-1 raw files under round1/. Tools in <repo>/tools/benchmarks/g02/: clean_env.py (HM_G02_CANDS filter added), idle_long.py (new), assemble.py (round-2 comparison, reuse of ts clean runs, idle-long block), run_round2.sh (new, the sequence that was run). Checked: no HEIMDALL_CANARY_ strings in the record, artifacts or tools; all required schema keys present (jsonschema not installed, so a full schema validation was not run); artifact sha256 unchanged during both the main run and the idle run; no g02measure containers or volumes left behind; no heimdall.fixture resources touched; nothing committed.",
+ "limitations": [
+  "Shared machine with other agent workloads; load average differed between rounds (round 2 about 6-7 at the start of pass 1, then about 1.5-2.6; round 1 about 4-10). Differences of a few percent between rounds, including the ts run-to-run drift (up to about 6.5 percent on p95), are within this noise. Not portable to other hardware.",
+  "The 300 s idle hold covers only the large-100 profile viewer prototype on darwin-arm64, measured with /usr/bin/time -l (10 ms CPU resolution) after subtracting a 2 s control hold. It does not represent the product TUI with a live agent connection, probing or file watching, so it does not settle the spec 15.1 idle CPU budget. Three reps per candidate.",
+  "Latencies include Python spawn and pyte pty overhead (control floors of about 2.3 ms spawn and 4.0-4.3 ms pty path); pyte answers only DA/DSR queries so a real terminal could change ts first-frame time. Keystroke latency includes pty and scheduler delay.",
+  "RSS is macOS max RSS from /usr/bin/time -l, not comparable to Linux RSS or Windows working set. Idle memory over time was not measured separately.",
+  "Cold start after reboot or purged page cache was not measured; cold_first_exec rows only compare the first run of a freshly copied file with later ones.",
+  "ts clean-environment results (darwin, linux-arm64, linux-x64, musl probe) are reused from round 1, not re-run; justified because the ts artifact sha256 values are identical for all four targets. The fake-agent contact counts in the round-2 clean runs cover go and rust only (4 connections each); the note string inside clean-darwin.json still says 6 because it is a fixed string in clean_env.py.",
+  "linux-x64 ran emulated (amd64 under an arm64 Docker Desktop VM), proving loading and behavior only, not native x86-64 speed or behavior.",
+  "Native Windows execution is blocked: no Windows host. Windows artifacts were inspected for file type, size, sha256 and PE headers only; nothing about Windows named-pipe, console or signal behavior is established.",
+  "macOS artifacts are ad-hoc signed only; Gatekeeper/quarantine behavior for downloaded files was not tested, and writes outside the fresh TMPDIR/HOME/cwd were not traced.",
+  "Conformance counts (go and rust 133p/0f/0e on darwin and linux; ts 126p/7f/0e darwin and 127p/6f/0e linux) are quoted from the task packet and were not re-verified here.",
+  "Round-1 to round-2 changes for go and rust are reported as measured; the cause of the go TUI-workload RSS drop (-8.2 percent) and the rust keystroke p95 increase (+13.7 percent, 0.3 ms) was not investigated and may be noise.",
+  "jsonschema is not installed in the venv, so the record was checked for required keys but not validated against record.schema.json with a validator."
+ ]
+}

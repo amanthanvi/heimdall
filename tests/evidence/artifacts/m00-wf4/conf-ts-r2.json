@@ -1,0 +1,99 @@
+{
+ "candidate": "ts",
+ "darwin": {
+  "harness_exit_code": 1,
+  "evidence_record": "<repo>/tests/evidence/g02-ts-conformance.json",
+  "passed": 126,
+  "failed": 7,
+  "errored": 0
+ },
+ "linux": {
+  "harness_exit_code": 1,
+  "evidence_record": "<repo>/tests/evidence/g02-ts-conformance-linux.json",
+  "passed": 127,
+  "failed": 6,
+  "errored": 0,
+  "image_digest": "heimdall-g02-harness:ac0f6cf382a4 image id sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3 (linux/arm64, Docker server 29.8.1, aarch64)"
+ },
+ "failures": [
+  {
+   "platform": "darwin-arm64",
+   "check_id": "profile.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "K14 (section 2). profile show --file on a FIFO did not return within the 8 s harness bound, was killed (exit -9) and printed nothing, against the required exit 2 USAGE_ERROR within 2 s. Cause: src/platform/files.ts readBounded() calls a blocking openSync(path,'r') with no pre-stat and no O_NONBLOCK, so open(2) on a FIFO with no writer blocks. The K14 ruling is a round-2 ruling and the candidate is frozen (contract 9.1 last paragraph), so this is recorded, not fixed. Only the fifo sub-case failed; the other non-regular kinds passed."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "profile.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "Same as darwin: FIFO open blocks in readBounded() (openSync without O_NONBLOCK), timed out at 8 s, killed (exit -9), no JSON on stdout. K14 not applied to the frozen candidate."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "tui.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "K14 (section 5). tui --file on a FIFO was still running after the 2 s bound and was killed; exit status 2 was never produced. Same cause: blocking openSync on the FIFO in files.ts. Frozen candidate, not fixed."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "tui.non_regular_file",
+   "classification": "prototype_defect",
+   "detail": "Same as darwin: tui --file on a FIFO hangs in blocking open, still running after 2 s, killed (6.9 s check duration). K14 not applied to the frozen candidate."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "K8 (section 4), gating. Elements 0-6 of the invalid-UTF-8 argv arrive with each bad byte replaced by U+FFFD, for example fffe2d78 arrives as efbfbdefbfbd2d78, 636166e9 as 636166efbfbd. Element 7 (valid UTF-8) passes. Bun decodes argv to JS strings before user code runs. REPORT.md already records this as a K8 stack limitation, and K8 forbids routing around it (_NSGetArgv or /proc/self/cmdline through bun:ffi). Counts as a failure of the gating check. The stale REPORT.md claim that the harness check is non-gating (E3) is wrong for this harness version."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "Identical byte-for-byte observation to darwin (same differing indexes 0-6, same observed hex). K8 stack limitation in the Bun runtime, gating."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.k6a_pipeline_peer_not_stopped",
+   "classification": "prototype_defect",
+   "detail": "K6a (section 4). In 'heimdall-proto run -- cmd | peer' under an interactive bash on a pty, the shell reported '[1]+ Stopped', the peer was left in state T, PIPE_DONE printed no statuses, and the peer's tty read never returned (null). Cause per src/platform/run.ts and posix-spawn.ts: the child runs in its own pgroup and the terminal foreground is handed to it with tcsetpgrp (giveTerminal), so the job's other members are stopped (SIGTTIN). That is the K6 mechanism the round-2 K6a ruling forbids. 18.8 s duration. Frozen candidate, not fixed."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.k6a_pipeline_peer_not_stopped",
+   "classification": "prototype_defect",
+   "detail": "Same failure as darwin (Stopped job, peer in T, no statuses). The leftover-process assertion also saw a zombie (Z) pid from harness cleanup in the PID-1-less container. That is incidental and not a separate failure cause; the real cause is the tcsetpgrp handoff."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.k6a_background_script_tty",
+   "classification": "prototype_defect",
+   "detail": "K6a (section 4), both stdin-tty and stdin-devnull variants. A script started as an '&' job of a non-job-control shell: during heimdall-proto the terminal foreground group changed from the script's pgrp to the child's pgrp (fg0=pgrp, fg1=fg_after_read=child pgrp, fg2=pgrp again), and the script's own tty read got EIO instead of the typed line. This is the terminal-foreground theft K6a prohibits (giveTerminal in run.ts)."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.k6a_background_script_tty",
+   "classification": "prototype_defect",
+   "detail": "Same as darwin: foreground group switched to the child's group during run (fg1 != script pgrp) and the script's tty read returned EIO, in both variants."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "run.k6a_inherited_ignore",
+   "classification": "prototype_defect",
+   "detail": "K6a plus K6c gated scope (SIGHUP under nohup, SIGINT in a non-interactive '&' job). nohup: the child's inherited SIGHUP disposition was SIG_DFL (expected SIG_IGN), and heimdall-proto itself exited 129 on the SIGHUP instead of staying alive. async-job: the child saw a SIGINT handler (expected SIG_IGN) and heimdall-proto exited 130. Cause: src/platform/run.ts installs process.on handlers for all FORWARDED signals (SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGWINCH), which overrides an inherited ignore in the Bun runtime, and the child is spawned without restoring the ignore. The SIGQUIT, SIGTERM, SIGWINCH and SIGPIPE results are K6c non-gating and were not counted against it. Frozen candidate, not fixed."
+  },
+  {
+   "platform": "linux-arm64",
+   "check_id": "run.k6a_inherited_ignore",
+   "classification": "prototype_defect",
+   "detail": "Same as darwin. Additionally the child's /proc/self/status SigIgn mask shows SIGHUP clear in nohup and SIGINT clear in async-job, so the ignore is not inherited at kernel level either. heimdall-proto exited 129 and 130 respectively."
+  },
+  {
+   "platform": "darwin-arm64",
+   "check_id": "tui.resize_narrow_hides_host",
+   "classification": "harness_defect",
+   "detail": "Only failing assertion: '50x24 status still shows 3/3' (observed null) on the first 40x10 to 50x24 widening. The layout assertion in the same step passed. The screen captured at the instant the wide-row predicate matched had the wide rows but no status line yet (status_of returned None). The assertion reads status immediately, without a settle, so it races with a frame the prototype writes in two parts. Evidence: 4 of 4 darwin runs failed (the full run plus 3 --only reruns, logs /tmp/ts-r2-rr1..3.log), all on the same step. A separate pty probe (pyte, 3 runs, since deleted) showed the status line landing 1.2-1.6 ms after the wide rows on 40x10 to 50x24, and in the same frame or earlier on every other transition (49, back to 50, 80). The same check passed on linux-arm64, in the previous TS round, and for Go and Rust. Clause: section 5 only requires resize re-layout within 100 ms (tui.resize_relayout_latency passes), and does not require a frame to be atomic. The harness's instant status assertion is stricter than the contract and platform-timing dependent, so I classify it as harness_defect. An alternative view is that the prototype's non-atomic redraw is a prototype quality issue, but no contract clause forbids it. The orchestrator may prefer contract_ambiguity. It does not change the candidate verdict: the other six failures are independently fatal."
+  }
+ ],
+ "summary": "TS (frozen) fails the K13 verdict on both platforms, run as-is from a clean build.sh rebuild. Darwin-arm64: 133 checks, 126 pass, 7 fail, 0 error, harness exit 1. Linux-arm64: 133 checks, 127 pass, 6 fail, 0 error, harness exit 1. Six failures are the same on both platforms and are prototype defects: profile.non_regular_file and tui.non_regular_file (K14, blocking open of a FIFO), run.argv_invalid_utf8 (K8, Bun stack limitation), and run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty and run.k6a_inherited_ignore (K6a, tcsetpgrp terminal handoff and overridden inherited ignores). The seventh, darwin-only tui.resize_narrow_hides_host, is a timing race: the harness checks the status line before the prototype's second write lands. It failed 4 of 4 darwin runs, passed on Linux and in earlier rounds, and I classified it as harness_defect. Contract_ambiguity is the alternative classification, which the orchestrator may prefer. Build: build.sh exit 0, sha256 of the rebuilt darwin-arm64 binary dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2, identical to the previous round's recorded digest. linux-arm64 binary ac48d2a6c789bb073168a6d9a8a5eed485fb93d8419c953bdaf3198be27807e2. Sidecars: libopentui.dylib 708d89cc…caa6, libopentui.so (arm64) a9b0e0a9…554e. Manifest: <repo>/prototypes/ts/dist/manifest.json. Canary check: the harness canary self-check passed on both platforms and neither run exited 3. My grep of both new records and all new artifacts found no HEIMDALL_CANARY_ followed by a value character; the bare prefix appears only in assertion labels such as 'no HEIMDALL_CANARY_ in <file>', and no new harness_defect arises from this. Pre-existing issue: two files from earlier rounds, now moved into the prev- directory, still hold full canary values from the round-1 harness leak. They are prev-20261004T015952Z/prev-20261003T233626Z/g02-ts-conformance.record.json and prev-20261004T015952Z/prev-20261003T233626Z/r2/g02-ts-conformance.json, under <repo>/tests/evidence/artifacts/g02-ts/conformance/. They were not written by this run and I did not edit them; the orchestrator should decide on redaction or deletion. Artifacts: previous contents moved to <repo>/tests/evidence/artifacts/g02-ts/conformance/prev-20261004T015952Z/ (with copies of the previous two records). New darwin artifacts are in tests/evidence/artifacts/g02-ts/conformance/, new Linux artifacts in tests/evidence/artifacts/g02-ts/conformance/linux/. Rerun scratch output is in /tmp/ts-r2-rr1..3.{json,log}. Note: the system clock reads 2026-10-04 UTC, so stamps use that instead of the briefed 2026-10-03."
+}

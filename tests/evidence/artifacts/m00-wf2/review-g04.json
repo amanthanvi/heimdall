@@ -1,0 +1,194 @@
+{
+ "subject": "M00-review-g04: G04 managed-credentials research (docs/research/g04-managed-credentials.md), tests/native/g04/** experiments E1-E7 + enrollment, tests/native/macos/** lock probe, tests/evidence/g04-*.json records",
+ "reexecuted_commands": [
+  {
+   "command": "tests/native/g04/.venv/bin/python tests/evidence/artifacts/review-g04/validate_records.py  (all 24 tests/evidence/g04-*.json vs record.schema.json + gate-probe convention)",
+   "exit_code": 0,
+   "observed": "All 24 records are schema-valid. The 9 g04-exp-* records follow the convention. The 5 g04-macos-lock-probe-smoke-* records have no observed_result.verdict even though observed_result is non-null, and they carry product requirement IDs R-CR-02/R-CR-03/R-EN-04. The 10 blocked records have blocked_on set and observed_result null."
+  },
+  {
+   "command": "shasum -a 256 -c tests/evidence/artifacts/g04/research/sources/web/RETAINED_SHA256SUMS.txt ; shasum -a 256 -c .../local-man/SHA256SUMS.txt",
+   "exit_code": 0,
+   "observed": "Web: 49/49 OK. Local man pages: 11/11 OK."
+  },
+  {
+   "command": "curl -sS -L re-fetch of 9 pinned sources: openssh-portable@87f0cd1892e5 {mux.c, ssh-add.c, PROTOCOL.mux, misc.c, ssh-agent.c, PROTOCOL.agent}, rfc-editor rfc9987.txt, smallstep/certificates@fdeb6fdf53f9 LICENSE, tpm2-pkcs11@d8375fa68e4c docs/SSH.md  -> tests/evidence/artifacts/review-g04/source-refetch/",
+   "exit_code": 0,
+   "observed": "Every fetch returned curl rc 0 and HTTP 200, and every sha256 is byte-identical to MANIFEST.tsv. The cited content is present: CERT_EXPIRY_GRACE (5*60), monotime using CLOCK_BOOTTIME then CLOCK_MONOTONIC, mux_master_process_stop_listening freeing only the listener channel, PROTOCOL.mux §8 stop text, the RFC 9987 §10 quotes, the session-bind extension, and Apache License 2.0."
+  },
+  {
+   "command": "MANPAGER=cat man 1 ssh-add / man 5 sshd_config | col -b, whitespace-normalised sha256 compared with the retained local-man text; grep of quoted phrases in retained man and web extracts",
+   "exit_code": 0,
+   "observed": "The live host man pages match the retained copies. These quotes were found verbatim: ssh-add 'shortly after', sshd_config 'is not consulted for certification authorities', 'certificates that lack a list of principals will not be permitted', sshd.8 'most restrictive union' and expiry-time, ssh-keygen 'will not be considered valid' and 'distant future', ssh.1 'stop accepting further', ssh_config 'fall back to connecting normally if the control socket does not exist', ssh-agent.1 'easily abused' and the /usr/lib*/* allow-list, 1Password 'keep your private keys in memory when 1Password is locked', TN3137 launchd daemon / file-based keychain, Apple PS 'not locking or unlocking as on iPad and iPhone', MS 'February 2027', RN-5.9 \"don't kill existing connections\", Step 'cannot be renewed by any provisioner', and the 16 h default (tutorial)."
+  },
+  {
+   "command": "G04_RUN_STAMP=../../review-g04/rerun-20261003T184245Z tests/native/g04/fresh_run.sh   (fixture down-pre, up.sh, smoke.sh, then all 9 experiments; output redirected into review-g04)",
+   "exit_code": 0,
+   "observed": "down-pre 0, up 0, smoke 0 (pass=60 fail=0). Experiment exits: e1 0, e2 0, e3 0, e4 0, enroll 0, e5 0, e6 0, e7_mux_after_expiry 0, e7_mux_stop_race 0. E2 boundary: 156 attempts, 82 accepted, 74 rejected, all 74 logged as expired. No acceptance started after valid_before; no rejection ended before it. Last accept ended 0.050 s before valid_before; the first rejected attempt started 0.042 s before it (authentication happened after). E3 matrix reproduced exactly: p1 ca1 0 / ca2 255, p2 mirror, both 0/0, user 255/255 with the principal reason, rogue 255/255, bare 255/255. E7: H1 and H1b confirmed (mux sessions admitted after expiry, including a client with PubkeyAuthentication=no). H2a, H2b, H2b2 and H2c confirmed (9 heartbeats after stop, last one 44 s later). H2d: master exited within 0.5 s after S1 ended. H3: -O exit killed S2 (rc 255). H3b: remote bash(826) still present 7 s and 20 s after -O exit, with new sleep PIDs, so the loop kept running. Race: 50/50 stops rc 0; 0 of 24 clients that started after the stop returned were admitted; 3 of 10 clients that overlapped the stop were admitted; 16 of 16 that started before were admitted. All cleanup rows clean."
+  },
+  {
+   "command": "python3 tests/evidence/artifacts/review-g04/classify_rerun.py tests/evidence/artifacts/review-g04/rerun-20261003T184245Z  (make_records.classify() applied without writing records)",
+   "exit_code": 0,
+   "observed": "All 9 experiments: status=verified, verdict=pass. This matches the producer's records. The only non-criterion findings are E5-same-user-boundary and H1, H1b, H2d, H3 and H3b."
+  },
+  {
+   "command": "tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5 --out-dir tests/evidence/artifacts/review-g04/lock-probe-smoke-20261003T185325Z --record ...record.json  (keychain search-list/default digests taken before and after)",
+   "exit_code": 0,
+   "observed": "status=verified. Agent signing and disposable keychain read were OK in 5/5 samples. Cleanup complete (agent terminated, socket removed, keychain deleted, temp dir removed, caffeinate terminated). Canary scan clean. User keychain search-list and default-keychain digests are identical before and after (independent check). Processes 93314, 93350 and 93366 are gone. The record again has no verdict and carries R-CR-02/R-CR-03/R-EN-04."
+  },
+  {
+   "command": "/usr/bin/python3 tests/evidence/artifacts/review-g04/probe_preconnected_mux.py <repo> tests/evidence/artifacts/review-g04/probe-preconnected-run1   (independent adversarial probe: raw mux v4 control client connected before ssh -O stop)",
+   "exit_code": 0,
+   "observed": "HC2: the raw client opened a session before the stop. The certificate then expired; a fresh login gave rc 255 'Certificate invalid: expired'. -O stop rc 0, socket removed, -O check rc 255, master kept running as 'ssh: [stopped mux]'. HC1: a new client after the stop (PubkeyAuthentication=no) gave rc 255. HP1 CONFIRMED: the control connection accepted before the stop sent MUX_C_NEW_SESSION 2.025 s after -O stop returned. It got MUX_S_SESSION_OPENED and the remote command ran as cert (exit 0) with 0 new connections and 0 new Accepted lines, 7.7 s after valid_before. Cleanup: master already exited, agent terminated, temp dir removed."
+  },
+  {
+   "command": "HP1_DELAY=15 /usr/bin/python3 tests/evidence/artifacts/review-g04/probe_preconnected_mux.py <repo> tests/evidence/artifacts/review-g04/probe-preconnected-run2-delay15",
+   "exit_code": 0,
+   "observed": "HP1 CONFIRMED again, with the request 15.026 s after -O stop returned and 20.6 s after valid_before: session opened, remote command ran, no new connection or authentication. The stopped master stayed alive while the idle control connection was open."
+  },
+  {
+   "command": "tests/fixtures/ssh/down.sh  (after rerun + probes; log in rerun dir fixture-down-post.log)",
+   "exit_code": 0,
+   "observed": "CLEANUP CONFIRMED: containers, networks, image and runtime dir all at 0 remaining; 21 private keys overwritten and removed. Separate docker and ls checks also found 0."
+  },
+  {
+   "command": "tests/fixtures/ssh/up.sh; tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5 --fixture-runtime tests/fixtures/ssh/runtime --out-dir/--record under review-g04; tests/fixtures/ssh/down.sh",
+   "exit_code": 0,
+   "observed": "up 0, probe 0, down 0 (CLEANUP CONFIRMED). This is the first run of the probe's --fixture-runtime path against the real M00-T03 fixture; the producer had only used look-alike containers. Fresh SSH logins succeeded in 5/5 samples. ca1 server log shows 5 accepted probe-certificate logins. Negative controls: ca2 principal mismatch rc 255 (1 principal rejection logged) and ca1 without agent rc 255. Keychain search list unchanged."
+  },
+  {
+   "command": "grep -n -E 'pkill|killall|kill -9|kill %|xargs kill' tests/native/g04/*.sh tests/native/macos/*.sh tests/fixtures/ssh/*.sh",
+   "exit_code": 1,
+   "observed": "No matches, so no pattern kills. Every ~/.ssh reference is a remote command inside the fixture container for the enroll account. Published ports are 127.0.0.1 only."
+  }
+ ],
+ "confirmed_claims": [
+  "E1-E7 and the enrollment experiment run to completion. On an independent fresh fixture all nine exit 0, and make_records' classification gives verified/pass for all nine, as the producer records state.",
+  "E2: sshd enforces valid_before for NEW authentication at second resolution. Acceptance stopped at valid_before and every rejection was logged 'Certificate invalid: expired'. Not-yet-valid and expired certificates are refused with their logged reasons. Refusal after expiry is the same whether the agent still holds the certificate or not (default ssh-add grace vs -N; and after the 300 s grace removal).",
+  "E3: a one-principal certificate works only on its own host. The two-principal certificate works on both and is recorded as 'usable on both', never as scoped. The username principal, the rogue CA and the bare key are refused on both. Each rejection was attributed to the evaluated certificate ID.",
+  "E4 and enrollment: account-level cert-authority,principals=\"hm:fx-enroll:enroll\" accepts only that principal. Removal by marker restores the seed bytes exactly, and a concurrent admin edit is preserved (rerun exit 0, 14/14 and 12/12 checks).",
+  "E5: with only the worker socket, the CA is not listed and signing fails. The child certificate's narrower principals and earlier valid_before are read back and enforced by the servers. A same-user process holding the issuer socket path can mint certificates; this is disclosed as a finding.",
+  "E6: the verification command produces exactly one new Accepted line with the expected ID while a master is open. Reuse produces none.",
+  "E7 H1/H1b: certificate expiry alone does not stop new multiplexed sessions on an existing master, even for a client with no credential. Reproduced.",
+  "E7 H3b: after -O exit closes the connection, the remote no-tty shell keeps running (bash pid unchanged, new sleep children at 7 s and 20 s). Credential expiry and connection closure are NOT remote-process termination. The records state this correctly.",
+  "The records never present credential expiry as remote-process termination or as multiplex-admission control. E2 is explicitly 'new authentication only', and the E7 record states that expiry does not stop admissions.",
+  "Status honesty of the native items: every lock/logout/reboot/sleep/Windows/Linux record is blocked with a specific blocked_on and observed_result null. No lock evidence is claimed.",
+  "Pinned sources check out: 9 re-fetched pinned sources hash-match MANIFEST.tsv, retained digests verify (49 web, 11 man), live host man pages match the retained text, and more than 20 quoted phrases were found verbatim.",
+  "Script safety: SSH_AUTH_SOCK is unset; /usr/bin/ssh* is called by absolute path with -F generated configs; the agents are dedicated temp agents; listeners are loopback only; kills are exact-PID with identity re-check; the lock probe leaves the keychain search list and default keychain unchanged (independent digest check); E5 counts but does not print env/argv.",
+  "Recipe B1 against spec §7.3 custody and the plan's G04 failure action: no relay to a locked vault; plaintext fallback explicitly prohibited; K_ca never handed to workers, with the same-user issuer boundary disclosed in the non-claims; certificates are issued at approval to cover the whole grant (default 12 h or less), and no short credential is presented as overnight coverage."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "'ssh -O stop: admissions stopped' (producer summary and g04-exp-g09-prelim-mux-after-expiry.json summary: 'Admissions stopped (see also G09-prelim-mux-stop-race)'). Also the design's H2 'Race: 0 admissions after MUX_S_OK' and the race record verdict 'no admission after stop returned'.",
+   "evidence": "In two runs of tests/evidence/artifacts/review-g04/probe_preconnected_mux.py (both exit 0), a mux control connection accepted before -O stop was granted MUX_S_SESSION_OPENED 2.0 s and 15.0 s after -O stop returned rc 0. The remote command ran as account cert with no new TCP connection and no new Accepted line, after the certificate had expired. Source agrees: mux.c @87f0cd1 mux_master_process_stop_listening frees only the listener channel, and mux_master_process_new_session has no listener-state check. -O stop stops new control connections, not requests on connections it already accepted. The 3 (rerun) and 1 (producer) 'started_during_stop' admissions in the race are consistent with this. The race only measures client start time against stop return, so it cannot detect the case."
+  },
+  {
+   "claim": "H2d as generalised in the producer summary: after -O stop 'the master exited within 0.5 s of S1 ending despite ControlPersist=10m'.",
+   "evidence": "This holds only when no other control connection is open. In probe run2 the stopped master stayed alive for at least 15 s while an idle control connection was open, and then admitted a session over it."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Statuses honest (nothing verified without executed evidence; native items blocked with exact platform)",
+   "verdict": "pass",
+   "evidence": "The 9 experiment records are verified/pass and I reproduced them on an independent fresh fixture (all exit 0). The 10 native records are blocked with specific blocked_on and observed_result null. The doc's §10 keeps the research as implemented_unverified. Minor caveats: (1) the smoke records lack a verdict and carry requirement IDs; (2) the macOS P2/P3/P4 records are 'blocked' on owner action but their harnesses are not implemented. The records themselves say 'not yet implemented'."
+  },
+  {
+   "gate": "Every factual claim has a source or an [I]/[U] label",
+   "verdict": "uncertain",
+   "evidence": "Spot-checks of more than 20 cited statements across 9 re-fetched pinned sources, 11 man pages and about 12 web extracts all matched. One imprecision: the step-ca 'max 24 h, min 5 m' values come from an example configuration on the page, not a stated default (only the 16 h default is stated). Not every statement in the 518-line document was checked."
+  },
+  {
+   "gate": "Scripts are safe (no ~/.ssh, owner agent, login keychain, public listeners, pattern kills)",
+   "verdict": "pass",
+   "evidence": "I read the code and re-ran it. SSH_AUTH_SOCK is unset; ssh uses absolute paths and -F generated configs; agents are dedicated temp agents; ports are bound to 127.0.0.1 only; kills are exact-PID with lstart+comm re-check (the pattern-kill grep found nothing, exit 1). The keychain search list and default keychain digests were unchanged around my smoke runs. All cleanup rows were clean and fixture down returned CLEANUP CONFIRMED. Residue: 13 world-readable /tmp/hmg04-dev-*.out and hmg04-final-* files from the producer's 2026-10-02 dev runs. They contain no secrets and I did not remove them."
+  },
+  {
+   "gate": "Runnable scripts actually run (re-run)",
+   "verdict": "pass",
+   "evidence": "fresh_run.sh exit 0 (up, smoke pass=60, all 9 experiments exit 0). Lock probe smoke exit 0 without the fixture and exit 0 with --fixture-runtime against the real fixture. down.sh exit 0."
+  },
+  {
+   "gate": "Pass/fail criteria observable and discriminating (could a criterion pass while the real requirement fails?)",
+   "verdict": "fail",
+   "evidence": "Yes, for E7 H2 and the race. The criterion only tests clients that open a NEW control connection after stop, so it passes while a control connection accepted before the stop is still admitted after MUX_S_OK. That was reproduced twice, 2 s and 15 s after stop. Spec P06 needs 'stop admissions through a verified control operation or are closed', and §6.6 says masters 'must not accept new sessions beyond their grant'. E5's criterion is endpoint-only, so it passes even though any same-user process can mint unrestricted certificates through the raw ssh-agent issuer. This is disclosed as a finding, so it is noted rather than counted as a failure. The E2, E3, E4 and E6 criteria are discriminating: each requires the evaluated certificate ID and the logged reason."
+  },
+  {
+   "gate": "Nothing contradicts spec.md/plan.md",
+   "verdict": "fail",
+   "evidence": "(1) The G09-prelim record says 'an owned master must be stopped or closed at the deadline' and treats -O stop as sufficient. That conflicts with spec P06/§6.6, given the pre-accepted-connection admission above. (2) The research doc's residual-window rows (§3.2 'Residual window', 'Lost device'; §4 'Bounded residual window ... ≤ certificate validity ≤ D'; §7 reason 2) state the post-revocation/loss remote-access window as certificate validity. Spec §6.5 asks for the 'maximum residual remote-access window', and E7 shows live masters keep admitting sessions after expiry with no credential and remote processes survive. The doc needs to scope this to new authentication and state the connection-policy bound."
+  },
+  {
+   "gate": "No requirement quietly weakened",
+   "verdict": "fail",
+   "evidence": "Stating the residual window as certificate validity narrows the §6.5 / A07 truthfulness obligation (R-AU-04/R-AU-08) to new authentication without saying so. Recommending 'stopped or closed' weakens P06's 'verified control operation' to an operation that was not verified against already-accepted control connections."
+  },
+  {
+   "gate": "Credential expiry never presented as remote-process termination or multiplex-admission control",
+   "verdict": "fail",
+   "evidence": "The records pass (E2 'new authentication only'; the E7 record states expiry does not stop admissions and that the remote shell survives). The research doc fails in §3.2: 'Lost device: ... Outstanding certificates expire within the residual window; no remote write needed', and the residual window is equated with certificate validity. That presents expiry as the end of remote access, while a live owned or unmanaged master (H1/H1b) and detached remote processes (H3b) continue."
+  },
+  {
+   "gate": "Recipe vs spec §7.3 custody: relay to locked vault / plaintext fallback / worker-held unrestricted CA key / short credential as overnight coverage",
+   "verdict": "pass",
+   "evidence": "B1 relies on none of these. The relay is rejected (§2.10). Plaintext fallback is prohibited for every class (§3.4). K_ca stays in a separate issuer, and the same-user issuer boundary is disclosed in the §7 non-claims and backed by E5's finding. Certificates are issued at approval for the whole grant (12 h or less); shorter chunks and new grants while locked are deferred to D1 with interaction-required. Open risk, not a violation: unattended unlock of a software K_env store, for example the password for a macOS file keychain, is still [U] or decision D2."
+  },
+  {
+   "gate": "A03 pass condition (fresh authentications under lock without the vault unlocked)",
+   "verdict": "uncertain",
+   "evidence": "Not evidenced, and correctly so. P1 is blocked on an owner-driven screen lock/unlock cycle on the macOS 27.0 arm64 host. P-W1 is blocked on a native Windows x86-64 interactive session. P-L1 is blocked on a Linux desktop session with an owner to lock it. The smoke and --fixture-runtime paths only prove mechanics and cleanup, and the records say so."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "The G09-prelim conclusion '-O stop: admissions stopped' is overbroad, and the E7 H2 and race criteria do not discriminate. A mux control connection accepted before ssh -O stop is still granted new sessions after stop returns MUX_S_OK: reproduced 2.0 s and 15.0 s after stop, with an expired certificate, no new connection and no new authentication. mux.c @87f0cd1 confirms that stop only frees the listener. The race classifies by client start time, so it cannot see this, and its 'started_during_stop' admissions are likely this case. Under spec P06/§6.6, -O stop is not yet a verified admission-stopping control, so research falsifier F-7 is at least partly triggered and owned masters should be closed (-O exit or exact-PID) at the deadline. The record's guidance 'stopped or closed' should become 'closed', or the record should disclose the pre-accepted-connection path. Suggested follow-up: adopt the review probe (tests/evidence/artifacts/review-g04/probe_preconnected_mux.py) as an E7 phase and test MUX_C_OPEN_FWD as well. A schema-valid proposed record is at tests/evidence/artifacts/review-g04/proposed-record-g09-prelim-mux-preconnected-after-stop.json (verdict fail).",
+   "location": "tests/evidence/g04-exp-g09-prelim-mux-after-expiry.json (observed_result.summary 'Admissions stopped', 'stopped or closed'); tests/evidence/g04-exp-g09-prelim-mux-stop-race.json (verdict basis); tests/native/g04/e7_mux_after_expiry.sh H2 / e7_mux_stop_race.sh classification; docs/research/g04-managed-credentials.md §2 item 8, §8.1 E7 ('Race: 0 admissions after MUX_S_OK'), §7 F-7"
+  },
+  {
+   "severity": "major",
+   "description": "The research doc states the residual remote-access window after revocation or device loss as 'certificate validity ≤ D' and says lost-device certificates 'expire within the residual window; no remote write needed'. That window bounds only NEW authentication. E7 (reproduced) shows existing masters admit new sessions after expiry even for clients with no credential (H1/H1b), and remote processes survive connection closure (H3b). Spec §6.5 requires the recipe to state the maximum residual remote-access window, and A07 requires the residual validity to be truthful. The rows must be scoped to new authentication, with the bound for live or owned connections stated separately (it depends on the connection policy and on closing masters). Unmanaged connections and detached processes should be disclosed as unbounded by the recipe.",
+   "location": "docs/research/g04-managed-credentials.md §3.2 rows 'Residual window' and 'Lost device', §4 row 'Bounded residual window after revocation or loss', §7 reason 2 and non-claims"
+  },
+  {
+   "severity": "minor",
+   "description": "The macOS lock-probe smoke records do not follow the gate-probe convention: observed_result.verdict is missing although observed_result is non-null, and the smoke/self-test records carry product requirement IDs. The probe hard-codes requirement_ids for both modes and never emits a verdict, so every future smoke run repeats this; my rerun did.",
+   "location": "tests/native/macos/g04_lock_probe.sh lines 332 and 347-365; tests/evidence/g04-macos-lock-probe-smoke-20261003T002226Z/002454Z/002636Z/002755Z/002820Z.json"
+  },
+  {
+   "severity": "minor",
+   "description": "The research doc has not been updated since the experiments ran. §10 still lists E1–E7 as 'implemented_unverified (design only)'. §2 item 8 and §8.1 still give H1/H2 as expectations [I]. The observed H1/H1b, H3b and E5 same-user findings and the falsifier outcomes (F-2/F-3/F-4/F-7) are not integrated.",
+   "location": "docs/research/g04-managed-credentials.md header status, §2 item 8, §7 falsifier table, §8.1, §10"
+  },
+  {
+   "severity": "minor",
+   "description": "The E5 summary says 'the worker path could not see or use the CA, and no CA material was found in it'. The scan scope left out the fixture CA private key file, which stayed readable by the same uid on disk for the whole experiment. The record limitation discloses only the issuer-socket path. It should also say that the CA private file remained readable by the same user, so the 'worker path' is an environment and endpoint boundary only.",
+   "location": "tests/evidence/g04-exp-e5-issuer-separation.json observed_result.summary and limitations; tests/native/g04/e5_issuer_separation.sh scan (c)"
+  },
+  {
+   "severity": "minor",
+   "description": "Imprecise sourcing for step-ca durations. 'default user certificate 16 h, max 24 h, min 5 m [S:Step-Config]': the retained Step-Config text shows 24h and 5m only as values in an example configuration, and the 16 h default is stated in the tutorial (Step-Tutorial), not in Step-Config.",
+   "location": "docs/research/g04-managed-credentials.md §3.3 diagram and 'Where deadlines are enforced' row"
+  },
+  {
+   "severity": "minor",
+   "description": "Producer dev-run residue: 13 world-readable files in /tmp (hmg04-dev-*.out, hmg04-dev-stamp, hmg04-final-runall.out, hmg04-final-stamp, dated 2026-10-02) are left from manual dev redirects. No private-key or canary content was found. Left untouched by the reviewer.",
+   "location": "/tmp/hmg04-dev-*.out, /tmp/hmg04-final-*"
+  },
+  {
+   "severity": "minor",
+   "description": "H2d ('master exits after its last session despite ControlPersist') is reported unconditionally. It holds only when no idle control connection is open; with one, the stopped master stayed alive for at least 15 s and then admitted a session.",
+   "location": "tests/evidence/g04-exp-g09-prelim-mux-after-expiry.json hypotheses H2d / summary item (3)"
+  }
+ ],
+ "unverifiable_here": [
+  "Any screen-lock, logout, sleep, reboot or headless behaviour (P1-P6). These need an owner-driven cycle at the console of the macOS 27.0 arm64 host, and P5 also needs owner authorization (D4) to write the real CTK token store.",
+  "Native Windows (P-W1, P-W2: no Windows x86-64 interactive host) and Linux desktop or headless (P-L1, P-L2: no Linux desktop session or headless host) store and lock behaviour.",
+  "Whether the Apple-built host OpenSSH_10.3p1 mux.c differs from openssh-portable @87f0cd1. The pre-connected admission behaviour was observed on the host binary itself, so the finding does not depend on this.",
+  "Other OpenSSH client/server versions; clock skew and rollback; sleep across valid_before (G09 virtual-clock and P4).",
+  "Live vendor pages (Apple, Microsoft, 1Password, Smallstep, freedesktop) against the retained extracts. The raw vendor HTML was not retained (escalation Q3), so only the extracts and their recorded hashes could be checked, not a re-fetch match.",
+  "MUX_C_OPEN_FWD (new port forwarding) on an existing control connection after -O stop. Not tested; expected [I] to be accepted by the same source reasoning.",
+  "The issuance policy the recipe proposes (refuse wider principals or unknown critical options). No issuer service exists; E5 used a raw ssh-agent, which signs anything."
+ ],
+ "summary": "I re-ran the full G04 set from scratch. All nine experiments exit 0, I got the same verified/pass classification for each, and the E2, E3 and E7 observations match the producer's. The macOS lock-probe smoke run exited 0, and so did its --fixture-runtime path against the real fixture, which no one had run before. The scripts are safe: dedicated temp agents, loopback-only ports, exact-PID kills, keychain search list unchanged. Nine pinned sources hash-match their pins and the quoted text is there. The records never present credential expiry as remote-process termination or as multiplex-admission control, and the native lock and platform items are correctly blocked.\n\n**Main refutation (major).** I wrote an independent raw mux-protocol probe. A control connection accepted before `ssh -O stop` was still granted new sessions after stop returned: 2.0 s later in one run, 15.0 s later in another. The certificate had already expired, and there was no new connection or authentication. So \"-O stop: admissions stopped\" is overbroad, and the E7 H2 and race criteria can pass while spec P06 (\"stop admissions through a verified control operation or are closed\") is not met. Owned masters should be closed at the deadline, which is what falsifier F-7 says.\n\n**Second major.** The research doc gives the residual remote-access window after revocation or device loss as certificate validity. That ignores E7's evidence: live masters keep admitting sessions after expiry, and remote processes survive. Spec §6.5 and A07 require that window to be stated truthfully.\n\n**Minor:**\n- The smoke records break the gate-probe convention (no verdict; they carry requirement IDs).\n- The research doc has not been updated since the experiments ran.\n- E5's \"no CA material\" claim leaves out the CA private key file, which stayed readable on disk by the same user.\n- The step-ca max/min durations are cited loosely.\n- 13 producer dev files are left in /tmp (no secrets).\n- H2d is stated without its condition.\n\n**Recipe check.** B1 relies on no relay, no plaintext fallback and no worker-held CA, and does not present a short credential as overnight coverage. A03 remains blocked on owner lock cycles and missing platforms.\n\nAll artifacts are under <repo>/tests/evidence/artifacts/review-g04/: rerun-20261003T184245Z/, probe_preconnected_mux.py, probe-preconnected-run1/, probe-preconnected-run2-delay15/, proposed-record-g09-prelim-mux-preconnected-after-stop.json (schema-valid, verdict fail; for the orchestrator to persist), lock-probe-smoke-*, source-refetch/, validate_records.py, classify_rerun.py and review-index.json. Fixtures are down (CLEANUP CONFIRMED). Nothing was written outside review-g04, apart from the fixture runtime that up.sh and down.sh create and remove as the task directed."
+}

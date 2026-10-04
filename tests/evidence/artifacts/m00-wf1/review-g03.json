@@ -1,0 +1,196 @@
+{
+ "subject": "g03 (M00-T04-G03): docs/research/g03-windows-wsl.md, tests/native/windows/**, tests/native/wsl/**, tests/evidence/g03-*.json. Review artifacts: <repo>/tests/evidence/artifacts/review-g03/",
+ "reexecuted_commands": [
+  {
+   "command": "env -u SSH_AUTH_SOCK bash tests/native/wsl/selftest_unix.sh --out tests/evidence/artifacts/review-g03/wsl-selftest",
+   "exit_code": 0,
+   "observed": "Reproduced the producer's result. 4 harness-selftest records are verified/pass (unauthorized-key, socket-deletion, stale-socket, teardown-deadline). endpoint-perms is in_progress/inconclusive because no second Linux account was used. The run left no ssh-agent or proxy process behind. The one ssh-agent started during the run (PID 48638) belongs to another agent's /tmp/hmg04-* socket."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Test-G03HarnessSelf.ps1 -OutDir tests/evidence/artifacts/review-g03/pwsh-selftest",
+   "exit_code": 0,
+   "observed": "Record G03-harness-selftest-powershell-macos is verified/pass. Every check is true: list filtered, sign/verify, denied_unknown, denied_remove_all, no canary leak. The transport was a .NET Unix socket, not a named pipe."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -OutDir tests/evidence/artifacts/review-g03/win-orch",
+   "exit_code": 0,
+   "observed": "Wrote 12 records, all status blocked with the non-Windows reason. Only the non-Windows branch ran."
+  },
+  {
+   "command": "(cd tests/native/wsl && shellcheck -x -s bash *.sh)",
+   "exit_code": 0,
+   "observed": "Clean. A first run from the repo root exited 1 only on SC1091 info, because of the source path, not the scripts."
+  },
+  {
+   "command": "PYTHONPYCACHEPREFIX=/tmp/review-g03-pyc python3 -m py_compile tests/native/wsl/*.py; bash -n tests/native/wsl/*.sh",
+   "exit_code": 0,
+   "observed": "No failures."
+  },
+  {
+   "command": "pwsh: [System.Management.Automation.Language.Parser]::ParseFile over tests/native/windows/*.ps1,*.psm1",
+   "exit_code": 0,
+   "observed": "0 parse errors in 5 files."
+  },
+  {
+   "command": "pwsh: Invoke-ScriptAnalyzer -Path tests/native/windows -Recurse -Severity Error,Warning (PSUseCompatibleSyntax 5.1/7.4, module from /tmp/g03-psmodules)",
+   "exit_code": 0,
+   "observed": "errors=0 and no compatibility findings. Warnings: 15 ShouldProcess, 14 empty catch, 9 unused parameter, 7 Write-Host, 7 plural nouns."
+  },
+  {
+   "command": "/tmp/g03-venv/bin/python jsonschema validation of tests/evidence/record.schema.json over g03-*.json, producer self-test records and review rerun records",
+   "exit_code": 0,
+   "observed": "65 files, 0 invalid. Every tests/evidence/g03-*.json (29) is blocked with observed_result null and a blocked_on platform. Harness sha256 values in the records match the current files (29/29)."
+  },
+  {
+   "command": "curl raw.githubusercontent.com/PowerShell/openssh-portable/b8c08ef9.../{wmain_common.c,ssh-agent/agent.c,ssh-agent/keyagent-request.c,ssh-agent/connection.c,fileio.c,readconf.c,ssh.c,authfd.c,install-sshd.ps1}",
+   "exit_code": 0,
+   "observed": "The wmain_common.c sha256 matches the pin (248603ba...). Lines 53-54 set SSH_AUTH_SOCK to \\\\.\\pipe\\openssh-ssh-agent when unset. The agent.c pipe SDDL D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;AU) with PIPE_REJECT_REMOTE_CLIENTS and no FIRST_PIPE_INSTANCE is confirmed. parse_key_constraints accepts only the extension constraint, and only sk-provider@openssh.com 'internal'. fileio.c uses CreateFileW with SECURITY_IDENTIFICATION and an ERROR_PIPE_BUSY retry. agent.c GetNamedPipeClientProcessId and OpenProcessToken plus keyagent-request.c ImpersonateLoggedOnUser and RegOpenCurrentUser are confirmed. readconf.c parses IdentityAgent with argv_next. ssh.c:1800-1808 calls unsetenv(SSH_AUTH_SOCK) when the $VAR is unset. The installer service SDDL gives AU RP only."
+  },
+  {
+   "command": "curl https://www.openssh.com/txt/release-8.7; curl raw microsoft/WSL@a4b297c3 security.md, localhost.md; curl https://www.1password.dev/ssh/agent/advanced.md, get-started.md, integrations/wsl.md; gh api repos/PowerShell/Win32-OpenSSH/issues/1949",
+   "exit_code": 0,
+   "observed": "The sha256 prefixes of release-8.7 (db6db851), security.md (d5f7a484), localhost.md (7dd49629), advanced.md (db4f993c), get-started.md (f18aebc9) and wsl.md (e32b709e) all match the pins. The quoted text is present: 'stricter configuration file parser', 'not a security boundary from ... other distributions running for the same user', 'fixed pipe ... authenticate for all hosts', disable the service then 'take over and listen on the system-wide pipe'. Issue #1949 is open, updated 2024-10-10, reports 8.6 to 8.9.1 breakage with error 3, and //./pipe/ works. localhost.md also documents mirrored and Consomme modes, which the research doc does not discuss."
+  },
+  {
+   "command": "curl dotnet/runtime main NamedPipeServerStream.Windows.cs",
+   "exit_code": 0,
+   "observed": "Line 126: maxNumberOfServerInstances == 1 adds FILE_FLAG_FIRST_PIPE_INSTANCE. pipeModes holds only the transmission mode, so .NET does not set PIPE_REJECT_REMOTE_CLIENTS."
+  }
+ ],
+ "confirmed_claims": [
+  "Status is honest. The overall status is implemented_unverified. All 29 tests/evidence/g03-*.json records are blocked with observed_result null, and each blocked_on names the missing platform (native Windows 11 x86-64, WSL2 with interop, second account, disposable 1Password, and so on). No Windows or WSL behavior is presented as observed.",
+  "The macOS self-tests reproduce exactly as reported: PowerShell self-test exit 0 with a verified record; WSL-mechanics self-test exit 0 with 4 records verified and endpoint-perms in_progress/inconclusive; orchestrator on macOS exit 0 with 12 records blocked. Parse, PSScriptAnalyzer (0 errors), ShellCheck, py_compile and schema validation all pass.",
+  "Pinned-source claims I checked against upstream at the pinned commits and hashes all held: default pipe in wmain_common.c; CreateFileW agent connect; agent pipe DACL (any authenticated user can connect) plus per-client impersonation into that client's own HKCU store; v10.0 rejects every add-time constraint except sk-provider (internal); IdentityAgent parsed with argv_next; installer service DACL (AU start only).",
+  "The vendor and community citations are accurate and correctly labeled: 1Password's 'fixed pipe' and 'authenticate for all hosts' statement and its disable-service-then-take-over instruction (labeled [D] in conflict with [S]); Win32-OpenSSH #1949 (labeled [C]); WSL security.md 'not a security boundary'; the NAT localhost relay; the OpenSSH 8.7 stricter parser.",
+  "The research doc labels its claims consistently ([D]/[S]/[C]/[I]/[U]/[O]). The cross-distribution and same-Windows-user non-boundary is escalated as E-2 rather than quietly reinterpreted. N3 (global takeover) and B1/B4 (socat+npiperelay, loopback TCP) are rejected as defaults, matching spec §8.4 and §13.2.",
+  "In P-W03, a decoy agent sits in SSH_AUTH_SOCK and the target in IdentityAgent, so a form that falls back to the environment pipe is detected rather than counted as scoped. The control and 'none' rows are sound. Git precedence cases use target versus decoy pipes and a GIT_SSH sentinel marker.",
+  "Most default-mode safety holds: SSH_AUTH_SOCK is always set explicitly to a fixture or sentinel pipe on Windows and unset on Linux; probes pass -F, IdentityFile=none, fixture known_hosts and GlobalKnownHostsFile=none; provider contact and system-agent mutation are gated behind switches plus an authorization note; processes are stopped by exact PID plus start time in the main harnesses; exposure listeners bind 127.0.0.1, abstract or /mnt/wsl only inside the disposable target; no pkill, killall or taskkill-by-name anywhere.",
+  "agent_proxy.py enforces peer UID, the allowlist for list and sign, refusal of mutations and of extensions other than session-bind, the deadline, size, idle and concurrency limits, and inode-checked unlink. The self-test's unauthorized-key probe discriminates: the upstream holds k2 and the proxy log shows denied_key_not_allowed."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "Windows README safety model: 'Never reads the owner's SSH configuration or keys' / 'Default mode never contacts the owner's real agent' (README.md:26-32; Invoke-G03WindowsProbes.ps1 header lines 11-16).",
+   "evidence": "The Git probe case default_no_override (Invoke-G03WindowsProbes.ps1:335, 349) runs 'git ls-remote' with no core.sshCommand, so the ssh it uses gets no -F, IdentityFile=none or BatchMode. If Git for Windows was installed with 'Use external OpenSSH' (one of the two installs the doc prescribes), that ssh is System32 ssh.exe. The harness's own comment (G03Common.psm1:185-187) says Win32-OpenSSH resolves home from the user profile, not HOME, so the HOME redirect does not protect it. That ssh.exe would then read the owner's %USERPROFILE%\\.ssh\\config, known_hosts and default id_* keys. An owner IdentityAgent line in that config (for example, pointing at 1Password) overrides the fixture SSH_AUTH_SOCK. This is source-derived and was not executed here (no Windows host)."
+  },
+  {
+   "claim": "P-W05 pass criterion 'instance creation denied' shows the owner-only DACL blocks another user from creating a pipe instance (doc §4.1 P-W05; owner_only_create_instance_denied, Invoke-G03WindowsProbes.ps1:408, 444).",
+   "evidence": "The other user's attempt is NamedPipeServerStream(name, InOut, 1). In .NET, maxNumberOfServerInstances==1 adds FILE_FLAG_FIRST_PIPE_INSTANCE (dotnet/runtime NamedPipeServerStream.Windows.cs:126). The owner's fixture is also single-instance. The attempt therefore fails because the name already exists, whatever the DACL says. The criterion accepts any exception (-ne 'created'), and the Authenticated-Users control is not used for this criterion, which would also fail. The criterion can pass with an Everyone-FullControl DACL, yet the Win32-OpenSSH agent's own DACL deliberately strips FILE_CREATE_PIPE_INSTANCE (agent.c SDDL 0x12019b), so this is exactly the property that matters. The .NET Framework 5.1 behavior is inferred to be the same; even without the flag, max-instances=1 already reached gives ERROR_PIPE_BUSY."
+  },
+  {
+   "claim": "InstrumentedAgent.ps1 header: 'remote clients are rejected by the OS default for local pipes created this way'.",
+   "evidence": "The claim is unsourced, and .NET's CreateNamedPipe call sets only transmission-mode pipeModes, with no PIPE_REJECT_REMOTE_CLIENTS (NamedPipeServerStream.Windows.cs:131). The fixture therefore does not match the N2 design, which requires PIPE_REJECT_REMOTE_CLIENTS. Remote rejection relies only on the DACL."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Every status is honest (nothing verified without executed evidence; native items blocked with exact platform)",
+   "verdict": "pass",
+   "evidence": "29/29 tests/evidence/g03-*.json are blocked, with observed_result null and a specific blocked_on. The 5 'verified' records are harness self-tests under artifacts/g03/harness-selftest, labeled 'NOT G03 evidence', and they reproduce on rerun. Caveat: they carry product requirement IDs (minor defect)."
+  },
+  {
+   "gate": "Every factual claim has a source or an inference/unknown label",
+   "verdict": "pass",
+   "evidence": "The research doc labels every matrix row, and I spot-checked more than 10 cited sources at their pins (hashes match). Exception, in a harness comment rather than the doc: the InstrumentedAgent.ps1 'remote clients rejected by OS default' claim is unsourced and contradicted by the .NET source."
+  },
+  {
+   "gate": "Scripts are safe by default (no ~/.ssh, owner agent, login keychain, public listeners, pattern kills)",
+   "verdict": "fail",
+   "evidence": "Listeners are loopback/abstract/private only, and there are no pattern kills and no keychain use. However, Invoke-G03WindowsProbes.ps1 Git case default_no_override runs Git's default ssh without -F. With the 'external OpenSSH' install that is System32 ssh.exe, which per the harness's own comment ignores HOME and reads %USERPROFILE%\\.ssh, so it can read owner config and keys and follow an owner IdentityAgent to the real agent. Lesser points: lifecycle t_stop.sh kills some PIDs without start-time verification (disposable target only), and the P-A01 no-WSLENV case has no decoy guarding against a global-pipe fallback."
+  },
+  {
+   "gate": "Scripts actually run where runnable here (re-run)",
+   "verdict": "pass",
+   "evidence": "selftest_unix.sh, Test-G03HarnessSelf.ps1 and Invoke-G03WindowsProbes.ps1 (non-Windows branch) each exit 0 with the same statuses as reported; static checks exit 0."
+  },
+  {
+   "gate": "Failure criteria are observable / pass criteria cannot pass while the requirement fails",
+   "verdict": "fail",
+   "evidence": "P-W05 owner_only_create_instance_denied cannot discriminate (FIRST_PIPE_INSTANCE / max-instances). P-B04 relay_proxy_refuses_filtered_key cannot tell proxy filtering from the Windows fixture's own filtering of key 2. P-B11 has no positive control showing the other user can run wsl.exe at all. P-W09 can be verified for R-DI-02 without running any supported command."
+  },
+  {
+   "gate": "Nothing contradicts spec.md/plan.md",
+   "verdict": "pass",
+   "evidence": "The designs reject silent global takeover, unauthenticated TCP and socat-to-global-pipe. The per-job-endpoint-on-global-pipe prohibition is stated and enforced via the decoy design in P-W03. The failure actions mirror plan §3 G03 and keep stable Windows/WSL V1 blocked."
+  },
+  {
+   "gate": "No requirement quietly weakened",
+   "verdict": "uncertain",
+   "evidence": "A13 'no unintended distribution exposure' vs the documented non-boundary is explicitly escalated (E-2), and the executed-but-failed status convention is escalated (E-1). Gaps that are not called out: no probe covers the Windows OpenSSH key-file permission requirement from spec §8.4/S13 (the harness uses agent-only keys); P-B09 does not exercise recovery after restart (it defers to b-stale on an unrestarted distro, which is disclosed); P-B08 does not record the WSL networking mode (NAT, mirrored or Consomme), which changes what the loopback exposure result means."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "Default-mode safety breach (source-derived, not executed). The Git case default_no_override runs Git's default ssh with no -F, IdentityFile=none or BatchMode. With Git for Windows set to 'Use external OpenSSH', that ssh is System32 ssh.exe, which resolves its home from the user profile (the harness says so itself in G03Common.psm1:185-187). It can then read the owner's %USERPROFILE%\\.ssh\\config, known_hosts and id_* keys, and follow an owner IdentityAgent to the real agent or 1Password. This contradicts the README claim 'never reads the owner's SSH configuration or keys'. Fix: gate this case behind a disposable-host flag, or point GIT_SSH_COMMAND at the resolved default ssh with -F and the base options and record only which binary Git chose.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1:335,346-349; tests/native/windows/README.md:29-32"
+  },
+  {
+   "severity": "major",
+   "description": "The P-W05 criterion owner_only_create_instance_denied does not discriminate. The other user creates NamedPipeServerStream(name, InOut, 1), and .NET adds FILE_FLAG_FIRST_PIPE_INSTANCE when max instances is 1. The owner's fixture is also single-instance, so the attempt fails whatever the DACL. Any exception counts as a pass, and the Authenticated-Users control would also fail. The criterion can pass with a permissive DACL, yet FILE_CREATE_PIPE_INSTANCE denial is exactly what the Win32-OpenSSH agent DACL (0x12019b) protects and what a multi-instance N2 needs. Fix: have the other user request more instances without the first-instance flag, require an UnauthorizedAccessException specifically, and require the AU control (or an explicit instance-allowed control) to succeed.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1:408,444; tests/native/windows/InstrumentedAgent.ps1:189-201"
+  },
+  {
+   "severity": "minor",
+   "description": "P-B11 (wslotheruser) has no positive control showing the other user can run wsl.exe at all under Start-Process -Credential with a hidden window. If wsl.exe fails for any environmental reason, other_user_does_not_see_distro and other_user_cannot_launch_distro both pass (only the UNC check is independent). Add a control such as 'wsl.exe --version' exiting 0, and match the specific 'distribution not found' error.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1:750-776"
+  },
+  {
+   "severity": "minor",
+   "description": "In P-B04, relay_proxy_refuses_filtered_key only checks reply_type 5. In serve mode the Windows instrumented agent itself refuses key 2 (-AllowedKeyIndexes 1), so the criterion passes even if the Linux proxy forwarded the request. Also check that the Windows agent log shows no SIGN request for key 2's fingerprint, or serve with all keys allowed.",
+   "location": "tests/native/wsl/run_g03_wsl_probes.sh:498-499; tests/native/windows/Invoke-G03WindowsProbes.ps1:786"
+  },
+  {
+   "severity": "minor",
+   "description": "In P-B04, relay_processes_exit_with_connections is measured only after the proxy has been stopped. A relay that stays alive for the binding's lifetime (no per-connection exit) would pass. Count relay processes after client disconnect while the proxy is still running.",
+   "location": "tests/native/wsl/run_g03_wsl_probes.sh:508-511"
+  },
+  {
+   "severity": "minor",
+   "description": "The P-A01 env-form and no-WSLENV cases put no decoy in the Windows-side SSH_AUTH_SOCK. If a shipped ssh.exe fell back to \\\\.\\pipe\\openssh-ssh-agent, the owner's real agent would be contacted, and linux_env_not_visible_without_wslenv would still pass. Pinned ssh.c:1800-1808 suggests unsetenv with no fallback, but that is not verified on in-box builds. Pass a decoy pipe via SSH_AUTH_SOCK plus WSLENV, as P-W03 does.",
+   "location": "tests/native/wsl/run_g03_wsl_probes.sh:156-168"
+  },
+  {
+   "severity": "minor",
+   "description": "The P-W09 pass criteria (run_non_elevated, service_state_read) never exercise a supported command. The observation 'no: this run created and served fixture pipes non-elevated' is written unconditionally, even when no pipes were created (for example, -Probes service alone). The record could become verified for R-DI-02 without supporting evidence.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1:659-661"
+  },
+  {
+   "severity": "minor",
+   "description": "InstrumentedAgent.ps1 claims 'remote clients are rejected by the OS default', which is unsourced and incorrect: .NET does not set PIPE_REJECT_REMOTE_CLIENTS. The fixture standing in for N2 lacks a property the N2 design requires.",
+   "location": "tests/native/windows/InstrumentedAgent.ps1:14-18"
+  },
+  {
+   "severity": "minor",
+   "description": "Harness self-test records have status 'verified' but carry product requirement IDs (R-EN-03, R-SE-03, R-RT-03, R-QU-02). An aggregator keyed on requirement_ids could count them as requirement evidence despite the limitation text. Use a harness-only requirement ID or none.",
+   "location": "tests/evidence/artifacts/g03/harness-selftest/*/records/*.json; tests/native/wsl/g03_common.sh:185-208"
+  },
+  {
+   "severity": "minor",
+   "description": "The lifecycle target stop script kills the listener PIDs (abstract, tcp, mnt_wsl) without verifying start time, and kills proxies whenever the recorded start token is empty. This deviates from the stated 'PID plus recorded start time' invariant and could hit a reused PID after a restart (disposable target only).",
+   "location": "tests/native/wsl/run_g03_wsl_lifecycle.sh (t_stop.sh heredoc, stop() and listener kill loop)"
+  },
+  {
+   "severity": "minor",
+   "description": "P-B08 and P-A00 do not record the WSL networking mode. The pinned S16 localhost.md documents NAT, mirrored and Consomme modes, but the doc discusses NAT only, and loopback_tcp_reachable_from_windows means different things per mode.",
+   "location": "tests/native/wsl/run_g03_wsl_lifecycle.sh probe_multi; docs/research/g03-windows-wsl.md Q28, B4"
+  },
+  {
+   "severity": "minor",
+   "description": "No G03 probe covers the Windows OpenSSH key-file permission requirement that spec §8.4/S13 says the release must test. The harness uses only agent-held keys (IdentityFile=none). Assign this to G04/G09 explicitly or add a probe.",
+   "location": "docs/research/g03-windows-wsl.md §4.1"
+  },
+  {
+   "severity": "minor",
+   "description": "P-W09 parses service rights by regex substring over concatenated two-letter codes (for example, -match 'WP'), which can match across code boundaries. This is an observation only.",
+   "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1:645-655"
+  }
+ ],
+ "unverifiable_here": [
+  "All Windows and WSL runtime behavior; no Windows host or WSL distribution is available. This covers named-pipe DACL enforcement, IdentityAgent forms on in-box builds, interop argv conversion, multi-distribution exposure, restart and idle behavior, cross-user access, and 1Password coexistence.",
+  "Whether in-box Win32-OpenSSH ssh.exe launched by Git ignores HOME and reads %USERPROFILE%\\.ssh. This rests on the harness's own comment and on Win32-OpenSSH design; I did not execute it.",
+  "Whether Windows PowerShell 5.1 (.NET Framework) NamedPipeServerStream also adds FILE_FLAG_FIRST_PIPE_INSTANCE for max instances 1. I confirmed it only in the .NET (Core) source; the referencesource fetch failed. Max instances already reached would fail anyway.",
+  "Windows PowerShell 5.1 runtime compatibility of the harness; only static PSUseCompatibleSyntax was run.",
+  "Whether shipped Win32-OpenSSH builds match the v10.0.0.0 source tags (for example, no default-pipe fallback after IdentityAgent unsetenv)."
+ ],
+ "summary": "The producer's status is honest. No Windows or WSL behavior was observed: all 29 G03 records are blocked with a specific missing platform, and observed_result is null. I re-ran the self-tests and the macOS path of the Windows orchestrator: all exited 0 with the reported statuses, and the static checks passed.\n\nThe research doc is careful. Every claim is labeled, and the sources I spot-checked at their pinned commits matched both hash and quoted text: OpenSSH source, 1Password pages, Microsoft WSL docs, the OpenSSH 8.7 release notes, and GitHub issue #1949.\n\n**Major problems:**\n- **Default-mode safety breach.** The Windows Git probe's default case runs Git's default ssh without the fixture config. With Git for Windows set to \"Use external OpenSSH\", that is System32 ssh.exe, which ignores HOME. It can then read the owner's `%USERPROFILE%\\.ssh` config and keys and reach their real agent, which contradicts the README's safety claim.\n- **Non-discriminating ACL criterion.** In the other-user ACL probe, the \"instance creation denied\" check passes even with a permissive DACL. The attempt fails because .NET single-instance pipes add `FILE_FLAG_FIRST_PIPE_INSTANCE` (or because the only allowed instance already exists), not because of access control.\n\n**Minor problems:**\n- The WSL relay filter check cannot tell the Linux proxy's filtering from the Windows test agent's own filtering of key 2.\n- Relay exit is only counted after the proxy has been stopped.\n- The other-Windows-user WSL probe has no control showing the other user can run `wsl.exe` at all.\n- The WSLENV probe has no decoy agent, so a fallback to the real global pipe would go unseen.\n- The service/elevation probe's pass criteria never run a supported command.\n- The test agent's comment claims remote clients are rejected by default; this is unsourced, and .NET does not set that flag.\n- Harness self-test records say \"verified\" and carry product requirement IDs.\n- The lifecycle stop script kills some PIDs without checking start time.\n- The WSL networking mode is not recorded.\n- Nothing tests the Windows key-file permission requirement from spec §8.4.\n\nI could not verify any Windows or WSL runtime behavior here. No independent second review beyond this one was done. One write landed outside my owned directory: `py_compile` rewrote the existing `tests/native/wsl/__pycache__/agent_proto.cpython-314.pyc`. I deleted the five new `.pyc` files it created. Usernames are redacted in my console transcripts."
+}

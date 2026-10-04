@@ -1,0 +1,74 @@
+{
+ "task_id": "M00-T02",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "<repo>/docs/decisions/0003-source-pins.md",
+  "<repo>/docs/sources/pins.json",
+  "<repo>/docs/sources/excerpts/notes.md"
+ ],
+ "commands_run": [
+  {
+   "command": "curl -sL GET of all 34 spec URLs (S01-S34), HTML to text, sha256",
+   "exit_code": 0,
+   "observed": "All 34 returned HTTP 200. A second fetch about 10 minutes later gave identical extracted-text sha256 for all 34."
+  },
+  {
+   "command": "curl GET of .md variants for OpenAI pages S24, S25, S26, S31, S32, S33",
+   "exit_code": 0,
+   "observed": "HTTP 200 text/markdown. Hashed these variants instead of the HTML."
+  },
+  {
+   "command": "gh api GET: repo metadata, head commits, latest releases, path commits and blob SHAs, contents listings (t3code, pigeons, bubbletea, opentui, iroh, iroh-ffi, ratatui, crossterm, Win32-OpenSSH, smallstep/certificates, smallstep/cli)",
+   "exit_code": 0,
+   "observed": "Succeeded. Two zsh glob errors (unquoted '?' in URLs) produced empty output for some release and commit lookups. I reran those lookups with quoted URLs or other endpoints. A 404 on Win32-OpenSSH contents/LICENSE shows it has no root LICENSE."
+  },
+  {
+   "command": "curl GET of crates.io API (ratatui, crossterm, iroh, iroh-pigeons, iroh-tickets, ratatui-crossterm) and npm registry (@opentui/core, react, solid, keymap, ssh, @number0/iroh)",
+   "exit_code": 0,
+   "observed": "Versions, licenses, rust_version, engines and optionalDependencies recorded in pins.json."
+  },
+  {
+   "command": "python3 build.py (generates pins.json) and a heredoc script that writes the ADR",
+   "exit_code": 0,
+   "observed": "pins.json has 34 sources with 0 non-supported. The ADR has 34 source rows. The first sed attempt to fix generated_at_utc failed on BSD sed. I fixed it with python and confirmed the value is 2026-10-02T23:56:00Z."
+  }
+ ],
+ "requirement_ids": [
+  "R-QU-01",
+  "R-QU-07",
+  "R-DI-08",
+  "plan-1.4",
+  "plan-G01",
+  "plan-M00-T02",
+  "plan-7.5",
+  "spec-19"
+ ],
+ "evidence_records": [
+  "<repo>/docs/sources/pins.json",
+  "<repo>/docs/decisions/0003-source-pins.md",
+  "<repo>/docs/sources/excerpts/notes.md"
+ ],
+ "escalations": [
+  "E1 (S07 vs spec ~line 323): the spec says remembered approvals do not keep keys available after lock. S07 says the timed option (4/12/24 h) keeps approvals through a lock, but key access still needs an unlock. Suggest the spec distinguish approvals from key availability. Spec owner decides.",
+  "E2 (S01/S02 vs spec ~line 488): 'ssh -G evaluates configuration; Match exec may run commands' is an inference. No source sentence states it. Needs behavioral evidence from G07/G09.",
+  "E3 (S27): Bubble Tea v2 is imported as charm.land/bubbletea/v2, not github.com/charmbracelet/bubbletea. Check plan or prototype text for stale paths.",
+  "E4 (S22): Iroh JS (@number0/iroh 1.1.0) publishes no macOS Intel (darwin-x64) binary, while the Rust crate lists macOS x86_64. OpenTUI core needs node >=26.4.0 or bun >=1.3.0 and has Zig native components. Relevant to the G02 distribution gate.",
+  "E5 (S32): The OpenAI Evals platform is going read-only on 2026-10-31 and shutting down on 2026-11-30. The guidance still supports the spec claim, but the platform must not be a dependency.",
+  "E6: Win32-OpenSSH has no root LICENSE file and every release is labeled Preview/Beta (latest 10.0.0.0p2-Preview, 2025-10-27). The baseline and licensing decision is for the owner.",
+  "E7: crossterm's last crates.io release (0.29.0, 2025-04-05) is 18 months old, though master is active. Its GitHub latest tag (0.28) lags crates.io. Pigeons license metadata differs: Cargo.toml says MIT OR Apache-2.0, the GitHub API says Apache-2.0. Both are recorded, not decided.",
+  "Timing note: the spec says sources were accessed on 2026-10-01. The ssh-keygen man page (S10) has an 'October 1, 2026' footer, so its content may have changed within hours of that access date."
+ ],
+ "limitations": [
+  "'supported' means the fetched page text matches the spec's one-line claim. It is not behavioral evidence about installed versions.",
+  "OpenBSD man pages expose no $Mdocdate$ and no Last-Modified header. The pin is the 'OpenBSD-current <date>' footer plus the text sha256.",
+  "1Password dateModified values track site rebuilds (S06, S09 and S12 share one timestamp), so I rely on the text hash for those.",
+  "Raw HTML hashes are advisory, because page chrome varies. The text hash was stable across two fetches about 10 minutes apart, but long-term stability is unproven.",
+  "OpenAI pages (S24, S25, S26, S31, S32, S33) are hashed from the .md variants of the same URLs.",
+  "Python, Swift and Kotlin Iroh bindings were not individually version-checked.",
+  "Docker, platform installs and builds were not needed for this task. I downloaded no artifacts and ran no candidate code.",
+  "No independent review has been done. Self-check only; the work is not independently reviewed.",
+  "The full fetched text is not stored in the repo, only its sha256. Re-fetch to compare.",
+  "pins.json holds a truncated npm integrity string for @opentui/core plus its full shasum."
+ ],
+ "summary": "I pinned all 34 sources (S01-S34) and the G02 candidate dependencies. Every source fetched with HTTP 200 and its text matches the spec's one-line claim: supported 34, changed 0, not_found 0, could_not_fetch 0. I wrote `docs/sources/pins.json`, `docs/decisions/0003-source-pins.md` and `docs/sources/excerpts/notes.md`. The 34 text hashes were stable across two fetches about 10 minutes apart. Each pin is the best one available: OpenBSD footer date, HTTP Last-Modified, a docs-page date, a git commit and blob SHA, or a text sha256. Candidates are pinned with version, license and maintenance dates. They are Bubble Tea v2.0.10 (`charm.land/bubbletea/v2`, MIT), Ratatui 0.30.2, crossterm 0.29.0, OpenTUI 0.5.14, Iroh 1.3.0 plus JS 1.1.0, Pigeons v0.2.1, Win32-OpenSSH 10.0.0.0p2-Preview, step-ca v0.30.2 and step CLI v0.31.0. The ADR lists seven escalations (E1-E7). The two most consequential: S07 shows timed approvals persist through a 1Password lock (against spec ~line 323), and Iroh JS has no Intel macOS binary. No independent review has been done."
+}

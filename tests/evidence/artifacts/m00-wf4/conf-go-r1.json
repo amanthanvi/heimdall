@@ -1,0 +1,20 @@
+{
+ "candidate": "go",
+ "darwin": {
+  "harness_exit_code": 0,
+  "evidence_record": "tests/evidence/g02-go-conformance.json",
+  "passed": 124,
+  "failed": 0,
+  "errored": 0
+ },
+ "linux": {
+  "harness_exit_code": 0,
+  "evidence_record": "tests/evidence/g02-go-conformance-linux.json",
+  "passed": 124,
+  "failed": 0,
+  "errored": 0,
+  "image_digest": "heimdall-g02-harness:ac0f6cf382a4 = sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3 (base python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed; Docker server 29.8.1 linux/arm64)"
+ },
+ "failures": [],
+ "summary": "Rebuilt the Go prototype from source with prototypes/go/build.sh (exit 0, go1.27.1). Artifact sha256s: dist/darwin-arm64/heimdall-proto 20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1 (ad-hoc signed, hardened runtime); dist/linux-arm64/heimdall-proto f7d383185190bbaf385082e7c6455f3d714823d3951cd545d385f7d712a10f61. The linux-arm64 directory holds only the executable; the build produces no sidecars. Darwin run: conformance.py exit 0, 124 of 124 checks pass, status=verified, verdict=pass. Linux run: tests/g02/linux/run.sh exit 0 in the digest-pinned arm64 container, 124 of 124 pass, status=verified, verdict=pass. On Linux the K3a gating precondition passed for agent.reset_before_reply and agent.reset_after_partial_header: the reset reached the reader as ECONNRESET. There were no failed or errored checks, so nothing needed classifying and no flaky-check reruns were needed. Canary check: grep for HEIMDALL_CANARY_ across both records and the new artifact directories finds only the bare prefix, in assertion text such as \"no HEIMDALL_CANARY_ in ...\". No prefix is followed by a value character, so no full canary value appears and there is no harness_defect. Both records carry build_commit b44c3128003563495854a210931eeae923974605+dirty. Prior darwin artifacts moved to tests/evidence/artifacts/g02-go/conformance/prev-20261003T233623Z/ (a copy of the old darwin record is there too, as _prev-record-darwin.json). New darwin artifacts are in tests/evidence/artifacts/g02-go/conformance/; new Linux artifacts are in tests/evidence/artifacts/g02-go/conformance/linux/. Console logs are in /tmp/go-build.out, /tmp/go-darwin-run.log and /tmp/go-linux-run.log. Caveat: running build.sh rebuilt all of prototypes/go/dist, which is outside the write ownership but required by the task's rebuild step. It also rebuilt dist/manifest.json.\""
+}

@@ -1,0 +1,301 @@
+{
+ "subject": "M00-T05-review2-go: independent adversarial round-2 review of the Go + Bubble Tea v2 G02 prototype (prototypes/go). Rebuilt in /tmp/heimdall-review2-go. All evidence is in <repo>/tests/evidence/artifacts/g02-go/review2/ (conformance/, probes/, build.log, rebuild-manifest.json).",
+ "reexecuted_commands": [
+  {
+   "command": "tar copy of prototypes/go (excluding dist and bin) to /tmp/heimdall-review2-go/go; cd there; sh build.sh (go1.27.1 darwin/arm64)",
+   "exit_code": 0,
+   "observed": "All 4 targets built. The darwin build was ad-hoc signed with the hardened runtime. Log: review2/build.log."
+  },
+  {
+   "command": "diff <(python3 -m json.tool prototypes/go/dist/manifest.json) <(python3 -m json.tool /tmp/heimdall-review2-go/go/dist/manifest.json)",
+   "exit_code": 0,
+   "observed": "The manifests are identical. All 4 sha256 values and byte counts match: darwin-arm64 20e8c5c1…b2e1 (5,212,000 B), linux-x64 ee6d2dc5…ea6d, linux-arm64 f7d38318…0f61, windows-x64 31b958ac…b7a8. This is a same-host, different-directory rebuild."
+  },
+  {
+   "command": "SSH_AUTH_SOCK unset; python3 tests/g02/conformance.py --bin /tmp/heimdall-review2-go/go/dist/darwin-arm64/heimdall-proto --candidate go --case-id G02-go-review2-conformance-darwin-arm64 --out review2/conformance/review2-go-conformance-darwin.json --artifacts-dir review2/conformance/darwin",
+   "exit_code": 0,
+   "observed": "133/133 pass, 0 fail, 0 error, 0 skipped. status=verified, verdict=pass. Load average was high, 9.79 to 13.23, because other agents were running. K3a reset checks: Darwin delivered EOF, which is non-gating."
+  },
+  {
+   "command": "tests/g02/linux/run.sh --artifact-dir /tmp/heimdall-review2-go/go/dist/linux-arm64 --candidate go --case-id G02-go-review2-conformance-linux-arm64 --out review2/conformance/review2-go-conformance-linux.json --artifacts-out review2/conformance/linux",
+   "exit_code": 0,
+   "observed": "133/133 pass. status=verified, verdict=pass, platform linux-arm64, kernel 7.0.14-linuxkit, image id sha256:c0ee4be7…. The gating precondition for agent.reset_before_reply and agent.reset_after_partial_header was observed as ECONNRESET."
+  },
+  {
+   "command": "python3 probes/k6_shared_explicit.py <darwin artifact> (pty; heimdall-proto started by a non-job-control sh in the terminal foreground, or as the first stage of `| cat`; then kill(<heimdall-proto pid>, SIG) from outside the group)",
+   "exit_code": 1,
+   "observed": "Control, with heimdall-proto alone in the foreground (modeExclusive): the child got each of SIGINT, SIGHUP, SIGQUIT, SIGWINCH and SIGTERM exactly once. Shared group (modeShared): explicitly sent SIGINT, SIGHUP, SIGQUIT and SIGWINCH reached the child 0 times, 8/8 violations. Neither the child nor heimdall-proto acted on them. SIGTERM arrived once. Output: probes/k6-shared-darwin.txt"
+  },
+  {
+   "command": "docker run --network none --user 10001 heimdall-g02-harness:ac0f6cf382a4 python3 /p/k6_shared_explicit.py /a/heimdall-proto (linux-arm64 artifact)",
+   "exit_code": 1,
+   "observed": "Same result as Darwin. modeExclusive control 5/5 delivered once. modeShared: 0 deliveries of an explicit SIGINT, SIGHUP, SIGQUIT or SIGWINCH, 8 violations. Output: probes/k6-shared-linux.txt"
+  },
+  {
+   "command": "python3 probes/jobctl.py <darwin artifact> (bash -i in a pty: run -- reader; Ctrl-Z then fg / Ctrl-Z, bg, fg / Ctrl-Z, fg, Ctrl-Z, fg; then type a line), 3 runs",
+   "exit_code": 0,
+   "observed": "Darwin: 9/9 scenarios resumed, the child read the typed line, and no job was left over."
+  },
+  {
+   "command": "docker … python3 /p/jobctl.py /a/heimdall-proto /bin/bash (linux-arm64), 3 runs",
+   "exit_code": 0,
+   "observed": "The probe script exited 0, but the observation is a defect. After Ctrl-Z, `fg` immediately reports '[1]+ Stopped' again in 8 of 9 scenarios. The child never receives the typed line, which bash runs as a command instead, and the job stays stopped ('There are stopped jobs'). Outputs: probes/jobctl-linux*.txt"
+  },
+  {
+   "command": "docker … python3 /p/jobctl_debug.py with the release linux-arm64 artifact, and again with a reviewer debug build (stderr traces added to mirrorStop, diff in probes/debug-build-run_unix.diff)",
+   "exit_code": 0,
+   "observed": "After fg, heimdall-proto (T) and the child (T) both stay stopped, and the tty foreground is bash. heimdall-proto's SigIgn has SIGTTOU set. Debug trace: 'mirror: stopping self' is followed at once by 'mirror: resumed (fg=8 own=8)' before bash's fg, so syscall.Kill(0,SIGTSTP) did not stop the calling thread synchronously. After fg, the child is continued while the foreground is heimdall-proto's group. It gets SIGTTIN, and heimdall-proto stops itself again."
+  },
+  {
+   "command": "python3 probes/agent_probe.py <darwin artifact> (29 reviewer-crafted frames: exact 262144/262145, nkeys 1024/1025, 0xffffffff, string overruns, empty blob, trailing, type 5/6, K3/K3a, slow drip, silent peer, SIGINT, controls, invalid UTF-8, bidi)",
+   "exit_code": 0,
+   "observed": "29/29 as expected. The request was always 000000010b and nothing else was sent. SIGINT-to-exit was 0.7 ms and 2.4 ms. Timeout overrun was 11 to 13 ms. K1: no C0/DEL/C1 in the output. U+202E and U+200B pass through, which K1 allows. Output: probes/agent-darwin.json"
+  },
+  {
+   "command": "docker … python3 /p/agent_probe.py /a/heimdall-proto (linux-arm64)",
+   "exit_code": 0,
+   "observed": "29/29 as expected. SIGINT-to-exit was 3.8 ms. Output: probes/agent-linux.json"
+  },
+  {
+   "command": "docker … python3 /p/reset_probe.py (server closes with the request unread; a Python control client verifies the delivery first) and the same on darwin",
+   "exit_code": 0,
+   "observed": "On Linux the control reader got ConnectionResetError 104 in all 4 positions. heimdall-proto returned AGENT_UNAVAILABLE before any byte, and AGENT_PROTOCOL_ERROR after 1 byte, after the 4-byte header and mid-body. On Darwin the control reader saw EOF, with the same classifications. The round-1 K3a defect is fixed."
+  },
+  {
+   "command": "python3 probes/k15_probe.py <darwin artifact> (31 shapes up to 1 MiB, including round-1 8000-deep inline tables and near-limit shapes)",
+   "exit_code": 0,
+   "observed": "0 K15 violations. Worst case was 53.2 MiB peak RSS and 0.054 s. Over-limit shapes were rejected as SCHEMA_INVALID within 0.007 s."
+  },
+  {
+   "command": "docker … python3 /p/k15_probe.py /a/heimdall-proto",
+   "exit_code": 0,
+   "observed": "linux-arm64: 0 violations. Worst case was 54.2 MiB and 0.066 s."
+  },
+  {
+   "command": "python3 probes/tui_env_probe.py <darwin artifact> (fake tmux/tput/infocmp/stty/sh/… on PATH; TMUX, STY, TERM variants, TERMINFO)",
+   "exit_code": 0,
+   "observed": "No helper program was executed in any case, so K16 holds, including with TMUX and screen set. With TERM='../../../../../../../../dev/zero' there was no first frame in 4 s and sampled RSS reached 31,884,768 KiB (about 30 GiB) before I killed the process. With TERMINFO=<dir> holding a FIFO named after TERM, the TUI hung with no first frame until killed. Baseline first frame was 0.025 s."
+  },
+  {
+   "command": "docker --memory 2g … python3 /p/tui_env_probe.py /a/heimdall-proto /fx",
+   "exit_code": 0,
+   "observed": "linux-arm64: no helper executions. With the TERM traversal to /dev/zero, the TUI was killed by the 2 GiB cgroup limit (exit -9) with no frame. The TERMINFO FIFO case hung until killed."
+  },
+  {
+   "command": "go test -fuzz FuzzDecode -fuzztime 45s (reviewer fuzz harness over github.com/xo/terminfo Decode, the version linked into the artifact)",
+   "exit_code": 1,
+   "observed": "Found a crash in under 1 s: 'panic: runtime error: slice bounds out of range [:-25252]' in dec.go readBools. The crashing 50-byte input is saved as probes/terminfo-crash.bin."
+  },
+  {
+   "command": "python3 probes/tui_terminfo_panic.py (TUI with TERM=xterm-hmcrash and TERMINFO=<dir with the crashing entry>), darwin and linux-arm64",
+   "exit_code": 0,
+   "observed": "Both platforms: the Go runtime panic exits with status 2 before the alternate screen is entered, and termios is identical. K10 requires exit 1 after an internal panic. The first darwin attempt failed with exit 1 because of a probe termios-read bug (slave revoked), not because of heimdall-proto. I fixed the probe and reran."
+  },
+  {
+   "command": "docker --read-only --tmpfs /tmp --tmpfs /w … python3 /p/writes_probe.py (version, profile show x3, agent list x2, run with meta, run launch failure, tui select; TEA_TRACE, TEA_DEBUG, UV_DEBUG and GOTRACEBACK set)",
+   "exit_code": 0,
+   "observed": "Exit codes were 0, 0/2/0, 0/5, 3, 127, 0. No unexpected file in HOME, TMPDIR or cwd. /tmp was empty. The root filesystem was read-only, so a write attempt elsewhere would have failed rather than appeared."
+  },
+  {
+   "command": "sandbox-exec deny file-write* outside the probe root; python3 probes/writes_probe.py <darwin artifact> (also run without a sandbox with UV_DEBUG set)",
+   "exit_code": 0,
+   "observed": "Exit codes were identical and nothing unexpected was written. Limit: the control (`touch` outside the root) was denied (rc 1) but produced no Sandbox log entry, so a denied write attempt would not be visible in the log."
+  },
+  {
+   "command": "DYLD_INSERT_LIBRARIES=probes-built inj.dylib <darwin artifact> version --json; same dylib into an unsigned cc-built control; codesign -dv; otool -L",
+   "exit_code": 0,
+   "observed": "The artifact did not load the dylib. The control printed INJECTED_DYLIB_LOADED. codesign shows flags=0x10002(adhoc,runtime). Only libSystem and libresolv are linked. The round-1 DYLD defect is fixed. The artifact is not notarized."
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin <darwin artifact> version --json",
+   "exit_code": 0,
+   "observed": "VERSION_OK. No Go toolchain on PATH."
+  },
+  {
+   "command": "docker run alpine@sha256:5291449c… and debian:bookworm-slim@sha256:0c8bbb8e… (linux/arm64, --network none) /a/heimdall-proto version --json; profile show with a spaced, Unicode mount path",
+   "exit_code": 0,
+   "observed": "`command -v go` returned 127 in both images. version and profile show returned 0. The artifact is a static ELF."
+  },
+  {
+   "command": "docker run --platform linux/amd64 alpine@sha256:5291449c… /a/heimdall-proto version --json (linux-x64 under emulation)",
+   "exit_code": 125,
+   "observed": "This did not run: a Docker image-store error ('cannot overwrite digest'). linux-x64 was not executed in this review."
+  },
+  {
+   "command": "python3 probes/run_probe.py <darwin artifact> and in the Linux container",
+   "exit_code": 0,
+   "observed": "Both platforms: a 50 MiB binary stream with a slow reader was byte-exact. stdin EOF reached the child. A child dying of SIGPIPE gave 141. GODEBUG=execerrdot=0 with PATH '.' still gave 127 and did not run the command. A FIFO --meta-file with no reader returned at once with the child's status 4. Exit codes 0/1/126/127/128/255 pass through, and signal deaths give 128+N. The child is reaped. Still present, as disclosed: SIGKILL of heimdall-proto leaves the child alive, and a child launched with fd 1 closed gets a working fd 1 (rc 0, against rc 1 for plain exec). --meta-file follows a symlink, which the contract leaves unspecified."
+  },
+  {
+   "command": "python3 probes/stderr_pipeline.py (bash -i: `run -- child 2>&1 >/dev/tty | tty-reading peer`), 10 runs on darwin",
+   "exit_code": 0,
+   "observed": "darwin: 10/10. The peer got the typed line, nothing was stopped, and statuses were 7 and 0. On Linux the result is inconclusive: the control without heimdall-proto also failed to complete in the container, which is a probe defect. The heimdall-proto result there is not used."
+  },
+  {
+   "command": "python3 probes/stderr_pipeline.py … peerfirst (`peer </dev/null | run -- child`), control and heimdall-proto, 5 runs each on darwin and linux-arm64",
+   "exit_code": 0,
+   "observed": "0/5 bad on all four (control and heimdall-proto, both OSes). The round-1 macOS asymmetry is not reproduced."
+  },
+  {
+   "command": "cd copy; go mod verify; go vet ./... (darwin, windows, linux)",
+   "exit_code": 0,
+   "observed": "All modules verified. vet exits 0 on all three."
+  },
+  {
+   "command": "go test -count=1 ./... (relocated copy, HEIMDALL_G02_FIXTURES unset)",
+   "exit_code": 1,
+   "observed": "internal/profile fails with the explicit 'set HEIMDALL_G02_FIXTURES' message, as REPORT describes. cmd/heimdall-proto also fails: TestCanaryNeverEmitted and TestTUIRequiresTTY need the fixtures."
+  },
+  {
+   "command": "HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02/profiles go test -count=1 ./...",
+   "exit_code": 0,
+   "observed": "All 5 packages ok. The round-1 relocatability defect is fixed as documented."
+  },
+  {
+   "command": "go list -m -u all",
+   "exit_code": 0,
+   "observed": "Update available for linked modules: ultraviolet (untagged pseudo-version, newer 2026-10-01 pseudo exists), xo/terminfo (2022 pseudo-version, v1.2.0 exists), go-runewidth v0.0.24→v0.0.30, x/sys v0.46.0→v0.48.0, x/sync v0.21.0→v0.23.0, go-colorful v1.4.0→v1.4.1. muesli/cancelreader v0.2.2 dates from 2022-06-22."
+  },
+  {
+   "command": "/tmp/hp-go-ev/bin/govulncheck ./... ; -mode=binary dist/linux-arm64; GOOS=windows ./...",
+   "exit_code": 0,
+   "observed": "No vulnerabilities found (govulncheck v1.8.0, vuln.go.dev)."
+  },
+  {
+   "command": "GOOS=darwin|linux|windows go-licenses report ./cmd/heimdall-proto",
+   "exit_code": null,
+   "observed": "Exit status was not captured: PIPESTATUS is empty under zsh. The output lists only MIT and BSD-3-Clause, plus the prototype itself as Unknown. It matches LICENSES.md. go version -m shows x/termios absent from the windows artifact."
+  },
+  {
+   "command": "python3 startup measurement (50 runs each) and a 10,000-destination profile check",
+   "exit_code": 0,
+   "observed": "version --json median 3.25 ms, 7.0 MiB. profile show large-100 median 3.77 ms, 7.6 MiB, at load 1.3. 10,000 destinations with only the required keys: PROFILE_OK. 10,000 destinations with all 6 keys (837,823 B, under 1 MiB): SCHEMA_INVALID, because the K15 guard caps structure units at 65,536."
+  },
+  {
+   "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9_-]' tests/evidence/artifacts/g02-go/review2",
+   "exit_code": 1,
+   "observed": "No match. No canary value appears in any review2 record or artifact."
+  }
+ ],
+ "confirmed_claims": [
+  "The round-2 harness verdict reproduces on my own rebuild: 133/133 with status=verified and verdict=pass on darwin-arm64 and on linux-arm64 (K13 Docker arm64 runner, ECONNRESET precondition observed for K3a).",
+  "The build reproduces on this host from a different directory, signing included. All four artifact sha256 values and sizes match dist/manifest.json and REPORT's Round 2 build table.",
+  "Round-1 K3a defect fixed. On the real Linux reset path, verified with a control client that saw ECONNRESET, a reset before any byte gives AGENT_UNAVAILABLE. After 1 byte, after the full header and mid-body it gives AGENT_PROTOCOL_ERROR.",
+  "Round-1 parser blow-up fixed (K15). 31 reviewer shapes, including the round-1 8000-deep nested inline tables and near-limit shapes, finish within 0.07 s and 55 MiB on both platforms. Over-limit shapes are rejected as SCHEMA_INVALID.",
+  "Round-1 pipeline terminal steal fixed for the tested layouts. The harness k6a checks pass on both OSes. My peer-first pipeline passes 5/5 on both OSes with controls. A stderr-only pipeline passes 10/10 on darwin.",
+  "Round-1 tmux exec fixed (K16). With TMUX, STY, TERM=tmux/screen and fake tmux/tput/infocmp/stty/sh/ps/uname and others on PATH, no program was executed on either OS. The only process-spawning code in the linked graph is run's own os/exec, colorprofile's tmux call (bypassed), Bubble Tea's ExecProcess and the x/sys Exec wrapper (unused).",
+  "Round-1 DYLD_INSERT_LIBRARIES defect fixed. The darwin artifact has the hardened runtime (flags adhoc,runtime) and did not load an injected dylib that an unsigned control loaded.",
+  "Round-1 GODEBUG=execerrdot=0 defect fixed: a '.' PATH match is still refused with 127.",
+  "Round-1 FIFO --file (K14, harness) and FIFO --meta-file defects fixed. A meta FIFO with no reader returns at once and keeps the child's status.",
+  "Round-1 documentation fixes present: the LICENSES.md termios scope (windows artifact has no termios per go version -m), colorprofile as a direct dependency, the Filter comment, and the REPORT [Round 2 update] markers.",
+  "Round-1 test relocatability fixed as documented: the tests pass in a relocated copy with HEIMDALL_G02_FIXTURES set, and fail with an explicit instruction without it.",
+  "Disclosed limitations re-observed as stated: SIGKILL of heimdall-proto leaves the child alive; a closed fd 1 becomes a working fd in the child; inherited-ignored SIGQUIT/SIGTERM/SIGWINCH are reset to SIG_DFL (K6c, non-gating, harness observation on both OSes); bidi and zero-width characters pass through agent comments.",
+  "Agent framing holds against 29 reviewer-crafted frames on darwin and Linux. The request is exactly 00 00 00 01 0b and nothing else is ever sent. Bounds are checked before allocation. SIGINT cancel takes 0.7 to 3.8 ms. Timeouts overrun by 10 to 17 ms.",
+  "run byte and status correctness on both OSes: 50 MiB byte-exact with backpressure, stdin EOF, SIGPIPE gives 141, 128+N for signal deaths, child reaped. Ctrl-Z/fg/bg works on darwin (9/9).",
+  "No writes outside the named paths were observed: Linux read-only rootfs plus tmpfs, and darwin with TEA_TRACE, TEA_DEBUG and UV_DEBUG set.",
+  "Distribution without a toolchain works. Linux artifacts are static ELF and run in alpine and debian with no Go. The darwin artifact runs under env -i and links only libSystem and libresolv.",
+  "Licensing: every linked module is MIT or BSD-3-Clause per go-licenses on 3 OSes, matching LICENSES.md. Notices are not shipped, as disclosed.",
+  "govulncheck v1.8.0 finds no vulnerabilities (source darwin/windows, linux-arm64 binary). go mod verify and go vet on 3 OSes exit 0.",
+  "Domain sharing: the CLI and TUI both use profile.Load (and the TUI uses profile.Filter). The TUI performs no agent contact."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "REPORT Round 2 / §9 signal model: job control works. When the child stops, heimdall-proto mirrors the stop onto its own group. On resume it hands the terminal back if its group is in the foreground.",
+   "evidence": "On linux-arm64, under an interactive bash, after Ctrl-Z the `fg` command immediately re-stops the job in 8 of 9 scenarios over 3 runs. The child never gets terminal input and the job cannot be resumed. A debug build shows syscall.Kill(0, SIGTSTP) returning and mirrorStop running its resume code before the stop takes effect. After the real resume, the child is continued while the terminal belongs to heimdall-proto's group, so it gets SIGTTIN and heimdall-proto stops itself again. Darwin passes 9/9. REPORT discloses only that this path has no automated test. Evidence: probes/jobctl-linux*.txt, jobctl-debug-linux*.txt."
+  },
+  {
+   "claim": "The harness pass on both platforms reflects K6/K6b. The harness README says run.forward_* and run.explicit_signal_with_tty gate exactly-once delivery of signals sent to the heimdall-proto PID.",
+   "evidence": "Those checks cover only modeNoTTY and modeExclusive. In modeShared (heimdall-proto started by a foreground non-job-control script, or as a pipeline member), an explicit kill of heimdall-proto's PID with SIGINT, SIGHUP, SIGQUIT or SIGWINCH reaches the child 0 times on darwin and on Linux (8/8 each). K6b ranks K6 (explicit signal exactly once) above the §4 terminal-duplicate rule and explicitly allows documented duplicate terminal delivery. The prototype resolves the conflict the other way. Evidence: probes/k6-shared-*.txt."
+  },
+  {
+   "claim": "REPORT K15 notes: 'The 10,000-destination at-limit case is accepted.'",
+   "evidence": "This holds only when each destination has the 4 required keys. A valid 10,000-destination profile using all 6 destination keys (837,823 B, under the 1 MiB bound) is rejected with SCHEMA_INVALID by the 65,536-unit guard. K15 permits the rejection, but the claim overstates what is accepted."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Correctness of child/IPC behavior",
+   "verdict": "fail",
+   "evidence": "Two defects found by native execution, outside harness coverage. (1) K6/K6b: in modeShared, explicitly sent SIGINT, SIGHUP, SIGQUIT and SIGWINCH are silently dropped on both darwin-arm64 and linux-arm64 (8/8 each). (2) On linux-arm64, Ctrl-Z followed by fg cannot resume a `run` job (8/9). Everything else passed: all round-1 IPC defects are fixed (K3a verified on the real ECONNRESET path), 29/29 crafted agent frames on both OSes, byte-exact streams with backpressure, stdin EOF, SIGPIPE, exit and signal mapping, reaping, and pipeline K6a layouts. The harness 133/133 on both platforms reproduces."
+  },
+  {
+   "gate": "Viable Windows/WSL path",
+   "verdict": "uncertain",
+   "evidence": "Code review only, not native evidence. A windows-x64 PE32+ artifact builds, and go vet and govulncheck pass for GOOS=windows. The named pipe is opened through go-winio DialPipeContext with a `\\\\.\\pipe\\` prefix check. That defaults to SECURITY_SQOS_PRESENT|SECURITY_ANONYMOUS, so the pipe server cannot impersonate the client. There is no server-identity check. run_windows has no job object, so a killed heimdall-proto leaves the child. Console Ctrl-C and Ctrl-Break are swallowed rather than forwarded, and there is no CTRL_CLOSE handling. Quoting for .bat/.cmd targets is unprotected (disclosed). The meta-file open has no non-blocking guard for pipe paths. Nothing was executed on Windows or WSL."
+  },
+  {
+   "gate": "No unsupported security assumption",
+   "verdict": "uncertain",
+   "evidence": "The TUI assumes TERM, TERMINFO and the terminfo files are well formed. colorProfileNoExec still calls colorprofile.Detect, which calls xo/terminfo.Load(TERM): unvalidated path.Join with TERM, ioutil.ReadFile with no size bound and no non-regular check. Observed results: TERM='../../…/dev/zero' grew to about 30 GiB RSS in 4 s on darwin and was OOM-killed at 2 GiB on Linux. A TERMINFO FIFO hangs the TUI before the first frame. A fuzz-found terminfo entry panics the decoder, and the TUI exits 2, where K10 requires 1. TERM is commonly forwarded by sshd. The fix is in application code: pass a filtered environment, or skip the terminfo probe. On the positive side: no helper processes, no writes outside named paths, hardened-runtime darwin build, and K15 bound holds. Bidi and zero-width characters remain unspecified (§9.2)."
+  },
+  {
+   "gate": "Practical distribution",
+   "verdict": "pass",
+   "evidence": "Single static ELF for linux; runs in alpine and debian with no Go present. The darwin artifact runs under env -i with only libSystem and libresolv, and is ad-hoc signed with the hardened runtime but not notarized. The rebuild matches all 4 manifest digests on this host. Limits: windows-x64 was never executed, and linux-x64 was not executed in this review (the emulated run failed with Docker rc 125)."
+  },
+  {
+   "gate": "Maintained dependencies",
+   "verdict": "uncertain",
+   "evidence": "Direct dependencies are recent: bubbletea v2.0.10 (2026-09-24), toml v1.6.0, x/ansi v0.11.8. But ultraviolet is an untagged pseudo-version (a newer pseudo-version exists), xo/terminfo is pinned to a 2022 pseudo-version (v1.2.0 exists) and has a fuzz-found panic on the linked decoder, and cancelreader dates from 2022. govulncheck is clean."
+  },
+  {
+   "gate": "Compatible licensing",
+   "verdict": "pass",
+   "evidence": "go-licenses on darwin, linux and windows reports only MIT and BSD-3-Clause, plus the unlicensed prototype itself. This matches LICENSES.md. The binary-distribution notice obligation is not yet met (no NOTICE shipped, disclosed). This is a release task, not a compatibility problem."
+  },
+  {
+   "gate": "Ability to share domain operations across CLI/TUI",
+   "verdict": "pass",
+   "evidence": "internal/profile (Load, validation, Filter) is used by both `profile show` and the TUI. TUI sanitization is shared with the CLI's non-JSON output. Agent and run are CLI-only, as the slice requires."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "K6/K6b violation. In modeShared, a SIGINT, SIGHUP, SIGQUIT or SIGWINCH sent explicitly to the heimdall-proto PID is not forwarded while its group holds the terminal foreground. modeShared covers heimdall-proto in a pipeline, or started by a foreground non-job-control script such as a wrapper script, a Makefile recipe or `sh -c`. The signal is swallowed: neither heimdall-proto nor the child reacts. Observed 0 deliveries in 8/8 cases on both darwin-arm64 and linux-arm64. The modeExclusive control delivers 5/5. K6b ranks K6 (explicit signal reaches the child exactly once) above the §4 rule against delivering a terminal SIGINT twice, and allows documented duplicate terminal delivery. Forwarding always in modeShared would comply. REPORT Round 2 'Remaining gaps 1' discloses the behavior, but it was written before K6b and resolves the priority the wrong way. The harness does not test this mode, so the 133/133 verdict cannot detect it.",
+   "location": "prototypes/go/internal/run/run_unix.go forward() (modeShared branch: `return fg >= 0 && fg != own`). Evidence: tests/evidence/artifacts/g02-go/review2/probes/k6-shared-darwin.txt, k6-shared-linux.txt, k6_shared_explicit.py"
+  },
+  {
+   "severity": "major",
+   "description": "On Linux, job control of `run` breaks. Under an interactive bash, Ctrl-Z stops the job, but `fg` immediately re-stops it ('[1]+ Stopped'). The child never receives terminal input and the job can only be killed. Observed in 8 of 9 scenarios over 3 runs on linux-arm64, while darwin passes 9/9. Inference from a reviewer debug build: syscall.Kill(0, SIGTSTP) in the multithreaded Go process does not stop the calling thread before mirrorStop continues. Its resume code ('tcgetpgrp == own → setFG(child)') therefore runs while heimdall-proto still holds the foreground it just reclaimed. After the real `fg`, the child is continued while the foreground belongs to heimdall-proto's group, gets SIGTTIN, and heimdall-proto mirrors that stop onto itself again. Also observed: SIGTTOU stays SIG_IGN after setFG, because os/signal.Reset does not restore SIG_DFL for SIGTTOU. REPORT discloses only that this path has no automated test.",
+   "location": "prototypes/go/internal/run/run_unix.go mirrorStop() and the modeExclusive handoff watcher; setFG(). Evidence: review2/probes/jobctl-linux.txt, jobctl-linux-run2.txt, jobctl-linux-run3.txt, jobctl-debug-linux.txt, jobctl-debug-linux-dbgbuild.txt, debug-build-run_unix.diff; darwin controls jobctl-darwin*.txt"
+  },
+  {
+   "severity": "minor",
+   "description": "The TUI's color-profile detection still reads terminfo files chosen by the environment, without bounds. colorProfileNoExec removes only TMUX, then calls colorprofile.Detect, which calls xo/terminfo.Load(TERM). That function uses path.Join with an unvalidated TERM (path traversal), searches TERMINFO, TERMINFO_DIRS and the passwd home's .terminfo, and uses ioutil.ReadFile with no size limit and no regular-file check. Observed results: TERM='../../../../../../../../dev/zero' gave no first frame and about 30 GiB RSS within 4 s on darwin, and an OOM kill at the 2 GiB cgroup limit on Linux. A TERMINFO directory holding a FIFO for TERM hangs the TUI before the first frame on both OSes. TERM is forwarded by sshd from remote clients. ncurses rejects TERM names containing '/'. This is not covered by K14 or K15, which apply to --file, but it is the same failure class the round-1 review rated (FIFO hang, unbounded memory). It can be fixed in application code.",
+   "location": "prototypes/go/cmd/heimdall-proto/main.go colorProfileNoExec -> github.com/charmbracelet/colorprofile v0.4.3 env.go Terminfo() -> github.com/xo/terminfo load.go Load / terminfo.go Open. Evidence: review2/probes/tui-env-darwin.json, tui-env-linux.json, tui_env_probe.py"
+  },
+  {
+   "severity": "minor",
+   "description": "K10 exit-code deviation on a panic outside Bubble Tea's recover. Fuzzing the linked xo/terminfo Decode found a 50-byte entry that panics ('slice bounds out of range [:-25252]'). Placing it at $TERMINFO/x/$TERM makes the TUI panic during color-profile detection, before tea.Program.Run, and exit with Go's status 2 on both darwin and linux-arm64. Status 2 is also the contract's USAGE_ERROR code. K10 requires exit 1 for an internal panic. The terminal was not yet modified and termios was identical, so restoration is fine. Only the exit code and the stack trace on the tty are wrong.",
+   "location": "prototypes/go/cmd/heimdall-proto/main.go runTUI (colorProfileNoExec is called before prog.Run, outside any recover) -> xo/terminfo dec.go readBools. Evidence: review2/probes/terminfo-fuzz.txt, terminfo-crash.bin, tui-terminfo-panic-darwin.json, tui-terminfo-panic-linux.json"
+  },
+  {
+   "severity": "minor",
+   "description": "Harness coverage gap, outside the prototype and owned by the harness agent. The README states that run.forward_* and run.explicit_signal_with_tty gate K6b exactly-once delivery for signals sent to the heimdall-proto PID, but no check sends an explicit signal while heimdall-proto shares its process group with the terminal's foreground job (modeShared). The k6a_* checks test only that peers are not stopped. The harness also has no Ctrl-Z/fg/bg check, so neither major defect above can affect a harness verdict on either platform.",
+   "location": "tests/g02/conformance.py run.explicit_signal_with_tty, run.k6a_* and the K6b note near line 3732"
+  },
+  {
+   "severity": "minor",
+   "description": "REPORT accuracy. (a) The K15 note 'The 10,000-destination at-limit case is accepted' holds only for minimal destinations. A valid 10,000-destination profile using all six keys (838 KB) is rejected with SCHEMA_INVALID, because the cap is about 8,190 full destinations. K15 allows the rejection, but the message reports a structure limit for a contract-valid profile. (b) The line count was not updated for round 2: 2,322 non-test and 4,224 total .go lines, against the '2,780' stated. (c) Escalation 3 (inherited SIGQUIT) is still listed as open although §9.2 K6c settled it as non-gating. (d) The §9 section text 'There is no longer any case where a signal is skipped' is stale; the Round 2 section contradicts it.",
+   "location": "prototypes/go/REPORT.md (K15 guard notes, §2 line count, Round 2 Escalations, §9 K6 model); internal/profile/guard.go MaxStructureUnits. Evidence: review2/probes/startup-darwin.json"
+  },
+  {
+   "severity": "minor",
+   "description": "Disclosed limitations that remain (re-observed, not new): SIGKILL of heimdall-proto leaves the child running on both OSes. A child launched with fd 1 closed gets a working fd 1 (rc 0, against rc 1 for exec). Inherited-ignored SIGQUIT, SIGTERM and SIGWINCH are reset to SIG_DFL in the child (K6c, non-gating). --meta-file follows symlinks (unspecified per §9.2). There is a PID-reuse window after the reap.",
+   "location": "internal/run/run_unix.go, internal/run/run.go, cmd/heimdall-proto/meta_unix.go. Evidence: review2/probes/run-darwin.json, run-linux.json; harness records under review2/conformance/"
+  }
+ ],
+ "unverifiable_here": [
+  "Native Windows x64: named-pipe probe, CommandLineToArgvW quoting, console Ctrl-C/Ctrl-Break/close events, console TUI, behavior without a job object, and the TERM/terminfo path on Windows. Blocked: no Windows host.",
+  "WSL Mode A/B. Blocked: no Windows host with WSL.",
+  "Native linux-x64. The emulated run did not execute (Docker image-store error, rc 125), and no native x64 Linux host exists.",
+  "Notarization or Developer-ID signing of the darwin artifact. Blocked: no Apple Developer identity.",
+  "Write attempts that a sandbox denied. The darwin sandbox control was denied but left no unified-log entry, and the Linux read-only rootfs hides failed attempts. The absence of denied write attempts rests on exit-code equivalence and a code grep of the linked packages, not on syscall tracing (no strace or dtrace without privileges).",
+  "Linux stderr-only pipeline layout (`run -- child 2>&1 >/dev/tty | tty-reading peer`): inconclusive, because the control without heimdall-proto also failed to complete in the container (probe defect). darwin passed 10/10.",
+  "Root cause of the Linux Ctrl-Z/fg failure is an inference from a debug build's trace. The failure itself is observed directly.",
+  "Whether the Rust candidate shares the modeShared K6b issue, the Linux job-control issue, or the env-driven terminfo read. That is outside this review, and useful for a fair comparison.",
+  "Escalation, not decided here: the contract says conformance is judged by the harness and by recorded native runs. These native runs record a K6/K6b violation that the 133/133 harness verdict cannot detect. Whether that blocks the Go G02 pass under K13 is an orchestrator decision."
+ ],
+ "summary": "Overall verdict: the harness pass reproduces, but two major defects in the `run` command's child/IPC behavior, found outside the harness, mean the hard gates are not all met.\n\n**Reproduction.** I rebuilt the Go prototype in /tmp/heimdall-review2-go. All four artifacts are byte-identical to dist/manifest.json. The shared harness gives 133/133 (status verified, verdict pass) on both darwin-arm64 and linux-arm64, with ECONNRESET actually delivered on Linux for the K3a checks.\n\n**Round-1 defects.**\n- **Fixed, confirmed by my own runs:** K3a reset classification (checked on the real reset path with a control client), the K15 parser blow-up, the pipeline terminal steal, the `tmux info` exec, DYLD_INSERT_LIBRARIES injection, the GODEBUG `.`-in-PATH lookup, the FIFO profile and meta-file hangs, the documentation errors and test relocatability.\n- **Remaining, as REPORT discloses:** SIGKILL of heimdall-proto leaves the child running, a child started with fd 1 closed gets a working fd 1, and inherited-ignored SIGQUIT is reset (K6c, non-gating).\n\n**New major defects, reproduced natively:**\n- **Explicit signals dropped in shared mode (K6/K6b).** heimdall-proto can share its process group with the terminal's foreground job: started by a wrapper script, Makefile recipe or `sh -c`, or as a pipeline member. There, an explicitly sent SIGINT, SIGHUP, SIGQUIT or SIGWINCH is swallowed, 8/8 on both OSes. K6b ranks this exactly-once delivery above avoiding duplicate terminal signals, so the prototype resolves the conflict the wrong way.\n- **Linux Ctrl-Z then `fg` cannot resume a `run` job (8/9).** After `fg`, the job immediately stops again and the child never gets terminal input. A debug trace points to a race in the stop-mirroring code. Darwin passes 9/9.\n\n**Minor defects:**\n- **Unbounded terminfo read in the TUI.** It still reads terminfo files chosen by TERM and TERMINFO, with no size or file-type check. A TERM path to /dev/zero grew to about 30 GiB on darwin and was OOM-killed on Linux. A FIFO entry hangs the TUI before its first frame.\n- **Wrong exit code on a panic (K10).** A terminfo entry found by fuzzing panics the decoder before the TUI starts. The process exits 2 where K10 requires 1, though the terminal is left untouched.\n- **REPORT accuracy.** A valid 10,000-destination profile using all six keys is rejected, despite the \"accepted\" claim. The line count and a stale signal statement were not updated.\n- **Harness coverage gap.** No check covers explicit signals in shared mode or Ctrl-Z/fg, so neither major defect can change a harness verdict.\n\n**What else held:**\n- Agent framing passed 29/29 reviewer-crafted frames on both OSes, and the probe never sends anything but the identities request.\n- Byte streams with backpressure, stdin EOF, SIGPIPE and exit/signal status mapping are all correct.\n- No helper processes, and no writes outside named paths under a read-only Linux rootfs or a darwin sandbox.\n- Toolchain-free runs work in alpine, debian and `env -i`.\n- Licenses are MIT or BSD-3-Clause only (notices not yet shipped).\n- govulncheck is clean.\n- The CLI and TUI share the profile domain code.\n\n**Not covered:**\n- Windows and WSL were reviewed from code only.\n- linux-x64 was not executed.\n\n**Gate verdicts:**\n- Child/IPC correctness: fail.\n- Windows/WSL: uncertain (code review only).\n- No unsupported security assumption: uncertain.\n- Distribution: pass.\n- Maintained dependencies: uncertain (untagged ultraviolet, a 2022 terminfo pin with the panic above).\n- Licensing: pass.\n- CLI/TUI domain sharing: pass.\n\n**Escalation.** Whether the K6b violation, which the harness cannot detect, blocks the Go G02 pass under K13 is an orchestrator decision.\n\nEvidence is in <repo>/tests/evidence/artifacts/g02-go/review2/ (no canary values present)."
+}

@@ -1,0 +1,278 @@
+{
+ "subject": "M00-T05-review-go: independent adversarial review of the Go + Bubble Tea v2 G02 prototype (prototypes/go). Rebuild in /tmp/heimdall-review-go. All evidence is in tests/evidence/artifacts/g02-go/review/.",
+ "reexecuted_commands": [
+  {
+   "command": "tar copy of prototypes/go (excluding dist, bin) to /tmp/heimdall-review-go; sh build.sh (cwd /tmp/heimdall-review-go)",
+   "exit_code": 0,
+   "observed": "All 4 targets built. Every sha256 is identical to prototypes/go/dist/manifest.json: darwin-arm64 8a3a4fcc…f64c 5,207,474 B; linux-x64 0a16dac3…65a5; linux-arm64 9a072063…2614; windows-x64 cf6a7386…5db09. Built from a different directory with the same go1.27.1 and module cache, so -trimpath makes it reproducible on this machine. Log: review/build.log"
+  },
+  {
+   "command": "cmp prototypes/go/dist/darwin-arm64/heimdall-proto /tmp/heimdall-review-go/dist/darwin-arm64/heimdall-proto",
+   "exit_code": 0,
+   "observed": "Byte-identical"
+  },
+  {
+   "command": "go mod verify; go vet ./...; GOOS=windows go vet ./... (in the copy)",
+   "exit_code": 0,
+   "observed": "All three exit 0 (review/gotest/)"
+  },
+  {
+   "command": "go test -count=1 ./... (in the /tmp copy)",
+   "exit_code": 1,
+   "observed": "internal/profile fails because the tests open ../../../../tests/fixtures/g02/profiles, which does not exist in a relocated copy. The other 4 packages pass. This comes from relocating the tests, not from the prototype's behavior."
+  },
+  {
+   "command": "go test -count=1 ./internal/profile/ (in place in prototypes/go, writes nothing)",
+   "exit_code": 0,
+   "observed": "ok"
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --bin /tmp/heimdall-review-go/dist/darwin-arm64/heimdall-proto --candidate go --out review/conformance/g02-go-conformance-review.json --artifacts-dir review/conformance/artifacts",
+   "exit_code": 0,
+   "observed": "113/113 pass, 0 fail/error/skip, status=verified, verdict=pass. This matches the recorded verdict. In agent.reset_before_reply and agent.reset_after_partial_header, the kernel delivered EOF, not ECONNRESET (non-gating observation), so the K3a reset path was never exercised on Darwin."
+  },
+  {
+   "command": "python3 /tmp/hrg-probe/agent_probe.py <darwin bin> (34 crafted-frame cases)",
+   "exit_code": 0,
+   "observed": "34/34 match. Covers: len 0, len 0xFFFFFFFF, exact 262144 accepted, 262145 rejected, nkeys 1024 accepted, nkeys 1025 rejected, huge nkeys in a short frame, blob/keytype overruns, empty blob, trailing byte, wrong types, failure with payload, truncation, silent close, timeout 400 ms -> 0.411 s, slow drip past the deadline. Every case sent exactly 000000010b."
+  },
+  {
+   "command": "docker run --network none linux/arm64 python@sha256:2dd78ad5… python3 /probe/agent_probe.py /dist/linux-arm64/heimdall-proto",
+   "exit_code": 1,
+   "observed": "31/34. Three MISMATCHES, all K3a: reset after 1 header byte, reset after 3 header bytes, and reset mid-body (len 100, 6 bytes sent). Each returned AGENT_UNAVAILABLE ('read failed') where AGENT_PROTOCOL_ERROR is required. Reset before any byte gave AGENT_UNAVAILABLE as required."
+  },
+  {
+   "command": "python3 run_probe.py <darwin bin>",
+   "exit_code": 1,
+   "observed": "Pass: stdin EOF and binary passthrough; /dev/null EOF; 3 MB of stderr while stdout went unread; a grandchild holding stdout did not delay exit (0.041 s); SIGPIPE child gave meta signal 13; killpg(SIGTERM) reached the child exactly once. Flagged: in 25 of 60 runs heimdall was killed by SIGTERM sent at startup (see race probe). Observations: killpg(SIGKILL) leaves the child alive; with stdout closed the child still saw a working fd 1 (rc=0, while the control without heimdall gave rc=1 'Bad file descriptor'); an unwritable --meta-file still ran the child and exited 3; GODEBUG=execerrdot=0 let a '.' PATH entry run (rc 0, while the default is 127)."
+  },
+  {
+   "command": "python3 race_probe.py <darwin bin> 200",
+   "exit_code": 0,
+   "observed": "rc=-15 with no child started: 112. rc=143 with no child started: 58. rc=143 with the child started: 30. Orphans: 0. Heimdall dies by an early signal only before the child is launched."
+  },
+  {
+   "command": "python3 pipeline_tty_probe.py <darwin bin> (interactive bash 3.2 --norc in a pty)",
+   "exit_code": 0,
+   "observed": "Controls pass. `heimdall run -- sleep 1.5 | sh -c 'read x </dev/tty'` gave 'Stopped (tty input)'; 'hello' was delivered to bash as a command. Same failure with `run -- sleep 3 | slow reader`. With heimdall later in the pipeline the reader was not stopped on macOS."
+  },
+  {
+   "command": "docker linux/arm64 PROBE_SHELL=/bin/sh (busybox ash -i) pipeline_tty_probe.py /dist/linux-arm64/heimdall-proto",
+   "exit_code": 0,
+   "observed": "All 3 controls pass. All 4 heimdall pipeline variants fail: the reader never gets the line, the job shows 'Stopped (tty input)', and the shell says 'You have stopped jobs.'"
+  },
+  {
+   "command": "python3 tui_env_probe.py <darwin bin> homelab.toml",
+   "exit_code": 0,
+   "observed": "With TMUX set, the TUI runs `tmux info` resolved from PATH (a fake tmux recorded args 'info'). When the fake tmux sleeps 5 s, the alternate screen appears only after 5.038 s, against 0.022 s at baseline. TEA_TRACE, TEA_DEBUG and UV_DEBUG created no files."
+  },
+  {
+   "command": "/usr/bin/time -l heimdall-proto profile show --file deep-inline.toml --json (699,016-byte file, 116k nested inline tables in [meta])",
+   "exit_code": 1,
+   "observed": "Ran 2.5 min at 99.6% CPU. `time` reported max RSS 26,054,574,080 bytes, and `sample` showed a physical footprint of 152.7G. I stopped the exact PID 57312 (verified start time, parent /usr/bin/time and my shell) with SIGKILL, so time reported 'terminated abnormally'."
+  },
+  {
+   "command": "python3 nest_scale.py <darwin bin> (bounded: 20 s, 2 GiB RSS)",
+   "exit_code": 0,
+   "observed": "Inline-table nesting is quadratic: depth 1000 (4 KB) 79 MB, 2000 (8 KB) 244 MB, 4000 (16 KB) 764 MB, 8000 (32 KB) >2.1 GB (killed at the cap). Arrays of inline tables behave the same (48 KB >2.1 GB). Plain arrays stay flat at about 9 MB."
+  },
+  {
+   "command": "timeout 3 heimdall-proto profile show --file fifo.toml --json",
+   "exit_code": 124,
+   "observed": "Blocks on the FIFO open until killed by timeout"
+  },
+  {
+   "command": "curl proxy.golang.org …/@v/<ver>.info and /@latest for the 18 linked modules; go.dev/dl/?mode=json",
+   "exit_code": 0,
+   "observed": "The first loop returned shell exit 1 because of a zsh glob in the go.dev URL; the module data was complete, and the go.dev query was retried with exit 0. Results in review/registry-dates.txt: bubbletea v2.0.10 2026-09-24 (latest, no v3: 404); toml v1.6.0 2025-12-18 (latest); go-winio v0.6.2 2024-04-09 (latest); ultraviolet pinned 2026-07-03, latest pseudo-version 2026-10-01, no tags; cancelreader v0.2.2 2022-06-22; xo/terminfo pinned 2022 while v1.2.0 is 2026-09-13; x/sys v0.46.0 vs v0.48.0; go-runewidth v0.0.24 vs v0.0.30; Go releases go1.27.1 and go1.26.8"
+  },
+  {
+   "command": "~/go/bin/govulncheck ./... (GOOS darwin/linux/windows)",
+   "exit_code": 1,
+   "observed": "Tool error: this govulncheck was built with go1.26 and cannot load go1.27 packages. Not a finding."
+  },
+  {
+   "command": "GOBIN=/tmp/hrg-tools go install golang.org/x/vuln/cmd/govulncheck@latest; govulncheck ./... for darwin, linux, windows; govulncheck -mode=binary on the darwin artifact",
+   "exit_code": 0,
+   "observed": "govulncheck v1.8.0 (go1.27.1): 'No vulnerabilities found' for all three OSes and the binary"
+  },
+  {
+   "command": "go version -m dist/{darwin-arm64,windows-x64,linux-x64}/…; file; otool -L; codesign -dv",
+   "exit_code": 0,
+   "observed": "The build info dependency list matches go.mod and LICENSES.md, except that x/termios is absent from the windows binary. Linux binaries are statically linked. darwin links only libSystem and libresolv. The darwin binary has flags=0x20002 (adhoc, linker-signed): no hardened runtime, no Team ID."
+  },
+  {
+   "command": "env -i PATH=/usr/bin:/bin DYLD_INSERT_LIBRARIES=<test dylib> heimdall-proto version --json",
+   "exit_code": 0,
+   "observed": "stderr shows INJECTED_DYLIB_LOADED: an environment variable loads arbitrary code into the darwin artifact"
+  },
+  {
+   "command": "env -i run from 'spaced dir ü' on darwin; docker debian:bookworm-slim arm64 --network none (version, profile show on the spaced/Unicode fixture path)",
+   "exit_code": 0,
+   "observed": "VERSION_OK and PROFILE_OK on both. No go, node, bun or rustc on PATH in the container. Only the copied files were present afterwards on darwin."
+  },
+  {
+   "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py <my darwin build> <repo>",
+   "exit_code": 0,
+   "observed": "SUMMARY 59/59 passed. Left 17 new empty /tmp/hpa* directories (361 before, 378 after), as REPORT says."
+  }
+ ],
+ "confirmed_claims": [
+  "The harness verdict reproduces on my own rebuild: 113/113, exit 0, status=verified, verdict=pass on darwin-arm64. This holds only for Darwin; see the K3a defect.",
+  "The build is reproducible on this host across checkout directories: all 4 artifact sha256 values match dist/manifest.json. This is not a cross-machine reproducibility claim.",
+  "The artifact sizes and sha256 values in REPORT.md §9 and the manifest are accurate. Line count 2,780: confirmed.",
+  "The versions in REPORT §1 match go.mod, go.sum and the embedded build info: bubbletea v2.0.10, toml v1.6.0, go-winio v0.6.2, x/ansi v0.11.8, x/term v0.2.2, x/sys v0.46.0, go1.27.1.",
+  "The maintenance signals in REPORT §10 match the registry: ultraviolet is untagged (pinned 2026-07-03, latest 2026-10-01), cancelreader is from 2022, terminfo is pinned to 2022 while v1.2.0 exists, go-winio's last tag is 2024-04-09, and no bubbletea v3 exists.",
+  "govulncheck v1.8.0 finds no vulnerabilities for darwin, linux, windows or the darwin binary. go mod verify and go vet (darwin, windows) exit 0.",
+  "The producer's black-box selftest gives 59/59 on my rebuild, and it leaves empty /tmp/hpa* directories as REPORT discloses.",
+  "Agent frame bounds hold on darwin and Linux. The probe sends exactly one 5-byte type-11 request and nothing else. Bounds at 262144/262145 and nkeys 1024/1025, overruns, trailing bytes, the K4 failure frame shape and the timeout all fail closed with the correct codes. Length checks happen before allocation (frame.go), and no allocation is sized from an unchecked peer length.",
+  "The K1 replacement of control characters (C0, DEL, C1, invalid UTF-8) in key_type and comment is observed.",
+  "run passes stdin EOF and binary data (NUL, 0xFF) through. Large stderr while stdout goes unread does not deadlock, because stdio fds are passed raw with no copy goroutines. A grandchild holding stdout does not delay exit. A child killed by SIGPIPE is reported as signal 13. killpg(SIGTERM) on heimdall's group reaches the child exactly once. 200 startup SIGTERM races left no orphan child.",
+  "The artifact needs nothing that is not shipped. darwin links only libSystem and libresolv. Linux is fully static and runs in debian bookworm-slim with no toolchain, on a spaced and Unicode path.",
+  "Profile load opens the file once and does stat and the bounded read on the same descriptor, so there is no path TOCTOU. Error messages do not echo values: malformed TOML gives only a line number.",
+  "The CLI and TUI share the domain layer: the TUI uses profile.Load/Parse (validation) and profile.Filter, and the CLI uses profile.Load/Parse.",
+  "All linked licenses are MIT or BSD-3-Clause, confirmed from the license files in the module cache. No upstream NOTICE files exist. Notices are not shipped yet, which REPORT discloses.",
+  "TEA_TRACE, TEA_DEBUG and UV_DEBUG cause no file writes in the TUI."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "The conformance harness verdict (pass, 113/113) shows K3a conformance. The README describes K3a as applying 'Before any response byte … After at least one byte … AGENT_PROTOCOL_ERROR'.",
+   "evidence": "On Linux arm64 (Docker, real Linux kernel, linux-arm64 artifact) a connection reset after 1, 3 or 6 response bytes returns AGENT_UNAVAILABLE ('read failed'), exit 5, where AGENT_PROTOCOL_ERROR is required: review/probes/agent-linux-arm64-full.json. The Darwin harness run records the kernel delivering EOF in both K3a checks, so the reset path is never exercised there. REPORT's own pre-K3a escalation describes this behavior, and it was not changed after K3a was ruled."
+  },
+  {
+   "claim": "REPORT §9 K11 / no-subprocess posture: 'One static executable … no extraction'. The record says nothing about the TUI launching other programs.",
+   "evidence": "With TMUX set (any tmux user), the TUI execs `tmux info` found through PATH: bubbletea tea.go:1092 calls colorprofile.Detect, which runs colorprofile env.go:248 exec.CommandContext(\"tmux\",\"info\") with no timeout. Observed: a fake tmux on PATH was executed with args 'info'. A 5 s hang in tmux delayed the first frame to 5.038 s. review/probes/tui-env-darwin-arm64.json"
+  },
+  {
+   "claim": "The 1 MiB input bound (contract §2, REPORT §3: '1 MiB+1 is rejected before parsing') bounds parser resource use.",
+   "evidence": "A 32,048-byte profile with 8000 nested inline tables inside [meta] exceeded 2.1 GB RSS within 1.35 s. A 699 KB file reached a 26 GB max RSS and a 152.7G footprint and was still running after 2.5 min. Growth is quadratic (4 KB 79 MB, 8 KB 244 MB, 16 KB 764 MB). review/probes/nest-scale-darwin-arm64.json, profile-probes-darwin.full.log, deep-inline-sample.txt"
+  },
+  {
+   "claim": "LICENSES.md: github.com/charmbracelet/x/termios is 'Linked on: all'.",
+   "evidence": "`go version -m dist/windows-x64/heimdall-proto.exe` does not list x/termios. It is linked only on darwin and linux. review/go-version-m.txt"
+  },
+  {
+   "claim": "Code comment in profile.Filter: 'shared by CLI and TUI'.",
+   "evidence": "Only internal/tui calls profile.Filter. No CLI path uses it. Sharing is real for Load/Parse/validation only."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Correctness of child/IPC behavior",
+   "verdict": "fail",
+   "evidence": "(1) K3a contract violation, observed natively on Linux arm64: a reset after at least one response byte gives AGENT_UNAVAILABLE instead of AGENT_PROTOCOL_ERROR. The fix is small (frame.go ReadFrame: when n>0 or in the body read, wrap non-EOF read errors as protocol errors unless a deadline or cancel was hit). (2) Job-control defect in `run`: because the child's group is made the terminal foreground group, any other member of the same shell pipeline that reads the terminal is stopped with 'Stopped (tty input)'. Reproduced with macOS bash 3.2 and Linux busybox ash (4/4 variants on Linux). The contract is silent on pipelines, but this is a regression against plain exec. Everything else probed passed: stdin EOF, binary bytes, large stderr, grandchild, SIGPIPE, single delivery to the group, no orphan in 200 SIGTERM races, and all agent bounds."
+  },
+  {
+   "gate": "Viable Windows/WSL path",
+   "verdict": "uncertain",
+   "evidence": "code review only - not native evidence. The windows-x64 PE32+ builds and govulncheck/vet pass for GOOS=windows. Named pipe via go-winio DialPipeContext with context timeout; no server identity check. run_windows: no job object (a killed heimdall leaves the child), Ctrl-C is swallowed rather than forwarded, there is no CTRL_CLOSE/CTRL_BREAK handling, and .bat/.cmd quoting is unprotected (disclosed). Nothing was executed on Windows or WSL."
+  },
+  {
+   "gate": "No unsupported security assumption",
+   "verdict": "fail",
+   "evidence": "(a) Unbounded allocation from small untrusted input: the TOML parser (BurntSushi/toml v1.6.0 via profile.Parse) needs more than 2 GB for a 32 KB profile; profile show and tui are both exposed. (b) An undisclosed subprocess: the TUI runs `tmux` resolved from PATH when TMUX is set, with no timeout. (c) Environment variables change identity or behavior: DYLD_INSERT_LIBRARIES injects code into the darwin artifact (no hardened runtime; a release obligation that probably applies to every candidate), and GODEBUG=execerrdot=0 changes PATH resolution so a '.' entry runs. (d) There is no peer-credential check on the agent socket (disclosed). Verified positives: no shell use, no echo of secret values, agent lengths checked before allocation, no profile path TOCTOU, no runtime downloads, no sidecars."
+  },
+  {
+   "gate": "Practical distribution",
+   "verdict": "pass",
+   "evidence": "Single static file per target, about 5.1-5.4 MB (about 2 MB tar.gz). It runs with env -i and no toolchain on darwin and in debian bookworm-slim arm64. The build reproduces on the same host. Caveats: darwin is ad-hoc signed only (signing and notarization are needed for release), windows-x64 was never executed, and linux-x64 ran only under emulation (in the measurement record)."
+  },
+  {
+   "gate": "Maintained dependencies",
+   "verdict": "pass",
+   "evidence": "Registry dates were checked by the reviewer. Core dependencies are current (bubbletea v2.0.10 from 2026-09-24, toml v1.6.0 is the latest, govulncheck finds nothing). Concerns: ultraviolet has no release tags (pinned pseudo-version 2026-07-03); cancelreader is from 2022; terminfo is pinned to a 2022 pseudo-version while v1.2.0 exists; go-winio's last tag is 2024-04-09. The TOML quadratic-memory behavior exists in the latest toml release."
+  },
+  {
+   "gate": "Compatible licensing",
+   "verdict": "pass",
+   "evidence": "Every linked module is MIT or BSD-3-Clause (license files checked). Go includes a PATENTS grant. Obligation: attribution notices must be shipped in binary distributions; they are not shipped now (disclosed). The prototype itself has no license (disclosed)."
+  },
+  {
+   "gate": "Ability to share domain operations across CLI/TUI",
+   "verdict": "pass",
+   "evidence": "internal/profile (Load/Parse/validation) is used by both `profile show` and `tui`. Filter is pure and is used only by the TUI. Agent and run are CLI-only, which the slice does not require. The TUI has no I/O of its own."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "major",
+   "description": "K3a violation: a connection reset after at least one response byte, before a complete frame, gives AGENT_UNAVAILABLE where AGENT_PROTOCOL_ERROR is required. Reproduced on Linux arm64 for resets after 1 byte, after 3 header bytes, and mid-body. The Darwin harness pass cannot detect this because Darwin delivers the reset as EOF; the harness notes the EOF delivery as a non-gating observation, and its not_covered list names only Windows/WSL.",
+   "location": "prototypes/go/internal/agent/frame.go ReadFrame (header read with n>0 and a non-EOF error; body read with a non-EOF error, both returned unwrapped); probe.go classify. Evidence: tests/evidence/artifacts/g02-go/review/probes/agent-linux-arm64-full.json"
+  },
+  {
+   "severity": "major",
+   "description": "Quadratic memory and CPU in profile parsing. A 32 KB profile of nested inline tables (or arrays of inline tables) inside [meta] exceeds 2 GB RSS. A 699 KB profile reached 26 GB RSS and a 152.7G footprint before I stopped it after 2.5 min. The 1 MiB file bound does not bound parser resources. Affects profile show and tui.",
+   "location": "prototypes/go/internal/profile/profile.go Parse -> github.com/BurntSushi/toml v1.6.0 toml.Decode. Evidence: review/probes/nest-scale-darwin-arm64.json, profile-probes-darwin.full.log, deep-inline-sample.txt"
+  },
+  {
+   "severity": "major",
+   "description": "`run` steals the terminal foreground from its own shell pipeline. With heimdall in a pipeline, a pipeline member that reads the tty (pagers, password prompts, interactive filters) gets SIGTTIN and the whole job shows 'Stopped (tty input)'. Reproduced on macOS bash (heimdall first in the pipeline) and on Linux busybox ash (all 4 variants); all controls without heimdall pass. The 50 ms watcher hands the terminal back to the child even after the shell runs `fg`.",
+   "location": "prototypes/go/internal/run/run_unix.go startAndWait (SysProcAttr Foreground/Ctty) and the handoff watcher. Evidence: review/probes/pipeline-tty-darwin-arm64.json, pipeline-tty-linux-arm64.json"
+  },
+  {
+   "severity": "major",
+   "description": "The TUI spawns an external program resolved from PATH (`tmux info`) whenever TMUX is set, with no timeout. A hung tmux blocks TUI startup (5.04 s observed with a 5 s fake hang). REPORT does not disclose this, and the harness never sets TMUX. Mitigation is available: tea.WithColorProfile or a filtered tea.WithEnvironment.",
+   "location": "cmd/heimdall-proto/main.go runTUI (tea.NewProgram without WithColorProfile/WithEnvironment) -> charm.land/bubbletea/v2 tea.go:1092 colorprofile.Detect -> colorprofile v0.4.3 env.go:248. Evidence: review/probes/tui-env-darwin-arm64.json"
+  },
+  {
+   "severity": "minor",
+   "description": "The darwin artifact honors DYLD_INSERT_LIBRARIES: an injected dylib constructor ran. The artifact is ad-hoc linker-signed with no hardened runtime. This is a release signing obligation and probably affects every candidate.",
+   "location": "prototypes/go/build.sh (no codesign --options runtime); evidence review/probes/dyld-insert-darwin.log"
+  },
+  {
+   "severity": "minor",
+   "description": "Go runtime environment variables change security-relevant behavior. GODEBUG=execerrdot=0 makes `run` execute a command found through a '.' PATH entry (rc 0, against the default 127 refusal). GOTRACEBACK, GOMEMLIMIT and GOMAXPROCS are also honored. K7 allows either behavior, but the choice is controlled by the environment.",
+   "location": "internal/run/run.go exec.LookPath; evidence review/probes/run-darwin-arm64.json"
+  },
+  {
+   "severity": "minor",
+   "description": "profile show and tui block indefinitely when --file names a FIFO (no open timeout and no non-regular-file refusal).",
+   "location": "internal/profile/profile.go Load (os.Open before the type check); evidence review/probes/profile-probes-darwin.full.log (timeout rc 124)"
+  },
+  {
+   "severity": "minor",
+   "description": "Killing heimdall with SIGKILL, including killpg(SIGKILL) of its group, leaves the child running, because the child is always in its own process group (disclosed). The contract requires only that no orphan remains after a normal exit. The effect is that supervisors which kill heimdall's group (CI cancellation, timeout -s KILL) leak the child.",
+   "location": "internal/run/run_unix.go (Setpgid always true); evidence review/probes/run-darwin-arm64.json"
+  },
+  {
+   "severity": "minor",
+   "description": "When heimdall is launched with fd 1 closed, the child does not inherit the closed descriptor: it gets a working fd 1 (the Go runtime reopens closed stdio at startup), so writes succeed (rc 0) where plain exec gives rc 1 'Bad file descriptor'. This is a small deviation from 'child inherits stdout'.",
+   "location": "internal/run/run.go (cmd.Stdout = os.Stdout); evidence review/probes/run-darwin-arm64.json"
+  },
+  {
+   "severity": "minor",
+   "description": "An unwritable --meta-file is detected only after the child has run. Heimdall exits with the child's code and reports the lost side channel only as one stderr line.",
+   "location": "cmd/heimdall-proto/main.go cmdRun/writeMeta"
+  },
+  {
+   "severity": "minor",
+   "description": "Bidi and zero-width code points (U+202E, U+200B) pass unchanged through agent comments, profile values, JSON and the TUI (Sanitize covers only C0/C1). This complies with K1/K2 but allows display spoofing in a security tool. Key names, not values, are echoed verbatim in key_path. A reviewer-crafted HEIMDALL_CANARY_ key name appeared in stdout and stderr, which the contract allows.",
+   "location": "internal/agent/frame.go SafeText, internal/tui/tui.go Sanitize, internal/profile/profile.go keyName"
+  },
+  {
+   "severity": "minor",
+   "description": "Documentation inaccuracies. LICENSES.md says x/termios is linked on all targets, but it is absent from windows. The Filter comment says 'shared by CLI and TUI', but only the TUI uses it. The REPORT §4 startup figures (2.85 ms median) are attempt-1 numbers; the measurement record gives p50 3.46 ms for the current artifact. The K3a escalation in REPORT was overtaken by the K3a ruling and never resolved in code.",
+   "location": "prototypes/go/LICENSES.md, internal/profile/profile.go Filter comment, prototypes/go/REPORT.md §4 and 'Remaining limits'"
+  },
+  {
+   "severity": "minor",
+   "description": "The Go unit tests cannot be relocated: internal/profile tests hard-code ../../../../tests/fixtures, so `go test ./...` exits 1 in a copy of the module.",
+   "location": "prototypes/go/internal/profile/profile_test.go"
+  },
+  {
+   "severity": "minor",
+   "description": "Harness coverage gap, outside the prototype: a Darwin-only run reports verdict=pass while the K3a reset checks only ever see EOF on Darwin, and the record's not_covered does not list 'Linux reset path'. A Linux run is needed before K3a counts as verified for any candidate.",
+   "location": "tests/g02/conformance.py agent.reset_* checks / observed_result.not_covered"
+  }
+ ],
+ "unverifiable_here": [
+  "Native Windows x64: named-pipe agent probe, CommandLineToArgvW quoting, console Ctrl-C/CTRL_BREAK/close events, console TUI, behavior without a job object (blocked: no Windows host).",
+  "WSL Mode A/B behavior (blocked: no Windows/WSL host).",
+  "Native linux-x64 (only emulated amd64 exists in the producer and measurement records; I did not run x64).",
+  "Interactive Ctrl-Z/bg/fg sequences after a child stop (not automated by me or by the producer).",
+  "Whether the Rust and TS candidates share the pipeline terminal-steal, tmux-exec, parser-DoS or DYLD_INSERT_LIBRARIES issues (outside this review; worth checking for a fair comparison).",
+  "Code signing and notarization outcome for the darwin artifact (needs an Apple Developer identity).",
+  "Root cause of the macOS asymmetry where a tty-reading pipeline member placed before heimdall was not stopped. Linux stops it in every position. Inference only: it may depend on which stdio descriptor heimdall selects as the controlling tty."
+ ],
+ "summary": "The harness verdict reproduces, but the hard gates do not all pass. My rebuild in /tmp/heimdall-review-go is byte-identical to the shipped artifacts (all 4 sha256 match the manifest). Re-running the shared harness against it gave 113/113, exit 0, verdict=pass on darwin-arm64, and the producer's selftest gave 59/59.\n\nProbing beyond the harness found four major problems:\n- **K3a contract violation on Linux.** A connection reset after one or more response bytes returns AGENT_UNAVAILABLE instead of AGENT_PROTOCOL_ERROR. Darwin delivers the reset as EOF, so the Darwin-only harness pass cannot detect it.\n- **Profile parser memory blow-up.** Memory grows quadratically with TOML inline-table nesting inside [meta]. A 32 KB profile used more than 2 GB, and a 699 KB profile reached 26 GB RSS. The 1 MiB input bound does not bound parser resources.\n- **`run` takes the terminal from its own pipeline.** Any other pipeline member that reads the tty is stopped with \"Stopped (tty input)\". This was seen with macOS bash and in every pipeline variant with Linux ash.\n- **The TUI runs `tmux info` from PATH whenever TMUX is set, with no timeout.** A hung tmux blocks startup. REPORT does not disclose this.\n\nMinor findings:\n- DYLD_INSERT_LIBRARIES injects code into the unsigned darwin binary, and GODEBUG changes PATH resolution.\n- A FIFO profile path hangs.\n- SIGKILL leaves the child running (disclosed).\n- A child launched with stdout closed gets a working fd 1.\n- Several documentation inaccuracies.\n\nConfirmed: the agent frame bounds, single-request passivity, byte-transparent stdio, no orphan in 200 SIGTERM races, distribution without a toolchain, licensing (notices still owed), dependency dates and versions, and CLI/TUI domain sharing.\n\nHard gates:\n- Fail: child/IPC correctness and no unsupported security assumption.\n- Pass: distribution, dependencies, licensing and domain sharing.\n- Uncertain: Windows/WSL, which I could only review from code, not with native evidence.\n\nAll four major findings look fixable with small changes:\n- wrap read errors after the first byte as protocol errors;\n- add a nesting-depth or memory guard, or use another parser;\n- do not take the foreground when stdin is not the session's job leader, or use a different signal model;\n- pass tea.WithColorProfile or a filtered environment.\n\nNo escalation is needed for these defects. I wrote only under tests/evidence/artifacts/g02-go/review/. The exact PID I killed was my own runaway probe process."
+}

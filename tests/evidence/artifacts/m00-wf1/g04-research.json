@@ -1,0 +1,159 @@
+{
+ "task_id": "M00-T04-G04-research",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "<repo>/docs/research/g04-managed-credentials.md",
+  "<repo>/tests/native/macos/g04_lock_probe.sh",
+  "<repo>/tests/native/macos/g04_lock_probe_selftest.sh",
+  "<repo>/tests/native/macos/README.md",
+  "<repo>/tests/evidence/g04-macos-screen-lock-probe.json",
+  "<repo>/tests/evidence/g04-macos-logout-probe.json",
+  "<repo>/tests/evidence/g04-macos-reboot-headless-probe.json",
+  "<repo>/tests/evidence/g04-macos-sleep-probe.json",
+  "<repo>/tests/evidence/g04-macos-secure-enclave-ctk-probe.json",
+  "<repo>/tests/evidence/g04-macos-data-protection-keychain-probe.json",
+  "<repo>/tests/evidence/g04-windows-desktop-lock-probe.json",
+  "<repo>/tests/evidence/g04-windows-signout-reboot-probe.json",
+  "<repo>/tests/evidence/g04-linux-desktop-lock-probe.json",
+  "<repo>/tests/evidence/g04-linux-logout-reboot-headless-probe.json",
+  "<repo>/tests/evidence/g04-macos-lock-probe-smoke-20261003T002226Z.json",
+  "<repo>/tests/evidence/g04-macos-lock-probe-smoke-20261003T002454Z.json",
+  "<repo>/tests/evidence/g04-macos-lock-probe-smoke-20261003T002636Z.json",
+  "<repo>/tests/evidence/g04-macos-lock-probe-smoke-20261003T002755Z.json",
+  "<repo>/tests/evidence/g04-macos-lock-probe-smoke-20261003T002820Z.json",
+  "<repo>/tests/evidence/artifacts/g04/research/sources/local-man/* (11 rendered man pages + SHA256SUMS.txt)",
+  "<repo>/tests/evidence/artifacts/g04/research/sources/web/* (MANIFEST.tsv, RETAINED_SHA256SUMS.txt, urls.tsv, extracted texts, commit-pinned OpenSSH/tpm2-pkcs11/smallstep raw texts, RFC 9987)",
+  "<repo>/tests/evidence/artifacts/g04/research/f1-issuer-agent-cert/run.sh",
+  "<repo>/tests/evidence/artifacts/g04/research/f1-issuer-agent-cert/transcript.log",
+  "<repo>/tests/evidence/artifacts/g04/research/k1-keychain-mechanics/run.sh",
+  "<repo>/tests/evidence/artifacts/g04/research/k1-keychain-mechanics/transcript.log",
+  "<repo>/tests/evidence/artifacts/g04/research/lock-probe/20261003T002226Z-smoke/ (run.log, samples.*, CORRECTION.txt)",
+  "<repo>/tests/evidence/artifacts/g04/research/lock-probe/20261003T002454Z-smoke/",
+  "<repo>/tests/evidence/artifacts/g04/research/lock-probe/20261003T002636Z-smoke/",
+  "<repo>/tests/evidence/artifacts/g04/research/lock-probe/20261003T002755Z-smoke/",
+  "<repo>/tests/evidence/artifacts/g04/research/lock-probe/20261003T002820Z-smoke/",
+  "<repo>/tests/evidence/artifacts/g04/research/selftest/selftest-run1.log",
+  "<repo>/tests/evidence/artifacts/g04/research/selftest/selftest-run2.log"
+ ],
+ "commands_run": [
+  {
+   "command": "curl -sS -L <49 primary-source URLs> -> tests/evidence/artifacts/g04/research/sources/web (MANIFEST.tsv records code, sha256, fetch time)",
+   "exit_code": 0,
+   "observed": "HTTP 200 for every source kept. freedesktop systemd-creds returned 418, so man7.org systemd-creds.1 was used instead. PROTOCOL.certkeys is 404 (not in openssh-portable at 87f0cd1). The gitlab gnome-keyring README returned 406 and was discarded. A re-fetch of the OpenSSH release notes produced the same sha256 (d4b175e96db7...)."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK /bin/bash tests/evidence/artifacts/g04/research/f1-issuer-agent-cert/run.sh",
+   "exit_code": 0,
+   "observed": "On OpenSSH_10.3p1 a CA key held only in a dedicated issuer agent signed a user cert via ssh-keygen -U -s (exit 0; principal p-host1, 2-minute validity). The worker agent signed via ssh-add -T and ssh-keygen -Y sign after its private file was deleted (exit 0). The cert was still loaded 25 s after valid_before, consistent with ssh-add.c CERT_EXPIRY_GRACE=300 s. A key added with -t 20 failed to sign 85 s later (exit 1). Both agents were terminated by exact PID and the temp dir removed."
+  },
+  {
+   "command": "/bin/bash tests/evidence/artifacts/g04/research/k1-keychain-mechanics/run.sh",
+   "exit_code": 0,
+   "observed": "security -i create-keychain/add-generic-password exit 0 and echoed neither the password nor the value. The new keychain was not added to the user search list; default keychain unchanged. Default settings are lock-on-sleep timeout=300s; after set-keychain-settings they are no-timeout. Read-back matched. delete-keychain exit 0; search list and default keychain digests unchanged. With the screen unlocked: IOConsoleLocked=false, CGSSessionScreenIsLocked absent."
+  },
+  {
+   "command": "shellcheck -s bash -S warning tests/native/macos/g04_lock_probe.sh && bash -n (and the same for g04_lock_probe_selftest.sh)",
+   "exit_code": 0,
+   "observed": "Clean after replacing one SC2034 unused-variable warning."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK /bin/bash tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5   (attempt 1)",
+   "exit_code": 3,
+   "observed": "PROBE DEFECT. macOS ps truncated a non-final comm column ('/usr/bin/ssh-age'), so the agent identity check failed. Setup aborted and cleared AGENT_PID, leaving the keyless dedicated agent (pid 8361) orphaned. The record also wrongly claimed cleanup complete; it was corrected in place, with a CORRECTION.txt in the artifact dir."
+  },
+  {
+   "command": "kill -TERM 8361 (after verifying start time 'Fri Oct 2 20:22:26 2026', executable /usr/bin/ssh-agent, and that its unix socket path is inside the probe's heimdall-g04-lock.* temp namespace; the owner's pre-existing agent pid 12855 was not touched)",
+   "exit_code": 0,
+   "observed": "Process 8361 gone; 12855 still running."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK /bin/bash tests/native/macos/g04_lock_probe.sh --mode smoke --interval 2 --smoke-samples 5   (after fix)",
+   "exit_code": 0,
+   "observed": "status=verified. 5/5 samples: agent signing OK, disposable keychain read OK. Cleanup: sampler stopped, agent terminated, socket removed, keychain deleted, search list and default keychain unchanged, caffeinate terminated, temp dir removed. Canary scan clean. The ssh-agent/caffeinate process inventory was identical before and after."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK /bin/bash tests/native/macos/g04_lock_probe.sh --mode lock </dev/null",
+   "exit_code": 3,
+   "observed": "Precondition refusal: lock mode needs an interactive terminal (/dev/tty). No record written, no side effects."
+  },
+  {
+   "command": "probe --mode smoke --smoke-samples 30 in background; kill -TERM <probe pid> after 9 s",
+   "exit_code": 5,
+   "observed": "Interrupt path: cleanup complete, record status in_progress, interrupted=true; no residual processes."
+  },
+  {
+   "command": "env -u SSH_AUTH_SOCK /bin/bash tests/native/macos/g04_lock_probe_selftest.sh 2>&1 | tee selftest-run1.log   (zsh wrapper)",
+   "exit_code": null,
+   "observed": "Probe exit=0 per the log: 5/5 fresh certificate logins to the ca1 look-alike; ca2 principal-mismatch rc 255; ca1 without agent rc 255; teardown left no containers, image or temp dir. The self-test's own exit code was NOT captured (zsh has no PIPESTATUS); noted in the log."
+  },
+  {
+   "command": "/bin/bash -c 'tests/native/macos/g04_lock_probe_selftest.sh > selftest-run2.log 2>&1; echo SELFTEST_EXIT=$?'",
+   "exit_code": 0,
+   "observed": "Same results as run 1. Server was OpenSSH_10.0p2 Debian-7+deb13u4 (image built from the pinned debian@sha256:f324..., apt-get openssh-server, image removed afterwards). Server logs show 5 accepted certificate logins on ca1."
+  },
+  {
+   "command": "python3 check of tests/evidence/g04-*.json against tests/evidence/record.schema.json constraints; canary-prefix grep over docs/research, tests/native/macos, tests/evidence/artifacts/g04, tests/evidence/g04-*.json",
+   "exit_code": 0,
+   "observed": "All 15 records pass the required fields, types, status enum, requirement-ID pattern and blocked_on rule. 0 canary hits. The four post-fix smoke records carry the current probe sha256 (b7212571fe3d...)."
+  },
+  {
+   "command": "docker info --format '{{.ServerVersion}} {{.OSType}}/{{.Architecture}}'",
+   "exit_code": 0,
+   "observed": "29.8.0 linux/aarch64"
+  }
+ ],
+ "requirement_ids": [
+  "R-CR-02",
+  "R-CR-03",
+  "R-CR-04",
+  "R-CR-07",
+  "R-AU-05",
+  "R-AU-08",
+  "R-UX-03",
+  "R-EN-04"
+ ],
+ "evidence_records": [
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002454Z.json (verified; probe smoke, exit 0)",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002820Z.json (verified; fixture-mode smoke via self-test, self-test exit 0)",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002755Z.json (verified; fixture-mode smoke, self-test exit not captured)",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002636Z.json (in_progress; SIGTERM interruption path, exit 5, cleanup complete)",
+  "tests/evidence/g04-macos-lock-probe-smoke-20261003T002226Z.json (in_progress; failed attempt from probe defect, exit 3, corrected with post_run_correction)",
+  "tests/evidence/g04-macos-screen-lock-probe.json (blocked: owner-driven macOS screen lock/unlock cycle)",
+  "tests/evidence/g04-macos-logout-probe.json (blocked)",
+  "tests/evidence/g04-macos-reboot-headless-probe.json (blocked)",
+  "tests/evidence/g04-macos-sleep-probe.json (blocked)",
+  "tests/evidence/g04-macos-secure-enclave-ctk-probe.json (blocked: owner authorization + lock cycle)",
+  "tests/evidence/g04-macos-data-protection-keychain-probe.json (blocked: provisioning-profile-signed bundle)",
+  "tests/evidence/g04-windows-desktop-lock-probe.json (blocked: native Windows host)",
+  "tests/evidence/g04-windows-signout-reboot-probe.json (blocked)",
+  "tests/evidence/g04-linux-desktop-lock-probe.json (blocked: Linux desktop session)",
+  "tests/evidence/g04-linux-logout-reboot-headless-probe.json (blocked)",
+  "tests/evidence/artifacts/g04/research/f1-issuer-agent-cert/transcript.log (exit=0)",
+  "tests/evidence/artifacts/g04/research/k1-keychain-mechanics/transcript.log (exit=0)",
+  "tests/evidence/artifacts/g04/research/selftest/selftest-run2.log (SELFTEST_EXIT=0)",
+  "tests/evidence/artifacts/g04/research/sources/web/MANIFEST.tsv and local-man/SHA256SUMS.txt (pinned sources)"
+ ],
+ "escalations": [
+  "D1 (owner decision): Must standing-policy automatic activation create NEW grants while the desktop is locked, or is continuity of grants approved before lock (A03) enough for V1? This decides whether the per-user issuer must sign under lock, which drives K_ca custody (falsifier F-6).",
+  "D2 (owner decision): Is memory-only custody of a working key acceptable where no store is readable under lock or after restart? The signer would hold the key from approval to deadline, and logout or reboot would need a new approval. Spec §7.3 says 'protected at rest and through a signer where supported'.",
+  "D3 (owner decision): Will Heimdall ship a provisioning-profile-signed, app-like macOS bundle? Apple TN3137 makes it a prerequisite for the data-protection keychain and Secure Enclave via SecItem; it affects G02 distribution.",
+  "D4 (owner authorization): May probe P5 create, then delete, a non-exportable Secure Enclave CTK identity (sc_auth create-ctk-identity -k p-256-ne) in the owner's real user token store? It is the only shipped macOS path found to a non-exportable key usable by an unsigned CLI (via /usr/lib/ssh-keychain.dylib).",
+  "D5 (owner decision): Backup policy for the per-user CA key K_ca: none (reenroll on loss) or an encrypted offline backup.",
+  "Q1 (authority semantics, not decided): Does a step-ca provisioner credential restricted by provisioner policy (Recipe C, needed for unattended refresh) count as 'unrestricted issuer authority' that spec §6.5/§7.3 forbid copying to a worker?",
+  "Q2 (evidence convention): The status vocabulary has no 'failed'. The lock probe records status=verified to mean 'measurement valid' and reports availability, possibly negative, in observed_result.outcomes_in_window; a negative or invalid run otherwise yields in_progress. The orchestrator should confirm this convention for gate-probe records across agents.",
+  "Q3 (retention/copyright): Extracted text of Apple, Microsoft, 1Password, Smallstep and freedesktop pages is retained under tests/evidence/artifacts/g04/research/sources/web for pinning; raw vendor HTML was discarded (hashes in MANIFEST.tsv). Decide whether these third-party text copies stay in git before any public release (spec §15.3).",
+  "Independent review: no delegation or review tool was available in this subagent context. Everything here is self-reviewed; the recipe comparison and the probe need independent adversarial review before G04 is decided."
+ ],
+ "limitations": [
+  "No screen lock, logout, sleep or reboot was exercised; those probes are blocked on the owner. No Windows host or Linux desktop session was available; those records are blocked. Most Windows/Linux store statements are labeled [I] or [U] in the document.",
+  "The runnable Docker experiments E1-E7 are designed, not executed; implementation belongs to another agent under tests/native/g04/. One finding for that agent: do not reuse the M00-T03 runtime/ssh_config aliases. They set IdentityFile to the fixture's user_cert private key, and IdentityFile entries accumulate, so a test could pass through the wrong key. Generate a per-test ssh_config, as the probe does.",
+  "The real M00-T03 fixture was down during this task, and running its up.sh would write outside my ownership. The probe's --fixture-runtime path was verified only against self-built look-alike containers (same pinned Debian base, OpenSSH 10.0p2), not the real fixture.",
+  "Smoke attempt 1 exposed a probe defect that orphaned a keyless dedicated ssh-agent (pid 8361). It was identified by start time, executable and socket path, terminated by exact PID, and the record was corrected; the defect is fixed (ps comm as the last column; an unverifiable PID is kept and reported as residue rather than forgotten).",
+  "The probe's lock signals (IOConsoleLocked, CGSSessionScreenIsLocked) are undocumented IORegistry properties. Their behavior while locked is unverified, so owner attestation is recorded separately. On macOS 26.4+ keychain files may leave a protected entropy file in /var/db/SystemKeys (TN3137) that cannot be inspected without disabling SIP.",
+  "Sources are mutable web docs pinned by fetch-time hash; installed man pages describe macOS 27.0 only. OpenSSH facts on agent lifetimes and multiplexing come from openssh-portable at 87f0cd1; Apple's ssh build flags were not inspected.",
+  "Network use beyond source fetches: two docker builds (apt-get install openssh-server into a throwaway image built from the pinned digest). The image was removed afterwards; nothing was installed on the host.",
+  "The self-test run 1 exit code was not captured (the zsh wrapper has no PIPESTATUS); run 2 captured exit 0.",
+  "The recommendation (Recipe B1) is pending experiments and owner decisions; it is not a G04 decision or ADR."
+ ],
+ "summary": "I finished the G04 research and probe deliverables. The lock-dependent measurements still need you at the console, and everything here is self-reviewed: no independent review was available in this context.\n\n**Research document** — docs/research/g04-managed-credentials.md (518 lines). It compares the three candidates:\n- A: per-environment protected execution key behind a supervised signer, enrolled at account level.\n- B: OpenSSH user certificate on a protected working key, with a separate per-user issuer.\n- C: an existing issuer (Smallstep step-ca).\n\nFor each, it covers who issues and signs, what is exportable or persists, where deadlines are enforced, what happens if the controller or issuer disappears, revocation and residual window, lost device, scope risk with two CA-trusting hosts, and the spec §7.3 custody rules per key class. It also has per-platform secret-store tables for macOS, Windows and Linux under lock, logout, reboot and headless. Every statement is labeled as pinned source (49 web sources and 11 installed man pages, with hashes), observed here, inference, or unknown.\n\n**Recommendation (pending experiments, not a decision):** B1. Each environment gets a working key in a Heimdall-supervised signer. One per-user issuer key lives in a separate process. Each destination account trusts it once through a `cert-authority,principals=\"hm:<dest>:<account>\"` line. Certificates are issued at approval time and expire at the grant deadline. The main reasons:\n- The server enforces the end of new logins at the deadline.\n- The residual window after revocation or device loss is bounded and stateable.\n- Lock continuity reduces to the working-key signer; the issuer need not sign while locked.\n- After the one-time CA line, rotation and delegation need no remote writes.\n- Issuer separation works in practice: a CA key held only in a separate agent signed certificates.\n\nSeven listed experiments or decisions could falsify it. One example: some of your destinations may run SSH servers without OpenSSH certificate support (e.g. Dropbear); then A would be needed for those.\n\n**Experiment design** (in the same document):\n- Seven Docker-fixture experiments (E1–E7) with pass/fail criteria, for another agent to implement under tests/native/g04/. E7 is the preliminary G09 test of whether an existing ControlMaster still admits sessions after expiry, and whether `ssh -O stop` stops admissions while existing sessions continue.\n- Ten owner-run probes across macOS, Windows and Linux.\n\n**Lock probe** — tests/native/macos/g04_lock_probe.sh, with a README and a Docker self-test. It samples a dedicated ssh-agent, a disposable custom keychain, and optionally fresh SSH logins while you lock the screen. It never touches your ~/.ssh, your agent, the login keychain or 1Password.\n- The first smoke run exited 3 on a probe defect and left a keyless dedicated agent running. I confirmed its identity, killed only that process, corrected its record, and fixed the bug.\n- After the fix, the smoke run exited 0 with all samples OK and complete cleanup.\n- Interrupting a run with SIGTERM exits 5 and still cleans up fully.\n- The fresh-SSH-login mode exited 0 against look-alike containers I built, not the real M00-T03 fixture, which was down.\n\n**Records:** 10 blocked records cover macOS screen lock, logout, reboot, sleep, Secure Enclave and data-protection keychain, plus Windows and Linux lock and logout/reboot/headless. There are also 5 smoke-attempt records. All 15 pass the evidence-schema checks, and the canary scan is clean.\n\n**Your decisions needed:** D1–D5 and Q1–Q3. The most consequential is D1: must new grants be created while the desktop is locked?"
+}

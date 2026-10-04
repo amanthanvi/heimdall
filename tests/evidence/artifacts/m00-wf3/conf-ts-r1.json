@@ -1,0 +1,21 @@
+{
+ "candidate": "ts",
+ "harness_exit_code": 1,
+ "evidence_record": "tests/evidence/g02-ts-conformance.json",
+ "passed": 111,
+ "failed": 2,
+ "errored": 0,
+ "failures": [
+  {
+   "check_id": "run.argv_invalid_utf8",
+   "classification": "prototype_defect",
+   "detail": "Contract section 4 with K8 makes byte-for-byte passing of invalid-UTF-8 argv elements a gating check on Unix. The harness's fixed expectation is fffe2d78, 636166e9 and so on. Observed: every invalid byte arrives at the child as U+FFFD (efbfbd), so 7 of 8 elements differ (indexes 0-6). The valid element 'valid u-umlaut' passes. The harness precondition that the args are not valid UTF-8 held, the exit code was 0, and the meta result and the no-stray-writes check were OK. This matches the stack limitation the prototype's REPORT.md already records (known defect 2, 'recorded as a stack limitation under K8'). K8 says such a stack records the limitation and does not route around it, so the failure is expected and not a harness fault. Deterministic: it failed in the full run, and the same argument conversion applies on every run. I did not rerun it."
+  },
+  {
+   "check_id": "tui.hangup_exit_129",
+   "classification": "prototype_defect",
+   "detail": "K10 and section 5: on SIGHUP or terminal hangup, restore the terminal and exit 129. The check has two variants. The shell-like variant (SIGHUP forwarded, then EOF) passed with status 129. The bare variant (pty master closed, the job sees only EOF/EIO, no SIGHUP) failed: the process had not exited after the 5 s bound (wait status null). The last pty output is the normal filter-mode status line, so the process was still running a live TUI. src/tui/tui.ts registers a SIGHUP handler (onSighup, status 129) but has no handling for stdin end or error, so an orphaned TUI whose terminal vanished without a SIGHUP never exits. Intermittency: the full run failed, and 3 reruns of this check alone (--only tui.hangup_exit_129, output under /tmp/ts-hup-{1,2,3}.json) all failed with the same bare-variant message, so 0 of 3 passed. Escalation note: K10 lists 'SIGHUP or terminal hangup' as separate cases, which supports the harness reading. It does not say explicitly whether a hangup seen only as EOF/EIO must be detected, so the orchestrator may want to confirm that reading. I classify it as a prototype defect because K10 names terminal hangup separately from SIGHUP."
+  }
+ ],
+ "summary": "I rebuilt the TS prototype with build.sh (exit 0, all 4 targets). I then ran the shared G02 harness on prototypes/ts/dist/darwin-arm64/heimdall-proto with SSH_AUTH_SOCK unset. The harness exit code was 1: 113 checks, 111 passed, 2 failed, 0 errored, 0 skipped. The record's status is verified and its verdict is fail. The record is tests/evidence/g02-ts-conformance.json and the artifacts are under tests/evidence/artifacts/g02-ts/conformance/. There were no earlier conformance rounds to move aside. Both failures are classified as prototype_defect. (1) run.argv_invalid_utf8: the prototype replaces invalid UTF-8 argv bytes with U+FFFD. REPORT.md already records this as the K8 stack limitation, and K8 makes the check gating. (2) tui.hangup_exit_129: the shell-like hangup variant exits 129. The bare variant, where the job sees only EOF/EIO, never exits within 5 s because the TUI has no stdin end/error handling. It failed in the full run and in 3 of 3 isolated reruns. K10's wording separates 'terminal hangup' from SIGHUP, but I flagged an escalation note on whether EOF/EIO-only hangup is meant to be required. I changed nothing. The build and run logs are in /tmp/ts-build.log and /tmp/ts-conf.log, and the rerun records are /tmp/ts-hup-{1,2,3}.json. I did not start any background processes or kill any."
+}

@@ -1,0 +1,297 @@
+{
+ "subject": "M00-T05-review-ts: adversarial review of the TypeScript + OpenTUI (Bun --compile) G02 prototype",
+ "reexecuted_commands": [
+  {
+   "command": "rsync prototypes/ts (no dist/node_modules) to /tmp/heimdall-review-ts; env -u SSH_AUTH_SOCK sh ./build.sh (Bun 1.4.2+744846f84)",
+   "exit_code": 0,
+   "observed": "4/4 targets built. All four executable sha256 values are byte-identical to the repo dist/manifest.json, even though the source directory differs: darwin-arm64 dd7a771d81ef…, linux-x64 a392aee6…, linux-arm64 ac48d2a6…, windows-x64 3e81b6fc…. The sidecars are identical too (708d89cc…, be65f242…, a9b0e0a9…, 701435b5…). Manifest copy: tests/evidence/artifacts/g02-ts/review/review-build-manifest.json"
+  },
+  {
+   "command": "python3 tests/g02/conformance.py --bin /tmp/heimdall-review-ts/dist/darwin-arm64/heimdall-proto --candidate ts --out tests/evidence/artifacts/g02-ts/review/harness/g02-ts-review-conformance.json --artifacts-dir …/review/harness/artifacts (conformance.py sha256 f2ccd7e7…)",
+   "exit_code": 1,
+   "observed": "113 checks: 112 pass, 1 fail, 0 errors, 0 skipped. Record status=verified, verdict=fail. Only failing check: run.argv_invalid_utf8 (§4/K8). Expected fffe2d78…, observed efbfbdefbfbd2d78…. This matches the recorded verdict in tests/evidence/g02-ts-conformance.json (112/113, same artifact digest)."
+  },
+  {
+   "command": "bun test --timeout 30000 (source) and HEIMDALL_PROTO_BIN=<copy artifact> bun test, run from /tmp/heimdall-review-ts",
+   "exit_code": 1,
+   "observed": "0 pass, 7 fail: ENOENT /private/schemas/g02/result.schema.json. The tests resolve ROOT as ../../.. and need the repo layout. This was my layout error, not a prototype defect. Logs: review/selftests/*-wronglayout.log"
+  },
+  {
+   "command": "same suite from mirrored layout /tmp/hm-review-root/prototypes/ts (schemas and tests/fixtures copied): source run, then artifact run",
+   "exit_code": 0,
+   "observed": "154 pass, 0 fail, 7 files in each run (exit 0 and exit 0). tsc --noEmit exit 0. Logs: review/selftests/"
+  },
+  {
+   "command": "BUN_BE_BUN=1 <artifact> -e 'print hex of process.argv/Bun.argv' with $'a\\377b' and $'caf\\351'",
+   "exit_code": 0,
+   "observed": "Both arrays show 61efbfbd62 and 636166efbfbd. Independent reproduction of the K8 cause: the embedded Bun runtime decodes argv to U+FFFD before user code runs. run then exits 0 with no warning, so the change is silent."
+  },
+  {
+   "command": "probes/scripts/run_all.sh (20 probes, outputs in review/probes/out/*.log)",
+   "exit_code": 0,
+   "observed": "Every probe script exited 0. Per-probe results are in the entries below."
+  },
+  {
+   "command": "io_probe.py: slow stdin writer, 4 MiB stderr while stdout is unread for 2 s, then 8 MiB stdout read slowly",
+   "exit_code": 0,
+   "observed": "rc 0. stdout byte-identical (8388608 bytes). stderr byte-identical. stdin sha256 matched, so EOF propagated. No O_NONBLOCK on fds 0-2, with pipes or with a pty (pty_fd.py)."
+  },
+  {
+   "command": "envprobe.sh: env -i with FOO=a\\377b, direct vs proto run -- env -0",
+   "exit_code": 0,
+   "observed": "Environment byte-identical (same sha256). cwd and umask inherited."
+  },
+  {
+   "command": "sigign_rlimit: ulimit -S -n 256; trap '' HUP INT QUIT; direct vs proto run",
+   "exit_code": 0,
+   "observed": "Soft nofile limit: direct 256, proto child 1048576. Signal dispositions: direct HUP/INT/QUIT all SIG_IGN; proto child SIG_DFL/default_int_handler/SIG_DFL."
+  },
+  {
+   "command": "nohup_hup: trap '' HUP; X sleep 2 & kill -HUP",
+   "exit_code": 0,
+   "observed": "direct_rc=0 (survives, as nohup intends); proto_rc=129 (proto overrides the inherited SIG_IGN and forwards HUP to a child reset to SIG_DFL)."
+  },
+  {
+   "command": "race.py SIGTERM/SIGINT/SIGHUP at 0-58 ms after start (2 reps first run, 1 rep rerun)",
+   "exit_code": 0,
+   "observed": "No lost signal. No orphan. No timeout. Outcomes: proto killed before its handlers were installed with no child started, or the child got the signal (rc 143/130/129, or rc 1 when Python died during init)."
+  },
+  {
+   "command": "pipeline_tty_jc.py: bash -i, '<X> sleep 2 | python reader-of-/dev/tty', X = /usr/bin/env vs proto",
+   "exit_code": 0,
+   "observed": "env: reader got input, job completed. proto: bash reports '[1]+ Stopped' after 0.04 s (the reader got SIGTTIN). With non-interactive sh (pipeline_tty.py) the reader got EIO instead."
+  },
+  {
+   "command": "less_jc.py: bash -i, \"<X> sh -c 'printf line1; sleep 2' | less\"",
+   "exit_code": 0,
+   "observed": "env: stopped=false, done in 2.02 s. proto: stopped=true (job Stopped at 1.05 s). With a child that exits immediately (printf only), both completed: the result depends on a race."
+  },
+  {
+   "command": "killpg.py: start in new session, killpg(SIGKILL)",
+   "exit_code": 0,
+   "observed": "proto: child still alive after the group SIGKILL (orphaned; it runs in its own pgid). sh control: child killed. Afterwards I killed the orphan by its exact recorded pid."
+  },
+  {
+   "command": "exitloop.sh: 150 exit codes plus signals 15/9/6, macOS and debian:trixie arm64 container",
+   "exit_code": 0,
+   "observed": "153 runs with 0 mismatches on each platform."
+  },
+  {
+   "command": "agent_probe.py: own AF_UNIX server, 20 crafted responses, --timeout-ms 1500",
+   "exit_code": 0,
+   "observed": "Every request was exactly 000000010b. len 0xFFFFFFFF, len 262145, nkeys 0xFFFFFFFF, nkeys 1025, string length 0xFFFFFFFF, inner key-type overrun, blob <4 bytes, type 6, zero-length frame and failure with payload all gave rc 5 AGENT_PROTOCOL_ERROR in ≤44 ms with max RSS ≤27.6 MiB. Exact 262144-byte frame, 1024 keys, byte-by-byte delivery and hold-open all gave AGENT_OK. failure_len1 gave AGENT_REFUSED. A drip after the header gave AGENT_UNAVAILABLE at 1529 ms. Control chars and invalid UTF-8 became U+FFFD (U+2028 kept). Trailing bytes after a complete frame: same write gave rc 5 PROTOCOL_ERROR, a later write gave rc 0 AGENT_OK."
+  },
+  {
+   "command": "agent list with socket path = long nonexistent path / directory / regular file / dangling symlink / empty",
+   "exit_code": 5,
+   "observed": "All gave AGENT_UNAVAILABLE, rc 5."
+  },
+  {
+   "command": "profile show --file <FIFO with no writer> (python wrapper, 3 s timeout)",
+   "exit_code": null,
+   "observed": "Still blocked after 3 s (in open before the regular-file check). My wrapper killed it (rc -9)."
+  },
+  {
+   "command": "profile show on pathological TOML (500k-deep arrays, 100k-deep inline tables, 70k dotted keys, revision 99999999999999999999, duplicate key with canary)",
+   "exit_code": 2,
+   "observed": "Nesting is capped by smol-toml (SCHEMA_INVALID within 0.09 s). Dotted keys inside [meta]: rc 0 in 0.07 s. Big revision: SCHEMA_INVALID 'revision must be in 1..9007199254740991'. Duplicate key: SCHEMA_INVALID, no canary in output. (exit_code shown is for the error cases; the dotted case exited 0.)"
+  },
+  {
+   "command": "envid.sh: env -i with BUN_OPTIONS='--preload evil.js', NODE_OPTIONS, BUN_BE_BUN, bunfig.toml and .env in cwd",
+   "exit_code": 0,
+   "observed": "BUN_OPTIONS --preload: evil.js executed, version rc 0. NODE_OPTIONS: ignored. BUN_BE_BUN -e: printed 'ARBITRARY_CODE 42' rc 0, and running a file also executed. bunfig.toml preload: ignored. .env BUN_BE_BUN: ignored (rc 2)."
+  },
+  {
+   "command": "inspect.sh: BUN_INSPECT=ws://127.0.0.1:47391/hmreview <artifact> run -- sleep 2; lsof by pid",
+   "exit_code": 0,
+   "observed": "The artifact opened a TCP LISTEN socket on 127.0.0.1:47391 (Bun inspector) and printed nothing. proto rc 0."
+  },
+  {
+   "command": "otui_env.py: TUI under pty, type '/hunter2-SECRET', Esc, q, with OTUI_STDIN_LOG / OTUI_DEBUG_FFI / OTUI_DUMP_CAPTURES",
+   "exit_code": 0,
+   "observed": "OTUI_STDIN_LOG: a mode-0600 file at the env-chosen path contains the 17 raw input bytes including 'hunter2-SECRET'. OTUI_DEBUG_FFI: ffi_otui_debug_*.log (52 KB) and ffi_otui_trace_*.log written to cwd. Baseline and OTUI_DUMP_CAPTURES: no new files. TUI rc 0 in all cases."
+  },
+  {
+   "command": "sel_colors.py (harness venv pyte 0.8.2): TUI selected/unselected cell attributes, TERM xterm-256color/xterm/dumb",
+   "exit_code": 0,
+   "observed": "Selected row cells: fg ffffff, bg ffffff, reverse true, bold true. Unselected: fg ffffff, bg default. Same for all three TERM values."
+  },
+  {
+   "command": "tui_select.py: dist copy at '/tmp/hm-review-probes/dist copy ü', env -i, fresh HOME/TMPDIR; via symlink; with sidecar dir removed",
+   "exit_code": 0,
+   "observed": "Copy: rc 0 'SELECTED nas', alt screen left. Symlink: rc 0 'SELECTED nas'. Sidecar removed: rc 1. TMPDIR left empty. No new .bun-*/opentui files in the Darwin per-user temp or cache dirs."
+  },
+  {
+   "command": "otool -L / codesign -dv / spctl -a -t exec on darwin-arm64 artifact",
+   "exit_code": 3,
+   "observed": "Links only libicucore, libresolv, libc++ and libSystem. Signature: adhoc, linker-signed, no hardened runtime, no TeamIdentifier. spctl: rejected (exit 3)."
+  },
+  {
+   "command": "docker run --network none --platform linux/arm64 debian:trixie /probe/probe.sh (linux-arm64 artifact, read-only mount)",
+   "exit_code": 0,
+   "observed": "glibc 2.41. ldd: libc, libpthread, libdl, libm. version and profile (spaced Unicode path) OK. K8: 61 ef bf bd 62. Env bytes 61 ff 62. nofile soft 256 became 1048576. Child SigIgn 0x180000000 (signals 32 and 33 ignored, HUP/INT/QUIT reset) vs direct 0x7. BUN_OPTIONS preload ran. Launch failure gave rc 127 with CHILD_LAUNCH_FAILED meta. TMPDIR empty, no /tmp/.bun-*. The run pulled debian:trixie arm64 from the registry (digest sha256:9cc08002…)."
+  },
+  {
+   "command": "docker run --network none --platform linux/arm64 alpine:3.22 /opt/hm/heimdall-proto version --json",
+   "exit_code": 255,
+   "observed": "exec /opt/hm/heimdall-proto: no such file or directory. The artifact needs glibc and does not run on musl."
+  },
+  {
+   "command": "timing spot-check (40 runs each, python subprocess, env -i) and /usr/bin/time -l; tar|gzip -9 of dist/darwin-arm64",
+   "exit_code": 0,
+   "observed": "version p50/p95 22.1/27.0 ms; profile large-100 25.0/29.5 ms. Recorded 17.4/19.1 ms p50, so mine is about 5 ms higher on a loaded host with Python spawn overhead. Same order. Max RSS 23,984 KiB and 28,912 KiB. tgz 28,042,362 bytes (recorded 28,044,398)."
+  },
+  {
+   "command": "npm registry (registry.npmjs.org) and GitHub releases API metadata fetches",
+   "exit_code": 0,
+   "observed": "Every pinned version is the current latest: @opentui/core 0.5.14 (2026-09-30), smol-toml 1.9.0 (2026-09-22), bun-ffi-structs 0.3.1, diff 9.0.0, @types/bun 1.4.2, Bun v1.4.2 (2026-09-05). Exceptions: marked 17.0.1 (latest 18.0.14), string-width 7.2.0 (latest 8.3.0), strip-ansi 7.1.2 (latest 7.2.0), typescript 5.9.3 (latest 7.0.2). @opentui/core has 335 versions since 2025-08-13 and 54 releases since 2026-07-01 (pre-1.0)."
+  }
+ ],
+ "confirmed_claims": [
+  "Harness verdict reproduced on an independent rebuild: 112/113 pass, run.argv_invalid_utf8 (K8, gating) is the only failure, 0 errors, harness exit 1. Same artifact digest dd7a771d… as the recorded run.",
+  "Build is reproducible on this host: all four executables and sidecars are byte-identical to dist/manifest.json, built from a different directory (/tmp). Sizes match REPORT (67,147,506 / 86,205,920 / 86,165,800 / 90,981,888 plus 5.56–6.39 MB sidecars).",
+  "K8 cause independently reproduced. The artifact's embedded Bun turns a\\377b into 61 ef bf bd 62 in process.argv and Bun.argv on macOS, and in the child on linux-arm64. Environment bytes pass unchanged (61 ff 62).",
+  "Own suite: 154 pass, 0 fail, from source and against the artifact (both exit 0). tsc --noEmit exit 0.",
+  "Versions as stated: runtime 'bun 1.4.2 (744846f84)', @opentui/core 0.5.14, smol-toml 1.9.0 (version output and bun.lock).",
+  "Runs without Bun/Node on PATH (env -i PATH=/usr/bin:/bin), from a copied directory with spaces and Unicode, and through a symlink. A missing sidecar gives TUI exit 1 with no fallback. Nothing is extracted to TMPDIR or the Darwin per-user temp/cache dirs.",
+  "K11 sidecar pinning works for OTUI_ASSET_ROOT/OPENTUI_LIBC (harness plus own dist tests). bunfig.toml and .env autoload are disabled (probe).",
+  "BUN_BE_BUN=1 turns the artifact into a general Bun runtime (-e and file execution).",
+  "The Linux artifacts are glibc-only: Alpine/musl exec fails with exit 255. ldd shows only libc/libpthread/libdl/libm on debian trixie arm64.",
+  "macOS artifact is ad-hoc linker-signed and rejected by spctl.",
+  "run: stdin EOF propagation, 8 MiB stdout and 4 MiB stderr under backpressure, binary bytes, environment bytes, cwd and umask are all preserved. No O_NONBLOCK leaks onto shared fds. Exit codes and 128+N signal statuses correct in 153/153 runs on macOS and Linux arm64. Launch failure gives 127 with CHILD_LAUNCH_FAILED meta.",
+  "Signal forwarding: no lost or duplicated signal across 0–58 ms startup races for TERM/INT/HUP. The child runs in its own process group (pgid == pid).",
+  "Agent codec fails closed on every crafted bound: oversize length, nkeys, string overrun, inner blob overrun, truncation, wrong type, K4. Peak RSS stays around 27–33 MiB. Only the 5-byte type-11 request is ever sent.",
+  "CLI and TUI share domain operations: tui uses the same readBounded + parseProfile as profile show, and all list/filter/selection logic is in the pure src/domain/listview.ts (code review plus own unit tests).",
+  "LICENSES.md is accurate that dist/ ships no notice files (find found 0) and that libopentui bundles Ghostty, Wuffs and libwebp (license files present in the npm package; strings found in the dylib).",
+  "Dependencies are current: every pinned runtime dependency except OpenTUI's inlined marked/string-width/strip-ansi is the registry's latest. Bun 1.4.2 is the latest release (2026-09-05)."
+ ],
+ "refuted_claims": [
+  {
+   "claim": "REPORT §1 table / K11: 'No writes outside named paths — Implemented; own tests pass'. Also K11: 'At runtime the program writes nothing outside the paths named on its command line … the environment cannot redirect the load.'",
+   "evidence": "Holds for TMPDIR only. With OTUI_STDIN_LOG=<path> the TUI writes every raw input byte to that path, including the typed filter text 'hunter2-SECRET' (otui_env.log). With OTUI_DEBUG_FFI=1 it writes ffi_otui_debug_*.log and ffi_otui_trace_*.log into cwd. With BUN_OPTIONS='--preload <file>' the artifact loads and runs JS from an env-named path before main, in normal mode with no BUN_BE_BUN (envid.log, macOS and Linux). pinNativeAssets (src/cli.ts) pins only OTUI_ASSET_ROOT and OPENTUI_LIBC."
+  },
+  {
+   "claim": "REPORT §9 build table: executable SHA-256 linux-x64 8feca43b…, linux-arm64 31ee3c33…, windows-x64 79e58273… (presented as the current build).",
+   "evidence": "Current dist/manifest.json and my reproducible rebuild give linux-x64 a392aee6…, linux-arm64 ac48d2a6…, windows-x64 3e81b6fc…. The later 'Conformance fixes' section updates only the darwin hash. The table is stale."
+  },
+  {
+   "claim": "REPORT §4.1/§5: BUN_BE_BUN is the env-based identity hazard ('BUN_BE_BUN turns the artifact into a general runtime').",
+   "evidence": "Incomplete. BUN_OPTIONS=--preload also runs arbitrary code. BUN_INSPECT=ws://127.0.0.1:47391/… silently opens a Bun inspector TCP listener (lsof by pid showed LISTEN 127.0.0.1:47391). Neither is mentioned in REPORT."
+  }
+ ],
+ "hard_gate_findings": [
+  {
+   "gate": "Correctness of child/IPC behavior",
+   "verdict": "fail",
+   "evidence": "Gating harness check run.argv_invalid_utf8 (K8) fails deterministically. Invalid-UTF-8 argv is silently rewritten to U+FFFD with exit 0. This is a stack limitation under K8. Further defects of the K6 mechanism, beyond the harness: (1) when proto shares the foreground job with another process that reads the tty, it hands the terminal to the child's group, so 'heimdall-proto run -- <long cmd> | less' in bash -i is Stopped (env control completes; non-interactive sh gives EIO); (2) inherited SIG_IGN dispositions are reset for the child, and nohup-style HUP kills it (rc 129 vs 0 direct); (3) a process-group SIGKILL orphans the child; (4) RLIMIT_NOFILE soft limit is raised (256 to 1048576) for the child. Agent IPC passed all crafted bound tests; one nondeterminism remains (trailing bytes after a complete frame). Stdio, EOF, backpressure, exit statuses and signal races were all correct."
+  },
+  {
+   "gate": "Viable Windows/WSL path",
+   "verdict": "uncertain",
+   "evidence": "Code review only - not native evidence. windows-x64 PE plus opentui.dll builds. run uses Bun.spawn with windowsVerbatimArguments and a CommandLineToArgvW quoter (unit-tested against a reference decoder only). It refuses .bat/.cmd, does not forward console Ctrl-C, and relies on Bun internals for argv0 as the command-line token. The named pipe goes through node:net, with no native run. Whether exit codes above 255 and console close behave correctly is unknown. WSL: the glibc Linux build would need a glibc distro (fails on musl Alpine, observed in a container). No Windows host was available."
+  },
+  {
+   "gate": "No unsupported security assumption",
+   "verdict": "fail",
+   "evidence": "The artifact trusts inherited environment for code loading and file writes. BUN_OPTIONS=--preload runs arbitrary JS (macOS and Linux). BUN_INSPECT opens an inspector listener. BUN_BE_BUN gives a full runtime. OTUI_STDIN_LOG logs keystrokes (including typed text) to any path. OTUI_DEBUG_FFI writes logs to cwd. A test-only HEIMDALL_PROTO_FAULT hook ships in the artifact. BUN_OPTIONS and BUN_INSPECT are handled by the runtime before user code, so the program likely cannot scrub them (inference). Unlike DYLD_INSERT_LIBRARIES they would survive a hardened-runtime signed build (inference, not tested). No shell use was found. Agent lengths are bounded before allocation. Profile size is checked by fstat on an open fd (no stat-then-open TOCTOU), but a FIFO path blocks forever."
+  },
+  {
+   "gate": "Practical distribution",
+   "verdict": "uncertain",
+   "evidence": "Works relocated, without a toolchain, from spaced/Unicode paths on macOS and debian arm64 (linux-x64 only emulated, by the producer). It requires the @opentui sidecar subdirectory, glibc (not musl), and 73–97 MB per target (28–42 MB gzip). The macOS build is ad-hoc signed and spctl rejects it. Hardened-runtime signing and notarization with Bun's JIT plus a dlopen'd sidecar were not tested (no Developer ID). No license or notice files ship in dist. Cross-target runtime downloads are verified only by TLS (producer claim, not checked)."
+  },
+  {
+   "gate": "Maintained dependencies",
+   "verdict": "pass",
+   "evidence": "Registry checked 2026-10-03: @opentui/core 0.5.14 (latest, 2026-09-30), smol-toml 1.9.0 (latest), Bun 1.4.2 (latest release 2026-09-05), bun-ffi-structs 0.3.1 (latest). All are actively released. Risk: OpenTUI is pre-1.0 with 335 versions since 2025-08 and 54 since 2026-07-01, and its native ABI is documented as internal. OpenTUI also inlines older marked 17.0.1 and string-width 7.2.0."
+  },
+  {
+   "gate": "Compatible licensing",
+   "verdict": "uncertain",
+   "evidence": "The npm tree is permissive (MIT/BSD-3/Apache-2.0). Every artifact statically embeds Bun's LGPL-2 JavaScriptCore/WebCore and LGPL-2.1 tinycc, which carries relink and notice obligations. The project license is undecided. dist ships no notices: 0 license/notice files found, although libwebp PATENTS, Wuffs Apache-2.0 and the Bun notices are needed. Tree-sitter grammar licenses are unchecked (per LICENSES.md). No legal review."
+  },
+  {
+   "gate": "Ability to share domain operations across CLI/TUI",
+   "verdict": "pass",
+   "evidence": "Code review: src/domain/* is pure, and the tui command reuses readBounded + parseProfile from profile show. Selection, filter and layout live in domain/listview.ts and are unit-tested without a terminal. The OpenTUI adapter (src/tui/tui.ts) only maps keys and draws. The harness's 20+ tui.* checks and the CLI checks pass against the same build."
+  }
+ ],
+ "defects": [
+  {
+   "severity": "blocker",
+   "description": "K8 gating failure: argv elements that are not valid UTF-8 reach the child with every invalid byte replaced by EF BF BD, with exit 0 and no diagnostic. This is silent data corruption, deterministic, and occurs on macOS and Linux. The embedded Bun runtime decodes argv before user code. K8 rules that the FFI route counts as routing around, so the candidate cannot pass the common slice as built.",
+   "location": "Bun 1.4.2 runtime argv handling; src/main.ts (process.argv); harness check run.argv_invalid_utf8"
+  },
+  {
+   "severity": "major",
+   "description": "K6 terminal hand-off steals the terminal from other members of proto's foreground job. Under bash -i, 'heimdall-proto run -- sh -c \"printf line1; sleep 2\" | less' is Stopped (SIGTTIN). The same pipeline with /usr/bin/env completes. Under non-interactive sh, a pipeline peer reading /dev/tty gets EIO. foregroundTtyFd only checks that proto's pgrp is in the foreground, not that proto is alone in it. The outcome is race-dependent: it does not occur when the child exits immediately.",
+   "location": "src/platform/run.ts runChild (giveTerminal), src/platform/posix-spawn.ts foregroundTtyFd/giveTerminal; probes/out/less_bash_i_proto.log, pipeline_tty_bash_i_proto.log"
+  },
+  {
+   "severity": "major",
+   "description": "Inherited environment variables change program identity and load code. BUN_OPTIONS='--preload <file>' runs arbitrary JS before main. BUN_INSPECT opens a Bun inspector TCP listener (observed on 127.0.0.1; that listener accepts debugger connections, inference). BUN_BE_BUN=1 makes the artifact a full Bun runtime. REPORT discloses only BUN_BE_BUN. These are processed by the runtime before user code, so the program likely cannot neutralize them (inference).",
+   "location": "Bun --compile runtime; probes/out/envid.log, bun_inspect.log; linux_probe (BUN_OPTIONS on Linux)"
+  },
+  {
+   "severity": "major",
+   "description": "Writes outside named paths and keystroke logging under OpenTUI debug env vars. OTUI_STDIN_LOG=<path> records all raw TUI input, including typed filter text, to an arbitrary file. OTUI_DEBUG_FFI=1 writes ffi_otui_debug_*/ffi_otui_trace_* logs to cwd. pinNativeAssets pins only OTUI_ASSET_ROOT/OPENTUI_LIBC. Other OTUI_* or OPENTUI_* variables in the bundle (OTUI_TREE_SITTER_WORKER_PATH, OTUI_OVERRIDE_STDOUT, OTUI_USE_ALTERNATE_SCREEN, OTUI_NO_NATIVE_RENDER and others) were not probed.",
+   "location": "src/cli.ts pinNativeAssets; node_modules/@opentui/core chunk-bun-j2z63cdy.js:7333/9065 (stdinLogPath), chunk-bun-sjw2d9bq.js:15413-15440 (FFI debug log); probes/out/otui_env.log"
+  },
+  {
+   "severity": "major",
+   "description": "TUI selected row is styled fg #ffffff on bg #ffffff with SGR 7 (reverse) and bold. OpenTUI already swaps the colors and then also emits reverse. With fg == bg the selected row, including its '> ' marker, is likely invisible on truecolor terminals (inference from SGR semantics; observed only through pyte cell attributes). Unselected rows use hard-coded fg #ffffff and would be invisible on light-background terminals (inference). The harness checks text, not legibility.",
+   "location": "src/tui/tui.ts draw() (TextAttributes.BOLD | INVERSE with default fg); probes/out/tui_selected_colors.log"
+  },
+  {
+   "severity": "minor",
+   "description": "Signal dispositions are not inherited like exec. SETSIGDEF with a full set resets SIG_IGN dispositions inherited from proto's parent (nohup, non-interactive background jobs) to default. proto also installs a HUP handler over an inherited SIG_IGN. Result: 'trap \"\" HUP; heimdall-proto run -- sleep 2 &' dies on HUP (rc 129); the direct command survives (rc 0). On Linux the child also starts with signals 32 and 33 ignored (SigIgn 0x180000000).",
+   "location": "src/platform/posix-spawn.ts spawnInOwnGroup (SETSIGDEF with sigfillset); src/platform/run.ts FORWARDED handlers; probes/out/nohup_hup.log, sigign_rlimit.log"
+  },
+  {
+   "severity": "minor",
+   "description": "Bun raises the RLIMIT_NOFILE soft limit at startup and the child inherits it (256 becomes 1048576 on macOS and Linux). This silently changes the child's resource limits.",
+   "location": "Bun runtime startup; probes/out/sigign_rlimit.log, linux probe"
+  },
+  {
+   "severity": "minor",
+   "description": "Because the child runs in its own process group, a process-group SIGKILL of proto's group (CI cancellation, supervisors) orphans the child. A plain wrapper's child dies with the group. REPORT's K6 gap list mentions only terminal ownership on SIGKILL.",
+   "location": "src/platform/posix-spawn.ts POSIX_SPAWN_SETPGROUP; probes/out/killpg.log"
+  },
+  {
+   "severity": "minor",
+   "description": "agent list depends on segmentation. Trailing bytes after a complete valid frame give AGENT_PROTOCOL_ERROR when they arrive in the same read and AGENT_OK when they arrive in a later read. Identical byte streams can yield different results.",
+   "location": "src/platform/agent-client.ts data handler (rest > need check, settled guard); probes/out/agent_frames.log"
+  },
+  {
+   "severity": "minor",
+   "description": "profile show --file <FIFO with no writer> blocks indefinitely. openSync runs before the regular-file check, so the command neither exits 2 USAGE_ERROR nor times out.",
+   "location": "src/platform/files.ts readBounded"
+  },
+  {
+   "severity": "minor",
+   "description": "revision values above 2^53-1 are rejected as SCHEMA_INVALID. Contract §2 only requires an integer ≥ 1, and TOML allows values up to 2^63-1. This is a contract ambiguity (JSON number precision), not ruled; escalate rather than decide.",
+   "location": "src/domain/profile.ts validate (int(..., Number.MAX_SAFE_INTEGER))"
+  },
+  {
+   "severity": "minor",
+   "description": "A test-only fault-injection hook (HEIMDALL_PROTO_FAULT=tui-throw plus '!') is compiled into the distributable artifact. An environment variable can change runtime behavior, though only toward the exit-1 path.",
+   "location": "src/tui/tui.ts keypress handler"
+  },
+  {
+   "severity": "minor",
+   "description": "REPORT staleness. The §9 build table lists linux-x64, linux-arm64 and windows-x64 executable hashes that no longer match dist. The K6 'Gaps' list omits the pipeline/tty, SIG_IGN, rlimit and orphan behaviors above. The env hazard list omits BUN_OPTIONS and BUN_INSPECT.",
+   "location": "prototypes/ts/REPORT.md §9 alignment 'Build' table, 'K6 mechanism and known gaps', §4.1"
+  }
+ ],
+ "unverifiable_here": [
+  "Native Windows x64: named-pipe agent probe, CommandLineToArgvW quoting through Bun.spawn argv0/windowsVerbatimArguments, console Ctrl-C/close, exit codes above 255, opentui.dll loading and ConPTY resize (blocked: no Windows x64 host).",
+  "WSL Mode A/B behavior of the Linux artifact (blocked: no Windows/WSL host).",
+  "linux-x64 native execution (only an arm64 Mac is available; I did not re-run the producer's emulated amd64 run).",
+  "Clean physical macOS/Linux machines; macOS hardened-runtime signing and notarization with Bun JIT entitlements and a dlopen'd sidecar (no Developer ID).",
+  "Actual on-screen legibility of the white-on-white selected row in a real truecolor terminal (pyte cell attributes only).",
+  "Whether BUN_INSPECT accepts debugger connections and evaluates code, or binds non-loopback addresses (not tested: I opened no public listener and never connected to the inspector).",
+  "Integrity of Bun's cross-target runtime downloads (producer's source-reading claim) and legal sufficiency of LGPL-2 relink compliance for statically linked JavaScriptCore.",
+  "Remaining OTUI_*/OPENTUI_* environment variables (for example OTUI_TREE_SITTER_WORKER_PATH, OTUI_OVERRIDE_STDOUT) were found in the bundle but not exercised."
+ ],
+ "summary": "I rebuilt independently in /tmp/hm-review-root/prototypes/ts (symlinked from /tmp/heimdall-review-ts). All four executables and sidecars are byte-identical to the measured dist (darwin-arm64 dd7a771d…). My own full harness run reproduces the recorded verdict: harness exit 1, 112/113 pass, 0 errors. The only failure is the gating K8 check run.argv_invalid_utf8. Using the artifact's embedded Bun (BUN_BE_BUN -e), I confirmed the cause: Bun decodes argv to U+FFFD before user code runs, so non-UTF-8 argv is silently corrupted with exit 0. This blocks the common slice.\n\nThe producer's own suite passes 154/154 from source and against the artifact. It first failed (7 errors) because I ran it outside the repo layout; that was my error, and those logs are kept.\n\nProbes beyond the harness confirmed these as sound:\n- stdin EOF propagation, backpressure with large stdout and stderr, binary bytes, environment bytes and cwd.\n- Exit and signal statuses: 153/153 correct on macOS and on Linux arm64.\n- Signal startup races: no lost or duplicate deliveries.\n- All 20 crafted agent frames hit their bounds correctly.\n- CLI and TUI share their domain operations.\n\nThe probes also found defects the harness does not cover:\n1. **Pipelines that read the terminal break.** The K6 terminal hand-off takes the terminal away from other processes in the same foreground job. Under bash -i, `heimdall-proto run -- <long cmd> | less` ends up Stopped.\n2. **Environment variables load code or open a listener.** BUN_OPTIONS=--preload runs arbitrary JS. BUN_INSPECT silently opens an inspector listener (observed on 127.0.0.1). REPORT mentions neither; it covers only BUN_BE_BUN.\n3. **Writes outside named paths.** With OTUI_STDIN_LOG set, the TUI writes every keystroke, including typed text, to a file the environment chooses. With OTUI_DEBUG_FFI set, it writes logs into the working directory. This refutes the K11 \"no writes outside named paths\" claim in the general case.\n4. **Selected row likely unreadable.** It is drawn white on white with reverse video. I saw this only through the pyte terminal emulator's cell attributes; that it is invisible on a real terminal is my inference.\n5. **Minor child-transparency gaps:**\n   - Ignored signals inherited from the parent are reset, so nohup-style use dies on HUP.\n   - Signals 32 and 33 are ignored in the child on Linux.\n   - The open-file soft limit is raised (256 to 1048576).\n   - A process-group SIGKILL leaves the child orphaned.\n6. **Smaller items:**\n   - Trailing agent bytes are classified differently depending on how the reads are split.\n   - A profile path that is a FIFO with no writer hangs.\n   - revision above 2^53-1 is rejected; the contract is ambiguous here and needs a ruling, not a decision from me.\n   - A test-only fault hook ships in the artifact.\n   - REPORT has stale Linux and Windows hashes.\n\nGate verdicts:\n\n| Gate | Verdict |\n|---|---|\n| Child/IPC correctness | fail |\n| No unsupported security assumption | fail |\n| Windows/WSL viability | uncertain (code review only - not native evidence) |\n| Practical distribution | uncertain (glibc-only, 73–97 MB, ad-hoc signed, no notices in dist) |\n| Licensing | uncertain (static LGPL JavaScriptCore, project license undecided) |\n| Maintained dependencies | pass (pre-1.0 OpenTUI with heavy churn) |\n| Shared CLI/TUI domain operations | pass |\n\nAll evidence is in tests/evidence/artifacts/g02-ts/review/: harness/, selftests/, probes/scripts and probes/out (including run_all.sh with per-probe exit codes), build.log and review-build-manifest.json. I made no writes outside that directory and /tmp. The measured repo artifact is unchanged (sha256 dd7a771d…). Two side effects:\n- My `docker run --platform linux/arm64 debian:trixie` pulled the arm64 image (manifest digest 9cc08002…). The local tag debian:trixie now resolves to the arm64 image sha256:22bcbd63… instead of the earlier 36c636ddb9c5. Other agents using that tag without --platform may be affected.\n- I briefly opened a loopback-only inspector listener on 127.0.0.1:47391 during the BUN_INSPECT probe.\n\nNo processes were left running."
+}

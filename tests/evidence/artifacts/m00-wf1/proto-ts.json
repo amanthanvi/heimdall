@@ -1,0 +1,208 @@
+{
+ "task_id": "M00-T05-ts",
+ "status": "implemented_unverified",
+ "files_changed": [
+  "prototypes/ts/package.json",
+  "prototypes/ts/bun.lock",
+  "prototypes/ts/tsconfig.json",
+  "prototypes/ts/build.sh",
+  "prototypes/ts/scripts/manifest.ts",
+  "prototypes/ts/src/main.ts",
+  "prototypes/ts/src/cli.ts",
+  "prototypes/ts/src/domain/result.ts",
+  "prototypes/ts/src/domain/profile.ts",
+  "prototypes/ts/src/domain/agent.ts",
+  "prototypes/ts/src/domain/run.ts",
+  "prototypes/ts/src/domain/listview.ts",
+  "prototypes/ts/src/platform/agent-client.ts",
+  "prototypes/ts/src/platform/files.ts",
+  "prototypes/ts/src/platform/run.ts",
+  "prototypes/ts/src/platform/stdio.ts",
+  "prototypes/ts/src/platform/tty.ts",
+  "prototypes/ts/src/tui/tui.ts",
+  "prototypes/ts/src/tui/nocolor.ts",
+  "prototypes/ts/test/helpers.ts",
+  "prototypes/ts/test/vt.ts",
+  "prototypes/ts/test/profile.test.ts",
+  "prototypes/ts/test/agent.test.ts",
+  "prototypes/ts/test/run.test.ts",
+  "prototypes/ts/test/units.test.ts",
+  "prototypes/ts/test/tui.test.ts",
+  "prototypes/ts/test/cli.test.ts",
+  "prototypes/ts/LICENSES.md",
+  "prototypes/ts/dist/** (gitignored build output: 4 artifacts + manifest.json)",
+  "tests/evidence/g02-ts-selftest.json",
+  "tests/evidence/artifacts/g02-ts/selftest/build.log",
+  "tests/evidence/artifacts/g02-ts/selftest/manifest.json",
+  "tests/evidence/artifacts/g02-ts/selftest/typecheck.log",
+  "tests/evidence/artifacts/g02-ts/selftest/test-source.log",
+  "tests/evidence/artifacts/g02-ts/selftest/test-dist-darwin-arm64.log",
+  "tests/evidence/artifacts/g02-ts/selftest/linux-container-smoke.log",
+  "tests/evidence/artifacts/g02-ts/selftest/metrics-darwin-arm64.log",
+  "tests/evidence/artifacts/g02-ts/selftest/security-probes.sh",
+  "tests/evidence/artifacts/g02-ts/selftest/security-probes.log",
+  "tests/evidence/artifacts/g02-ts/selftest/licenses-all.json",
+  "tests/evidence/artifacts/g02-ts/selftest/licenses-production.json",
+  "tests/evidence/artifacts/g02-ts/selftest/licenses-stderr.log",
+  "tests/evidence/artifacts/g02-ts/selftest/maintenance-signals.log",
+  "tests/evidence/artifacts/g02-ts/selftest/shared-harness-preview.log",
+  "tests/evidence/artifacts/g02-ts/selftest/final-run-started.txt"
+ ],
+ "commands_run": [
+  {
+   "command": "npm view @opentui/core --json",
+   "exit_code": 0,
+   "observed": "0.5.14 MIT, published 2026-09-30; engines bun>=1.3.0, node>=26.4.0 (installed node v24.18.0 is below the minimum, so the Node path was not evaluated); 8 optional native packages"
+  },
+  {
+   "command": "bun add --exact @opentui/core@0.5.14 smol-toml@1.9.0; bun add --exact --dev typescript@5.9.3 @types/bun@1.4.2 ajv@8.20.0",
+   "exit_code": 0,
+   "observed": "bun.lock written (lockfileVersion 2) with sha512 integrity"
+  },
+  {
+   "command": "bun install --frozen-lockfile --os='*' --cpu='*'",
+   "exit_code": 0,
+   "observed": "all 8 @opentui/core-<platform> native packages installed; lockfile unchanged"
+  },
+  {
+   "command": "Bun.TOML.parse vs smol-toml 1.9.0 probe scripts (bun)",
+   "exit_code": 0,
+   "observed": "Bun.TOML cannot tell revision=1.0 from 1; smol-toml integersAsBigInt can; smol-toml error messages contain source excerpts, so only line/column are emitted"
+  },
+  {
+   "command": "bun ptyprobe/ptybin (NO_COLOR=1 tui in PTY)",
+   "exit_code": 0,
+   "observed": "OpenTUI emitted ESC[38;2;255;255;255m even with NO_COLOR=1; after the feed-mode SGR filter only ESC[0m remains and the rows render"
+  },
+  {
+   "command": "bun build --compile --target=bun-darwin-arm64 ... (first trial)",
+   "exit_code": 0,
+   "observed": "72,745,074 B; only libopentui darwin dylib embedded (strings); runs under env -i PATH=/usr/bin:/bin"
+  },
+  {
+   "command": "TUI run of compiled binary with private TMPDIR",
+   "exit_code": 0,
+   "observed": "$TMPDIR/.bun-501-33eea43aef98a673.dylib (5,560,064 B, 0600) created and left after exit"
+  },
+  {
+   "command": "same-size zero-filled planted .bun-* dylib, then TUI run",
+   "exit_code": 1,
+   "observed": "planted file was dlopen'ed and not rewritten (content not verified); a different-size file was rewritten"
+  },
+  {
+   "command": "env -i BUN_BE_BUN=1 heimdall-proto -e 'console.log(...)'",
+   "exit_code": 0,
+   "observed": "the shipped artifact evaluated arbitrary JS"
+  },
+  {
+   "command": "sh prototypes/ts/build.sh (final, from /tmp)",
+   "exit_code": 0,
+   "observed": "darwin-arm64 72745074, linux-x64 98813408, linux-arm64 97962280, windows-x64 97369600 bytes; all built:true; cross-target Bun runtimes were downloaded into ~/.bun/install/cache during the first build"
+  },
+  {
+   "command": "./node_modules/.bin/tsc --noEmit -p .",
+   "exit_code": 0,
+   "observed": "no type errors (includes win32 branches)"
+  },
+  {
+   "command": "bun test --timeout 20000 (source)",
+   "exit_code": 0,
+   "observed": "128 pass, 0 fail, 466 expects, 6 files"
+  },
+  {
+   "command": "HEIMDALL_PROTO_BIN=dist/darwin-arm64/heimdall-proto bun test --timeout 20000",
+   "exit_code": 0,
+   "observed": "128 pass, 0 fail against the compiled artifact"
+  },
+  {
+   "command": "HEIMDALL_PROTO_BIN=<negative-control copy with foreground check disabled> bun test test/run.test.ts -t 'exactly once'",
+   "exit_code": 1,
+   "observed": "child counted 2 SIGINTs (expected 1), so the PTY double-delivery test discriminates"
+  },
+  {
+   "command": "docker run --network none --platform linux/arm64 debian:trixie sh /ctest.sh and sh /ctui.sh",
+   "exit_code": 0,
+   "observed": "version/profile/canary/run argv,exit,meta,signal 143,launch 127,binary stdin all as expected; TUI rendered and entered/left alt screen; .bun-0-*.so left in /tmp"
+  },
+  {
+   "command": "docker run --network none --platform linux/amd64 debian:trixie (emulated) sh /ctest.sh and sh /ctui.sh",
+   "exit_code": 0,
+   "observed": "same results as arm64 (emulated, not native evidence)"
+  },
+  {
+   "command": "docker run --network none alpine:3.22 dist/linux-arm64/heimdall-proto version --json",
+   "exit_code": 255,
+   "observed": "exec ... no such file or directory (glibc artifact on musl)"
+  },
+  {
+   "command": "first container TUI attempt with plain `timeout -s TERM 2` (no --foreground)",
+   "exit_code": null,
+   "observed": "TUI stopped by SIGTTOU in a background process group; I stopped my own background task and killed only that container (verified command 'sh /ctui.sh'); reran with timeout --foreground"
+  },
+  {
+   "command": "sh tests/evidence/artifacts/g02-ts/selftest/security-probes.sh",
+   "exit_code": 0,
+   "observed": "7 probes: TMPDIR extraction; same-size planted lib loaded (TUI exit 1); different-size rewritten; OTUI_ASSET_ROOT sidecar avoids extraction; BUN_BE_BUN executes code; .env autoload disabled by build.sh flags but active in a default --compile build; non-TUI commands leave TMPDIR empty"
+  },
+  {
+   "command": "metrics (python perf_counter, /usr/bin/time -l, PTY first-frame script)",
+   "exit_code": 0,
+   "observed": "version median 19.6 ms; profile(100) 21.0 ms; max RSS 25.7/29.7 MB; TUI first frame median 59.9 ms; TUI RSS ~60 MB; ad-hoc linker signature, spctl rejected"
+  },
+  {
+   "command": "two same-name rebuilds of darwin-arm64 and linux-x64",
+   "exit_code": 0,
+   "observed": "byte-identical sha256 on this host"
+  },
+  {
+   "command": "bunx --bun license-checker-rseidelsohn@5.0.1 --json [--production] --start .",
+   "exit_code": 0,
+   "observed": "30 packages total / 21 production; MIT, BSD-3-Clause, and Apache-2.0 only; project itself UNLICENSED (private)"
+  },
+  {
+   "command": "@number0/iroh@1.1.0 scratch probe (bun add, bun run, bun build --compile, run with env -i)",
+   "exit_code": 0,
+   "observed": "loads under Bun 1.4.2 (26 exports, SecretKey.generate ok); the compiled binary runs; its .node addon (13 MB) is also extracted to TMPDIR; no endpoint or network used"
+  },
+  {
+   "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate ts --out /tmp/... (read-only, informational)",
+   "exit_code": 1,
+   "observed": "91/93 pass; FAIL tui.no_color (only the selection-after-Esc assertion; the color-SGR assertion passed), FAIL common.no_stray_writes (TMPDIR .bun-*.dylib); run.argv_invalid_utf8 non-gating observation fffe2d78 -> efbfbdefbfbd2d78"
+  },
+  {
+   "command": "ajv validation of tests/evidence/g02-ts-selftest.json against tests/evidence/record.schema.json",
+   "exit_code": 0,
+   "observed": "record valid"
+  }
+ ],
+ "requirement_ids": [
+  "R-SS-04",
+  "R-UX-05",
+  "R-DI-01",
+  "R-AP-02",
+  "R-SE-05"
+ ],
+ "evidence_records": [
+  "tests/evidence/g02-ts-selftest.json"
+ ],
+ "escalations": [
+  "REPORT.md not written: the subagent runtime rejected writing prototypes/ts/REPORT.md ('Subagents should return findings as text, not write report files'). I did not route around that policy with Bash. The full REPORT.md content is in the `summary` field below; the orchestrator should persist it to prototypes/ts/REPORT.md.",
+  "Contract §5 is silent on which row is selected after the filter changes or Esc clears it. This prototype keeps the previously selected destination if it is still shown, otherwise row 0. The harness reference_tui.py resets to row 0 on every filter edit, so harness check tui.no_color fails only on its 'selected row still carries > ' assertion; its NO_COLOR color assertion passed. Orchestrator decision needed: freeze one semantic in the contract, or make that assertion non-gating.",
+  "Contract §1 (no writes outside named paths) vs §7 (single self-contained executable) conflict for this stack. Bun --compile must extract embedded native code (libopentui, and any napi addon such as @number0/iroh) to $TMPDIR/.bun-<uid>-<hash>.<ext> before dlopen. It leaves the file behind and reuses any same-uid, same-size file without verifying content (unconditionally on Windows per Bun source). A verified mitigation exists: a sidecar library plus OTUI_ASSET_ROOT, which the app must pin itself. That changes the §7 artifact shape, so I did not adopt it. Decide whether a sidecar layout is acceptable for G02 scoring.",
+  "Contract §4 'non-ASCII pass through byte-for-byte': valid UTF-8 passes, but invalid UTF-8 argv bytes become U+FFFD because Bun exposes argv and spawn args only as JS strings. The harness already treats this as non-gating (README open question Q2). Needs an orchestrator ruling on whether invalid-UTF-8 argv is in scope.",
+  "Minor contract gaps, where I chose a behavior: tui exit code on SIGTERM (143) and SIGHUP (129); run meta CHILD_EXITED uses state 'succeeded' even for a non-zero child exit; agent list classifies peer EOF after 0 bytes as AGENT_UNAVAILABLE and after >=1 byte as AGENT_PROTOCOL_ERROR; profile show and version emit JSON even without --json."
+ ],
+ "limitations": [
+  "Self-tests are prototype-level evidence, not the official G02 conformance verdict. The shared harness was still being written; my run of it was informational (91/93).",
+  "Native Windows execution blocked: needs a Windows x64 host. windows-x64 built (PE32+), and the named pipe, console Ctrl-C, CreateProcess quoting, and ConPTY/resize code paths are compile-checked (tsc) only. Named-pipe support was established from Bun 1.4.2 source, not executed.",
+  "No clean bare-metal macOS or Linux machine. macOS artifact runs used the development host with PATH lacking bun/node; Linux runs used Docker containers (linux-x64 emulated on an arm64 host).",
+  "Known contract failures: §1 TMPDIR writes on the tui path; §4 invalid-UTF-8 argv replaced with U+FFFD.",
+  "Security findings not mitigated in the artifact: the same-size planted-library reuse in TMPDIR, BUN_BE_BUN=1 turning the artifact into a general runtime (no build flag found to disable it), and cross-target runtime downloads with no integrity check beyond TLS.",
+  "SIGINT/SIGQUIT are not forwarded while heimdall-proto is the terminal foreground group (to avoid double delivery); a kill -INT aimed at heimdall-proto in that state does not reach the child.",
+  "The TUI exception path was verified through a test-only fault hook (HEIMDALL_PROTO_FAULT=tui-throw).",
+  "The macOS artifact is ad-hoc linker-signed only; notarization was not attempted. Artifacts ship no license notice file.",
+  "A pre-existing ~/TMPDIR .bun-501-33eea43aef98a673.dylib, dated before this task and not mine, was reused by default-TMPDIR test runs. Its SHA-256 matches the packaged libopentui.dylib, so the results stand. I left it in place.",
+  "prototypes/ts/REPORT.md is absent because of the subagent write policy; its content is in `summary`."
+ ],
+ "summary": "The TypeScript + OpenTUI prototype is built and self-tested on macOS, but its single-file artifacts fail contract §1 on the `tui` path, and native Windows runs are blocked (no Windows host). Status is implemented_unverified.\n\n- **Build:** `build.sh` exited 0 and produced all four targets (darwin-arm64, linux-x64, linux-arm64, windows-x64) plus `dist/manifest.json`. Artifacts are 73 to 99 MB and run without Bun or Node on PATH.\n- **Self-tests:** 128 tests pass (exit 0) against both the source and the compiled darwin-arm64 binary.\n- **Shared harness:** an informational read-only run scored 91 of 93.\n- **REPORT.md:** the runtime would not let me write it, so its full content is below for you to save to `prototypes/ts/REPORT.md`.\n\nBiggest findings: Bun extracts the native library to TMPDIR and will load a planted same-size file there, and `BUN_BE_BUN=1` turns the shipped binary into a general JavaScript runtime.\n\n===== BEGIN prototypes/ts/REPORT.md =====\n# G02 TypeScript + OpenTUI prototype report (M00-T05-ts)\n\nThis is disposable gate evidence for the G02 comparison, not production code. The binding contract is `docs/g02/slice-contract.md`. Everything below separates what I observed (commands I ran, with real exit codes) from inference.\n\nBlocked verification:\n- Native Windows runs: no Windows host.\n- Clean-machine runs on real macOS and Linux hosts: Linux was only run in Docker containers on this Mac, and macOS only on the development host.\n\nRaw evidence is in `tests/evidence/artifacts/g02-ts/selftest/`. The record is `tests/evidence/g02-ts-selftest.json`.\n\n## 1. Outcome by contract section\n\nHost: macOS 27.0 (26A428), arm64.\n\n| § | Item | Result | Notes |\n|---|---|---|---|\n| §1 | JSON envelope, exit codes, usage errors, spaced/Unicode paths, no secret leakage | Implemented; own tests pass | Control characters in JSON strings are escaped. |\n| §1 | No writes outside named paths | **Fails on the `tui` path** | Bun extracts the embedded OpenTUI native library to `$TMPDIR/.bun-<uid>-<hash>.<ext>` and leaves it there. Other subcommands write nothing (security probe 7). |\n| §2 | `profile show` | Implemented; own tests pass for every fixture plus generated cases | Parser is `smol-toml@1.9.0` with `integersAsBigInt`. |\n| §3 | `agent list` | Implemented; own tests pass | Tested against crafted frames, a fake Unix-socket endpoint, and a disposable `/usr/bin/ssh-agent`. The Windows named-pipe path compiles but was never executed. |\n| §4 | `run` | Implemented; own tests pass | Defect: argv bytes that are not valid UTF-8 reach the child as U+FFFD. Windows quoting is compile-checked only. |\n| §5 | `tui` | Implemented; own PTY tests pass | NO_COLOR needed a framework workaround. Exceptions needed extra handling in the adapter. |\n| §6 | `version` | Implemented | `runtime` is `bun 1.4.2 (744846f84)`; `tui_framework` is `@opentui/core` `0.5.14`. |\n| §7 | `build.sh`, manifest, 4 targets | All 4 built (exit 0) | Runs with no Bun or Node on PATH (macOS and Linux containers). Still extracts native code at runtime, and `BUN_BE_BUN=1` turns it into a general runtime. |\n\nInformational run of the shared harness (still being written; run read-only):\n- Score: 91/93.\n- `common.no_stray_writes` failed. This is the real TMPDIR failure described above.\n- `tui.no_color` failed only on the expectation that the first row is selected after Esc clears a filter. The color assertion itself passed. The contract doesn't specify the selection, so I escalated instead of changing behavior.\n\n## 2. Toolchain and dependency versions\n\nFrom command output:\n- Bun: `bun --version` gives `1.4.2`; `--revision` gives `1.4.2+744846f84`. The 1.4.2 source tree is written in Rust.\n- TypeScript: `tsc` 5.9.3, used for typechecking only.\n- Node: v24.18.0 is installed but not used. OpenTUI 0.5.14 declares `engines bun>=1.3.0, node>=26.4.0`, and Node also needs `--experimental-ffi`.\n- Docker: 29.8.0 (client and server).\n- Runtime dependencies, pinned exactly in `package.json` and `bun.lock`:\n  - `@opentui/core@0.5.14` (MIT)\n  - `smol-toml@1.9.0` (BSD-3-Clause)\n- Dev dependencies:\n  - `typescript@5.9.3`\n  - `@types/bun@1.4.2`\n  - `ajv@8.20.0`\n\n## 3. Design\n\n- `src/domain/` is pure (no I/O):\n  - `result.ts`: the result envelope\n  - `profile.ts`: profile parsing and validation\n  - `agent.ts`: bounded agent frame codec\n  - `run.ts`: meta result and Windows quoting\n  - `listview.ts`: TUI state machine and layout\n- `src/platform/` holds the I/O adapters:\n  - `files.ts`: bounded file read\n  - `agent-client.ts`: `node:net` client\n  - `run.ts`: `Bun.spawn` plus signal forwarding\n  - `tty.ts`: two libc calls through `bun:ffi`\n  - `stdio.ts`\n- `src/tui/` holds the OpenTUI adapter (`tui.ts`) and the NO_COLOR filter (`nocolor.ts`).\n- `src/cli.ts` handles argument parsing and exit codes only.\n\nThe TUI uses the same `parseProfile` as the CLI. All selection, filter, and layout logic lives in `listview.ts`, which is tested without a terminal. The TUI module is lazy-imported, so non-TUI commands never load the native library.\n\nBehaviors the contract leaves open, which I chose and escalated:\n- After a filter change, keep the previous selection if it is still visible; otherwise select row 0.\n- `tui` exits 143 on SIGTERM and 129 on SIGHUP.\n- The `run` meta result `CHILD_EXITED` uses state `succeeded` even when the child exits non-zero. `CHILD_LAUNCH_FAILED` uses `failed`.\n- `agent list`: if the peer closes after 0 bytes, the result is AGENT_UNAVAILABLE; after at least 1 byte, AGENT_PROTOCOL_ERROR.\n- `profile show` and `version` emit JSON even without `--json`.\n\nTOML parser choice:\n- `Bun.TOML.parse` was rejected. It returns `1.0` as `1`, so it cannot reject a non-integer revision. It also rejects integers above 2^53.\n- `smol-toml` with BigInt integers can tell the two apart. Its `TomlError.message` includes source excerpts (values), so the prototype emits only line and column. A canary test confirms no value is echoed.\n\n## 4. Hard parts, workarounds, and stack findings\n\nElapsed time: about 40 minutes from the first command (23:56Z) to the final test run (00:29Z), plus report writing.\n\n### 4.1 Distribution and native code\n\n**Build-time downloads.**\n- `bun build --compile --target=bun-<t>` folds `process.platform` per target, so each artifact embeds only its own libopentui.\n- Cross-target builds download the target Bun runtime from `registry.npmjs.org` (`@oven/bun-<target>`) into `~/.bun/install/cache`.\n- Bun's source shows no integrity check beyond TLS, and the download honors proxy settings and `NODE_TLS_REJECT_UNAUTHORIZED`.\n\n**Native code extracted to TMPDIR at runtime.**\n- `dlopen` needs a real file, so Bun writes `$TMPDIR/.bun-<uid>-<wyhash>.<ext>` (mode 0600) and leaves it there.\n- Bun reuses an existing file at that name if it is a regular file, has the same uid, and has the same size. It does not check the content. On Windows the ownership check is unconditionally true.\n- Probe 2 confirmed this: a zero-filled file of the same size was loaded (TUI exit 1) and left unchanged.\n- Consequence: any same-user process that can write to TMPDIR can inject code into the binary.\n- A verified mitigation exists: ship libopentui as a sidecar file and set `OTUI_ASSET_ROOT`. No extraction happens then (probe 4).\n- That variable is also honored when inherited from the environment, so a real build would have to pin it.\n- I did not adopt the sidecar layout in `build.sh` because it changes the §7 artifact shape.\n- A `.bun-501-33eea43aef98a673.dylib` from before this task was in my real TMPDIR, and my default-TMPDIR test runs reused it. Its SHA-256 equals the packaged library, so the results stand.\n\n**`BUN_BE_BUN=1`.**\n- With this variable set, the artifact acts as the full Bun CLI: `-e` executed arbitrary code (probe 5).\n- I found no build flag to disable it.\n\n**`.env` and `bunfig.toml` autoload.**\n- A default compiled executable loads `.env` and `bunfig.toml` from the working directory.\n- `build.sh` passes `--no-compile-autoload-dotenv --no-compile-autoload-bunfig`. Probe 6 shows the difference.\n\n**Other packaging facts.**\n- The glibc-linked Linux artifacts fail on musl (Alpine exit 255).\n- The macOS artifact has only an ad-hoc linker signature, and `spctl` rejects it.\n- Builds with the same output filename are byte-identical on this host. The output filename is embedded, so changing it changes the digest.\n\n### 4.2 NO_COLOR\n\n- OpenTUI 0.5.14 ignores NO_COLOR and always emits truecolor or 256-color SGR (observed `ESC[38;2;255;255;255m`).\n- Using a `transparent` foreground made the text invisible.\n- Workaround: with NO_COLOR set, pass a proxied stdout. That switches OpenTUI to its JS \"feed\" output path, and a streaming filter removes color parameters from SGR sequences. The filter is unit-tested, including sequences split across writes.\n- Trap: OpenTUI patches `process.stdout.write`. Writing back through it looped forever on the same 246-byte chunk, so the filter writes to fd 1 directly.\n- The selected row always carries `> `, so selection never depends on color.\n\n### 4.3 Exceptions swallowed by the framework\n\n- OpenTUI's KeyHandler catches exceptions from listeners, prints the stack trace with source excerpts over the screen, and keeps running.\n- It also installs process-wide `uncaughtException` handlers that only log.\n- The adapter wraps its handlers and routes exceptions to an exit that restores the terminal (exit 1).\n- Verified with a test-only hook (`HEIMDALL_PROTO_FAULT=tui-throw` plus `!`).\n\n### 4.4 Other OpenTUI terminal behavior\n\n- At startup it sends many capability queries: OSC 10/11, DA1, XTGETTCAP, DECRQM, `CSI 6n` three times, kitty queries, OSC 66/99/1337.\n- On exit it clears the window title (empty `OSC 0`) and resets the cursor color and style.\n- The default 100 ms resize debounce would hit the contract limit, so the prototype sets `debounceDelay: 1`. Observed re-layout: 7 to 17 ms.\n\n### 4.5 Signals in `run`\n\n- Bun delivers INT, TERM, HUP, QUIT, and WINCH to `process.on` handlers.\n- SIGINT and SIGQUIT are not forwarded while heimdall-proto is the terminal's foreground process group (`tcgetpgrp`/`getpgrp` via `bun:ffi`), because the terminal already delivered them to the child.\n- The PTY test uses a Python child. A negative control with the check disabled counted 2 SIGINTs; the real build counted 1.\n- Limitation: a `kill -INT` aimed at heimdall-proto while it is the foreground group is not forwarded, because Bun exposes no siginfo.\n\n## 5. Known defects (observed)\n\n1. §1: the TUI writes the native library to TMPDIR, leaves it, and trusts a planted file of the same size.\n2. §4: invalid-UTF-8 argv is altered (`61 ff 62` arrives as `61 ef bf bd 62`). Valid UTF-8 passes, and environment values with invalid UTF-8 pass unchanged.\n3. `BUN_BE_BUN` turns the artifact into a general runtime.\n4. OpenTUI clears the window title on exit.\n5. Width is approximated by code point count. Wide CJK glyphs can overflow by one cell; this is cosmetic.\n6. Artifacts are large (73 to 99 MB) and include unused OpenTUI image, audio, and tree-sitter assets.\n\n## 6. Build results\n\nFinal build: 2026-10-03T00:29Z, `build.sh` exit 0.\n\n| Target | Bytes | SHA-256 | Executed |\n|---|---|---|---|\n| darwin-arm64 | 72,745,074 | d94754c7646b96fbbb52652a70cffe8eca77a157d51016b27fe34cfda479a6b1 | macOS host, full suite 128/128 |\n| linux-x64 | 98,813,408 | 185920eb820599720ea85f900daf65c9c8b66a8444f1624d15f64c45affc129d | debian:trixie amd64 container, emulated, smoke test |\n| linux-arm64 | 97,962,280 | 3c067c8769a15c4221d182770673913998f65c11f637335f384135bec00bb446 | debian:trixie arm64 container, smoke test |\n| windows-x64 | 97,369,600 | 5dbe0f5e446e68de3dfd923e23159f628801032ad49327bc917810a2006662ee | Not executed (blocked: needs Windows) |\n\nMeasurements on darwin-arm64:\n\n| Measurement | Result |\n|---|---|\n| `version` | median 19.6 ms |\n| `profile show`, 100 destinations | median 21.0 ms |\n| Max RSS, version / profile | 25.7 / 29.7 MB |\n| TUI first frame | median 59.9 ms |\n| TUI RSS | about 60 MB |\n| Filter over 100 destinations | 7–8 ms |\n| Resize re-layout | 7–17 ms |\n| Agent SIGINT to exit 130 | 1.4–2.0 ms |\n\n## 7. Tests (6 files, 128 tests)\n\n- **`profile.test.ts`:**\n  - every fixture, positive and negative\n  - key paths, plus canary and value-leak checks\n  - schema-version warning\n  - 1 MiB boundary (exact size and +1)\n  - missing file and directory\n  - 16 generated domain cases\n- **`agent.test.ts`:**\n  - Frame bounds: oversize length, huge nkeys and 1025, string overruns, trailing bytes, truncation, wrong type, failure, exactly MAX_FRAME, and an invalid UTF-8 comment.\n  - Fake socket: fragmented replies, refused, fail-fast on an oversize header, timeout, missing socket, SIGINT cancel under 500 ms, request bytes exactly `00 00 00 01 0b`.\n  - Disposable `/usr/bin/ssh-agent`: fingerprint matches `ssh-keygen -l -E sha256`.\n- **`run.test.ts`:**\n  - 16 tricky argv values and PATH lookup\n  - binary stdin and stderr passthrough\n  - exit code and meta file in a Unicode path\n  - signal deaths 15, 9, 11\n  - launch failures, usage errors, cwd and env inheritance\n  - forwarding of INT, TERM, HUP, QUIT, WINCH without a TTY (heimdall-proto keeps waiting, no orphan)\n  - PTY Ctrl-C delivered exactly once\n  - untrapped SIGINT gives 130\n- **`units.test.ts`:**\n  - Windows quoting vectors, round-trip, and Microsoft's documented examples\n  - list view-model\n  - NO_COLOR filter\n- **`tui.test.ts`** (real PTY, with a `stty -g` wrapper so termios is checked on every exit path):\n  - select, quit, Ctrl-C 130\n  - SIGTERM 143, SIGINT 130, SIGHUP 129\n  - injected exception gives 1\n  - filtering: Unicode, Backspace, host match, Esc\n  - 100-destination latency\n  - resize to 20×5 in under 100 ms\n  - NO_COLOR with a positive control\n  - non-TTY gives 2\n  - Screen assertions use a small VT model because OpenTUI redraws only changed cells.\n- **`cli.test.ts`:**\n  - `version`\n  - 10 usage-error shapes (plain vs `--json`)\n  - no ANSI in stderr\n\n## 8. Windows notes (compile-checked only, not executed)\n\nNative verification is blocked: it needs a Windows x64 host.\n\n- **Named pipe:** `node:net` with a `\\\\.\\pipe\\…` path. Bun 1.4.2's `Listener.rs` routes such paths to its Windows named-pipe client (from reading the source, not running it).\n- **Console Ctrl-C:** `run` registers no-op SIGINT and SIGBREAK handlers and doesn't forward; the console delivers CTRL_C_EVENT to the child directly. `agent list` treats SIGINT or SIGBREAK as cancel (exit 130).\n- **CreateProcess quoting:**\n  - Resolve argv[0] with `Bun.which`, and refuse `.bat`/`.cmd` targets (cmd.exe re-parses the line: BatBadBut).\n  - Quote `argv[1..]` with `quoteWindowsArg`, unit-tested against a CommandLineToArgvW reference.\n  - Spawn with `windowsVerbatimArguments` and `argv0` set to the quoted program token. Bun's source shows `argv0` becomes the command-line token and `cmd[0]` is the file.\n- **ConPTY / console resize:** relies on OpenTUI's `opentui.dll` and Bun's stdout resize events. Not verified.\n- **Extraction:** the embedded DLL would be extracted to `%TEMP%`, and the ownership check is unconditional on Windows.\n\n## 9. Native, unsafe, and downloaded components\n\n- **libopentui (Zig):** loaded through `bun:ffi` and bundles Ghostty, lcms2, libwebp, stb, and Wuffs code.\n- **libc via `bun:ffi`:** `tcgetpgrp` and `getpgrp` only.\n- **Embedded runtime:** Bun 1.4.2, including JavaScriptCore and BoringSSL.\n- **Build-time downloads:**\n  - npm packages, protected by lockfile integrity hashes\n  - cross-target Bun runtimes, TLS only\n  - `license-checker-rseidelsohn@5.0.1` via `bunx`\n  - Docker images `debian:trixie` (arm64 and amd64) and `alpine:3.22`\n- **Runtime downloads:** none observed. The TUI does write native code to TMPDIR.\n\n## 10. Maintenance signals (observed 2026-10-03)\n\n| Package / repo | Pinned (published) | Latest (published) / activity |\n|---|---|---|\n| @opentui/core | 0.5.14 (2026-09-30) | 0.5.14; three releases 2026-09-22..30 |\n| anomalyco/opentui | | 13,456 stars, 154 open issues, pushed 2026-10-02 |\n| bun | 1.4.2 (2026-09-05) | 1.4.2; repo has 9,639 open issues |\n| smol-toml | 1.9.0 (2026-09-22) | 1.9.0 |\n| @number0/iroh | 1.1.0 (2026-07-16) | 1.1.0 |\n| marked | 17.0.1 | 18.0.14 |\n| string-width | 7.2.0 | 8.3.0 |\n| web-tree-sitter | 0.25.10 | 0.27.0 |\n| typescript | 5.9.3 | 7.0.2 |\n\nOpenTUI is pre-1.0 and fast-moving. Its README calls the native ABI and platform packages internal surfaces.\n\n## 11. Iroh integration path (recorded, not implemented)\n\n**Embedded library is possible.**\n- Package: `@number0/iroh@1.1.0`, napi-rs bindings from `iroh-ffi` (MIT OR Apache-2.0).\n- There is no darwin-x64 package.\n- The Rust crate `iroh` is at 1.3.0, so the JS binding may lag the crate.\n- Scratch probe:\n  - It loads in Bun 1.4.2 and `SecretKey.generate()` works.\n  - It survives `bun build --compile`, and the binary runs with no Bun on PATH.\n  - Its `.node` addon (13 MB) is extracted to TMPDIR exactly like libopentui.\n  - No endpoint was bound and no network was used.\n\n**A supervised Rust helper is the alternative.** It avoids napi and runtime extraction, at the cost of a second artifact and an IPC contract.\n\n## 12. Licensing\n\nSee `LICENSES.md`. No copyleft license appears in the npm tree. Every artifact statically links Bun's LGPL-2 JavaScriptCore/WebCore and LGPL-2.1 tinycc, which carries relinking and notice obligations. The libwebp patent grant ships inside libopentui. No notice file is shipped in `dist/` yet.\n\n## 13. Reproduce\n\n- Build: `sh prototypes/ts/build.sh`\n- Install: `cd prototypes/ts && bun install --frozen-lockfile --os='*' --cpu='*'`\n- Test against source: `bun test --timeout 20000`\n- Test against the binary: `HEIMDALL_PROTO_BIN=$PWD/dist/darwin-arm64/heimdall-proto bun test --timeout 20000`\n- Security probes, from the repo root: `sh tests/evidence/artifacts/g02-ts/selftest/security-probes.sh`\n===== END prototypes/ts/REPORT.md ====="
+}
