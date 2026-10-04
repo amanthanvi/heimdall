@@ -27,8 +27,13 @@
 ## Resume notes
 
 - Workflow results so far are in `tests/evidence/artifacts/m00-wf{1,2,3,4}/`.
-- Round 3 (wf_37282f1c-f61) changes no prototype code. It adds harness checks K6d, K6e and K17, has an independent reviewer try to defeat them, then runs the final conformance on darwin and linux for all three candidates.
-- When it finishes, commit the harness (tests/g02, fake-agent), the conformance records, the measurements (tools/benchmarks, g02-measurements), the review-g02-harness* artifacts, and the m00-wf* results. Then fill in ADR-0002 §4.
+- Round 3 and round 3b run as one workflow, `wf_37282f1c-f61` (resumed 2026-10-04 01:07 after a T3 restart; harness-r3 replayed from cache). To resume again, run `Workflow({scriptPath: <session>/workflows/scripts/heimdall-m00-g02-round3-wf_37282f1c-f61.js, resumeFromRunId: "wf_37282f1c-f61"})`. Do not edit the script before that call, or completed agents will re-run.
+- Stages:
+  1. harness-r3 (done);
+  2. review-harness-r3, then harness fix if needed;
+  3. baseline conformance on the unchanged round-2 artifacts;
+  4. round 3b: Go and Rust fix, verdict and fresh review; TS research in parallel.
+- When it finishes, commit the harness, the conformance records, the measurements, the reviews and the results archive. Then rewrite ADR-0002 against `tests/evidence/artifacts/review-adr-0002/review.md`.
 - `tools/benchmarks/g02/run_round2.sh` contains an absolute home path. Redact it before committing.
 
 ## Next actions
