@@ -10,7 +10,7 @@
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
 | M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Two review rounds resolved. Every native record is blocked (no Windows 11/WSL2 host) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
-| M00-T05 G02 language/TUI + ADR | in_progress | Prototypes committed (Go 8bc175e, Rust 507215e, TS 0bd7df9). ADR-0002 drafted; round-3 harness coverage and final verdicts running (wf_37282f1c-f61); independent ADR review running |
+| M00-T05 G02 language/TUI + ADR | in_progress | Prototypes committed (Go 8bc175e, Rust 507215e, TS 0bd7df9). Harness 2.3.0 committed. Round-3 final verdicts: Rust 136/136 on both OSes; Go fails K6d (both OSes) and K6e (Linux); TS 127–128/136. Round 3b running (wf_915987c9-8cc). ADR draft reviewed (6 major, 14 minor) and awaiting rewrite |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 
 ## Decisions recorded by the orchestrator
@@ -26,18 +26,15 @@
 
 ## Resume notes
 
-- Workflow results so far are in `tests/evidence/artifacts/m00-wf{1,2,3,4}/`.
-- Round 3 and round 3b run as one workflow, `wf_37282f1c-f61` (resumed 2026-10-04 01:07 after a T3 restart; harness-r3 replayed from cache). To resume again, run `Workflow({scriptPath: <session>/workflows/scripts/heimdall-m00-g02-round3-wf_37282f1c-f61.js, resumeFromRunId: "wf_37282f1c-f61"})`. Do not edit the script before that call, or completed agents will re-run.
-- Stages:
-  1. harness-r3 (done);
-  2. review-harness-r3, then harness fix if needed;
-  3. baseline conformance on the unchanged round-2 artifacts;
-  4. round 3b: Go and Rust fix, verdict and fresh review; TS research in parallel.
-- When it finishes, commit the harness, the conformance records, the measurements, the reviews and the results archive. Then rewrite ADR-0002 against `tests/evidence/artifacts/review-adr-0002/review.md`.
-- `tools/benchmarks/g02/run_round2.sh` contains an absolute home path. Redact it before committing.
+- Workflow results are in `tests/evidence/artifacts/m00-wf{1,2,3,4,5}/`. `m00-wf5/` holds the round-3 results: harness-r3, review-harness-r3, final-conf-{go,rust,ts}, ts-research, fix3b-rust.
+- Round 3 (`wf_37282f1c-f61`) is finished up to fix3b-rust and ts-research. A T3 restart at 15:44 killed fix3b-go and conf3b-rust-r1. Resuming the old run re-ran fix3b-rust (its cache key changed even though its prompt did not), so it was stopped within a minute (no file edits) and replaced by a continuation workflow.
+- Continuation: `wf_915987c9-8cc`, script `<session>/workflows/scripts/heimdall-m00-g02-round3b.js`. Go: fix3b-go (resumes the WIP edits in the tree) → conf3b-go → optional fix → review3-go. Rust: conf3b-rust (fix already done, static) → optional fix → review3-rust. To resume: `Workflow({scriptPath, resumeFromRunId: "wf_915987c9-8cc"})`. If a completed agent re-runs, stop it and replace it with a static object pointing at its saved result.
+- Committed: harness 2.3.0 (3263e11); TS final conformance, TS research, measurements, benchmark tools, wf5 results (c051cd5).
+- Still uncommitted: Go/Rust round-3b changes and conformance records (being rewritten by the continuation), ADR draft.
+- `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them once the owner OKs it, or at cleanup.
 
 ## Next actions
 
-1. Wait for round 3 (wf_37282f1c-f61): harness K6d/K6e/K17, the reviewer's attempt to defeat it, and the final conformance runs on the unchanged round-2 artifacts.
-2. Round 3b (fairness, from ADR review M1–M3). Go's shared-mode signal choice was made before K6b, K6d and K6e existed, so Go gets one fix round under those rulings, plus the terminfo bound and the K10 panic exit code. Rust gets an equal round for any new-check failures and its §4 thread-spawn orphan. For TS, research only: can compiled Bun binaries disable BUN_OPTIONS, BUN_INSPECT and BUN_BE_BUN, and do musl targets exist (review M5). Then the final conformance runs and fresh targeted reviews.
-3. Rewrite ADR-0002 against every finding in `tests/evidence/artifacts/review-adr-0002/review.md` (M1–M6, m1–m14), then present the decision package.
+1. Wait for `wf_915987c9-8cc`. Then persist its results to `m00-wf5/`, commit Go and Rust separately with their records and reviews, and re-measure Go and Rust if their runtime paths changed.
+2. Rewrite ADR-0002 against every finding in `tests/evidence/artifacts/review-adr-0002/review.md` (M1–M6, m1–m14) plus the round-3/3b results. TS research settles M5: the env hooks are confirmed, and musl does exist.
+3. Present the decision package. Do not start M01 before the owner records D1.
