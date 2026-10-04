@@ -1,0 +1,2371 @@
+{
+  "started_at": "2026-10-03T20:33:25Z",
+  "images": {
+    "debian-arm64": {
+      "pull": {
+        "pull_rc": 0,
+        "pull_tail": [
+          "Status: Downloaded newer image for debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+          "docker.io/library/debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417"
+        ]
+      },
+      "key": "debian-arm64",
+      "reference_used": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+      "platform_requested": "linux/arm64",
+      "source_index": "debian:bookworm-slim index sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "inspect": "sha256:813cd0370d827a30abbef1cf99f88217f87fda9612dd5241c9015ba182d32428|linux/arm64|[\"debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417\",\"debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251\"]|97212435"
+    },
+    "debian-amd64": {
+      "pull": {
+        "pull_rc": 0,
+        "pull_tail": [
+          "Status: Downloaded newer image for debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+          "docker.io/library/debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b"
+        ]
+      },
+      "key": "debian-amd64",
+      "reference_used": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "platform_requested": "linux/amd64",
+      "source_index": "debian:bookworm-slim index sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "inspect": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82|linux/amd64|[\"debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b\"]|74834043"
+    },
+    "python-arm64": {
+      "pull": {
+        "pull_rc": 0,
+        "pull_tail": [
+          "Status: Downloaded newer image for python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6",
+          "docker.io/library/python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6"
+        ]
+      },
+      "key": "python-arm64",
+      "reference_used": "python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6",
+      "platform_requested": "linux/arm64",
+      "source_index": "python:3.13-alpine index sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059",
+      "inspect": "sha256:e3d1bf57b579e73da5380ece73f53f39c0cc955e9063684f1f5015c0e0be80fa|linux/arm64|[\"python@sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059\",\"python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6\"]|55304166"
+    },
+    "alpine-arm64": {
+      "pull": {
+        "pull_rc": 0,
+        "pull_tail": [
+          "Status: Image is up to date for alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
+          "docker.io/library/alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+        ]
+      },
+      "key": "alpine-arm64",
+      "reference_used": "alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
+      "platform_requested": "linux/arm64",
+      "source_index": "alpine:3.22 (reference is the index digest as stored locally)",
+      "inspect": "sha256:e09dd31eab4f4aeaade69891673134f31880ef51c6ee514b0cea072df06d7547|linux/arm64|[\"alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8\"]|8539880"
+    }
+  },
+  "docker": {
+    "version": "client=29.8.1 server=29.8.1 os/arch=linux/arm64",
+    "info": "docker-desktop | Docker Desktop | kernel 7.0.14-linuxkit | aarch64 | cpus 10 | mem 8214851584"
+  },
+  "runs": {
+    "go/linux-arm64": {
+      "image": "sha256:813cd0370d827a30abbef1cf99f88217f87fda9612dd5241c9015ba182d32428|linux/arm64|[\"debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417\",\"debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251\"]|97212435",
+      "image_ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+      "checks": [
+        {
+          "check": "no Go/Rust/Node/Bun (nor python/gcc) in the image",
+          "pass": true,
+          "detail": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "check": "version --json",
+          "pass": true,
+          "detail": {
+            "candidate": "go",
+            "name": "heimdall-proto",
+            "runtime": "go1.27.1 linux/arm64",
+            "tui_framework": "charm.land/bubbletea/v2",
+            "tui_framework_version": "v2.0.10",
+            "version": "0.0.0-g02"
+          }
+        },
+        {
+          "check": "profile show homelab",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "profile show spaced_unicode_path",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "run: argv passthrough byte-for-byte",
+          "pass": true,
+          "detail": {
+            "rc": 0,
+            "stdout_hex": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c"
+          }
+        },
+        {
+          "check": "run: exit code 7 propagated + meta",
+          "pass": true,
+          "detail": {
+            "rc": 7,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "exit_code": 7,
+                "launched": true,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: child killed by SIGTERM -> 143 + meta signal 15",
+          "pass": true,
+          "detail": {
+            "rc": 143,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "exit_code": null,
+                "launched": true,
+                "signal": 15
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: binary stdout (NUL, invalid UTF-8) unmodified",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "610062fffe63"
+          }
+        },
+        {
+          "check": "run: stdin passthrough (binary)",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "696e00ff0a7365636f6e64206c696e650a"
+          }
+        },
+        {
+          "check": "run: launch failure -> 127 + CHILD_LAUNCH_FAILED",
+          "pass": true,
+          "detail": {
+            "rc": 127,
+            "meta": {
+              "schema_version": "1",
+              "state": "failed",
+              "code": "CHILD_LAUNCH_FAILED",
+              "data": {
+                "exit_code": null,
+                "launched": false,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "agent list against fake_agent.py in a python image (shared volume)",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "tui first frame + clean quit (docker exec -it)",
+          "pass": true,
+          "detail": {
+            "ms": 92.281584,
+            "exit_code": 0,
+            "alt_screen_seen": true
+          }
+        }
+      ],
+      "records": [
+        {
+          "label": "os_and_libc",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 31.2,
+          "stdout_len": 81,
+          "stdout_sha256": "5026b1c1e10567fc2ec55a47433555b47a3a31be5a5487f5f06cae6111d575c0",
+          "stdout_hex_head": "616172636836340a2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a6c6464202844656269616e20474c49424320322e33362d392b64656231327531342920322e33360a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "aarch64\n\"Debian GNU/Linux 12 (bookworm)\"\nldd (Debian GLIBC 2.36-9+deb12u14) 2.36\n"
+        },
+        {
+          "label": "toolchain_absent",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 26.8,
+          "stdout_len": 465,
+          "stdout_sha256": "f14cb0d9cd04e2a669bdc4515b77c7ecbb8522517f7ee2dd1d2773a85e6f57d3",
+          "stdout_hex_head": "616273656e743a676f0a616273656e743a676f666d740a616273656e743a72757374630a616273656e743a636172676f0a616273656e743a6e6f64650a616273656e743a6e6f64656a730a616273656e743a6e706d0a616273656e743a62756e0a616273656e743a707974686f6e330a616273656e743a707974686f6e0a616273656e743a6763630a616273656e743a63630a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f676f273a204e6f20737563682066696c65206f72206469726563746f72790a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f636172676f273a204e6f2073756368206669",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "label": "version",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 49.5,
+          "stdout_len": 270,
+          "stdout_sha256": "e9a3f6c4abd34db595fe32c92252ce95e321074d5d14913b987037e7db12112c",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2256455253494f4e5f4f4b222c2264617461223a7b2263616e646964617465223a22676f222c226e616d65223a226865696d64616c6c2d70726f746f222c2272756e74696d65223a22676f312e32372e31206c696e75782f61726d3634222c227475695f6672616d65776f726b223a22636861726d2e6c616e642f627562626c657465612f7632222c227475695f6672616d65776f726b5f76657273696f6e223a2276322e302e3130222c2276657273696f6e223a22302e302e302d673032227d2c227761726e696e6773223a5b5d",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"candidate\":\"go\",\"name\":\"heimdall-proto\",\"runtime\":\"go1.27.1 linux/arm64\",\"tui_framework\":\"charm.land/bubbletea/v2\",\"tui_framework_version\":\"v2.0.10\",\"version\":\"0.0.0-g02\"},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_homelab",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 70.7,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_spaced_unicode_path",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 77.9,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "run --meta-file /out/meta1.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 70.4,
+          "stdout_len": 51,
+          "stdout_sha256": "b7e216c13f2eeb4dc847521410f3b5396ed46b5b77ad2e2cb51b951626062e6f",
+          "stdout_hex_head": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "a b|c'd\"e|$HOME;*|line1\nline2|ü東|-n||back\\slash|",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": 0,
+              "launched": true,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta2.json --",
+          "rc": 7,
+          "timed_out": false,
+          "wall_ms": 24.8,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": 7,
+              "launched": true,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta3.json --",
+          "rc": 143,
+          "timed_out": false,
+          "wall_ms": 25.4,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": null,
+              "launched": true,
+              "signal": 15
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta4.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 26.4,
+          "stdout_len": 6,
+          "stdout_sha256": "90dfb46089cdd12e545f7476ad13fe662f33f7d798810af932963dce6adb5134",
+          "stdout_hex_head": "610062fffe63",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null,
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": 0,
+              "launched": true,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run -- cat",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 25.3,
+          "stdout_len": 17,
+          "stdout_sha256": "532ff0c373757ac560768e9a3cc0b27d03826aa6ac4db62c72eea474d0d14457",
+          "stdout_hex_head": "696e00ff0a7365636f6e64206c696e650a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null
+        },
+        {
+          "label": "run --meta-file /out/meta6.json --",
+          "rc": 127,
+          "timed_out": false,
+          "wall_ms": 27.1,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 39,
+          "stderr_text": "heimdall-proto: run: command not found\n",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "failed",
+            "code": "CHILD_LAUNCH_FAILED",
+            "data": {
+              "exit_code": null,
+              "launched": false,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "agent_list",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 68.2,
+          "stdout_len": 466,
+          "stdout_sha256": "c2ae76520bfd92d470854127d42e8e79395381ec45b2052c9f740cd501157cec",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a224147454e545f4f4b222c2264617461223a7b226964656e746974696573223a5b7b226b65795f74797065223a227373682d65643235353139222c2266696e6765727072696e74223a225348413235363a6b64667054537170776e50697133557a676d616b31634658647a3030484d36777878704a4c666752426334222c22636f6d6d656e74223a226c6162206b657920c3bc20e69db1e4baac20737061636564227d2c7b226b65795f74797065223a2265636473612d736861322d6e69737470323536222c2266696e6765727072",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[{\"key_type\":\"ssh-ed25519\",\"fingerprint\":\"SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4\",\"comment\":\"lab key ü 東京 spaced\"},{\"key_type\":\"ecdsa-sha2-nistp256\",\"fingerprint\":\"SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk\",\"comment\":\"second\"},{\"key_type\":\"ssh-rsa\",\"fingerprint\":\"SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg\",\"comment\":\"\"}]},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "tui first frame via docker exec -it (latency includes docker exec; not a benchmark)",
+          "first_frame": true,
+          "ms": 92.281584,
+          "alt_screen_seen": true,
+          "exit_code": 0,
+          "forced_kill": false,
+          "stderr_text": "\n\u001b[1mWhat's next:\u001b[0m\n    Try Docker Debug for seamless, persistent debugging tools in any container or image → \u001b[36mdocker debug hm-g02m-go-arm64\u001b[0m\n    Learn more at https://docs.docker.com/go/debug-cli/\n",
+          "screen_head": "> lab-server  aman@lab.example.internal:22\n  nas  admin@nas.example.internal:22\n  vps-東京  deploy@vps1.example.invalid:2222\n\n"
+        }
+      ],
+      "emulation": null,
+      "artifact_sha256": "9a072063d311a356ded98fded373c5534191e7a6c4f8d0e2ddce52cfe2a09614",
+      "artifact_files": [
+        "heimdall-proto"
+      ],
+      "os_and_libc": [
+        "aarch64",
+        "\"Debian GNU/Linux 12 (bookworm)\"",
+        "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36"
+      ],
+      "ldd": [
+        "not a dynamic executable",
+        "sh: 1: file: not found"
+      ],
+      "docker_diff_new_entries_after_setup": [
+        "A /out/meta1.json",
+        "A /out/meta2.json",
+        "A /out/meta3.json",
+        "A /out/meta4.json",
+        "A /out/meta6.json"
+      ],
+      "docker_diff_setup_entries_count": 21,
+      "all_checks_pass": true
+    },
+    "rust/linux-arm64": {
+      "image": "sha256:813cd0370d827a30abbef1cf99f88217f87fda9612dd5241c9015ba182d32428|linux/arm64|[\"debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417\",\"debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251\"]|97212435",
+      "image_ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+      "checks": [
+        {
+          "check": "no Go/Rust/Node/Bun (nor python/gcc) in the image",
+          "pass": true,
+          "detail": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "check": "version --json",
+          "pass": true,
+          "detail": {
+            "name": "heimdall-proto",
+            "version": "0.0.0-g02",
+            "candidate": "rust",
+            "runtime": "rustc 1.99.0 (b940084d7 2026-09-28)",
+            "tui_framework": "ratatui",
+            "tui_framework_version": "0.30.2"
+          }
+        },
+        {
+          "check": "profile show homelab",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "profile show spaced_unicode_path",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "run: argv passthrough byte-for-byte",
+          "pass": true,
+          "detail": {
+            "rc": 0,
+            "stdout_hex": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c"
+          }
+        },
+        {
+          "check": "run: exit code 7 propagated + meta",
+          "pass": true,
+          "detail": {
+            "rc": 7,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": 7,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: child killed by SIGTERM -> 143 + meta signal 15",
+          "pass": true,
+          "detail": {
+            "rc": 143,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": null,
+                "signal": 15
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: binary stdout (NUL, invalid UTF-8) unmodified",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "610062fffe63"
+          }
+        },
+        {
+          "check": "run: stdin passthrough (binary)",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "696e00ff0a7365636f6e64206c696e650a"
+          }
+        },
+        {
+          "check": "run: launch failure -> 127 + CHILD_LAUNCH_FAILED",
+          "pass": true,
+          "detail": {
+            "rc": 127,
+            "meta": {
+              "schema_version": "1",
+              "state": "failed",
+              "code": "CHILD_LAUNCH_FAILED",
+              "data": {
+                "launched": false,
+                "exit_code": null,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "agent list against fake_agent.py in a python image (shared volume)",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "tui first frame + clean quit (docker exec -it)",
+          "pass": true,
+          "detail": {
+            "ms": 23.854875,
+            "exit_code": 0,
+            "alt_screen_seen": true
+          }
+        }
+      ],
+      "records": [
+        {
+          "label": "os_and_libc",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 26.0,
+          "stdout_len": 81,
+          "stdout_sha256": "5026b1c1e10567fc2ec55a47433555b47a3a31be5a5487f5f06cae6111d575c0",
+          "stdout_hex_head": "616172636836340a2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a6c6464202844656269616e20474c49424320322e33362d392b64656231327531342920322e33360a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "aarch64\n\"Debian GNU/Linux 12 (bookworm)\"\nldd (Debian GLIBC 2.36-9+deb12u14) 2.36\n"
+        },
+        {
+          "label": "toolchain_absent",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 24.9,
+          "stdout_len": 465,
+          "stdout_sha256": "f14cb0d9cd04e2a669bdc4515b77c7ecbb8522517f7ee2dd1d2773a85e6f57d3",
+          "stdout_hex_head": "616273656e743a676f0a616273656e743a676f666d740a616273656e743a72757374630a616273656e743a636172676f0a616273656e743a6e6f64650a616273656e743a6e6f64656a730a616273656e743a6e706d0a616273656e743a62756e0a616273656e743a707974686f6e330a616273656e743a707974686f6e0a616273656e743a6763630a616273656e743a63630a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f676f273a204e6f20737563682066696c65206f72206469726563746f72790a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f636172676f273a204e6f2073756368206669",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "label": "version",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 24.4,
+          "stdout_len": 270,
+          "stdout_sha256": "389407ca53c28d68364d93d348afaed180c1d33a170737b15b3700751a67671b",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2256455253494f4e5f4f4b222c2264617461223a7b226e616d65223a226865696d64616c6c2d70726f746f222c2276657273696f6e223a22302e302e302d673032222c2263616e646964617465223a2272757374222c2272756e74696d65223a22727573746320312e39392e30202862393430303834643720323032362d30392d323829222c227475695f6672616d65776f726b223a2272617461747569222c227475695f6672616d65776f726b5f76657273696f6e223a22302e33302e32227d2c227761726e696e6773223a5b5d",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_homelab",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 23.6,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_spaced_unicode_path",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 24.0,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "run --meta-file /out/meta1.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 24.1,
+          "stdout_len": 51,
+          "stdout_sha256": "b7e216c13f2eeb4dc847521410f3b5396ed46b5b77ad2e2cb51b951626062e6f",
+          "stdout_hex_head": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "a b|c'd\"e|$HOME;*|line1\nline2|ü東|-n||back\\slash|",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta2.json --",
+          "rc": 7,
+          "timed_out": false,
+          "wall_ms": 25.0,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 7,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta3.json --",
+          "rc": 143,
+          "timed_out": false,
+          "wall_ms": 25.5,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": null,
+              "signal": 15
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta4.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 24.2,
+          "stdout_len": 6,
+          "stdout_sha256": "90dfb46089cdd12e545f7476ad13fe662f33f7d798810af932963dce6adb5134",
+          "stdout_hex_head": "610062fffe63",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null,
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run -- cat",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 25.1,
+          "stdout_len": 17,
+          "stdout_sha256": "532ff0c373757ac560768e9a3cc0b27d03826aa6ac4db62c72eea474d0d14457",
+          "stdout_hex_head": "696e00ff0a7365636f6e64206c696e650a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null
+        },
+        {
+          "label": "run --meta-file /out/meta6.json --",
+          "rc": 127,
+          "timed_out": false,
+          "wall_ms": 24.9,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 48,
+          "stderr_text": "heimdall-proto: cannot launch command: NotFound\n",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "failed",
+            "code": "CHILD_LAUNCH_FAILED",
+            "data": {
+              "launched": false,
+              "exit_code": null,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "agent_list",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 25.7,
+          "stdout_len": 466,
+          "stdout_sha256": "c2ae76520bfd92d470854127d42e8e79395381ec45b2052c9f740cd501157cec",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a224147454e545f4f4b222c2264617461223a7b226964656e746974696573223a5b7b226b65795f74797065223a227373682d65643235353139222c2266696e6765727072696e74223a225348413235363a6b64667054537170776e50697133557a676d616b31634658647a3030484d36777878704a4c666752426334222c22636f6d6d656e74223a226c6162206b657920c3bc20e69db1e4baac20737061636564227d2c7b226b65795f74797065223a2265636473612d736861322d6e69737470323536222c2266696e6765727072",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[{\"key_type\":\"ssh-ed25519\",\"fingerprint\":\"SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4\",\"comment\":\"lab key ü 東京 spaced\"},{\"key_type\":\"ecdsa-sha2-nistp256\",\"fingerprint\":\"SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk\",\"comment\":\"second\"},{\"key_type\":\"ssh-rsa\",\"fingerprint\":\"SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg\",\"comment\":\"\"}]},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "tui first frame via docker exec -it (latency includes docker exec; not a benchmark)",
+          "first_frame": true,
+          "ms": 23.854875,
+          "alt_screen_seen": true,
+          "exit_code": 0,
+          "forced_kill": false,
+          "stderr_text": "\n\u001b[1mWhat's next:\u001b[0m\n    Try Docker Debug for seamless, persistent debugging tools in any container or image → \u001b[36mdocker debug hm-g02m-rust-arm64\u001b[0m\n    Learn more at https://docs.docker.com/go/debug-cli/\n",
+          "screen_head": "> lab-server  aman@lab.example.internal:22\n  nas  admin@nas.example.internal:22\n  vps-東京  deploy@vps1.example.invalid:2222\n\n"
+        }
+      ],
+      "emulation": null,
+      "artifact_sha256": "9bbd19c36229cb4bd34022c0fa16762e6d995dfd70935f9c78d88c4354a83dfb",
+      "artifact_files": [
+        "heimdall-proto"
+      ],
+      "os_and_libc": [
+        "aarch64",
+        "\"Debian GNU/Linux 12 (bookworm)\"",
+        "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36"
+      ],
+      "ldd": [
+        "not a dynamic executable",
+        "sh: 1: file: not found"
+      ],
+      "docker_diff_new_entries_after_setup": [
+        "A /out/meta1.json",
+        "A /out/meta2.json",
+        "A /out/meta3.json",
+        "A /out/meta4.json",
+        "A /out/meta6.json"
+      ],
+      "docker_diff_setup_entries_count": 21,
+      "all_checks_pass": true
+    },
+    "ts/linux-arm64": {
+      "image": "sha256:813cd0370d827a30abbef1cf99f88217f87fda9612dd5241c9015ba182d32428|linux/arm64|[\"debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417\",\"debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251\"]|97212435",
+      "image_ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+      "checks": [
+        {
+          "check": "no Go/Rust/Node/Bun (nor python/gcc) in the image",
+          "pass": true,
+          "detail": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "check": "version --json",
+          "pass": true,
+          "detail": {
+            "name": "heimdall-proto",
+            "version": "0.0.0-g02",
+            "candidate": "ts",
+            "runtime": "bun 1.4.2 (744846f84)",
+            "tui_framework": "@opentui/core",
+            "tui_framework_version": "0.5.14"
+          }
+        },
+        {
+          "check": "profile show homelab",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "profile show spaced_unicode_path",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "run: argv passthrough byte-for-byte",
+          "pass": true,
+          "detail": {
+            "rc": 0,
+            "stdout_hex": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c"
+          }
+        },
+        {
+          "check": "run: exit code 7 propagated + meta",
+          "pass": true,
+          "detail": {
+            "rc": 7,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": 7,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: child killed by SIGTERM -> 143 + meta signal 15",
+          "pass": true,
+          "detail": {
+            "rc": 143,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": null,
+                "signal": 15
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: binary stdout (NUL, invalid UTF-8) unmodified",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "610062fffe63"
+          }
+        },
+        {
+          "check": "run: stdin passthrough (binary)",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "696e00ff0a7365636f6e64206c696e650a"
+          }
+        },
+        {
+          "check": "run: launch failure -> 127 + CHILD_LAUNCH_FAILED",
+          "pass": true,
+          "detail": {
+            "rc": 127,
+            "meta": {
+              "schema_version": "1",
+              "state": "failed",
+              "code": "CHILD_LAUNCH_FAILED",
+              "data": {
+                "launched": false,
+                "exit_code": null,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "agent list against fake_agent.py in a python image (shared volume)",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "tui first frame + clean quit (docker exec -it)",
+          "pass": true,
+          "detail": {
+            "ms": 57.768292,
+            "exit_code": 0,
+            "alt_screen_seen": true
+          }
+        }
+      ],
+      "records": [
+        {
+          "label": "os_and_libc",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 26.1,
+          "stdout_len": 81,
+          "stdout_sha256": "5026b1c1e10567fc2ec55a47433555b47a3a31be5a5487f5f06cae6111d575c0",
+          "stdout_hex_head": "616172636836340a2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a6c6464202844656269616e20474c49424320322e33362d392b64656231327531342920322e33360a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "aarch64\n\"Debian GNU/Linux 12 (bookworm)\"\nldd (Debian GLIBC 2.36-9+deb12u14) 2.36\n"
+        },
+        {
+          "label": "toolchain_absent",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 25.0,
+          "stdout_len": 465,
+          "stdout_sha256": "f14cb0d9cd04e2a669bdc4515b77c7ecbb8522517f7ee2dd1d2773a85e6f57d3",
+          "stdout_hex_head": "616273656e743a676f0a616273656e743a676f666d740a616273656e743a72757374630a616273656e743a636172676f0a616273656e743a6e6f64650a616273656e743a6e6f64656a730a616273656e743a6e706d0a616273656e743a62756e0a616273656e743a707974686f6e330a616273656e743a707974686f6e0a616273656e743a6763630a616273656e743a63630a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f676f273a204e6f20737563682066696c65206f72206469726563746f72790a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f636172676f273a204e6f2073756368206669",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "label": "version",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 42.5,
+          "stdout_len": 260,
+          "stdout_sha256": "412f15ecc6d24ae699cc22d3b20e5e654d4891edfe857549d133ada727aa2dcc",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2256455253494f4e5f4f4b222c2264617461223a7b226e616d65223a226865696d64616c6c2d70726f746f222c2276657273696f6e223a22302e302e302d673032222c2263616e646964617465223a227473222c2272756e74696d65223a2262756e20312e342e32202837343438343666383429222c227475695f6672616d65776f726b223a22406f70656e7475692f636f7265222c227475695f6672616d65776f726b5f76657273696f6e223a22302e352e3134227d2c227761726e696e6773223a5b5d2c226e657874223a6e75",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"ts\",\"runtime\":\"bun 1.4.2 (744846f84)\",\"tui_framework\":\"@opentui/core\",\"tui_framework_version\":\"0.5.14\"},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_homelab",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 41.3,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_spaced_unicode_path",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 40.0,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "run --meta-file /out/meta1.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 47.0,
+          "stdout_len": 51,
+          "stdout_sha256": "b7e216c13f2eeb4dc847521410f3b5396ed46b5b77ad2e2cb51b951626062e6f",
+          "stdout_hex_head": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "a b|c'd\"e|$HOME;*|line1\nline2|ü東|-n||back\\slash|",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta2.json --",
+          "rc": 7,
+          "timed_out": false,
+          "wall_ms": 46.3,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 7,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta3.json --",
+          "rc": 143,
+          "timed_out": false,
+          "wall_ms": 47.0,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": null,
+              "signal": 15
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta4.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 48.5,
+          "stdout_len": 6,
+          "stdout_sha256": "90dfb46089cdd12e545f7476ad13fe662f33f7d798810af932963dce6adb5134",
+          "stdout_hex_head": "610062fffe63",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null,
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run -- cat",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 45.6,
+          "stdout_len": 17,
+          "stdout_sha256": "532ff0c373757ac560768e9a3cc0b27d03826aa6ac4db62c72eea474d0d14457",
+          "stdout_hex_head": "696e00ff0a7365636f6e64206c696e650a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null
+        },
+        {
+          "label": "run --meta-file /out/meta6.json --",
+          "rc": 127,
+          "timed_out": false,
+          "wall_ms": 41.7,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 47,
+          "stderr_text": "heimdall-proto: cannot launch command (ENOENT)\n",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "failed",
+            "code": "CHILD_LAUNCH_FAILED",
+            "data": {
+              "launched": false,
+              "exit_code": null,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "agent_list",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 44.0,
+          "stdout_len": 466,
+          "stdout_sha256": "c2ae76520bfd92d470854127d42e8e79395381ec45b2052c9f740cd501157cec",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a224147454e545f4f4b222c2264617461223a7b226964656e746974696573223a5b7b226b65795f74797065223a227373682d65643235353139222c2266696e6765727072696e74223a225348413235363a6b64667054537170776e50697133557a676d616b31634658647a3030484d36777878704a4c666752426334222c22636f6d6d656e74223a226c6162206b657920c3bc20e69db1e4baac20737061636564227d2c7b226b65795f74797065223a2265636473612d736861322d6e69737470323536222c2266696e6765727072",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[{\"key_type\":\"ssh-ed25519\",\"fingerprint\":\"SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4\",\"comment\":\"lab key ü 東京 spaced\"},{\"key_type\":\"ecdsa-sha2-nistp256\",\"fingerprint\":\"SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk\",\"comment\":\"second\"},{\"key_type\":\"ssh-rsa\",\"fingerprint\":\"SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg\",\"comment\":\"\"}]},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "tui first frame via docker exec -it (latency includes docker exec; not a benchmark)",
+          "first_frame": true,
+          "ms": 57.768292,
+          "alt_screen_seen": true,
+          "exit_code": 0,
+          "forced_kill": false,
+          "stderr_text": "\n\u001b[1mWhat's next:\u001b[0m\n    Try Docker Debug for seamless, persistent debugging tools in any container or image → \u001b[36mdocker debug hm-g02m-ts-arm64\u001b[0m\n    Learn more at https://docs.docker.com/go/debug-cli/\n",
+          "screen_head": "> lab-server  aman@lab.example.internal:22\n  nas  admin@nas.example.internal:22\n  vps-東京  deploy@vps1.example.invalid:2222\n\n"
+        }
+      ],
+      "emulation": null,
+      "artifact_sha256": "ac48d2a6c789bb073168a6d9a8a5eed485fb93d8419c953bdaf3198be27807e2",
+      "artifact_files": [
+        "@opentui/core-linux-arm64/libopentui.so",
+        "heimdall-proto"
+      ],
+      "os_and_libc": [
+        "aarch64",
+        "\"Debian GNU/Linux 12 (bookworm)\"",
+        "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36"
+      ],
+      "ldd": [
+        "linux-vdso.so.1 (0x0000ffff9350a000)",
+        "\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff93310000)",
+        "\t/lib/ld-linux-aarch64.so.1 (0x0000ffff934c0000)",
+        "\tlibpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000ffff932e0000)",
+        "\tlibdl.so.2 => /lib/aarch64-linux-gnu/libdl.so.2 (0x0000ffff932b0000)",
+        "\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000ffff93200000)",
+        "sh: 1: file: not found"
+      ],
+      "docker_diff_new_entries_after_setup": [
+        "A /out/meta1.json",
+        "A /out/meta2.json",
+        "A /out/meta3.json",
+        "A /out/meta4.json",
+        "A /out/meta6.json"
+      ],
+      "docker_diff_setup_entries_count": 24,
+      "all_checks_pass": true
+    },
+    "go/linux-x64": {
+      "image": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82|linux/amd64|[\"debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b\"]|74834043",
+      "image_ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "checks": [
+        {
+          "check": "no Go/Rust/Node/Bun (nor python/gcc) in the image",
+          "pass": true,
+          "detail": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "check": "version --json",
+          "pass": true,
+          "detail": {
+            "candidate": "go",
+            "name": "heimdall-proto",
+            "runtime": "go1.27.1 linux/amd64",
+            "tui_framework": "charm.land/bubbletea/v2",
+            "tui_framework_version": "v2.0.10",
+            "version": "0.0.0-g02"
+          }
+        },
+        {
+          "check": "profile show homelab",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "profile show spaced_unicode_path",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "run: argv passthrough byte-for-byte",
+          "pass": true,
+          "detail": {
+            "rc": 0,
+            "stdout_hex": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c"
+          }
+        },
+        {
+          "check": "run: exit code 7 propagated + meta",
+          "pass": true,
+          "detail": {
+            "rc": 7,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "exit_code": 7,
+                "launched": true,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: child killed by SIGTERM -> 143 + meta signal 15",
+          "pass": true,
+          "detail": {
+            "rc": 143,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "exit_code": null,
+                "launched": true,
+                "signal": 15
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: binary stdout (NUL, invalid UTF-8) unmodified",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "610062fffe63"
+          }
+        },
+        {
+          "check": "run: stdin passthrough (binary)",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "696e00ff0a7365636f6e64206c696e650a"
+          }
+        },
+        {
+          "check": "run: launch failure -> 127 + CHILD_LAUNCH_FAILED",
+          "pass": true,
+          "detail": {
+            "rc": 127,
+            "meta": {
+              "schema_version": "1",
+              "state": "failed",
+              "code": "CHILD_LAUNCH_FAILED",
+              "data": {
+                "exit_code": null,
+                "launched": false,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "agent list against fake_agent.py in a python image (shared volume)",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "tui first frame + clean quit (docker exec -it)",
+          "pass": true,
+          "detail": {
+            "ms": 74.42225,
+            "exit_code": 0,
+            "alt_screen_seen": true
+          }
+        }
+      ],
+      "records": [
+        {
+          "label": "os_and_libc",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 94.6,
+          "stdout_len": 80,
+          "stdout_sha256": "9d682d70e5e895aa5535c0f2f4c08c869cc2f197f2be827d958d83a8f4640a6b",
+          "stdout_hex_head": "7838365f36340a2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a6c6464202844656269616e20474c49424320322e33362d392b64656231327531342920322e33360a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "x86_64\n\"Debian GNU/Linux 12 (bookworm)\"\nldd (Debian GLIBC 2.36-9+deb12u14) 2.36\n"
+        },
+        {
+          "label": "toolchain_absent",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 49.5,
+          "stdout_len": 465,
+          "stdout_sha256": "f14cb0d9cd04e2a669bdc4515b77c7ecbb8522517f7ee2dd1d2773a85e6f57d3",
+          "stdout_hex_head": "616273656e743a676f0a616273656e743a676f666d740a616273656e743a72757374630a616273656e743a636172676f0a616273656e743a6e6f64650a616273656e743a6e6f64656a730a616273656e743a6e706d0a616273656e743a62756e0a616273656e743a707974686f6e330a616273656e743a707974686f6e0a616273656e743a6763630a616273656e743a63630a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f676f273a204e6f20737563682066696c65206f72206469726563746f72790a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f636172676f273a204e6f2073756368206669",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "label": "version",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 52.7,
+          "stdout_len": 270,
+          "stdout_sha256": "66262ef636046f91a4de9c0a3c4e003ec721e07744e85fb594fd22c64e83bc35",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2256455253494f4e5f4f4b222c2264617461223a7b2263616e646964617465223a22676f222c226e616d65223a226865696d64616c6c2d70726f746f222c2272756e74696d65223a22676f312e32372e31206c696e75782f616d643634222c227475695f6672616d65776f726b223a22636861726d2e6c616e642f627562626c657465612f7632222c227475695f6672616d65776f726b5f76657273696f6e223a2276322e302e3130222c2276657273696f6e223a22302e302e302d673032227d2c227761726e696e6773223a5b5d",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"candidate\":\"go\",\"name\":\"heimdall-proto\",\"runtime\":\"go1.27.1 linux/amd64\",\"tui_framework\":\"charm.land/bubbletea/v2\",\"tui_framework_version\":\"v2.0.10\",\"version\":\"0.0.0-g02\"},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_homelab",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 57.3,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_spaced_unicode_path",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 56.3,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "run --meta-file /out/meta1.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 63.7,
+          "stdout_len": 51,
+          "stdout_sha256": "b7e216c13f2eeb4dc847521410f3b5396ed46b5b77ad2e2cb51b951626062e6f",
+          "stdout_hex_head": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "a b|c'd\"e|$HOME;*|line1\nline2|ü東|-n||back\\slash|",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": 0,
+              "launched": true,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta2.json --",
+          "rc": 7,
+          "timed_out": false,
+          "wall_ms": 65.8,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": 7,
+              "launched": true,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta3.json --",
+          "rc": 143,
+          "timed_out": false,
+          "wall_ms": 64.0,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": null,
+              "launched": true,
+              "signal": 15
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta4.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 64.4,
+          "stdout_len": 6,
+          "stdout_sha256": "90dfb46089cdd12e545f7476ad13fe662f33f7d798810af932963dce6adb5134",
+          "stdout_hex_head": "610062fffe63",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null,
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "exit_code": 0,
+              "launched": true,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run -- cat",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 56.6,
+          "stdout_len": 17,
+          "stdout_sha256": "532ff0c373757ac560768e9a3cc0b27d03826aa6ac4db62c72eea474d0d14457",
+          "stdout_hex_head": "696e00ff0a7365636f6e64206c696e650a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null
+        },
+        {
+          "label": "run --meta-file /out/meta6.json --",
+          "rc": 127,
+          "timed_out": false,
+          "wall_ms": 53.3,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 39,
+          "stderr_text": "heimdall-proto: run: command not found\n",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "failed",
+            "code": "CHILD_LAUNCH_FAILED",
+            "data": {
+              "exit_code": null,
+              "launched": false,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "agent_list",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 56.3,
+          "stdout_len": 466,
+          "stdout_sha256": "c2ae76520bfd92d470854127d42e8e79395381ec45b2052c9f740cd501157cec",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a224147454e545f4f4b222c2264617461223a7b226964656e746974696573223a5b7b226b65795f74797065223a227373682d65643235353139222c2266696e6765727072696e74223a225348413235363a6b64667054537170776e50697133557a676d616b31634658647a3030484d36777878704a4c666752426334222c22636f6d6d656e74223a226c6162206b657920c3bc20e69db1e4baac20737061636564227d2c7b226b65795f74797065223a2265636473612d736861322d6e69737470323536222c2266696e6765727072",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[{\"key_type\":\"ssh-ed25519\",\"fingerprint\":\"SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4\",\"comment\":\"lab key ü 東京 spaced\"},{\"key_type\":\"ecdsa-sha2-nistp256\",\"fingerprint\":\"SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk\",\"comment\":\"second\"},{\"key_type\":\"ssh-rsa\",\"fingerprint\":\"SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg\",\"comment\":\"\"}]},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "tui first frame via docker exec -it (latency includes docker exec; not a benchmark)",
+          "first_frame": true,
+          "ms": 74.42225,
+          "alt_screen_seen": true,
+          "exit_code": 0,
+          "forced_kill": false,
+          "stderr_text": "\n\u001b[1mWhat's next:\u001b[0m\n    Try Docker Debug for seamless, persistent debugging tools in any container or image → \u001b[36mdocker debug hm-g02m-go-x64\u001b[0m\n    Learn more at https://docs.docker.com/go/debug-cli/\n",
+          "screen_head": "> lab-server  aman@lab.example.internal:22\n  nas  admin@nas.example.internal:22\n  vps-東京  deploy@vps1.example.invalid:2222\n\n"
+        }
+      ],
+      "emulation": "emulated x86-64 (linux/amd64 under Docker Desktop on Apple silicon), not native",
+      "artifact_sha256": "0a16dac34821acadfc95a00917cbc23ad38589e16ee2a88543a931bbb66965a5",
+      "artifact_files": [
+        "heimdall-proto"
+      ],
+      "os_and_libc": [
+        "x86_64",
+        "\"Debian GNU/Linux 12 (bookworm)\"",
+        "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36"
+      ],
+      "ldd": [
+        "not a dynamic executable",
+        "sh: 1: file: not found"
+      ],
+      "docker_diff_new_entries_after_setup": [
+        "A /out/meta1.json",
+        "A /out/meta2.json",
+        "A /out/meta3.json",
+        "A /out/meta4.json",
+        "A /out/meta6.json"
+      ],
+      "docker_diff_setup_entries_count": 24,
+      "all_checks_pass": true
+    },
+    "rust/linux-x64": {
+      "image": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82|linux/amd64|[\"debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b\"]|74834043",
+      "image_ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "checks": [
+        {
+          "check": "no Go/Rust/Node/Bun (nor python/gcc) in the image",
+          "pass": true,
+          "detail": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "check": "version --json",
+          "pass": true,
+          "detail": {
+            "name": "heimdall-proto",
+            "version": "0.0.0-g02",
+            "candidate": "rust",
+            "runtime": "rustc 1.99.0 (b940084d7 2026-09-28)",
+            "tui_framework": "ratatui",
+            "tui_framework_version": "0.30.2"
+          }
+        },
+        {
+          "check": "profile show homelab",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "profile show spaced_unicode_path",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "run: argv passthrough byte-for-byte",
+          "pass": true,
+          "detail": {
+            "rc": 0,
+            "stdout_hex": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c"
+          }
+        },
+        {
+          "check": "run: exit code 7 propagated + meta",
+          "pass": true,
+          "detail": {
+            "rc": 7,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": 7,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: child killed by SIGTERM -> 143 + meta signal 15",
+          "pass": true,
+          "detail": {
+            "rc": 143,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": null,
+                "signal": 15
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: binary stdout (NUL, invalid UTF-8) unmodified",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "610062fffe63"
+          }
+        },
+        {
+          "check": "run: stdin passthrough (binary)",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "696e00ff0a7365636f6e64206c696e650a"
+          }
+        },
+        {
+          "check": "run: launch failure -> 127 + CHILD_LAUNCH_FAILED",
+          "pass": true,
+          "detail": {
+            "rc": 127,
+            "meta": {
+              "schema_version": "1",
+              "state": "failed",
+              "code": "CHILD_LAUNCH_FAILED",
+              "data": {
+                "launched": false,
+                "exit_code": null,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "agent list against fake_agent.py in a python image (shared volume)",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "tui first frame + clean quit (docker exec -it)",
+          "pass": true,
+          "detail": {
+            "ms": 33.24925,
+            "exit_code": 0,
+            "alt_screen_seen": true
+          }
+        }
+      ],
+      "records": [
+        {
+          "label": "os_and_libc",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 94.0,
+          "stdout_len": 80,
+          "stdout_sha256": "9d682d70e5e895aa5535c0f2f4c08c869cc2f197f2be827d958d83a8f4640a6b",
+          "stdout_hex_head": "7838365f36340a2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a6c6464202844656269616e20474c49424320322e33362d392b64656231327531342920322e33360a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "x86_64\n\"Debian GNU/Linux 12 (bookworm)\"\nldd (Debian GLIBC 2.36-9+deb12u14) 2.36\n"
+        },
+        {
+          "label": "toolchain_absent",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 50.3,
+          "stdout_len": 465,
+          "stdout_sha256": "f14cb0d9cd04e2a669bdc4515b77c7ecbb8522517f7ee2dd1d2773a85e6f57d3",
+          "stdout_hex_head": "616273656e743a676f0a616273656e743a676f666d740a616273656e743a72757374630a616273656e743a636172676f0a616273656e743a6e6f64650a616273656e743a6e6f64656a730a616273656e743a6e706d0a616273656e743a62756e0a616273656e743a707974686f6e330a616273656e743a707974686f6e0a616273656e743a6763630a616273656e743a63630a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f676f273a204e6f20737563682066696c65206f72206469726563746f72790a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f636172676f273a204e6f2073756368206669",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "label": "version",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 30.0,
+          "stdout_len": 270,
+          "stdout_sha256": "389407ca53c28d68364d93d348afaed180c1d33a170737b15b3700751a67671b",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2256455253494f4e5f4f4b222c2264617461223a7b226e616d65223a226865696d64616c6c2d70726f746f222c2276657273696f6e223a22302e302e302d673032222c2263616e646964617465223a2272757374222c2272756e74696d65223a22727573746320312e39392e30202862393430303834643720323032362d30392d323829222c227475695f6672616d65776f726b223a2272617461747569222c227475695f6672616d65776f726b5f76657273696f6e223a22302e33302e32227d2c227761726e696e6773223a5b5d",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_homelab",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 32.4,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_spaced_unicode_path",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 33.0,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "run --meta-file /out/meta1.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 40.4,
+          "stdout_len": 51,
+          "stdout_sha256": "b7e216c13f2eeb4dc847521410f3b5396ed46b5b77ad2e2cb51b951626062e6f",
+          "stdout_hex_head": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "a b|c'd\"e|$HOME;*|line1\nline2|ü東|-n||back\\slash|",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta2.json --",
+          "rc": 7,
+          "timed_out": false,
+          "wall_ms": 41.0,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 7,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta3.json --",
+          "rc": 143,
+          "timed_out": false,
+          "wall_ms": 40.1,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": null,
+              "signal": 15
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta4.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 39.4,
+          "stdout_len": 6,
+          "stdout_sha256": "90dfb46089cdd12e545f7476ad13fe662f33f7d798810af932963dce6adb5134",
+          "stdout_hex_head": "610062fffe63",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null,
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run -- cat",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 39.1,
+          "stdout_len": 17,
+          "stdout_sha256": "532ff0c373757ac560768e9a3cc0b27d03826aa6ac4db62c72eea474d0d14457",
+          "stdout_hex_head": "696e00ff0a7365636f6e64206c696e650a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null
+        },
+        {
+          "label": "run --meta-file /out/meta6.json --",
+          "rc": 127,
+          "timed_out": false,
+          "wall_ms": 30.1,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 48,
+          "stderr_text": "heimdall-proto: cannot launch command: NotFound\n",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "failed",
+            "code": "CHILD_LAUNCH_FAILED",
+            "data": {
+              "launched": false,
+              "exit_code": null,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "agent_list",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 31.3,
+          "stdout_len": 466,
+          "stdout_sha256": "c2ae76520bfd92d470854127d42e8e79395381ec45b2052c9f740cd501157cec",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a224147454e545f4f4b222c2264617461223a7b226964656e746974696573223a5b7b226b65795f74797065223a227373682d65643235353139222c2266696e6765727072696e74223a225348413235363a6b64667054537170776e50697133557a676d616b31634658647a3030484d36777878704a4c666752426334222c22636f6d6d656e74223a226c6162206b657920c3bc20e69db1e4baac20737061636564227d2c7b226b65795f74797065223a2265636473612d736861322d6e69737470323536222c2266696e6765727072",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[{\"key_type\":\"ssh-ed25519\",\"fingerprint\":\"SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4\",\"comment\":\"lab key ü 東京 spaced\"},{\"key_type\":\"ecdsa-sha2-nistp256\",\"fingerprint\":\"SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk\",\"comment\":\"second\"},{\"key_type\":\"ssh-rsa\",\"fingerprint\":\"SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg\",\"comment\":\"\"}]},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "tui first frame via docker exec -it (latency includes docker exec; not a benchmark)",
+          "first_frame": true,
+          "ms": 33.24925,
+          "alt_screen_seen": true,
+          "exit_code": 0,
+          "forced_kill": false,
+          "stderr_text": "\n\u001b[1mWhat's next:\u001b[0m\n    Try Docker Debug for seamless, persistent debugging tools in any container or image → \u001b[36mdocker debug hm-g02m-rust-x64\u001b[0m\n    Learn more at https://docs.docker.com/go/debug-cli/\n",
+          "screen_head": "> lab-server  aman@lab.example.internal:22\n  nas  admin@nas.example.internal:22\n  vps-東京  deploy@vps1.example.invalid:2222\n\n"
+        }
+      ],
+      "emulation": "emulated x86-64 (linux/amd64 under Docker Desktop on Apple silicon), not native",
+      "artifact_sha256": "10e6bf896dd64b835328287c916171c808e0da32ef4b83b1a4267e51fe029856",
+      "artifact_files": [
+        "heimdall-proto"
+      ],
+      "os_and_libc": [
+        "x86_64",
+        "\"Debian GNU/Linux 12 (bookworm)\"",
+        "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36"
+      ],
+      "ldd": [
+        "not a dynamic executable",
+        "sh: 1: file: not found"
+      ],
+      "docker_diff_new_entries_after_setup": [
+        "A /out/meta1.json",
+        "A /out/meta2.json",
+        "A /out/meta3.json",
+        "A /out/meta4.json",
+        "A /out/meta6.json"
+      ],
+      "docker_diff_setup_entries_count": 24,
+      "all_checks_pass": true
+    },
+    "ts/linux-x64": {
+      "image": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82|linux/amd64|[\"debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b\"]|74834043",
+      "image_ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+      "checks": [
+        {
+          "check": "no Go/Rust/Node/Bun (nor python/gcc) in the image",
+          "pass": true,
+          "detail": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "check": "version --json",
+          "pass": true,
+          "detail": {
+            "name": "heimdall-proto",
+            "version": "0.0.0-g02",
+            "candidate": "ts",
+            "runtime": "bun 1.4.2 (744846f84)",
+            "tui_framework": "@opentui/core",
+            "tui_framework_version": "0.5.14"
+          }
+        },
+        {
+          "check": "profile show homelab",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "profile show spaced_unicode_path",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "run: argv passthrough byte-for-byte",
+          "pass": true,
+          "detail": {
+            "rc": 0,
+            "stdout_hex": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c"
+          }
+        },
+        {
+          "check": "run: exit code 7 propagated + meta",
+          "pass": true,
+          "detail": {
+            "rc": 7,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": 7,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: child killed by SIGTERM -> 143 + meta signal 15",
+          "pass": true,
+          "detail": {
+            "rc": 143,
+            "meta": {
+              "schema_version": "1",
+              "state": "succeeded",
+              "code": "CHILD_EXITED",
+              "data": {
+                "launched": true,
+                "exit_code": null,
+                "signal": 15
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "run: binary stdout (NUL, invalid UTF-8) unmodified",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "610062fffe63"
+          }
+        },
+        {
+          "check": "run: stdin passthrough (binary)",
+          "pass": true,
+          "detail": {
+            "stdout_hex": "696e00ff0a7365636f6e64206c696e650a"
+          }
+        },
+        {
+          "check": "run: launch failure -> 127 + CHILD_LAUNCH_FAILED",
+          "pass": true,
+          "detail": {
+            "rc": 127,
+            "meta": {
+              "schema_version": "1",
+              "state": "failed",
+              "code": "CHILD_LAUNCH_FAILED",
+              "data": {
+                "launched": false,
+                "exit_code": null,
+                "signal": null
+              },
+              "warnings": [],
+              "next": null
+            }
+          }
+        },
+        {
+          "check": "agent list against fake_agent.py in a python image (shared volume)",
+          "pass": true,
+          "detail": {
+            "rc": 0
+          }
+        },
+        {
+          "check": "tui first frame + clean quit (docker exec -it)",
+          "pass": true,
+          "detail": {
+            "ms": 499.584125,
+            "exit_code": 0,
+            "alt_screen_seen": true
+          }
+        }
+      ],
+      "records": [
+        {
+          "label": "os_and_libc",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 92.3,
+          "stdout_len": 80,
+          "stdout_sha256": "9d682d70e5e895aa5535c0f2f4c08c869cc2f197f2be827d958d83a8f4640a6b",
+          "stdout_hex_head": "7838365f36340a2244656269616e20474e552f4c696e75782031322028626f6f6b776f726d29220a6c6464202844656269616e20474c49424320322e33362d392b64656231327531342920322e33360a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "x86_64\n\"Debian GNU/Linux 12 (bookworm)\"\nldd (Debian GLIBC 2.36-9+deb12u14) 2.36\n"
+        },
+        {
+          "label": "toolchain_absent",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 49.2,
+          "stdout_len": 465,
+          "stdout_sha256": "f14cb0d9cd04e2a669bdc4515b77c7ecbb8522517f7ee2dd1d2773a85e6f57d3",
+          "stdout_hex_head": "616273656e743a676f0a616273656e743a676f666d740a616273656e743a72757374630a616273656e743a636172676f0a616273656e743a6e6f64650a616273656e743a6e6f64656a730a616273656e743a6e706d0a616273656e743a62756e0a616273656e743a707974686f6e330a616273656e743a707974686f6e0a616273656e743a6763630a616273656e743a63630a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f676f273a204e6f20737563682066696c65206f72206469726563746f72790a6c733a2063616e6e6f742061636365737320272f7573722f6c6f63616c2f636172676f273a204e6f2073756368206669",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "absent:go\nabsent:gofmt\nabsent:rustc\nabsent:cargo\nabsent:node\nabsent:nodejs\nabsent:npm\nabsent:bun\nabsent:python3\nabsent:python\nabsent:gcc\nabsent:cc\nls: cannot access '/usr/local/go': No such file or directory\nls: cannot access '/usr/local/cargo': No such file or directory\nls: cannot access '/root/.cargo': No such file or directory\nls: cannot access '/root/.bun': No such file or directory\nls: cannot access '/usr/local/lib/node_modules': No such file or directory\n"
+        },
+        {
+          "label": "version",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 301.3,
+          "stdout_len": 260,
+          "stdout_sha256": "412f15ecc6d24ae699cc22d3b20e5e654d4891edfe857549d133ada727aa2dcc",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2256455253494f4e5f4f4b222c2264617461223a7b226e616d65223a226865696d64616c6c2d70726f746f222c2276657273696f6e223a22302e302e302d673032222c2263616e646964617465223a227473222c2272756e74696d65223a2262756e20312e342e32202837343438343666383429222c227475695f6672616d65776f726b223a22406f70656e7475692f636f7265222c227475695f6672616d65776f726b5f76657273696f6e223a22302e352e3134227d2c227761726e696e6773223a5b5d2c226e657874223a6e75",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"ts\",\"runtime\":\"bun 1.4.2 (744846f84)\",\"tui_framework\":\"@opentui/core\",\"tui_framework_version\":\"0.5.14\"},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_homelab",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 351.9,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "profile_show_spaced_unicode_path",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 353.8,
+          "stdout_len": 524,
+          "stdout_sha256": "b9b06ff40a9e5b2a58d9632c871f85f1f36ada7c9bdeac726a20690768efd0be",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a2250524f46494c455f4f4b222c2264617461223a7b2270726f66696c65223a7b226e616d65223a22686f6d656c6162222c227265766973696f6e223a332c2264657374696e6174696f6e73223a5b7b226964223a226473745f6c61625f736572766572222c22616c696173223a226c61622d736572766572222c22686f7374223a226c61622e6578616d706c652e696e7465726e616c222c22706f7274223a32322c226163636f756e74223a22616d616e222c226c6162656c73223a5b22686f6d656c6162222c2266697865642d61",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "run --meta-file /out/meta1.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 361.8,
+          "stdout_len": 51,
+          "stdout_sha256": "b7e216c13f2eeb4dc847521410f3b5396ed46b5b77ad2e2cb51b951626062e6f",
+          "stdout_hex_head": "6120627c63276422657c24484f4d453b2a7c6c696e65310a6c696e65327cc3bce69db17c2d6e7c7c6261636b5c736c6173687c",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "a b|c'd\"e|$HOME;*|line1\nline2|ü東|-n||back\\slash|",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta2.json --",
+          "rc": 7,
+          "timed_out": false,
+          "wall_ms": 352.7,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 7,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta3.json --",
+          "rc": 143,
+          "timed_out": false,
+          "wall_ms": 356.9,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": null,
+              "signal": 15
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run --meta-file /out/meta4.json --",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 361.8,
+          "stdout_len": 6,
+          "stdout_sha256": "90dfb46089cdd12e545f7476ad13fe662f33f7d798810af932963dce6adb5134",
+          "stdout_hex_head": "610062fffe63",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null,
+          "meta": {
+            "schema_version": "1",
+            "state": "succeeded",
+            "code": "CHILD_EXITED",
+            "data": {
+              "launched": true,
+              "exit_code": 0,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "run -- cat",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 342.7,
+          "stdout_len": 17,
+          "stdout_sha256": "532ff0c373757ac560768e9a3cc0b27d03826aa6ac4db62c72eea474d0d14457",
+          "stdout_hex_head": "696e00ff0a7365636f6e64206c696e650a",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": null
+        },
+        {
+          "label": "run --meta-file /out/meta6.json --",
+          "rc": 127,
+          "timed_out": false,
+          "wall_ms": 327.5,
+          "stdout_len": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_hex_head": "",
+          "stderr_len": 47,
+          "stderr_text": "heimdall-proto: cannot launch command (ENOENT)\n",
+          "stdout_text": "",
+          "meta": {
+            "schema_version": "1",
+            "state": "failed",
+            "code": "CHILD_LAUNCH_FAILED",
+            "data": {
+              "launched": false,
+              "exit_code": null,
+              "signal": null
+            },
+            "warnings": [],
+            "next": null
+          }
+        },
+        {
+          "label": "agent_list",
+          "rc": 0,
+          "timed_out": false,
+          "wall_ms": 374.7,
+          "stdout_len": 466,
+          "stdout_sha256": "c2ae76520bfd92d470854127d42e8e79395381ec45b2052c9f740cd501157cec",
+          "stdout_hex_head": "7b22736368656d615f76657273696f6e223a2231222c227374617465223a22737563636565646564222c22636f6465223a224147454e545f4f4b222c2264617461223a7b226964656e746974696573223a5b7b226b65795f74797065223a227373682d65643235353139222c2266696e6765727072696e74223a225348413235363a6b64667054537170776e50697133557a676d616b31634658647a3030484d36777878704a4c666752426334222c22636f6d6d656e74223a226c6162206b657920c3bc20e69db1e4baac20737061636564227d2c7b226b65795f74797065223a2265636473612d736861322d6e69737470323536222c2266696e6765727072",
+          "stderr_len": 0,
+          "stderr_text": "",
+          "stdout_text": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[{\"key_type\":\"ssh-ed25519\",\"fingerprint\":\"SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4\",\"comment\":\"lab key ü 東京 spaced\"},{\"key_type\":\"ecdsa-sha2-nistp256\",\"fingerprint\":\"SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk\",\"comment\":\"second\"},{\"key_type\":\"ssh-rsa\",\"fingerprint\":\"SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg\",\"comment\":\"\"}]},\"warnings\":[],\"next\":null}\n"
+        },
+        {
+          "label": "tui first frame via docker exec -it (latency includes docker exec; not a benchmark)",
+          "first_frame": true,
+          "ms": 499.584125,
+          "alt_screen_seen": true,
+          "exit_code": 0,
+          "forced_kill": false,
+          "stderr_text": "\n\u001b[1mWhat's next:\u001b[0m\n    Try Docker Debug for seamless, persistent debugging tools in any container or image → \u001b[36mdocker debug hm-g02m-ts-x64\u001b[0m\n    Learn more at https://docs.docker.com/go/debug-cli/\n",
+          "screen_head": "> lab-server  aman@lab.example.internal:22\n  nas  admin@nas.example.internal:22\n  vps-東京  deploy@vps1.example.invalid:2222\n\n"
+        }
+      ],
+      "emulation": "emulated x86-64 (linux/amd64 under Docker Desktop on Apple silicon), not native",
+      "artifact_sha256": "a392aee658ccf002f0d2de9a2f313fa5a6814e0a715f3563d8cd0736c8a19e87",
+      "artifact_files": [
+        "@opentui/core-linux-x64/libopentui.so",
+        "heimdall-proto"
+      ],
+      "os_and_libc": [
+        "x86_64",
+        "\"Debian GNU/Linux 12 (bookworm)\"",
+        "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36"
+      ],
+      "ldd": [
+        "libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007fffff5e4000)",
+        "\t/lib64/ld-linux-x86-64.so.2 (0x00007ffffffcb000)",
+        "\tlibpthread.so.0 => /lib/x86_64-linux-gnu/libpthread.so.0 (0x00007fffff5df000)",
+        "\tlibdl.so.2 => /lib/x86_64-linux-gnu/libdl.so.2 (0x00007fffff5da000)",
+        "\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007fffff4fa000)",
+        "sh: 1: file: not found"
+      ],
+      "docker_diff_new_entries_after_setup": [
+        "A /out/meta1.json",
+        "A /out/meta2.json",
+        "A /out/meta3.json",
+        "A /out/meta4.json",
+        "A /out/meta6.json"
+      ],
+      "docker_diff_setup_entries_count": 27,
+      "all_checks_pass": true
+    }
+  },
+  "fake_agent": {
+    "image": "python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6",
+    "mode": "normal",
+    "keys": [
+      {
+        "key_type": "ssh-ed25519",
+        "fingerprint": "SHA256:kdfpTSqpwnPiq3Uzgmak1cFXdz00HM6wxxpJLfgRBc4"
+      },
+      {
+        "key_type": "ecdsa-sha2-nistp256",
+        "fingerprint": "SHA256:va5G9H+MWJdhvCnmFGbOqPWBqV2Sd3uIcPiynBxd9tk"
+      },
+      {
+        "key_type": "ssh-rsa",
+        "fingerprint": "SHA256:u/KR2eOlY5DvsRH1mFtITDho7J+b1+701C8zmw3m8Zg"
+      }
+    ]
+  },
+  "fake_agent_contact": {
+    "connect_events": 6,
+    "message_types": [
+      11,
+      11,
+      11,
+      11,
+      11,
+      11
+    ],
+    "message_bytes": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "disconnect_reasons": [
+      "peer_eof",
+      "peer_eof",
+      "peer_eof",
+      "peer_eof",
+      "peer_eof",
+      "peer_eof"
+    ]
+  },
+  "musl_probe_alpine_arm64": {
+    "image": "sha256:e09dd31eab4f4aeaade69891673134f31880ef51c6ee514b0cea072df06d7547|linux/arm64|[\"alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8\"]|8539880",
+    "image_ref": "alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
+    "results": {
+      "go": {
+        "rc": 0,
+        "stdout_head": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"candidate\":\"go\",\"name\":\"heimdall-proto\",\"runtime\":\"go1.27.1 linux/arm64\",\"tui_framework\":\"charm.land/bubbletea/v2\",\"tui_framework_version\":\"v2.0.10\",\"version\":\"0.0.0-g02\"},\"warnings\":[],\"next\":null}\n",
+        "stderr_head": ""
+      },
+      "rust": {
+        "rc": 0,
+        "stdout_head": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}\n",
+        "stderr_head": ""
+      },
+      "ts": {
+        "rc": 255,
+        "stdout_head": "",
+        "stderr_head": "exec /opt/hm/heimdall-proto: no such file or directory\n"
+      }
+    }
+  },
+  "finished_at": "2026-10-03T20:33:41Z"
+}

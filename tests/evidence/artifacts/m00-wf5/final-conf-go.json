@@ -1,0 +1,41 @@
+{
+  "candidate": "go",
+  "harness_version": "2.3.0",
+  "darwin": {
+    "harness_exit_code": 1,
+    "evidence_record": "tests/evidence/g02-go-conformance.json",
+    "artifact_sha256": "20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1",
+    "passed": 135,
+    "failed": 1,
+    "errored": 0
+  },
+  "linux": {
+    "harness_exit_code": 1,
+    "evidence_record": "tests/evidence/g02-go-conformance-linux.json",
+    "artifact_sha256": "f7d383185190bbaf385082e7c6455f3d714823d3951cd545d385f7d712a10f61",
+    "passed": 134,
+    "failed": 2,
+    "errored": 0
+  },
+  "failures": [
+    {
+      "platform": "darwin-arm64",
+      "check_id": "run.k6d_shared_mode_explicit_signals",
+      "classification": "prototype_defect",
+      "detail": "Contract section 9.3 K6d: an explicit SIGINT/SIGHUP/SIGQUIT/SIGWINCH sent to the heimdall-proto PID must reach the child at least once in shared mode. The record shows observed [] (no signal delivered to the child) for all 12 non-SIGTERM forms: sh-c, pipeline-first and pipeline-last, times SIGINT, SIGHUP, SIGQUIT and SIGWINCH. SIGTERM passes in all three layouts. The harness preconditions held (k6d_setups report env_foreground true and shared true for every form, heimdall-proto in the foreground group). Reruns with --only: 3 of 3 failed with the same 12 assertions (flaky-rerun count: 0 passes in 3). The Go REPORT.md 'known limitation' item 1 documents this behavior (modeShared does not forward SIGINT/SIGQUIT/SIGWINCH/SIGHUP while its group is the terminal foreground, because Go's os/signal has no siginfo), which K6d now rules a failure (silent loss). Deterministic, not flaky."
+    },
+    {
+      "platform": "linux-arm64",
+      "check_id": "run.k6d_shared_mode_explicit_signals",
+      "classification": "prototype_defect",
+      "detail": "Same as darwin: the same 12 assertions failed with observed [] and SIGTERM passed in all three layouts. The k6d_setups in the record show env_foreground true and shared true for all 15 forms. The Linux rerun was not repeated for this check; the identical darwin result was reproduced 3 of 3 times (deterministic, matches the documented mode-shared design in REPORT.md)."
+    },
+    {
+      "platform": "linux-arm64",
+      "check_id": "run.k6e_job_control",
+      "classification": "prototype_defect",
+      "detail": "Contract section 9.3 K6e (Ctrl-Z stops the job, fg resumes it with terminal input reaching the child, bg then fg works, the job is never left half-stopped or re-stopped). On Linux, under bash -i, the simple-command form fails nondeterministically at a different step in each run. Initial run: iteration 1 z-fg, ctrl-z left states child S / proto T, fg left proto T, and the line typed after fg reached the child as the literal text 'fg\\r' (the job was not resumed from the shell's view). Rerun 1: simple iteration 5 z-bg-fg, heartbeat advanced 426 to 443 while the shell reported the job stopped (child S, proto T), plus list iteration 2 z-fg 'fg\\r' read by the child. Rerun 2: simple iteration 3 z-fg, child R, proto T after fg, line 'fg\\r'. Rerun 3: simple iteration 1 z-bg-fg, heartbeat advanced 45 to 63 while the job was reported stopped, plus list iteration 2 z-bg-fg. Flaky-rerun counts: 0 passes in 4 Linux runs (initial plus 3 reruns with --only). The non-gating zsh observations show the same pattern. The same check passes on darwin-arm64 in the full run and in 3 of 3 reruns (4 of 4), and passes against the reference implementation in the Linux container self-test (harness validated; harness 2.3.0 SELFTEST), so the harness is not the cause. The state signature (proto stopped by the shell's SIGTSTP, child not stopped, or fg not resuming) is consistent with the REPORT.md mechanism that mirrors the child's stop with a 50 ms foreground poll (an inherent race). I did not inspect the Go source; classification rests on the observed process states."
+    }
+  ],
+  "summary": "Final G02 verdict run for go on harness 2.3.0, with no prototype edits. The dist/manifest.json sha256 and byte counts match the files on disk for all four targets, so I did not rebuild. prototypes/ has no diff against HEAD (HEAD is now 3263e11, the harness commit). The go candidate does not pass the K13 gate on either platform. Darwin-arm64: 135 of 136 checks passed, 1 failed, 0 errored, harness exit 1, record status verified, verdict fail. Linux-arm64 (digest-pinned container, native arm64 kernel): 134 of 136 passed, 2 failed, 0 errored, harness exit 1, verdict fail. Failures: (1) run.k6d_shared_mode_explicit_signals on both platforms. All 12 non-SIGTERM forms lost the signal silently. The harness setup preconditions held, and 3 of 3 darwin reruns failed identically, so it is deterministic. It matches the 'known limitation' in prototypes/go/REPORT.md, which K6d now rules a failure. Classified prototype_defect. (2) run.k6e_job_control on Linux only. It failed in 4 of 4 runs (initial plus 3 --only reruns), each at a different step (child not stopped after Ctrl-Z, fg not resuming, typed 'fg' text read by the child). The check passes on darwin in 4 of 4 runs and the reference passes it in the Linux self-test. Classified prototype_defect, with the caveat that I did not read the Go source. Canary: I found no full HEIMDALL_CANARY_ value in either record, the artifacts or the /tmp rerun outputs. The only matches are assertion text 'no HEIMDALL_CANARY_ in <stream>', and canary.no_canary_anywhere passed on both platforms. Artifacts: previous contents were moved into tests/evidence/artifacts/g02-go/conformance/prev-20261004T184728Z/, which also holds copies of the previous two records. New artifacts are in tests/evidence/artifacts/g02-go/conformance/ with Linux artifacts in its linux/ subdirectory. Console logs and rerun records are under /tmp/g02final/. sha256 of the records: g02-go-conformance.json d7a1ec22ac9e785afdc1ffc4f599ed09fe8d58adb763531726aee46f39472f75; g02-go-conformance-linux.json 6b8f0dcf89b05b7064654b33f7a5893448286eab503d5d81efa6340b8d1f6d88. The Linux binary sha256 is f7d383185190bbaf385082e7c6455f3d714823d3951cd545d385f7d712a10f61. I escalated no contract ambiguity. Windows and WSL remain blocked, as listed in the record limitations."
+}

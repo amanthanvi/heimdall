@@ -1,0 +1,386 @@
+{
+  "meta": {
+    "started_at": "2026-10-04T02:26:43Z",
+    "params": {
+      "idle_s": 300.0,
+      "short_s": 2.0,
+      "reps": 3,
+      "out_dir": "<repo>/tests/evidence/artifacts/g02-measure"
+    },
+    "target": "darwin-arm64",
+    "hardware": {
+      "hw.model": "Mac17,6",
+      "hw.memsize": "68719476736",
+      "machdep.cpu.brand_string": "Apple M5 Max",
+      "kern.osversion": "26A428",
+      "hw.ncpu": "18",
+      "hw.physicalcpu": "18",
+      "hw.perflevel0.logicalcpu": "6",
+      "hw.perflevel1.logicalcpu": "12",
+      "kern.boottime": "{ sec = 1790460720, usec = 450493 } Sat Sep 26 18:12:00 2026",
+      "sw_vers": {
+        "ProductName": "macOS",
+        "ProductVersion": "27.0",
+        "BuildVersion": "26A428"
+      },
+      "uname": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64"
+    },
+    "artifact_sha256_start": {
+      "go": {
+        "heimdall-proto": "20e8c5c13d597d242bc00bc1dc27774918e4288b12e9c1e85f0a1264e8b5b2e1"
+      },
+      "rust": {
+        "heimdall-proto": "d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3ef65a67e11"
+      },
+      "ts": {
+        "@opentui/core-darwin-arm64/libopentui.dylib": "708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6",
+        "heimdall-proto": "dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2"
+      }
+    },
+    "load": [
+      {
+        "label": "start",
+        "at": "2026-10-04T02:26:43Z",
+        "uptime": "22:26  up 7 days,  4:15, 3 users, load averages: 2.71 2.77 3.32",
+        "loadavg": [
+          2.7060546875,
+          2.7685546875,
+          3.31787109375
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 2.1% user, 3.24% sys, 94.74% idle "
+      },
+      {
+        "label": "rep1-end",
+        "at": "2026-10-04T02:41:51Z",
+        "uptime": "22:41  up 7 days,  4:30, 3 users, load averages: 2.12 2.30 2.59",
+        "loadavg": [
+          2.12255859375,
+          2.2998046875,
+          2.59228515625
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 2.68% user, 3.35% sys, 93.95% idle "
+      },
+      {
+        "label": "rep2-end",
+        "at": "2026-10-04T02:56:59Z",
+        "uptime": "22:56  up 7 days,  4:45, 3 users, load averages: 2.46 2.25 2.24",
+        "loadavg": [
+          2.45849609375,
+          2.24853515625,
+          2.2421875
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 1.52% user, 2.26% sys, 96.21% idle "
+      },
+      {
+        "label": "rep3-end",
+        "at": "2026-10-04T03:12:07Z",
+        "uptime": "23:12  up 7 days, 5 hrs, 3 users, load averages: 4.39 3.68 2.74",
+        "loadavg": [
+          4.39111328125,
+          3.67529296875,
+          2.736328125
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 1.61% user, 2.79% sys, 95.59% idle "
+      },
+      {
+        "label": "end",
+        "at": "2026-10-04T03:12:09Z",
+        "uptime": "23:12  up 7 days, 5 hrs, 3 users, load averages: 4.39 3.68 2.74",
+        "loadavg": [
+          4.39111328125,
+          3.67529296875,
+          2.736328125
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 1.41% user, 2.69% sys, 95.88% idle "
+      }
+    ],
+    "order": [
+      [
+        "go",
+        "rust",
+        "ts"
+      ],
+      [
+        "rust",
+        "ts",
+        "go"
+      ],
+      [
+        "ts",
+        "go",
+        "rust"
+      ]
+    ],
+    "artifact_sha256_unchanged": true,
+    "finished_at": "2026-10-04T03:12:26Z"
+  },
+  "runs": {
+    "go": {
+      "idle": [
+        {
+          "real_s": 300.04,
+          "user_s": 0.48,
+          "sys_s": 0.52,
+          "max_rss_bytes": 11796480,
+          "peak_footprint_bytes": 9994912,
+          "ok": true,
+          "held_s": 300.00477820809465,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-04T02:31:45Z"
+        },
+        {
+          "real_s": 300.06,
+          "user_s": 0.5,
+          "sys_s": 0.54,
+          "max_rss_bytes": 13369344,
+          "peak_footprint_bytes": 9929304,
+          "ok": true,
+          "held_s": 300.0033318750793,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-04T02:56:57Z"
+        },
+        {
+          "real_s": 300.03,
+          "user_s": 0.46,
+          "sys_s": 0.52,
+          "max_rss_bytes": 12976128,
+          "peak_footprint_bytes": 9519728,
+          "ok": true,
+          "held_s": 300.001963290968,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-04T03:07:03Z"
+        }
+      ],
+      "control_short": [
+        {
+          "real_s": 2.03,
+          "user_s": 0.0,
+          "sys_s": 0.01,
+          "max_rss_bytes": 10076160,
+          "peak_footprint_bytes": 6734448,
+          "ok": true,
+          "held_s": 2.0006724999984726,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-04T02:31:47Z"
+        },
+        {
+          "real_s": 2.05,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 9945088,
+          "peak_footprint_bytes": 6570584,
+          "ok": true,
+          "held_s": 2.0050530419684947,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-04T02:56:59Z"
+        },
+        {
+          "real_s": 2.03,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 10256384,
+          "peak_footprint_bytes": 6914672,
+          "ok": true,
+          "held_s": 2.002610875060782,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-04T03:07:05Z"
+        }
+      ]
+    },
+    "rust": {
+      "idle": [
+        {
+          "real_s": 300.02,
+          "user_s": 0.02,
+          "sys_s": 0.09,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2539952,
+          "ok": true,
+          "held_s": 300.0029515409842,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-04T02:36:47Z"
+        },
+        {
+          "real_s": 300.01,
+          "user_s": 0.01,
+          "sys_s": 0.09,
+          "max_rss_bytes": 3407872,
+          "peak_footprint_bytes": 2507184,
+          "ok": true,
+          "held_s": 300.003256957978,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-04T02:46:53Z"
+        },
+        {
+          "real_s": 300.02,
+          "user_s": 0.02,
+          "sys_s": 0.09,
+          "max_rss_bytes": 3407872,
+          "peak_footprint_bytes": 2507184,
+          "ok": true,
+          "held_s": 300.0029690840747,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-04T03:12:05Z"
+        }
+      ],
+      "control_short": [
+        {
+          "real_s": 2.01,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2539952,
+          "ok": true,
+          "held_s": 2.0031503749778494,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-04T02:36:49Z"
+        },
+        {
+          "real_s": 2.02,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2539952,
+          "ok": true,
+          "held_s": 2.0050632499624044,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-04T02:46:55Z"
+        },
+        {
+          "real_s": 2.01,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 3407872,
+          "peak_footprint_bytes": 2507184,
+          "ok": true,
+          "held_s": 2.0015012500807643,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-04T03:12:07Z"
+        }
+      ]
+    },
+    "ts": {
+      "idle": [
+        {
+          "real_s": 300.15,
+          "user_s": 0.18,
+          "sys_s": 0.1,
+          "max_rss_bytes": 57638912,
+          "peak_footprint_bytes": 23315320,
+          "ok": true,
+          "held_s": 300.0001117910724,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-04T02:41:49Z"
+        },
+        {
+          "real_s": 300.09,
+          "user_s": 0.2,
+          "sys_s": 0.08,
+          "max_rss_bytes": 57425920,
+          "peak_footprint_bytes": 23495544,
+          "ok": true,
+          "held_s": 300.00290979107376,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-04T02:51:55Z"
+        },
+        {
+          "real_s": 300.08,
+          "user_s": 0.17,
+          "sys_s": 0.07,
+          "max_rss_bytes": 57458688,
+          "peak_footprint_bytes": 23561104,
+          "ok": true,
+          "held_s": 300.0040005419869,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-04T03:02:01Z"
+        }
+      ],
+      "control_short": [
+        {
+          "real_s": 2.09,
+          "user_s": 0.07,
+          "sys_s": 0.01,
+          "max_rss_bytes": 57081856,
+          "peak_footprint_bytes": 23593848,
+          "ok": true,
+          "held_s": 2.0039917919784784,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-04T02:41:51Z"
+        },
+        {
+          "real_s": 2.09,
+          "user_s": 0.07,
+          "sys_s": 0.01,
+          "max_rss_bytes": 57131008,
+          "peak_footprint_bytes": 23626640,
+          "ok": true,
+          "held_s": 2.004624875029549,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-04T02:51:57Z"
+        },
+        {
+          "real_s": 2.09,
+          "user_s": 0.06,
+          "sys_s": 0.01,
+          "max_rss_bytes": 56967168,
+          "peak_footprint_bytes": 23593872,
+          "ok": true,
+          "held_s": 2.0032283749897033,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-04T03:02:03Z"
+        }
+      ]
+    }
+  }
+}

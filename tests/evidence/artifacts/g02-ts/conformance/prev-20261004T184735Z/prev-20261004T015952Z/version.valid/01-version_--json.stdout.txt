@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"ts","runtime":"bun 1.4.2 (744846f84)","tui_framework":"@opentui/core","tui_framework_version":"0.5.14"},"warnings":[],"next":null}

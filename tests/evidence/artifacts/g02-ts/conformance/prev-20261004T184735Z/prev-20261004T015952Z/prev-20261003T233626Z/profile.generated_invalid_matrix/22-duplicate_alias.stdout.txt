@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"destinations[1].alias","message":"duplicate alias at destinations[1].alias"}},"warnings":[],"next":null}

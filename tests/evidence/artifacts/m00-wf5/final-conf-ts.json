@@ -1,0 +1,77 @@
+{
+  "candidate": "ts",
+  "harness_version": "2.3.0",
+  "darwin": {
+    "harness_exit_code": 1,
+    "evidence_record": "tests/evidence/g02-ts-conformance.json",
+    "passed": 127,
+    "failed": 8,
+    "errored": 1,
+    "artifact_sha256": "dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2"
+  },
+  "linux": {
+    "harness_exit_code": 1,
+    "evidence_record": "tests/evidence/g02-ts-conformance-linux.json",
+    "passed": 128,
+    "failed": 7,
+    "errored": 1,
+    "artifact_sha256": "ac48d2a6c789bb073168a6d9a8a5eed485fb93d8419c953bdaf3198be27807e2"
+  },
+  "failures": [
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "profile.non_regular_file",
+      "classification": "prototype_defect",
+      "detail": "K14 sec2. The k14-fifo case (FIFO with no writer) blocks until the harness kills it at 8 s (exit -9, empty stdout), where exit 2 USAGE_ERROR within 2 s is required. The socket, directory and /dev/null cases pass. Same on both platforms, deterministic in all reruns. The prototype opens the FIFO with a blocking open. Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "tui.non_regular_file",
+      "classification": "prototype_defect",
+      "detail": "K14 sec5. tui --file <FIFO without writer> is still running after 2 s and gets killed, so exit status 2 is never observed. Same root cause as profile.non_regular_file. Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "run.argv_invalid_utf8",
+      "classification": "prototype_defect",
+      "detail": "K8 sec4, gating stack limitation (prototypes/ts/REPORT.md records it, Bun decodes argv before user code runs). 7 of 8 argv elements differ: fffe2d78 arrives as efbfbdefbfbd2d78. The valid-UTF-8 element matches. K8 forbids the bun:ffi route and the prototype is frozen. Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "run.k6a_pipeline_peer_not_stopped",
+      "classification": "prototype_defect",
+      "detail": "K6a sec4. The prototype puts the child in its own foreground process group. In a bash -i pipeline the shell reports '[1]+ Stopped', the pipeline peer is left in state T, and its tty read returns null (K6A-PEER-INPUT is never delivered). The prototype was frozen before the K6a ruling (sec9.1). Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "run.k6a_background_script_tty",
+      "classification": "prototype_defect",
+      "detail": "K6a sec4. For a non-job-control script's '&' job, the terminal foreground group changes during heimdall-proto (fg0 25794, fg1 25796, back to 25794 afterwards), and the script's own tty read gets EIO instead of the typed line. Both the stdin-tty and stdin-devnull variants fail. Cause: the prototype's tcsetpgrp takes the terminal. Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "run.k6a_inherited_ignore",
+      "classification": "prototype_defect",
+      "detail": "K6a/K6c sec4, gated for SIGHUP (nohup) and SIGINT (non-interactive & job). Under nohup heimdall-proto exits 129 and the child's inherited SIGHUP disposition is SIG_DFL (should be SIG_IGN). In the async job it exits 130 and the child sees a SIGINT handler (should be SIG_IGN). The Bun runtime does not preserve inherited ignores, and the prototype was frozen before K6a. Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "run.k6e_job_control",
+      "classification": "prototype_defect",
+      "detail": "K6e sec4. In bash -i, iteration 1 of Ctrl-Z/bg/fg: after bg the shell acknowledges the job, but both heimdall-proto and the child stay in state T (heartbeat frozen at 42 and 41). Both the simple-command and command-list forms fail, with 1 of 10 lines delivered. The prototype was frozen before K6e. Rerun counts: darwin 3/3 fail, linux 3/3 fail."
+    },
+    {
+      "platform": "darwin-arm64,linux-arm64",
+      "check_id": "run.k6d_shared_mode_explicit_signals",
+      "classification": "harness_defect",
+      "detail": "Outcome is error (harness precondition failed, evidence invalid), not fail. Clause: sec4/K6d, conformance.py lines 3732-3738, 3792-3798 and 3815-3817, harness 2.3.0 README guarantee (g) 'K6d shared-mode setup'. The check requires that the job containing heimdall-proto hold the terminal foreground, but it measures this while the candidate runs. The prototype's own job control moves the foreground to the child's group (fg_pgrp equals the child's pid, e.g. 25859 for sh-c, versus job_leader_pgrp 25853). So env_foreground is false in all 15 layout/signal setups on both platforms, and the verdict is inconclusive because of candidate behaviour. All 15 gating delivery assertions pass: each signal reached the child once and exit statuses were the child's. K6d shared mode was never actually exercised for ts. The underlying cause, taking the terminal, is already counted under the K6a failures. Edge to rule on: whether K6d applies to a candidate that does not share its group at all (contract_ambiguity). Rerun counts: darwin 3/3 error, linux 3/3 error."
+    },
+    {
+      "platform": "darwin-arm64",
+      "check_id": "tui.resize_narrow_hides_host",
+      "classification": "harness_defect",
+      "detail": "Sec5. Only the assertion '50x24 status still shows 3/3' fails (observed null), at the 10x40 to 24x50 resize step. conformance.py line 2784 waits only for the wide-rows predicate, then line 2786 reads status_of(s) immediately with no wait. The screenshot at failure shows 24 rows with the three wide rows and no status row yet. A standalone probe (/tmp/ts-final-probe/probe.py, 3 runs) shows the prototype draws the rows and then the status row about 0.7 ms later in a separate write (17.3 ms vs 18.0 ms after resize, consistent across the 3 runs). That is within the sec5 100 ms re-layout bound, and the contract does not require atomic frames. The harness reads between the two writes, a race. Later steps (49, 50, 80 columns) pass. Rerun counts: darwin 3/3 fail, linux 0/3 fail (passes 3/3 in reruns and in the full run). Fix needed: wait_for the 3/3 status or settle before asserting. The prototype is not at fault, but the darwin record carries 1 failed check from it, so it should be reran after harness fix."
+    }
+  ],
+  "summary": "Final G02 verdict run for ts completed on harness 2.3.0 with no prototype edits. The artifact sha256 values in dist/manifest.json matched all 8 files on disk (4 targets, executables plus sidecars), so nothing was rebuilt. darwin-arm64: exit 1, 127 pass, 8 fail, 1 error (136 checks). linux-arm64 (K13 container runner, native arm64, image heimdall-g02-harness:d0c8e448a3a7): exit 1, 128 pass, 7 fail, 1 error. Both records are status in_progress (because of the errored check), verdict fail. The ts candidate therefore does NOT pass the common slice (K13), even if the harness defects are discounted.\n\nFailures that are the prototype's: K14 FIFO blocking (profile.non_regular_file and tui.non_regular_file, both platforms), K8 invalid-UTF-8 argv (Bun stack limitation), K6a (3 checks: pipeline peer stopped, terminal stolen from a background script, inherited SIGHUP/SIGINT ignores lost) and K6e (bg leaves the job stopped). These are deterministic: every one failed 3/3 on reruns on both platforms. The ts prototype was frozen before the K6a/K6e rulings.\n\nFailures that are the harness's:\n- run.k6d_shared_mode_explicit_signals ends in error on both platforms. The harness's own precondition (job holds the terminal foreground) is falsified by the candidate's job control, so it reports invalid evidence instead of a candidate result. The 15 gating delivery assertions all pass.\n- tui.resize_narrow_hides_host fails on darwin only (3/3 on reruns), passes on Linux. It is a sub-millisecond read race in the harness.\n\nNotes for the orchestrator: (1) once the K6d precondition and resize race are decided, the verdict may need a rerun for ts; the harness defects do not change the K13 verdict since the prototype failures stand regardless. (2) Canary check: 0 full-value hits in the 2 records, the artifact trees, console logs and reruns (the 2 fixture canary values were searched literally; per-run canaries are covered by the harness self-check, exit was 1 not 3). (3) The Linux record's evidence_paths and environment.binary hold absolute /Users/... paths, whereas the earlier record used <repo>. This is the harness output as produced and I did not edit it. (4) build_commit in both records is 3263e11 plus dirty (HEAD moved to the harness commit during the run). (5) Previous artifacts and both old records are archived in tests/evidence/artifacts/g02-ts/conformance/prev-20261004T184735Z/. (6) Rerun outputs and the probe are kept in /tmp/ts-final-reruns/ and /tmp/ts-final-probe/. Evidence record sha256 values: g02-ts-conformance.json ce8b8c2e309305a46dd2feeba26e4b711274c69cc75dc915a0096412f872b6cb, g02-ts-conformance-linux.json 1127a123755c9b5205266fda8e4cd9c87cc89ab67150da94ae98934c3bf2c6c2. Not covered: Windows and WSL (blocked_on native Windows host)."
+}

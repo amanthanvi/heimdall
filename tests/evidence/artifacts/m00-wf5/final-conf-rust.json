@@ -1,0 +1,22 @@
+{
+  "candidate": "rust",
+  "harness_version": "2.3.0",
+  "darwin": {
+    "harness_exit_code": 0,
+    "evidence_record": "tests/evidence/g02-rust-conformance.json",
+    "artifact_sha256": "d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3ef65a67e11",
+    "passed": 136,
+    "failed": 0,
+    "errored": 0
+  },
+  "linux": {
+    "harness_exit_code": 0,
+    "evidence_record": "tests/evidence/g02-rust-conformance-linux.json",
+    "artifact_sha256": "77d10192ec9192d09370b13b97ae04af1c59b11e3bda8604825597581a6ccb42",
+    "passed": 136,
+    "failed": 0,
+    "errored": 0
+  },
+  "failures": [],
+  "summary": "Final G02 run for rust with harness 2.3.0, no prototype changes. dist/manifest.json sha256 matched all files on disk (darwin-arm64, linux-arm64, linux-x64, windows-x64, notices), so there was no rebuild; git status shows no changes under prototypes/. Darwin-arm64 (python3 tests/g02/conformance.py, SSH_AUTH_SOCK unset): exit 0, 136 of 136 pass, 0 fail, 0 error, 0 skipped, status=verified, duration 182.0 s. Linux-arm64 (tests/g02/linux/run.sh in the digest-pinned arm64 container, image heimdall-g02-harness:d0c8e448a3a7, Docker server 29.8.1 aarch64): exit 0, 136 of 136 pass, 0 fail, 0 error, 0 skipped, status=verified, duration 174.6 s. The record's artifact_digest matches the on-disk binary sha256 on both platforms. Every check passed on the first run, so no flaky reruns were needed (0 reruns, 0 flaky). Canary grep: no HEIMDALL_CANARY_ value in the two records, the artifacts, or the run logs (grep exit 1); the harness's own canary.no_canary_anywhere passed on both platforms. Previous artifacts and records were moved or copied into tests/evidence/artifacts/g02-rust/conformance/prev-20261004T184725Z/, and the older prev-* directories were left untouched. Artifacts: tests/evidence/artifacts/g02-rust/conformance/ (darwin) and .../conformance/linux/ (Linux). Run logs: /tmp/rust-final-darwin.log and /tmp/rust-final-linux.log. Both records carry build_commit 3263e11f19445b0ed4778dca23f75bf6b7c67d55+dirty. HEAD advanced from 418f1fa to 3263e11 (the harness 2.3.0 commit) during the task. The +dirty comes from the untracked files in the tree, and prototypes/ itself is clean. Limits, stated in the records: native Windows and WSL are not covered (blocked_on a Windows host and a Windows host with WSL), the K11 build and sidecar rules are not judged by this harness, and the TUI is judged through a pty plus the pyte terminal emulator."
+}

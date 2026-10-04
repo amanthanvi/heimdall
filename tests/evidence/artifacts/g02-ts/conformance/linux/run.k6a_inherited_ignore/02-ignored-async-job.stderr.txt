@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/tmp/hmg02-3axdum6o/120-k6a-ign-async-job/c.py", line 27, in <module>
+    time.sleep(0.01)
+    ~~~~~~~~~~^^^^^^
+KeyboardInterrupt

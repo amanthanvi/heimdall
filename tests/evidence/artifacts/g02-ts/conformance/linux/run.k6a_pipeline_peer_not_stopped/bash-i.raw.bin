@@ -1,0 +1,10 @@
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/c.py" 1.5 | "$Y" "$D/p.py"; echo "PIPE_DONE ${PIPESTATUS[*]}"
+[?2004l
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" 1.5 | "$Y" "$D/p.py"
+PIPE_DONE 
+[?2004hHMPS1$ K6A-PEER-INPUT
+[?2004lbash: K6A-PEER-INPUT: command not found
+[?2004hHMPS1$ exit
+[?2004lexit
+There are stopped jobs.
+[?2004hHMPS1$ 

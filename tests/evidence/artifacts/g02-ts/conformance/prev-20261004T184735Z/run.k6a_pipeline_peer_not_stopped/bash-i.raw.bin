@@ -1,0 +1,10 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/c.py" 1.5 | "$Y" "$D/p.py"; echo "PIPE_DONE ${PIPEST ATUS[*]}"
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/c.py" 1.5 | "$Y" "$D/p.py"
+PIPE_DONE 
+HMPS1$ K6A-PEER-INPUT
+bash: K6A-PEER-INPUT: command not found
+HMPS1$ exit
+exit
+There are stopped jobs.
+HMPS1$ 

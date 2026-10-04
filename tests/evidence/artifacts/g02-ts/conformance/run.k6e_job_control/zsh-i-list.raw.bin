@@ -1,0 +1,14 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004h""$P" run -- "$Y" "$D/c.py" "$D" 5; echo "K6E_LIST_RC=$?"[?2004l
+^Zzsh: suspended (signal)  "$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E_LIST_RC=145
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$P" run -- "$Y" "$D/c.py" "$D" 5
+K6E-A-1
+^Zzsh: suspended (signal)  "$P" run -- "$Y" "$D/c.py" "$D" 5
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hbbg[?2004l
+[1]  + continued  "$P" run -- "$Y" "$D/c.py" "$D" 5
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004h
+[1]  + suspended (tty output)  "$P" run -- "$Y" "$D/c.py" "$D" 5
+[0m[27m[24m[JHMPS1$ [Keexit[?2004l
+zsh: you have suspended jobs.
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heexit[?2004l

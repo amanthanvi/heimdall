@@ -1,0 +1,19 @@
+1 go idle {'ok': True, 'real_s': 300.04, 'user_s': 0.48, 'sys_s': 0.52, 'exit_code': 0, 'forced_kill': False}
+1 go control_short {'ok': True, 'real_s': 2.03, 'user_s': 0.0, 'sys_s': 0.01, 'exit_code': 0, 'forced_kill': False}
+1 rust idle {'ok': True, 'real_s': 300.02, 'user_s': 0.02, 'sys_s': 0.09, 'exit_code': 0, 'forced_kill': False}
+1 rust control_short {'ok': True, 'real_s': 2.01, 'user_s': 0.0, 'sys_s': 0.0, 'exit_code': 0, 'forced_kill': False}
+1 ts idle {'ok': True, 'real_s': 300.15, 'user_s': 0.18, 'sys_s': 0.1, 'exit_code': 0, 'forced_kill': False}
+1 ts control_short {'ok': True, 'real_s': 2.09, 'user_s': 0.07, 'sys_s': 0.01, 'exit_code': 0, 'forced_kill': False}
+2 rust idle {'ok': True, 'real_s': 300.01, 'user_s': 0.01, 'sys_s': 0.09, 'exit_code': 0, 'forced_kill': False}
+2 rust control_short {'ok': True, 'real_s': 2.02, 'user_s': 0.0, 'sys_s': 0.0, 'exit_code': 0, 'forced_kill': False}
+2 ts idle {'ok': True, 'real_s': 300.09, 'user_s': 0.2, 'sys_s': 0.08, 'exit_code': 0, 'forced_kill': False}
+2 ts control_short {'ok': True, 'real_s': 2.09, 'user_s': 0.07, 'sys_s': 0.01, 'exit_code': 0, 'forced_kill': False}
+2 go idle {'ok': True, 'real_s': 300.06, 'user_s': 0.5, 'sys_s': 0.54, 'exit_code': 0, 'forced_kill': False}
+2 go control_short {'ok': True, 'real_s': 2.05, 'user_s': 0.0, 'sys_s': 0.0, 'exit_code': 0, 'forced_kill': False}
+3 ts idle {'ok': True, 'real_s': 300.08, 'user_s': 0.17, 'sys_s': 0.07, 'exit_code': 0, 'forced_kill': False}
+3 ts control_short {'ok': True, 'real_s': 2.09, 'user_s': 0.06, 'sys_s': 0.01, 'exit_code': 0, 'forced_kill': False}
+3 go idle {'ok': True, 'real_s': 300.03, 'user_s': 0.46, 'sys_s': 0.52, 'exit_code': 0, 'forced_kill': False}
+3 go control_short {'ok': True, 'real_s': 2.03, 'user_s': 0.0, 'sys_s': 0.0, 'exit_code': 0, 'forced_kill': False}
+3 rust idle {'ok': True, 'real_s': 300.02, 'user_s': 0.02, 'sys_s': 0.09, 'exit_code': 0, 'forced_kill': False}
+3 rust control_short {'ok': True, 'real_s': 2.01, 'user_s': 0.0, 'sys_s': 0.0, 'exit_code': 0, 'forced_kill': False}
+done

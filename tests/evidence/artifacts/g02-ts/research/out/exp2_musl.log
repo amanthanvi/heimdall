@@ -1,0 +1,65 @@
+date=2026-10-04T19:14:00Z
+bun=1.4.2
+build hello bun-linux-arm64-musl rc=0 size= 74452176
+build ffi bun-linux-arm64-musl rc=0
+   [2ms]  bundle  1 modules   [28ms] compile  /tmp/ts-research/musl/hello-linux-arm64-musl bun-linux-aarch64-musl-v1.4.2 
+build hello bun-linux-x64-musl rc=0 size= 75286064
+build ffi bun-linux-x64-musl rc=0
+   [2ms]  bundle  1 modules   [24ms] compile  /tmp/ts-research/musl/hello-linux-x64-musl bun-linux-x64-musl-v1.4.2 
+build hello bun-linux-arm64 rc=0 size= 81316136
+   [1ms]  bundle  1 modules   [31ms] compile  /tmp/ts-research/musl/hello-linux-arm64 bun-linux-aarch64-v1.4.2 
+hello-linux-arm64:      ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, BuildID[sha1]=ea562b973ecaa5f42a519de
+hello-linux-arm64-musl: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-aarch64.so.1, BuildID[sha1]=eb2996b06ecb461c6f20c802e55dcc9f09758672, not
+hello-linux-x64-musl:   ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-x86_64.so.1, BuildID[sha1]=e1826fc789aeec41fb677dd38545bf6b32c82005, not strip
+ffi-linux-arm64-musl:   ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-aarch64.so.1, BuildID[sha1]=eb2996b06ecb461c6f20c802e55dcc9f09758672, not
+ffi-linux-x64-musl:     ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-x86_64.so.1, BuildID[sha1]=e1826fc789aeec41fb677dd38545bf6b32c82005, not strip
+=== alpine:3.22 arm64 (native to Docker VM)
+[before apk add libstdc++ libgcc] hello-linux-arm64-musl
+Error loading shared library libstdc++.so.6: No such file or directory (needed by /t/hello-linux-arm64-musl)
+Error relocating /t/hello-linux-arm64-musl: _ZSt15get_new_handlerv: symbol not found
+Error relocating /t/hello-linux-arm64-musl: _ZSt24__throw_out_of_range_fmtPKcz: symbol not found
+Error relrc=0
+[before apk add libstdc++ libgcc] hello-linux-arm64
+sh: /t/hello-linux-arm64: not found
+rc=0
+[before apk add libstdc++ libgcc] ffi-linux-arm64-musl /t/libopentui-arm64-musl.so
+Error loading shared library libstdc++.so.6: No such file or directory (needed by /t/ffi-linux-arm64-musl)
+Error relocating /t/ffi-linux-arm64-musl: _ZSt15get_new_handlerv: symbol not found
+Error relocating /t/ffi-linux-arm64-musl: _ZSt24__throw_out_of_range_fmtPKcz: symbol not found
+Error relocatinrc=0
+[before apk add libstdc++ libgcc] ffi-linux-arm64-musl /t/libopentui-arm64-glibc.so
+Error loading shared library libstdc++.so.6: No such file or directory (needed by /t/ffi-linux-arm64-musl)
+Error relocating /t/ffi-linux-arm64-musl: _ZSt15get_new_handlerv: symbol not found
+Error relocating /t/ffi-linux-arm64-musl: _ZSt24__throw_out_of_range_fmtPKcz: symbol not found
+Error relocatinrc=0
+apk rc=0 libstdc++ libgcc 
+[after apk add] hello-linux-arm64-musl
+HELLO_MUSL arch=arm64 platform=linux bun=1.4.2
+rc=0
+[after apk add] hello-linux-arm64
+sh: /t/hello-linux-arm64: not found
+rc=0
+[after apk add] ffi-linux-arm64-musl /t/libopentui-arm64-musl.so
+FFI_OK arena_bytes=0 arch=arm64 platform=linux
+rc=0
+[after apk add] ffi-linux-arm64-musl /t/libopentui-arm64-glibc.so
+FFI_OK arena_bytes=0 arch=arm64 platform=linux
+rc=0
+=== alpine:3.22 amd64 (emulated; supplementary only)
+[before apk add libstdc++ libgcc] hello-linux-x64-musl
+Error loading shared library libstdc++.so.6: No such file or directory (needed by /t/hello-linux-x64-musl)
+Error relocating /t/hello-linux-x64-musl: _ZSt15get_new_handlerv: symbol not found
+Error relocating /t/hello-linux-x64-musl: _ZSt24__throw_out_of_range_fmtPKcz: symbol not found
+Error relocatinrc=0
+[before apk add libstdc++ libgcc] ffi-linux-x64-musl /t/libopentui-x64-musl.so
+Error loading shared library libstdc++.so.6: No such file or directory (needed by /t/ffi-linux-x64-musl)
+Error relocating /t/ffi-linux-x64-musl: _ZSt15get_new_handlerv: symbol not found
+Error relocating /t/ffi-linux-x64-musl: _ZSt24__throw_out_of_range_fmtPKcz: symbol not found
+Error relocating /t/frc=0
+apk rc=0 libstdc++ libgcc 
+[after apk add] hello-linux-x64-musl
+HELLO_MUSL arch=x64 platform=linux bun=1.4.2
+rc=0
+[after apk add] ffi-linux-x64-musl /t/libopentui-x64-musl.so
+FFI_OK arena_bytes=0 arch=x64 platform=linux
+rc=0

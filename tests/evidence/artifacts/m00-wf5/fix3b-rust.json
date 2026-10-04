@@ -1,0 +1,86 @@
+{
+  "task_id": "M00-T05-rust-round3b-fix",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/prototypes/rust/src/runner.rs",
+    "<repo>/prototypes/rust/tests/cli.rs",
+    "<repo>/prototypes/rust/tests/pty_tui.py",
+    "<repo>/prototypes/rust/selftest.sh",
+    "<repo>/prototypes/rust/tools/linux_tests.sh",
+    "<repo>/prototypes/rust/tools/linux_pty.sh",
+    "<repo>/prototypes/rust/REPORT.md",
+    "<repo>/prototypes/rust/dist/manifest.json (gitignored; rebuilt by build.sh)",
+    "<repo>/prototypes/rust/target/round2-dist/ (gitignored; copies of the round-2 artifacts for red proofs, digests checked)",
+    "<repo>/tests/evidence/g02-rust-selftest.json",
+    "<repo>/tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b/"
+  ],
+  "commands_run": [
+    {
+      "command": "cargo test --locked --test cli thread_spawn (HEIMDALL_PROTO_BIN=target/round2-dist/darwin-arm64/heimdall-proto, round-2 digest d9838f89...)",
+      "exit_code": 101,
+      "observed": "Red proof on darwin: 'child still ran after heimdall-proto exited (orphan); exit Some(1)'."
+    },
+    {
+      "command": "cargo test --locked --test cli thread_spawn (cargo-built fixed binary)",
+      "exit_code": 0,
+      "observed": "1 passed. Under RUST_MIN_STACK=999999999999999 the fixed binary prints 'cannot start the signal forwarder, command not launched: WouldBlock', exits 1, writes meta CHILD_LAUNCH_FAILED launched:false, and never starts the child."
+    },
+    {
+      "command": "docker run --user 10001:10001 debian:bookworm-slim@sha256:0c8bbb8e... <cli test bin> linux_nproc --ignored --test-threads=1 (new dist vs round-2 linux-arm64)",
+      "exit_code": null,
+      "observed": "Exit codes were piped through grep here; the selftest steps below record the real ones. New binary: limit 4 gave exit 1 (not launched), limit 5 gave 127, limits 6-9 gave 0, no orphan at any limit. Round 2: at limit 5 the 'failed to spawn thread' panic gave exit 1 with no meta file and an orphaned child."
+    },
+    {
+      "command": "sh ./build.sh",
+      "exit_code": 0,
+      "observed": "All 4 targets built. darwin-arm64 717,968 B 00310565...; linux-x64 875,560 B 3120f83e...; linux-arm64 812,728 B 9b9450dd...; windows-x64 841,728 B 9bbdf7bd..."
+    },
+    {
+      "command": "HP_PTY_ONLY=k6e python3 tests/pty_tui.py <binary> (darwin; Linux arm64 in python:3.13-slim-bookworm@sha256:5024f48b...), against round1/round2/round3b binaries",
+      "exit_code": 0,
+      "observed": "Round 2 and round 3b pass on both OSes: interactive bash, 3 x Ctrl-Z->fg->terminal read, 3 x Ctrl-Z->bg->fg, no re-stop, RC=5. The round-1 binary fails on both ('child did not read terminal input after fg': it was re-stopped). The first Linux attempt hit an ERROR from a heartbeat-file race in the test itself; fixed with an atomic os.replace."
+    },
+    {
+      "command": "HP_SELFTEST_RUN_HARNESS=1 sh ./selftest.sh (first run)",
+      "exit_code": 0,
+      "observed": "46/47 steps met. linux-amd64-native-tests-emulated exited 101: under Rosetta amd64 emulation the RUST_MIN_STACK test found no meta file. Reproduced by hand: 'rosetta error: could not find free space for allocation size 38d7ea4c6b000', SIGTRAP, status 133. The emulator aborts the process before any of its code runs. The test is now skipped in that emulated step only, and the observation is recorded as its own step."
+    },
+    {
+      "command": "HP_SELFTEST_RUN_HARNESS=1 sh ./selftest.sh (final, started 2026-10-04T19:27:44Z, artifacts tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b)",
+      "exit_code": 0,
+      "observed": "47/47 steps met their expectation (all_expectations_met true). Each red step was expected non-zero and was. Red proofs on round-2: red-round2-darwin-thread-spawn 101, red-round2-linux-arm64-thread-spawn 101, red-round2-linux-arm64-nproc 101. K6e sensitivity on round 1: sensitivity-round1-{darwin,linux-arm64}-k6e exit 1. Round-1 red steps: 101/1 as before. Host tests: lib 49, bin 4, cli 27. darwin pty: 25 pass + 1 known_limitation (terminal SIGINT count=2). Linux arm64: pty 26/26 and linux-arm64-nproc 0. Rebuild from another checkout path gave identical digests. canary-scan 0."
+    },
+    {
+      "command": "harness-darwin step: tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out /tmp/hp-rs-round3b-harness/darwin/record.json ...",
+      "exit_code": 0,
+      "observed": "136/136 pass, status verified, verdict pass, digest sha256:00310565... K17 p95 3.2 ms. Non-gating: one terminal Ctrl-C gives 2 deliveries and two give 4. Duplicate probe [1,1,1,1,1,2,1,2,1,2]."
+    },
+    {
+      "command": "harness-linux-arm64 step: sh tests/g02/linux/run.sh --artifact-dir prototypes/rust/dist/linux-arm64 --candidate rust --out /tmp/hp-rs-round3b-harness/linux/record.json ...",
+      "exit_code": 0,
+      "observed": "136/136 pass, status verified, verdict pass, digest sha256:9b9450dd... K17 p95 2.0 ms. Terminal Ctrl-C delivered once. Duplicate probe [1 x10]."
+    },
+    {
+      "command": "python3 minischema validate(record.schema.json, g02-rust-selftest.json)",
+      "exit_code": 0,
+      "observed": "errors: [] (no schema errors)"
+    }
+  ],
+  "escalations": [
+    "Product choice for M01, not decided here: when the signal-forwarder thread cannot be created, the fix fails closed. It launches nothing and reports exit 1 with CHILD_LAUNCH_FAILED (launched:false); this reuses the existing internal-failure path. The other option is to run the command without signal forwarding, which would silently break K6. The contract only requires no early exit and no orphan.",
+    "Independent review is missing: this subagent did no delegated or adversarial review of the round-3b change. The orchestrator should obtain one before treating the result as independently confirmed."
+  ],
+  "limitations": [
+    "Darwin delivers terminal-generated INT/QUIT/WINCH (and a kernel SIGHUP to the foreground group) to the run child twice. Darwin gives a tty signal and kill(2) the same siginfo, so the prototype cannot tell them apart. K6b permits this, and it is documented in REPORT.md §14. Observed: one Ctrl-C gives 2 deliveries and two give 4 (harness); pty count=2 is recorded as known_limitation.",
+    "On all platforms, a killpg from another process reaches the child twice (K6b: recorded, not gated).",
+    "K6c stack limitation, unchanged: an inherited ignored SIGPIPE is not preserved by Rust std.",
+    "Out of contract per §9.3, unchanged: SIGUSR1/USR2/ALRM or SIGKILL sent to the heimdall-proto PID orphans the child; the TUI does not restore the terminal on SIGQUIT/SIGUSR1; the exec->main start-up window of about 0.5-1 ms remains.",
+    "The RLIMIT_NPROC test is Linux-only and must run as a non-root uid (it is #[ignore]d and run in its own container step as uid 10001). darwin covers the same failure path with the RUST_MIN_STACK test.",
+    "linux-x64 runs only under Docker Desktop amd64 emulation (no native x64 host). The RUST_MIN_STACK test is skipped there because Rosetta itself aborts the process.",
+    "Windows is compile-checked only (blocked: needs a Windows 10/11 x64 host). WSL is blocked: it needs a Windows host with WSL2.",
+    "The windows-x64 digest changed although its code path did not. I infer, without verifying, that the cause is embedded panic-location line numbers.",
+    "Harness records are under /tmp/hp-rs-round3b-harness/. The copies in attempt-4-round3b/harness-{darwin,linux}/record.json have home paths redacted to ~. The committed baseline conformance records were not overwritten, because the harness is outside this task's write ownership.",
+    "Go-prototype files and Go test processes in the working tree belong to a concurrent agent and were not touched."
+  ],
+  "summary": "The Rust G02 prototype now meets every ruling in contract §9-§9.3 on darwin-arm64 and on Linux arm64 (Docker Desktop VM, native kernel). On the new builds the full shared harness passes 136/136 on both: the darwin run exited 0 and `tests/g02/linux/run.sh` exited 0 (digests 00310565... and 9b9450dd...).\n\n**Baseline:** the round-3 baseline records for Rust (136/136 on both platforms) had no failures, gating or not. That includes K6d, K6e and K17.\n\n**One code fix (round-2 review defect 1, §4 \"waits for the child and does not exit first\").** In `src/runner.rs`, the signal-forwarding thread is now started before the child, with `std::thread::Builder::spawn`, which returns an error instead of panicking. The child's PID reaches the thread over a channel. Signals caught before that are buffered and forwarded once.\n- If no thread can be created, nothing has been launched. The program prints a stderr diagnostic, exits 1 and writes meta `CHILD_LAUNCH_FAILED`.\n- If the child cannot be created after the thread, it is an ordinary launch failure (exit 127).\n- Once the child exists, nothing returns before the wait.\n\nTwo native tests prove it, both failing on the round-2 artifacts and passing now:\n- `tests/cli.rs` `run_thread_spawn_failure_never_orphans_child` forces the failure with a huge `RUST_MIN_STACK`. It runs on darwin and Linux arm64; on round 2 the child kept running after the program exited.\n- `linux_nproc_limit_never_orphans_child` uses a real RLIMIT_NPROC as uid 10001, sweeping the limit around the current task count. Round 2 panicked, wrote no meta file and orphaned the child at limit=base. Now no limit leaves an orphan.\n\n**K6e (Ctrl-Z, `fg`, `bg`) needed no change.** The new pty case `k6e-interactive-bash-ctrl-z-fg-bg` drives interactive bash 3.2 (macOS) and 5.2 (Linux). It runs three Ctrl-Z→fg cycles and three Ctrl-Z→bg→fg cycles, checking for no re-stop, that terminal input reaches the child, and the exit status. It passes for the round-2 and round-3b builds on both OSes. The round-1 job-control binary fails it on both, so the case can detect a broken design.\n\n**K6d** is covered by a new pty case, `k6d-shared-mode-explicit-signals-reach-child`: each of the five signals arrives exactly once on both OSes. K17 p95 is 3.2 ms on darwin and 2.0 ms on Linux. K18, the K10 exit form and the start-up window conform or are documented as allowed.\n\n**Stack limitations:** none hit this round. The SIGPIPE K6c limitation is unchanged. Under linux-x64 emulation, Rosetta aborts on the huge-stack mmap before the program runs (SIGTRAP, status 133). That is an emulator artifact: it is recorded as its own step and the test is skipped only in the emulated step.\n\n**Evidence and docs:**\n- `build.sh` built all four targets, and a rebuild from a second checkout path gave identical digests.\n- The manifest is updated.\n- The selftest record has a new attempt 4 (attempt 3 moved into history in full). The final run met all 47 step expectations with real exit codes. The canary scan found no value.\n- `REPORT.md` §14 \"Round 3b (2026-10-04)\" has the item→outcome table, the final mechanism and the remaining gaps. Those gaps are spelled out there, including Darwin's double delivery of terminal-generated signals (one Ctrl-C reaches the child twice, two reach it four times). It also corrects stale statements: the blocked-signal mask claim, the crate count (117), and §4/§6 now marked as superseded.\n\nNo git commit or push was made. No independent review of this change was done."
+}

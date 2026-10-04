@@ -1,0 +1,81 @@
+{
+  "task_id": "M00-T05-harness-r3",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/g02/conformance.py",
+    "<repo>/tests/g02/reference_impl.py",
+    "<repo>/tests/g02/reference_tui.py",
+    "<repo>/tests/g02/selftest.py",
+    "<repo>/tests/g02/README.md",
+    "<repo>/tests/g02/SELFTEST.md",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r4/SELFTEST-linux.md",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r4/selftest-darwin.json",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r4/selftest-darwin.console.log",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r4/selftest-linux.json",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r4/selftest-linux.console.log",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r4/tested-file-sha256-prefixes.txt"
+  ],
+  "commands_run": [
+    {
+      "command": "python3 tests/g02/conformance.py --bin tests/g02/reference_impl.py --selftest (full catalogue, macOS, harness 2.2.0)",
+      "exit_code": 0,
+      "observed": "135/135 pass, status verified, verdict pass"
+    },
+    {
+      "command": "tests/g02/linux/run.sh --selftest /tmp/hmr4/st/linux -- --repeat-baseline 1 (started 2026-10-04T03:44:56Z)",
+      "exit_code": 0,
+      "observed": "Linux verdict PASS: baselines 135/135 twice, 124/124 observable mutations caught (run_double_signal not observable on Linux), 2/2 harness mutations, conforming variant 1/1, no flaky checks, no canary leaks"
+    },
+    {
+      "command": "python3 tests/g02/selftest.py --repeat-baseline 2 --workdir /tmp/hmr4/st/mac --json-out ... --linux-results /tmp/hmr4/st/linux/selftest-linux.json --linux-results-wait 10800 (finished about 2026-10-04T05:00Z)",
+      "exit_code": 0,
+      "observed": "SELFTEST PASS: darwin baselines 135/135 three times, 124/124 observable mutations caught (agent_reset_unhandled only observable on Linux, caught there), 2/2 harness mutations, tui_reraise_signal accepted, baseline K17 p95 4.2 ms; regenerated tests/g02/SELFTEST.md"
+    },
+    {
+      "command": "REF_MUTATE=<run_shared_drop|run_fg_restop|tui_slow_filter|stderr_echoes_value> conformance.py --only <intended> (macOS and Linux container)",
+      "exit_code": 1,
+      "observed": "Each was caught by its intended check on both platforms. run_fg_restop was caught at iteration 3, so a single iteration would have missed it."
+    },
+    {
+      "command": "REF_MUTATE=tui_reraise_signal conformance.py --only tui.sigterm_restores_terminal,tui.sighup_exit_129,tui.hangup_exit_129",
+      "exit_code": 0,
+      "observed": "3/3 pass; k10_exit_form recorded 'killed by SIGTERM/SIGHUP'"
+    },
+    {
+      "command": "INFORMATIONAL (output in /tmp only): conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --only run.k6d_*,run.k6e_*,run.k6a_inherited_ignore,tui.large_100_filter_latency",
+      "exit_code": null,
+      "observed": "The run was piped through grep, so its exit code was not captured. Check lines: k6d FAIL (sh-c, pipeline-first and pipeline-last: SIGINT/SIGHUP/SIGQUIT/SIGWINCH delivered 0 times, SIGTERM 1). k6e PASS on darwin, matching the reviewer. K6c SIGPIPE observation: the inherited ignore was reset (the child died of SIGPIPE). K17 p95 18.0 ms."
+    },
+    {
+      "command": "INFORMATIONAL: linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --only run.k6d_*,run.k6e_* (final harness, plus 4 earlier K6e-only runs while developing)",
+      "exit_code": null,
+      "observed": "Exit code not captured (piped). K6d FAIL, same counts as darwin. K6e FAIL in every Linux run, in varying forms: the reviewer's re-stop after fg (list form, iteration 2: '[1]+ Stopped' right after fg); the child kept running while the shell reported the job stopped; the child read the shell's 'fg' line."
+    },
+    {
+      "command": "INFORMATIONAL: conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --only run.k6a_inherited_ignore,run.k6d_*,run.k6e_*",
+      "exit_code": null,
+      "observed": "All 3 PASS (exit code not captured). The new non-Python SIGPIPE probe shows Rust resets an inherited SIGPIPE ignore: the child died of signal 13. This matches the Rust reviewer's yes/head probe."
+    },
+    {
+      "command": "conformance.py --list-md | diff against the README catalogue",
+      "exit_code": 0,
+      "observed": "catalogue in sync"
+    }
+  ],
+  "escalations": [
+    "Q11 (new, recorded in OPEN_QUESTIONS and README): K18 covers only offending values. The values of other keys that a schema_version diagnostic might quote (the profile name, a destination host) are still gated in the JSON result, but on stderr they remain a non-gating observation. Needs an orchestrator ruling: confirm this, or extend the stderr gate to every input value.",
+    "Q12 (new): after `bg`, a child that reads the tty is stopped by the kernel (SIGTTIN). A wrapper that does not mirror that stop leaves the child stopped while the shell thinks the job is running. run.k6e_job_control avoids this case: its child does not touch the tty while in the background. Needs a ruling on whether K6e requires mirroring.",
+    "Interpretation used in K6e, for review: 'Ctrl-Z stops the run job' is gated as 'the child stops too (heartbeat frozen) while the shell reports the job stopped'. heimdall-proto's own process state after `fg` is recorded but does not gate, because K6e names the child. Go on Linux fails this child-stop assertion in some runs.",
+    "K18 confirmation request: the brief expected stderr non-echo to be covered already. It was not: round 3 recorded an offending value on stderr only as a non-gating observation (Q9). It now gates on stdout and stderr for offending values, with mutation stderr_echoes_value. K10 exit form (Q8) was applied as ruled: exit 143/129 or a death by the re-raised signal both conform."
+  ],
+  "limitations": [
+    "No independent adversarial review of the round-4 harness changes was obtained in this task. The only validation is the self-test (mutations and conforming variant on both platforms) plus the informational reproductions. This is not independent evidence.",
+    "K6d covers three layouts: a /bin/sh -c script, which is bash 3.2 in POSIX mode on macOS and dash on Linux, plus first-member and last-member bash -i pipelines. It sends one explicit signal per case and waits 3 s for delivery. Other shells, nested scripts and rapid repeats are not exercised.",
+    "K6e runs under bash -i only, 5 iterations per form (simple command and command list). 'No re-stop' is judged 0.5 s after fg, so a later re-stop or a race needing more iterations can escape. The Go Linux failures were nondeterministic in form but appeared in every Linux run observed (5 runs).",
+    "K17 is wall-clock time through the pty and pyte emulator, polled every 2 ms, on a possibly loaded machine. The macOS and Linux self-tests ran at the same time; the baseline p95 was 4.2 ms on macOS, with large margin under the 100 ms bound.",
+    "The run_fg_restop mutation counts foreground SIGCONTs in a Python handler, which coalesces some deliveries. In every run it fired at iteration 3 rather than at the planned third fg. It was caught on both platforms.",
+    "Native Windows and WSL are still not covered (blocked_on: native Windows host / Windows host with WSL).",
+    "Informational prototype runs were not verdict runs. Outputs are in /tmp/hmr4 only, nothing was written to tests/evidence, and their exit codes were not captured (output was piped through grep); only per-check PASS/FAIL lines were observed."
+  ],
+  "summary": "The round-2 gaps are closed and the self-test passes on both platforms. The harness is now version 2.2.0 (tests/g02/conformance.py) with 135 checks.\n\nNew gating checks:\n- **run.k6d_shared_mode_explicit_signals (K6d):** heimdall-proto runs in three shared-mode layouts: as the child of a foreground non-job-control `/bin/sh -c` script, and as the first and last member of a `bash -i` pipeline. Each of SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH is sent with kill(pid). The pid is identity-checked to be in the harness's own terminal session. The child must receive each signal at least once, and the exit statuses must be the child's. Counts go into observations.k6d_shared_mode_deliveries.\n- **run.k6e_job_control (K6e):** under `bash -i`, both as a simple command and inside a `run ...; echo` list (the reviewer's form). Each form runs 5 iterations of:\n  - Ctrl-Z then fg, with the child blocked in a tty read: no 'Stopped' notice or prompt after fg, the child is not stopped, and the next typed line reaches it.\n  - Ctrl-Z, bg, then fg, with the child in a heartbeat loop: the heartbeat freezes while the job is stopped, advances after bg, then fg and a typed line as above.\n  - At the end the job status must be 0 and no job may be left.\n- **tui.large_100_filter_latency (K17):** now measures 30 edits with the existing method and gates the nearest-rank p95 at 100 ms or less.\n\nOther ruling-driven changes:\n- **K18:** contrary to the brief, stderr non-echo was not already covered; it was a non-gating observation. profile.error_value_not_echoed and profile.invalid_port now gate offending values on stdout and stderr.\n- **K10 exit form:** the three TUI signal/hangup checks now accept exit 143/129 or a death by the re-raised signal; observations.k10_exit_form records which form was used.\n- **K6c SIGPIPE:** SIGPIPE was dropped from the CPython variant. A non-Python probe now runs `yes` into a closed pipe, validated by a direct run as a gating precondition, plus `/bin/cat /proc/self/status` on Linux. It stays non-gating.\n\nThe OPEN_QUESTIONS and limitations lists are updated: Q8, Q9 and Q10 are marked resolved, and Q11 and Q12 are new.\n\nNew reference mutations in reference_impl.py and reference_tui.py, each caught by its intended check on macOS and in the Linux container:\n- **run_shared_drop:** Go-style shared mode that drops the four terminal-type signals.\n- **run_fg_restop:** a later fg re-stops the job; caught at iteration 3, which shows the repetition matters.\n- **tui_slow_filter:** 150 ms per filter edit.\n- **stderr_echoes_value:** a stderr hint quotes the offending value.\n\nThere is also a new conforming variant, tui_reraise_signal, which selftest.py requires to pass (new VARIANTS and CONFORMING support).\n\nSelf-test:\n- **macOS:** selftest.py exit 0, verdict PASS: 3×135/135 baselines, 124/124 observable mutations, 2/2 harness mutations, 1/1 variant, no flaky checks, no canary values.\n- **Linux:** run.sh --selftest exit 0, verdict PASS: 2×135/135 baselines and the same mutation, harness-mutation and variant results.\n\nSELFTEST.md was regenerated; results are in tests/g02/selftest-results/2026-10-04-r4/. The README is updated: rulings list, files table, guarantee (f), check catalogue (diffed against --list-md and in sync), §9 coverage table, clause coverage, limitations and questions. tests/fixtures/fake-agent did not need changes.\n\nInformational reproductions against the prototypes (outputs in /tmp only, not verdict runs):\n- **Go:**\n  - The new K6d check fails on darwin and Linux: SIGINT, SIGHUP, SIGQUIT and SIGWINCH each arrived 0 times in all three layouts, matching reviewer finding (a).\n  - K6e passes on darwin but fails in every Linux run. One run showed the reviewer's re-stop right after fg, matching finding (b); other runs showed different job-control race outcomes.\n  - The SIGPIPE probe shows the inherited ignore is reset.\n- **Rust (darwin):** passes K6d and K6e. The SIGPIPE probe now correctly shows the inherited ignore is reset (the child died of SIGPIPE), confirming the Rust reviewer's correction."
+}

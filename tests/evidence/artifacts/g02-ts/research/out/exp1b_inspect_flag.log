@@ -1,0 +1,8 @@
+build rc=0
+date=2026-10-04T19:09:43Z
+BUN_OPTIONS=--inspect=ws://127.0.0.1:47491/hmres listeners_by_pid: 
+out: 
+BUN_OPTIONS=--inspect=47492 listeners_by_pid: 
+out: 
+BUN_OPTIONS=--inspect-wait=ws://127.0.0.1:47493/hmres listeners_by_pid: 
+out: 

@@ -1,0 +1,1 @@
+darwin {'go': {'tmpdir_only': True, 'tmpdir_home_cwd': True}, 'rust': {'tmpdir_only': True, 'tmpdir_home_cwd': True}}

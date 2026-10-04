@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-03T20:12:16.086Z", "mono_ms": 0.316, "event": "listen", "socket": "/tmp/hmg02-8ttcqn83/034-agent-invalid_utf8_comment/invalid_utf8_comment.sock", "mode": "invalid_utf8_comment", "keys": 1}
+{"seq": 2, "ts": "2026-10-03T20:12:16.111Z", "mono_ms": 25.748, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-03T20:12:16.111Z", "mono_ms": 26.1, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "invalid_utf8_comment", "sent_bytes": 81}
+{"seq": 4, "ts": "2026-10-03T20:12:16.112Z", "mono_ms": 26.54, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 81, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-03T20:12:16.213Z", "mono_ms": 127.738, "event": "shutdown"}

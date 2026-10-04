@@ -1,0 +1,1331 @@
+{
+  "case_id": "G02-measurements",
+  "status": "verified",
+  "requirement_ids": [],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2+dirty",
+  "artifact_digest": null,
+  "environment": {
+    "host": {
+      "hw.model": "Mac17,6",
+      "hw.memsize": "68719476736",
+      "machdep.cpu.brand_string": "Apple M5 Max",
+      "kern.osversion": "26A428",
+      "hw.ncpu": "18",
+      "hw.perflevel0.logicalcpu": "6",
+      "hw.perflevel1.logicalcpu": "12",
+      "uname": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64",
+      "sw_vers": {
+        "ProductName": "macOS",
+        "ProductVersion": "27.0",
+        "BuildVersion": "26A428"
+      }
+    },
+    "load_before_after": [
+      {
+        "label": "start",
+        "at": "2026-10-03T20:20:05Z",
+        "uptime": "16:20  up 6 days, 22:08, 3 users, load averages: 4.74 4.47 4.50",
+        "loadavg": [
+          4.736328125,
+          4.470703125,
+          4.5
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 4.33% user, 4.24% sys, 91.41% idle "
+      },
+      {
+        "label": "end",
+        "at": "2026-10-03T20:31:15Z",
+        "uptime": "16:31  up 6 days, 22:19, 3 users, load averages: 10.24 7.56 5.68",
+        "loadavg": [
+          10.24267578125,
+          7.5576171875,
+          5.6845703125
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 6.7% user, 5.24% sys, 88.68% idle "
+      }
+    ],
+    "load_per_pass": {
+      "pass1": [
+        {
+          "label": "pass1-start",
+          "at": "2026-10-03T20:20:07Z",
+          "uptime": "16:20  up 6 days, 22:08, 3 users, load averages: 4.74 4.47 4.50",
+          "loadavg": [
+            4.736328125,
+            4.470703125,
+            4.5
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 4.60% user, 4.36% sys, 91.3% idle "
+        },
+        {
+          "label": "pass1-after-startup",
+          "at": "2026-10-03T20:20:15Z",
+          "uptime": "16:20  up 6 days, 22:08, 3 users, load averages: 5.08 4.55 4.53",
+          "loadavg": [
+            5.07763671875,
+            4.54541015625,
+            4.5263671875
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 5.67% user, 4.65% sys, 89.66% idle "
+        },
+        {
+          "label": "pass1-after-first-frame",
+          "at": "2026-10-03T20:20:37Z",
+          "uptime": "16:20  up 6 days, 22:09, 3 users, load averages: 5.71 4.74 4.60",
+          "loadavg": [
+            5.7109375,
+            4.74072265625,
+            4.59619140625
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 4.55% user, 4.30% sys, 91.13% idle "
+        },
+        {
+          "label": "pass1-end",
+          "at": "2026-10-03T20:25:37Z",
+          "uptime": "16:25  up 6 days, 22:14, 3 users, load averages: 4.17 4.15 4.33",
+          "loadavg": [
+            4.17333984375,
+            4.14697265625,
+            4.33056640625
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 5.93% user, 4.58% sys, 89.47% idle "
+        }
+      ],
+      "pass2": [
+        {
+          "label": "pass2-start",
+          "at": "2026-10-03T20:25:41Z",
+          "uptime": "16:25  up 6 days, 22:14, 3 users, load averages: 4.40 4.19 4.35",
+          "loadavg": [
+            4.3994140625,
+            4.1943359375,
+            4.34619140625
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 4.76% user, 4.43% sys, 90.79% idle "
+        },
+        {
+          "label": "pass2-after-startup",
+          "at": "2026-10-03T20:25:49Z",
+          "uptime": "16:25  up 6 days, 22:14, 3 users, load averages: 4.37 4.19 4.34",
+          "loadavg": [
+            4.3671875,
+            4.19091796875,
+            4.34375
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 4.75% user, 4.46% sys, 90.77% idle "
+        },
+        {
+          "label": "pass2-after-first-frame",
+          "at": "2026-10-03T20:26:11Z",
+          "uptime": "16:26  up 6 days, 22:14, 3 users, load averages: 4.04 4.13 4.31",
+          "loadavg": [
+            4.03759765625,
+            4.1259765625,
+            4.31494140625
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 4.32% user, 4.32% sys, 91.34% idle "
+        },
+        {
+          "label": "pass2-end",
+          "at": "2026-10-03T20:31:11Z",
+          "uptime": "16:31  up 6 days, 22:19, 3 users, load averages: 10.24 7.56 5.68",
+          "loadavg": [
+            10.24267578125,
+            7.5576171875,
+            5.6845703125
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 5.1% user, 4.48% sys, 90.50% idle "
+        }
+      ]
+    },
+    "power": "Now drawing from 'AC Power'",
+    "docker": {
+      "version": "client=29.8.1 server=29.8.1 os/arch=linux/arm64",
+      "info": "docker-desktop | Docker Desktop | kernel 7.0.14-linuxkit | aarch64 | cpus 10 | mem 8214851584"
+    },
+    "images": {
+      "debian-arm64": {
+        "ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+        "inspect": "sha256:813cd0370d827a30abbef1cf99f88217f87fda9612dd5241c9015ba182d32428|linux/arm64|[\"debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417\",\"debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251\"]|97212435",
+        "source_index": "debian:bookworm-slim index sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+      },
+      "debian-amd64": {
+        "ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+        "inspect": "sha256:db9f02c6bde9fa90cc8074c92754b2b046947392f1a857726e77f041febb7b82|linux/amd64|[\"debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b\"]|74834043",
+        "source_index": "debian:bookworm-slim index sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+      },
+      "python-arm64": {
+        "ref": "python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6",
+        "inspect": "sha256:e3d1bf57b579e73da5380ece73f53f39c0cc955e9063684f1f5015c0e0be80fa|linux/arm64|[\"python@sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059\",\"python@sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6\"]|55304166",
+        "source_index": "python:3.13-alpine index sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059"
+      },
+      "alpine-arm64": {
+        "ref": "alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
+        "inspect": "sha256:e09dd31eab4f4aeaade69891673134f31880ef51c6ee514b0cea072df06d7547|linux/arm64|[\"alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8\"]|8539880",
+        "source_index": "alpine:3.22 (reference is the index digest as stored locally)"
+      }
+    },
+    "python": "3.14.8",
+    "pyte": "tests/g02/.venv (pinned pyte==0.8.2, wcwidth==0.9.1)",
+    "pty": "80x24",
+    "run_env": {
+      "PATH": "/usr/bin:/bin",
+      "TERM": "xterm-256color",
+      "LANG": "en_US.UTF-8",
+      "HOME": "private sandbox",
+      "TMPDIR": "private sandbox",
+      "cwd": "private sandbox"
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "python",
+      "version": "3.14.8"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2"
+    },
+    {
+      "name": "docker",
+      "version": "client=29.8.1 server=29.8.1 os/arch=linux/arm64"
+    },
+    {
+      "name": "/usr/bin/time",
+      "version": "macOS BSD time -l"
+    }
+  ],
+  "started_at": "2026-10-03T20:19:50+00:00",
+  "commands_or_harness": [
+    "tests/g02/.venv/bin/python tools/benchmarks/g02/measure.py --idle-s 30 --idle-reps 2   (defaults: passes=2, warmup=10, n=100, rss-n=15, tui-n=30, key-sessions=30, cold-n=5)",
+    "tests/g02/.venv/bin/python tools/benchmarks/g02/clean_env.py windows",
+    "tests/g02/.venv/bin/python tools/benchmarks/g02/clean_env.py darwin",
+    "tests/g02/.venv/bin/python tools/benchmarks/g02/clean_env.py linux",
+    "tests/g02/.venv/bin/python tools/benchmarks/g02/assemble.py"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "verdict_scope": "criterion = comparable fresh G02 measurements for all three candidates with one methodology on this machine, and the distributable artifacts run in clean environments without each candidate's toolchain. Windows artifacts were inspected statically only (native execution blocked). This is not a product-requirement verdict and not a selection of a candidate.",
+    "methodology": {
+      "interleaving": "round-robin over go, rust, ts and a no-op control; the starting member rotates every iteration; 2 independent passes (A then B) at different times",
+      "startup": "subprocess spawn to exit wall time (perf_counter), stdout captured and checked after timing; 10 warmups then 100 samples per candidate per pass (200 pooled); control = /usr/bin/true",
+      "rss": "/usr/bin/time -l, maximum resident set size (bytes, macOS) and peak memory footprint; 15 runs per candidate per pass after 1-2 warmups (30 pooled); TUI RSS covers first frame, 20 x j, '/' + 'host-05', Esc, q on large-100",
+      "tui_first_frame": "launch (before Popen) until the pyte screen shows every alias and the N/M status (homelab 3/3; large-100 first 10 aliases and 100/100); arrival time of the chunk after which the predicate became true, pyte parse time excluded; 30 per pass; control = /usr/bin/printf through the same pty path",
+      "tui_keystroke": "write of one key to chunk arrival that makes the expected screen state true: j moves selection to expected alias, filter characters make status line show typed text and expected N/100, Esc restores 100/100; 30 sessions per pass x (20 j + 7 filter chars + Esc); also time to first output byte",
+      "tui_idle": "user+sys CPU from /usr/bin/time -l of a TUI held idle 30 s after first frame minus a 2 s hold, 2 runs per candidate per pass; time -l resolution is 10 ms so this is a coarse estimate",
+      "cold_first_exec": "fresh copy of dist/darwin-arm64 to /tmp, version --json executed 3 times in a row (first execution of a freshly written file vs next two); not a reboot-cold measurement",
+      "env": "PATH=/usr/bin:/bin, HOME/TMPDIR/cwd in a private /tmp sandbox, TERM=xterm-256color for TUI, no SSH_AUTH_SOCK; pty 80x24"
+    },
+    "tables": {
+      "startup_version_json_ms": {
+        "go": {
+          "n": 200,
+          "min": 2.989,
+          "p50": 3.462,
+          "p95": 3.94,
+          "max": 4.173,
+          "p50_ci95": [
+            3.416,
+            3.515
+          ],
+          "p95_ci95": [
+            3.866,
+            4.058
+          ]
+        },
+        "rust": {
+          "n": 200,
+          "min": 2.187,
+          "p50": 2.57,
+          "p95": 2.954,
+          "max": 3.195,
+          "p50_ci95": [
+            2.55,
+            2.61
+          ],
+          "p95_ci95": [
+            2.839,
+            3.013
+          ]
+        },
+        "ts": {
+          "n": 200,
+          "min": 16.736,
+          "p50": 17.416,
+          "p95": 18.459,
+          "max": 19.506,
+          "p50_ci95": [
+            17.354,
+            17.456
+          ],
+          "p95_ci95": [
+            17.919,
+            18.812
+          ]
+        },
+        "control": {
+          "n": 200,
+          "min": 1.567,
+          "p50": 2.256,
+          "p95": 2.559,
+          "max": 3.064,
+          "p50_ci95": [
+            2.214,
+            2.299
+          ],
+          "p95_ci95": [
+            2.496,
+            2.619
+          ]
+        }
+      },
+      "startup_profile_show_large100_ms": {
+        "go": {
+          "n": 200,
+          "min": 3.276,
+          "p50": 3.907,
+          "p95": 4.344,
+          "max": 4.641,
+          "p50_ci95": [
+            3.853,
+            3.938
+          ],
+          "p95_ci95": [
+            4.232,
+            4.454
+          ]
+        },
+        "rust": {
+          "n": 200,
+          "min": 2.81,
+          "p50": 3.177,
+          "p95": 3.434,
+          "max": 3.814,
+          "p50_ci95": [
+            3.147,
+            3.204
+          ],
+          "p95_ci95": [
+            3.379,
+            3.51
+          ]
+        },
+        "ts": {
+          "n": 200,
+          "min": 18.482,
+          "p50": 19.076,
+          "p95": 19.78,
+          "max": 21.476,
+          "p50_ci95": [
+            19.03,
+            19.123
+          ],
+          "p95_ci95": [
+            19.504,
+            20.104
+          ]
+        },
+        "control": {
+          "n": 200,
+          "min": 1.606,
+          "p50": 2.266,
+          "p95": 2.615,
+          "max": 2.887,
+          "p50_ci95": [
+            2.212,
+            2.297
+          ],
+          "p95_ci95": [
+            2.545,
+            2.692
+          ]
+        }
+      },
+      "tui_first_frame_ms_homelab_3_dest": {
+        "go": {
+          "n": 60,
+          "min": 24.378,
+          "p50": 25.903,
+          "p95": 28.883,
+          "max": 29.541,
+          "p50_ci95": [
+            25.765,
+            26.323
+          ],
+          "p95_ci95": [
+            28.52,
+            29.004
+          ],
+          "failed": 0,
+          "first_byte_p50": 25.512
+        },
+        "rust": {
+          "n": 60,
+          "min": 4.039,
+          "p50": 6.435,
+          "p95": 8.669,
+          "max": 10.205,
+          "p50_ci95": [
+            6.014,
+            6.774
+          ],
+          "p95_ci95": [
+            8.011,
+            9.758
+          ],
+          "failed": 0,
+          "first_byte_p50": 6.035
+        },
+        "ts": {
+          "n": 60,
+          "min": 43.566,
+          "p50": 55.896,
+          "p95": 63.959,
+          "max": 66.597,
+          "p50_ci95": [
+            53.224,
+            58.716
+          ],
+          "p95_ci95": [
+            62.547,
+            64.233
+          ],
+          "failed": 0,
+          "first_byte_p50": 50.401
+        },
+        "control": {
+          "n": 60,
+          "min": 3.18,
+          "p50": 4.907,
+          "p95": 6.68,
+          "max": 7.149,
+          "p50_ci95": [
+            4.793,
+            5.026
+          ],
+          "p95_ci95": [
+            6.066,
+            6.784
+          ],
+          "failed": 0,
+          "first_byte_p50": 4.907
+        }
+      },
+      "tui_first_frame_ms_large100": {
+        "go": {
+          "n": 60,
+          "min": 27.299,
+          "p50": 30.165,
+          "p95": 33.123,
+          "max": 35.183,
+          "p50_ci95": [
+            29.495,
+            30.467
+          ],
+          "p95_ci95": [
+            31.38,
+            34.463
+          ],
+          "failed": 0,
+          "first_byte_p50": 25.796
+        },
+        "rust": {
+          "n": 60,
+          "min": 7.312,
+          "p50": 9.893,
+          "p95": 11.68,
+          "max": 13.281,
+          "p50_ci95": [
+            9.641,
+            10.076
+          ],
+          "p95_ci95": [
+            10.983,
+            12.135
+          ],
+          "failed": 0,
+          "first_byte_p50": 5.599
+        },
+        "ts": {
+          "n": 60,
+          "min": 43.462,
+          "p50": 55.636,
+          "p95": 60.612,
+          "max": 60.919,
+          "p50_ci95": [
+            55.143,
+            57.157
+          ],
+          "p95_ci95": [
+            58.855,
+            60.767
+          ],
+          "failed": 0,
+          "first_byte_p50": 47.317
+        },
+        "control": {
+          "n": 60,
+          "min": 3.652,
+          "p50": 4.369,
+          "p95": 4.956,
+          "max": 5.131,
+          "p50_ci95": [
+            4.185,
+            4.507
+          ],
+          "p95_ci95": [
+            4.826,
+            5.119
+          ],
+          "failed": 0,
+          "first_byte_p50": 4.369
+        }
+      },
+      "tui_keystroke_to_update_ms_large100_all_keys": {
+        "go": {
+          "n": 1680,
+          "min": 0.801,
+          "p50": 3.754,
+          "p95": 16.463,
+          "max": 72.536,
+          "p50_ci95": [
+            3.692,
+            3.809
+          ],
+          "p95_ci95": [
+            15.005,
+            17.281
+          ],
+          "sessions": 60,
+          "failed_sessions": 0,
+          "j_move_p50_p95": [
+            3.652,
+            5.698
+          ],
+          "filter_type_p50_p95": [
+            3.892,
+            16.495
+          ],
+          "to_first_output_byte_p50_p95": [
+            3.712,
+            6.223
+          ]
+        },
+        "rust": {
+          "n": 1680,
+          "min": 0.232,
+          "p50": 0.839,
+          "p95": 2.356,
+          "max": 3.585,
+          "p50_ci95": [
+            0.835,
+            0.845
+          ],
+          "p95_ci95": [
+            1.878,
+            2.563
+          ],
+          "sessions": 60,
+          "failed_sessions": 0,
+          "j_move_p50_p95": [
+            0.837,
+            1.136
+          ],
+          "filter_type_p50_p95": [
+            0.837,
+            2.898
+          ],
+          "to_first_output_byte_p50_p95": [
+            0.833,
+            1.134
+          ]
+        },
+        "ts": {
+          "n": 1680,
+          "min": 0.69,
+          "p50": 3.603,
+          "p95": 6.928,
+          "max": 26.92,
+          "p50_ci95": [
+            3.232,
+            3.75
+          ],
+          "p95_ci95": [
+            6.409,
+            8.402
+          ],
+          "sessions": 60,
+          "failed_sessions": 0,
+          "j_move_p50_p95": [
+            3.472,
+            5.568
+          ],
+          "filter_type_p50_p95": [
+            3.144,
+            6.521
+          ],
+          "to_first_output_byte_p50_p95": [
+            3.148,
+            5.307
+          ]
+        }
+      },
+      "peak_rss_bytes_time_l": {
+        "version": {
+          "go": {
+            "p50": 7290880.0,
+            "max": 7536640.0,
+            "n": 30,
+            "peak_footprint_max": 4391536.0
+          },
+          "rust": {
+            "p50": 2277376.0,
+            "max": 2277376.0,
+            "n": 30,
+            "peak_footprint_max": 1507736.0
+          },
+          "ts": {
+            "p50": 25952256.0,
+            "max": 25985024.0,
+            "n": 30,
+            "peak_footprint_max": 10683016.0
+          },
+          "control": {
+            "p50": 1261568.0,
+            "max": 1261568.0,
+            "n": 30,
+            "peak_footprint_max": 1310960.0
+          }
+        },
+        "profile_large100": {
+          "go": {
+            "p50": 7979008.0,
+            "max": 8126464.0,
+            "n": 30,
+            "peak_footprint_max": 4981360.0
+          },
+          "rust": {
+            "p50": 3522560.0,
+            "max": 3538944.0,
+            "n": 30,
+            "peak_footprint_max": 2671024.0
+          },
+          "ts": {
+            "p50": 29753344.0,
+            "max": 29868032.0,
+            "n": 30,
+            "peak_footprint_max": 12943984.0
+          },
+          "control": {
+            "p50": 1261568.0,
+            "max": 1261568.0,
+            "n": 30,
+            "peak_footprint_max": 1310960.0
+          }
+        },
+        "tui_workload": {
+          "go": {
+            "p50": 12034048.0,
+            "max": 12632064.0,
+            "n": 30,
+            "peak_footprint_max": 9126512.0
+          },
+          "rust": {
+            "p50": 3653632.0,
+            "max": 3686400.0,
+            "n": 30,
+            "peak_footprint_max": 2785712.0
+          },
+          "ts": {
+            "p50": 63504384.0,
+            "max": 64241664.0,
+            "n": 30,
+            "peak_footprint_max": 29475776.0
+          }
+        }
+      }
+    },
+    "per_pass_drift": {
+      "pass1": {
+        "wall_s": 329.9,
+        "startup_version_p50_ms": {
+          "go": 3.418,
+          "rust": 2.548,
+          "ts": 17.351,
+          "control": 2.219
+        },
+        "startup_profile_p50_ms": {
+          "go": 3.855,
+          "rust": 3.151,
+          "ts": 19.082,
+          "control": 2.275
+        },
+        "tui_first_frame_large_p50_ms": {
+          "go": 30.374,
+          "rust": 9.91,
+          "ts": 55.994,
+          "control": 4.397
+        },
+        "tui_keystroke_all_p50_ms": {
+          "go": 3.723,
+          "rust": 0.831,
+          "ts": 3.683
+        },
+        "tui_idle_extra_cpu_percent_of_one_core_est": {
+          "go": 0.464,
+          "rust": 0.036,
+          "ts": 0.214
+        },
+        "tui_idle_raw_cpu_s": {
+          "go": {
+            "idle_mean_s": 0.135,
+            "idle_n": 2,
+            "short_mean_s": 0.005,
+            "idle_real_mean_s": 30.04
+          },
+          "rust": {
+            "idle_mean_s": 0.01,
+            "idle_n": 2,
+            "short_mean_s": 0.0,
+            "idle_real_mean_s": 30.015
+          },
+          "ts": {
+            "idle_mean_s": 0.14,
+            "idle_n": 2,
+            "short_mean_s": 0.08,
+            "idle_real_mean_s": 30.1
+          }
+        },
+        "cold_first_exec_p50_ms": {
+          "go": {
+            "first_ms": 5.267,
+            "second_ms": 3.342,
+            "third_ms": 3.458
+          },
+          "rust": {
+            "first_ms": 3.079,
+            "second_ms": 2.578,
+            "third_ms": 2.503
+          },
+          "ts": {
+            "first_ms": 23.998,
+            "second_ms": 17.93,
+            "third_ms": 17.602
+          }
+        }
+      },
+      "pass2": {
+        "wall_s": 329.7,
+        "startup_version_p50_ms": {
+          "go": 3.498,
+          "rust": 2.616,
+          "ts": 17.51,
+          "control": 2.297
+        },
+        "startup_profile_p50_ms": {
+          "go": 3.924,
+          "rust": 3.194,
+          "ts": 19.076,
+          "control": 2.256
+        },
+        "tui_first_frame_large_p50_ms": {
+          "go": 29.631,
+          "rust": 9.845,
+          "ts": 55.443,
+          "control": 4.309
+        },
+        "tui_keystroke_all_p50_ms": {
+          "go": 3.784,
+          "rust": 0.848,
+          "ts": 3.404
+        },
+        "tui_idle_extra_cpu_percent_of_one_core_est": {
+          "go": 0.447,
+          "rust": 0.018,
+          "ts": 0.214
+        },
+        "tui_idle_raw_cpu_s": {
+          "go": {
+            "idle_mean_s": 0.125,
+            "idle_n": 2,
+            "short_mean_s": 0.0,
+            "idle_real_mean_s": 30.035
+          },
+          "rust": {
+            "idle_mean_s": 0.005,
+            "idle_n": 2,
+            "short_mean_s": 0.0,
+            "idle_real_mean_s": 30.015
+          },
+          "ts": {
+            "idle_mean_s": 0.115,
+            "idle_n": 2,
+            "short_mean_s": 0.055,
+            "idle_real_mean_s": 30.095
+          }
+        },
+        "cold_first_exec_p50_ms": {
+          "go": {
+            "first_ms": 5.508,
+            "second_ms": 3.316,
+            "third_ms": 3.261
+          },
+          "rust": {
+            "first_ms": 3.297,
+            "second_ms": 2.889,
+            "third_ms": 2.696
+          },
+          "ts": {
+            "first_ms": 23.908,
+            "second_ms": 18.108,
+            "third_ms": 17.876
+          }
+        }
+      }
+    },
+    "artifact_bytes_and_sha256": {
+      "go": {
+        "darwin-arm64": {
+          "exe_bytes": 5207474,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 5207474,
+          "tar_gz9_bytes": 2009187,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 5207474,
+              "sha256": "8a3a4fcc136bfe4df7b098f180bb97a9c100c4bc034a9a7ad945a805b9c7f64c"
+            }
+          ]
+        },
+        "linux-arm64": {
+          "exe_bytes": 5111968,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 5111968,
+          "tar_gz9_bytes": 1947853,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 5111968,
+              "sha256": "9a072063d311a356ded98fded373c5534191e7a6c4f8d0e2ddce52cfe2a09614"
+            }
+          ]
+        },
+        "linux-x64": {
+          "exe_bytes": 5423264,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 5423264,
+          "tar_gz9_bytes": 2157719,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 5423264,
+              "sha256": "0a16dac34821acadfc95a00917cbc23ad38589e16ee2a88543a931bbb66965a5"
+            }
+          ]
+        },
+        "windows-x64": {
+          "exe_bytes": 5084160,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 5084160,
+          "tar_gz9_bytes": 2001403,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto.exe",
+              "bytes": 5084160,
+              "sha256": "cf6a7386697015452954ffd84d70b3356373317ffd493f80178f2dc701db5a09"
+            }
+          ]
+        }
+      },
+      "rust": {
+        "darwin-arm64": {
+          "exe_bytes": 755840,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 755840,
+          "tar_gz9_bytes": 389671,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 755840,
+              "sha256": "4f8521433fc3be19d932bcc82a99e6dcdf1868e5b602502faf391b98217f6513"
+            }
+          ]
+        },
+        "linux-arm64": {
+          "exe_bytes": 838696,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 838696,
+          "tar_gz9_bytes": 456039,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 838696,
+              "sha256": "9bbd19c36229cb4bd34022c0fa16762e6d995dfd70935f9c78d88c4354a83dfb"
+            }
+          ]
+        },
+        "linux-x64": {
+          "exe_bytes": 902776,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 902776,
+          "tar_gz9_bytes": 460412,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 902776,
+              "sha256": "10e6bf896dd64b835328287c916171c808e0da32ef4b83b1a4267e51fe029856"
+            }
+          ]
+        },
+        "windows-x64": {
+          "exe_bytes": 839168,
+          "sidecar_bytes": 0,
+          "sidecars": [],
+          "total_bytes": 839168,
+          "tar_gz9_bytes": 424023,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto.exe",
+              "bytes": 839168,
+              "sha256": "6a177ad434828fa2fd51f3549cb44b982be5c4c08cc5fa33097a4457302c261e"
+            }
+          ]
+        }
+      },
+      "ts": {
+        "darwin-arm64": {
+          "exe_bytes": 67147506,
+          "sidecar_bytes": 5560064,
+          "sidecars": [
+            "@opentui/core-darwin-arm64/libopentui.dylib"
+          ],
+          "total_bytes": 72707570,
+          "tar_gz9_bytes": 28044398,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "@opentui/core-darwin-arm64/libopentui.dylib",
+              "bytes": 5560064,
+              "sha256": "708d89ccc32a1528df745788d361a6d22fc0748da017b83990ae70dba223caa6"
+            },
+            {
+              "path": "heimdall-proto",
+              "bytes": 67147506,
+              "sha256": "dd7a771d81ef2fb3d2166811f6d61aded9d60589f0eb8ba3ee68e962e975e6e2"
+            }
+          ]
+        },
+        "linux-arm64": {
+          "exe_bytes": 86165800,
+          "sidecar_bytes": 5907256,
+          "sidecars": [
+            "@opentui/core-linux-arm64/libopentui.so"
+          ],
+          "total_bytes": 92073056,
+          "tar_gz9_bytes": 39019234,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "@opentui/core-linux-arm64/libopentui.so",
+              "bytes": 5907256,
+              "sha256": "a9b0e0a95dd3d5c8515a4c94bff42d2e061c7f9ad1860f88ff86a509c916554e"
+            },
+            {
+              "path": "heimdall-proto",
+              "bytes": 86165800,
+              "sha256": "ac48d2a6c789bb073168a6d9a8a5eed485fb93d8419c953bdaf3198be27807e2"
+            }
+          ]
+        },
+        "linux-x64": {
+          "exe_bytes": 86205920,
+          "sidecar_bytes": 6314816,
+          "sidecars": [
+            "@opentui/core-linux-x64/libopentui.so"
+          ],
+          "total_bytes": 92520736,
+          "tar_gz9_bytes": 39111573,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "@opentui/core-linux-x64/libopentui.so",
+              "bytes": 6314816,
+              "sha256": "be65f2428361c08fc717a20b67a81990e2864aa2067874d625aa590dee71fcce"
+            },
+            {
+              "path": "heimdall-proto",
+              "bytes": 86205920,
+              "sha256": "a392aee658ccf002f0d2de9a2f313fa5a6814e0a715f3563d8cd0736c8a19e87"
+            }
+          ]
+        },
+        "windows-x64": {
+          "exe_bytes": 90981888,
+          "sidecar_bytes": 6391688,
+          "sidecars": [
+            "@opentui/core-win32-x64/opentui.dll"
+          ],
+          "total_bytes": 97373576,
+          "tar_gz9_bytes": 42221563,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "@opentui/core-win32-x64/opentui.dll",
+              "bytes": 6391688,
+              "sha256": "701435b577754aab978f1dc896e0defaf9dffc9abb952ad2f7d3b823755cf827"
+            },
+            {
+              "path": "heimdall-proto.exe",
+              "bytes": 90981888,
+              "sha256": "3e81b6fc7066ae34c7bd04096e9fac4c39c7307c16abd9d7d609045f983f9c92"
+            }
+          ]
+        }
+      }
+    },
+    "artifact_sha256_unchanged_during_run": true,
+    "clean_environment_runs": {
+      "darwin_arm64_env_i": {
+        "go": {
+          "tmpdir_only": {
+            "checks_passed": 13,
+            "checks_total": 13,
+            "files_created_in_fresh_TMPDIR": [],
+            "files_created_in_fresh_HOME": "HOME unset (env -i)",
+            "files_created_in_fresh_cwd": []
+          },
+          "tmpdir_home_cwd": {
+            "checks_passed": 13,
+            "checks_total": 13,
+            "files_created_in_fresh_TMPDIR": [],
+            "files_created_in_fresh_HOME": [],
+            "files_created_in_fresh_cwd": []
+          },
+          "dynamic_libs": [
+            "/usr/lib/libSystem.B.dylib",
+            "/usr/lib/libresolv.9.dylib"
+          ]
+        },
+        "rust": {
+          "tmpdir_only": {
+            "checks_passed": 13,
+            "checks_total": 13,
+            "files_created_in_fresh_TMPDIR": [],
+            "files_created_in_fresh_HOME": "HOME unset (env -i)",
+            "files_created_in_fresh_cwd": []
+          },
+          "tmpdir_home_cwd": {
+            "checks_passed": 13,
+            "checks_total": 13,
+            "files_created_in_fresh_TMPDIR": [],
+            "files_created_in_fresh_HOME": [],
+            "files_created_in_fresh_cwd": []
+          },
+          "dynamic_libs": [
+            "/usr/lib/libiconv.2.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ]
+        },
+        "ts": {
+          "tmpdir_only": {
+            "checks_passed": 13,
+            "checks_total": 13,
+            "files_created_in_fresh_TMPDIR": [],
+            "files_created_in_fresh_HOME": "HOME unset (env -i)",
+            "files_created_in_fresh_cwd": []
+          },
+          "tmpdir_home_cwd": {
+            "checks_passed": 13,
+            "checks_total": 13,
+            "files_created_in_fresh_TMPDIR": [],
+            "files_created_in_fresh_HOME": [],
+            "files_created_in_fresh_cwd": []
+          },
+          "dynamic_libs": [
+            "/usr/lib/libicucore.A.dylib",
+            "/usr/lib/libresolv.9.dylib",
+            "/usr/lib/libc++.1.dylib",
+            "/usr/lib/libSystem.B.dylib"
+          ]
+        }
+      },
+      "linux": {
+        "go/linux-arm64": {
+          "image_ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+          "emulation": null,
+          "checks_passed": 12,
+          "checks_total": 12,
+          "new_files_after_setup": [
+            "A /out/meta1.json",
+            "A /out/meta2.json",
+            "A /out/meta3.json",
+            "A /out/meta4.json",
+            "A /out/meta6.json"
+          ],
+          "ldd": [
+            "not a dynamic executable",
+            "sh: 1: file: not found"
+          ],
+          "error": null
+        },
+        "rust/linux-arm64": {
+          "image_ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+          "emulation": null,
+          "checks_passed": 12,
+          "checks_total": 12,
+          "new_files_after_setup": [
+            "A /out/meta1.json",
+            "A /out/meta2.json",
+            "A /out/meta3.json",
+            "A /out/meta4.json",
+            "A /out/meta6.json"
+          ],
+          "ldd": [
+            "not a dynamic executable",
+            "sh: 1: file: not found"
+          ],
+          "error": null
+        },
+        "ts/linux-arm64": {
+          "image_ref": "debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417",
+          "emulation": null,
+          "checks_passed": 12,
+          "checks_total": 12,
+          "new_files_after_setup": [
+            "A /out/meta1.json",
+            "A /out/meta2.json",
+            "A /out/meta3.json",
+            "A /out/meta4.json",
+            "A /out/meta6.json"
+          ],
+          "ldd": [
+            "linux-vdso.so.1 (0x0000ffff9350a000)",
+            "\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff93310000)",
+            "\t/lib/ld-linux-aarch64.so.1 (0x0000ffff934c0000)",
+            "\tlibpthread.so.0 => /lib/aarch64-linux-gnu/libpthread.so.0 (0x0000ffff932e0000)",
+            "\tlibdl.so.2 => /lib/aarch64-linux-gnu/libdl.so.2 (0x0000ffff932b0000)",
+            "\tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000ffff93200000)"
+          ],
+          "error": null
+        },
+        "go/linux-x64": {
+          "image_ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+          "emulation": "emulated x86-64 (linux/amd64 under Docker Desktop on Apple silicon), not native",
+          "checks_passed": 12,
+          "checks_total": 12,
+          "new_files_after_setup": [
+            "A /out/meta1.json",
+            "A /out/meta2.json",
+            "A /out/meta3.json",
+            "A /out/meta4.json",
+            "A /out/meta6.json"
+          ],
+          "ldd": [
+            "not a dynamic executable",
+            "sh: 1: file: not found"
+          ],
+          "error": null
+        },
+        "rust/linux-x64": {
+          "image_ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+          "emulation": "emulated x86-64 (linux/amd64 under Docker Desktop on Apple silicon), not native",
+          "checks_passed": 12,
+          "checks_total": 12,
+          "new_files_after_setup": [
+            "A /out/meta1.json",
+            "A /out/meta2.json",
+            "A /out/meta3.json",
+            "A /out/meta4.json",
+            "A /out/meta6.json"
+          ],
+          "ldd": [
+            "not a dynamic executable",
+            "sh: 1: file: not found"
+          ],
+          "error": null
+        },
+        "ts/linux-x64": {
+          "image_ref": "debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b",
+          "emulation": "emulated x86-64 (linux/amd64 under Docker Desktop on Apple silicon), not native",
+          "checks_passed": 12,
+          "checks_total": 12,
+          "new_files_after_setup": [
+            "A /out/meta1.json",
+            "A /out/meta2.json",
+            "A /out/meta3.json",
+            "A /out/meta4.json",
+            "A /out/meta6.json"
+          ],
+          "ldd": [
+            "libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007fffff5e4000)",
+            "\t/lib64/ld-linux-x86-64.so.2 (0x00007ffffffcb000)",
+            "\tlibpthread.so.0 => /lib/x86_64-linux-gnu/libpthread.so.0 (0x00007fffff5df000)",
+            "\tlibdl.so.2 => /lib/x86_64-linux-gnu/libdl.so.2 (0x00007fffff5da000)",
+            "\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007fffff4fa000)",
+            "sh: 1: file: not found"
+          ],
+          "error": null
+        }
+      },
+      "musl_probe_alpine_arm64": {
+        "go": {
+          "rc": 0,
+          "stderr": ""
+        },
+        "rust": {
+          "rc": 0,
+          "stderr": ""
+        },
+        "ts": {
+          "rc": 255,
+          "stderr": "exec /opt/hm/heimdall-proto: no such file or directory\n"
+        }
+      },
+      "windows": {
+        "go": [
+          {
+            "path": "heimdall-proto.exe",
+            "bytes": 5084160,
+            "file": "PE32+ executable (console) x86-64, for MS Windows"
+          }
+        ],
+        "rust": [
+          {
+            "path": "heimdall-proto.exe",
+            "bytes": 839168,
+            "file": "PE32+ executable (console) x86-64, for MS Windows"
+          }
+        ],
+        "ts": [
+          {
+            "path": "@opentui/core-win32-x64/opentui.dll",
+            "bytes": 6391688,
+            "file": "PE32+ executable (DLL) (GUI) x86-64, for MS Windows"
+          },
+          {
+            "path": "heimdall-proto.exe",
+            "bytes": 90981888,
+            "file": "PE32+ executable (console) x86-64, for MS Windows"
+          }
+        ]
+      }
+    },
+    "fake_agent_contact": {
+      "darwin": {
+        "connect_events": 6,
+        "message_types": [
+          11,
+          11,
+          11,
+          11,
+          11,
+          11
+        ],
+        "note": "one agent-list call per candidate per variant = 6 connections, each exactly one type-11 message"
+      },
+      "linux": {
+        "connect_events": 6,
+        "message_types": [
+          11,
+          11,
+          11,
+          11,
+          11,
+          11
+        ],
+        "message_bytes": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "disconnect_reasons": [
+          "peer_eof",
+          "peer_eof",
+          "peer_eof",
+          "peer_eof",
+          "peer_eof",
+          "peer_eof"
+        ]
+      }
+    },
+    "windows": {
+      "status": "blocked",
+      "blocked_on": "native Windows x86-64 host (none available; no emulation or Wine used)"
+    },
+    "spec_15_1_context": "First useful TUI frame P95 <= 750 ms, key handling P95 <= 100 ms, idle RSS <= 150 MiB, idle CPU < 0.5% of a core (5-minute sample). These slice numbers cover a trivial local profile viewer, not the product, and do not settle those budgets."
+  },
+  "evidence_paths": [
+    "tools/benchmarks/g02/g02bench.py",
+    "tools/benchmarks/g02/measure.py",
+    "tools/benchmarks/g02/clean_env.py",
+    "tools/benchmarks/g02/assemble.py",
+    "tests/evidence/artifacts/g02-measure/host-raw.json",
+    "tests/evidence/artifacts/g02-measure/host-summary.json",
+    "tests/evidence/artifacts/g02-measure/clean-darwin.json",
+    "tests/evidence/artifacts/g02-measure/clean-linux.json",
+    "tests/evidence/artifacts/g02-measure/clean-windows.json",
+    "tests/evidence/artifacts/g02-measure/measure-run.log",
+    "tests/evidence/artifacts/g02-measure/clean-linux-run.log"
+  ],
+  "limitations": [
+    "Single machine (Apple M5 Max, 18 cores, macOS 27.0) with other agent workloads present (1-minute load average about 4-6 of 18 cores during both passes, with one reading of 10.2 at the end of pass 2); P95 tails include that noise. Numbers are comparable between candidates here, not portable to other hardware.",
+    "Latencies come from Python spawn plus a pyte terminal emulator, not a real terminal: a floor of about 2.2 ms (spawn) and 4.4-4.9 ms (pty path) is included, shown by the control rows. pyte answers only DA/DSR queries; a real terminal answers more capability queries, which could change the ts first-frame time.",
+    "Keystroke latency excludes pyte parse time but includes pty and scheduler delay. The go filter-typing P95 of about 16 ms is consistent with a 60 fps renderer tick; that explanation is an inference and was not isolated.",
+    "RSS uses /usr/bin/time -l (macOS rusage max RSS, bytes). It is not comparable to Windows working set or Linux RSS. Idle memory over time and the 5-minute idle CPU sample of spec 15.1 were not measured; idle CPU is a 30 s estimate at 10 ms resolution with 4 runs per candidate.",
+    "Cold-start in the spec sense (after reboot or purged page cache) was not measured; the cold_first_exec rows only compare the first run of a freshly copied file with later runs.",
+    "linux-x64 ran emulated (linux/amd64 on an arm64 Docker Desktop VM; /proc/cpuinfo shows VirtualApple, which suggests Rosetta, an inference); it proves loading and behavior, not native x86-64 speed or behavior. Linux timings in the records are incidental, not benchmarks.",
+    "Linux binaries were copied into containers with docker cp and run as root with --network none; the shared fake-agent socket used a docker volume. The TUI check ran through docker exec -it in a host pty.",
+    "Native Windows execution blocked: no Windows host. Windows artifacts were inspected for file type, size, sha256 and PE headers only. Nothing about Windows named-pipe, console, or signal behavior is established.",
+    "macOS: artifacts are ad-hoc signed only (not notarized); Gatekeeper/quarantine behavior for downloaded files was not tested. The writes check lists files in fresh TMPDIR/HOME/cwd only; writes elsewhere were not traced (no fs_usage/dtruss without privileges). Linux docker diff covers the whole container filesystem except mounted volumes.",
+    "Prototype REPORT.md numbers were not reused; all numbers here were measured fresh, from prototypes/*/dist as found (ts had 1 failing conformance check at that time per the task packet; this record does not judge conformance)."
+  ]
+}

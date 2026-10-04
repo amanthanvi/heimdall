@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T18:48:06.183Z", "mono_ms": 0.303, "event": "listen", "socket": "/tmp/hmg02-p1ci_x8b/030-agent-oversize/oversize.sock", "mode": "oversize", "keys": 3}
+{"seq": 2, "ts": "2026-10-04T18:48:06.209Z", "mono_ms": 25.468, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T18:48:06.209Z", "mono_ms": 25.821, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "oversize", "sent_bytes": 5}
+{"seq": 4, "ts": "2026-10-04T18:48:06.209Z", "mono_ms": 26.097, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 5, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T18:48:06.310Z", "mono_ms": 127.155, "event": "shutdown"}

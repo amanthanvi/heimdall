@@ -1,0 +1,164 @@
+{
+  "meta": {
+    "started_at": "2026-10-04T02:26:43Z",
+    "finished_at": "2026-10-04T03:12:26Z",
+    "params": {
+      "idle_s": 300.0,
+      "short_s": 2.0,
+      "reps": 3,
+      "out_dir": "<repo>/tests/evidence/artifacts/g02-measure"
+    },
+    "order": [
+      [
+        "go",
+        "rust",
+        "ts"
+      ],
+      [
+        "rust",
+        "ts",
+        "go"
+      ],
+      [
+        "ts",
+        "go",
+        "rust"
+      ]
+    ],
+    "artifact_sha256_unchanged": true
+  },
+  "summary": {
+    "go": {
+      "idle_runs": 3,
+      "idle_ok": 3,
+      "short_ok": 3,
+      "idle_cpu_s": [
+        1.0,
+        1.04,
+        0.98
+      ],
+      "idle_real_s": [
+        300.04,
+        300.06,
+        300.03
+      ],
+      "short_cpu_s": [
+        0.01,
+        0.0,
+        0.0
+      ],
+      "short_real_s": [
+        2.03,
+        2.05,
+        2.03
+      ],
+      "idle_max_rss_bytes": [
+        11796480,
+        13369344,
+        12976128
+      ],
+      "gross_pct_of_one_core_per_run": [
+        0.3333,
+        0.3466,
+        0.3266
+      ],
+      "net_pct_of_one_core_per_run": [
+        0.3344,
+        0.3478,
+        0.3277
+      ],
+      "gross_pct_mean": 0.3355,
+      "net_pct_mean": 0.3367,
+      "net_pct_max": 0.3478,
+      "pooled_net_pct": 0.3367
+    },
+    "rust": {
+      "idle_runs": 3,
+      "idle_ok": 3,
+      "short_ok": 3,
+      "idle_cpu_s": [
+        0.11,
+        0.1,
+        0.11
+      ],
+      "idle_real_s": [
+        300.02,
+        300.01,
+        300.02
+      ],
+      "short_cpu_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "short_real_s": [
+        2.01,
+        2.02,
+        2.01
+      ],
+      "idle_max_rss_bytes": [
+        3440640,
+        3407872,
+        3407872
+      ],
+      "gross_pct_of_one_core_per_run": [
+        0.0367,
+        0.0333,
+        0.0367
+      ],
+      "net_pct_of_one_core_per_run": [
+        0.0369,
+        0.0336,
+        0.0369
+      ],
+      "gross_pct_mean": 0.0356,
+      "net_pct_mean": 0.0358,
+      "net_pct_max": 0.0369,
+      "pooled_net_pct": 0.0358
+    },
+    "ts": {
+      "idle_runs": 3,
+      "idle_ok": 3,
+      "short_ok": 3,
+      "idle_cpu_s": [
+        0.28,
+        0.28,
+        0.24
+      ],
+      "idle_real_s": [
+        300.15,
+        300.09,
+        300.08
+      ],
+      "short_cpu_s": [
+        0.08,
+        0.08,
+        0.07
+      ],
+      "short_real_s": [
+        2.09,
+        2.09,
+        2.09
+      ],
+      "idle_max_rss_bytes": [
+        57638912,
+        57425920,
+        57458688
+      ],
+      "gross_pct_of_one_core_per_run": [
+        0.0933,
+        0.0933,
+        0.08
+      ],
+      "net_pct_of_one_core_per_run": [
+        0.0682,
+        0.0682,
+        0.0548
+      ],
+      "gross_pct_mean": 0.0889,
+      "net_pct_mean": 0.0638,
+      "net_pct_max": 0.0682,
+      "pooled_net_pct": 0.0638
+    }
+  }
+}

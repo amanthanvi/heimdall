@@ -1,0 +1,246 @@
+{
+  "reexecuted_commands": [
+    {
+      "command": "python3 tests/g02/conformance.py --bin tests/g02/reference_impl.py --candidate go --selftest --only run.k6d_shared_mode_explicit_signals,run.k6e_job_control,tui.large_100_filter_latency,run.k6a_inherited_ignore (darwin-arm64, 5 serial runs flake-orig-1..5)",
+      "exit_code": 0,
+      "observed": "All 5 runs: 4/4 pass. K17 p95 4.1, 9.6, 1.2, 2.2, 3.7 ms (max 9.8 ms). K6d: every layout/signal delivered exactly once. K6e: 10/10 lines in both forms. Durations: k6d about 10.6-11.0 s, k6e about 26.3-26.8 s."
+    },
+    {
+      "command": "tests/g02/linux/run.sh --reference --candidate go --only <same 4 checks> (linux-arm64 container, 5 serial runs flake-orig-1..5)",
+      "exit_code": 0,
+      "observed": "All 5 runs: 4/4 pass. K17 p95 4.3-4.5 ms. K6d deliveries all exactly 1. K6e 10/10 lines in both forms. All 15 K6d setups had shared=true on both platforms."
+    },
+    {
+      "command": "stress.sh: 18 x `yes > /dev/null` on the 18-CPU host, then 2 host runs and 2 Linux-container runs of the same 4 checks; hogs stopped by their recorded PIDs",
+      "exit_code": 0,
+      "observed": "4/4 pass in every run (stress18-orig-1/2 on darwin and linux). K17 p95 1.6-3.7 ms. 0 hogs left afterwards."
+    },
+    {
+      "command": "runhost.sh / runlinux.sh base-patched-noop, mut-base2 (patched copy with no defect active), 4 checks on both platforms",
+      "exit_code": 0,
+      "observed": "4/4 pass on darwin and linux. The patch is neutral."
+    },
+    {
+      "command": "runhost.sh / runlinux.sh mut-<defect> for 17 injected defects, 4 checks on both platforms (Linux via run.sh --artifact-dir with the mutant baked in)",
+      "exit_code": 1,
+      "observed": "Exit 1 for the caught defects. Exit 0 (all pass) for rv_dedupe_500ms, rv_delay_first_key, rv_rows_lag, rv_child_sigpipe_ignored, rv_delay_90ms (control), rv_jc2 (control), and rv_restop_linux on darwin only. Exact per-run exit codes are in tooling/batch.log and batch2.log."
+    },
+    {
+      "command": "runhost.sh / runlinux.sh runall-<m> --only 'run.*' for rv_dedupe_500ms, rv_hup_exit_early, rv_jc, rv_jc2, rv_child_sigpipe_ignored",
+      "exit_code": 1,
+      "observed": "dedupe: 27/29 (run.repeated_signals, run.explicit_signal_with_tty fail). hup_exit_early: 26/29. rv_jc: 28/29 (only run.k6e_job_control fails). rv_jc2: 29/29, exit 0. rv_child_sigpipe_ignored: 29/29, exit 0, on both platforms."
+    },
+    {
+      "command": "python3 /tmp/r3rev/exp/drive.py (bash -i in a pty: job &, fg, Ctrl-Z, bg, fg, with a SIGCONT logger), darwin bash 3.2.57 and linux container bash 5.2.15",
+      "exit_code": 0,
+      "observed": "Both platforms printed 'CONT fg=False' only. The single SIGCONT came from `bg`. Neither `fg` of a running job sends SIGCONT. The first Linux attempt printed 'no SIGCONT logged' because PATH lacked /usr/local/bin; the re-run gave the result above."
+    },
+    {
+      "command": "tests/g02/.venv/bin/python /tmp/r3rev/exp/rowslag.py <mutant>/heimdall-proto large-100.toml (type '7' in filter mode, darwin)",
+      "exit_code": 0,
+      "observed": "base: status 19/100 after 4.5 ms; rows matching after 7.5 ms. rv_rows_lag: status 19/100 after 2.8 ms; at that moment the rows were still the unfiltered list (first row host-000-web, 23 non-status rows); rows matching only after 173.6 ms. The script hung at TUI exit (my driver's quit sequence). I stopped the exact TUI PIDs 64182 and 76821 with SIGKILL after an identity check; exit 0 is the driver's status after that."
+    },
+    {
+      "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9]' tests/evidence/artifacts/review-g02-harness-r3",
+      "exit_code": 1,
+      "observed": "No match: no full canary value in any review artifact. 113 files had the absolute home path, now replaced with $HOME."
+    },
+    {
+      "command": "shasum -a 256 tests/g02/{conformance,reference_impl,reference_tui,harness_lib}.py (before and after)",
+      "exit_code": 0,
+      "observed": "Hashes unchanged (3cec2613..., 5ed54c05..., e67ac20d..., 13b92df6...). The harness was not edited. git status shows no new paths outside the review directory."
+    }
+  ],
+  "mutations": [
+    {
+      "name": "rv_shared_sigint_only",
+      "description": "In shared mode (process group holds the foreground and the process is piped or not the group leader), only SIGINT is forwarded; SIGTERM, SIGHUP, SIGQUIT and SIGWINCH are dropped.",
+      "caught": true,
+      "caught_by": [
+        "run.k6d_shared_mode_explicit_signals (darwin, linux): first failure sh-c/SIGTERM"
+      ]
+    },
+    {
+      "name": "rv_shared_drop_winch",
+      "description": "In shared mode, SIGWINCH is assumed to come from the terminal and is dropped.",
+      "caught": true,
+      "caught_by": [
+        "run.k6d_shared_mode_explicit_signals (darwin, linux): sh-c/SIGWINCH"
+      ]
+    },
+    {
+      "name": "rv_shared_drop_pipe_stdin",
+      "description": "All five signals are dropped when stdin is a pipe (heimdall-proto fed by a pipeline peer).",
+      "caught": true,
+      "caught_by": [
+        "run.k6d_shared_mode_explicit_signals (darwin, linux): pipeline-last/SIGINT"
+      ]
+    },
+    {
+      "name": "rv_shared_drop_sh_c",
+      "description": "All five signals are dropped when heimdall-proto is not the group leader and has no pipes (child of a Makefile or `sh -c` script).",
+      "caught": true,
+      "caught_by": [
+        "run.k6d_shared_mode_explicit_signals (darwin, linux): sh-c/SIGINT"
+      ]
+    },
+    {
+      "name": "rv_dedupe_500ms",
+      "description": "Duplicate suppression: a repeat of the same signal within 500 ms of forwarding is dropped.",
+      "caught": true,
+      "caught_by": [
+        "run.repeated_signals (darwin, linux)",
+        "run.explicit_signal_with_tty (darwin, linux)",
+        "NOT caught by run.k6d_shared_mode_explicit_signals: it sends each signal once per run"
+      ]
+    },
+    {
+      "name": "rv_hup_exit_early",
+      "description": "SIGHUP is forwarded, then heimdall-proto exits 129 at once without waiting for the child.",
+      "caught": true,
+      "caught_by": [
+        "run.k6d_shared_mode_explicit_signals (darwin, linux)",
+        "run.forward_sighup (darwin, linux)",
+        "run.explicit_signal_with_tty (darwin, linux)"
+      ]
+    },
+    {
+      "name": "rv_jc (v1)",
+      "description": "Job-control launcher: the child gets its own foreground group when heimdall-proto leads its group with a tty on stdin and stdout; heimdall-proto stops itself when the child stops, and hands over the terminal only from its SIGCONT handler. Defect: bash sends no SIGCONT when `fg` takes a running job after `bg`, so the child never gets the terminal back.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_job_control (darwin, linux): '[simple: iteration 1 z-bg-fg] the child reads the line typed after fg'. This is the only run.* check that fails (28/29)."
+      ]
+    },
+    {
+      "name": "rv_jc_no_tty_after_fg (on v1 and v2)",
+      "description": "Job-control launcher that never hands the terminal back to the child after `fg`.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_job_control (darwin, linux): re-stop after fg in iteration 1 z-fg"
+      ]
+    },
+    {
+      "name": "rv_jc_bg_no_cont (on v1 and v2)",
+      "description": "Job-control launcher that does not continue the child on `bg`: the child stays stopped while the shell believes the job is running.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_job_control (darwin, linux): bg assertion in iteration 1 z-bg-fg"
+      ]
+    },
+    {
+      "name": "rv_jc_no_selfstop (on v1 and v2)",
+      "description": "Job-control launcher that does not stop itself when the child stops on Ctrl-Z, so the shell never reports the job stopped.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_job_control (darwin, linux): Ctrl-Z assertion in iteration 1 z-fg"
+      ]
+    },
+    {
+      "name": "rv_restop_linux",
+      "description": "Linux only: the second foreground continue re-stops the job at once with SIGTSTP to its own group.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_job_control on linux (iteration 2 z-fg re-stop). Inert on darwin by design, which passes 4/4. This shows the Linux run is not silently skipped."
+      ]
+    },
+    {
+      "name": "rv_restop_700ms",
+      "description": "The job re-stops itself 700 ms after the second foreground continue, outside the 0.5 s window of the fg assertion.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_job_control (darwin, linux), but only indirectly: the iteration 2 z-fg fg assertion passed (restopped_or_prompt false). The failure surfaced at the next phase's bg assertion with an unrelated message."
+      ]
+    },
+    {
+      "name": "rv_delay_bigresult",
+      "description": "A filter edit takes 150 ms when the resulting list has more than 50 rows (only the Backspace back to the empty filter).",
+      "caught": true,
+      "caught_by": [
+        "tui.large_100_filter_latency (darwin p95 159.4 ms, linux 155.2 ms)"
+      ]
+    },
+    {
+      "name": "rv_delay_backspace",
+      "description": "Backspace in filter mode takes 150 ms.",
+      "caught": true,
+      "caught_by": [
+        "tui.large_100_filter_latency (darwin p95 158.8 ms, linux 155.0 ms)"
+      ]
+    },
+    {
+      "name": "rv_delay_first_key",
+      "description": "The first keystroke after entering filter mode (/) takes 150 ms.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "rv_rows_lag",
+      "description": "The status line (N/M count) updates at once but the list rows are redrawn 150 ms after the last edit. Observed directly: rows correct only after 173.6 ms.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "rv_child_sigpipe_ignored",
+      "description": "Popen restore_signals=False: every child runs with SIGPIPE ignored, even when heimdall-proto inherited the default. Observed: via heimdall-proto with the default disposition, `yes` exits 1 (EPIPE) instead of dying of SIGPIPE.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "control: rv_jc2 (correct job-control alternative)",
+      "description": "v1 plus handling of the child's SIGTTIN/SIGTTOU stop: if heimdall-proto now holds the foreground, it hands over the terminal and continues the child. Must pass.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "control: rv_delay_90ms",
+      "description": "Every filter edit takes 90 ms, within the 100 ms bound. Must pass.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "control: base / base2 (patched copy, no defect active)",
+      "description": "Neutrality of the patch. Must pass.",
+      "caught": false,
+      "caught_by": []
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "K17 judges only the status line. Each edit waits on has_status(want, 100), the N/M count, never on the list rows. A TUI that updates the count at once but redraws the filtered rows 150+ ms later passes with p95 0.5 ms (darwin) and 2.6 ms (linux), although the screen showed the unfiltered list for 173.6 ms (rv_rows_lag, observed directly). 'Keystroke-to-screen-update' should require the rows to match too: the expected first row or alias set and the row count, or the full expected composition.",
+      "location": "tests/g02/conformance.py tui.large_100_filter_latency, the K17 edit loop (s.wait_for(has_status(want, 100), ...) for typed characters and Backspace, about lines 2846-2867)"
+    },
+    {
+      "severity": "minor",
+      "description": "The K6c SIGPIPE probe's observation inherited_sigpipe_ignore_kept looks only at the 'ignore' variant. An implementation that ignores SIGPIPE in every child gets kept=true on both platforms, even though its via_heimdall_proto.default child also exits 1 instead of dying of signal 13 (rv_child_sigpipe_ignored). That is a wrong-direction ADR-0002 input. No run.* check catches the leak (29/29 on both platforms). Whether a default SIGPIPE disposition must stay default in the child (exec semantics) is not stated in §4, K6a or K6c. Escalated as a contract ambiguity, not decided here. Probe fix: set kept=true only when the ignore variant exits 1 AND the default variant dies of SIGPIPE; otherwise report 'child always ignores SIGPIPE' or 'always default'.",
+      "location": "tests/g02/conformance.py _k6c_sigpipe_probe (kept = via['ignore'] ..., about line 3351)"
+    },
+    {
+      "severity": "minor",
+      "description": "K17 sampling enters filter mode once and pools 30 edits, so a TUI that is slow (150 ms) on the first keystroke after '/' passes: max 158.1 ms (darwin) and 153.3 ms (linux), p95 about 4.5 ms (rv_delay_first_key). The p95 statistic itself allows 1 slow sample in 30. But a user who filters a few characters per session meets that latency on a large share of keystrokes. Escalated: should K17's p95 cover several filter sessions? Suggestion: several cycles of '/', type, Backspace, Esc, so first-keystroke latency is weighted per session.",
+      "location": "tests/g02/conformance.py tui.large_100_filter_latency (single s.send('/') before the K17_CYCLES loop)"
+    },
+    {
+      "severity": "minor",
+      "description": "The K6e re-stop assertion only looks 0.5 s after `fg` (s.settle(0.5)). A job that re-stops itself 700 ms after fg passes '[...] after fg the job is not stopped again' and is caught only indirectly at the next phase. The failure message there ('after bg the child runs again ...') blames the wrong step (rv_restop_700ms, both platforms). Suggestion: a longer or two-stage window, or a 'no Stopped since the last fg' assertion before each next Ctrl-Z.",
+      "location": "tests/g02/conformance.py _k6e_form.fg() (s.settle(0.5); restop = b'Stopped' in out or prompt in out)"
+    },
+    {
+      "severity": "minor",
+      "description": "The K6d shared-mode setup is recorded with gating=False. If a layout fails to put heimdall-proto in the foreground group it shares with others (another shell, platform or sh implementation), K6d passes on delivery alone without testing shared mode, which is a silent skip. In every run examined here all 15 setups had shared=true on both platforms, so there is no current effect. It should be a gating harness precondition, or should turn the check into error or inconclusive.",
+      "location": "tests/g02/conformance.py run.k6d_shared_mode_explicit_signals (t.check('... setup (non-gating observation) ...', True, True, setup['shared'], gating=False), about lines 3563 and 3613)"
+    },
+    {
+      "severity": "minor",
+      "description": "Harness preconditions are recorded as ordinary gating assertions, so a broken environment gives check outcome 'fail', which reads as a candidate failure, not 'error' (invalid evidence). Examples: no `yes` on PATH, or `yes` not exiting -13/1; bash without job control; the child's parent not in the session. Notably, the non-gating K6c SIGPIPE probe runs inside the gated run.k6a_inherited_ignore, so a probe-precondition failure would fail a gated K6a check for a reason K6c says is non-gating. Not observed in practice here.",
+      "location": "tests/g02/conformance.py T.require/T.eq (about lines 298-305); _k6c_sigpipe_probe t.require/t.eq preconditions (about lines 3327-3338), called from run.k6a_inherited_ignore"
+    },
+    {
+      "severity": "minor",
+      "description": "K6e (and the K6d pipeline layouts) run only under /bin/bash: 3.2.57 on darwin, 5.2.15 in the Linux image. zsh, the default interactive shell on macOS, is not exercised, and its fg/bg signalling is untested. Experiment: neither bash version sends SIGCONT when `fg` takes a running job, which is the exact case that made the SIGCONT-only job-control design (rv_jc v1) fail. Coverage gap only, not a mis-judgement.",
+      "location": "tests/g02/conformance.py _k6e_form and run.k6d_shared_mode_explicit_signals (bash = '/bin/bash')"
+    }
+  ],
+  "summary": "I reviewed the round-3 harness additions (K6d, K6e, K17, the K6c SIGPIPE probe) adversarially. The harness itself was not edited; its hashes are unchanged.\n\n**Method.** I patched /tmp copies of reference_impl.py and reference_tui.py with 17 realistic defects plus 4 controls, each defect baked into its own heimdall-proto. Every variant ran on darwin-arm64 (host) and linux-arm64 (tests/g02/linux/run.sh in the digest-pinned container, --network none).\n\n**Results.**\n- **Caught: 14 of 17 defects.**\n  - All 6 K6d-targeted defects, by run.k6d_shared_mode_explicit_signals or older run.* checks. rv_dedupe_500ms is caught only by run.repeated_signals and run.explicit_signal_with_tty, because K6d sends each signal once.\n  - All K6e defects: no tty after fg, bg leaves the child stopped, no self-stop, and the v1 job-control design that hands over the terminal only on SIGCONT. Bash 3.2 and 5.2 both send no SIGCONT on `fg` of a running job (verified by experiment), so that design is genuinely defective and the harness's bg-then-fg step catches it.\n  - rv_restop_linux is caught on Linux only, which shows the Linux run really executes. rv_restop_700ms is caught only indirectly, outside the 0.5 s fg window.\n  - Two K17 delay defects.\n- **Missed: 3 defects.**\n  - rv_rows_lag (major): K17 waits only for the status-line count. Rows lagging 173.6 ms pass with a measured p95 of 0.5 to 2.6 ms.\n  - rv_delay_first_key: one slow keystroke in 30 is within p95 by design. Escalated as a sampling-design question.\n  - rv_child_sigpipe_ignored: no gated check catches it, and the K6c observation falsely reports inherited_sigpipe_ignore_kept=true. Whether default SIGPIPE must stay default in the child is unspecified in the contract; escalated, not decided.\n- **No false fails.** A correct job-control alternative (rv_jc2) passes K6e and all 29 run.* checks on both platforms. The 90 ms-per-edit control passes; darwin p95 was 99.5 ms, a thin but correct margin.\n\n**Flakiness.** Against the unmutated reference, the four new checks passed in 5 of 5 serial runs per platform. They also passed in 1 run per platform of the neutral patched copy (2 copies on each platform), and in 2 runs per platform under 18-way host CPU load. Baseline K17 p95 was 1.2 to 9.6 ms. Every K6d delivery was exactly 1, and all 15 K6d setups were in shared mode on both platforms. K6e delivered 10 of 10 lines in both forms.\n\n**Platform gating.** No silent skip was observed: pyte-missing checks are counted as skipped, which makes the record incomplete. Residual risks:\n- The K6d shared-mode setup check is non-gating.\n- Harness precondition failures are scored as 'fail' rather than 'error'.\n- Only bash is exercised, not zsh.\n\n**Evidence status.** Verified: every probe ran as designed and the raw output is preserved. Records, artifacts, tooling (patch.py, reference-patch.diff, run scripts and logs) and experiments are in <repo>/tests/evidence/artifacts/review-g02-harness-r3/{darwin,linux,tooling,experiments}. The canary scan found no full values, and home paths are redacted to $HOME. Scratch copies remain in /tmp/r3rev. Nothing was committed."
+}

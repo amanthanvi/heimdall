@@ -1,0 +1,74 @@
+date=2026-10-04T19:08:45Z
+bun=1.4.2 rev=1.4.2+744846f84
+build A_default rc=0
+build B_noautoload rc=0
+build C_execargv rc=0
+build D_bytecode rc=0
+=== A_default
+-- baseline
+HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE rc=0
+-- BUN_OPTIONS=--preload
+PRELOAD_RAN HELLO_MAIN argv_len=2 execArgv=["--preload","/tmp/ts-research/pre.ts"] HELLO_DONE 
+-- BUN_INSPECT_PRELOAD
+HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE 
+-- BUN_BE_BUN=1 --version
+1.4.2 
+-- BUN_BE_BUN=1 -e
+BE_BUN_EVAL_RAN 
+-- BUN_INSPECT=ws://127.0.0.1:47462/hmres
+listeners_by_pid: 127.0.0.1:47462 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE 
+-- BUN_OPTIONS=--inspect=127.0.0.1:47463/hmres
+listeners_by_pid: 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=["--inspect=127.0.0.1:47463/hmres"] HELLO_DONE 
+=== B_noautoload
+-- baseline
+HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE rc=0
+-- BUN_OPTIONS=--preload
+PRELOAD_RAN HELLO_MAIN argv_len=2 execArgv=["--preload","/tmp/ts-research/pre.ts"] HELLO_DONE 
+-- BUN_INSPECT_PRELOAD
+HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE 
+-- BUN_BE_BUN=1 --version
+1.4.2 
+-- BUN_BE_BUN=1 -e
+BE_BUN_EVAL_RAN 
+-- BUN_INSPECT=ws://127.0.0.1:47464/hmres
+listeners_by_pid: 127.0.0.1:47464 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE 
+-- BUN_OPTIONS=--inspect=127.0.0.1:47465/hmres
+listeners_by_pid: 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=["--inspect=127.0.0.1:47465/hmres"] HELLO_DONE 
+=== C_execargv
+-- baseline
+HELLO_MAIN argv_len=2 execArgv=["--smol"] HELLO_DONE rc=0
+-- BUN_OPTIONS=--preload
+PRELOAD_RAN HELLO_MAIN argv_len=2 execArgv=["--preload","/tmp/ts-research/pre.ts","--smol"] HELLO_DONE 
+-- BUN_INSPECT_PRELOAD
+PRELOAD_RAN HELLO_MAIN argv_len=2 execArgv=["--smol"] HELLO_DONE 
+-- BUN_BE_BUN=1 --version
+1.4.2 
+-- BUN_BE_BUN=1 -e
+BE_BUN_EVAL_RAN 
+-- BUN_INSPECT=ws://127.0.0.1:47466/hmres
+listeners_by_pid: 127.0.0.1:47466 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=["--smol"] HELLO_DONE 
+-- BUN_OPTIONS=--inspect=127.0.0.1:47467/hmres
+listeners_by_pid: 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=["--inspect=127.0.0.1:47467/hmres","--smol"] HELLO_DONE 
+=== D_bytecode
+-- baseline
+HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE rc=0
+-- BUN_OPTIONS=--preload
+PRELOAD_RAN HELLO_MAIN argv_len=2 execArgv=["--preload","/tmp/ts-research/pre.ts"] HELLO_DONE 
+-- BUN_INSPECT_PRELOAD
+HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE 
+-- BUN_BE_BUN=1 --version
+1.4.2 
+-- BUN_BE_BUN=1 -e
+BE_BUN_EVAL_RAN 
+-- BUN_INSPECT=ws://127.0.0.1:47468/hmres
+listeners_by_pid: 127.0.0.1:47468 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=[] HELLO_DONE 
+-- BUN_OPTIONS=--inspect=127.0.0.1:47469/hmres
+listeners_by_pid: 
+rc=0 out: HELLO_MAIN argv_len=2 execArgv=["--inspect=127.0.0.1:47469/hmres"] HELLO_DONE 

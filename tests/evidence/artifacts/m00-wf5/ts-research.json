@@ -1,0 +1,82 @@
+{
+  "task_id": "M00-T05-ts-research",
+  "status": "verified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-ts/research/scripts/exp1_env_hooks.sh",
+    "tests/evidence/artifacts/g02-ts/research/scripts/exp1b_inspect_flag.sh",
+    "tests/evidence/artifacts/g02-ts/research/scripts/exp2_musl.sh",
+    "tests/evidence/artifacts/g02-ts/research/src/hello.ts",
+    "tests/evidence/artifacts/g02-ts/research/src/pre.ts",
+    "tests/evidence/artifacts/g02-ts/research/src/long.ts",
+    "tests/evidence/artifacts/g02-ts/research/src/hello_musl.ts",
+    "tests/evidence/artifacts/g02-ts/research/src/ffi_probe.ts",
+    "tests/evidence/artifacts/g02-ts/research/out/exp1_env_hooks.log",
+    "tests/evidence/artifacts/g02-ts/research/out/exp1b_inspect_flag.log",
+    "tests/evidence/artifacts/g02-ts/research/out/exp2_musl.log"
+  ],
+  "commands_run": [
+    {
+      "command": "git clone --depth 1 --branch bun-v1.4.2 --filter=blob:none --sparse https://github.com/oven-sh/bun.git /tmp/bun-src; git sparse-checkout set src docs; git rev-parse HEAD",
+      "exit_code": 0,
+      "observed": "HEAD = 744846f844374847c902b5e7fd59b4342a51ef99 (tag bun-v1.4.2, commit date 2026-09-04). Local `bun --revision` prints 1.4.2+744846f84, so the installed bun is that tag. `gh release list` shows 1.4.2 is the latest Bun release as of 2026-10-04."
+    },
+    {
+      "command": "sh tests/evidence/artifacts/g02-ts/research/scripts/exp1_env_hooks.sh > out/exp1_env_hooks.log (first run)",
+      "exit_code": 0,
+      "observed": "INVALID first run for the inspector rows: the script backgrounded a shell function, so $! was a subshell PID and lsof by PID saw no listener. A control with a plain `env -i ... &` showed the listener. The script was fixed and rerun; only the rerun is kept in out/."
+    },
+    {
+      "command": "sh scripts/exp1_env_hooks.sh (rerun, fixed)",
+      "exit_code": 0,
+      "observed": "Four hello-world builds, all rc=0: A default; B all four --no-compile-autoload-* flags; C B plus --compile-exec-argv=--smol; D B plus --bytecode. In every variant, with env -i: BUN_OPTIONS=\"--preload pre.ts\" printed PRELOAD_RAN before HELLO_MAIN, and process.execArgv showed the injected flags. BUN_BE_BUN=1 <exe> --version printed 1.4.2 and BUN_BE_BUN=1 <exe> -e '...' ran the eval (the bundled entry was ignored). BUN_INSPECT=ws://127.0.0.1:PORT/hmres opened a LISTEN socket on 127.0.0.1:PORT, seen by lsof for the exact PID, in A, B, C and D. BUN_INSPECT_PRELOAD ran the preload only in variant C, the one with --compile-exec-argv. BUN_OPTIONS=--inspect=127.0.0.1:PORT/hmres opened no listener, although it appeared in execArgv."
+    },
+    {
+      "command": "sh scripts/exp1b_inspect_flag.sh",
+      "exit_code": 0,
+      "observed": "BUN_OPTIONS with --inspect=ws://127.0.0.1:P/hmres, --inspect=P and --inspect-wait=ws://... each opened no listener in a compiled hello (checked by lsof for the exact PID, each PID killed afterwards). BUN_INSPECT is the env route that opens one. Only 127.0.0.1 URLs were tested; no 0.0.0.0 URL was ever run, to honor the no-public-listener rule."
+    },
+    {
+      "command": "bun build --compile --target=bun-linux-{arm64-musl,x64-musl,arm64} (via scripts/exp2_musl.sh)",
+      "exit_code": 0,
+      "observed": "All three cross-compiles rc=0. They downloaded bun-linux-aarch64-musl-v1.4.2 and bun-linux-x64-musl-v1.4.2. Sizes: hello arm64-musl 74.5 MB, x64-musl 75.3 MB, arm64-glibc 81.3 MB. `file` shows interpreters /lib/ld-musl-aarch64.so.1 and /lib/ld-musl-x86_64.so.1, so the output is dynamically linked, not static."
+    },
+    {
+      "command": "docker run alpine:3.22 (linux/arm64, native to the Docker VM) and hp-g02-alpine-amd64:3.22 (linux/amd64, emulated), each before and after `apk add libstdc++ libgcc`",
+      "exit_code": 0,
+      "observed": "BEFORE apk add, the musl hello fails on both arches: 'Error loading shared library libstdc++.so.6 ... symbol not found'. The glibc hello is 'not found' on alpine (no glibc loader), which is what the earlier ADR claim saw. AFTER apk add rc=0, the musl hello prints HELLO_MUSL arch=arm64 platform=linux bun=1.4.2, and arch=x64 under emulation. A bun:ffi dlopen of OpenTUI's musl libopentui.so plus a call to getArenaAllocatedBytes printed FFI_OK on arm64 (native) and on x64 (emulated only, so it closes no claim). The pipeline `| head` hid the program exit codes (the rc= lines show head's status), so success is judged from the printed output lines. The amd64 image carries no heimdall.fixture label. The container ran with outbound networking only so apk could fetch; nothing listened."
+    },
+    {
+      "command": "curl registry.npmjs.org/@opentui/core-linux-{x64,arm64}-musl/0.5.14 and @opentui/core/0.5.14",
+      "exit_code": 0,
+      "observed": "Both musl packages are published at 0.5.14 with libc=['musl'], os linux, cpu x64 or arm64. @opentui/core 0.5.14 lists them in optionalDependencies. Core engines: bun >=1.3.0, node >=26.4.0. Published 2026-09-30, dist-tag latest. prototypes/ts/bun.lock already pins both musl packages with integrity hashes."
+    },
+    {
+      "command": "gh api raw fetch of nodejs/node doc/api/{single-executable-applications,ffi,cli}.md and src/node.cc and src/node_sea.cc at v26.10.0, plus ffi.md at v26.4.0",
+      "exit_code": 0,
+      "observed": "Docs and source read only; no Node 26 binary was run (local node is v24.18.0). Tag v26.10.0 resolves to commit 151845ab90d3926ceb36eedf1eade09619c3adc9 (Current, released 2026-09-22) and v26.4.0 to 2022edf3e32ce28ee08b17f8566243a090dacd95. Findings are in the summary."
+    },
+    {
+      "command": "lsof -nP -iTCP:47461-47499 -sTCP:LISTEN; grep -rl HEIMDALL_CANARY_ research/; grep -rn /Users/ research/",
+      "exit_code": 0,
+      "observed": "No listeners remain. No canary strings. Two scripts carried an absolute home path, which was replaced by a path derived from $R, and exp2 was rerun to confirm it still works. That last rerun's output was only grepped to the terminal; out/exp2_musl.log is from the equivalent earlier run."
+    }
+  ],
+  "escalations": [
+    "ADR wording for the owner or orchestrator: the TS rejection currently says the runtime hooks 'can only be bypassed with FFI' and 'glibc only (fails on musl)'. Primary-source results below show the hook claim holds, and the musl claim does not. Choosing how to reword ADR-0002 (M5), and whether to reweigh the TS candidate's distribution score now that musl works, is a contract and decision call that I did not make.",
+    "Optional follow-up, not done because the task said 'docs only' for the Node path and I may not change prototypes/ts: (a) a musl build of the actual prototype, which needs OPENTUI_LIBC=musl set by the app, since src/cli.ts pinNativeAssets currently deletes it; (b) a Node 26.10.0 SEA experiment, fetching the tarball to /tmp, that tests execArgvExtension=none, --disable-sigusr1, and node:ffi dlopen of the OpenTUI sidecar. Say if you want either."
+  ],
+  "limitations": [
+    "Claim (1) is settled on Bun 1.4.2 (744846f84) only. A source read found no embedded flag that disables BUN_OPTIONS, BUN_INSPECT, BUN_INSPECT_PRELOAD or BUN_BE_BUN, and the experiments found no behavior that does. 'No such flag' is an inference from reading the source plus black-box tests of the candidate flags, not a proof for every Bun release. Bun 1.4.2 is currently the latest release.",
+    "Only the candidate flags listed were tried: --no-compile-autoload-{dotenv,bunfig,tsconfig,package-json}, --compile-exec-argv=--smol, --bytecode. The option parser has no flag that removes preload, inspector, or BUN_BE_BUN handling. --compile-exec-argv is additive. Its only observed side effect is that BUN_INSPECT_PRELOAD starts working.",
+    "BUN_BE_BUN is checked before the embedded graph is loaded (src/runtime/cli/mod.rs:1193), so the app cannot intercept it, and a preload runs before the app's entry point. The app can at most detect BUN_OPTIONS afterwards through process.execArgv, which is too late to stop the preload or the inspector.",
+    "Inspector host: src/js/internal/debugger.ts takes the hostname from the BUN_INSPECT URL (default 'localhost', port 6499 when not given). Loopback is therefore only the default, and a caller-chosen host could bind a public interface. That is source reading only. I did not run any non-loopback URL.",
+    "BUN_OPTIONS=--inspect* opening no listener in a compiled executable is an observation, and I did not find the cause in the source.",
+    "musl: the amd64 runs used emulation, which does not close the native x64-musl claim (CLAUDE.md). The ffi probe only dlopens and calls one no-argument symbol (getArenaAllocatedBytes). It does not prove that the TUI, terminal I/O or signals behave on musl.",
+    "musl: the Bun musl runtime is dynamically linked and needs libstdc++ and libgcc (apk add libstdc++ libgcc on Alpine). It is not a static-musl artifact, and a bare alpine or scratch image will not run it.",
+    "musl: the glibc libopentui.so (DT_NEEDED libc.so.6, libm.so.6, and others) also dlopened and ran the probe in alpine, because musl accepts the libc, libm, libpthread, libdl and librt names as built in. This is not evidence that the glibc library is safe on musl. This reading of musl's loader is inference, not tested.",
+    "Node SEA path (3) is docs and source only, and no Node 26 binary was executed. The node:ffi and SEA interaction is undocumented: the SEA page does not mention node:ffi, and the ffi page does not mention SEA. Whether OpenTUI's native core works inside a SEA is therefore unverified. The relevant documented facts are in the summary.",
+    "OTUI_* hazards (OTUI_STDIN_LOG, OTUI_DEBUG_FFI, seen in review/probes/out/otui_env.log) live in OpenTUI's JS and apply on any runtime, including Node. A Node path would therefore not remove them. The app would still have to scrub the environment before loading OpenTUI, as the prototype already does for two variables. This is inference from the earlier probe, not tested on Node.",
+    "Local clone /tmp/bun-src and work directories /tmp/ts-research remain in /tmp (outside the write ownership, not in the repo). No process or listener was left running."
+  ],
+  "summary": "Findings for ADR review M5 (Bun 1.4.2, tag bun-v1.4.2 = commit 744846f844374847c902b5e7fd59b4342a51ef99, the latest release on 2026-10-04):\n\n(1) Hook claim confirmed, by source and experiment.\n- Env hooks cannot be disabled in a compiled binary. Source, with line numbers at that tag:\n  - BUN_OPTIONS is spliced into argv in src/bun_core/util.rs:3805, before the app runs, and its flags reach process.execArgv (src/runtime/node/node_process.rs:238-252).\n  - BUN_BE_BUN is tested before the embedded graph loads (src/runtime/cli/mod.rs:1193), so the bundled entry never runs.\n  - BUN_INSPECT is read in src/runtime/jsc_hooks.rs:594.\n  - The embedded Flags in src/standalone_graph/StandaloneModuleGraph.rs:830 are only DISABLE_DEFAULT_ENV_FILES, DISABLE_AUTOLOAD_BUNFIG, DISABLE_AUTOLOAD_TSCONFIG and DISABLE_AUTOLOAD_PACKAGE_JSON, plus layout bits. The docs at docs/bundler/executables.mdx:343-355 and :430-460 describe BUN_OPTIONS and BUN_BE_BUN as features. I found no related open issue.\n- On hello-world binaries built with the default flags, with all four --no-compile-autoload-* flags, with those plus --compile-exec-argv=--smol, and with those plus --bytecode:\n  - BUN_OPTIONS=--preload ran arbitrary code first, before the program's entry point.\n  - BUN_BE_BUN=1 turned the binary into the bun CLI.\n  - BUN_INSPECT=ws://127.0.0.1:P/... opened a listener on 127.0.0.1:P, seen by lsof for the exact PID.\n  - BUN_INSPECT_PRELOAD ran a preload only when --compile-exec-argv was set, so that flag makes things worse.\n  - BUN_OPTIONS=--inspect* did not open a listener, which is an observation I did not explain.\n- The ADR sentence 'bypassed only with FFI' stands as stated here: no compile flag or embedded option disables these hooks.\n- The first run of the inspector rows was invalid (a shell function was backgrounded, so $! was a subshell). It was fixed and rerun, and only the rerun is kept.\n\n(2) musl: the ADR claim 'glibc only (fails on musl)' is wrong as a statement about Bun or OpenTUI. It describes the prototype's chosen build targets.\n- Bun 1.4.2 lists bun-linux-x64-musl and bun-linux-arm64-musl (docs/bundler/executables.mdx:197-198; src/options_types/compile_target.rs). Both cross-compiled rc=0 here.\n- @opentui/core@0.5.14 declares @opentui/core-linux-x64-musl and @opentui/core-linux-arm64-musl as optionalDependencies. Both are published with libc=['musl'] and are already pinned in prototypes/ts/bun.lock. build.sh simply never builds a musl target.\n- In alpine:3.22 the musl hello fails without libstdc++ and libgcc, then runs after `apk add libstdc++ libgcc`: native on arm64, emulated only on x64. OpenTUI's musl libopentui.so was dlopened and one symbol was called via bun:ffi, with the same native versus emulated split. The musl binary is about 75 MB and dynamically linked. TUI behavior on musl was not tested.\n- OpenTUI selects the musl package only when OPENTUI_LIBC=musl is set (chunk-bun-sjw2d9bq.js:8089-8136, :8129-8136); it does not autodetect. The prototype deletes that variable in pinNativeAssets (src/cli.ts:137), so a musl build would need the app to set it itself. That is a code reading, not a run.\n\n(3) Node SEA, from docs and source only, Node v26.10.0 (commit 151845ab90d3926ceb36eedf1eade09619c3adc9). I did not run Node 26.\n- Documented in doc/api/single-executable-applications.md (Stability 1.1, active development):\n  - sea-config execArgv bakes flags into the executable, and execArgvExtension accepts none, env (the default) or cli. With \"none\", NODE_OPTIONS is ignored. src/node.cc:984-1001 skips NODE_OPTIONS parsing unless the extension is 'env'.\n  - src/node_sea.cc:293-359 inserts the baked exec argv and then puts argv[0] at position 1, so user arguments are not parsed as Node options in none or env mode. In cli mode only --node-options= is extracted.\n  - Native addons can be loaded by writing the asset to a temporary file and calling process.dlopen. Addons cannot be loaded from the SEA VFS (:271-276).\n- Node CLI facts:\n  - --disable-sigusr1 exists (doc/api/cli.md:859, stable since v24.8.0), which closes the SIGUSR1 inspector route. Whether it is accepted in sea-config execArgv is not documented.\n  - node:ffi (doc/api/ffi.md, Stability 1, added v26.1.0) was gated by --experimental-ffi in v26.4.0, which is what OpenTUI's README says. In v26.10.0 it is on by default and --no-experimental-ffi disables it. Its docs say nothing about SEA.\n- OpenTUI side: the Node entry loads its native core through node:ffi (chunk-node-80p7e6t6.js:242-366). OpenTUI has a relocatable-assets mechanism, OTUI_ASSET_ROOT with a node-assets export. It has no node:sea integration.\n- Net: the Node route plausibly removes the NODE_OPTIONS and CLI-option hooks. It does not remove other env-driven Node behaviors, nor OpenTUI's own OTUI_* logging hooks, and the node:ffi-inside-SEA combination is undocumented, so it needs an experiment before it could be a basis for reopening.\n\nSources: https://github.com/oven-sh/bun/tree/bun-v1.4.2 (744846f844374847c902b5e7fd59b4342a51ef99); https://github.com/nodejs/node/tree/v26.10.0 (151845ab90d3926ceb36eedf1eade09619c3adc9); https://nodejs.org/docs/latest-v26.x/api/single-executable-applications.html and /ffi.html; https://registry.npmjs.org/@opentui/core/0.5.14 and the two -musl packages at 0.5.14.\""
+}

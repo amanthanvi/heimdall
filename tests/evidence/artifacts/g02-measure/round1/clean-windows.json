@@ -1,0 +1,83 @@
+{
+  "started_at": "2026-10-03T20:33:10Z",
+  "status": "blocked",
+  "blocked_on": "native Windows x86-64 host (none available; no emulation or Wine used)",
+  "artifacts": {
+    "go": {
+      "files": [
+        {
+          "path": "heimdall-proto.exe",
+          "bytes": 5084160,
+          "sha256": "cf6a7386697015452954ffd84d70b3356373317ffd493f80178f2dc701db5a09",
+          "file": "PE32+ executable (console) x86-64, for MS Windows",
+          "pe": {
+            "pe": true,
+            "machine": "0x8664",
+            "machine_name": "x86-64",
+            "sections": 8,
+            "optional_header_magic": "0x20b",
+            "subsystem": 3,
+            "subsystem_name": "console"
+          }
+        }
+      ],
+      "total_bytes": 5084160
+    },
+    "rust": {
+      "files": [
+        {
+          "path": "heimdall-proto.exe",
+          "bytes": 839168,
+          "sha256": "6a177ad434828fa2fd51f3549cb44b982be5c4c08cc5fa33097a4457302c261e",
+          "file": "PE32+ executable (console) x86-64, for MS Windows",
+          "pe": {
+            "pe": true,
+            "machine": "0x8664",
+            "machine_name": "x86-64",
+            "sections": 6,
+            "optional_header_magic": "0x20b",
+            "subsystem": 3,
+            "subsystem_name": "console"
+          }
+        }
+      ],
+      "total_bytes": 839168
+    },
+    "ts": {
+      "files": [
+        {
+          "path": "@opentui/core-win32-x64/opentui.dll",
+          "bytes": 6391688,
+          "sha256": "701435b577754aab978f1dc896e0defaf9dffc9abb952ad2f7d3b823755cf827",
+          "file": "PE32+ executable (DLL) (GUI) x86-64, for MS Windows",
+          "pe": {
+            "pe": true,
+            "machine": "0x8664",
+            "machine_name": "x86-64",
+            "sections": 7,
+            "optional_header_magic": "0x20b",
+            "subsystem": 2,
+            "subsystem_name": "gui"
+          }
+        },
+        {
+          "path": "heimdall-proto.exe",
+          "bytes": 90981888,
+          "sha256": "3e81b6fc7066ae34c7bd04096e9fac4c39c7307c16abd9d7d609045f983f9c92",
+          "file": "PE32+ executable (console) x86-64, for MS Windows",
+          "pe": {
+            "pe": true,
+            "machine": "0x8664",
+            "machine_name": "x86-64",
+            "sections": 13,
+            "optional_header_magic": "0x20b",
+            "subsystem": 3,
+            "subsystem_name": "console"
+          }
+        }
+      ],
+      "total_bytes": 97373576
+    }
+  },
+  "finished_at": "2026-10-03T20:33:10Z"
+}
