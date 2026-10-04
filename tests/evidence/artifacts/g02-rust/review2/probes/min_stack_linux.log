@@ -1,0 +1,6 @@
+run_exit=1
+meta_exists=no
+marker_right_after_hp_exit=no
+marker_later=child-finished-ppid=108
+stderr_first_line=thread 'main' (108) panicked at /rustc/b940084d7eb6a299eb4bf
+agent_exit=1 stdout={"schema_version":"1","state":"failed","code":"INTERNAL","data":{"error":{"key_path":null,"message":"internal error"}},"warnings":[],"next":null}

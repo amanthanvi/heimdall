@@ -1,0 +1,25 @@
+# pty K6/K9/K10 cases vs pre-change binary
+[pty_tui] k6-explicit-kill-reaches-child-once-fg-and-bg ...
+[pty_tui] k9-filter-edit-resets-selection ...
+[pty_tui] k10-sighup-129-sigterm-143-no-stdout ...
+[
+ {
+  "case": "k6-explicit-kill-reaches-child-once-fg-and-bg",
+  "passed": true,
+  "detail": "count=1, exit 3 for SIGINT/fg, SIGINT/bg, SIGTERM/fg, SIGTERM/bg (state checked via child/heimdall pgids and tcgetpgrp)",
+  "seconds": 4.272
+ },
+ {
+  "case": "k9-filter-edit-resets-selection",
+  "passed": false,
+  "detail": "assertion: append must reset: '  lab-server  aman@lab.example.internal:22\\n  nas  admin@nas.example.internal:22\\n> vps-東京  deploy@vps1.example.invalid:2222\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n3/3  /e'",
+  "seconds": 3.052
+ },
+ {
+  "case": "k10-sighup-129-sigterm-143-no-stdout",
+  "passed": true,
+  "detail": "exit codes {'SIGHUP': 129, 'SIGTERM': 143, 'hangup': 129}; terminal restored and nothing on stdout after restore for signals",
+  "seconds": 0.216
+ }
+]
+exit=1

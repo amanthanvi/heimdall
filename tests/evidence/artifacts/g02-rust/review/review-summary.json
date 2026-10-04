@@ -1,0 +1,43 @@
+{
+ "case_id": "M00-T05-review-rust",
+ "reviewer_role": "independent adversarial reviewer (did not build the prototype)",
+ "date_utc": "2026-10-03",
+ "source": "prototypes/rust (untracked) on top of commit 18bb8dfa841c488247421952c43e50d12980a4f2, copied to /tmp/heimdall-review-rust",
+ "toolchain": {
+  "rustc": "1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "1.99.0 (5f94df478 2026-08-27)",
+  "zig": "/opt/homebrew/bin/zig (0.16.0 per producer)",
+  "cargo_zigbuild": "producer-installed target/tools/bin/cargo-zigbuild, used read-only"
+ },
+ "host": "macOS 27.0 arm64 (Darwin 27.0.0), Docker 29.8.1; Linux runs in Docker Desktop VM: debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417 (arm64), python@sha256:2dd78ad5cf13a0b68f5134dc49aa9950203a8cf4b7463431b9f3b398287c5059 (arm64), alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 (arm64), hp-g02-python-amd64:3.13-alpine sha256:050f6d1f... (amd64, EMULATED)",
+ "conformance_rerun_darwin": {
+  "harness_exit_code": 0,
+  "total": 113,
+  "pass": 113,
+  "fail": 0,
+  "error": 0,
+  "record": "conformance/g02-rust-conformance-review.json",
+  "matches_recorded_verdict": true
+ },
+ "conformance_linux_arm64_native_container": {
+  "k3a_subset_exit_code": 1,
+  "k3a_failed": [
+   "agent.reset_after_partial_header"
+  ],
+  "full_run_exit_code": 1,
+  "full_run": {
+   "pass": 88,
+   "fail": 2,
+   "error": 23
+  },
+  "full_run_notes": "23 errors = /usr/bin/ssh-keygen absent in image (harness environment); profile.unreadable_file fail = container runs as root (harness environment); agent.reset_after_partial_header = product defect (K3a)"
+ },
+ "product_defects": [
+  "K3a: ECONNRESET after >=1 response byte reported as AGENT_UNAVAILABLE instead of AGENT_PROTOCOL_ERROR (Linux arm64 native + linux-x64 emulated; src/agent.rs read_full maps all read errors to Unavailable)",
+  "run resets inherited SIG_IGN for HUP/INT/QUIT/TERM in the child (nohup defeated: child killed by SIGHUP, exit 129); Linux SigIgn 0x4007 -> 0 and background-job 0x6 -> 0",
+  "run started as '&' job of a non-job-control script is classified Foreground (pgrp == tty fg pgrp) and hands the terminal to the child; the script's own tty read then fails with EIO",
+  "no-tty run: child in own process group; killpg(SIGKILL) on heimdall-proto's group orphans the child (observed alive, reviewer killed exact verified pid)",
+  "agent list: SIGINT within ~0-1 ms of start (before handler registration) kills the process by default action, no CANCELLED JSON (agent never contacted)",
+  "run --meta-file naming a FIFO blocks after the child exits; unwritable meta path detected only after the child ran, exit code stays the child's"
+ ]
+}

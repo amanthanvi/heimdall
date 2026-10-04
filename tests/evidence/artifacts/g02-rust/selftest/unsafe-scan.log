@@ -1,0 +1,8 @@
+src/profile.rs:404:    if s.chars().any(crate::text::is_unsafe_control) {
+src/lib.rs:12:#![forbid(unsafe_code)]
+src/runner.rs:25://! with std's CommandLineToArgvW-compatible quoting (and refuses unsafe .bat/.cmd
+src/main.rs:3:#![forbid(unsafe_code)]
+src/text.rs:5:pub fn is_unsafe_control(c: char) -> bool {
+src/text.rs:14:        .map(|c| if is_unsafe_control(c) { '\u{FFFD}' } else { c })
+src/lib.rs:12:#![forbid(unsafe_code)]
+src/main.rs:3:#![forbid(unsafe_code)]

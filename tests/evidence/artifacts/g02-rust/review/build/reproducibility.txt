@@ -1,0 +1,12 @@
+Reviewer rebuild 2026-10-03, rustc 1.99.0 (b940084d7 2026-09-28), cargo 1.99.0, zig 0.16.0 (/opt/homebrew/bin/zig),
+cargo-zigbuild = prototypes/rust/target/tools/bin/cargo-zigbuild (producer-installed, used read-only via CARGO_ZIGBUILD).
+Source: prototypes/rust at worktree state on top of 18bb8df (prototype is untracked), copied to /tmp/heimdall-review-rust (dist, target, __pycache__ excluded).
+target          producer manifest sha256                                          reviewer /tmp/heimdall-review-rust sha256                          same?
+darwin-arm64    4f8521433fc3be19d932bcc82a99e6dcdf1868e5b602502faf391b98217f6513  5984d60f63d0f50a58cf5691603ac71ef08904f4ab345b5c7c45248c70d99c83  NO  (same size 755840; 47 differing bytes = LC_UUID + ad-hoc signature hashes)
+linux-x64       10e6bf896dd64b835328287c916171c808e0da32ef4b83b1a4267e51fe029856  identical                                                          YES
+linux-arm64     9bbd19c36229cb4bd34022c0fa16762e6d995dfd70935f9c78d88c4354a83dfb  identical                                                          YES
+windows-x64     6a177ad434828fa2fd51f3549cb44b982be5c4c08cc5fa33097a4457302c261e  73a9231a4b7daef9a36e302e09295756191b3b72ad1f2b7c6c3b598ee09b4b98  NO  (same size 839168)
+darwin rebuild from clean in the SAME dir: 5984d60f... (identical to first reviewer build) -> deterministic per build directory.
+darwin build in a DIFFERENT dir (/tmp/heimdall-review-rust-b): 766ce995... -> depends on absolute build path.
+windows rebuild from clean in the same dir: d8271dbd... vs 73a9231a...: 2 differing bytes at file offsets 0x80-0x81 (COFF TimeDateStamp) -> timestamp-only nondeterminism.
+All artifacts embed the builder's absolute cargo registry path (/Users/<user>/.cargo/registry/...), ~62-65 occurrences each (no --remap-path-prefix/trim-paths).

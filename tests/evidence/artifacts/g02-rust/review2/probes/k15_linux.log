@@ -1,0 +1,13 @@
+{"case": "meta_deep_array_closed", "bytes": 1048575, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 20.4, "peak_rss_mib": 50.7, "ok": true}
+{"case": "meta_deep_array_unclosed", "bytes": 1048567, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 17.5, "peak_rss_mib": 52.7, "ok": true}
+{"case": "meta_deep_inline_table", "bytes": 1048573, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 17.4, "peak_rss_mib": 50.8, "ok": true}
+{"case": "toplevel_deep_array", "bytes": 1048576, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 17.6, "peak_rss_mib": 50.7, "ok": true}
+{"case": "dest_deep_inline", "bytes": 1048576, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 18.4, "peak_rss_mib": 50.8, "ok": true}
+{"case": "meta_dotted_key_500k", "bytes": 1048568, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 27.9, "peak_rss_mib": 70.7, "ok": true}
+{"case": "meta_table_header_deep", "bytes": 1048564, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 25.1, "peak_rss_mib": 70.7, "ok": true}
+{"case": "meta_many_tables", "bytes": 968935, "exit": 0, "code": "PROFILE_OK", "wall_ms": 35.2, "peak_rss_mib": 34.6, "ok": true}
+{"case": "meta_wide_array_ints", "bytes": 1048570, "exit": 0, "code": "PROFILE_OK", "wall_ms": 55.1, "peak_rss_mib": 97.8, "ok": true}
+{"case": "meta_wide_inline_tables", "bytes": 1048570, "exit": 0, "code": "PROFILE_OK", "wall_ms": 43.5, "peak_rss_mib": 82.3, "ok": true}
+{"case": "meta_long_string", "bytes": 1048570, "exit": 0, "code": "PROFILE_OK", "wall_ms": 5.3, "peak_rss_mib": 25.1, "ok": true}
+{"case": "meta_deep_mixed", "bytes": 1048575, "exit": 2, "code": "SCHEMA_INVALID", "wall_ms": 17.2, "peak_rss_mib": 50.7, "ok": true}
+{"case": "many_destinations_16k", "bytes": 1017825, "exit": 0, "code": "PROFILE_OK", "wall_ms": 64.6, "peak_rss_mib": 54.4, "ok": true}

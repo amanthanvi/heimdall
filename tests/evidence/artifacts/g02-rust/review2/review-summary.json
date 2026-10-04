@@ -1,0 +1,74 @@
+{
+ "task": "M00-T05-review2-rust",
+ "finished": "2026-10-04T02:23:25Z",
+ "reviewer_build": {
+  "dir": "/tmp/heimdall-review2-rust/src-copy",
+  "build_sh_exit": 0,
+  "identical_to_dist_manifest": {
+   "darwin-arm64": true,
+   "linux-x64": true,
+   "linux-arm64": true,
+   "windows-x64": true,
+   "notices": true
+  }
+ },
+ "harness": {
+  "darwin": {
+   "exit": 0,
+   "pass": 133,
+   "fail": 0,
+   "error": 0,
+   "record": "conformance-darwin/record.json"
+  },
+  "linux_arm64": {
+   "exit": 0,
+   "pass": 133,
+   "fail": 0,
+   "error": 0,
+   "record": "conformance-linux/record.json",
+   "image_id": "sha256:c0ee4be7c95e6e123be8d5563524c25c00e495cdea89cd0571c8a0361e180ef3"
+  }
+ },
+ "probes": {
+  "run_probe": [
+   "probes/run_probe_darwin.json",
+   "probes/run_probe_linux.json"
+  ],
+  "agent_probe": [
+   "probes/agent_probe_darwin.json",
+   "probes/agent_probe_linux.json"
+  ],
+  "strace_linux": "probes/strace_linux.json (image heimdall-review2-strace:1 = python:3.13-slim-bookworm@sha256:5024f48b... + strace 6.1-0.1, procps 2:4.0.2-3; id sha256:2ac2024a7aae...)",
+  "k15": [
+   "probes/k15_darwin.json",
+   "probes/k15_linux.json"
+  ],
+  "tui_signal": [
+   "probes/tui_signal_darwin.json",
+   "probes/tui_signal_linux.json"
+  ],
+  "early_sigint": [
+   "probes/early_sigint_darwin.json",
+   "probes/early_sigint_linux.json"
+  ],
+  "min_stack": [
+   "probes/min_stack_darwin.log",
+   "probes/min_stack_linux.log"
+  ],
+  "sigpipe_mask": [
+   "probes/sigpipe_darwin.log",
+   "probes/sigpipe_linux.log"
+  ],
+  "reset_delivery": [
+   "probes/reset_delivery_darwin.log",
+   "probes/reset_delivery_linux.log"
+  ],
+  "no_toolchain": "probes/no_toolchain.log",
+  "deps": "probes/deps_osv_cratesio.log"
+ },
+ "downloads": [
+  "apt strace 6.1-0.1 + procps 2:4.0.2-3 into local image heimdall-review2-strace:1 (not pushed)",
+  "OSV querybatch and crates.io API reads"
+ ],
+ "canary_scan": "0 files contain HEIMDALL_CANARY_ followed by >=8 value chars"
+}

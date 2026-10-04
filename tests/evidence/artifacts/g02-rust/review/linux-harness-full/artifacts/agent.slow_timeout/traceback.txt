@@ -1,0 +1,32 @@
+Traceback (most recent call last):
+  File "/repo/tests/g02/conformance.py", line 2576, in run_one
+    fn(t)
+    ~~^^^
+  File "/repo/tests/g02/conformance.py", line 1342, in _
+    cap, ev, _ = agent_run(t, "slow", extra=("--timeout-ms", "300"), timeout=15, label="timeout-300")
+                 ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/repo/tests/g02/conformance.py", line 1182, in agent_run
+    keys = t.ctx.keys() if keys is None else keys
+           ~~~~~~~~~~^^
+  File "/repo/tests/g02/conformance.py", line 170, in keys
+    self._keys = H.generate_keys(self.sandbox / "keys")
+                 ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/repo/tests/g02/harness_lib.py", line 425, in generate_keys
+    r = subprocess.run([SSH_KEYGEN, "-q", "-t", kind] + extra + ["-N", "", "-C", comment, "-f", str(priv)],
+                       env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+  File "/usr/local/lib/python3.13/subprocess.py", line 555, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/subprocess.py", line 1040, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                        pass_fds, cwd, env,
+                        ^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+                        gid, gids, uid, umask,
+                        ^^^^^^^^^^^^^^^^^^^^^^
+                        start_new_session, process_group)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/subprocess.py", line 1992, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'

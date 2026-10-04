@@ -1,0 +1,1 @@
+G02 conformance: candidate=rust bin=<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto checks=1 pyte=yes

@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T02:15:05.430Z", "mono_ms": 0.105, "event": "listen", "socket": "/tmp/hmg02-j8872hwr/056-agent-close_silent/close_silent.sock", "mode": "close_silent", "keys": 1}
+{"seq": 2, "ts": "2026-10-04T02:15:05.435Z", "mono_ms": 5.582, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T02:15:05.436Z", "mono_ms": 5.755, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "close_silent", "sent_bytes": 0}
+{"seq": 4, "ts": "2026-10-04T02:15:05.436Z", "mono_ms": 5.785, "event": "disconnect", "conn": 1, "reason": "server_close", "bytes_received": 5, "bytes_sent": 0, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T02:15:05.540Z", "mono_ms": 110.671, "event": "shutdown"}

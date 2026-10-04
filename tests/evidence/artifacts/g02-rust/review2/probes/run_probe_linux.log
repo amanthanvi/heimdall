@@ -1,0 +1,30 @@
+{"sig": 2, "deliver_to": "parent", "exit": 0, "child_counts": "2=1", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "explicit_SIGINT"}
+{"sig": 15, "deliver_to": "parent", "exit": 0, "child_counts": "15=1", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "explicit_SIGTERM"}
+{"sig": 1, "deliver_to": "parent", "exit": 0, "child_counts": "1=1", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "explicit_SIGHUP"}
+{"sig": 3, "deliver_to": "parent", "exit": 0, "child_counts": "3=1", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "explicit_SIGQUIT"}
+{"sig": 28, "deliver_to": "parent", "exit": 0, "child_counts": "28=1", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "explicit_SIGWINCH"}
+{"sig": 2, "deliver_to": "group", "exit": 0, "child_counts": "2=2", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "killpg_SIGINT"}
+{"sig": 15, "deliver_to": "group", "exit": 0, "child_counts": "15=2", "child_pgid_eq_parent_pgid": true, "child_ppid_is_hp": true, "child_alive_after": false, "case": "killpg_SIGTERM"}
+{"exit": -10, "child_pids": ["30"], "child_still_running_after_hp_exit": true, "case": "unhandled_SIGUSR1"}
+{"exit": -12, "child_pids": ["34"], "child_still_running_after_hp_exit": true, "case": "unhandled_SIGUSR2"}
+{"exit": -14, "child_pids": ["38"], "child_still_running_after_hp_exit": true, "case": "unhandled_SIGALRM"}
+{"exit": -9, "child_pids": ["42"], "child_still_running": true, "case": "sigkill_hp_pid"}
+{"exit": 0, "stdout": "[1, 1, 0, 0, 1]\nsurvived", "note": "list = ignored flags for HUP,INT,QUIT,TERM,PIPE in child", "case": "inherited_ignore_hup_int"}
+{"exit": 0, "stdout": "survived", "case": "nohup_child_self_hup"}
+{"exit": 0, "stdout": "[1, 1]", "case": "amp_job_int_quit_ignored"}
+{"exit": 0, "stdout": "[10]", "note": "caller blocked SIGUSR1 (30 darwin / 10 linux)", "case": "blocked_mask_in_child"}
+{"exit": 0, "stdout": "[]", "case": "child_mask_no_leak_from_block_early"}
+{"exit": 7, "elapsed_after_term_s": 0.554, "child_log": ["got", "done"], "case": "waits_for_child_trapping_term"}
+{"exit": 0, "equal": true, "stderr_len": 0, "case": "binary_8mib_roundtrip"}
+{"exit": 0, "out_len": 0, "case": "stdin_devnull_eof"}
+{"exit": 0, "meta": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"CHILD_EXITED\",\"data\":{\"launched\":true,\"exit_code\":null,\"signal\":13},\"warnings\":[],\"next\":null}", "case": "child_sigpipe_default"}
+{"exit": 0, "bytes": 4194304, "case": "backpressure_4mib_slow_reader"}
+{"exit": 3, "case": "exit_status_passthrough_with_grandchild"}
+{"exit": 143, "meta": "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"CHILD_EXITED\",\"data\":{\"launched\":true,\"exit_code\":null,\"signal\":15},\"warnings\":[],\"next\":null}", "case": "meta_unicode_path_signal"}
+{"exit": 0, "elapsed_s": 0.003, "stderr": "heimdall-proto: cannot write meta file: Uncategorized\n", "case": "meta_fifo_no_reader"}
+{"exit": 0, "stderr": "", "kids_at_0_5s": [], "case": "rust_min_stack_1"}
+{"exit": 1, "stderr": "\nthread 'main' (94) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/std/src/thread/functions.rs:131:29:\nfailed to spawn thread: Os { code: 11, kind: WouldBlock, message: \"Resource temporarily unavailable\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backt", "kids_at_0_5s": [], "case": "rust_min_stack_999999"}
+{"exit": 127, "stdout_len": 0, "meta": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"CHILD_LAUNCH_FAILED\",\"data\":{\"launched\":false,\"exit_code\":null,\"signal\":null},\"warnings\":[],\"next\":null}", "case": "launch_fail_missing"}
+{"exit": 127, "stdout_len": 0, "meta": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"CHILD_LAUNCH_FAILED\",\"data\":{\"launched\":false,\"exit_code\":null,\"signal\":null},\"warnings\":[],\"next\":null}", "case": "launch_fail_notexec"}
+{"exit": 127, "stdout_len": 0, "meta": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"CHILD_LAUNCH_FAILED\",\"data\":{\"launched\":false,\"exit_code\":null,\"signal\":null},\"warnings\":[],\"next\":null}", "case": "launch_fail_dir"}
+{"exit": 0, "child_pgrp": 103, "hp_pid": 103, "same": true, "case": "child_same_pgrp_and_session"}

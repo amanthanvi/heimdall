@@ -1,0 +1,4 @@
+G02 conformance: candidate=rust bin=<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto checks=1 pyte=yes
+PASS  tui.select_jk_keys                              442 ms  
+
+summary: {'total': 1, 'pass': 1, 'fail': 0, 'error': 0, 'skipped': 0}  status=implemented_unverified  record=<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.select_jk_keys-record.json

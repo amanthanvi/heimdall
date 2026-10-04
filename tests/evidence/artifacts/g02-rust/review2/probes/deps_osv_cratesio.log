@@ -1,0 +1,16 @@
+registry packages 116 total lock packages 117
+duplicate names {'hashbrown': ['0.16.1', '0.17.1'], 'signal-hook': ['0.3.18', '0.4.4'], 'syn': ['2.0.119', '3.0.6']}
+osv hits []
+ratatui: locked ['0.30.2'] max_stable 0.30.2 updated 2026-06-19
+crossterm: locked ['0.29.0'] max_stable 0.29.0 updated 2025-04-05
+toml: locked ['1.1.6+spec-1.1.0'] max_stable 1.1.6+spec-1.1.0 updated 2026-09-10
+serde_json: locked ['1.0.151'] max_stable 1.0.151 updated 2026-07-20
+sha2: locked ['0.11.0'] max_stable 0.11.0 updated 2026-03-25
+base64: locked ['0.23.1'] max_stable 0.23.1 updated 2026-08-04
+signal-hook: locked ['0.3.18', '0.4.4'] max_stable 0.4.4 updated 2026-04-04
+rustix: locked ['1.1.5'] max_stable 1.1.5 updated 2026-09-16
+nix: locked ['0.31.3'] max_stable 0.31.3 updated 2026-05-11
+libc: locked ['0.2.190'] max_stable 0.2.190 updated 2026-10-02
+ctrlc: locked ['3.5.2'] max_stable 3.5.2 updated 2026-02-10
+winapi: locked ['0.3.9'] max_stable 0.3.9 updated 2020-06-26
+windows-sys: locked ['0.61.2'] max_stable 0.61.2 updated 2025-10-06

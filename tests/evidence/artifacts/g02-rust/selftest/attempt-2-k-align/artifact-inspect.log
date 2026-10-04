@@ -1,0 +1,23 @@
+dist/darwin-arm64/heimdall-proto:    Mach-O 64-bit executable arm64
+dist/linux-arm64/heimdall-proto:     ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, stripped
+dist/linux-x64/heimdall-proto:       ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
+dist/windows-x64/heimdall-proto.exe: PE32+ executable (console) x86-64, for MS Windows
+dist/darwin-arm64/heimdall-proto:
+	/usr/lib/libiconv.2.dylib (compatibility version 7.0.0, current version 7.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)
+windows DLL imports:
+KERNEL32.dll
+USER32.dll
+api-ms-win-core-synch-l1-2-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+bcryptprimitives.dll
+ntdll.dll
+-rwxr-xr-x  1 amanthanvi  staff  755840 Oct  3 14:10 dist/darwin-arm64/heimdall-proto
+-rwxr-xr-x  1 amanthanvi  staff  838696 Oct  3 14:11 dist/linux-arm64/heimdall-proto
+-rwxr-xr-x  1 amanthanvi  staff  902776 Oct  3 14:11 dist/linux-x64/heimdall-proto
+-rwxr-xr-x  1 amanthanvi  staff  839168 Oct  3 14:11 dist/windows-x64/heimdall-proto.exe

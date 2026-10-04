@@ -1,0 +1,7 @@
+{"case": "kill_TERM", "steps": [["exited", 143]], "final_exit": 143, "termios_restored": true, "left_alt_screen": true, "cursor_shown_after": true, "bytes_after_leave_hex": "1b5b3f323568"}
+{"case": "kill_HUP", "steps": [["exited", 129]], "final_exit": 129, "termios_restored": true, "left_alt_screen": true, "cursor_shown_after": true, "bytes_after_leave_hex": "1b5b3f323568"}
+{"case": "kill_INT", "steps": [["exited", 130]], "final_exit": 130, "termios_restored": true, "left_alt_screen": true, "cursor_shown_after": true, "bytes_after_leave_hex": "1b5b3f323568"}
+{"case": "kill_QUIT", "steps": [["exited", -3]], "final_exit": -3, "termios_restored": false, "left_alt_screen": false, "cursor_shown_after": false, "bytes_after_leave_hex": null}
+{"case": "kill_USR1", "steps": [["exited", -10]], "final_exit": -10, "termios_restored": false, "left_alt_screen": false, "cursor_shown_after": false, "bytes_after_leave_hex": null}
+{"case": "kill_TSTP_then_CONT", "steps": [["running", null], ["running", null], ["after_q", 0]], "final_exit": 0, "termios_restored": true, "left_alt_screen": true, "cursor_shown_after": true, "bytes_after_leave_hex": "1b5b3f323568"}
+{"case": "kill_WINCH_x3", "steps": [["running", null], ["running", null], ["running", null], ["after_q", 0]], "final_exit": 0, "termios_restored": true, "left_alt_screen": true, "cursor_shown_after": true, "bytes_after_leave_hex": "1b5b3f323568"}

@@ -1,0 +1,73 @@
+
+running 26 tests
+test agent_ok_and_request_bytes ... ok
+test agent_crafted_frames ... ok
+heimdall-proto: CANCELLED
+test k15_parser_resource_bound ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test k3_k4_eof_and_failure_frame_shape ... ok
+test agent_unavailable_and_timeout ... ok
+test k5_meta_state ... ok
+test k3a_reset_before_and_after_partial_frame ... ok
+test k14_non_regular_profile_files ... FAILED
+test k6a_inherited_ignored_dispositions_reach_child ... FAILED
+test k6a_inherited_ignored_signals_are_not_forwarded ... FAILED
+test k6a_limitation_sigpipe_ignore_not_preserved_by_rust_std ... ok
+test agent_cancel_sigint_within_500ms ... ok
+test profile_fixtures ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test run_binary_stdio_passthrough ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+test run_inherits_env_and_cwd ... ok
+test run_status_and_meta ... ok
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test version_json ... ok
+test k6a_group_sigkill_leaves_no_orphan ... FAILED
+test meta_file_fifo_never_blocks ... FAILED
+test run_forwards_signals_and_waits ... ok
+
+failures:
+
+---- k14_non_regular_profile_files stdout ----
+
+thread 'k14_non_regular_profile_files' (18639401) panicked at tests/cli.rs:1010:13:
+/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/hp-k14-20668-502774811/profile fifo: still running after 2 s
+
+---- k6a_inherited_ignored_dispositions_reach_child stdout ----
+
+thread 'k6a_inherited_ignored_dispositions_reach_child' (18639833) panicked at tests/cli.rs:824:5:
+assertion `left == right` failed: child must inherit SIG_IGN for HUP/INT/QUIT/TERM
+  left: (Some(129), "")
+ right: (Some(0), "survived")
+
+---- k6a_inherited_ignored_signals_are_not_forwarded stdout ----
+
+thread 'k6a_inherited_ignored_signals_are_not_forwarded' (18639861) panicked at tests/cli.rs:858:5:
+assertion `left == right` failed: HUP/INT/QUIT ignored and not forwarded; TERM forwarded once
+  left: (Some(129), "")
+ right: (Some(3), "alive count=1")
+
+---- k6a_group_sigkill_leaves_no_orphan stdout ----
+
+thread 'k6a_group_sigkill_leaves_no_orphan' (18639724) panicked at tests/cli.rs:920:5:
+child survived killpg(SIGKILL) of heimdall-proto's group
+
+---- meta_file_fifo_never_blocks stdout ----
+
+thread 'meta_file_fifo_never_blocks' (18640089) panicked at tests/cli.rs:958:5:
+assertion `left == right` failed: no hang; child's status kept
+  left: None
+ right: Some(4)
+
+
+failures:
+    k14_non_regular_profile_files
+    k6a_group_sigkill_leaves_no_orphan
+    k6a_inherited_ignored_dispositions_reach_child
+    k6a_inherited_ignored_signals_are_not_forwarded
+    meta_file_fifo_never_blocks
+
+test result: FAILED. 21 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.88s
+

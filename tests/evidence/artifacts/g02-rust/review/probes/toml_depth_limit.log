@@ -1,0 +1,7 @@
+depth 40 rc=0
+depth 80 rc=0
+depth 81 rc=2
+depth 100 rc=2
+depth 127 rc=2
+depth 128 rc=2
+depth 129 rc=2

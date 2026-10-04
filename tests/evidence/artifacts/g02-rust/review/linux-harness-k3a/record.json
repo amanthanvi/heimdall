@@ -1,0 +1,840 @@
+{
+  "case_id": "G02-rust-conformance",
+  "status": "in_progress",
+  "requirement_ids": [
+    "R-SS-04",
+    "R-SS-02",
+    "R-SE-05",
+    "R-QU-07"
+  ],
+  "build_commit": null,
+  "artifact_digest": "sha256:9bbd19c36229cb4bd34022c0fa16762e6d995dfd70935f9c78d88c4354a83dfb",
+  "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "Linux-7.0.14-linuxkit-aarch64-with",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "1.0.0",
+    "binary": "/dist/linux-arm64/heimdall-proto",
+    "candidate": "rust",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "loadavg_end": [
+      0.08,
+      0.02,
+      0.01
+    ]
+  },
+  "provider_versions": [
+    {
+      "name": "openssh (ssh-keygen used for fingerprints; version from /usr/bin/ssh -V)",
+      "path": "/usr/bin/ssh-keygen",
+      "version": null
+    },
+    {
+      "name": "python",
+      "version": "3.13.16"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2"
+    }
+  ],
+  "started_at": "2026-10-03T20:49:05+00:00",
+  "commands_or_harness": [
+    "/usr/local/bin/python3 tests/g02/conformance.py --bin /dist/linux-arm64/heimdall-proto --candidate rust --out /out/record.json --artifacts-dir /out/artifacts --only agent.reset_before_reply,agent.reset_after_partial_header,agent.eof_before_reply,agent.eof_after_partial_header,harness.fake_agent_modes",
+    "harness_lib.py / minischema.py / tests/fixtures/fake-agent/fake_agent.py (sha256 a2b8808093c1bbcf0556f7eda05eac8e2c4183c6a13d3566c4eda2fbcb9f3d90)"
+  ],
+  "observed_result": {
+    "verdict": "fail",
+    "criterion": "every check of the full catalogue passes against docs/g02/slice-contract.md incl. section 9",
+    "summary": {
+      "pass": 4,
+      "fail": 1,
+      "error": 0,
+      "skipped": 0,
+      "total": 5,
+      "duration_s": 2.0
+    },
+    "checks": [
+      {
+        "id": "harness.fake_agent_modes",
+        "group": "harness",
+        "clause": "harness",
+        "title": "fake-agent modes added for K1/K3/K3a/K4 put exactly the intended bytes on the wire",
+        "outcome": "pass",
+        "hard_bound_s": 120.0,
+        "duration_ms": 900.2,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "[reset_before_reply] reply bytes before the connection ended",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b''\"",
+            "observed": "\"b''\""
+          },
+          {
+            "desc": "[reset_before_reply] the connection ended (reset or EOF) instead of hanging",
+            "ok": true,
+            "gating": true,
+            "expected": "EOF|ECONNRESET",
+            "observed": "ECONNRESET"
+          },
+          {
+            "desc": "[reset_before_reply] how this OS delivers the agent's reset to the reader (non-gating observation; Linux: ECONNRESET, Darwin AF_UNIX: EOF)",
+            "ok": true,
+            "gating": false,
+            "expected": "null",
+            "observed": "{\"os\": \"Linux\", \"delivery\": \"ECONNRESET\"}"
+          },
+          {
+            "desc": "[reset_before_reply] contact log: request logged (type 11) but left unread, server reset the connection",
+            "ok": true,
+            "gating": true,
+            "expected": "message [11], disconnect server_reset",
+            "observed": "[{\"seq\": 3, \"ts\": \"2026-10-03T20:49:05.453Z\", \"mono_ms\": 4.068, \"event\": \"message\", \"conn\": 1, \"type\": 11, \"length\": 1, \"bytes\": 5, \"responded\": \"reset_before_reply\", \"sent_bytes\": 0, \"consumed\": false}, {\"seq\": 4, \"ts\": \"2026-10-03T20:49:05.506Z\", \"mono_ms\": 57.17, \"event\": \"disconnect\", \"conn\": 1, \"reason\": \"server_reset\", \"bytes_received\": 5, \"bytes_sent\": 0, \"partial_bytes\": 0, \"request_left_u...[+14]"
+          },
+          {
+            "desc": "[reset_after_byte] reply bytes before the connection ended",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b'\\\\x00'\"",
+            "observed": "\"b'\\\\x00'\""
+          },
+          {
+            "desc": "[reset_after_byte] the connection ended (reset or EOF) instead of hanging",
+            "ok": true,
+            "gating": true,
+            "expected": "EOF|ECONNRESET",
+            "observed": "ECONNRESET"
+          },
+          {
+            "desc": "[reset_after_byte] how this OS delivers the agent's reset to the reader (non-gating observation; Linux: ECONNRESET, Darwin AF_UNIX: EOF)",
+            "ok": true,
+            "gating": false,
+            "expected": "null",
+            "observed": "{\"os\": \"Linux\", \"delivery\": \"ECONNRESET\"}"
+          },
+          {
+            "desc": "[reset_after_byte] contact log: request logged (type 11) but left unread, server reset the connection",
+            "ok": true,
+            "gating": true,
+            "expected": "message [11], disconnect server_reset",
+            "observed": "[{\"seq\": 3, \"ts\": \"2026-10-03T20:49:05.603Z\", \"mono_ms\": 4.69, \"event\": \"message\", \"conn\": 1, \"type\": 11, \"length\": 1, \"bytes\": 5, \"responded\": \"reset_after_byte\", \"sent_bytes\": 1, \"consumed\": false}, {\"seq\": 4, \"ts\": \"2026-10-03T20:49:05.658Z\", \"mono_ms\": 59.877, \"event\": \"disconnect\", \"conn\": 1, \"reason\": \"server_reset\", \"bytes_received\": 5, \"bytes_sent\": 1, \"partial_bytes\": 0, \"request_left_unr...[+12]"
+          },
+          {
+            "desc": "[control_chars] reply type 12, nkeys 1",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'\\\\x0c'\", \"b'\\\\x00\\\\x00\\\\x00\\\\x01'\"]",
+            "observed": "[\"b'\\\\x0c'\", \"b'\\\\x00\\\\x00\\\\x00\\\\x01'\"]"
+          },
+          {
+            "desc": "[control_chars] key type bytes inside the blob",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b'ssh-k1\\\\x1b[31m\\\\tx\\\\x7fy\\\\xc2\\\\x9bz\\\\xff'\"",
+            "observed": "\"b'ssh-k1\\\\x1b[31m\\\\tx\\\\x7fy\\\\xc2\\\\x9bz\\\\xff'\""
+          },
+          {
+            "desc": "[control_chars] comment bytes",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b'c\\\\x1b]0;t\\\\x07o\\\\tm\\\\x7fm\\\\xc2\\\\x85e\\\\xc2\\\\x9b2Jn\\\\x01t\\\\xff!'\"",
+            "observed": "\"b'c\\\\x1b]0;t\\\\x07o\\\\tm\\\\x7fm\\\\xc2\\\\x85e\\\\xc2\\\\x9b2Jn\\\\x01t\\\\xff!'\""
+          },
+          {
+            "desc": "[control_chars] key type holds ESC, TAB, DEL, a C1 code point and invalid UTF-8",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "ssh-k1\\x1b[31m\\tx\\x7fy\\x9bz\\ufffd"
+          },
+          {
+            "desc": "[control_chars] comment holds ESC, TAB, DEL, a C1 code point and invalid UTF-8",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "c\\x1b]0;t\\x07o\\tm\\x7fm\\x85e\\x9b2Jn\\x01t\\ufffd!"
+          },
+          {
+            "desc": "[control_chars] contact log: one type-11 message",
+            "ok": true,
+            "gating": true,
+            "expected": "[11]",
+            "observed": "[11]"
+          },
+          {
+            "desc": "[close_silent] zero reply bytes, then EOF",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b''\", true]",
+            "observed": "[\"b''\", true]"
+          },
+          {
+            "desc": "[close_silent] contact log: one type-11 message",
+            "ok": true,
+            "gating": true,
+            "expected": "[11]",
+            "observed": "[11]"
+          },
+          {
+            "desc": "[partial_header] exactly one reply byte, then EOF",
+            "ok": true,
+            "gating": true,
+            "expected": "[\"b'\\\\x00'\", true]",
+            "observed": "[\"b'\\\\x00'\", true]"
+          },
+          {
+            "desc": "[partial_header] contact log: one type-11 message",
+            "ok": true,
+            "gating": true,
+            "expected": "[11]",
+            "observed": "[11]"
+          },
+          {
+            "desc": "[failure_payload] type-5 frame of length 5",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b'\\\\x00\\\\x00\\\\x00\\\\x05\\\\x05\\\\x00\\\\x00\\\\x00\\\\x00'\"",
+            "observed": "\"b'\\\\x00\\\\x00\\\\x00\\\\x05\\\\x05\\\\x00\\\\x00\\\\x00\\\\x00'\""
+          },
+          {
+            "desc": "[failure_payload] contact log: one type-11 message",
+            "ok": true,
+            "gating": true,
+            "expected": "[11]",
+            "observed": "[11]"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [],
+        "notes": {
+          "check_seconds": 0.9
+        },
+        "artifacts": []
+      },
+      {
+        "id": "agent.eof_before_reply",
+        "group": "agent",
+        "clause": "§3/K3",
+        "title": "peer closes after reading the request without sending a byte -> AGENT_UNAVAILABLE",
+        "outcome": "pass",
+        "hard_bound_s": 120.0,
+        "duration_ms": 150.8,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "[agent-close_silent] K11 no new file in HOME, TMPDIR or the working directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-close_silent.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-close_silent.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[agent-close_silent] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[agent-close_silent] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[agent-close_silent] exit code",
+            "ok": true,
+            "gating": true,
+            "expected": "5",
+            "observed": "5"
+          },
+          {
+            "desc": "[agent-close_silent] stdout is one JSON document followed by exactly one newline",
+            "ok": true,
+            "gating": true,
+            "expected": "{...}\\n",
+            "observed": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_UNAVAIL...\":null}\n"
+          },
+          {
+            "desc": "[agent-close_silent] validates against schemas/g02/result.schema.json",
+            "ok": true,
+            "gating": true,
+            "expected": "no errors",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-close_silent] no ANSI escape in any JSON string",
+            "ok": true,
+            "gating": true,
+            "expected": "none",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-close_silent] code",
+            "ok": true,
+            "gating": true,
+            "expected": "AGENT_UNAVAILABLE",
+            "observed": "AGENT_UNAVAILABLE"
+          },
+          {
+            "desc": "[agent-close_silent] state",
+            "ok": true,
+            "gating": true,
+            "expected": "failed",
+            "observed": "failed"
+          },
+          {
+            "desc": "returns promptly",
+            "ok": true,
+            "gating": true,
+            "expected": "< 2.0 s",
+            "observed": "0.002 s"
+          },
+          {
+            "desc": "contact log: exactly one connection and exactly one type-11 request, nothing else",
+            "ok": true,
+            "gating": true,
+            "expected": "1 connection, [11], 5 bytes",
+            "observed": "{\"connections\": 1, \"message_types\": [11], \"message_bytes\": [5], \"disconnect_reasons\": [\"server_close\"], \"problems\": []}"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [
+          {
+            "label": "agent-close_silent",
+            "argv": [
+              "/dist/linux-arm64/heimdall-proto",
+              "agent",
+              "list",
+              "--socket",
+              "/tmp/hmg02-ohc3az74/002-agent-close_silent/close_silent.sock",
+              "--json"
+            ],
+            "exit_code": 5,
+            "elapsed_ms": 1.8,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 196,
+            "stdout_sha256": "9bcd5a93facb4b703d8f4a1adeae0817a0c2e9fa627b59236682193976f57774",
+            "stdout_excerpt": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_UNAVAILABLE\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"peer closed connection before sending any response byte\"}},\"warnings\":[],\"next\":null}\n",
+            "stderr_bytes": 34,
+            "stderr_sha256": "ac02c5eb099f4c84409708cdf6287c37369d965edce6a4b0734a43ab64df3a69",
+            "stderr_excerpt": "heimdall-proto: AGENT_UNAVAILABLE\n"
+          }
+        ],
+        "notes": {
+          "check_seconds": 0.151
+        },
+        "artifacts": [
+          "artifacts/agent.eof_before_reply/01-agent-close_silent.stdout.txt",
+          "artifacts/agent.eof_before_reply/01-agent-close_silent.stderr.txt",
+          "artifacts/agent.eof_before_reply/close_silent.contact.jsonl"
+        ]
+      },
+      {
+        "id": "agent.eof_after_partial_header",
+        "group": "agent",
+        "clause": "§3/K3",
+        "title": "EOF after 1 byte of the frame header -> AGENT_PROTOCOL_ERROR",
+        "outcome": "pass",
+        "hard_bound_s": 120.0,
+        "duration_ms": 148.9,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "[agent-partial_header] K11 no new file in HOME, TMPDIR or the working directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-partial_header.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-partial_header.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[agent-partial_header] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[agent-partial_header] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[agent-partial_header] exit code",
+            "ok": true,
+            "gating": true,
+            "expected": "5",
+            "observed": "5"
+          },
+          {
+            "desc": "[agent-partial_header] stdout is one JSON document followed by exactly one newline",
+            "ok": true,
+            "gating": true,
+            "expected": "{...}\\n",
+            "observed": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_PROTOCO...\":null}\n"
+          },
+          {
+            "desc": "[agent-partial_header] validates against schemas/g02/result.schema.json",
+            "ok": true,
+            "gating": true,
+            "expected": "no errors",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-partial_header] no ANSI escape in any JSON string",
+            "ok": true,
+            "gating": true,
+            "expected": "none",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-partial_header] code",
+            "ok": true,
+            "gating": true,
+            "expected": "AGENT_PROTOCOL_ERROR",
+            "observed": "AGENT_PROTOCOL_ERROR"
+          },
+          {
+            "desc": "[agent-partial_header] state",
+            "ok": true,
+            "gating": true,
+            "expected": "failed",
+            "observed": "failed"
+          },
+          {
+            "desc": "returns promptly",
+            "ok": true,
+            "gating": true,
+            "expected": "< 2.0 s",
+            "observed": "0.002 s"
+          },
+          {
+            "desc": "contact log: exactly one connection and exactly one type-11 request, nothing else",
+            "ok": true,
+            "gating": true,
+            "expected": "1 connection, [11], 5 bytes",
+            "observed": "{\"connections\": 1, \"message_types\": [11], \"message_bytes\": [5], \"disconnect_reasons\": [\"server_close\"], \"problems\": []}"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [
+          {
+            "label": "agent-partial_header",
+            "argv": [
+              "/dist/linux-arm64/heimdall-proto",
+              "agent",
+              "list",
+              "--socket",
+              "/tmp/hmg02-ohc3az74/003-agent-partial_header/partial_header.sock",
+              "--json"
+            ],
+            "exit_code": 5,
+            "elapsed_ms": 1.6,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 184,
+            "stdout_sha256": "d63d2c642295cc8f947868c6a8a8f5be0ef1d70397c6cd58ab9923cf9553118b",
+            "stdout_excerpt": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_PROTOCOL_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"truncated frame (peer closed connection)\"}},\"warnings\":[],\"next\":null}\n",
+            "stderr_bytes": 37,
+            "stderr_sha256": "80b1507b2329f3ff1db2de3968716e1ea05f44b6d97b5a2fe67b53222e97edb3",
+            "stderr_excerpt": "heimdall-proto: AGENT_PROTOCOL_ERROR\n"
+          }
+        ],
+        "notes": {
+          "check_seconds": 0.149
+        },
+        "artifacts": [
+          "artifacts/agent.eof_after_partial_header/01-agent-partial_header.stdout.txt",
+          "artifacts/agent.eof_after_partial_header/01-agent-partial_header.stderr.txt",
+          "artifacts/agent.eof_after_partial_header/partial_header.contact.jsonl"
+        ]
+      },
+      {
+        "id": "agent.reset_before_reply",
+        "group": "agent",
+        "clause": "§3/K3a",
+        "title": "agent resets the connection (SO_LINGER 0, request unread) before any reply byte -> AGENT_UNAVAILABLE",
+        "outcome": "pass",
+        "hard_bound_s": 120.0,
+        "duration_ms": 304.4,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "harness precondition: the agent sent exactly 0 reply byte(s) before the reset",
+            "ok": true,
+            "gating": true,
+            "expected": "0",
+            "observed": "0"
+          },
+          {
+            "desc": "kernel delivery of the reset to the reader on Linux (non-gating observation; ECONNRESET exercises the K3a reset path, EOF means this OS cannot produce an AF_UNIX reset)",
+            "ok": true,
+            "gating": false,
+            "expected": "ECONNRESET",
+            "observed": "ECONNRESET"
+          },
+          {
+            "desc": "[agent-reset_before_reply] K11 no new file in HOME, TMPDIR or the working directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-reset_before_reply.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-reset_before_reply.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[agent-reset_before_reply] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[agent-reset_before_reply] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[agent-reset_before_reply] exit code",
+            "ok": true,
+            "gating": true,
+            "expected": "5",
+            "observed": "5"
+          },
+          {
+            "desc": "[agent-reset_before_reply] stdout is one JSON document followed by exactly one newline",
+            "ok": true,
+            "gating": true,
+            "expected": "{...}\\n",
+            "observed": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_UNAVAIL...\":null}\n"
+          },
+          {
+            "desc": "[agent-reset_before_reply] validates against schemas/g02/result.schema.json",
+            "ok": true,
+            "gating": true,
+            "expected": "no errors",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-reset_before_reply] no ANSI escape in any JSON string",
+            "ok": true,
+            "gating": true,
+            "expected": "none",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-reset_before_reply] code",
+            "ok": true,
+            "gating": true,
+            "expected": "AGENT_UNAVAILABLE",
+            "observed": "AGENT_UNAVAILABLE"
+          },
+          {
+            "desc": "[agent-reset_before_reply] state",
+            "ok": true,
+            "gating": true,
+            "expected": "failed",
+            "observed": "failed"
+          },
+          {
+            "desc": "returns promptly",
+            "ok": true,
+            "gating": true,
+            "expected": "< 2.0 s",
+            "observed": "0.054 s"
+          },
+          {
+            "desc": "contact log: exactly one connection and exactly one type-11 request, nothing else",
+            "ok": true,
+            "gating": true,
+            "expected": "1 connection, [11], 5 bytes",
+            "observed": "{\"connections\": 1, \"message_types\": [11], \"message_bytes\": [5], \"disconnect_reasons\": [\"server_reset\"], \"problems\": []}"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [
+          {
+            "label": "agent-reset_before_reply",
+            "argv": [
+              "/dist/linux-arm64/heimdall-proto",
+              "agent",
+              "list",
+              "--socket",
+              "/tmp/hmg02-ohc3az74/005-agent-reset_before_reply/reset_before_reply.sock",
+              "--json"
+            ],
+            "exit_code": 5,
+            "elapsed_ms": 54.3,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 169,
+            "stdout_sha256": "b92c2dbd0a8433b05d6bab7daccb463a2fab90865a6a9ed96d3e6e1e7273c9cd",
+            "stdout_excerpt": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_UNAVAILABLE\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"read failed: ConnectionReset\"}},\"warnings\":[],\"next\":null}\n",
+            "stderr_bytes": 34,
+            "stderr_sha256": "ac02c5eb099f4c84409708cdf6287c37369d965edce6a4b0734a43ab64df3a69",
+            "stderr_excerpt": "heimdall-proto: AGENT_UNAVAILABLE\n"
+          }
+        ],
+        "notes": {
+          "kernel_delivery": "ECONNRESET",
+          "check_seconds": 0.304
+        },
+        "artifacts": [
+          "artifacts/agent.reset_before_reply/01-agent-reset_before_reply.stdout.txt",
+          "artifacts/agent.reset_before_reply/01-agent-reset_before_reply.stderr.txt",
+          "artifacts/agent.reset_before_reply/reset_before_reply.contact.jsonl"
+        ]
+      },
+      {
+        "id": "agent.reset_after_partial_header",
+        "group": "agent",
+        "clause": "§3/K3a",
+        "title": "agent sends 1 header byte, then resets the connection -> AGENT_PROTOCOL_ERROR",
+        "outcome": "fail",
+        "hard_bound_s": 120.0,
+        "duration_ms": 307.5,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "harness precondition: the agent sent exactly 1 reply byte(s) before the reset",
+            "ok": true,
+            "gating": true,
+            "expected": "1",
+            "observed": "1"
+          },
+          {
+            "desc": "kernel delivery of the reset to the reader on Linux (non-gating observation; ECONNRESET exercises the K3a reset path, EOF means this OS cannot produce an AF_UNIX reset)",
+            "ok": true,
+            "gating": false,
+            "expected": "ECONNRESET",
+            "observed": "ECONNRESET"
+          },
+          {
+            "desc": "[agent-reset_after_byte] K11 no new file in HOME, TMPDIR or the working directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-reset_after_byte.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-reset_after_byte.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[agent-reset_after_byte] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[agent-reset_after_byte] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[agent-reset_after_byte] exit code",
+            "ok": true,
+            "gating": true,
+            "expected": "5",
+            "observed": "5"
+          },
+          {
+            "desc": "[agent-reset_after_byte] stdout is one JSON document followed by exactly one newline",
+            "ok": true,
+            "gating": true,
+            "expected": "{...}\\n",
+            "observed": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_UNAVAIL...\":null}\n"
+          },
+          {
+            "desc": "[agent-reset_after_byte] validates against schemas/g02/result.schema.json",
+            "ok": true,
+            "gating": true,
+            "expected": "no errors",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-reset_after_byte] no ANSI escape in any JSON string",
+            "ok": true,
+            "gating": true,
+            "expected": "none",
+            "observed": "[]"
+          },
+          {
+            "desc": "[agent-reset_after_byte] code",
+            "ok": false,
+            "gating": true,
+            "expected": "AGENT_PROTOCOL_ERROR",
+            "observed": "AGENT_UNAVAILABLE"
+          },
+          {
+            "desc": "[agent-reset_after_byte] state",
+            "ok": true,
+            "gating": true,
+            "expected": "failed",
+            "observed": "failed"
+          },
+          {
+            "desc": "returns promptly",
+            "ok": true,
+            "gating": true,
+            "expected": "< 2.0 s",
+            "observed": "0.057 s"
+          },
+          {
+            "desc": "contact log: exactly one connection and exactly one type-11 request, nothing else",
+            "ok": true,
+            "gating": true,
+            "expected": "1 connection, [11], 5 bytes",
+            "observed": "{\"connections\": 1, \"message_types\": [11], \"message_bytes\": [5], \"disconnect_reasons\": [\"server_reset\"], \"problems\": []}"
+          }
+        ],
+        "failed_assertions": [
+          "[agent-reset_after_byte] code"
+        ],
+        "captures": [
+          {
+            "label": "agent-reset_after_byte",
+            "argv": [
+              "/dist/linux-arm64/heimdall-proto",
+              "agent",
+              "list",
+              "--socket",
+              "/tmp/hmg02-ohc3az74/007-agent-reset_after_byte/reset_after_byte.sock",
+              "--json"
+            ],
+            "exit_code": 5,
+            "elapsed_ms": 57.5,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 169,
+            "stdout_sha256": "b92c2dbd0a8433b05d6bab7daccb463a2fab90865a6a9ed96d3e6e1e7273c9cd",
+            "stdout_excerpt": "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"AGENT_UNAVAILABLE\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"read failed: ConnectionReset\"}},\"warnings\":[],\"next\":null}\n",
+            "stderr_bytes": 34,
+            "stderr_sha256": "ac02c5eb099f4c84409708cdf6287c37369d965edce6a4b0734a43ab64df3a69",
+            "stderr_excerpt": "heimdall-proto: AGENT_UNAVAILABLE\n"
+          }
+        ],
+        "notes": {
+          "kernel_delivery": "ECONNRESET",
+          "check_seconds": 0.307
+        },
+        "artifacts": [
+          "artifacts/agent.reset_after_partial_header/01-agent-reset_after_byte.stdout.txt",
+          "artifacts/agent.reset_after_partial_header/01-agent-reset_after_byte.stderr.txt",
+          "artifacts/agent.reset_after_partial_header/reset_after_byte.contact.jsonl"
+        ]
+      }
+    ],
+    "observations": {
+      "k3a_reset_delivery": {
+        "reset_before_reply": "ECONNRESET",
+        "reset_after_byte": "ECONNRESET"
+      }
+    },
+    "open_contract_questions": [
+      "Q1 meta for a signal-killed child: contract gives exit_code int|null and signal int|null; harness gates only on signal==9 and launched==true and records exit_code (non-gating).",
+      "Q3 terminal-generated SIGINT (Ctrl-C to the foreground process group): K6 settles explicit signals (exactly once) but the contract only says a terminal SIGINT must not be delivered twice 'in a way that changes child behaviour'; harness gates on the child's exit status and records the delivery count (run.sigint_process_group, run.explicit_signal_with_tty).",
+      "Q8 K10 says 'exit 143' / 'exit 129'; the harness requires an exit status of 143/129 (exit(143)), so a program that restores the terminal and then re-raises the signal (wait status 'killed by signal 15', shell $? also 143) fails. Escalated: confirm or relax.",
+      "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12."
+    ],
+    "not_covered": [
+      "native Windows (named pipe, CommandLineToArgvW, console Ctrl-C)",
+      "WSL"
+    ]
+  },
+  "evidence_paths": [
+    "/out/record.json",
+    "/out/artifacts"
+  ],
+  "limitations": [
+    "Windows is NOT covered: named-pipe agent path, CommandLineToArgvW quoting, console Ctrl-C and ConPTY behaviour need a native Windows run (blocked_on: native Windows host).",
+    "WSL is NOT covered (blocked_on: Windows host with WSL).",
+    "Linux is NOT covered by this run unless the environment says so: the harness is POSIX-only and has been exercised on macOS (Darwin arm64) only; Linux pty/AF_UNIX/hangup semantics are untested (blocked_on: Linux host run).",
+    "Section 7 / K11 build and sidecar rules (clean machine without toolchain, manifest sidecars, sidecar loading from the executable's own directory, environment overrides ignored) are NOT judged by this harness.",
+    "K11 stray-file detection covers the sandbox HOME, TMPDIR and the working directory of each invocation; writes elsewhere (for example a hard-coded /tmp or the per-user temp directory outside TMPDIR) are not detected.",
+    "TUI is judged through a pty plus the pyte VT emulator (with an xterm-compatible double-width cell renderer, see harness.screen_wide_chars), which answers DA and cursor-position queries but not OSC colour/XTVERSION/kitty-keyboard queries (a framework that waits for those answers will show a slower first frame); real terminal emulators may differ. stdout and the TUI frames share the tty, so stdout-vs-stderr separation of TUI output cannot be proven; SELECTED and 'no stdout' are judged on the text after the alternate screen is left.",
+    "Restoration and exit 1 after an internal panic/uncaught exception (K10) cannot be induced black-box and are NOT tested; select, quit, Ctrl-C (also in filter mode), SIGTERM, SIGHUP and terminal hangup paths are.",
+    "After a terminal hangup only the exit status is judged (the terminal is gone, so restoration cannot be observed).",
+    "'No network' and 'no shell invocation' (contract section 1) cannot be proven black-box; only observable effects are tested (no shell metacharacter expansion, sentinel files, no fake-agent contact, no stray files).",
+    "Allocation behaviour ('never allocate from an untrusted length first') is inferred from fast, correct failure on 0x7fffffff / nkeys 100000 frames, not measured.",
+    "Timing thresholds (500 ms SIGINT, 100 ms resize, 2 s malformed-agent failure) are wall-clock on a possibly loaded machine; SIGINT uses best-of-3, resize best-of-5, and the record stores the load average before/after so a loaded run can be recognised and repeated.",
+    "Signal counts use the child's wakeup fd (one byte per delivery), but the kernel still merges two identical standard signals sent while the first is pending, so a heimdall-proto that forwards twice back-to-back may be seen once; exact-once is reliable for deliveries that are separated in time (terminal vs forwarded) and is a best-effort lower bound otherwise.",
+    "Invalid UTF-8 handling uses isolated invalid bytes (each one U+FFFD); runs of invalid bytes are deliberately not tested because the contract does not define replacement-character counting.",
+    "Every check runs under a hard wall-clock bound (default 120 s, cleanup 30 s); a check that hits it is recorded as 'error', never as pass.",
+    "The disposable keys are generated per run, private halves deleted immediately; fingerprints are cross-checked against /usr/bin/ssh-keygen -lf.",
+    "Evidence incomplete (status in_progress): partial selection, skipped or errored checks; verdict fail.",
+    "Partial run (--only agent.reset_before_reply,agent.reset_after_partial_header,agent.eof_before_reply,agent.eof_after_partial_header,harness.fake_agent_modes): 5 of 113 checks selected; cannot be 'verified'.",
+    "FAILED/ERRORED checks (see observed_result): agent.reset_after_partial_header"
+  ]
+}

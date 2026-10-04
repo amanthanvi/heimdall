@@ -1,0 +1,39 @@
+{"case": "valid_one", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 3, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": true}
+{"case": "valid_zero", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "k1_controls_replaced", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": true}
+{"case": "len_262145", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 3, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "len_ffffffff", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "len_262144_valid", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 4, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": true}
+{"case": "nkeys_1025", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "nkeys_ffffffff", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "nkeys_1024_ok", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 4, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": true}
+{"case": "blob_len_overrun", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 3, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "empty_blob", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "keytype_overrun_in_blob", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "trailing_bytes", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "nkeys_more_than_present", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "failure_len1", "exit": 5, "code": "AGENT_REFUSED", "expect": [5, "AGENT_REFUSED"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "failure_with_payload", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "success_type6", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "type_13_sign_response", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "zero_length_frame", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "eof_no_bytes", "exit": 5, "code": "AGENT_UNAVAILABLE", "expect": [5, "AGENT_UNAVAILABLE"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "eof_after_2_header_bytes", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "eof_after_header", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "eof_partial_body", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "rst_after_req_no_bytes", "exit": 5, "code": "AGENT_UNAVAILABLE", "expect": [5, "AGENT_UNAVAILABLE"], "ok": true, "elapsed_ms": 2, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "noread_close_0_bytes", "exit": 5, "code": "AGENT_UNAVAILABLE", "expect": [5, "AGENT_UNAVAILABLE"], "ok": true, "elapsed_ms": 260, "client_sent_hex": "", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "noread_close_1_byte", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 268, "client_sent_hex": "", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "noread_close_3_bytes", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 261, "client_sent_hex": "", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "noread_close_full_header_partial", "exit": 5, "code": "AGENT_PROTOCOL_ERROR", "expect": [5, "AGENT_PROTOCOL_ERROR"], "ok": true, "elapsed_ms": 262, "client_sent_hex": "", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "noread_full_valid_frame_then_close", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 207, "client_sent_hex": "", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "drip_valid_within_timeout", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 436, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "drip_exceeds_timeout", "exit": 5, "code": "AGENT_UNAVAILABLE", "expect": [5, "AGENT_UNAVAILABLE"], "ok": true, "elapsed_ms": 709, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "hang_timeout", "exit": 5, "code": "AGENT_UNAVAILABLE", "expect": [5, "AGENT_UNAVAILABLE"], "ok": true, "elapsed_ms": 509, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "second_frame_after_first_ignored", "exit": 0, "code": "AGENT_OK", "expect": [0, "AGENT_OK"], "ok": true, "elapsed_ms": 8, "client_sent_hex": "000000010b", "client_sent_ok": true, "stdout_lines": 1, "check": null}
+{"case": "path_regular_file", "exit": 5, "code": "AGENT_UNAVAILABLE", "elapsed_ms": 6, "ok": true}
+{"case": "path_directory", "exit": 5, "code": "AGENT_UNAVAILABLE", "elapsed_ms": 5, "ok": true}
+{"case": "path_fifo", "exit": 5, "code": "AGENT_UNAVAILABLE", "elapsed_ms": 4, "ok": true}
+{"case": "path_missing", "exit": 5, "code": "AGENT_UNAVAILABLE", "elapsed_ms": 4, "ok": true}
+{"case": "sigint_while_waiting", "exit": 130, "code": "CANCELLED", "signal_to_exit_ms": 13, "ok": true, "client_sent_hex": "000000010b"}
+ALL_OK True

@@ -1,0 +1,24 @@
+
+running 18 tests
+test agent_ok_and_request_bytes ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test agent_crafted_frames ... ok
+test k5_meta_state ... ok
+test k3_k4_eof_and_failure_frame_shape ... ok
+test profile_fixtures ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test run_binary_stdio_passthrough ... ok
+heimdall-proto: CANCELLED
+test agent_unavailable_and_timeout ... ok
+test run_inherits_env_and_cwd ... ok
+test run_status_and_meta ... ok
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test version_json ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+test agent_cancel_sigint_within_500ms ... ok
+test run_forwards_signals_and_waits ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.17s
+

@@ -1,0 +1,76 @@
+## <repo>/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/heimdall_proto-c3b6f9b32f76687a
+
+running 39 tests
+test agent::tests::huge_nkeys_rejected ... ok
+test agent::tests::control_chars_in_comment_replaced ... ok
+test agent::tests::envelope_shapes ... ok
+test agent::tests::oversize_length_rejected_without_reading_body ... ok
+test agent::tests::parses_identities_and_fingerprint ... ok
+test agent::tests::request_is_exactly_type_11 ... ok
+test agent::tests::string_length_exceeding_frame_rejected ... ok
+test agent::tests::trailing_bytes_rejected ... ok
+test agent::tests::truncated_rejected ... ok
+test agent::tests::wrong_type_and_failure ... ok
+test agent::tests::zero_keys_ok ... ok
+test envelope::tests::envelope_shape ... ok
+test agent::tests::max_length_frame_accepted_by_reader ... ok
+test list_model::tests::narrow_rows ... ok
+test list_model::tests::filter_mode ... ok
+test list_model::tests::navigate_and_select ... ok
+test agent::tests::exactly_1024_keys_ok ... ok
+test list_model::tests::q_in_filter_mode_is_text_and_empty_enter_noop ... ok
+test profile::tests::duplicate_alias_and_id ... ok
+test profile::tests::example_json_matches_contract_shape ... ok
+test profile::tests::invalid_utf8_is_schema_invalid ... ok
+test profile::tests::forbidden_key_no_canary ... ok
+test profile::tests::homelab_ok ... ok
+test profile::tests::malformed_with_canary_not_quoted ... ok
+test profile::tests::meta_content_tolerated_including_unknown_nested_keys ... ok
+test profile::tests::malformed ... ok
+test list_model::tests::large_filter_immediate ... ok
+test profile::tests::port_out_of_range ... ok
+test profile::tests::required_and_types ... ok
+test profile::tests::schema_version_unsupported ... ok
+test profile::tests::unknown_dest_key ... ok
+test profile::tests::spaced_unicode_path_identical ... ok
+test profile::tests::large_100 ... ok
+test runner::tests::launch_failure_is_127 ... ok
+test runner::tests::meta_shapes ... ok
+test text::tests::controls_replaced ... ok
+test text::tests::key_segments ... ok
+test runner::tests::exit_code_and_signal_mapping ... ok
+test profile::tests::oversize_not_parsed_and_missing_is_usage ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+## <repo>/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-6bb3ae746b38ef2e
+
+running 14 tests
+test agent_ok_and_request_bytes ... ok
+test profile_fixtures ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test run_binary_stdio_passthrough ... ok
+test agent_crafted_frames ... ok
+test run_inherits_env_and_cwd ... ok
+test run_status_and_meta ... ok
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test version_json ... ok
+heimdall-proto: CANCELLED
+test agent_unavailable_and_timeout ... ok
+test run_forwards_signals_and_waits ... ok
+test agent_cancel_sigint_within_500ms ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+
+## <repo>/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/heimdall_proto-7050121ff6b5c44d
+
+running 4 tests
+test cli::tests::parses_commands ... ok
+test cli::tests::run_argv_non_utf8 ... ok
+test cli::tests::run_argv_passthrough ... ok
+test cli::tests::usage_errors ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -1,0 +1,6 @@
+{"case": "reset_before_any_byte_request_unread", "exit_code": 5, "code": "AGENT_UNAVAILABLE", "stderr": "heimdall-proto: AGENT_UNAVAILABLE\n", "expect": "AGENT_UNAVAILABLE", "verdict": "pass"}
+{"case": "reset_after_1_header_byte_request_unread", "exit_code": 5, "code": "AGENT_UNAVAILABLE", "stderr": "heimdall-proto: AGENT_UNAVAILABLE\n", "expect": "AGENT_PROTOCOL_ERROR", "verdict": "fail"}
+{"case": "reset_after_3_header_bytes_request_unread", "exit_code": 5, "code": "AGENT_UNAVAILABLE", "stderr": "heimdall-proto: AGENT_UNAVAILABLE\n", "expect": "AGENT_PROTOCOL_ERROR", "verdict": "fail"}
+{"case": "reset_after_full_header_mid_body_request_unread", "exit_code": 5, "code": "AGENT_UNAVAILABLE", "stderr": "heimdall-proto: AGENT_UNAVAILABLE\n", "expect": "AGENT_PROTOCOL_ERROR", "verdict": "fail"}
+{"case": "linger0_after_1_byte_request_consumed", "exit_code": 5, "code": "AGENT_PROTOCOL_ERROR", "stderr": "heimdall-proto: AGENT_PROTOCOL_ERROR\n", "expect": "AGENT_PROTOCOL_ERROR", "verdict": "pass"}
+FAILS: ['reset_after_1_header_byte_request_unread', 'reset_after_3_header_bytes_request_unread', 'reset_after_full_header_mid_body_request_unread']

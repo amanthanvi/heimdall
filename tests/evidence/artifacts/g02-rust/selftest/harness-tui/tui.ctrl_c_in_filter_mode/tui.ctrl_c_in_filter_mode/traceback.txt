@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "<repo>/tests/g02/conformance.py", line 1888, in run_checks
+    fn(t)
+    ~~^^^
+  File "<repo>/tests/g02/conformance.py", line 1646, in _
+    finish_session(t, s)
+    ~~~~~~~~~~~~~~^^^^^^
+  File "<repo>/tests/g02/conformance.py", line 1375, in finish_session
+    t.save("%s.screen.txt" % label, s.text())
+                                    ~~~~~~^^
+  File "<repo>/tests/g02/harness_lib.py", line 540, in text
+    return "\n".join(self.lines())
+                     ~~~~~~~~~~^^
+  File "<repo>/tests/g02/harness_lib.py", line 537, in lines
+    return [l.rstrip() for l in self.screen.display]
+                                ^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/g02/.venv/lib/python3.14/site-packages/pyte/screens.py", line 244, in display
+    return ["".join(render(self.buffer[y])) for y in range(self.lines)]
+            ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/g02/.venv/lib/python3.14/site-packages/pyte/screens.py", line 241, in render
+    is_wide_char = wcwidth(char[0]) == 2
+                           ~~~~^^^
+IndexError: string index out of range

@@ -1,0 +1,24 @@
+uname: aarch64
+ldd: 	not a dynamic executable
+== baseline direct child
+SigBlk:	0000000000000000 SigIgn:	0000000000000000 
+== via run (default)
+SigBlk:	0000000000000000 SigIgn:	0000000000000000  rc=0
+== nohup-like (trap '' HUP INT QUIT TERM) direct
+SigIgn:	0000000000004007
+== nohup-like via run
+SigIgn:	0000000000000000
+ rc=0
+== background job in non-interactive sh: direct
+SigIgn:	0000000000000006
+== background job in non-interactive sh: via run
+SigIgn:	0000000000000000
+== zombie check: parent of child while child runs
+Name:	heimdall-proto
+State:	S (sleeping)
+rc=0
+== no zombies after run, list all processes
+zombie-scan done
+== /proc/self/exe identity independent of argv0
+/probe/linux_probe.sh: 14: exec: -a: not found
+rc=127

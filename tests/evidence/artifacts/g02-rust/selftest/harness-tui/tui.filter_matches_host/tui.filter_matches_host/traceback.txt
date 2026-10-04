@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "<repo>/tests/g02/conformance.py", line 1888, in run_checks
+    fn(t)
+    ~~^^^
+  File "<repo>/tests/g02/conformance.py", line 1525, in _
+    lat = s.wait_for(has_status(1, 3), 5.0)
+  File "<repo>/tests/g02/harness_lib.py", line 547, in wait_for
+    if pred(self):
+       ~~~~^^^^^^
+  File "<repo>/tests/g02/conformance.py", line 1341, in <lambda>
+    return lambda s: status_of(s) == (shown, total)
+                     ~~~~~~~~~^^^
+  File "<repo>/tests/g02/conformance.py", line 1333, in status_of
+    for line in reversed(s.lines()):
+                         ~~~~~~~^^
+  File "<repo>/tests/g02/harness_lib.py", line 537, in lines
+    return [l.rstrip() for l in self.screen.display]
+                                ^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/g02/.venv/lib/python3.14/site-packages/pyte/screens.py", line 244, in display
+    return ["".join(render(self.buffer[y])) for y in range(self.lines)]
+            ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/tests/g02/.venv/lib/python3.14/site-packages/pyte/screens.py", line 241, in render
+    is_wide_char = wcwidth(char[0]) == 2
+                           ~~~~^^^
+IndexError: string index out of range

@@ -1,0 +1,4 @@
+baseline_exec_yes_stderr=yes: stdout: Broken pipe
+ignored_PIPE_via_hp_meta={"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":null,"signal":13},"warnings":[],"next":null}
+ignored_PIPE_via_hp_child_stderr=
+default_PIPE_via_hp_meta={"schema_version":"1","state":"succeeded","code":"CHILD_EXITED","data":{"launched":true,"exit_code":null,"signal":13},"warnings":[],"next":null}

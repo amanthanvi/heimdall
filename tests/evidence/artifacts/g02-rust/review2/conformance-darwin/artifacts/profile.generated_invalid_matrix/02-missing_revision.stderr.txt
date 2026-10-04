@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: required key revision is missing

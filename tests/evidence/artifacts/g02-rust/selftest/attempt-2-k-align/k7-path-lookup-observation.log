@@ -1,0 +1,5 @@
+# K7 observation: run with empty and '.' PATH entries, executable only in cwd
+ran-from-cwd
+PATH=:/usr/bin:/bin exit=0
+ran-from-cwd
+PATH=.:/usr/bin:/bin exit=0

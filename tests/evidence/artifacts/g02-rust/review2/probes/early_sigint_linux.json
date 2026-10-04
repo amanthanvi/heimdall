@@ -1,0 +1,22 @@
+{
+ "bin": "/artifact/heimdall-proto",
+ "platform": "linux",
+ "results_by_delay_ms": {
+  "0": {
+   "-2/no-json": 30
+  },
+  "0.5": {
+   "130/CANCELLED": 24,
+   "-2/no-json": 6
+  },
+  "1": {
+   "130/CANCELLED": 30
+  },
+  "2": {
+   "130/CANCELLED": 30
+  },
+  "5": {
+   "130/CANCELLED": 30
+  }
+ }
+}

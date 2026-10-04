@@ -1,0 +1,28 @@
+rustc 1.99.0 (b940084d7 2026-09-28)
+binary: rustc
+commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+commit-date: 2026-09-28
+host: aarch64-apple-darwin
+release: 1.99.0
+LLVM version: 23.1.1
+cargo 1.99.0 (5f94df478 2026-08-27)
+rustup 1.29.1 (d95a37b6a 2026-08-13)
+aarch64-apple-darwin
+aarch64-apple-ios
+aarch64-apple-ios-macabi
+aarch64-apple-ios-sim
+aarch64-linux-android
+aarch64-unknown-linux-musl
+i686-unknown-linux-musl
+wasm32-unknown-unknown
+x86_64-apple-ios-macabi
+x86_64-pc-windows-gnu
+x86_64-unknown-linux-musl
+0.16.0
+cargo-zigbuild 0.23.4
+Python 3.14.8
+Darwin 27.0.0 arm64
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A428
+docker server 29.8.1 linux/arm64

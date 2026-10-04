@@ -1,0 +1,200 @@
+[
+ {
+  "case": "stdin_eof_and_binary_roundtrip_1MiB",
+  "exit_code": 0,
+  "out_sha_equal": true,
+  "stderr_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "stdin_devnull_eof",
+  "exit_code": 0,
+  "stdout": "eof-seen\n",
+  "verdict": "pass"
+ },
+ {
+  "case": "large_stderr_while_stdout_blocked_direct",
+  "exit_code": 0,
+  "stderr_bytes": 4194304,
+  "stdout_bytes": 4194304,
+  "stderr_complete_s": 0.023,
+  "verdict": "pass"
+ },
+ {
+  "case": "large_stderr_while_stdout_blocked_via_heimdall",
+  "exit_code": 0,
+  "stderr_bytes": 4194304,
+  "stdout_bytes": 4194304,
+  "stderr_complete_s": 0.031,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_exit_0",
+  "exit_code": 0,
+  "meta_code": "CHILD_EXITED",
+  "meta_state": "succeeded",
+  "meta_data": {
+   "launched": true,
+   "exit_code": 0,
+   "signal": null
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_exit_255",
+  "exit_code": 255,
+  "meta_code": "CHILD_EXITED",
+  "meta_state": "succeeded",
+  "meta_data": {
+   "launched": true,
+   "exit_code": 255,
+   "signal": null
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_sigkill_self",
+  "exit_code": 137,
+  "meta_code": "CHILD_EXITED",
+  "meta_state": "succeeded",
+  "meta_data": {
+   "launched": true,
+   "exit_code": null,
+   "signal": 9
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_sigsegv_self",
+  "exit_code": 139,
+  "meta_code": "CHILD_EXITED",
+  "meta_state": "succeeded",
+  "meta_data": {
+   "launched": true,
+   "exit_code": null,
+   "signal": 11
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_not_found",
+  "exit_code": 127,
+  "meta_code": "CHILD_LAUNCH_FAILED",
+  "meta_state": "failed",
+  "meta_data": {
+   "launched": false,
+   "exit_code": null,
+   "signal": null
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_not_executable",
+  "exit_code": 127,
+  "meta_code": "CHILD_LAUNCH_FAILED",
+  "meta_state": "failed",
+  "meta_data": {
+   "launched": false,
+   "exit_code": null,
+   "signal": null
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "status_directory",
+  "exit_code": 127,
+  "meta_code": "CHILD_LAUNCH_FAILED",
+  "meta_state": "failed",
+  "meta_data": {
+   "launched": false,
+   "exit_code": null,
+   "signal": null
+  },
+  "stdout_len": 0,
+  "verdict": "pass"
+ },
+ {
+  "case": "meta_unwritable_dir_detected_only_after_child_ran",
+  "exit_code": 0,
+  "child_side_effect_happened": true,
+  "stderr": "heimdall-proto: cannot write meta file: NotFound\n",
+  "observation": "exit code is the child's (0) although the requested meta file was not written"
+ },
+ {
+  "case": "meta_file_is_fifo_no_reader",
+  "exit_code": null,
+  "hung": true,
+  "observation": "blocked >3 s opening FIFO meta path after the child exited (killed by subprocess timeout)"
+ },
+ {
+  "case": "meta_file_symlink_followed",
+  "exit_code": 0,
+  "target_overwritten": true,
+  "link_still_symlink": true
+ },
+ {
+  "case": "inherited_SIG_IGN_HUP_INT_QUIT_TERM_preserved",
+  "direct_HUP_INT_QUIT_TERM_ignored": "1 1 1 1",
+  "via_heimdall": "0 0 0 0",
+  "exit_code": 0,
+  "verdict": "fail"
+ },
+ {
+  "case": "nohup_style_SIGHUP_ignored_by_caller",
+  "exit_code": 129,
+  "child_survived": false,
+  "expected_for_transparent_wrapper": "child survives (SIGHUP ignored, as with direct exec)",
+  "verdict": "fail"
+ },
+ {
+  "case": "sigterm_race_sweep_no_tty",
+  "n": 25,
+  "outcomes": [
+   [
+    -15,
+    null
+   ],
+   [
+    143,
+    null
+   ],
+   [
+    3,
+    "1"
+   ]
+  ],
+  "bad": [],
+  "verdict": "pass"
+ },
+ {
+  "case": "killpg_SIGTERM_on_heimdall_group",
+  "heimdall_pgid_eq_pid": true,
+  "child_in_own_pgid": true,
+  "exit_code": 7,
+  "child_terms_received": 1,
+  "child_alive_after": false
+ },
+ {
+  "case": "killpg_SIGKILL_on_heimdall_group",
+  "heimdall_pgid_eq_pid": true,
+  "child_in_own_pgid": true,
+  "exit_code": -9,
+  "child_terms_received": 0,
+  "child_alive_after": true
+ },
+ {
+  "case": "cleanup_orphan_SIGKILL",
+  "killed_pid_verified_by_pidfile_and_pgid": true
+ },
+ {
+  "case": "k7_empty_path_entry_observation",
+  "exit_code": 0,
+  "stdout": "ran-from-cwd"
+ }
+]

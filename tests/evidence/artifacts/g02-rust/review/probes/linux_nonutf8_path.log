@@ -1,0 +1,6 @@
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"p","revision":1,"destinations":[]}},"warnings":[],"next":null}
+rc=0
+run rc=0
+0000000   b   a   d 377       n   a   m   e   .   t   o   m   l  \n   m
+0000020   e   t   a 377   .   j   s   o   n  \n
+0000032

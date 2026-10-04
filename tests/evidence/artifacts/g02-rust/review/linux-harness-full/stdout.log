@@ -1,0 +1,117 @@
+G02 conformance: candidate=rust bin=/dist/linux-arm64/heimdall-proto checks=113 pyte=yes
+PASS  harness.schema_validator                          1 ms  
+PASS  harness.expected_data                             2 ms  
+PASS  harness.ansi_parsers                              0 ms  
+ERR   harness.keygen                                   16 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   harness.fake_agent                                1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+PASS  harness.pty_session                             192 ms  
+PASS  harness.fake_agent_modes                        886 ms  
+PASS  harness.screen_wide_chars                         3 ms  
+PASS  harness.pty_close_undrained                    2642 ms  
+PASS  harness.check_bound                            2023 ms  
+PASS  usage.unknown_subcommand_json                    10 ms  
+PASS  usage.unknown_subcommand_plain                    5 ms  
+PASS  usage.unknown_flag_json                           4 ms  
+PASS  usage.unknown_flag_plain                          8 ms  
+PASS  usage.missing_argument_json                       6 ms  
+PASS  usage.missing_argument_plain                      5 ms  
+PASS  version.valid                                     3 ms  
+PASS  profile.homelab_exact                             3 ms  
+PASS  profile.spaced_unicode_path                       4 ms  
+PASS  profile.large_100                                 7 ms  
+PASS  profile.invalid_forbidden_key                     7 ms  
+PASS  profile.invalid_unknown_dest_key                  4 ms  
+PASS  profile.invalid_malformed                         6 ms  
+PASS  profile.invalid_schema_version                    3 ms  
+PASS  profile.invalid_duplicate_alias                   5 ms  
+PASS  profile.invalid_port                              3 ms  
+PASS  profile.generated_invalid_matrix                 89 ms  
+PASS  profile.generated_valid_variants                 25 ms  
+PASS  profile.control_chars_rejected                   30 ms  
+PASS  profile.control_chars_in_meta_ok                  3 ms  
+PASS  profile.meta_not_echoed_homelab                   3 ms  
+PASS  profile.oversize_garbage                          9 ms  
+PASS  profile.size_boundary_plus_one                    4 ms  
+PASS  profile.size_boundary_exact                       8 ms  
+PASS  profile.missing_file                              3 ms  
+FAIL  profile.unreadable_file                           0 ms  file is unreadable to the harness user (not root)
+ERR   agent.normal_identities                           1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.fingerprint_ssh_keygen                      1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.empty                                       1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.fragmented_reply                            1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.passive_contact_log                         1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_oversize                          2 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_huge_nkeys                        1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_truncated                         1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_trailing_bytes                    1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_wrong_type                        2 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_string_overrun                    1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.malformed_comment_overrun                   1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.failure_refused                             1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.nkeys_boundary                              1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.frame_boundary                              1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+PASS  agent.missing_socket                              3 ms  
+PASS  agent.stale_socket                                3 ms  
+ERR   agent.slow_timeout                                1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.slow_sigint_cancel                          1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   agent.invalid_utf8_comment                        2 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+PASS  agent.control_chars_sanitized                   154 ms  
+PASS  agent.eof_before_reply                          150 ms  
+PASS  agent.eof_after_partial_header                  150 ms  
+PASS  agent.failure_with_payload                      149 ms  
+PASS  agent.reset_before_reply                        300 ms  
+FAIL  agent.reset_after_partial_header                305 ms  [agent-reset_after_byte] code
+ERR   agent.unicode_spaced_socket_path                  1 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+PASS  run.stdio_passthrough                            22 ms  
+PASS  run.exit_codes                                   47 ms  
+PASS  run.meta_child_exited                            20 ms  
+PASS  run.argv_exact                                   17 ms  
+PASS  run.argv_invalid_utf8                            15 ms  
+PASS  run.meta_state                                   35 ms  
+PASS  run.path_lookup                                  18 ms  
+PASS  run.launch_failure_missing_absolute               3 ms  
+PASS  run.launch_failure_missing_path                   3 ms  
+PASS  run.launch_failure_not_executable                 3 ms  
+PASS  run.child_killed_by_signal                       11 ms  
+PASS  run.forward_sigterm                             526 ms  
+PASS  run.forward_sigint                              542 ms  
+PASS  run.forward_sighup                              537 ms  
+PASS  run.forward_sigquit                             539 ms  
+PASS  run.forward_sigwinch                            594 ms  
+PASS  run.sigint_process_group                        843 ms  
+PASS  run.explicit_signal_with_tty                   5483 ms  
+PASS  run.proto_silent_stdout                          19 ms  
+PASS  run.cwd_env_inherited                            14 ms  
+PASS  run.no_surviving_child                            9 ms  
+PASS  run.usage_errors                                 14 ms  
+PASS  tui.non_tty                                     114 ms  
+PASS  tui.first_frame                                 301 ms  
+PASS  tui.filter_basic                                562 ms  
+PASS  tui.filter_unicode                              508 ms  
+PASS  tui.filter_case_insensitive                     404 ms  
+PASS  tui.filter_matches_host                         544 ms  
+PASS  tui.filter_backspace                            492 ms  
+PASS  tui.esc_clears_filter                           582 ms  
+PASS  tui.filter_enter_keeps_filter                   706 ms  
+PASS  tui.select_down_enter                           316 ms  
+PASS  tui.select_jk_keys                              433 ms  
+PASS  tui.quit_q                                      368 ms  
+PASS  tui.ctrl_c                                      300 ms  
+PASS  tui.ctrl_c_in_filter_mode                       514 ms  
+PASS  tui.sigterm_restores_terminal                   350 ms  
+PASS  tui.sighup_exit_129                             358 ms  
+PASS  tui.hangup_exit_129                             274 ms  
+PASS  tui.filter_edit_resets_selection               1051 ms  
+PASS  tui.no_color                                   1017 ms  
+PASS  tui.resize_narrow_hides_host                    301 ms  
+PASS  tui.resize_relayout_latency                    1374 ms  
+PASS  tui.resize_tiny_no_crash                       1308 ms  
+PASS  tui.start_tiny_no_crash                         702 ms  
+PASS  tui.large_100_filter_latency                    808 ms  
+ERR   tui.no_agent_contact                              2 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+ERR   common.exit_codes_without_json                   25 ms  FileNotFoundError: [Errno 2] No such file or directory: '/usr/bin/ssh-keygen'
+PASS  common.no_stray_writes                            1 ms  
+PASS  canary.no_canary_anywhere                         0 ms  
+
+summary: {'total': 113, 'pass': 88, 'fail': 2, 'error': 23, 'skipped': 0}  status=in_progress verdict=fail  record=/out/record.json
+harness_rc=1

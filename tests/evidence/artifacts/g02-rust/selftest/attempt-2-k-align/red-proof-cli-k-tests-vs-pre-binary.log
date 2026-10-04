@@ -1,0 +1,27 @@
+# pre-change binary sha256: 98d7c49880be9efec3e449f4586ab64367869ec407d7339a4138a2e7814962d7 (= attempt-1 dist/darwin-arm64)
+# cmd: HEIMDALL_PROTO_BIN=<pre> <cli test bin> k --test-threads=1
+
+running 5 tests
+test agent_ok_and_request_bytes ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test k3_k4_eof_and_failure_frame_shape ... FAILED
+test k5_meta_state ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+
+failures:
+
+---- k3_k4_eof_and_failure_frame_shape stdout ----
+
+thread 'k3_k4_eof_and_failure_frame_shape' (17535007) panicked at tests/cli.rs:653:9:
+assertion `left == right` failed: zero-byte EOF
+  left: String("AGENT_PROTOCOL_ERROR")
+ right: "AGENT_UNAVAILABLE"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    k3_k4_eof_and_failure_frame_shape
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 2.73s
+
+exit=101

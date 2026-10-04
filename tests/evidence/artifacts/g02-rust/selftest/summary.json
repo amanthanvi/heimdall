@@ -1,0 +1,306 @@
+{
+ "started_at": "2026-10-03T00:44:31Z",
+ "steps": [
+  {
+   "step": "toolchain",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "rustc -vV; cargo -V; rustup -V 2>/dev/null | head -1; rustup target list --installed; zig version; \"<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild\" --version; python3 --version; uname -mrs; sw_vers 2>/dev/null; docker version --format \"docker server {{.Server.Version}} {{.Server.Os}}/{{.Server.Arch}}\"",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/toolchain.log"
+  },
+  {
+   "step": "fmt",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "cargo fmt --check",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/fmt.log"
+  },
+  {
+   "step": "clippy",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "cargo clippy --locked --all-targets -- -D warnings",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/clippy.log"
+  },
+  {
+   "step": "host-cargo-test",
+   "exit_code": 0,
+   "seconds": 4,
+   "command": "cargo test --locked -- --test-threads=4",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/host-cargo-test.log"
+  },
+  {
+   "step": "windows-check",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "cargo check --locked --target x86_64-pc-windows-gnu --all-targets",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/windows-check.log"
+  },
+  {
+   "step": "unsafe-scan",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "grep -rn \"unsafe\" src build.rs || echo \"no unsafe tokens in src/ or build.rs\"; grep -n \"forbid(unsafe_code)\" src/lib.rs src/main.rs",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/unsafe-scan.log"
+  },
+  {
+   "step": "build-sh",
+   "exit_code": 0,
+   "seconds": 15,
+   "command": "/bin/sh ./build.sh",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/build-sh.log"
+  },
+  {
+   "step": "artifact-inspect",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "file dist/*/heimdall-proto*; otool -L dist/darwin-arm64/heimdall-proto; echo \"windows DLL imports:\"; strings dist/windows-x64/heimdall-proto.exe | grep -iE \"^[a-z0-9_.-]+\\.dll$\" | sort -u; ls -l dist/*/heimdall-proto*",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/artifact-inspect.log"
+  },
+  {
+   "step": "panic-variant-build",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "cargo build --locked --features test-panic --target-dir target/panic && \"<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild\" zigbuild --locked --features test-panic --target aarch64-unknown-linux-musl --target-dir target/panic",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/panic-variant-build.log"
+  },
+  {
+   "step": "host-test-bins",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "cargo test --locked --no-run --message-format=json 2>/dev/null | python3 tools/list_test_bins.py cli > target/host-cli-test.txt && cat target/host-cli-test.txt",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/host-test-bins.log"
+  },
+  {
+   "step": "darwin-dist-version",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "env -i HOME=/tmp PATH=/usr/bin:/bin ./dist/darwin-arm64/heimdall-proto version --json",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/darwin-dist-version.log"
+  },
+  {
+   "step": "darwin-dist-cli-tests",
+   "exit_code": 0,
+   "seconds": 3,
+   "command": "env -i HOME=/tmp PATH=/usr/bin:/bin HEIMDALL_PROTO_BIN=\"$PWD/dist/darwin-arm64/heimdall-proto\" \"$(cat target/host-cli-test.txt)\" --test-threads=4",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/darwin-dist-cli-tests.log"
+  },
+  {
+   "step": "darwin-dist-pty",
+   "exit_code": 0,
+   "seconds": 5,
+   "command": "python3 tests/pty_tui.py dist/darwin-arm64/heimdall-proto --panic-binary target/panic/debug/heimdall-proto",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/darwin-dist-pty.log"
+  },
+  {
+   "step": "cross-test-build-aarch64-unknown-linux-musl",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "\"<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild\" test --locked --no-run --target aarch64-unknown-linux-musl --message-format=json 2>/dev/null | python3 tools/list_test_bins.py all > target/tests-aarch64-unknown-linux-musl.txt && cat target/tests-aarch64-unknown-linux-musl.txt",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/cross-test-build-aarch64-unknown-linux-musl.log"
+  },
+  {
+   "step": "cross-test-build-x86_64-unknown-linux-musl",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "\"<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild\" test --locked --no-run --target x86_64-unknown-linux-musl --message-format=json 2>/dev/null | python3 tools/list_test_bins.py all > target/tests-x86_64-unknown-linux-musl.txt && cat target/tests-x86_64-unknown-linux-musl.txt",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/cross-test-build-x86_64-unknown-linux-musl.log"
+  },
+  {
+   "step": "linux-arm64-dist-version",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "docker run --rm --platform linux/arm64 --network none -v '<repo>:/repo:ro' debian:bookworm-slim sh -c 'uname -m; for t in cargo rustc go node bun python3; do command -v $t || echo \"$t: not on PATH\"; done; /repo/prototypes/rust/dist/linux-arm64/heimdall-proto version --json'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/linux-arm64-dist-version.log"
+  },
+  {
+   "step": "linux-arm64-native-tests",
+   "exit_code": 0,
+   "seconds": 4,
+   "command": "docker run --rm --platform linux/arm64 --network none -v '<repo>:/repo:ro' -e HEIMDALL_PROTO_BIN=/repo/prototypes/rust/dist/linux-arm64/heimdall-proto debian:bookworm-slim sh -c 'mkdir -p <home>/GitRepos && ln -s /repo <repo> && rc=0; for b in <repo>/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/heimdall_proto-c3b6f9b32f76687a <repo>/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-6bb3ae746b38ef2e <repo>/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/heimdall_proto-7050121ff6b5c44d ; do echo \"## $b\"; \"$b\" --test-threads=4 || rc=$?; done; exit $rc'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/linux-arm64-native-tests.log"
+  },
+  {
+   "step": "linux-amd64-dist-version",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "docker run --rm --platform linux/amd64 --network none -v '<repo>:/repo:ro' debian:trixie sh -c 'uname -m; for t in cargo rustc go node bun python3; do command -v $t || echo \"$t: not on PATH\"; done; /repo/prototypes/rust/dist/linux-x64/heimdall-proto version --json'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/linux-amd64-dist-version.log"
+  },
+  {
+   "step": "linux-amd64-native-tests",
+   "exit_code": 0,
+   "seconds": 4,
+   "command": "docker run --rm --platform linux/amd64 --network none -v '<repo>:/repo:ro' -e HEIMDALL_PROTO_BIN=/repo/prototypes/rust/dist/linux-x64/heimdall-proto debian:trixie sh -c 'mkdir -p <home>/GitRepos && ln -s /repo <repo> && rc=0; for b in <repo>/prototypes/rust/target/x86_64-unknown-linux-musl/debug/deps/heimdall_proto-8d1351007c1be1f1 <repo>/prototypes/rust/target/x86_64-unknown-linux-musl/debug/deps/cli-8c2806375acd2c02 <repo>/prototypes/rust/target/x86_64-unknown-linux-musl/debug/deps/heimdall_proto-ebe0d108ccd6fbfb ; do echo \"## $b\"; \"$b\" --test-threads=4 || rc=$?; done; exit $rc'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/linux-amd64-native-tests.log"
+  },
+  {
+   "step": "linux-arm64-dist-pty",
+   "exit_code": 0,
+   "seconds": 4,
+   "command": "docker run --rm --platform linux/arm64 --network none -v '<repo>:/repo:ro' -e PATH=/usr/bin:/bin rust:1.98.1-bookworm python3 /repo/prototypes/rust/tests/pty_tui.py /repo/prototypes/rust/dist/linux-arm64/heimdall-proto --panic-binary /repo/prototypes/rust/target/panic/aarch64-unknown-linux-musl/debug/heimdall-proto",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/linux-arm64-dist-pty.log"
+  },
+  {
+   "step": "harness-core",
+   "exit_code": 0,
+   "seconds": 10,
+   "command": "timeout 900 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'harness.*,version.*,usage.*,profile.*,agent.*,run.*' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-core-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-core'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-core.log"
+  },
+  {
+   "step": "harness-tui.non_tty",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.non_tty' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.non_tty-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.non_tty'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.non_tty.log"
+  },
+  {
+   "step": "harness-tui.first_frame",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.first_frame' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.first_frame-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.first_frame'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.first_frame.log"
+  },
+  {
+   "step": "harness-tui.filter_basic",
+   "exit_code": 1,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.filter_basic' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_basic-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_basic'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.filter_basic.log"
+  },
+  {
+   "step": "harness-tui.filter_unicode",
+   "exit_code": 1,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.filter_unicode' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_unicode-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_unicode'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.filter_unicode.log"
+  },
+  {
+   "step": "harness-tui.filter_case_insensitive",
+   "exit_code": 1,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.filter_case_insensitive' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_case_insensitive-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_case_insensitive'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.filter_case_insensitive.log"
+  },
+  {
+   "step": "harness-tui.filter_matches_host",
+   "exit_code": 124,
+   "seconds": 120,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.filter_matches_host' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_matches_host-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_matches_host'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.filter_matches_host.log"
+  },
+  {
+   "step": "harness-tui.filter_backspace",
+   "exit_code": 124,
+   "seconds": 120,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.filter_backspace' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_backspace-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_backspace'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.filter_backspace.log"
+  },
+  {
+   "step": "harness-tui.esc_clears_filter",
+   "exit_code": 1,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.esc_clears_filter' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.esc_clears_filter-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.esc_clears_filter'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.esc_clears_filter.log"
+  },
+  {
+   "step": "harness-tui.filter_enter_keeps_filter",
+   "exit_code": 1,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.filter_enter_keeps_filter' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_enter_keeps_filter-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.filter_enter_keeps_filter'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.filter_enter_keeps_filter.log"
+  },
+  {
+   "step": "harness-tui.select_down_enter",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.select_down_enter' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.select_down_enter-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.select_down_enter'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.select_down_enter.log"
+  },
+  {
+   "step": "harness-tui.select_jk_keys",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.select_jk_keys' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.select_jk_keys-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.select_jk_keys'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.select_jk_keys.log"
+  },
+  {
+   "step": "harness-tui.quit_q",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.quit_q' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.quit_q-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.quit_q'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.quit_q.log"
+  },
+  {
+   "step": "harness-tui.ctrl_c",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.ctrl_c' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.ctrl_c-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.ctrl_c'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.ctrl_c.log"
+  },
+  {
+   "step": "harness-tui.ctrl_c_in_filter_mode",
+   "exit_code": 1,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.ctrl_c_in_filter_mode' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.ctrl_c_in_filter_mode-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.ctrl_c_in_filter_mode'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.ctrl_c_in_filter_mode.log"
+  },
+  {
+   "step": "harness-tui.sigterm_restores_terminal",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.sigterm_restores_terminal' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.sigterm_restores_terminal-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.sigterm_restores_terminal'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.sigterm_restores_terminal.log"
+  },
+  {
+   "step": "harness-tui.no_color",
+   "exit_code": 1,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.no_color' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.no_color-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.no_color'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.no_color.log"
+  },
+  {
+   "step": "harness-tui.resize_narrow_hides_host",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.resize_narrow_hides_host' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.resize_narrow_hides_host-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.resize_narrow_hides_host'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.resize_narrow_hides_host.log"
+  },
+  {
+   "step": "harness-tui.resize_relayout_latency",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.resize_relayout_latency' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.resize_relayout_latency-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.resize_relayout_latency'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.resize_relayout_latency.log"
+  },
+  {
+   "step": "harness-tui.resize_tiny_no_crash",
+   "exit_code": 0,
+   "seconds": 2,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.resize_tiny_no_crash' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.resize_tiny_no_crash-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.resize_tiny_no_crash'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.resize_tiny_no_crash.log"
+  },
+  {
+   "step": "harness-tui.start_tiny_no_crash",
+   "exit_code": 0,
+   "seconds": 0,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.start_tiny_no_crash' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.start_tiny_no_crash-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.start_tiny_no_crash'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.start_tiny_no_crash.log"
+  },
+  {
+   "step": "harness-tui.large_100_filter_latency",
+   "exit_code": 0,
+   "seconds": 1,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.large_100_filter_latency' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.large_100_filter_latency-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.large_100_filter_latency'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.large_100_filter_latency.log"
+  },
+  {
+   "step": "harness-tui.no_agent_contact",
+   "exit_code": 0,
+   "seconds": 2,
+   "command": "timeout 120 '<repo>/tests/g02/.venv/bin/python' '<repo>/tests/g02/conformance.py' --bin '<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto' --candidate rust --only 'tui.no_agent_contact' --out '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.no_agent_contact-record.json' --artifacts-dir '<repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.no_agent_contact'",
+   "log": "tests/evidence/artifacts/g02-rust/selftest/harness-tui.no_agent_contact.log"
+  }
+ ]
+}

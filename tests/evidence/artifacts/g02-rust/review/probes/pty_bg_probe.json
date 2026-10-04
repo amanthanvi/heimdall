@@ -1,0 +1,14 @@
+[
+ {
+  "case": "bg_job_in_noninteractive_script_direct",
+  "session_status": "exit 0",
+  "transcript": "script pgid=52726 tty_fg=52726\nhello\nread-ok:hello\ndone\n",
+  "read_from_terminal_succeeded": true
+ },
+ {
+  "case": "bg_job_in_noninteractive_script_via_heimdall",
+  "session_status": "exit 0",
+  "transcript": "script pgid=52737 tty_fg=52740\n/bin/sh: line 0: read: read error: 0: Input/output error\nread-ok:\nhello\ndone\n",
+  "read_from_terminal_succeeded": false
+ }
+]

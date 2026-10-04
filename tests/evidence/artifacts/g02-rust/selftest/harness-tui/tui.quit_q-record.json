@@ -1,0 +1,183 @@
+{
+  "case_id": "G02-rust-conformance",
+  "status": "implemented_unverified",
+  "requirement_ids": [
+    "R-SS-04",
+    "R-SS-02",
+    "R-SE-05",
+    "R-QU-07"
+  ],
+  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2+dirty",
+  "artifact_digest": "sha256:98d7c49880be9efec3e449f4586ab64367869ec407d7339a4138a2e7814962d7",
+  "environment": {
+    "os": "Darwin",
+    "os_release": "27.0.0",
+    "machine": "arm64",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "python": "3.14.7",
+    "pyte": "available",
+    "harness_version": "1.0.0",
+    "binary": "<repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+    "candidate": "rust",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run"
+  },
+  "provider_versions": [
+    {
+      "name": "ssh-keygen",
+      "path": "/usr/bin/ssh-keygen",
+      "version": "OpenSSH_10.3p1, LibreSSL 3.3.6"
+    },
+    {
+      "name": "python",
+      "version": "3.14.7"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2"
+    }
+  ],
+  "started_at": "2026-10-02T20:49:27-04:00",
+  "commands_or_harness": [
+    "<repo>/tests/g02/.venv/bin/python tests/g02/conformance.py --bin <repo>/prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --only tui.quit_q --out <repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.quit_q-record.json --artifacts-dir <repo>/tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.quit_q",
+    "harness_lib.py / minischema.py / tests/fixtures/fake-agent/fake_agent.py (sha256 284dd832b70fb9bc065e80c7922213ccf8360ecb203b044ab0701066eac34bb4)"
+  ],
+  "observed_result": {
+    "summary": {
+      "pass": 1,
+      "fail": 0,
+      "error": 0,
+      "skipped": 0,
+      "total": 1,
+      "duration_s": 0.3
+    },
+    "checks": [
+      {
+        "id": "tui.quit_q",
+        "group": "tui",
+        "clause": "§5",
+        "title": "q -> exit 0, no SELECTED, no stdout; terminal restored",
+        "outcome": "pass",
+        "duration_ms": 296.6,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "exit code",
+            "ok": true,
+            "gating": true,
+            "expected": "0",
+            "observed": "0"
+          },
+          {
+            "desc": "no SELECTED anywhere",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "vps1.example.invalid:2222\\x1b[24;1H3/3\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l\\x1b[?25h\\x1b[?1049l\\x1b[?25h"
+          },
+          {
+            "desc": "nothing printed after restore",
+            "ok": true,
+            "gating": true,
+            "expected": "\"b''\"",
+            "observed": "\"b''\""
+          },
+          {
+            "desc": "[quit] entered the alternate screen",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"alt_entered\": true, \"alt_active_at_end\": false, \"cursor_hidden_ever\": true, \"cursor_hidden_at_end\": false, \"app_cursor_keys\": false, \"last_restore_offset\": 287}"
+          },
+          {
+            "desc": "[quit] hid the cursor while active",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"alt_entered\": true, \"alt_active_at_end\": false, \"cursor_hidden_ever\": true, \"cursor_hidden_at_end\": false, \"app_cursor_keys\": false, \"last_restore_offset\": 287}"
+          },
+          {
+            "desc": "[quit] left the alternate screen on exit",
+            "ok": true,
+            "gating": true,
+            "expected": "left",
+            "observed": "{\"alt_entered\": true, \"alt_active_at_end\": false, \"cursor_hidden_ever\": true, \"cursor_hidden_at_end\": false, \"app_cursor_keys\": false, \"last_restore_offset\": 287}"
+          },
+          {
+            "desc": "[quit] cursor shown again on exit (last cursor mode is 'show')",
+            "ok": true,
+            "gating": true,
+            "expected": "visible",
+            "observed": "{\"alt_entered\": true, \"alt_active_at_end\": false, \"cursor_hidden_ever\": true, \"cursor_hidden_at_end\": false, \"app_cursor_keys\": false, \"last_restore_offset\": 287}"
+          },
+          {
+            "desc": "[quit] terminal emulator reports cursor visible",
+            "ok": true,
+            "gating": true,
+            "expected": "visible",
+            "observed": "visible"
+          },
+          {
+            "desc": "[quit] restore sequences are last (nothing but text/SGR after them)",
+            "ok": true,
+            "gating": true,
+            "expected": "none",
+            "observed": "[]"
+          },
+          {
+            "desc": "[quit] termios of the pty slave equal before/after",
+            "ok": true,
+            "gating": true,
+            "expected": "identical",
+            "observed": "{}"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in session.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [],
+        "notes": {},
+        "artifacts": [
+          "tui.quit_q/tui.quit_q/session.raw.bin",
+          "tui.quit_q/tui.quit_q/session.screen.txt"
+        ]
+      }
+    ],
+    "observations": {},
+    "open_contract_questions": [
+      "Q1 meta for a signal-killed child: contract gives exit_code int|null and signal int|null; harness gates only on signal==9 and launched==true and records exit_code (non-gating).",
+      "Q2 argv bytes that are not valid UTF-8: contract says byte-for-byte for text with spaces/quotes/non-ASCII; harness records non-UTF-8 argv preservation as non-gating.",
+      "Q3 SIGINT sent to the whole foreground process group reaches the child directly and via forwarding; the contract does not define the acceptable delivery count; harness gates only on the child's exit status and records the count.",
+      "Q4 SIGTERM during the TUI: contract names no exit code; harness gates on prompt exit and terminal restoration only.",
+      "Q5 Agent connection closed by the peer before any reply byte (EOF with zero bytes): UNAVAILABLE vs PROTOCOL_ERROR is undefined, so it is not tested.",
+      "Q6 ANSI escapes inside agent comments: contract bans ANSI escapes in JSON strings but does not say whether agent-provided comments are sanitised; not tested (a raw ESC is not sent by the fake agent).",
+      "Q7 Behaviour of profile show without --json is undefined; not tested."
+    ],
+    "not_covered": [
+      "native Windows (named pipe, CommandLineToArgvW, console Ctrl-C)",
+      "WSL"
+    ]
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.quit_q-record.json",
+    "tests/evidence/artifacts/g02-rust/selftest/harness-tui/tui.quit_q"
+  ],
+  "limitations": [
+    "Windows is NOT covered: named-pipe agent path, CommandLineToArgvW quoting, console Ctrl-C and ConPTY behaviour need a native Windows run (blocked_on: native Windows host).",
+    "WSL is NOT covered (blocked_on: Windows host with WSL).",
+    "Harness is POSIX-only and ran on one OS/arch (see environment); other Unix variants (Linux pty/AF_UNIX semantics) are untested here.",
+    "TUI is judged through a pty plus the pyte VT emulator, which answers DA and cursor-position queries but not OSC colour/XTVERSION/kitty-keyboard queries (a framework that waits for those answers will show a slower first frame); real terminal emulators may differ. stdout and the TUI frames share the tty, so stdout-vs-stderr separation of TUI output cannot be proven; SELECTED is verified as the text after the alternate screen is left.",
+    "Restoration after a panic/uncaught exception cannot be induced black-box and is NOT tested; only select, quit, Ctrl-C (also in filter mode) and SIGTERM paths are.",
+    "'No network' and 'no shell invocation' (contract section 1) cannot be proven black-box; only observable effects are tested (no shell metacharacter expansion, sentinel files, no fake-agent contact, no stray files).",
+    "Allocation behaviour ('never allocate from an untrusted length first') is inferred from fast, correct failure on 0x7fffffff / nkeys 100000 frames, not measured.",
+    "Timing thresholds (500 ms SIGINT, 100 ms resize, 2 s malformed-agent failure) are wall-clock on a possibly loaded machine; resize uses best-of-3.",
+    "Invalid UTF-8 handling is tested with a single 0xFF byte (one U+FFFD); runs of invalid bytes are deliberately not tested because the contract does not define replacement-character counting.",
+    "The disposable keys are generated per run, private halves deleted immediately; fingerprints are cross-checked against /usr/bin/ssh-keygen -lf.",
+    "Partial run (--only tui.quit_q): 1 of 95 checks selected; cannot be 'verified'."
+  ]
+}

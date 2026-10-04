@@ -1,0 +1,5 @@
+0 {'-2/no-json': 30}
+0.5 {'-2/no-json': 30}
+1 {'130/CANCELLED': 20, '-2/no-json': 10}
+2 {'130/CANCELLED': 30}
+5 {'130/CANCELLED': 30}

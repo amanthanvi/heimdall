@@ -1,0 +1,10 @@
+== darwin env -i
+toolchain_lookup_exit=1
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","revision":3,"destinations":[{"id":"dst_lab_server","alias":"l exit=0
+== alpine:3.22 arm64 (digest 5291449c)
+toolchain_lookup_exit=127
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"rust","runtime":"rustc 1.99.0 (b940084d7 2026-09-28)","tui_framework":"ratatui","tui_framework_version":"0.30.2"},"warnings":[],"next":null}
+exit=0
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"homelab","revision":3,"destinat exit=0
+run_exit=9
+docker_exit=0

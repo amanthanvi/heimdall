@@ -1,0 +1,510 @@
+[
+ {
+  "case": "frame_exactly_262144_valid",
+  "exit_code": 0,
+  "code": "AGENT_OK",
+  "identities": 1,
+  "elapsed_ms": 4.4,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "",
+  "expect": [
+   0,
+   "AGENT_OK"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "frame_262145_header_only",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 3.2,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "frame_len_0xffffffff_then_hold",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "frame_len_zero",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.0,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "nkeys_1025",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.2,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "nkeys_0xffffffff",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 0.9,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "nkeys_1024_but_one_present",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "comment_len_overrun_by_1",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 3.8,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "keytype_len_overrun_inside_blob",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 1.9,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "blob_without_keytype_3bytes",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "empty_keytype_ok",
+  "exit_code": 0,
+  "code": "AGENT_OK",
+  "identities": 1,
+  "elapsed_ms": 2.3,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "",
+  "expect": [
+   0,
+   "AGENT_OK"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "trailing_1_byte",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "bytes_after_complete_frame_ignored",
+  "exit_code": 0,
+  "code": "AGENT_OK",
+  "identities": 1,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "",
+  "expect": [
+   0,
+   "AGENT_OK"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "type_6_success",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 0.9,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "type_14_sign_response",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "failure_len1",
+  "exit_code": 5,
+  "code": "AGENT_REFUSED",
+  "identities": null,
+  "elapsed_ms": 6.9,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_REFUSED\n",
+  "expect": [
+   5,
+   "AGENT_REFUSED"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "failure_with_payload",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.2,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "close_without_reading",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "identities": null,
+  "elapsed_ms": 2.0,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "",
+  "server_received_len": 0,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_UNAVAILABLE\n",
+  "expect": [
+   5,
+   "AGENT_UNAVAILABLE"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "close_after_request_no_byte",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "identities": null,
+  "elapsed_ms": 2.0,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_UNAVAILABLE\n",
+  "expect": [
+   5,
+   "AGENT_UNAVAILABLE"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "close_after_3_header_bytes",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.1,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "close_mid_body",
+  "exit_code": 5,
+  "code": "AGENT_PROTOCOL_ERROR",
+  "identities": null,
+  "elapsed_ms": 2.7,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_PROTOCOL_ERROR\n",
+  "expect": [
+   5,
+   "AGENT_PROTOCOL_ERROR"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "slow_drip_exceeds_timeout_500",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "identities": null,
+  "elapsed_ms": 502.3,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: AGENT_UNAVAILABLE\n",
+  "expect": [
+   5,
+   "AGENT_UNAVAILABLE"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "fragmented_3byte_chunks_with_controls_bidi",
+  "exit_code": 0,
+  "code": "AGENT_OK",
+  "identities": 1,
+  "elapsed_ms": 77.2,
+  "signal_to_exit_ms": null,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "",
+  "expect": [
+   0,
+   "AGENT_OK"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "sigint_while_waiting_hold",
+  "exit_code": 130,
+  "code": "CANCELLED",
+  "identities": null,
+  "elapsed_ms": 305.8,
+  "signal_to_exit_ms": 2.0,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: CANCELLED\n",
+  "expect": [
+   130,
+   "CANCELLED"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "sigint_at_10ms",
+  "exit_code": 130,
+  "code": "CANCELLED",
+  "identities": null,
+  "elapsed_ms": 12.5,
+  "signal_to_exit_ms": 0.6,
+  "server_received_hex": "000000010b",
+  "server_received_len": 5,
+  "stdout_lines": 1,
+  "stderr_tail": "heimdall-proto: CANCELLED\n",
+  "expect": [
+   130,
+   "CANCELLED"
+  ],
+  "verdict": "pass"
+ },
+ {
+  "case": "sigint_at_0ms",
+  "exit_code": -2,
+  "code": null,
+  "identities": null,
+  "elapsed_ms": 1.5,
+  "signal_to_exit_ms": 0.2,
+  "server_received_hex": "",
+  "server_received_len": 0,
+  "stdout_lines": 0,
+  "stderr_tail": "",
+  "expect": [
+   130,
+   "CANCELLED"
+  ],
+  "verdict": "fail"
+ },
+ {
+  "case": "listener_never_accepts_timeout_400",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "elapsed_ms": 404.0,
+  "verdict": "pass"
+ },
+ {
+  "case": "socket_path_regular_file",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "elapsed_ms": 2.8,
+  "verdict": "pass"
+ },
+ {
+  "case": "socket_path_directory",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "elapsed_ms": 2.1,
+  "verdict": "pass"
+ },
+ {
+  "case": "socket_path_fifo",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "elapsed_ms": 1.7,
+  "verdict": "pass"
+ },
+ {
+  "case": "socket_path_missing",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "elapsed_ms": 2.8,
+  "verdict": "pass"
+ },
+ {
+  "case": "socket_path_too_long_path",
+  "exit_code": 5,
+  "code": "AGENT_UNAVAILABLE",
+  "elapsed_ms": 2.0,
+  "verdict": "pass"
+ },
+ {
+  "case": "sigint_race_sweep_0_29ms",
+  "n": 30,
+  "bad": [
+   {
+    "delay_ms": 0,
+    "exit_code": -2,
+    "code": null,
+    "sig_to_exit_ms": 0.1,
+    "sent_by_client": ""
+   }
+  ],
+  "max_sig_to_exit_ms": 12.3,
+  "client_bytes_seen": [
+   "",
+   "000000010b"
+  ],
+  "verdict": "fail"
+ },
+ {
+  "case": "passivity_only_type11_ever_sent",
+  "bad": [],
+  "verdict": "pass"
+ }
+]

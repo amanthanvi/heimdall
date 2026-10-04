@@ -1,0 +1,50 @@
+[package]
+name = "heimdall-proto"
+version = "0.0.0-g02"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "UNLICENSED"
+description = "Disposable G02 gate prototype (Rust + Ratatui). Not production code."
+
+[lib]
+name = "heimdall_proto"
+path = "src/lib.rs"
+
+[[bin]]
+name = "heimdall-proto"
+path = "src/main.rs"
+
+# Exact pins; Cargo.lock is committed alongside and builds use --locked.
+[dependencies]
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
+toml = { version = "=1.1.6", default-features = false, features = ["parse", "std", "serde", "preserve_order"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order"] }
+sha2 = { version = "=0.11.0", default-features = false }
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = { version = "=0.4.4", default-features = false, features = ["iterator"] }
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "process", "termios", "event"] }
+# Safe pthread_sigmask wrapper (startup signal mask, round 2).
+nix = { version = "=0.31.3", default-features = false, features = ["signal"] }
+# Round 2 (K6a): the one query-only sigaction(sig, NULL, &old) call in src/sigdisp.rs and
+# the O_NONBLOCK open flag. Same version the lock already carried transitively.
+libc = { version = "=0.2.190", default-features = false, features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = { version = "=3.5.2" }
+
+[profile.release]
+# Paths of crates and of this checkout are remapped by build.sh (--remap-path-prefix),
+# so artifacts do not embed the builder's home directory.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"
+
+[features]
+# Test-only: makes '!' panic inside the TUI so the panic-restore path can be
+# exercised in a pty. Never enabled in build.sh distributables.
+test-panic = []

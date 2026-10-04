@@ -1,0 +1,9 @@
+Informational only, not this prototype's verdict: tests/g02 was being changed concurrently
+by another agent. Read-only run of the shared harness at its state on 2026-10-03 (~21:47Z)
+against a copy of dist/darwin-arm64/heimdall-proto (sha256 d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3ef65a67e11)
+at /tmp/hp-rs-r2/harness-bin:
+  tests/g02/.venv/bin/python tests/g02/conformance.py --bin /tmp/hp-rs-r2/harness-bin --candidate rust \
+    --out /tmp/hp-rs-r2/harness/record.json --artifacts-dir /tmp/hp-rs-r2/harness/artifacts
+Exit 0; summary {'total': 123, 'pass': 123, 'fail': 0, 'error': 0, 'skipped': 0}.
+Only record.json and stdout.log are kept here; the per-check artifacts stayed in /tmp.
+Linux arm64 harness run (K13) not performed by this task.

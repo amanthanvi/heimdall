@@ -1,0 +1,1 @@
+heimdall-proto: INPUT_TOO_LARGE: profile file exceeds 1048576 bytes; not parsed
