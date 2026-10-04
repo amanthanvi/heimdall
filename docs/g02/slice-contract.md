@@ -352,3 +352,31 @@ harness results are recorded for completeness only.
   - Signals beyond the five forwarded ones, and SIGKILL, orphan the child.
   - Unbounded reads of terminfo or similar environment-selected files.
   - A child started with fd 1 closed gets a working fd 1.
+
+### 9.4 Round-3c rulings (2026-10-04, after the round-3b reviews)
+
+These rulings apply rules that already existed (K6e, K12) to cases the harness
+did not check. Every candidate is re-run under harness 2.4.0, and any
+candidate that fails gets one fix round.
+
+- **K6e child-initiated stop.** K6e's clause "the child is never left stopped
+  while the shell believes the job is running" also covers a child that stops
+  itself, for example `kill(getpid(), SIGTSTP)`, which is how OpenSSH's `~^Z`
+  escape works. Under an interactive job-control shell, the shell must report
+  the job stopped, just as it does when the child is run directly. `fg` must
+  then resume the child, and the child must read terminal input again.
+  - Gated: SIGTSTP under bash, on darwin-arm64 and linux-arm64.
+  - Recorded, not gated: SIGSTOP, and zsh.
+- **K12 closed stdout.** "Exit codes are the same as with `--json`" also holds
+  when stdout is a pipe whose reader has already closed. Which exit status
+  results is not specified, but it must be the same with and without
+  `--json`. Here "exit status" includes death by signal.
+- **Not gated, recorded for ADR-0002 and M01:**
+  - An explicit SIGTSTP or SIGSTOP sent to the launcher's PID stops only the
+    launcher. The shell takes back the terminal while the child keeps
+    running.
+  - Duplicate keys in the environment block are not passed through exactly
+    (the Go runtime drops the later duplicates).
+  - The Windows executable search order differs from plain PATH lookup (Rust
+    std searches the application directory and System32 first). This is from
+    code review only.
