@@ -1,0 +1,27 @@
+## date
+2026-10-04T21:36:48Z
+## env -i darwin version
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"candidate":"go","name":"heimdall-proto","runtime":"go1.27.1 darwin/arm64","tui_framework":"charm.land/bubbletea/v2","tui_framework_version":"v2.0.10","version":"0.0.0-g02"},"warnings":[],"next":null}
+rc=0
+## which go under that PATH
+no go
+## otool -L
+/tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto:
+	/usr/lib/libSystem.B.dylib (compatibility version 0.0.0, current version 0.0.0)
+	/usr/lib/libresolv.9.dylib (compatibility version 0.0.0, current version 0.0.0)
+## codesign
+Identifier=heimdall-proto-555549440eac543b0be034e0953086e022e2c914
+CodeDirectory v=20500 size=10392 flags=0x10002(adhoc,runtime) hashes=318+2 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+## file
+/tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto:    Mach-O 64-bit executable arm64
+/tmp/hp-go-rv3/go/dist/linux-arm64/heimdall-proto:     ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=7x0ydEE1rW8H1UT5DD8x/bMoBTkA1eIJJ5UBG-pLQ/qurGSYhgGhDJhcfd9lxr/GCUjjLQqN0aHGXVNYZK6, BuildID[sha1]=ae297f8fd81a51bc64904bc9bb31d638f0c4ffe8, stripped
+/tmp/hp-go-rv3/go/dist/linux-x64/heimdall-proto:       ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, Go BuildID=yS56BadLGSnH6RTEhg1O/EtKrPKT7p9Lg1ezu2qHL/2K8RckdzemREuRam13CH/nb7NEPb2hvA_arySlpTQ, BuildID[sha1]=3c3380bbe2719818f7e0f0ee0d2721b8de941806, stripped
+/tmp/hp-go-rv3/go/dist/windows-x64/heimdall-proto.exe: PE32+ executable (console) x86-64, for MS Windows
+## 2026-10-04T21:37:03Z linux-arm64 artifact in python:3.13-alpine (image e3d1bf57b579, local), no Go in image
+no go on PATH
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"candidate":"go","name":"heimdall-proto","runtime":"go1.27.1 linux/arm64","tui_framework":"charm.land/bubbletea/v2","tui_framework_version":"v2.0.10","version":"0.0.0-g02"},"warnings":[],"next":null}
+rc=0
+docker exit 0
+## failed attempt (recorded): docker run alpine@sha256:5291449c0f6b...(guessed suffix) -> daemon error 'manifest unknown'; nothing ran

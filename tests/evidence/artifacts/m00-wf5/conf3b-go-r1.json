@@ -1,0 +1,22 @@
+{
+  "candidate": "go",
+  "harness_version": "2.3.0",
+  "darwin": {
+    "harness_exit_code": 0,
+    "evidence_record": "<repo>/tests/evidence/g02-go-conformance.json",
+    "passed": 136,
+    "failed": 0,
+    "errored": 0,
+    "artifact_sha256": "a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310"
+  },
+  "linux": {
+    "harness_exit_code": 0,
+    "evidence_record": "<repo>/tests/evidence/g02-go-conformance-linux.json",
+    "passed": 136,
+    "failed": 0,
+    "errored": 0,
+    "artifact_sha256": "efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04"
+  },
+  "failures": [],
+  "summary": "Go prototype after round-3b fixes: full harness 2.3.0 (136 checks) passes on darwin-arm64 (exit 0, verdict pass, 185.3 s) and on linux-arm64 in the digest-pinned container (exit 0, verdict pass, 178.4 s). I fixed nothing. I rebuilt with prototypes/go/build.sh first (exit 0); the new sha256s match the dist already on disk. Records carry build_commit a04f2f3708588319ee7ec79f44d3bd6dbf864e00+dirty. Earlier round-3 baseline on the unchanged round-2 artifact (sha256 20e8c5c1... darwin, f7d38318... linux): darwin 135/136, failing run.k6d_shared_mode_explicit_signals; linux 134/136, failing run.k6d_shared_mode_explicit_signals and run.k6e_job_control. Both now pass, and K6d and K6e pass on both platforms. K6d shows 1 delivery per signal in sh-c, pipeline-first and pipeline-last modes for SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH. K6e passes in bash (gating) and zsh (non-gating), 5 iterations each. No flaky reruns were needed because nothing failed. K17: large-100 filter keystroke latency is about 7-20 ms per keystroke on both platforms (the p95 is inside the record), against the 100 ms bound. K10: SIGTERM exits 143; SIGHUP and both terminal-hangup variants exit 129. Non-gating K6b observations: terminal-generated SIGINT was delivered twice in 4/10 trials on darwin (duplicates observable) and 0/10 on linux. K3a: darwin delivers EOF for an agent reset, and linux delivers real ECONNRESET. A grep for full HEIMDALL_CANARY_ values over both records and all new artifacts found none, and the harness's own canary self-check passed. No stray heimdall-proto or harness processes and no containers were left behind. Not covered: native Windows and WSL (blocked_on those hosts), and K11/section 7 build and sidecar rules, which the harness does not judge. Baseline location: the round-3 baseline (pre-round-3b) records and artifacts are in <repo>/tests/evidence/artifacts/g02-go/conformance/prev-20261004T211449Z/. That directory holds the two baseline top-level records g02-go-conformance.json and g02-go-conformance-linux.json (harness 2.3.0, started 2026-10-04T14:47:31-04:00 and 18:51:39Z), the baseline per-check artifact directories, and linux/. I created it in this run. The records and artifacts that were at top level before I moved them are those baseline outputs, since the previous stage's baseline run wrote them at 14:47-14:54 local; no partial output from an earlier killed round-3b attempt was present, so there was nothing to separate out. Existing prev directories were left untouched. prev-20261004T184728Z holds the round-2 harness 2.1.0 pass records (133/133), prev-20261004T015951Z holds harness 2.0.0 (124/124), and prev-20261003T233623Z holds harness 1.0.0 (113/113). New artifacts are in <repo>/tests/evidence/artifacts/g02-go/conformance/ and its linux/ subdirectory. Console logs are at /tmp/g02go-r3b-darwin.log and /tmp/g02go-r3b-linux.log."
+}

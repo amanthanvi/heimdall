@@ -1,0 +1,36 @@
+=== linux repeat 1: --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=2 pyte=yes
+PASS  run.k6d_shared_mode_explicit_signals          10137 ms  
+PASS  run.k6e_job_control                           95192 ms  
+
+summary: {'total': 2, 'pass': 2, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/out/r1.json
+=== linux repeat 2: --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=2 pyte=yes
+PASS  run.k6d_shared_mode_explicit_signals          10184 ms  
+PASS  run.k6e_job_control                           95206 ms  
+
+summary: {'total': 2, 'pass': 2, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/out/r2.json
+=== linux repeat 3: --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals
+G02 conformance: candidate=go platform=linux-arm64 bin=/artifact/heimdall-proto checks=2 pyte=yes
+PASS  run.k6d_shared_mode_explicit_signals          10194 ms  
+PASS  run.k6e_job_control                           95211 ms  
+
+summary: {'total': 2, 'pass': 2, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/out/r3.json
+=== darwin repeat 1: --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals
+G02 conformance: candidate=go platform=darwin-arm64 bin=<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto checks=2 pyte=yes
+PASS  run.k6d_shared_mode_explicit_signals          10444 ms  
+PASS  run.k6e_job_control                           96598 ms  
+
+summary: {'total': 2, 'pass': 2, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/tmp/hp-go-r3b/repeat-darwin/r1.json
+=== darwin repeat 2: --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals
+G02 conformance: candidate=go platform=darwin-arm64 bin=<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto checks=2 pyte=yes
+PASS  run.k6d_shared_mode_explicit_signals          10418 ms  
+PASS  run.k6e_job_control                           96809 ms  
+
+summary: {'total': 2, 'pass': 2, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/tmp/hp-go-r3b/repeat-darwin/r2.json
+=== darwin repeat 3: --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals
+G02 conformance: candidate=go platform=darwin-arm64 bin=<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto checks=2 pyte=yes
+PASS  run.k6d_shared_mode_explicit_signals          10470 ms  
+PASS  run.k6e_job_control                           96697 ms  
+
+summary: {'total': 2, 'pass': 2, 'fail': 0, 'error': 0, 'skipped': 0}  status=in_progress verdict=inconclusive  record=/tmp/hp-go-r3b/repeat-darwin/r3.json

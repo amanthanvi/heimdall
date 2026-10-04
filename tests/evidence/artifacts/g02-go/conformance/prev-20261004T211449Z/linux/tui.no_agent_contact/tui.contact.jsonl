@@ -1,0 +1,2 @@
+{"seq": 1, "ts": "2026-10-04T18:54:15.012Z", "mono_ms": 0.107, "event": "listen", "socket": "/tmp/hmg02-9y22iq5q/144-tui-agent/tui.sock", "mode": "normal", "keys": 3}
+{"seq": 2, "ts": "2026-10-04T18:54:15.826Z", "mono_ms": 814.109, "event": "shutdown"}

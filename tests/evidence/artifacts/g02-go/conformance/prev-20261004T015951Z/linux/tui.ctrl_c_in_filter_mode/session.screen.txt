@@ -1,0 +1,24 @@
+> lab-server  aman@lab.example.internal:22
+  nas  admin@nas.example.internal:22
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+2/3 /na1u

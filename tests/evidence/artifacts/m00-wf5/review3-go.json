@@ -1,0 +1,232 @@
+{
+  "subject": "M00-T05-review3-go: independent adversarial review of the Go + Bubble Tea G02 prototype after round 3b. Working tree a04f2f3+dirty; source digest list tests/evidence/artifacts/g02-go/review3/source-tree-sha256.txt (sha256 f79cd6e3...). Artifacts: darwin-arm64 a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310, linux-arm64 efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04. All review outputs are under <repo>/tests/evidence/artifacts/g02-go/review3/ (review3-go.json, conformance/, probes/, probes/linux/).",
+  "reexecuted_commands": [
+    {
+      "command": "cd / && sh /tmp/hp-go-rv3/go/build.sh  (rsync-free cp of prototypes/go to /tmp/hp-go-rv3/go, dist/bin removed first)",
+      "exit_code": 0,
+      "observed": "4/4 targets built; darwin-arm64 ad-hoc signed with hardened runtime. The sha256 and bytes of all four targets equal prototypes/go/dist/manifest.json (darwin a5644a4f..., linux-x64 3a495ba0..., linux-arm64 efd3ee08..., windows-x64 2aff8b77...). Output: review3/build-darwin.txt, review3/rebuild-manifest.json"
+    },
+    {
+      "command": "shasum -a 256 prototypes/go/dist/*/heimdall-proto*",
+      "exit_code": 0,
+      "observed": "On-disk dist digests equal the manifest and my rebuild"
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin /tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto --candidate go --out review3/conformance/review3-go-conformance-darwin.json --artifacts-dir review3/conformance/darwin --case-id G02-go-review3-conformance-darwin-arm64",
+      "exit_code": 0,
+      "observed": "Harness 2.3.0: 136/136 pass, verdict pass, status verified, 185.2 s (21:22:49Z-21:25:55Z). K6d: 1 delivery per signal in sh-c, pipeline-first and pipeline-last. K6e: bash simple/list ok over 5 iterations; zsh ok (non-gating). K17 filter p95 17.7 ms. K10: 143 / 129 / 129 / 129. K3a: reset seen as EOF on darwin"
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir /tmp/hp-go-rv3/go/dist/linux-arm64 --candidate go --out review3/conformance/review3-go-conformance-linux.json --artifacts-out review3/conformance/linux --case-id G02-go-review3-conformance-linux-arm64",
+      "exit_code": 0,
+      "observed": "Image heimdall-g02-harness:d0c8e448a3a7 (sha256:5081bb56...). 136/136 pass, verdict pass, 178.2 s. K6d: 1 delivery per signal in all three layouts. K6e: bash and zsh ok. K17 p95 20.1 ms. K3a: real ECONNRESET in both positions. K10: 143 / 129 / 129 / 129"
+    },
+    {
+      "command": "python3 review3/probes/sigjob_probe.py <darwin bin> sigjob-darwin.json bash,zsh,dash  (first attempt)",
+      "exit_code": null,
+      "observed": "I stopped it with TaskStop: my driver did not drain the pty while waiting, so zsh blocked writing its prompt and START was missed. Its heartbeat children (which catch SIGHUP by design) were verified against their START logs, then ended by exact-pid SIGUSR1. heimdall-proto exited after each child. A probe bug, not a prototype finding"
+    },
+    {
+      "command": "python3 review3/probes/sigjob_probe.py /tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto review3/probes/sigjob-darwin.json bash,zsh,dash",
+      "exit_code": 0,
+      "observed": "bash 3.2.57, zsh 5.9, dash. EXPLICIT kill to the heimdall-proto pid (INT, TERM, HUP, QUIT, WINCH): exactly 1 each in exclusive, pipeline_first, pipeline_last, wrapper script, sh -c, Makefile recipe and stdin<file layouts. Under nohup: HUP not forwarded, child HUP=ign, heimdall-proto survives, others 1. TERMINAL ^C and resize: control 1, exclusive 1, stdin<file 1; pipeline 2, wrapper 2 (K6b duplicates). Ctrl-Z/fg x3 in control, exclusive and pipeline: stop seen, child T, line delivered after every fg, no re-stop. Q12 (bg while the child reads the tty): shell lists 'Stopped (tty input)' / 'suspended (tty input)', child T and heimdall-proto T, line delivered after fg, matching the control. kill -TSTP to the heimdall-proto pid: shell reports stopped, but the child ran 10 beats/s (state S); control child stopped. Hangup with a heartbeat child: exclusive SIGHUP count equals the control (bash 1/1, zsh 2/2, dash 1/1); pipeline 2/4/2; heimdall-proto exits once the child ends. leftover_processes []"
+    },
+    {
+      "command": "docker run (harness image, --network none, uid 10001, cap-drop ALL, no-new-privileges, 2g) python3 /probes/sigjob_probe.py /artifact/heimdall-proto /out/sigjob-linux.json bash,zsh,dash",
+      "exit_code": 0,
+      "observed": "bash 5.2.15, zsh 5.9, dash. Same picture as darwin: explicit signals 1 each in every layout; terminal 1 in exclusive, 2 in shared; jobctl and Q12 match the control; kill -TSTP leaves the child running (10 beats/s); exclusive hangup equals the control (bash 2/2, zsh 2/2, dash 1/1). make is absent from the image (blocked). The nohup layout raised ProcessLookupError because GNU nohup made stdin unreadable and my read-mode child exited (probe artifact; re-run below). leftover_processes []"
+    },
+    {
+      "command": "sigjob_probe.py ... explicit  (nohup switched to the heartbeat child) on darwin (bash) and Linux (bash, zsh, dash)",
+      "exit_code": 0,
+      "observed": "Both runs exit 0. nohup on every shell and both OSes: INT1 TERM1 HUP0 QUIT1 WINCH1, child SIGHUP inherited ignored, heimdall-proto not killed by HUP. Files: probes/sigjob-explicit-beatnohup-darwin.json, probes/linux/sigjob-explicit-beatnohup-linux.json"
+    },
+    {
+      "command": "python3 review3/probes/env_fd_probe.py <bin> env-fd-{darwin,linux}.json",
+      "exit_code": 0,
+      "observed": "Both OSes, raw execve envp [PATH, DUPKEY=first, NOEQUALS_ENTRY, EMPTY=, DUPKEY=last, LANG=C]: control child sees all 6, heimdall-proto child sees 5 (DUPKEY=last dropped). An inherited non-CLOEXEC fd 5 reaches the child ([0,1,2,3,5]) as in the control"
+    },
+    {
+      "command": "python3 review3/probes/tui_env_writes_probe.py <darwin bin> homelab.toml ...  (first version)",
+      "exit_code": 0,
+      "observed": "The python exit came only after I sent SIGTERM to the exact TUI pid I had started. My probe never set a window size (0x0 pty) and so never saw a frame or sent q. The TUI exited 143 on that SIGTERM (K10 path). No new files, no helper invocations. zero.py showed the TUI at 0x0/1x1 draws no rows but exits 0 on q, so this was a probe bug"
+    },
+    {
+      "command": "python3 review3/probes/tui_env_writes_probe.py <bin> homelab.toml tui-env-writes-{darwin,linux}.json  (24x80, fixed)",
+      "exit_code": 0,
+      "observed": "Both OSes. Sandbox HOME/TMPDIR/XDG_*/cwd. TEA_TRACE, TEA_DEBUG=1, UV_DEBUG pointing at files, TMUX, TERM_PROGRAM=tmux, TERM=tmux-256color, GODEBUG=inittrace=1, GOTRACEBACK=crash. Logging stubs first on PATH for tmux/tput/infocmp/stty/screen/ps/sh/bash/open/xdg-open/less/git. version 0, profile show 0, agent list 5, run 0, tui first frame 0.02 s and exit 0 on q. new_files [] for every command; helper_invocations []"
+    },
+    {
+      "command": "python3 review3/probes/tui_first_frame.py <bin> homelab.toml ... cases base/tmux/godebug/teadebug/uvdebug/TERM=../../dev/zero/TERMINFO FIFO/TERMINFO_DIRS FIFO/round-2 fuzz crash entry (darwin and Linux)",
+      "exit_code": 0,
+      "observed": "Every case draws within 20-29 ms and exits 0 on q, on both OSes. No TEA_TRACE or UV_DEBUG file was created (ls of both paths exit 1 = absent, as expected). Round-2 terminfo defects (unbounded read, FIFO hang, panic before Run) do not reproduce"
+    },
+    {
+      "command": "python3 review3/probes/k15_shapes.py <bin> k15-shapes-{darwin,linux}.json (17 shapes <= 1 MiB: deep array nesting, wide inline tables/strings/ints, escape-heavy and multi-line strings, many headers and array-of-tables, flat keys, 1e400 floats, bigint, datetimes, comments, CRLF+BOM, nested array/inline mix)",
+      "exit_code": 0,
+      "observed": "Each shape is either accepted (PROFILE_OK) or rejected with SCHEMA_INVALID. Worst case 0.053 s and 35.5 MiB on darwin; 0.051 s and 34.7 MiB on Linux. K15 holds for shapes outside the builder's corpus"
+    },
+    {
+      "command": "env -i PATH=/usr/bin:/bin /tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto version --json; otool -L; codesign -dv; file",
+      "exit_code": 0,
+      "observed": "VERSION_OK with no go on PATH. Links only libSystem and libresolv. CodeDirectory flags 0x10002(adhoc,runtime). Linux ELFs are static. Output: probes/distribution-darwin.txt"
+    },
+    {
+      "command": "docker run ... alpine@sha256:5291449c0f6b...(digest suffix guessed by me from REPORT's truncated value) /a/heimdall-proto version --json",
+      "exit_code": null,
+      "observed": "FAILED: daemon error 'manifest unknown', nothing ran. The exit code was masked by a pipe to head. Recorded in probes/distribution-darwin.txt as a failed attempt"
+    },
+    {
+      "command": "docker run --network none --user 10001:10001 --cap-drop ALL e3d1bf57b579 (local python:3.13-alpine) sh -c 'command -v go || echo no go; /a/heimdall-proto version --json'",
+      "exit_code": 0,
+      "observed": "'no go on PATH'; VERSION_OK go1.27.1 linux/arm64; rc=0"
+    },
+    {
+      "command": "DYLD_INSERT_LIBRARIES=<constructor dylib> on a fresh cc binary (control) and on heimdall-proto; env -i PATH=. GODEBUG={'',execerrdot=0,execerrdot=1} heimdall-proto run -- tool",
+      "exit_code": 0,
+      "observed": "Control: injected=yes. heimdall-proto: rc 0, injected=no (hardened runtime). The K7 refusal returned 127 under all three GODEBUG values. Output: probes/dyld-k7-darwin.txt"
+    },
+    {
+      "command": "cd /tmp/hp-go-rv3/go && HEIMDALL_G02_FIXTURES=... go test -count=1 ./...; go vet ./...; GOOS=windows GOARCH=amd64 go vet ./...; go mod verify; gofmt -l .",
+      "exit_code": 0,
+      "observed": "go test exit 0 (5 packages ok); go vet 0; windows vet 0; 'all modules verified' 0; gofmt empty 0. Output: review3/go-test-darwin.txt"
+    },
+    {
+      "command": "/tmp/hp-go-ev/bin/govulncheck -mode=binary dist/{darwin-arm64,linux-arm64,windows-x64}/heimdall-proto*  (rerun without a pipe; the first run's exit codes were tail's)",
+      "exit_code": 0,
+      "observed": "govulncheck v1.8.0: 'No vulnerabilities found.' for each binary; real exit 0 each. Output: review3/govulncheck.txt"
+    },
+    {
+      "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py /tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto <repo>",
+      "exit_code": 0,
+      "observed": "SUMMARY 75/75 passed (builder's selftest against my rebuild). Output: review3/selftest-darwin.txt"
+    },
+    {
+      "command": "sh -c \"trap '' TSTP TTIN TTOU CONT INT HUP; heimdall-proto run -- python3 disp.py\" (no tty), the same under script(1) (exclusive pty), and a pty run without ignores",
+      "exit_code": 0,
+      "observed": "Every inherited ignore of TSTP/TTIN/TTOU/CONT/INT/HUP reaches the child in both modes. Without inherited ignores all are dfl, so heimdall-proto's own SIGTTOU ignore and SIGCONT notify do not leak. Output: probes/inherited-jobctl-disp-darwin.txt"
+    },
+    {
+      "command": "python3 license check over `go list -deps` for darwin/linux/windows (module cache LICENSE/COPYING files)",
+      "exit_code": 0,
+      "observed": "18 linked modules: 16 MIT and 2 BSD-3-Clause (x/sync, x/sys). Matches LICENSES.md. Output: review3/licenses-check.txt"
+    },
+    {
+      "command": "grep -rIlE 'HEIMDALL_CANARY_[A-Za-z0-9_]{4,}' tests/evidence/artifacts/g02-go/review3",
+      "exit_code": 1,
+      "observed": "No full canary value in any review artifact. The bare prefix appears only in harness assertion descriptions, which tests/evidence/README.md allows"
+    },
+    {
+      "command": "ps -axo pid=,ppid=,stat=,etime=,comm= | awk '$5 ~ /heimdall-proto/'; docker ps | grep g02-harness",
+      "exit_code": 0,
+      "observed": "No heimdall-proto processes and no harness containers left at the end. My hp-rv3-* temp dirs were removed (26, matched by owner and prefix)"
+    }
+  ],
+  "confirmed_claims": [
+    "Rebuild reproducibility: build.sh on the current working tree reproduces all four manifest digests byte for byte (local repeat-build check, not a reproducible-build claim).",
+    "Full harness 2.3.0 passes 136/136 on darwin-arm64 and on linux-arm64 (K13) against my independent rebuild, so the stage's final conformance verdict reproduces.",
+    "K6d: an explicit SIGINT/SIGTERM/SIGHUP/SIGQUIT/SIGWINCH to the heimdall-proto pid reaches the child exactly once in every layout. Harness: sh -c and pipeline first/last. My probes add a wrapper script, a Makefile recipe (darwin), stdin<file and exclusive, under bash, zsh and dash, on both OSes.",
+    "K6a/K6c gated scope: under nohup the child inherits SIGHUP ignored, explicit SIGHUP is not forwarded, and heimdall-proto survives it, on both OSes and three shells. Inherited ignores of TSTP/TTIN/TTOU/CONT/INT/HUP also pass through.",
+    "K6e: Ctrl-Z/fg with a tty-reading child works under bash, zsh and dash on both OSes, for both exclusive and pipeline jobs, with no re-stop after fg (the Linux round-2 re-stop is fixed). Harness K6e passes on both OSes.",
+    "REPORT gap 5 (Q12) as described: after bg, a child that reads the tty is stopped by SIGTTIN, heimdall-proto mirrors the stop, and the shell lists the job as stopped (tty input), the same as the control. The child gets input after fg. Observed on both OSes under bash, zsh and dash.",
+    "REPORT gap 1 / K6b: in shared layouts a terminal ^C or resize reaches the child twice (pipeline 2, wrapper 2/2/2). Exclusive and stdin<file layouts deliver once. Documented in REPORT.md and allowed by K6b.",
+    "REPORT gap 2 refined: exclusive-mode hangup delivers the same number of SIGHUPs to the child as the same command without heimdall-proto (darwin bash 1/1, zsh 2/2, dash 1/1; Linux bash 2/2, zsh 2/2, dash 1/1). No duplicate added by heimdall-proto was observed.",
+    "K10: the TUI exits 143 on SIGTERM and 129 on SIGHUP and on both hangup variants (harness, both OSes). A TUI blocked waiting for input also exited 143 on SIGTERM in my probe.",
+    "K17: large-100 filter keystroke p95 is 17.7 ms (darwin) and 20.1 ms (linux), against the 100 ms bound.",
+    "K3a: Linux delivers real ECONNRESET in both positions and the harness K3a checks pass; darwin delivers EOF.",
+    "K15: 17 independent <=1 MiB shapes all finish within 0.06 s and 36 MiB peak RSS on both OSes, each accepted or rejected with SCHEMA_INVALID.",
+    "Round-2 terminfo defects are fixed: TERM traversal to /dev/zero, TERMINFO and TERMINFO_DIRS FIFOs, and the round-2 fuzz crash entry all draw within 30 ms and exit 0 on both OSes.",
+    "K16 and no stray writes: with TMUX, TERM_PROGRAM=tmux, TEA_TRACE, TEA_DEBUG, UV_DEBUG and GODEBUG set and logging stubs on PATH, no subcommand wrote any file or ran any helper, on both OSes. UV_DEBUG's file write in ultraviolet NewTerminalScreen is unreachable: Bubble Tea v2.0.10 constructs only NewTerminalRenderer/NewTerminalReader (code inspection plus runtime check).",
+    "Round-1 minors stay fixed: DYLD_INSERT_LIBRARIES is blocked by the hardened runtime (the control gets injected), and the `.` PATH refusal (127) holds under GODEBUG=execerrdot=0/1.",
+    "Distribution: the darwin artifact runs under env -i with no Go on PATH and links only libSystem/libresolv. The linux-arm64 artifact is a static ELF and runs in python:3.13-alpine with no Go.",
+    "Licensing: all 18 linked modules are MIT or BSD-3-Clause, checked independently from the module cache license files. They match LICENSES.md.",
+    "REPORT.md line counts (2,382 non-test, 4,636 total) and the round-3b build table digests are accurate.",
+    "Builder tests reproduce: go test ./... exit 0, go vet (host and windows) 0, go mod verify 0, gofmt clean, govulncheck no findings on three binaries, selftest 75/75.",
+    "No full HEIMDALL_CANARY_ value in any review3 artifact. No leftover processes or containers."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "Stage summary: 'Non-gating K6b observations: terminal-generated SIGINT was delivered twice in 4/10 trials on darwin (duplicates observable) and 0/10 on linux.'",
+      "evidence": "observations.signal_duplicates comes from harness.signal_duplicate_probe (tests/g02/conformance.py, DOUBLE_FORWARDER): a Python wrapper sends each signal twice with kill(). heimdall-proto and the terminal are not involved. It measures whether the OS merges back-to-back duplicates (my rerun: darwin 6/10, linux 0/10). My independent terminal ^C through heimdall-proto gave exclusive 1/1/1 and shared 2 every time, on both OSes and three shells."
+    }
+  ],
+  "hard_gate_findings": [
+    {
+      "gate": "G02 common slice (K13: full harness on darwin-arm64 and linux-arm64)",
+      "verdict": "pass",
+      "evidence": "My rebuild: darwin 136/136 exit 0; linux-arm64 in the digest-pinned runner 136/136 exit 0 (review3/conformance/*.json, status verified)."
+    },
+    {
+      "gate": "plan §3 hard gate: correctness of child/IPC behavior (K13 platforms)",
+      "verdict": "pass",
+      "evidence": "Harness pass on both OSes, plus independent signal/job-control probes in 8 layouts and 3 shells on both OSes (explicit once, terminal once in exclusive, K6b-allowed duplicates in shared, job control and Q12 matching the controls), env/fd probe, K15 shapes. Non-gating deviations: an explicit SIGTSTP to heimdall-proto does not stop the child; a later duplicate env key is dropped."
+    },
+    {
+      "gate": "plan §3 hard gate: viable Windows/WSL path",
+      "verdict": "uncertain",
+      "evidence": "Code review only (labelled), plus the windows-x64 build and GOOS=windows go vet exit 0. Named-pipe dial with a \\\\.\\pipe\\ prefix check and context deadline, WSAECONNRESET/broken-pipe mapped as reset, CommandLineToArgvW quoting through os/exec (unsafe for .bat/.cmd, disclosed), Ctrl-C/Ctrl-Break swallowed and not forwarded, no Job Object, no pipe-server identity check. Nothing executed on native Windows or WSL; blocked on those hosts."
+    },
+    {
+      "gate": "plan §3 hard gate: no unsupported security assumption (slice scope)",
+      "verdict": "pass",
+      "evidence": "No helper processes and no writes outside named paths under hostile env (TMUX, TEA_*, UV_DEBUG, TERMINFO, GODEBUG), on both OSes. Bounded parser (K15). Hardened runtime blocks DYLD injection. K7 refusal not environment-controlled. Canary never echoed. Open items are disclosed and outside the slice: no agent peer or pipe-server identity check, ad-hoc signing without notarization."
+    },
+    {
+      "gate": "plan §3 hard gate: practical distribution",
+      "verdict": "pass",
+      "evidence": "darwin-arm64 and linux-arm64 single-file artifacts run without a Go toolchain (env -i; python:3.13-alpine without Go); linux static. Windows artifact built but never executed (see the Windows gate). No notarization or NOTICE file yet (release obligations)."
+    },
+    {
+      "gate": "plan §3 hard gate: maintained dependencies",
+      "verdict": "uncertain",
+      "evidence": "govulncheck finds nothing in the three binaries. But ultraviolet is an untagged pseudo-version, xo/terminfo is a 2022 pseudo-version (linked, now unreached), cancelreader dates from 2022, and go-winio's last tag is 2024. Maintenance quality is a judgment the evidence does not settle."
+    },
+    {
+      "gate": "plan §3 hard gate: compatible licensing",
+      "verdict": "pass",
+      "evidence": "18 linked modules, all MIT or BSD-3-Clause per their license files (review3/licenses-check.txt). Attribution notices are not shipped yet (release obligation, disclosed)."
+    },
+    {
+      "gate": "plan §3 hard gate: share domain operations across CLI/TUI",
+      "verdict": "pass",
+      "evidence": "Code review: the TUI uses profile.Load and profile.Filter from internal/profile, the same Load as profile show; result/agent/run are separate packages."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "minor",
+      "description": "`run` does not pass the environment block through like exec(2). With a raw envp that has a duplicate key, the child of heimdall-proto sees only the first value (DUPKEY=first), while the control sees both entries. The Go runtime clears later duplicate keys at start-up. Same on darwin-arm64 and linux-arm64. Entries without '=' and empty values pass. First-wins matches libc getenv, so this is a transparency deviation, not an obvious hazard, but REPORT.md does not disclose it.",
+      "location": "prototypes/go/internal/run/run.go Run (exec.Command with nil Env, so Go's de-duplicated os.Environ is used); evidence tests/evidence/artifacts/g02-go/review3/probes/env-fd-darwin.json, probes/linux/env-fd-linux.json"
+    },
+    {
+      "severity": "minor",
+      "description": "In modeExclusive, an explicit `kill -TSTP <heimdall-proto pid>` stops only heimdall-proto. bash, zsh and dash report the job stopped, but the child keeps running (10 heartbeats/s, state S) until `fg`. Without heimdall-proto the same command stops (0 heartbeats, state T). Observed on both OSes under all three shells. By code the same holds for SIGSTOP. This is the inverse of K6e (job believed stopped while the child runs). It is non-gating under §9.3 (signals beyond the five forwarded ones) and is not mentioned in REPORT.md.",
+      "location": "prototypes/go/internal/run/run_unix.go (forwarded list; no handling of a stop of heimdall-proto itself); evidence review3/probes/sigjob-darwin.json and probes/linux/sigjob-linux.json, scenario 'tstp'"
+    },
+    {
+      "severity": "minor",
+      "description": "Evidence misreading in the stage summary given to this review. observations.signal_duplicates (darwin 4/10, linux 0/10) is reported as heimdall-proto terminal SIGINT duplicates. It is actually the harness's own back-to-back double-kill observability probe. The real implication: Linux merges back-to-back duplicates (0/10), so the Linux exactly-once gates cannot see a back-to-back double forward. For Go this is covered by code and by my probes, but the ADR must not cite the 4/10 as heimdall-proto behavior.",
+      "location": "tests/g02/conformance.py harness.signal_duplicate_probe -> observations.signal_duplicates; round-3b stage summary"
+    },
+    {
+      "severity": "minor",
+      "description": "Traceability. The measured round-3b sources are uncommitted (records say build_commit a04f2f3...+dirty), and dist/ and bin/ are gitignored. plan.md §3 G02 requires prototype commit IDs in the ADR. The working tree reproduces the recorded digests (verified), and the source digest list is saved, but a commit is needed before the ADR cites it.",
+      "location": "prototypes/go working tree (run_unix.go, main.go, helper_test.go, REPORT.md modified; k6d_test.go, tui_terminfo_test.go untracked); review3/source-tree-sha256.txt"
+    },
+    {
+      "severity": "minor",
+      "description": "Disclosed residuals are unchanged and non-gating. Re-observed by me: K6c resets of inherited-ignored SIGQUIT/SIGTERM/SIGWINCH and the SIGPIPE ignore; K6b terminal duplicates in shared layouts; no NOTICE file shipped; ad-hoc signing without notarization; Windows compile-only. Not re-run by me (they stand on REPORT.md and the earlier reviews): SIGKILL orphan, closed fd 1, PID-reuse window, the 1 s mutex hold on a discarded stop, the stale-SIGCONT window, Bubble Tea goroutine panics exiting 2.",
+      "location": "prototypes/go/internal/run/run_unix.go, cmd/heimdall-proto/main.go, build.sh, LICENSES.md"
+    }
+  ],
+  "unverifiable_here": [
+    "Native Windows: named-pipe agent probe, CommandLineToArgvW quoting, console Ctrl-C/Ctrl-Break/close events, console resize, TUI. Blocked: no Windows host. Reviewed in code only.",
+    "WSL1/WSL2 behavior of the linux artifact (/proc group scan, job control, pty). Blocked: no WSL host.",
+    "linux-x64 artifact execution (built and digest-matched, not run).",
+    "Makefile-recipe layout on Linux: make is not installed in the harness image (blocked); passed on darwin under bash, zsh and dash.",
+    "SIGKILL orphan, closed fd 1, PID-reuse window, stale-SIGCONT window and the 1 s mutex hold were not re-run by me (code-reviewed only).",
+    "A panic inside a Bubble Tea/ultraviolet goroutine (exit 2 claim): code-review claim in REPORT.md, not demonstrable without library injection.",
+    "The 0x0/1x1 pty case: the TUI draws no rows but responds to q and exits 0. Not covered by the contract; recorded as an observation only."
+  ],
+  "summary": "I could not refute the round-3b Go verdict. I rebuilt in /tmp, and all four digests match dist/manifest.json. Against that rebuild the full harness 2.3.0 passes 136/136 on darwin-arm64 and on linux-arm64 (exit 0 each). Independent pty probes covered bash, zsh and dash on both OSes, and layouts the harness does not test: wrapper script, Makefile recipe on darwin, nohup, stdin<file, Q12, explicit SIGTSTP, and hangup with a heartbeat child. They confirm K6d (an explicit signal reaches the child exactly once in every layout) and K6a/K6c gated ignores. They also confirm K6e and Q12 behave like the plain command, and terminal signals arrive once in exclusive mode and twice in shared mode (K6b, documented). Exclusive-mode hangup adds no SIGHUP over the control. The round-1 and round-2 defects I re-tested stay fixed: terminfo traversal/FIFO/panic, tmux exec, K15 (17 new shapes, at most 0.06 s and 36 MiB), DYLD injection, GODEBUG `.`-PATH. No stray writes or helper processes appeared under a hostile environment, and UV_DEBUG is unreachable. Distribution without a toolchain works and licensing matches LICENSES.md. go test, vet, mod verify, govulncheck and selftest 75/75 all exit 0. New findings, all minor and non-gating: (1) `run` drops a later duplicate environment entry, which REPORT.md does not disclose; (2) an explicit SIGTSTP to heimdall-proto in exclusive mode leaves the child running while the shell shows the job stopped, also undisclosed; (3) the stage summary misreads the harness's own double-kill probe (signal_duplicates 4/10 darwin, 0/10 linux) as heimdall-proto terminal-SIGINT duplicates; (4) the measured sources are uncommitted (+dirty), so a commit ID for the ADR is still needed. Windows/WSL were reviewed in code only. I hit and recorded several probe bugs of my own (pty drain, 0x0 window, a guessed image digest, pipe-masked exit codes); none is a prototype finding. No canary values in any artifact, and no leftover processes or containers."
+}

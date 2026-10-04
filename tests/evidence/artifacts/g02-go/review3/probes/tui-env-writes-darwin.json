@@ -1,0 +1,86 @@
+{
+ "env_keys": [
+  "COLORTERM",
+  "GODEBUG",
+  "GOTRACEBACK",
+  "HOME",
+  "LANG",
+  "PATH",
+  "TEA_DEBUG",
+  "TEA_TRACE",
+  "TERM",
+  "TERMINFO",
+  "TERM_PROGRAM",
+  "TMPDIR",
+  "TMUX",
+  "UV_DEBUG",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_RUNTIME_DIR",
+  "XDG_STATE_HOME"
+ ],
+ "commands": [
+  {
+   "argv": [
+    "version",
+    "--json"
+   ],
+   "rc": 0,
+   "stdout_bytes": 271,
+   "stderr_head": "init internal/bytealg @0 ms, 0 ms clock, 0 bytes, 0 allocs\ninit internal/runtime/sys @0.018 ms, 0 ms clock, 0 bytes, 0 allocs\ninit runtime @0.022 ms, 0.015 ms clock, 0 bytes, 0 allocs\ninit crypto/internal/fips140deps/cpu @0.12 ms, 0.001 ms clock, 0 bytes, 0 allocs\ninit github.com/charmbracelet/x/ans",
+   "new_files": []
+  },
+  {
+   "argv": [
+    "profile",
+    "show",
+    "--file",
+    "<HOME>/GitRepos/heimdall/tests/fixtures/g02/profiles/homelab.toml",
+    "--json"
+   ],
+   "rc": 0,
+   "stdout_bytes": 524,
+   "stderr_head": "init internal/bytealg @0 ms, 0 ms clock, 0 bytes, 0 allocs\ninit internal/runtime/sys @0.007 ms, 0 ms clock, 0 bytes, 0 allocs\ninit runtime @0.011 ms, 0.014 ms clock, 0 bytes, 0 allocs\ninit crypto/internal/fips140deps/cpu @0.083 ms, 0.001 ms clock, 0 bytes, 0 allocs\ninit github.com/charmbracelet/x/an",
+   "new_files": []
+  },
+  {
+   "argv": [
+    "agent",
+    "list",
+    "--socket",
+    "<TMPDIR>/hp-rv3-env-o_684hsl/box/nosock",
+    "--timeout-ms",
+    "200",
+    "--json"
+   ],
+   "rc": 5,
+   "stdout_bytes": 155,
+   "stderr_head": "init internal/bytealg @0 ms, 0 ms clock, 0 bytes, 0 allocs\ninit internal/runtime/sys @0.006 ms, 0 ms clock, 0 bytes, 0 allocs\ninit runtime @0.009 ms, 0.015 ms clock, 0 bytes, 0 allocs\ninit crypto/internal/fips140deps/cpu @0.097 ms, 0.001 ms clock, 0 bytes, 0 allocs\ninit github.com/charmbracelet/x/an",
+   "new_files": []
+  },
+  {
+   "argv": [
+    "run",
+    "--",
+    "/usr/bin/true"
+   ],
+   "rc": 0,
+   "stdout_bytes": 0,
+   "stderr_head": "init internal/bytealg @0 ms, 0 ms clock, 0 bytes, 0 allocs\ninit internal/runtime/sys @0.007 ms, 0 ms clock, 0 bytes, 0 allocs\ninit runtime @0.010 ms, 0.013 ms clock, 0 bytes, 0 allocs\ninit crypto/internal/fips140deps/cpu @0.11 ms, 0.001 ms clock, 0 bytes, 0 allocs\ninit github.com/charmbracelet/x/ans",
+   "new_files": []
+  },
+  {
+   "argv": [
+    "tui",
+    "--file",
+    "<profile>"
+   ],
+   "rc": 0,
+   "first_frame_s": 0.02,
+   "inittrace_on_tty": true,
+   "new_files": []
+  }
+ ],
+ "helper_invocations": []
+}

@@ -1,0 +1,1 @@
+heimdall-proto: agent list: agent protocol error: trailing bytes after SSH_AGENT_FAILURE

@@ -1,0 +1,1 @@
+heimdall-proto: agent list: agent closed the connection before any response byte

@@ -1,0 +1,106 @@
+{
+  "task_id": "M00-T05-go-round3b-fix",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/prototypes/go/internal/run/run_unix.go",
+    "<repo>/prototypes/go/cmd/heimdall-proto/main.go",
+    "<repo>/prototypes/go/cmd/heimdall-proto/helper_test.go",
+    "<repo>/prototypes/go/cmd/heimdall-proto/k6d_test.go",
+    "<repo>/prototypes/go/cmd/heimdall-proto/tui_terminfo_test.go",
+    "<repo>/prototypes/go/REPORT.md",
+    "<repo>/prototypes/go/dist/ (rebuilt, gitignored; manifest.json regenerated)",
+    "<repo>/tests/evidence/artifacts/g02-go/selftest/selftest.py",
+    "<repo>/tests/evidence/g02-go-selftest.json",
+    "<repo>/tests/evidence/artifacts/g02-go/selftest/round3b-20261004/ (19 redacted evidence files)"
+  ],
+  "commands_run": [
+    {
+      "command": "go vet (4 targets), gofmt -l, GOOS=windows go test -c per package, go mod verify, go mod tidy -diff",
+      "exit_code": 0,
+      "observed": "All 14 steps exited 0, and gofmt printed nothing."
+    },
+    {
+      "command": "cd prototypes/go && go test -count=1 -v ./... (darwin-arm64)",
+      "exit_code": 0,
+      "observed": "All 5 packages ok. TestK6dSharedModeExplicitSignals: all 15 layout/signal cases delivered exactly the signal sent. TestTUIEnvironmentSelectedTerminfo: all cases drew a frame, exited 0, peak about 9 MiB. TestK10PanicBeforeRunExits1: exit 1."
+    },
+    {
+      "command": "RED: go test -run 'TestK6d...|TestTUIEnvironmentSelectedTerminfo|TestK10PanicBeforeRunExits1' on HEAD round-2 sources + round-3b tests + no-op hook (/tmp/hp-go-r3b/red), darwin",
+      "exit_code": 1,
+      "observed": "All 3 tests fail. K6d: 0 deliveries of SIGINT/SIGHUP/SIGQUIT/SIGWINCH. Terminfo: watchdog kill at 776 MiB, both FIFOs hang, malformed entry exits 2 with a panic trace. K10: exit 2."
+    },
+    {
+      "command": "linux/arm64 go test -c binaries in alpine@sha256:5291449c... --network none uid 10001 (after: 5 packages; red: 3 tests)",
+      "exit_code": 0,
+      "observed": "After: exit 0 for all 5 packages. Red binary: exit 1, all 3 new tests fail (858 MiB kill, FIFO hang, exit 2, 0 K6d deliveries). The red only reproduced after the terminfo test started setting USER (see limitations)."
+    },
+    {
+      "command": "cd / && sh prototypes/go/build.sh (twice)",
+      "exit_code": 0,
+      "observed": "4/4 targets built both times with identical manifests. darwin-arm64 a5644a4f...5310 (adhoc, runtime); linux-arm64 efd3ee08...1c04; linux-x64 3a495ba0...abf5; windows-x64 2aff8b77...c43c."
+    },
+    {
+      "command": "python3 selftest.py <darwin round-3b artifact> <repo>",
+      "exit_code": 0,
+      "observed": "75/75. The new K6e bash checks (simple, list), K6d pipeline checks and tui.terminfo_* all pass. zsh K6e observation ok. Terminal ^C child SIGINT counts: modeShared [2,2,2], modeExclusive [1,1,1]."
+    },
+    {
+      "command": "RED: selftest.py <round-2 darwin artifact 20e8c5c1>",
+      "exit_code": 1,
+      "observed": "70/75: k6d x2 and terminfo x3 fail. K6e passes on darwin with the round-2 artifact."
+    },
+    {
+      "command": "selftest.py in heimdall-g02-harness:d0c8e448a3a7 (linux-arm64, bash 5.2.15, zsh 5.9) with round-3b linux-arm64 artifact",
+      "exit_code": 0,
+      "observed": "75/75. zsh K6e ok. ^C counts: modeShared [2,2,2], modeExclusive [1,1,1]."
+    },
+    {
+      "command": "RED: same container with round-2 linux-arm64 artifact f7d38318",
+      "exit_code": 1,
+      "observed": "68/75: run.k6e_job_control_bash_{simple,list} fail ('re-stopped right after fg', child state T), plus k6d x2 and terminfo x3. zsh K6e observation also fails."
+    },
+    {
+      "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin <darwin artifact> --candidate go --out /tmp/hp-go-r3b/harness-darwin/record.json --artifacts-dir /tmp/hp-go-r3b/harness-darwin/artifacts",
+      "exit_code": 0,
+      "observed": "136/136, status verified, verdict pass (baseline 135/136). k6d deliveries 1 for every layout/signal. K6e bash and zsh ok. K17 p95 17.1 ms."
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go --out /tmp/hp-go-r3b/harness-linux/record.json --artifacts-out /tmp/hp-go-r3b/harness-linux/artifacts",
+      "exit_code": 0,
+      "observed": "136/136, verified, pass (baseline 134/136: K6d and K6e). K6e simple/list 10 lines each. K17 p95 18.2 ms."
+    },
+    {
+      "command": "harness --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals, 3x via run.sh (linux) and 3x on darwin",
+      "exit_code": 0,
+      "observed": "All 6 runs exited 0 with 2/2 pass. Status is in_progress/inconclusive by design for --only runs."
+    },
+    {
+      "command": "/tmp/hp-go-ev/venv/bin/python schema_check.py <darwin artifact>; env -i PATH=/usr/bin:/bin <darwin artifact> version --json",
+      "exit_code": 0,
+      "observed": "schema_check 23/23, exit 0. No-toolchain version run exit 0."
+    },
+    {
+      "command": "jsonschema validate tests/evidence/g02-go-selftest.json against tests/evidence/record.schema.json",
+      "exit_code": 0,
+      "observed": "Valid. No full canary value and no absolute home path in the record or artifacts."
+    }
+  ],
+  "escalations": [
+    "Q12 (harness, not decided here): a child that reads the tty after `bg` gets SIGTTIN. heimdall-proto mirrors that onto itself as SIGTTIN, so the shell shows the job stopped, but nothing tests it. Whether K6e requires this is still the open harness question Q12.",
+    "Q13: zsh K6e is non-gating in the harness. It now passes on both OSes; with the round-2 artifact it failed on Linux. Whether zsh should gate is still undecided.",
+    "Verdict stance in g02-go-selftest.json: attempt 4 records verdict 'pass' for the executed scope (darwin-arm64 + linux-arm64), treating K6c items as non-gating per §9.2. The status stays 'blocked' on native Windows. The orchestrator may prefer 'inconclusive' while Windows is unexecuted."
+  ],
+  "limitations": [
+    "The K6e red reproduces only on Linux. The round-2 darwin artifact already passed K6e (baseline harness and this selftest), so darwin shows only green. The Linux root cause (kill(0,SIGTSTP) returning before the group stop takes effect in a multithreaded process) is inferred from the round-2 reviewer's debug trace. The fix is consistent with that cause but does not prove it.",
+    "Allowed duplicates (K6b), documented in REPORT. In modeShared, a terminal-generated SIGINT/SIGQUIT/SIGWINCH/SIGHUP reaches the child twice; for ^C this was observed as [2,2,2] on darwin and on linux. A killpg of a shared group also delivers twice. A hangup in modeExclusive may deliver SIGHUP twice; that was not measured.",
+    "Residual job-control windows: a SIGCONT from an earlier bg/fg still in flight inside os/signal could end a later stop wait early (not observed). When a stop is discarded, heimdall-proto waits up to 1 s while holding the forwarding mutex.",
+    "Stack limitation (K10): a panic in a Bubble Tea or ultraviolet goroutine that has no recover (input readLoop, listenForResize) still exits 2. This is inferred from bubbletea v2.0.10 source and not demonstrated natively. Production remedy: a supervisor re-exec that maps exit 2 to 1 after restoring the terminal, or a patched Bubble Tea.",
+    "The terminfo fix avoids terminfo entirely. Cost: a terminal that advertises truecolor only through terminfo Tc/RGB (and not COLORTERM) gets 256 colors. xo/terminfo stays linked but is never reached.",
+    "The terminfo test now sets USER. Without it, a cgo-less os/user.Current for a uid with no passwd entry (container uid 10001 in alpine) failed, so xo/terminfo never read the file and the Linux red was hidden. This makes the test stricter, not weaker.",
+    "K6c stack limitation is unchanged and non-gating: inherited-ignored SIGQUIT/SIGTERM/SIGWINCH and an inherited SIGPIPE ignore are reset to default in the child.",
+    "Native Windows x64 and WSL were not executed; Windows is compile-only. linux-x64 was built but not executed. linux-arm64 ran in the Docker Desktop VM's native arm64 kernel, not on bare metal.",
+    "No independent review of round 3b yet; the tests were written by this agent.",
+    "Leftovers not removed: the killed first attempt left hp-k6e-*/hp-k6d-* directories in the macOS per-user TMPDIR. Earlier rounds left hp-k6a-* in TMPDIR and hpa* directories in /tmp. The selftest now cleans up its own hp-k6e/hp-k6d dirs. This run's outputs are under /tmp/hp-go-r3b (red source copy, test binaries, harness records). No heimdall-proto processes remain."
+  ],
+  "summary": "Round 3b is done. The full shared harness passes 136/136 on darwin-arm64 and 136/136 on linux-arm64 via run.sh, exit 0 on both, read-only, outputs under /tmp/hp-go-r3b. The round-3 baseline on the round-2 artifacts was 135/136 on darwin and 134/136 on linux. Each fix has a native test that fails on the round-2 sources or artifacts and passes now; K6e failed only on Linux before, because the round-2 darwin build already passed it. Nothing is committed.\n\nThe previous attempt's unfinished edits turned out to be correct. I kept them, finished them, and re-ran every check from scratch.\n\n**What was fixed**\n- **Shared-mode signal loss (K6b/K6d):** when heimdall-proto shares the terminal's foreground job, an explicitly sent SIGINT, SIGHUP, SIGQUIT or SIGWINCH used to be dropped. `run_unix.go` now forwards every handled signal in every mode.\n  - New test `TestK6dSharedModeExplicitSignals`; selftest checks `run.k6d_pipeline_{first,last}_explicit_signals`.\n  - Harness check `run.k6d_shared_mode_explicit_signals` went from fail to pass on both OSes.\n- **Ctrl-Z / fg on Linux (K6e):** `fg` used to re-stop the job at once. heimdall-proto now waits for its own SIGCONT after stopping itself before it touches the terminal or continues the child. It ignores SIGTTOU and listens for SIGCONT only after the child starts, so the child keeps its inherited signal settings.\n  - Selftest checks `run.k6e_job_control_bash_{simple,list}` fail on the round-2 Linux artifact and pass on both OSes now.\n  - Harness `run.k6e_job_control` went from fail to pass on Linux, and three extra repeat runs per OS also passed.\n  - zsh (not gating) is also ok on both OSes.\n- **Terminfo files chosen by TERM/TERMINFO:** the TUI no longer reads terminfo at all; `main.go` picks colors from environment variables only.\n  - Before: a TERM path to /dev/zero grew until the watchdog killed it at 776 MiB (darwin) and 858 MiB (Linux); a FIFO entry hung the TUI; a malformed entry panicked with exit 2.\n  - Now every case draws, exits 0 and stays near 9–11 MiB (`TestTUIEnvironmentSelectedTerminfo`, selftest `tui.terminfo_*`).\n  - Cost: a terminal that advertises truecolor only through terminfo gets 256 colors.\n- **K10 panic before `tea.Program.Run`:** a deferred recover in `cmdTUI` now exits 1 with nothing on stdout (`TestK10PanicBeforeRunExits1`, panic injected through a test hook that does nothing in the shipped binary).\n- **K17:** not flagged and unchanged; filter latency p95 is 17.1 ms on darwin and 18.2 ms on Linux.\n\n**What is not fixed**\n- **Panics in library goroutines (K10, stack limitation):** a panic in a goroutine that Bubble Tea or ultraviolet starts without a recover (input read loop, resize listener) still exits 2. This comes from reading the Bubble Tea v2.0.10 source; I did not reproduce it. The production fix would be a small supervisor that re-runs the binary and maps exit 2 to 1, or a patched Bubble Tea.\n\n**Remaining gaps in the signal and job-control mechanism (all in REPORT.md)**\n- **Duplicate terminal signals:** in shared mode, a terminal-generated signal reaches the child twice, once from the kernel and once forwarded. For Ctrl-C I measured 2 deliveries in each of 3 trials on darwin and on Linux, against 1 when heimdall-proto is alone in its job. K6b allows this.\n- A group-wide kill of a shared group also delivers twice.\n- A hangup in exclusive mode may deliver SIGHUP twice; not measured.\n- A SIGCONT still in transit from an earlier `bg`/`fg` could end a later stop wait early; not observed.\n- When a stop is discarded, heimdall-proto waits up to 1 s, and forwarding of other signals is delayed meanwhile.\n- A child reading the terminal after `bg` (harness question Q12) is not tested.\n- Unchanged from earlier rounds: inherited SIGQUIT/SIGTERM/SIGWINCH ignores are reset in the child (K6c, not gating), the SIGKILL orphan, the PID-reuse window, and Windows being compile-only.\n\n**Other verification**\n- `build.sh` built all 4 targets twice with identical manifests.\n- `go test` passes on darwin and in a Linux arm64 alpine container.\n- The selftest passes 75/75 on both OSes; the round-2 artifacts score 70/75 (darwin) and 68/75 (Linux).\n- go vet on 4 targets, the Windows test compile, the schema check (23/23) and the no-toolchain run all exit 0.\n\nThe previous attempt left `hp-k6e-*`/`hp-k6d-*` temp directories in the macOS per-user TMPDIR; I left them in place, and the selftest now cleans up its own. The red copy, test binaries and harness records are in /tmp/hp-go-r3b.\n\n**For you to decide:** the selftest record (now with a new attempt 4) says \"pass\" for the two platforms actually run and stays \"blocked\" on Windows; you may prefer \"inconclusive\" while Windows is unrun. Whether zsh and Q12 should gate K6e is still open.\n\nFiles are in <repo>:\n- prototypes/go/internal/run/run_unix.go\n- prototypes/go/cmd/heimdall-proto/main.go\n- prototypes/go/cmd/heimdall-proto/k6d_test.go\n- prototypes/go/cmd/heimdall-proto/tui_terminfo_test.go\n- prototypes/go/cmd/heimdall-proto/helper_test.go\n- prototypes/go/REPORT.md (section \"Round 3b (2026-10-04)\")\n- tests/evidence/g02-go-selftest.json\n- tests/evidence/artifacts/g02-go/selftest/selftest.py\n- tests/evidence/artifacts/g02-go/selftest/round3b-20261004/"
+}

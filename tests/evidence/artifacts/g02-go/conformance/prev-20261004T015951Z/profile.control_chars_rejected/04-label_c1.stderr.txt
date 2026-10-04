@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: destinations[0].labels[1]: string value contains a control character

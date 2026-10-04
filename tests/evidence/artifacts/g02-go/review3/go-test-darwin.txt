@@ -1,0 +1,16 @@
+2026-10-04T21:44:58Z
+ok  	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	11.566s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.136s
+ok  	github.com/heimdall-g02/proto-go/internal/profile	0.097s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.298s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.007s
+go test exit 0
+go vet exit 0
+go vet windows exit 0
+all modules verified
+go mod verify exit 0
+gofmt exit 0
+go-licenses
+govulncheck

@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T02:01:33.861Z", "mono_ms": 0.11, "event": "listen", "socket": "/tmp/hmg02-i5o5jt45/049-agent-drip/drip.sock", "mode": "drip", "keys": 1}
+{"seq": 2, "ts": "2026-10-04T02:01:33.870Z", "mono_ms": 8.85, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T02:01:34.905Z", "mono_ms": 1043.608, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "drip", "sent_bytes": 10}
+{"seq": 4, "ts": "2026-10-04T02:01:34.905Z", "mono_ms": 1043.661, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 10, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T02:01:35.006Z", "mono_ms": 1145.383, "event": "shutdown"}

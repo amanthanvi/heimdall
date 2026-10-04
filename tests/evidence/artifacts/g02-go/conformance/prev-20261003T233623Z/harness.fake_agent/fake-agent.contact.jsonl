@@ -1,0 +1,6 @@
+{"seq": 1, "ts": "2026-10-03T19:58:30.265Z", "mono_ms": 0.297, "event": "listen", "socket": "/tmp/hmg02-2m9suegq/001-fa/fa dir \u00fc/ag\u00e9nt \u6771.sock", "mode": "normal", "keys": 3}
+{"seq": 2, "ts": "2026-10-03T19:58:30.268Z", "mono_ms": 3.374, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-03T19:58:30.268Z", "mono_ms": 3.564, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "normal", "sent_bytes": 497}
+{"seq": 4, "ts": "2026-10-03T19:58:30.269Z", "mono_ms": 3.735, "event": "message", "conn": 1, "type": 13, "length": 1, "bytes": 5, "responded": "failure_unsupported_type", "sent_bytes": 5}
+{"seq": 5, "ts": "2026-10-03T19:58:30.269Z", "mono_ms": 3.768, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 10, "bytes_sent": 502, "partial_bytes": 0}
+{"seq": 6, "ts": "2026-10-03T19:58:30.370Z", "mono_ms": 105.049, "event": "shutdown"}

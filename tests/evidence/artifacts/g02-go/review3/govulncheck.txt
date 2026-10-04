@@ -1,0 +1,7 @@
+2026-10-04T21:45:24Z
+govulncheck darwin-arm64 binary exit 0
+No vulnerabilities found.
+govulncheck linux-arm64 binary exit 0
+No vulnerabilities found.
+govulncheck windows-x64 binary exit 0
+No vulnerabilities found.

@@ -1,4 +1,4 @@
-<!-- Written by the M00 orchestrator from the go prototype agent's returned report (the subagent runtime refused direct REPORT.md writes). Content is the agent's text, unedited, except: statements made stale by the §9 alignment (M00-T05-go-align, 2026-10-03) are marked inline with "[§9 update]", and the section "§9 alignment (2026-10-03)" is appended at the end. Round 2 (M00-T05-go-round2-fix) marks its corrections inline with "[Round 2 update]" and appends the section "Round 2 (2026-10-03)". -->
+<!-- Written by the M00 orchestrator from the go prototype agent's returned report (the subagent runtime refused direct REPORT.md writes). Content is the agent's text, unedited, except: statements made stale by the §9 alignment (M00-T05-go-align, 2026-10-03) are marked inline with "[§9 update]", and the section "§9 alignment (2026-10-03)" is appended at the end. Round 2 (M00-T05-go-round2-fix) marks its corrections inline with "[Round 2 update]" and appends the section "Round 2 (2026-10-03)". Round 3b (M00-T05-go-round3b-fix) marks its corrections inline with "[Round 3b update]" and appends the section "Round 3b (2026-10-04)". -->
 
 # G02 Go + Bubble Tea prototype — report (M00-T05-go)
 
@@ -24,7 +24,7 @@ This is disposable gate evidence, not production code. Contract: docs/g02/slice-
 - internal/run: run.go, run_unix.go, run_windows.go.
 - internal/tui: the Bubble Tea model, which uses profile.Load and profile.Filter.
 
-Total: 2,218 lines including tests. [§9 update: 2,780 lines after the alignment.]
+Total: 2,218 lines including tests. [§9 update: 2,780 lines after the alignment.] [Round 3b update: 2,382 non-test and 4,636 total .go lines after round 3b, counted with `find . -name '*.go' [! -name '*_test.go'] | xargs cat | wc -l`.]
 
 ## 3. Contract coverage
 - §1: every emitted JSON document validates against the schema (21/21).
@@ -160,7 +160,7 @@ Task M00-T05-go-align: bring the prototype in line with docs/g02/slice-contract.
 
 ### K6: current signal model (internal/run/run_unix.go)
 - The child always runs in its own process group. If heimdall's group holds the terminal foreground at launch, the child's group becomes the foreground group (`Setpgid` + `Foreground` + `Ctty`).
-- The kernel sends a terminal-generated signal only to the foreground group. It therefore reaches either the child or heimdall, never both. Every signal heimdall receives (SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGWINCH) is forwarded exactly once. There is no longer any case where a signal is skipped, so an explicit `kill -INT <heimdall pid>` reaches the child once in every state.
+- The kernel sends a terminal-generated signal only to the foreground group. It therefore reaches either the child or heimdall, never both. Every signal heimdall receives (SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGWINCH) is forwarded exactly once. There is no longer any case where a signal is skipped, so an explicit `kill -INT <heimdall pid>` reaches the child once in every state. [Round 3b update: stale. Round 2 introduced a shared mode that skipped such signals; round 3b forwards them again (see "Round 3b").]
 - Terminal ownership: a watcher checks every 50 ms whether heimdall's group holds the foreground (for example after the shell's `fg`, which need not send any signal). If it does, the watcher hands the foreground to the child's group. Until that handoff, a terminal Ctrl-C goes to heimdall and is forwarded once.
 - Job control: when the child stops, heimdall mirrors the stop onto its own group (never with SIGSTOP), so the shell sees the job stop. On resume it hands the terminal back only if its group is in the foreground, which avoids taking the terminal after `bg`. A SIGTTIN/SIGTTOU stop in the brief window before the handoff is resolved by handing over the terminal and continuing the child.
 - On exit, heimdall restores the foreground to its own group only if the child's group holds it.
@@ -257,11 +257,11 @@ Go's `os/signal` gives no siginfo, so heimdall cannot tell a signal the kernel s
 
 Remaining gaps:
 
-1. In modeShared, an explicit SIGINT, SIGQUIT, SIGWINCH or SIGHUP sent to heimdall's PID while its group holds the terminal foreground is not forwarded. A killpg of a shared group delivers SIGTERM or SIGHUP twice. Both follow from having no siginfo.
+1. [Round 3b update: fixed under K6b/K6d; modeShared now forwards every received signal.] In modeShared, an explicit SIGINT, SIGQUIT, SIGWINCH or SIGHUP sent to heimdall's PID while its group holds the terminal foreground is not forwarded. A killpg of a shared group delivers SIGTERM or SIGHUP twice. Both follow from having no siginfo.
 2. The SIGQUIT, SIGTERM and SIGWINCH inherited-ignore limitation above.
 3. The mode heuristic can miss a process that joins heimdall's group after the start check without a pipe on stdin/stdout. Stop mirroring does not re-check membership.
 4. Unchanged from before:
-   - Ctrl-Z/bg/fg after a stop is not automated.
+   - Ctrl-Z/bg/fg after a stop is not automated. [Round 3b update: now automated (selftest `run.k6e_*`, harness `run.k6e_job_control`); the Linux re-stop after `fg` is fixed.]
    - A terminal hangup can deliver SIGHUP twice in exclusive mode (kernel plus shell).
    - The PID-reuse window remains.
    - SIGKILL of heimdall leaves the child in modeExclusive and modeNoTTY.
@@ -282,7 +282,7 @@ The bounds come from measurements: before the guard, per-key memory grew with ke
 - 1 MiB of 8-component dotted keys needed 259 MiB;
 - 60,000 keys under a header of thirty 10 KB components needed more than 2 GB.
 
-A shape the probe did not model could cost more per unit; that is recorded as a limitation. A valid profile larger than these bounds (for example about 14,000 destinations in 1 MiB) is rejected with SCHEMA_INVALID, which K15 allows. The 10,000-destination at-limit case is accepted.
+A shape the probe did not model could cost more per unit; that is recorded as a limitation. A valid profile larger than these bounds (for example about 14,000 destinations in 1 MiB) is rejected with SCHEMA_INVALID, which K15 allows. The 10,000-destination at-limit case is accepted. [Round 3b update: only with the 4 required keys per destination. A valid 10,000-destination profile using all 6 destination keys (about 838 KB) exceeds the 65,536-unit bound and is rejected with SCHEMA_INVALID, which K15 allows; about 8,190 full destinations fit.]
 
 ### Build (`cd / && sh build.sh`, twice, exit 0, identical manifests)
 
@@ -316,4 +316,99 @@ Startup on the M5 Max, median of 50 runs: `version --json` 2.96 ms with max RSS 
 
 1. **Unwritable `--meta-file`.** Choose between refusing to launch and reporting after the child ends (and pick a code), or keep the current behavior: run the child, keep its exit status, and print one stderr line.
 2. **Bidi and zero-width code points in agent comments and profile values.** K1/K2 cover only controls; whether to replace or flag these is a product decision.
-3. **Inherited-ignored SIGQUIT.** For the G02 comparison, decide whether this is a gating failure of K6a for Go or an accepted stack limitation. Fixing it requires cgo: a pre-runtime constructor plus a dynamic libc.
+3. **Inherited-ignored SIGQUIT.** [Round 3b update: settled by §9.2 K6c as a non-gating stack limitation; no longer open.] For the G02 comparison, decide whether this is a gating failure of K6a for Go or an accepted stack limitation. Fixing it requires cgo: a pre-runtime constructor plus a dynamic libc.
+
+## Round 3b (2026-10-04)
+
+Task M00-T05-go-round3b-fix is the final fix round under the complete signal rulings: §9.2 K6b and §9.3 K6d, K6e, K17, K18, the K10 exit form and the start-up window. Those rulings were issued after the round-2 fixes.
+
+- Every result below was observed on 2026-10-04 UTC, on darwin-arm64 (native) and on linux-arm64 (native arm64 kernel 7.0.14-linuxkit in the Docker Desktop VM, `--network none`, uid 10001, all capabilities dropped).
+- Raw, redacted outputs are in tests/evidence/artifacts/g02-go/selftest/round3b-20261004/. The record tests/evidence/g02-go-selftest.json keeps attempts 1-3 and adds attempt 4.
+- Base: HEAD 3263e11; prototype files uncommitted. This round resumed after a host restart killed a first attempt. Its partial edits were re-read, kept where correct, and every result below was re-run from scratch.
+- "Red" has two forms:
+  - **Go tests:** HEAD's round-2 sources with the round-3b test files copied in, plus a no-op test hook (`tuiBeforeRun`) in main.go. The diff is in darwin-arm64-go-test-red-round2-sources.txt.
+  - **Selftest:** the round-2 artifacts (sha256 20e8c5c1… darwin, f7d38318… linux-arm64), identical to the round-2 manifest.
+- Round-3 baseline (harness 2.3.0 on the unchanged round-2 artifacts):
+  - darwin: 135/136. `run.k6d_shared_mode_explicit_signals` fails.
+  - linux: 134/136. `run.k6d_shared_mode_explicit_signals` and `run.k6e_job_control` fail.
+  - K17 passed on both (p95 17.1 / 19.2 ms).
+
+### Item table
+
+| Item | Outcome | Where / proof |
+|---|---|---|
+| K6b/K6d: in shared mode, an explicit SIGINT, SIGHUP, SIGQUIT or SIGWINCH sent to the heimdall-proto PID was dropped (baseline: 0 deliveries; only SIGTERM arrived) | **fixed** | `internal/run/run_unix.go`: `forward()` is removed, and every mode forwards every signal it handles. **Tests:** `TestK6dSharedModeExplicitSignals` covers `sh -c`, pipeline-first and pipeline-last × 5 signals, on a fresh pty session. It is red on round-2 sources on both OSes (0 deliveries for 4 of the 5 signals) and green after. Selftest `run.k6d_pipeline_{first,last}_explicit_signals` (bash -i job) is red on the round-2 artifact on both OSes and green after. **Harness:** `run.k6d_shared_mode_explicit_signals` was fail on both OSes and is now pass on both (1 delivery of each signal in every layout), and passed 3 more repeat runs per OS. |
+| K6e: under bash on Linux, Ctrl-Z then `fg` re-stopped the job at once | **fixed** | `run_unix.go` `mirrorStop`/`stopSelf`/`orphaned`. heimdall-proto now waits for its own SIGCONT after `kill(0, sig)` before it touches the terminal or continues the child. SIGTTOU is ignored from child start on. Both `Notify(SIGCONT)` and that ignore happen only after `cmd.Start`, so the child keeps its inherited dispositions. **Tests:** selftest `run.k6e_job_control_bash_{simple,list}`: 5 × (Ctrl-Z/`fg`, then Ctrl-Z/`bg`/`fg`) per form, with a typed line checked after each `fg`, a frozen heartbeat checked while stopped, a running heartbeat after `bg`, and no re-stop within 1.5 s. On the Linux round-2 artifact both forms fail (re-stopped right after `fg`, child state T). After the fix they pass on both OSes. **Harness:** `run.k6e_job_control` was fail on Linux and is now pass, and passed 3 more repeat runs per OS. zsh 5.9 (non-gating) is ok in both forms on both OSes; on the round-2 artifact zsh failed on Linux. **Red not reproducible on darwin:** the round-2 artifact already passed K6e there, in the baseline and in this selftest. |
+| K17 filter latency | **not flagged; no change** | Harness `tui.large_100_filter_latency` p95: 17.1 ms (darwin) and 18.2 ms (linux) after the fix. |
+| Environment-selected terminfo reads in the TUI (TERM traversal to /dev/zero: unbounded memory; TERMINFO FIFO: hang; fuzz-found entry: Go panic, exit 2) | **fixed by avoiding terminfo** | `cmd/heimdall-proto/main.go` `colorProfileFromEnv` uses `colorprofile.Env`, which reads environment variables only. Neither `colorprofile.Detect` nor `xo/terminfo.Load` is called. Ultraviolet's terminfo key table is off by default, and Bubble Tea never enables it (checked in bubbletea v2.0.10 `tty.go` and ultraviolet `terminal_reader.go`). xo/terminfo stays linked but unreached. **Tests:** `TestTUIEnvironmentSelectedTerminfo` covers TERM traversal, a TERMINFO FIFO, a TERMINFO_DIRS FIFO, the malformed entry and a control. On round-2 sources: killed at 776 MiB (darwin) and 858 MiB (linux); both FIFOs hung past the 6 s watchdog; the malformed entry exited 2 with a panic trace. After the fix every case draws, exits 0 on `q`, and peaks near 9-11 MiB. Selftest `tui.terminfo_*` is red/green the same way. The test sets USER, because a cgo-less `os/user.Current` without a passwd entry made xo/terminfo give up before reading, which hid the red in an alpine container. **Cost:** a terminal that advertises truecolor only through its terminfo Tc/RGB flags (not COLORTERM) gets 256 colors. |
+| K10: a panic before `tea.Program.Run` exited 2 | **fixed** | `main.go` `cmdTUI` has a deferred `recover` that exits 1 with one stderr line and nothing on stdout. Before Run the terminal has not been touched. **Test:** `TestK10PanicBeforeRunExits1` injects the panic through the test-only `tuiBeforeRun` hook, a no-op in the shipped binary. Red on round-2 sources: exit 2 with a goroutine trace (darwin and linux). After: exit 1, empty tty output, termios unchanged. Panics inside Run are still recovered by Bubble Tea (`TestK10PanicRestoresAndExits1`, exit 1). |
+| K10: a panic in a goroutine that Bubble Tea or ultraviolet starts without `recover` (input read loop, resize listener, `go p.Send(...)` helpers) | **stack limitation** | **Evidence:** source inspection of bubbletea v2.0.10 `tea.go`. Recovers exist only around the event loop, commands and batch/sequence execution (lines 733, 903, 929, 947, 1036); `readLoop` (`tty.go:79`) and `listenForResize` have none. No Go code can recover a panic in another goroutine, and the runtime then exits 2. Not demonstrated natively: that would need a panic injected into library code. **Production remedy:** run the TUI under a small supervisor (re-exec of the same binary) that restores the terminal and maps a child exit 2 to 1, or carry a patched Bubble Tea with recovers in those goroutines. |
+| Round-3 baseline failures | **fixed** | Only K6d (both OSes) and K6e (linux) failed; both rows above. Full harness after the fix: 136/136 on darwin and 136/136 on linux, exit 0 each, with no non-gating assertion failing either. |
+| Round-2 review minor: REPORT accuracy (K15 10,000-destination claim, line count, stale §9 sentence, Escalation 3) | **fixed (text)** | Marked inline with "[Round 3b update]". |
+| Round-2 review minor: SIGKILL orphan, closed fd 1, PID-reuse window, `--meta-file` symlinks, bidi/zero-width text | unchanged | As stated in Round 2. §9.3 lists the orphan and fd 1 as not gated. |
+
+### Signal, terminal and job-control mechanism now used (internal/run/run_unix.go)
+
+The mode is chosen once, before launch, as in round 2: modeNoTTY, modeExclusive or modeShared. What changed:
+
+- **Every mode forwards every handled signal** (SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGWINCH) to the child once per receipt.
+  - A signal inherited as ignored is still neither handled nor forwarded (K6a, for SIGINT and SIGHUP).
+  - The shared-mode suppression of terminal-capable signals is gone. K6b ranks K6/K6d (explicit signals reach the child) above the §4 duplicate rule.
+- **modeExclusive job control:**
+  - The child's stop is mirrored onto heimdall-proto's group, which holds only heimdall-proto. heimdall-proto reclaims the foreground if the child held it.
+  - It then calls `kill(0, sig)` and blocks until its own SIGCONT arrives, through `os/signal` with a 1-channel buffer drained before each stop. Only then does it hand the terminal to the child, if heimdall-proto's group is in the foreground (`fg`; never after `bg`), and send SIGCONT to the child's group.
+  - On Linux, `kill(0, SIGTSTP)` in a multithreaded process returned before the group stop took effect. The round-2 code then continued the child while heimdall-proto was about to stop, which caused the re-stop (round-2 reviewer debug trace, review2/probes/jobctl-debug-linux*.txt). Waiting for SIGCONT removes that window.
+  - SIGSTOP and SIGTTOU stops are mirrored as SIGTSTP, because heimdall-proto ignores SIGTTOU.
+  - If the group is orphaned (POSIX: the parent is in another session, or in heimdall-proto's own group), no stop is attempted.
+  - If no SIGCONT arrives within 1 s (the stop was discarded, for example SIGTSTP inherited as ignored), heimdall-proto continues the child.
+  - The 50 ms foreground watcher still hands the terminal to the child after an `fg` that follows a `bg`.
+
+Remaining gaps, stated plainly:
+
+1. **Duplicate terminal-signal delivery in modeShared, on Darwin and on Linux.** When heimdall-proto shares the foreground job (pipeline member, or child of a foreground `sh -c`, script or Makefile recipe), the terminal sends SIGINT, SIGQUIT and SIGWINCH to the whole group, and SIGHUP on hangup. The child gets the signal once from the kernel and once more by forwarding.
+   - Observed for a terminal ^C in a `run … | cat` job under bash -i: the child counted SIGINT `[2, 2, 2]` in 3 trials on darwin and `[2, 2, 2]` on linux.
+   - Alone in its job (modeExclusive), the count was `[1, 1, 1]` on both.
+   - A `killpg` of a shared group also delivers twice.
+   - K6b allows and the harness does not gate this. A launcher without siginfo (Go `os/signal`) cannot tell the origins apart.
+2. **Hangup in modeExclusive** can still deliver SIGHUP twice: the kernel sends it to the child's foreground group, and the shell's SIGHUP to the job is forwarded. Not measured this round.
+3. **Stale SIGCONT window.** A SIGCONT from an earlier `bg`/`fg` that is still in flight inside `os/signal` when the next stop begins could end the wait early. That brings back the round-2 race for that one stop. It needs a second job-control action within microseconds of the first; not observed.
+4. **1 s wait when a stop is discarded.** While heimdall-proto waits for a SIGCONT that never comes, it holds the mutex, so forwarding of other signals is delayed by up to 1 s.
+5. **Q12 not covered.** A child that reads the tty after `bg` gets SIGTTIN, and heimdall-proto mirrors that as SIGTTIN onto itself, so the shell shows the job stopped. No automated test covers this.
+6. **Unchanged from earlier rounds:**
+   - K6c: inherited-ignored SIGQUIT, SIGTERM and SIGWINCH, and an inherited SIGPIPE ignore, are reset to the default in the child (harness `k6c_other_inherited_signal_state`, classification `child_always_default`).
+   - The mode heuristic.
+   - The PID-reuse window.
+   - SIGKILL of heimdall-proto leaves the child running.
+   - Windows is compile-only.
+   - A signal before the Go runtime's handlers are installed is outside the contract (start-up window).
+
+### Build (`cd / && sh build.sh`, twice, exit 0, identical manifests)
+
+| Target | Bytes | sha256 |
+|---|---|---|
+| darwin-arm64 | 5,212,000 | a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310 (ad-hoc, hardened runtime) |
+| linux-x64 | 5,451,936 | 3a495ba0962932575c7f89c7ac4854d712ec69d372d8be3efd27cf07a0eeabf5 (built, not executed) |
+| linux-arm64 | 5,177,504 | efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04 |
+| windows-x64 | 5,099,520 | 2aff8b772b3a7f223ee9dac5949ce144d6f13f87e6e50b62a3fc026720ebc43c (built, never executed) |
+
+### Tests (exit codes as observed)
+
+- **darwin-arm64:**
+  - `go test -count=1 -v ./...`: exit 0.
+  - Red run of the three new Go tests on round-2 sources: exit 1, all three fail.
+  - `go vet` on 4 targets, `gofmt -l`, Windows `go test -c` for every package, `go mod verify` and `go mod tidy -diff`: exit 0 each.
+  - Selftest: 75/75, exit 0. Against the round-2 artifact: 70/75, exit 1.
+  - schema_check: 23/23, exit 0.
+  - `env -i` run without Go on PATH: exit 0.
+- **linux-arm64:**
+  - Go test binaries in alpine@sha256:5291449c…, uid 10001: exit 0 for all 5 packages. Red: exit 1, all three new tests fail.
+  - Selftest in heimdall-g02-harness:d0c8e448a3a7 (bash 5.2.15, zsh 5.9): 75/75, exit 0. Against the round-2 artifact: 68/75, exit 1.
+- **Shared harness 2.3.0, read-only, outputs under /tmp/hp-go-r3b:**
+  - darwin `conformance.py`: 136/136, exit 0.
+  - `tests/g02/linux/run.sh`: 136/136, exit 0.
+  - K6e/K6d `--only` repeats: 3/3 per OS, exit 0 each.
+  - Summary: round3b-20261004/harness-summary.json.
+
+### Leftovers
+
+The killed first attempt left temporary directories from its selftest runs (`hp-k6e-*`, `hp-k6d-*`) in the macOS per-user TMPDIR. Older `hp-k6a-*` and `hpa*` directories also remain from earlier rounds; the `hpa*` ones are in /tmp. The selftest now removes its own `hp-k6e-*`/`hp-k6d-*` directories. The existing ones were left in place.

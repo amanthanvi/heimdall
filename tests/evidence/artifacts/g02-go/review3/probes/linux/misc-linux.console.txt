@@ -1,0 +1,35 @@
+## env_fd
+env_fd exit 0
+## tui_env_writes
+tui_env_writes exit 0
+## first_frame
+{"case": "base", "first_frame_s": 0.023, "exit": 0, "out_len": 258} 
+{"case": "tmux", "first_frame_s": 0.029, "exit": 0, "out_len": 258} 
+{"case": "teadebug", "first_frame_s": 0.029, "exit": 0, "out_len": 258} 
+{"case": "uvdebug", "first_frame_s": 0.027, "exit": 0, "out_len": 258} 
+{"case": "term_traversal_devzero", "first_frame_s": 0.025, "exit": 0, "out_len": 258} 
+{"case": "terminfo_fifo", "first_frame_s": 0.028, "exit": 0, "out_len": 258} 
+{"case": "terminfo_dirs_fifo", "first_frame_s": 0.023, "exit": 0, "out_len": 258} 
+{"case": "fuzz_crash_entry", "first_frame_s": 0.028, "exit": 0, "out_len": 258} 
+first_frame exit 0
+ls: cannot access '/tmp/teatrace.log': No such file or directory
+ls: cannot access '/tmp/uvdebug.log': No such file or directory
+## k15
+deep_array_nesting {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0037, "maxrss_mib": 10.0, "bytes": 1048571}
+wide_empty_inline_tables {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.004, "maxrss_mib": 9.9, "bytes": 1048575}
+wide_strings_array {"rc": 0, "code": "PROFILE_OK", "wall_s": 0.0374, "maxrss_mib": 21.6, "bytes": 1048575}
+wide_int_array {"rc": 0, "code": "PROFILE_OK", "wall_s": 0.0506, "maxrss_mib": 34.7, "bytes": 1048575}
+wide_nested_pairs {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0035, "maxrss_mib": 9.9, "bytes": 1048572}
+escape_heavy_string {"rc": 0, "code": "PROFILE_OK", "wall_s": 0.0114, "maxrss_mib": 14.1, "bytes": 1048575}
+multiline_basic_quotes {"rc": 0, "code": "PROFILE_OK", "wall_s": 0.0205, "maxrss_mib": 14.1, "bytes": 1048576}
+many_headers {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0033, "maxrss_mib": 10.0, "bytes": 1037512}
+array_of_tables {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0032, "maxrss_mib": 9.9, "bytes": 1048570}
+many_keys_flat {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0039, "maxrss_mib": 9.8, "bytes": 1048575}
+huge_float_exponents {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0051, "maxrss_mib": 12.3, "bytes": 1048575}
+bigint_overflow {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0101, "maxrss_mib": 14.0, "bytes": 1048572}
+datetimes {"rc": 0, "code": "PROFILE_OK", "wall_s": 0.0161, "maxrss_mib": 14.5, "bytes": 1048566}
+comments_only {"rc": 0, "code": "PROFILE_OK", "wall_s": 0.0096, "maxrss_mib": 14.1, "bytes": 1048530}
+inline_table_wide_keys {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0037, "maxrss_mib": 9.9, "bytes": 1048576}
+nested_array_inline_mix {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0029, "maxrss_mib": 9.8, "bytes": 120056}
+crlf_bom {"rc": 2, "code": "SCHEMA_INVALID", "wall_s": 0.0037, "maxrss_mib": 10.0, "bytes": 1048576}
+k15 exit 0

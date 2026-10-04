@@ -1,0 +1,83 @@
+[
+ {
+  "case": "base",
+  "env_added": "",
+  "first_frame_s": 0.02,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "tmux",
+  "env_added": "TMUX=/tmp/tmux-fake,1,0;TERM_PROGRAM=tmux;TERM=tmux-256color",
+  "first_frame_s": 0.027,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "godebug",
+  "env_added": "GODEBUG=inittrace=1",
+  "first_frame_s": 0.028,
+  "exit": 0,
+  "out_len": 4439,
+  "out_head": "b'init internal/bytealg @0 ms, 0 ms clock, 0 bytes, 0 allocs\\r\\ninit internal/runtime/sys @0.052 ms, 0 ms clock, 0 bytes, 0 allocs\\r\\ninit runtime @0.21 ms, 0.018 ms clock, 0 bytes, 0 allocs\\r\\ninit crypto/internal/fips140deps/cpu @0.34 ms, 0.003 ms clock, 0 bytes, 0 allocs\\r\\ninit github.com/charmbracelet/x/ansi/parser @0.38 ms, 0.014 ms clock, 4128 bytes, 3 allocs\\r\\ninit errors @0.42 ms, 0.003 ms clock, 0 '",
+  "out_tail": "b', 0.041 ms clock, 20336 bytes, 12 allocs\\r\\n\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "teadebug",
+  "env_added": "TEA_DEBUG=1;TEA_TRACE=/tmp/hp-go-rv3/teatrace.log",
+  "first_frame_s": 0.026,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "uvdebug",
+  "env_added": "UV_DEBUG=/tmp/hp-go-rv3/uvdebug.log",
+  "first_frame_s": 0.027,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "term_traversal_devzero",
+  "env_added": "TERM=../../../../../../../../dev/zero",
+  "first_frame_s": 0.026,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[21B3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[21B3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "terminfo_fifo",
+  "env_added": "TERMINFO=/tmp/hp-go-rv3/ti/fifo;TERM=xterm-fifo",
+  "first_frame_s": 0.025,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "terminfo_dirs_fifo",
+  "env_added": "TERMINFO_DIRS=/tmp/hp-go-rv3/ti/fifo;TERM=xterm-fifo",
+  "first_frame_s": 0.024,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ },
+ {
+  "case": "fuzz_crash_entry",
+  "env_added": "TERMINFO=/tmp/hp-go-rv3/ti/crash;TERM=xterm-crash",
+  "first_frame_s": 0.023,
+  "exit": 0,
+  "out_len": 258,
+  "out_head": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'",
+  "out_tail": "b'\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server  aman@lab.example.internal:22\\x1b[m\\r\\n  nas  admin@nas.example.internal:22\\r\\n  vps-\\xe6\\x9d\\xb1\\xe4\\xba\\xac  deploy@vps1.example.invalid:2222\\x1b[45G\\r\\x1b[24d3/3\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l'"
+ }
+]

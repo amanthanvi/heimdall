@@ -1,0 +1,23 @@
+> nas  admin@nas.example.internal:221u
+  vps-東京  deploy@vps1.example.invalid:2222
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+SELECTED nas

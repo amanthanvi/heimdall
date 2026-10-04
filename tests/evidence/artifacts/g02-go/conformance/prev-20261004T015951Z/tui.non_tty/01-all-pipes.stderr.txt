@@ -1,0 +1,7 @@
+heimdall-proto: tui requires a terminal on stdin and stdout
+usage:
+  heimdall-proto profile show --file <path> [--json]
+  heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]
+  heimdall-proto run [--meta-file <path>] -- <argv...>
+  heimdall-proto tui --file <path>
+  heimdall-proto version [--json]

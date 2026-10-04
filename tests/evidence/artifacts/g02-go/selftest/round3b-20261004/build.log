@@ -1,0 +1,17 @@
+# build 1 (cd / && sh build.sh), exit 0, started ~2026-10-04T20:18Z
+signed darwin-arm64: ad-hoc, hardened runtime
+built darwin-arm64 (5212000 bytes)
+built linux-x64 (5451936 bytes)
+built linux-arm64 (5177504 bytes)
+built windows-x64 (5099520 bytes)
+wrote <repo>/prototypes/go/dist/manifest.json
+
+# 2026-10-04T20:56:08Z build 2 (cd / && sh build.sh)
+signed darwin-arm64: ad-hoc, hardened runtime
+built darwin-arm64 (5212000 bytes)
+built linux-x64 (5451936 bytes)
+built linux-arm64 (5177504 bytes)
+built windows-x64 (5099520 bytes)
+wrote <repo>/prototypes/go/dist/manifest.json
+# exit 0
+cmp dist/manifest.json build1 vs build2: identical

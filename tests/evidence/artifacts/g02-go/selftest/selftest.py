@@ -664,5 +664,373 @@ with tempfile.TemporaryDirectory() as d:
         os.close(m); os.close(s_)
     check("run.k6a_ctty_not_on_stdio_child_reads_tty", rc == 0 and text == "GOT:hello", f"exit={rc} child_got='{text}'")
 
+
+# ---------- round 3b (2026-10-04): K6e job control, K6d shared mode, env-selected terminfo ----------
+import shutil
+def proc_state(pid):
+    """One-letter scheduler state ('T' = stopped) or None; never reads a command line."""
+    try:
+        if sys.platform.startswith("linux"):
+            return open("/proc/%d/stat" % pid).read().rsplit(")", 1)[1].split()[0]
+        r = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(int(pid))], capture_output=True, text=True, timeout=5)
+        return r.stdout.strip()[:1] or None
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def rss_kib(pid):
+    try:
+        if sys.platform.startswith("linux"):
+            for line in open("/proc/%d/status" % pid):
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1])
+            return 0
+        r = subprocess.run(["/bin/ps", "-o", "rss=", "-p", str(int(pid))], capture_output=True, text=True, timeout=5)
+        return int(r.stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+K6E_CHILD = r"""
+import json, os, sys, time
+d, n = sys.argv[1], int(sys.argv[2])
+def put(name, text):
+    p = os.path.join(d, name)
+    with open(p + ".part", "w") as f:
+        f.write(text)
+    os.replace(p + ".part", p)
+put("child.json", json.dumps({"pid": os.getpid(), "ppid": os.getppid()}))
+got = []
+def take():
+    got.append(os.read(0, 4096).decode("utf-8", "replace"))
+    put("got", json.dumps(got))
+beat = 0
+for i in range(1, n + 1):
+    put("ready-a.%d" % i, "1")
+    take()
+    put("wait-b.%d" % i, "1")
+    while not os.path.exists(os.path.join(d, "go-b.%d" % i)):
+        beat += 1
+        put("beat", str(beat))
+        time.sleep(0.02)
+    put("ready-b.%d" % i, "1")
+    take()
+put("done", "1")
+sys.exit(0)
+"""
+K6E_N = 5
+
+
+def k6e_session(shell, form):
+    """Ctrl-Z/fg and Ctrl-Z/bg/fg, K6E_N times each, with `run` as a job of an interactive shell.
+    Returns (ok, detail). Every wait is bounded; the shell started here is killed at the end."""
+    import pty
+    d = tempfile.mkdtemp(prefix="hp-k6e-")
+    open(os.path.join(d, "c.py"), "w").write(K6E_CHILD)
+    stopw = b"Stopped" if shell.endswith("bash") else b"suspended"
+    argv = [shell, "--norc", "--noprofile", "-i"] if shell.endswith("bash") else [shell, "-f", "-i"]
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ.clear()
+        os.environ.update({"PATH": "/usr/bin:/bin", "HOME": d, "TERM": "xterm", "PS1": "HMPS1$ ", "LANG": "C.UTF-8",
+                           "HISTFILE": os.path.join(d, "hist"), "BASH_SILENCE_DEPRECATION_WARNING": "1",
+                           "P": BIN, "Y": sys.executable, "D": d})
+        os.execv(shell, argv)
+    buf = bytearray()
+    prompt = b"HMPS1$ "
+
+    def pump(t):
+        end = time.monotonic() + t
+        while time.monotonic() < end:
+            r, _, _ = select.select([fd], [], [], 0.02)
+            if r:
+                try:
+                    b = os.read(fd, 4096)
+                except OSError:
+                    return
+                if not b:
+                    return
+                buf.extend(b)
+
+    def until(pred, t):
+        end = time.monotonic() + t
+        while time.monotonic() < end:
+            if pred():
+                return True
+            pump(0.02)
+        return pred()
+
+    def exists(n):
+        return os.path.exists(os.path.join(d, n))
+
+    def got():
+        try:
+            return json.load(open(os.path.join(d, "got")))
+        except (OSError, ValueError):
+            return []
+
+    def beat():
+        try:
+            return int(open(os.path.join(d, "beat")).read() or 0)
+        except (OSError, ValueError):
+            return 0
+    child = proto = None
+    fail = None
+    try:
+        if not until(lambda: prompt in buf, 10):
+            return False, "no prompt"
+        line = '"$P" run -- "$Y" "$D/c.py" "$D" %d' % K6E_N + ('; echo "LIST_RC=$?"' if form == "list" else "")
+        os.write(fd, line.encode() + b"\r")
+        if not until(lambda: exists("ready-a.1"), 10):
+            return False, "child did not start"
+        ids = json.load(open(os.path.join(d, "child.json")))
+        child, proto = ids["pid"], ids["ppid"]
+        n = 0
+
+        def ctrl_z(tag):
+            m = len(buf)
+            os.write(fd, b"\x1a")
+            ok = until(lambda: stopw in buf[m:] and prompt in buf[m:][buf[m:].find(stopw):], 5)
+            return ok or "%s: Ctrl-Z did not stop the job" % tag
+
+        def fg(tag):
+            m = len(buf)
+            os.write(fd, b"fg\r")
+            pump(0.5)
+            if stopw in buf[m:] or prompt in buf[m:] or proc_state(child) == "T":
+                return "%s: re-stopped right after fg (child state %s)" % (tag, proc_state(child))
+            return m
+
+        def typed(tag, text, k):
+            os.write(fd, text.encode() + b"\r")
+            ok = until(lambda: len(got()) >= k, 3) and got()[k - 1] == text + "\n"
+            return ok or "%s: child did not read the line (got %r)" % (tag, got()[k - 1:k])
+
+        for i in range(1, K6E_N + 1):
+            tag = "iter %d z-fg" % i
+            if not until(lambda: exists("ready-a.%d" % i), 5):
+                fail = tag + ": child not back in its read"; break
+            pump(0.15)
+            r = ctrl_z(tag)
+            if r is not True:
+                fail = r; break
+            m = fg(tag)
+            if isinstance(m, str):
+                fail = m; break
+            r = typed(tag, "K6E-A-%d" % i, n + 1)
+            if r is not True:
+                fail = r; break
+            n += 1
+            pump(1.0)  # 1.5 s after fg: no late re-stop
+            if stopw in buf[m:] or proc_state(child) == "T":
+                fail = tag + ": re-stopped within 1.5 s after fg"; break
+            tag = "iter %d z-bg-fg" % i
+            if not until(lambda: exists("wait-b.%d" % i), 5):
+                fail = tag + ": child not in heartbeat"; break
+            pump(0.1)
+            r = ctrl_z(tag)
+            if r is not True:
+                fail = r; break
+            b0 = beat(); pump(0.4); b1 = beat()
+            if b0 != b1:
+                fail = "%s: child ran while the job was stopped (%d->%d, child %s, proto %s)" % (
+                    tag, b0, b1, proc_state(child), proc_state(proto)); break
+            mb = len(buf)
+            os.write(fd, b"bg\r")
+            until(lambda: prompt in buf[mb:] or (b"continued" in buf[mb:]), 3)
+            pump(0.3); b2 = beat(); pump(0.4); b3 = beat()
+            if not (b3 > b2) or proc_state(child) == "T" or stopw in buf[mb:]:
+                fail = "%s: after bg the child is not running (%d->%d, %s)" % (tag, b2, b3, proc_state(child)); break
+            m = fg(tag)
+            if isinstance(m, str):
+                fail = m; break
+            open(os.path.join(d, "go-b.%d" % i), "w").write("1")
+            if not until(lambda: exists("ready-b.%d" % i), 3):
+                fail = tag + ": child did not leave its heartbeat"; break
+            pump(0.05)
+            r = typed(tag, "K6E-B-%d" % i, n + 1)
+            if r is not True:
+                fail = r; break
+            n += 1
+            pump(1.0)
+            if stopw in buf[m:] or proc_state(child) == "T":
+                fail = tag + ": re-stopped within 1.5 s after fg"; break
+        if fail is None:
+            until(lambda: exists("done"), 5)
+            until(lambda: buf.rstrip().endswith(prompt.rstrip()), 5)
+            m = len(buf)
+            jobs = "$(jobs -p | wc -l)" if shell.endswith("bash") else "${#jobstates}"
+            os.write(fd, ('echo "K6E_RC=$? K6E_JOBS=%s"\r' % jobs).encode())
+            until(lambda: re.search(rb"K6E_RC=(\d+) K6E_JOBS=\s*(\d+)", bytes(buf[m:])) is not None, 5)
+            mm = re.search(rb"K6E_RC=(\d+) K6E_JOBS=\s*(\d+)", bytes(buf[m:]))
+            if not (exists("done") and mm and mm.groups() == (b"0", b"0")):
+                fail = "job did not finish cleanly (done=%s rc/jobs=%s)" % (exists("done"), mm and mm.groups())
+        return fail is None, ("lines=%d" % n) if fail is None else fail
+    finally:
+        # Stop exactly what this check started: the shell, and (if the job was abandoned) its child and heimdall.
+        for x in (child, proto):
+            if isinstance(x, int) and proc_state(x) is not None and fail is not None:
+                try:
+                    os.kill(x, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        os.close(fd)  # before reaping: a macOS session leader exits only once its pty output can drain
+        os.waitpid(pid, 0)
+        shutil.rmtree(d, ignore_errors=True)
+
+
+if os.path.exists("/bin/bash"):
+    for form in ("simple", "list"):
+        ok, det = k6e_session("/bin/bash", form)
+        check("run.k6e_job_control_bash_" + form, ok, det)
+else:
+    check("run.k6e_job_control_bash", False, "BLOCKED: /bin/bash missing in this environment")
+if os.path.exists("/bin/zsh"):
+    for form in ("simple", "list"):
+        ok, det = k6e_session("/bin/zsh", form)
+        print("OBSERVE run.k6e_job_control_zsh_%s (non-gating, not counted): %s %s" % (form, "ok" if ok else "FAIL", det),
+              flush=True)
+
+# K6d: heimdall-proto shares the foreground group of a bash -i pipeline job; an explicit kill(<pid>, sig)
+# must reach the child at least once (duplicates allowed). Child records signals via a wakeup fd.
+K6D_CHILD = r"""
+import json, os, signal, sys, time
+d = sys.argv[1]
+r, w = os.pipe(); os.set_blocking(r, False); os.set_blocking(w, False)
+signal.set_wakeup_fd(w, warn_on_full_buffer=False)
+for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT, signal.SIGWINCH):
+    signal.signal(s, lambda n, f: None)
+open(os.path.join(d, "ready.part"), "w").write(json.dumps({"ppid": os.getppid(), "pgrp": os.getpgrp()}))
+os.replace(os.path.join(d, "ready.part"), os.path.join(d, "ready"))
+got = []
+end = time.time() + 30
+while time.time() < end and not os.path.exists(os.path.join(d, "stop")):
+    time.sleep(0.01)
+    try:
+        got += [signal.Signals(b).name for b in os.read(r, 256)]
+        open(os.path.join(d, "signals"), "w").write(" ".join(got))
+    except BlockingIOError:
+        pass
+os._exit(7)
+"""
+
+
+def k6d_pipeline(layout, signame, via="kill"):
+    """via="kill": kill(<heimdall-proto pid>, sig) from outside the job (gated, K6d).
+    via="tty": the terminal generates SIGINT (^C) for the foreground job (observation only: K6b allows a duplicate)."""
+    import pty
+    d = tempfile.mkdtemp(prefix="hp-k6d-")
+    open(os.path.join(d, "c.py"), "w").write(K6D_CHILD)
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ.clear()
+        os.environ.update({"PATH": "/usr/bin:/bin", "HOME": d, "TERM": "xterm", "PS1": "HMPS1$ ", "LANG": "C.UTF-8",
+                           "HISTFILE": os.path.join(d, "hist"), "BASH_SILENCE_DEPRECATION_WARNING": "1",
+                           "P": BIN, "Y": sys.executable, "D": d})
+        os.execv("/bin/bash", ["bash", "--norc", "--noprofile", "-i"])
+    buf = bytearray()
+
+    def pump(t):
+        end = time.monotonic() + t
+        while time.monotonic() < end:
+            r, _, _ = select.select([fd], [], [], 0.02)
+            if r:
+                try:
+                    b = os.read(fd, 4096)
+                except OSError:
+                    return
+                if not b:
+                    return
+                buf.extend(b)
+    try:
+        pump(0.8)
+        if layout == "first":
+            cmd = '"$P" run -- "$Y" "$D/c.py" "$D" | cat; echo K6D_DONE'
+        elif layout == "alone":
+            cmd = '"$P" run -- "$Y" "$D/c.py" "$D"; echo K6D_DONE'
+        else:
+            cmd = 'while [ ! -e "$D/stop" ]; do sleep 0.05; done | "$P" run -- "$Y" "$D/c.py" "$D"; echo "K6D_DONE ${PIPESTATUS[1]}"'
+        os.write(fd, cmd.encode() + b"\r")
+        end = time.monotonic() + 10
+        while time.monotonic() < end and not os.path.exists(os.path.join(d, "ready")):
+            pump(0.02)
+        info = json.load(open(os.path.join(d, "ready")))
+        fg = os.tcgetpgrp(fd)
+        shared = fg == info["pgrp"] and os.getpgid(info["ppid"]) == info["pgrp"]
+        pump(0.1)
+        if via == "tty":
+            os.write(fd, b"\x03")
+        else:
+            os.kill(info["ppid"], getattr(signal, signame))
+        end = time.monotonic() + 3
+        while time.monotonic() < end and not (os.path.exists(os.path.join(d, "signals")) and
+                                              open(os.path.join(d, "signals")).read()):
+            pump(0.02)
+        pump(0.3)
+        open(os.path.join(d, "stop"), "w").write("1")
+        end = time.monotonic() + 5
+        while time.monotonic() < end and buf.count(b"K6D_DONE") < 2:  # the echoed command line, then the output
+            pump(0.05)
+        got = open(os.path.join(d, "signals")).read().split() if os.path.exists(os.path.join(d, "signals")) else []
+        return shared, got
+    finally:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        os.close(fd)  # before reaping (see k6e_session)
+        os.waitpid(pid, 0)
+        shutil.rmtree(d, ignore_errors=True)
+
+
+if os.path.exists("/bin/bash"):
+    for layout in ("first", "last"):
+        res = {}
+        for sn in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT", "SIGWINCH"):
+            res[sn] = k6d_pipeline(layout, sn)
+        ok = all(sh and len(g) >= 1 and set(g) == {sn} for sn, (sh, g) in res.items())
+        check("run.k6d_pipeline_%s_explicit_signals" % layout, ok,
+              " ".join("%s:shared=%s,got=%s" % (sn, sh, ",".join(g) or "-") for sn, (sh, g) in res.items()))
+    # Terminal-generated ^C, 3 trials per layout: how often the child sees SIGINT (2 = kernel + forward, K6b).
+    for layout in ("first", "alone"):
+        counts = [len(k6d_pipeline(layout, "SIGINT", via="tty")[1]) for _ in range(3)]
+        print("OBSERVE run.terminal_ctrl_c_deliveries_%s (non-gating, not counted): %s heimdall-proto %s; child SIGINT "
+              "deliveries per trial %s" % (layout, sys.platform, "shares the foreground job (modeShared)" if layout == "first"
+                                           else "alone in its job (modeExclusive)", counts), flush=True)
+
+# Environment-selected terminfo (TERM traversal to /dev/zero, a FIFO named after TERM, a malformed entry):
+# the TUI draws, quits on q with exit 0, stays small and never panics. Round 2: unbounded read, hang, exit 2.
+TI_CRASH = b"\x1a\x01 \x000\x9d0\xc40\xf5" + b"0" * 33 + b"\x00" + b"0" * 6
+with tempfile.TemporaryDirectory() as d:
+    ti = os.path.join(d, "ti", "x")
+    os.makedirs(ti)
+    open(os.path.join(ti, "xterm-hmcrash"), "wb").write(TI_CRASH)
+    os.mkfifo(os.path.join(ti, "xterm-hmfifo"))
+    base = {"PATH": "/usr/bin:/bin", "HOME": d, "USER": "hp-test"}  # USER: cgo-less os/user.Current needs it without a passwd entry
+    cases = {"traversal_dev_zero": {"TERM": "../" * 12 + "dev/zero"},
+             "fifo_terminfo": {"TERM": "xterm-hmfifo", "TERMINFO": os.path.join(d, "ti")},
+             "malformed_entry": {"TERM": "xterm-hmcrash", "TERMINFO": os.path.join(d, "ti")}}
+    for name, extra in cases.items():
+        p, m, s_, before = spawn_pty([BIN, "tui", "--file", os.path.join(FIX, "homelab.toml")], env=dict(base, **extra))
+        out, peak = b"", 0
+        end = time.monotonic() + 3
+        while time.monotonic() < end and b"\x1b[?1049h" not in out and peak < 512 * 1024:
+            out += read_for(m, 0.05)
+            peak = max(peak, rss_kib(p.pid))  # watchdog: the round-2 binary grows without bound here
+        drew = b"\x1b[?1049h" in out
+        if drew:
+            os.write(m, b"q")
+            rc, rest, _ = finish(p, m, s_, before)
+            out += rest if isinstance(rest, bytes) else b""
+        else:
+            p.kill()  # exactly the process this check started
+            rc, _, _ = finish(p, m, s_, before)
+        check("tui.terminfo_" + name, drew and rc == 0 and b"goroutine " not in out and peak < 256 * 1024,
+              "drew=%s exit=%s peak_rss_kib=%d" % (drew, rc, peak))
+
 print(f"SUMMARY {sum(results)}/{len(results)} passed", flush=True)
 sys.exit(0 if all(results) else 1)

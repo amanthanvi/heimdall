@@ -1,0 +1,12 @@
+## 2026-10-04T21:38:18Z
+cc rc=0
+## control: /bin/echo is SIP-protected, use a non-hardened copy of python? use a fresh cc binary
+control rc=0 injected=yes
+heimdall rc=0 injected=no
+## K7 GODEBUG=execerrdot=0 with PATH=. and an executable ./tool in cwd
+heimdall-proto: run: command resolved to the current directory via PATH; refused (use ./name)
+GODEBUG= rc=127
+heimdall-proto: run: command resolved to the current directory via PATH; refused (use ./name)
+GODEBUG=execerrdot=0 rc=127
+heimdall-proto: run: command resolved to the current directory via PATH; refused (use ./name)
+GODEBUG=execerrdot=1 rc=127

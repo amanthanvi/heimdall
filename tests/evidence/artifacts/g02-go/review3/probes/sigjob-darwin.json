@@ -1,0 +1,2163 @@
+{
+ "heimdall_bin": "/tmp/hp-go-rv3/go/dist/darwin-arm64/heimdall-proto",
+ "uname": "Darwin arm64",
+ "shell_versions": {
+  "bash": [
+   "GNU bash, version 3.2.57(1)-release (arm64-apple-darwin26)"
+  ],
+  "zsh": [
+   "zsh 5.9 (arm64-apple-darwin26.0)"
+  ],
+  "dash": []
+ },
+ "results": [
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 41236,
+    "ppid": 41235,
+    "pgid": 41236,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 41235,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.0
+  },
+  {
+   "layout": "pipeline_first",
+   "start": {
+    "child": 41242,
+    "ppid": 41240,
+    "pgid": 41240,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 41240,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.02
+  },
+  {
+   "layout": "pipeline_last",
+   "start": {
+    "child": 41282,
+    "ppid": 41281,
+    "pgid": 41280,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 41280,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.07
+  },
+  {
+   "layout": "wrapper",
+   "start": {
+    "child": 41291,
+    "ppid": 41290,
+    "pgid": 41289,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 41289,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.02
+  },
+  {
+   "layout": "sh_c",
+   "start": {
+    "child": 42058,
+    "ppid": 42057,
+    "pgid": 42056,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 42056,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.01
+  },
+  {
+   "layout": "make",
+   "start": {
+    "child": 42070,
+    "ppid": 42069,
+    "pgid": 42067,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 42067,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.19
+  },
+  {
+   "layout": "nohup",
+   "start": {
+    "child": 42232,
+    "ppid": 42231,
+    "pgid": 42232,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:ign,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 42231,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 0,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.02
+  },
+  {
+   "layout": "stdin_file",
+   "start": {
+    "child": 42288,
+    "ppid": 42287,
+    "pgid": 42288,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 42287,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "bash",
+   "secs": 3.02
+  },
+  {
+   "layout": "control",
+   "what": "ctrl_c",
+   "start": {
+    "child": 42292,
+    "ppid": 42291,
+    "pgid": 42292,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "bash",
+   "secs": 2.87
+  },
+  {
+   "layout": "control",
+   "what": "winch",
+   "start": {
+    "child": 42295,
+    "ppid": 42294,
+    "pgid": 42295,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "winch",
+   "shell": "bash",
+   "secs": 2.89
+  },
+  {
+   "layout": "exclusive",
+   "what": "ctrl_c",
+   "start": {
+    "child": 42309,
+    "ppid": 42308,
+    "pgid": 42309,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "bash",
+   "secs": 2.9
+  },
+  {
+   "layout": "exclusive",
+   "what": "winch",
+   "start": {
+    "child": 42324,
+    "ppid": 42323,
+    "pgid": 42324,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "bash",
+   "secs": 2.91
+  },
+  {
+   "layout": "pipeline_first",
+   "what": "ctrl_c",
+   "start": {
+    "child": 42330,
+    "ppid": 42328,
+    "pgid": 42328,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2
+   ],
+   "final_rc": 130,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "bash",
+   "secs": 1.49
+  },
+  {
+   "layout": "pipeline_first",
+   "what": "winch",
+   "start": {
+    "child": 42334,
+    "ppid": 42332,
+    "pgid": 42332,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "bash",
+   "secs": 2.9
+  },
+  {
+   "layout": "wrapper",
+   "what": "ctrl_c",
+   "start": {
+    "child": 42389,
+    "ppid": 42388,
+    "pgid": 42387,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "bash",
+   "secs": 2.87
+  },
+  {
+   "layout": "wrapper",
+   "what": "winch",
+   "start": {
+    "child": 42856,
+    "ppid": 42855,
+    "pgid": 42854,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "bash",
+   "secs": 2.89
+  },
+  {
+   "layout": "stdin_file",
+   "what": "ctrl_c",
+   "start": {
+    "child": 42893,
+    "ppid": 42892,
+    "pgid": 42893,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "bash",
+   "secs": 2.93
+  },
+  {
+   "layout": "stdin_file",
+   "what": "winch",
+   "start": {
+    "child": 43014,
+    "ppid": 43013,
+    "pgid": 43014,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "bash",
+   "secs": 2.96
+  },
+  {
+   "layout": "control",
+   "iterations": [
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z\r\n[1]+  Stopped                 /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-control.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "jobfg-bash-control.log read\r\nline0\r\nGOT line0\r\n^Z\r\n[1]+  Stopped                 /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-control.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "jobfg-bash-control.log read\r\nline1\r\nGOT line1\r\n^Z\r\n[1]+  Stopped                 /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-control.log read\r\nPRMPT$ "
+    }
+   ],
+   "start": {
+    "child": 43068,
+    "ppid": 43067,
+    "pgid": 43068,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "bash",
+   "secs": 6.44
+  },
+  {
+   "layout": "exclusive",
+   "iterations": [
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "rv3-_a48p82q/jobfg-bash-exclusive.log read\r\nPRMPT$ fg\r\n\"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-exclusive.log read\r\nline0\r\nGOT line0\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z\r\n[1]+  Stopped                 \"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-exclusive.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "rv3-_a48p82q/jobfg-bash-exclusive.log read\r\nPRMPT$ fg\r\n\"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-exclusive.log read\r\nline2\r\nGOT line2\r\n"
+    }
+   ],
+   "start": {
+    "child": 43080,
+    "ppid": 43079,
+    "pgid": 43080,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "bash",
+   "secs": 6.5
+  },
+  {
+   "layout": "pipeline_first",
+   "iterations": [
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "h-pipeline_first.log read | cat\r\nPRMPT$ fg\r\n\"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-pipeline_first.log read | cat\r\nline0\r\nGOT line0\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z\r\n[1]+  Stopped                 \"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-pipeline_first.log read | cat\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "t\r\nline1\r\nGOT line1\r\n^Z\r\n[1]+  Stopped                 \"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-bash-pipeline_first.log read | cat\r\nPRMPT$ "
+    }
+   ],
+   "start": {
+    "child": 43120,
+    "ppid": 43118,
+    "pgid": 43118,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "bash",
+   "secs": 6.48
+  },
+  {
+   "layout": "control",
+   "start": {
+    "child": 43192,
+    "ppid": 43191,
+    "pgid": 43192,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "stop_reported": true,
+   "after_bg_tty": "bg\r\n[1]+ /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-bash-control.log read &\r\nPRMPT$ jobs\r\n[1]+  Stopped                 /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-bash-control.log read\r\nPRMPT$ ",
+   "after_bg_job_reports": [
+    "Stopped                 /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-bash-control.log read"
+   ],
+   "child_state_after_bg": "T",
+   "got_line_after_fg": true,
+   "child_state_after_fg": "S+",
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "q12",
+   "shell": "bash",
+   "secs": 3.32
+  },
+  {
+   "layout": "control",
+   "start": {
+    "child": 43886,
+    "ppid": 43885,
+    "pgid": 43886,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "shell_reported_stop": true,
+   "child_beats_while_job_stopped": 0,
+   "child_state": "T",
+   "target_state": "T",
+   "child_beats_after_fg": 5,
+   "final_rc": 0,
+   "tty": "artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-bash-control.log beat\r\nPRMPT$ fg\r\n/opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-bash-control.log beat\r\necho RC=$?\r\nPRMPT$ echo RC=$?\r\nRC=0\r\nPRMPT$ ",
+   "scenario": "tstp",
+   "shell": "bash",
+   "secs": 3.19
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 44006,
+    "ppid": 44005,
+    "pgid": 44006,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "stop_reported": true,
+   "after_bg_tty": "HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-bash-exclusive.log read &\r\nPRMPT$ jobs\r\n[1]+  Stopped                 \"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-bash-exclusive.log read\r\nPRMPT$ ",
+   "after_bg_job_reports": [
+    "Stopped                 \"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-bash-exclusive.log read"
+   ],
+   "child_state_after_bg": "T",
+   "hp_state_after_bg": "T",
+   "got_line_after_fg": true,
+   "child_state_after_fg": "S+",
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "q12",
+   "shell": "bash",
+   "secs": 3.34
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 44070,
+    "ppid": 44069,
+    "pgid": 44070,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "shell_reported_stop": true,
+   "child_beats_while_job_stopped": 10,
+   "child_state": "S",
+   "target_state": "T",
+   "child_beats_after_fg": 4,
+   "final_rc": 0,
+   "tty": "review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-bash-exclusive.log beat\r\nPRMPT$ fg\r\n\"$HP\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-bash-exclusive.log beat\r\necho RC=$?\r\nPRMPT$ echo RC=$?\r\nRC=0\r\nPRMPT$ ",
+   "scenario": "tstp",
+   "shell": "bash",
+   "secs": 3.22
+  },
+  {
+   "layout": "control",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 44090,
+    "ppid": 44089,
+    "pgid": 44090,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 1,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=44090 ppid=44089 pgid=44090 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670352.952"
+   ],
+   "heimdall_alive_after_child_end": null,
+   "scenario": "hangup",
+   "shell": "bash",
+   "secs": 3.27
+  },
+  {
+   "layout": "exclusive",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 44096,
+    "ppid": 44095,
+    "pgid": 44096,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 1,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "heimdall_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=44096 ppid=44095 pgid=44096 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670356.266"
+   ],
+   "heimdall_alive_after_child_end": false,
+   "scenario": "hangup",
+   "shell": "bash",
+   "secs": 3.31
+  },
+  {
+   "layout": "pipeline_first",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 44158,
+    "ppid": 44156,
+    "pgid": 44156,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 2,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "heimdall_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=44158 ppid=44156 pgid=44156 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670359.570",
+    "SIG SIGHUP 670359.570"
+   ],
+   "heimdall_alive_after_child_end": false,
+   "scenario": "hangup",
+   "shell": "bash",
+   "secs": 3.31
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 44193,
+    "ppid": 44192,
+    "pgid": 44193,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44192,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.03
+  },
+  {
+   "layout": "pipeline_first",
+   "start": {
+    "child": 44200,
+    "ppid": 44199,
+    "pgid": 44199,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44199,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.02
+  },
+  {
+   "layout": "pipeline_last",
+   "start": {
+    "child": 44214,
+    "ppid": 44213,
+    "pgid": 44212,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44212,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.07
+  },
+  {
+   "layout": "wrapper",
+   "start": {
+    "child": 44648,
+    "ppid": 44647,
+    "pgid": 44646,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44646,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.02
+  },
+  {
+   "layout": "sh_c",
+   "start": {
+    "child": 44659,
+    "ppid": 44658,
+    "pgid": 44657,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44657,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.03
+  },
+  {
+   "layout": "make",
+   "start": {
+    "child": 44808,
+    "ppid": 44807,
+    "pgid": 44806,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44806,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.02
+  },
+  {
+   "layout": "nohup",
+   "start": {
+    "child": 44819,
+    "ppid": 44818,
+    "pgid": 44819,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:ign,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44818,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 0,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.02
+  },
+  {
+   "layout": "stdin_file",
+   "start": {
+    "child": 44825,
+    "ppid": 44824,
+    "pgid": 44825,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 44824,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "zsh",
+   "secs": 3.07
+  },
+  {
+   "layout": "control",
+   "what": "ctrl_c",
+   "start": {
+    "child": 44869,
+    "ppid": 44868,
+    "pgid": 44869,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "zsh",
+   "secs": 2.87
+  },
+  {
+   "layout": "control",
+   "what": "winch",
+   "start": {
+    "child": 44886,
+    "ppid": 44885,
+    "pgid": 44886,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "winch",
+   "shell": "zsh",
+   "secs": 2.91
+  },
+  {
+   "layout": "exclusive",
+   "what": "ctrl_c",
+   "start": {
+    "child": 44890,
+    "ppid": 44889,
+    "pgid": 44890,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "zsh",
+   "secs": 2.91
+  },
+  {
+   "layout": "exclusive",
+   "what": "winch",
+   "start": {
+    "child": 44898,
+    "ppid": 44897,
+    "pgid": 44898,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "zsh",
+   "secs": 2.95
+  },
+  {
+   "layout": "pipeline_first",
+   "what": "ctrl_c",
+   "start": {
+    "child": 44929,
+    "ppid": 44927,
+    "pgid": 44927,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2
+   ],
+   "final_rc": 130,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "zsh",
+   "secs": 1.49
+  },
+  {
+   "layout": "pipeline_first",
+   "what": "winch",
+   "start": {
+    "child": 44950,
+    "ppid": 44948,
+    "pgid": 44948,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "zsh",
+   "secs": 2.91
+  },
+  {
+   "layout": "wrapper",
+   "what": "ctrl_c",
+   "start": {
+    "child": 45608,
+    "ppid": 45607,
+    "pgid": 45606,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "zsh",
+   "secs": 2.91
+  },
+  {
+   "layout": "wrapper",
+   "what": "winch",
+   "start": {
+    "child": 45635,
+    "ppid": 45634,
+    "pgid": 45633,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "zsh",
+   "secs": 2.9
+  },
+  {
+   "layout": "stdin_file",
+   "what": "ctrl_c",
+   "start": {
+    "child": 45869,
+    "ppid": 45868,
+    "pgid": 45869,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "zsh",
+   "secs": 2.92
+  },
+  {
+   "layout": "stdin_file",
+   "what": "winch",
+   "start": {
+    "child": 45875,
+    "ppid": 45874,
+    "pgid": 45875,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "zsh",
+   "secs": 2.95
+  },
+  {
+   "layout": "control",
+   "iterations": [
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z\r\nzsh: suspended  /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  /opt/homebrew/bin/python3   read\r\nline0\r\nGOT line0\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z\r\nzsh: suspended  /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  /opt/homebrew/bin/python3   read\r\nline1\r\nGOT line1\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z\r\nzsh: suspended  /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  /opt/homebrew/bin/python3   read\r\nline2\r\nGOT line2\r\n"
+    }
+   ],
+   "start": {
+    "child": 45888,
+    "ppid": 45882,
+    "pgid": 45888,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "zsh",
+   "secs": 6.51
+  },
+  {
+   "layout": "exclusive",
+   "iterations": [
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "sh: suspended  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\nline0\r\nGOT line0\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "sh: suspended  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\nline1\r\nGOT line1\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "sh: suspended  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\nline2\r\nGOT line2\r\n"
+    }
+   ],
+   "start": {
+    "child": 45942,
+    "ppid": 45941,
+    "pgid": 45942,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "zsh",
+   "secs": 6.53
+  },
+  {
+   "layout": "pipeline_first",
+   "iterations": [
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "d  \"$HP\" run -- /opt/homebrew/bin/python3   read | cat\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   read | cat\r\nline0\r\nGOT line0\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "d  \"$HP\" run -- /opt/homebrew/bin/python3   read | cat\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   read | cat\r\nline1\r\nGOT line1\r\n"
+    },
+    {
+     "shell_reported_stop": true,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "T",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "d  \"$HP\" run -- /opt/homebrew/bin/python3   read | cat\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   read | cat\r\nline2\r\nGOT line2\r\n"
+    }
+   ],
+   "start": {
+    "child": 45962,
+    "ppid": 45960,
+    "pgid": 45960,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "zsh",
+   "secs": 6.53
+  },
+  {
+   "layout": "control",
+   "start": {
+    "child": 46375,
+    "ppid": 46374,
+    "pgid": 46375,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "stop_reported": true,
+   "after_bg_tty": "ued  /opt/homebrew/bin/python3   read\r\njobs\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004h\r\r\n[1]  + suspended (tty input)  /opt/homebrew/bin/python3   read\r\n\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[Kj\bjobs\u001b[?2004l\r\r\n[1]  + suspended (tty input)  /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004h",
+   "after_bg_job_reports": [
+    "suspended (tty input)  /opt/homebrew/bin/python3   read",
+    "suspended (tty input)  /opt/homebrew/bin/python3   read"
+   ],
+   "child_state_after_bg": "T",
+   "got_line_after_fg": true,
+   "child_state_after_fg": "S+",
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "q12",
+   "shell": "zsh",
+   "secs": 3.27
+  },
+  {
+   "layout": "control",
+   "start": {
+    "child": 46529,
+    "ppid": 46528,
+    "pgid": 46529,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "shell_reported_stop": true,
+   "child_beats_while_job_stopped": 0,
+   "child_state": "T",
+   "target_state": "T",
+   "child_beats_after_fg": 0,
+   "final_rc": 0,
+   "tty": "24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  /opt/homebrew/bin/python3   beat\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004he\becho RC=$?\u001b[?2004l\r\r\nRC=0\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004h",
+   "scenario": "tstp",
+   "shell": "zsh",
+   "secs": 3.23
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 46542,
+    "ppid": 46541,
+    "pgid": 46542,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "stop_reported": true,
+   "after_bg_tty": "on3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \rjobs\r\n\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004hj\r\r\n[1]  + suspended (tty input)  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\n\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ j\u001b[K\bjobs\u001b[?2004l\r\r\n[1]  + suspended (tty input)  \"$HP\" run -- /opt/homebrew/bin/python3   read\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004h",
+   "after_bg_job_reports": [
+    "suspended (tty input)  \"$HP\" run -- /opt/homebrew/bin/python3   read",
+    "suspended (tty input)  \"$HP\" run -- /opt/homebrew/bin/python3   read"
+   ],
+   "child_state_after_bg": "T",
+   "hp_state_after_bg": "T",
+   "got_line_after_fg": true,
+   "child_state_after_fg": "S+",
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "q12",
+   "shell": "zsh",
+   "secs": 3.28
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 46550,
+    "ppid": 46549,
+    "pgid": 46550,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "shell_reported_stop": true,
+   "child_beats_while_job_stopped": 10,
+   "child_state": "S",
+   "target_state": "T",
+   "child_beats_after_fg": 5,
+   "final_rc": 0,
+   "tty": "\u001b[K\u001b[?2004hf\bfg\u001b[?2004l\r\r\n[1]  + continued  \"$HP\" run -- /opt/homebrew/bin/python3   beat\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004he\becho RC=$?\u001b[?2004l\r\r\nRC=0\r\n\u001b[1m\u001b[7m%\u001b[27m\u001b[1m\u001b[0m                                                                               \r \r\r\u001b[0m\u001b[27m\u001b[24m\u001b[JPRMPT$ \u001b[K\u001b[?2004h",
+   "scenario": "tstp",
+   "shell": "zsh",
+   "secs": 3.22
+  },
+  {
+   "layout": "control",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 46555,
+    "ppid": 46554,
+    "pgid": 46555,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 2,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=46555 ppid=46554 pgid=46555 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670447.416",
+    "SIG SIGHUP 670447.417"
+   ],
+   "heimdall_alive_after_child_end": null,
+   "scenario": "hangup",
+   "shell": "zsh",
+   "secs": 3.27
+  },
+  {
+   "layout": "exclusive",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 46566,
+    "ppid": 46565,
+    "pgid": 46566,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 2,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "heimdall_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=46566 ppid=46565 pgid=46566 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670450.723",
+    "SIG SIGHUP 670450.724"
+   ],
+   "heimdall_alive_after_child_end": false,
+   "scenario": "hangup",
+   "shell": "zsh",
+   "secs": 3.31
+  },
+  {
+   "layout": "pipeline_first",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 46574,
+    "ppid": 46572,
+    "pgid": 46572,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 4,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "heimdall_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "SIG SIGHUP 670454.034",
+    "SIG SIGHUP 670454.034",
+    "SIG SIGHUP 670454.036",
+    "SIG SIGHUP 670454.035"
+   ],
+   "heimdall_alive_after_child_end": false,
+   "scenario": "hangup",
+   "shell": "zsh",
+   "secs": 3.31
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 46581,
+    "ppid": 46580,
+    "pgid": 46581,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 46580,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.03
+  },
+  {
+   "layout": "pipeline_first",
+   "start": {
+    "child": 46594,
+    "ppid": 46592,
+    "pgid": 46592,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 46592,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.03
+  },
+  {
+   "layout": "pipeline_last",
+   "start": {
+    "child": 47247,
+    "ppid": 47246,
+    "pgid": 47245,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 47245,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.04
+  },
+  {
+   "layout": "wrapper",
+   "start": {
+    "child": 47253,
+    "ppid": 47252,
+    "pgid": 47251,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 47251,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.02
+  },
+  {
+   "layout": "sh_c",
+   "start": {
+    "child": 47459,
+    "ppid": 47458,
+    "pgid": 47457,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 47457,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.01
+  },
+  {
+   "layout": "make",
+   "start": {
+    "child": 47468,
+    "ppid": 47467,
+    "pgid": 47466,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 47466,
+   "hp_pgid_equals_child_pgid": true,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.02
+  },
+  {
+   "layout": "nohup",
+   "start": {
+    "child": 47510,
+    "ppid": 47509,
+    "pgid": 47510,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:ign,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 47509,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 0,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 2.98
+  },
+  {
+   "layout": "stdin_file",
+   "start": {
+    "child": 47518,
+    "ppid": 47517,
+    "pgid": 47518,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "hp_pgid": 47517,
+   "hp_pgid_equals_child_pgid": false,
+   "deliveries": {
+    "SIGINT": 1,
+    "SIGTERM": 1,
+    "SIGHUP": 1,
+    "SIGQUIT": 1,
+    "SIGWINCH": 1
+   },
+   "heimdall_alive_after_signals": true,
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "explicit",
+   "shell": "dash",
+   "secs": 3.07
+  },
+  {
+   "layout": "control",
+   "what": "ctrl_c",
+   "start": {
+    "child": 47528,
+    "ppid": 47527,
+    "pgid": 47528,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "dash",
+   "secs": 2.9
+  },
+  {
+   "layout": "control",
+   "what": "winch",
+   "start": {
+    "child": 47549,
+    "ppid": 47548,
+    "pgid": 47549,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "winch",
+   "shell": "dash",
+   "secs": 2.86
+  },
+  {
+   "layout": "exclusive",
+   "what": "ctrl_c",
+   "start": {
+    "child": 47585,
+    "ppid": 47584,
+    "pgid": 47585,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "dash",
+   "secs": 2.86
+  },
+  {
+   "layout": "exclusive",
+   "what": "winch",
+   "start": {
+    "child": 47614,
+    "ppid": 47613,
+    "pgid": 47614,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "dash",
+   "secs": 2.9
+  },
+  {
+   "layout": "pipeline_first",
+   "what": "ctrl_c",
+   "start": {
+    "child": 47750,
+    "ppid": 47748,
+    "pgid": 47748,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2
+   ],
+   "final_rc": 130,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "dash",
+   "secs": 1.46
+  },
+  {
+   "layout": "pipeline_first",
+   "what": "winch",
+   "start": {
+    "child": 48035,
+    "ppid": 48033,
+    "pgid": 48033,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "dash",
+   "secs": 2.9
+  },
+  {
+   "layout": "wrapper",
+   "what": "ctrl_c",
+   "start": {
+    "child": 48185,
+    "ppid": 48184,
+    "pgid": 48183,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "dash",
+   "secs": 2.87
+  },
+  {
+   "layout": "wrapper",
+   "what": "winch",
+   "start": {
+    "child": 48194,
+    "ppid": 48193,
+    "pgid": 48192,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    2,
+    2,
+    2
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "dash",
+   "secs": 2.9
+  },
+  {
+   "layout": "stdin_file",
+   "what": "ctrl_c",
+   "start": {
+    "child": 48197,
+    "ppid": 48196,
+    "pgid": 48197,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "ctrl_c",
+   "shell": "dash",
+   "secs": 2.95
+  },
+  {
+   "layout": "stdin_file",
+   "what": "winch",
+   "start": {
+    "child": 48207,
+    "ppid": 48206,
+    "pgid": 48207,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "per_trial_deliveries": [
+    1,
+    1,
+    1
+   ],
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "winch",
+   "shell": "dash",
+   "secs": 2.95
+  },
+  {
+   "layout": "control",
+   "iterations": [
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z[1] + Suspended: 18              /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-control.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "obfg-dash-control.log read\r\nline0\r\nGOT line0\r\n^Z[1] + Suspended: 18              /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-control.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "obfg-dash-control.log read\r\nline1\r\nGOT line1\r\n^Z[1] + Suspended: 18              /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-control.log read\r\nPRMPT$ "
+    }
+   ],
+   "start": {
+    "child": 48210,
+    "ppid": 48209,
+    "pgid": 48210,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "dash",
+   "secs": 15.24
+  },
+  {
+   "layout": "exclusive",
+   "iterations": [
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z[1] + Suspended: 18              \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-exclusive.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": ".log read\r\nline0\r\nGOT line0\r\n^Z[1] + Suspended: 18              \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-exclusive.log read\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": ".log read\r\nline1\r\nGOT line1\r\n^Z[1] + Suspended: 18              \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-exclusive.log read\r\nPRMPT$ "
+    }
+   ],
+   "start": {
+    "child": 48944,
+    "ppid": 48933,
+    "pgid": 48944,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "dash",
+   "secs": 15.24
+  },
+  {
+   "layout": "pipeline_first",
+   "iterations": [
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "^Z[1] + Suspended: 18              \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-pipeline_first.log read | cat\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "line0\r\nGOT line0\r\n^Z[1] + Suspended: 18              \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-pipeline_first.log read | cat\r\nPRMPT$ "
+    },
+    {
+     "shell_reported_stop": false,
+     "child_state_stopped": "T",
+     "child_state_after_fg": "S+",
+     "got_line": true,
+     "restopped_after_fg": false,
+     "tty_tail": "line1\r\nGOT line1\r\n^Z[1] + Suspended: 18              \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/jobfg-dash-pipeline_first.log read | cat\r\nPRMPT$ "
+    }
+   ],
+   "start": {
+    "child": 49250,
+    "ppid": 49248,
+    "pgid": 49248,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 0,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "jobctl_fg",
+   "shell": "dash",
+   "secs": 15.28
+  },
+  {
+   "layout": "control",
+   "start": {
+    "child": 49600,
+    "ppid": 49486,
+    "pgid": 49600,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "stop_reported": false,
+   "after_bg_tty": "bg\r\n[1] /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-dash-control.log read\r\nPRMPT$ jobs\r\n[1] + Stopped (tty input): 21    /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-dash-control.log read\r\nPRMPT$ ",
+   "after_bg_job_reports": [
+    "Stopped (tty input): 21    /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-dash-control.log read"
+   ],
+   "child_state_after_bg": "T",
+   "got_line_after_fg": true,
+   "child_state_after_fg": "S+",
+   "final_rc": 0,
+   "child_alive_after": false,
+   "scenario": "q12",
+   "shell": "dash",
+   "secs": 6.25
+  },
+  {
+   "layout": "control",
+   "start": {
+    "child": 49885,
+    "ppid": 49884,
+    "pgid": 49885,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "shell_reported_stop": false,
+   "child_beats_while_job_stopped": 0,
+   "child_state": "T",
+   "target_state": "T",
+   "child_beats_after_fg": 5,
+   "final_rc": 0,
+   "tty": "ts/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-dash-control.log beat\r\nPRMPT$ fg\r\n/opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-dash-control.log beat\r\necho RC=$?\r\nPRMPT$ RC=0\r\nPRMPT$ ",
+   "scenario": "tstp",
+   "shell": "dash",
+   "secs": 6.13
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 49909,
+    "ppid": 49908,
+    "pgid": 49909,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "stop_reported": false,
+   "after_bg_tty": " run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-dash-exclusive.log read\r\nPRMPT$ jobs\r\n[1] + Stopped (tty input): 21    \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-dash-exclusive.log read\r\nPRMPT$ ",
+   "after_bg_job_reports": [
+    "Stopped (tty input): 21    \"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/q12-dash-exclusive.log read"
+   ],
+   "child_state_after_bg": "T",
+   "hp_state_after_bg": "T",
+   "got_line_after_fg": true,
+   "child_state_after_fg": "S+",
+   "final_rc": 0,
+   "child_alive_after": false,
+   "heimdall_alive_after": false,
+   "scenario": "q12",
+   "shell": "dash",
+   "secs": 6.27
+  },
+  {
+   "layout": "exclusive",
+   "start": {
+    "child": 49922,
+    "ppid": 49921,
+    "pgid": 49922,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "shell_reported_stop": false,
+   "child_beats_while_job_stopped": 10,
+   "child_state": "S",
+   "target_state": "T",
+   "child_beats_after_fg": 5,
+   "final_rc": 0,
+   "tty": "ts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-dash-exclusive.log beat\r\nPRMPT$ fg\r\n\"${HP}\" run -- /opt/homebrew/bin/python3 <HOME>/GitRepos/heimdall/tests/evidence/artifacts/g02-go/review3/probes/child.py <TMPDIR>/hp-rv3-_a48p82q/tstp-dash-exclusive.log beat\r\necho RC=$?\r\nPRMPT$ RC=0\r\nPRMPT$ ",
+   "scenario": "tstp",
+   "shell": "dash",
+   "secs": 6.22
+  },
+  {
+   "layout": "control",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 49937,
+    "ppid": 49936,
+    "pgid": 49937,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 1,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=49937 ppid=49936 pgid=49937 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670579.741"
+   ],
+   "heimdall_alive_after_child_end": null,
+   "scenario": "hangup",
+   "shell": "dash",
+   "secs": 3.3
+  },
+  {
+   "layout": "exclusive",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 50415,
+    "ppid": 50414,
+    "pgid": 50415,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 1,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "heimdall_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=50415 ppid=50414 pgid=50415 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670583.038"
+   ],
+   "heimdall_alive_after_child_end": false,
+   "scenario": "hangup",
+   "shell": "dash",
+   "secs": 3.31
+  },
+  {
+   "layout": "pipeline_first",
+   "child_mode": "beat (does not read the terminal; ends on SIGUSR1)",
+   "start": {
+    "child": 50713,
+    "ppid": 50711,
+    "pgid": 50711,
+    "disp": "SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl"
+   },
+   "deliveries": {
+    "SIGINT": 0,
+    "SIGTERM": 0,
+    "SIGHUP": 2,
+    "SIGQUIT": 0,
+    "SIGWINCH": 0
+   },
+   "child_alive_2s_after_hangup": true,
+   "heimdall_alive_2s_after_hangup": true,
+   "child_log_tail": [
+    "START pid=50713 ppid=50711 pgid=50711 disp=SIGINT:dfl,SIGTERM:dfl,SIGHUP:dfl,SIGQUIT:dfl,SIGWINCH:dfl",
+    "SIG SIGHUP 670586.345",
+    "SIG SIGHUP 670586.345"
+   ],
+   "heimdall_alive_after_child_end": false,
+   "scenario": "hangup",
+   "shell": "dash",
+   "secs": 3.3
+  }
+ ],
+ "leftover_processes": []
+}

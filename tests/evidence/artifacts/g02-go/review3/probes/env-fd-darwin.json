@@ -1,0 +1,44 @@
+{
+ "env": {
+  "envp_passed": [
+   "PATH=/usr/bin:/bin",
+   "DUPKEY=first",
+   "NOEQUALS_ENTRY",
+   "EMPTY=",
+   "DUPKEY=last",
+   "LANG=C"
+  ],
+  "control": {
+   "rc": 0,
+   "child_environ": [
+    "PATH=/usr/bin:/bin",
+    "DUPKEY=first",
+    "NOEQUALS_ENTRY",
+    "EMPTY=",
+    "DUPKEY=last",
+    "LANG=C"
+   ]
+  },
+  "heimdall": {
+   "rc": 0,
+   "child_environ": [
+    "PATH=/usr/bin:/bin",
+    "DUPKEY=first",
+    "NOEQUALS_ENTRY",
+    "EMPTY=",
+    "LANG=C"
+   ]
+  },
+  "identical": false
+ },
+ "fd5_inherited": {
+  "control": {
+   "rc": 0,
+   "fds": "[0, 1, 2, 3, 5]"
+  },
+  "heimdall": {
+   "rc": 0,
+   "fds": "[0, 1, 2, 3, 5]"
+  }
+ }
+}

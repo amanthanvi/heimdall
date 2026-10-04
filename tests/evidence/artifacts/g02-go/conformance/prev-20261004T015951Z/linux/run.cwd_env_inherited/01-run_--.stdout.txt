@@ -1,0 +1,1 @@
+{"cwd": "/tmp/hmg02-9ijcv9jj/095-cwd \u00fc dir", "env": "v \u00fcn\u00ef=1; x"}

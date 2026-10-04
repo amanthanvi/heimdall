@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-03T23:37:43.223Z", "mono_ms": 0.103, "event": "listen", "socket": "/tmp/hmg02-9ijcv9jj/035-agent-comment_overrun/comment_overrun.sock", "mode": "comment_overrun", "keys": 3}
+{"seq": 2, "ts": "2026-10-03T23:37:43.232Z", "mono_ms": 8.757, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-03T23:37:43.232Z", "mono_ms": 8.953, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "comment_overrun", "sent_bytes": 73}
+{"seq": 4, "ts": "2026-10-03T23:37:43.232Z", "mono_ms": 8.986, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 73, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-03T23:37:43.332Z", "mono_ms": 109.683, "event": "shutdown"}

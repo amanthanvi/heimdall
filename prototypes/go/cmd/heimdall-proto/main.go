@@ -13,7 +13,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -247,7 +246,24 @@ func writeMeta(path string, env result.Envelope) error {
 	return f.Close()
 }
 
-func cmdTUI(args []string, stdout, stderr io.Writer) int {
+// tuiBeforeRun is a no-op in the shipped binary. Tests replace it to inject
+// a panic before tea.Program.Run (K10).
+var tuiBeforeRun = func() {}
+
+func cmdTUI(args []string, stdout, stderr io.Writer) (code int) {
+	// K10: an internal panic anywhere on the TUI path that Bubble Tea does not
+	// recover itself (before Program.Run, or after it returned) exits 1 with no
+	// stdout. Before Run the terminal has not been changed; inside Run Bubble
+	// Tea restores it and returns ErrProgramPanic. A panic in a goroutine that
+	// Bubble Tea or ultraviolet starts without a recover (input decoding,
+	// renderer flush, resize listener) cannot be caught by any Go code and ends
+	// the process with status 2: a stack limitation recorded in REPORT.md.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintln(stderr, "heimdall-proto: tui: internal error (panic)")
+			code = result.ExitInternal
+		}
+	}()
 	fs := newFlags("tui")
 	file := fs.String("file", "", "")
 	if err := parseFlags(fs, args); err != nil {
@@ -305,7 +321,8 @@ func runTUI(model tea.Model, m *tui.Model, in *os.File, stdout, stderr io.Writer
 		}
 	}}
 	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithInput(input),
-		tea.WithColorProfile(colorProfileNoExec(os.Stdout, os.Environ()))}
+		tea.WithColorProfile(colorProfileFromEnv(os.Environ()))}
+	tuiBeforeRun()
 	prog = tea.NewProgram(model, append(base, opts...)...)
 
 	sigs := make(chan os.Signal, 4)
@@ -353,19 +370,19 @@ func runTUI(model tea.Model, m *tui.Model, in *os.File, stdout, stderr io.Writer
 	}
 }
 
-// colorProfileNoExec detects the color profile from the environment and the
-// terminfo database only (K16: no helper processes). Bubble Tea would
-// otherwise call colorprofile.Detect, which runs `tmux info` (resolved from
-// PATH, no timeout) whenever TMUX is set. The profile only decides how colors
-// are downsampled; NO_COLOR is still honored by Detect and by the model.
-func colorProfileNoExec(out *os.File, environ []string) colorprofile.Profile {
-	env := make([]string, 0, len(environ))
-	for _, kv := range environ {
-		if !strings.HasPrefix(kv, "TMUX=") {
-			env = append(env, kv)
-		}
-	}
-	return colorprofile.Detect(out, env)
+// colorProfileFromEnv decides the color profile from environment variables
+// only (TERM, COLORTERM, NO_COLOR, CLICOLOR...). The TUI has already checked
+// that stdout is a terminal. Bubble Tea would otherwise call
+// colorprofile.Detect, which runs `tmux info` (resolved from PATH, no
+// timeout) whenever TMUX is set (K16), and reads the terminfo entry that
+// TERM, TERMINFO, TERMINFO_DIRS and HOME select through xo/terminfo without a
+// size bound, a regular-file check or a path check on TERM: TERM=../../dev/zero
+// grew without bound, a FIFO hung the TUI, and a malformed entry panicked the
+// decoder before Run. The profile only decides how colors are downsampled;
+// the cost of skipping terminfo is that a terminal advertising truecolor
+// only through its terminfo Tc/RGB flags gets 256 colors.
+func colorProfileFromEnv(environ []string) colorprofile.Profile {
+	return colorprofile.Env(environ)
 }
 
 // inputHangup reports a terminal input result that means the terminal went

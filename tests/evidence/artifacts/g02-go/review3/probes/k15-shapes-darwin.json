@@ -1,0 +1,121 @@
+{
+ "deep_array_nesting": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.005,
+  "maxrss_mib": 9.2,
+  "bytes": 1048571
+ },
+ "wide_empty_inline_tables": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0044,
+  "maxrss_mib": 9.2,
+  "bytes": 1048575
+ },
+ "wide_strings_array": {
+  "rc": 0,
+  "code": "PROFILE_OK",
+  "wall_s": 0.0351,
+  "maxrss_mib": 25.6,
+  "bytes": 1048575
+ },
+ "wide_int_array": {
+  "rc": 0,
+  "code": "PROFILE_OK",
+  "wall_s": 0.0534,
+  "maxrss_mib": 35.5,
+  "bytes": 1048575
+ },
+ "wide_nested_pairs": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0047,
+  "maxrss_mib": 9.2,
+  "bytes": 1048572
+ },
+ "escape_heavy_string": {
+  "rc": 0,
+  "code": "PROFILE_OK",
+  "wall_s": 0.0129,
+  "maxrss_mib": 13.0,
+  "bytes": 1048575
+ },
+ "multiline_basic_quotes": {
+  "rc": 0,
+  "code": "PROFILE_OK",
+  "wall_s": 0.0199,
+  "maxrss_mib": 14.0,
+  "bytes": 1048576
+ },
+ "many_headers": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0046,
+  "maxrss_mib": 9.2,
+  "bytes": 1037512
+ },
+ "array_of_tables": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0045,
+  "maxrss_mib": 9.2,
+  "bytes": 1048570
+ },
+ "many_keys_flat": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.005,
+  "maxrss_mib": 9.2,
+  "bytes": 1048575
+ },
+ "huge_float_exponents": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0058,
+  "maxrss_mib": 12.8,
+  "bytes": 1048575
+ },
+ "bigint_overflow": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0113,
+  "maxrss_mib": 14.8,
+  "bytes": 1048572
+ },
+ "datetimes": {
+  "rc": 0,
+  "code": "PROFILE_OK",
+  "wall_s": 0.0168,
+  "maxrss_mib": 16.5,
+  "bytes": 1048566
+ },
+ "comments_only": {
+  "rc": 0,
+  "code": "PROFILE_OK",
+  "wall_s": 0.0101,
+  "maxrss_mib": 13.2,
+  "bytes": 1048530
+ },
+ "inline_table_wide_keys": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0049,
+  "maxrss_mib": 9.2,
+  "bytes": 1048576
+ },
+ "nested_array_inline_mix": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0036,
+  "maxrss_mib": 7.3,
+  "bytes": 120056
+ },
+ "crlf_bom": {
+  "rc": 2,
+  "code": "SCHEMA_INVALID",
+  "wall_s": 0.0047,
+  "maxrss_mib": 9.2,
+  "bytes": 1048576
+ }
+}

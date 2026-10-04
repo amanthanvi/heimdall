@@ -1,0 +1,306 @@
+{
+ "darwin-arm64": {
+  "case_id": "G02-go-round3b-conformance-darwin-arm64",
+  "status": "verified",
+  "verdict": "pass",
+  "summary": {
+   "pass": 136,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 136,
+   "duration_s": 185.1
+  },
+  "artifact_digest": "sha256:a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310",
+  "started_at": "2026-10-04T16:35:50-04:00",
+  "harness_version": "2.3.0",
+  "failed_checks": [],
+  "non_gating_assertions_not_ok": [],
+  "observations": {
+   "k6d_shared_mode_deliveries": {
+    "sh-c": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    },
+    "pipeline-first": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    },
+    "pipeline-last": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    }
+   },
+   "k6e_job_control": {
+    "simple": {
+     "shell": "bash",
+     "gating": true,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "list": {
+     "shell": "bash",
+     "gating": true,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "zsh-simple": {
+     "shell": "zsh",
+     "gating": false,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "zsh-list": {
+     "shell": "zsh",
+     "gating": false,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    }
+   },
+   "signal_duplicates": {
+    "deliveries_per_trial": [
+     2,
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     2,
+     1,
+     2
+    ],
+    "trials_with_duplicate": "4/10",
+    "duplicates_observable": true,
+    "always_observable": false,
+    "os": "Darwin"
+   },
+   "k6c_other_inherited_signal_state": {
+    "async-job": {
+     "dispositions": {
+      "SIGQUIT": "SIG_DFL"
+     },
+     "inherited_blocked": [],
+     "still_blocked": [],
+     "proto_exit": 0
+    },
+    "other-ignores-K6c": {
+     "dispositions": {
+      "SIGQUIT": "SIG_DFL",
+      "SIGTERM": "SIG_DFL",
+      "SIGWINCH": "SIG_DFL"
+     },
+     "inherited_blocked": [
+      "SIGUSR2"
+     ],
+     "still_blocked": [
+      "SIGUSR2"
+     ],
+     "proto_exit": 0
+    },
+    "sigpipe-non-python": {
+     "probe": "yes writing into a pipe whose reader closes",
+     "yes": "/usr/bin/yes",
+     "direct": {
+      "default": -13,
+      "ignore": 1
+     },
+     "via_heimdall_proto": {
+      "default": {
+       "proto_rc": 141,
+       "child_exit_code": null,
+       "child_signal": 13
+      },
+      "ignore": {
+       "proto_rc": 141,
+       "child_exit_code": null,
+       "child_signal": 13
+      }
+     },
+     "classification": "child_always_default",
+     "classification_meaning": "the inherited SIGPIPE ignore is reset: the child dies of SIGPIPE in both variants",
+     "inherited_sigpipe_ignore_kept": false
+    }
+   },
+   "k10_exit_form": {
+    "sigterm": "exit 143",
+    "sighup": "exit 129",
+    "hangup-shell-like": "exit 129",
+    "hangup-bare": "exit 129"
+   }
+  },
+  "k17_p95": [
+   "{\"p95_ms\": 17.1, \"max_ms\": 17.8, \"first_keystroke_per_session_ms\": [10.9, 2.8, 10.2, 11.2, 7.1], \"samples_ms\": [10.9, 14.6, 16.0, 15.8, 16.2, 16.5, 2.8, 15.2, 15.7, 15.3, 17.8, 15.7, 10.2, 15.6, 15.4, 16.2, 16.7, 15.3, 11.2, 13.5, 16.8, 16.1, 16.9, 14.9, 7.1, 13.4, 15.7, 16.7, 17.1, 14.9]}"
+  ]
+ },
+ "linux-arm64": {
+  "case_id": "G02-go-round3b-conformance-linux-arm64",
+  "status": "verified",
+  "verdict": "pass",
+  "summary": {
+   "pass": 136,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 136,
+   "duration_s": 177.8
+  },
+  "artifact_digest": "sha256:efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04",
+  "started_at": "2026-10-04T20:40:20+00:00",
+  "harness_version": "2.3.0",
+  "failed_checks": [],
+  "non_gating_assertions_not_ok": [],
+  "observations": {
+   "k6d_shared_mode_deliveries": {
+    "sh-c": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    },
+    "pipeline-first": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    },
+    "pipeline-last": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    }
+   },
+   "k6e_job_control": {
+    "simple": {
+     "shell": "bash",
+     "gating": true,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "list": {
+     "shell": "bash",
+     "gating": true,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "zsh-simple": {
+     "shell": "zsh",
+     "gating": false,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "zsh-list": {
+     "shell": "zsh",
+     "gating": false,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    }
+   },
+   "signal_duplicates": {
+    "deliveries_per_trial": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "trials_with_duplicate": "0/10",
+    "duplicates_observable": false,
+    "always_observable": false,
+    "os": "Linux"
+   },
+   "k6c_other_inherited_signal_state": {
+    "async-job": {
+     "dispositions": {
+      "SIGQUIT": "SIG_DFL"
+     },
+     "inherited_blocked": [],
+     "still_blocked": [],
+     "proto_exit": 0
+    },
+    "other-ignores-K6c": {
+     "dispositions": {
+      "SIGQUIT": "SIG_DFL",
+      "SIGTERM": "SIG_DFL",
+      "SIGWINCH": "SIG_DFL"
+     },
+     "inherited_blocked": [
+      "SIGUSR2"
+     ],
+     "still_blocked": [
+      "SIGUSR2"
+     ],
+     "proto_exit": 0
+    },
+    "sigpipe-non-python": {
+     "probe": "yes writing into a pipe whose reader closes",
+     "yes": "/usr/bin/yes",
+     "direct": {
+      "default": -13,
+      "ignore": 1
+     },
+     "via_heimdall_proto": {
+      "default": {
+       "proto_rc": 141,
+       "child_exit_code": null,
+       "child_signal": 13
+      },
+      "ignore": {
+       "proto_rc": 141,
+       "child_exit_code": null,
+       "child_signal": 13
+      }
+     },
+     "classification": "child_always_default",
+     "classification_meaning": "the inherited SIGPIPE ignore is reset: the child dies of SIGPIPE in both variants",
+     "inherited_sigpipe_ignore_kept": false,
+     "linux_proc_sigign_sigpipe_in_child": false,
+     "linux_proc_sigign_sigpipe_in_child_default": false
+    }
+   },
+   "k10_exit_form": {
+    "sigterm": "exit 143",
+    "sighup": "exit 129",
+    "hangup-shell-like": "exit 129",
+    "hangup-bare": "exit 129"
+   }
+  },
+  "k17_p95": [
+   "{\"p95_ms\": 18.2, \"max_ms\": 18.6, \"first_keystroke_per_session_ms\": [17.8, 5.5, 6.5, 6.4, 12.2], \"samples_ms\": [17.8, 16.2, 12.7, 17.7, 14.7, 16.0, 5.5, 13.3, 17.2, 13.7, 16.5, 18.6, 6.5, 14.1, 16.5, 16.3, 16.2, 13.2, 6.4, 16.2, 13.9, 17.1, 16.4, 13.6, 12.2, 14.2, 15.0, 16.1, 18.2, 14.6]}"
+  ]
+ }
+}

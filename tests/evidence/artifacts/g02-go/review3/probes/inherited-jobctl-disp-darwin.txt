@@ -1,0 +1,12 @@
+2026-10-04T21:50:05Z
+## no tty, ignores inherited
+SIGTSTP:ign SIGTTIN:ign SIGTTOU:ign SIGCONT:ign SIGINT:ign SIGHUP:ign
+rc=0
+## control
+SIGTSTP:ign SIGTTIN:ign SIGTTOU:ign SIGCONT:ign SIGINT:ign SIGHUP:ign
+## pty via script(1) (heimdall alone in its group => exclusive)
+^DSIGTSTP:ign SIGTTIN:ign SIGTTOU:ign SIGCONT:ign SIGINT:ign SIGHUP:ign
+rc=0
+## pty, no inherited ignores (heimdall's own SIGTTOU ignore must not leak)
+^DSIGTSTP:dfl SIGTTIN:dfl SIGTTOU:dfl SIGCONT:dfl SIGINT:dfl SIGHUP:dfl
+rc=0

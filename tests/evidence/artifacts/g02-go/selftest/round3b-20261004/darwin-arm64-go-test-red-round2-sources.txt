@@ -1,0 +1,71 @@
+# started 2026-10-04T20:44:18Z darwin-arm64 native; RED = HEAD (round-2) prototypes/go sources + the round-3b test files + a no-op test hook var tuiBeforeRun in main.go (diff below)
+--- /dev/fd/13	2026-10-04 16:44:18
++++ cmd/heimdall-proto/main.go	2026-10-04 16:17:06
+@@ -247,6 +247,9 @@
+ 	return f.Close()
+ }
+ 
++// red copy: test hook only
++var tuiBeforeRun = func() {}
++
+ func cmdTUI(args []string, stdout, stderr io.Writer) int {
+ 	fs := newFlags("tui")
+ 	file := fs.String("file", "", "")
+@@ -306,6 +309,7 @@
+ 	}}
+ 	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithInput(input),
+ 		tea.WithColorProfile(colorProfileNoExec(os.Stdout, os.Environ()))}
++	tuiBeforeRun()
+ 	prog = tea.NewProgram(model, append(base, opts...)...)
+ 
+ 	sigs := make(chan os.Signal, 4)
++ go test -count=1 -v -run 'TestK6dSharedModeExplicitSignals|TestTUIEnvironmentSelectedTerminfo|TestK10PanicBeforeRunExits1' ./cmd/heimdall-proto/
+=== RUN   TestK6dSharedModeExplicitSignals
+    k6d_test.go:143: sh-c/SIGINT              shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: sh-c/SIGINT: child received [], want at least one SIGINT and nothing else
+    k6d_test.go:143: sh-c/SIGTERM             shared=true child_got=[SIGTERM] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGHUP              shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: sh-c/SIGHUP: child received [], want at least one SIGHUP and nothing else
+    k6d_test.go:143: sh-c/SIGQUIT             shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: sh-c/SIGQUIT: child received [], want at least one SIGQUIT and nothing else
+    k6d_test.go:143: sh-c/SIGWINCH            shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: sh-c/SIGWINCH: child received [], want at least one SIGWINCH and nothing else
+    k6d_test.go:143: pipeline-first/SIGINT    shared=true child_got=[] heimdall_rc=RC=0
+    k6d_test.go:148: pipeline-first/SIGINT: child received [], want at least one SIGINT and nothing else
+    k6d_test.go:143: pipeline-first/SIGTERM   shared=true child_got=[SIGTERM] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGHUP    shared=true child_got=[] heimdall_rc=RC=0
+    k6d_test.go:148: pipeline-first/SIGHUP: child received [], want at least one SIGHUP and nothing else
+    k6d_test.go:143: pipeline-first/SIGQUIT   shared=true child_got=[] heimdall_rc=RC=0
+    k6d_test.go:148: pipeline-first/SIGQUIT: child received [], want at least one SIGQUIT and nothing else
+    k6d_test.go:143: pipeline-first/SIGWINCH  shared=true child_got=[] heimdall_rc=RC=0
+    k6d_test.go:148: pipeline-first/SIGWINCH: child received [], want at least one SIGWINCH and nothing else
+    k6d_test.go:143: pipeline-last/SIGINT     shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: pipeline-last/SIGINT: child received [], want at least one SIGINT and nothing else
+    k6d_test.go:143: pipeline-last/SIGTERM    shared=true child_got=[SIGTERM] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGHUP     shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: pipeline-last/SIGHUP: child received [], want at least one SIGHUP and nothing else
+    k6d_test.go:143: pipeline-last/SIGQUIT    shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: pipeline-last/SIGQUIT: child received [], want at least one SIGQUIT and nothing else
+    k6d_test.go:143: pipeline-last/SIGWINCH   shared=true child_got=[] heimdall_rc=RC=7
+    k6d_test.go:148: pipeline-last/SIGWINCH: child received [], want at least one SIGWINCH and nothing else
+--- FAIL: TestK6dSharedModeExplicitSignals (43.39s)
+=== RUN   TestTUIEnvironmentSelectedTerminfo
+    tui_terminfo_test.go:125: TERMINFO_DIRS FIFO                 exit=-1 drew=false first=0.0ms peak=7.1MiB killed="time"
+    tui_terminfo_test.go:127: TERMINFO_DIRS FIFO: exit=-1 drew=false peak=7.1 MiB killed="time" no_panic_trace=true
+    tui_terminfo_test.go:125: malformed terminfo entry           exit=2 drew=false first=0.0ms peak=0.0MiB killed=""
+    tui_terminfo_test.go:127: malformed terminfo entry: exit=2 drew=false peak=0.0 MiB killed="" no_panic_trace=false
+    tui_terminfo_test.go:125: control: TERM=xterm-256color       exit=0 drew=true first=24.2ms peak=9.2MiB killed=""
+    tui_terminfo_test.go:125: TERM path traversal to /dev/zero   exit=-1 drew=false first=0.0ms peak=866.1MiB killed="rss"
+    tui_terminfo_test.go:127: TERM path traversal to /dev/zero: exit=-1 drew=false peak=866.1 MiB killed="rss" no_panic_trace=true
+    tui_terminfo_test.go:125: TERMINFO FIFO named after TERM     exit=-1 drew=false first=0.0ms peak=7.0MiB killed="time"
+    tui_terminfo_test.go:127: TERMINFO FIFO named after TERM: exit=-1 drew=false peak=7.0 MiB killed="time" no_panic_trace=true
+--- FAIL: TestTUIEnvironmentSelectedTerminfo (12.44s)
+=== RUN   TestK10PanicBeforeRunExits1
+    tui_terminfo_test.go:162: exit=2 stderr="panic: K10 test panic before Run\n\ngoroutine 1 [running]:\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestMain.func1()\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/helper_test.go:21 +0x2c\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x100aadcf0, 0x1684eab48180}, 0x1684eab48180, 0x1684eab0c010, {0x100aac6e0, 0x1684eab0c018}, {0x100aac6e0, 0x1684eab0c020}, {0x0, 0x0, ...})\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/main.go:312 +0x1d4\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.cmdTUI({0x1684eab040e0, 0x2, 0x2}, {0x100aac6e0, 0x1684eab0c018}, {0x100aac6e0, 0x1684eab0c020})\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/main.go:276 +0x56c\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.realMain({0x1684eab040d0?, 0x18?, 0x1?}, {0x100aac6e0?, 0x1684eab0c018?}, {0x100aac6e0?, 0x1684eab0c020?})\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/main.go:85 +0x244\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestMain(0x1684eab0e3c0)\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/helper_test.go:23 +0x16c\nmain.main()\n\t_testmain.go:78 +0x88\n" tty_output=""
+    tui_terminfo_test.go:165: exit=2 (want 1) tty_output="" stderr="panic: K10 test panic before Run\n\ngoroutine 1 [running]:\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestMain.func1()\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/helper_test.go:21 +0x2c\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x100aadcf0, 0x1684eab48180}, 0x1684eab48180, 0x1684eab0c010, {0x100aac6e0, 0x1684eab0c018}, {0x100aac6e0, 0x1684eab0c020}, {0x0, 0x0, ...})\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/main.go:312 +0x1d4\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.cmdTUI({0x1684eab040e0, 0x2, 0x2}, {0x100aac6e0, 0x1684eab0c018}, {0x100aac6e0, 0x1684eab0c020})\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/main.go:276 +0x56c\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.realMain({0x1684eab040d0?, 0x18?, 0x1?}, {0x100aac6e0?, 0x1684eab0c018?}, {0x100aac6e0?, 0x1684eab0c020?})\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/main.go:85 +0x244\ngithub.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestMain(0x1684eab0e3c0)\n\t/tmp/hp-go-r3b/red/prototypes/go/cmd/heimdall-proto/helper_test.go:23 +0x16c\nmain.main()\n\t_testmain.go:78 +0x88\n"
+--- FAIL: TestK10PanicBeforeRunExits1 (0.11s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	55.949s
+FAIL
+# exit 1
+# finished 2026-10-04T20:45:14Z
