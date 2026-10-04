@@ -40,7 +40,7 @@
   #9 DONE 0.0s
   
   View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/scdxooriiblrcupmsszohlq7p
-[2026-10-03T00:07:46Z] generating per-run keys, CA and host keys in /Users/amanthanvi/GitRepos/heimdall/tests/fixtures/ssh/runtime
+[2026-10-03T00:07:46Z] generating per-run keys, CA and host keys in <repo>/tests/fixtures/ssh/runtime
 [2026-10-03T00:07:47Z] starting hm-m00t03-fixed
 [2026-10-03T00:07:47Z] starting hm-m00t03-enroll
 [2026-10-03T00:07:47Z] starting hm-m00t03-ca1
@@ -53,5 +53,5 @@
   PORT_ca1=62066
   PORT_ca2=62067
   PORT_bastion=62068
-[2026-10-03T00:07:48Z] client config: /Users/amanthanvi/GitRepos/heimdall/tests/fixtures/ssh/runtime/ssh_config  (use: /usr/bin/ssh -F runtime/ssh_config <alias>)
+[2026-10-03T00:07:48Z] client config: <repo>/tests/fixtures/ssh/runtime/ssh_config  (use: /usr/bin/ssh -F runtime/ssh_config <alias>)
 exit=0
