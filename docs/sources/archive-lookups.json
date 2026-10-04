@@ -1,0 +1,724 @@
+{
+ "tool": "docs/sources/tools/fetch_pins.py archive",
+ "api": "GET https://archive.org/wayback/available?url=<fetched_url>&timestamp=20261002235600 (read-only; no save requests were made)",
+ "queried_at_utc": "2026-10-03T21:05Z-21:12Z (two passes)",
+ "note": "The availability API answered inconsistently between passes (a snapshot present in pass 1 was absent in pass 2 for some URLs, and some calls returned 503), so absence of an archive URL is not proof of absence in the archive. Every snapshot found predates the 2026-10-02T23:56Z retrieval, so it cannot prove the pinned content. Hashes below were computed with the same normalizer; compared with the baseline taken on 2026-10-03.",
+ "sources": [
+  {
+   "id": "S01",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260907172532/https://man.openbsd.org/ssh_config",
+     "archive_timestamp": "20260907172532",
+     "archive_raw_sha256": "95bc5aee5edacbdc03401b7b86499d134444a82b60a1effed55727e1cc5ae781",
+     "archive_normalized_sha256": "88ce8b526e0ec3ae631565173ce9702029acdcc331db177136f1c9db4c817572"
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260907172532/https://man.openbsd.org/ssh_config",
+   "archive_timestamp": "20260907172532",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S02",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S03",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260907101706/https://www.openssh.org/agent-restrict.html",
+     "archive_timestamp": "20260907101706",
+     "archive_raw_sha256": "8d5d80bcd5c9416020de6e51329c27e7e422ed8ff0b6f4f0d2c67c0f203d4480",
+     "archive_normalized_sha256": "7f421cdb50b95b49fa9710b820093593bde4a380b049878829dd309556037fc3"
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260907101706/https://www.openssh.org/agent-restrict.html",
+   "archive_timestamp": "20260907101706",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": true
+  },
+  {
+   "id": "S04",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S05",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 503,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S06",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 503,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S07",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S08",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S09",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S10",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S11",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260905134721/https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+     "archive_timestamp": "20260905134721",
+     "archive_raw_sha256": "64bafda1028135b290a8e2934cd92068183173341f197caf8c986bcbd145f330",
+     "archive_normalized_sha256": "dea5e8d7a87336998b20a60cc636b02396ee854d3cb813b609fa76497db1b3a7"
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260905134721/https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+   "archive_timestamp": "20260905134721",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S12",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 503,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S13",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S14",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S15",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260821230340/https://docs.iroh.computer/concepts/tickets",
+     "archive_timestamp": "20260821230340",
+     "archive_raw_sha256": "ab8650dc7e06607273fc2a40cd7352d9fe1c898daaf0a3816df5376e393d6810",
+     "archive_normalized_sha256": "5cf64b263f7727580615e52db28dbbef2bfce4f5ae3c289acd48ce230bb902a6"
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260821230340/https://docs.iroh.computer/concepts/tickets",
+   "archive_timestamp": "20260821230340",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S16",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S17",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S18",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S19",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S20",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 503,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260821230240/https://docs.iroh.computer/concepts/security-privacy",
+     "archive_timestamp": "20260821230240",
+     "archive_raw_sha256": "a89fa2846450b345212d015a2c5711d7ef979ad877951e5a16709dbc9c766fdd",
+     "archive_normalized_sha256": "37e8032a5b5e524faa56f2ef64fe36da95128ea60cc0f64a933aa51de84515da"
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260821230240/https://docs.iroh.computer/concepts/security-privacy",
+   "archive_timestamp": "20260821230240",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S21",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S22",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S23",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260814011132/https://mitchellh.com/writing/building-block-economy",
+     "archive_timestamp": "20260814011132",
+     "archive_raw_sha256": "6bc4a0bdb36058bc46ecd1f419f7ca1b49cc05a8f8dbd07cdade43608e686e04",
+     "archive_normalized_sha256": "900112525effa64559f9911eaa41da8d50f33a34c8b42fb5aa5d82a61565e063"
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260814011132/https://mitchellh.com/writing/building-block-economy",
+   "archive_timestamp": "20260814011132",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S24",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S25",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260807110108/https://learn.chatgpt.com/docs/build-skills.md",
+     "archive_timestamp": "20260807110108",
+     "archive_raw_sha256": "4c2b58cacae04430bf4a4d8c13625562aee80ebee8c66016bdeaef0b0e3da6bb",
+     "archive_normalized_sha256": "53b0e5091bb9f17f4e7820b58ec9fdd8d2c1372432c942d602fc7dcf01ded61d"
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260807110108/https://learn.chatgpt.com/docs/build-skills.md",
+   "archive_timestamp": "20260807110108",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S26",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S27",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S28",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S29",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S30",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": "https://web.archive.org/web/20260826031600/https://man.openbsd.org/ssh-agent",
+     "archive_timestamp": "20260826031600",
+     "archive_raw_sha256": "706f75f42b92b8abc3dd1bd5704523400eab1e44c8bfd229a457851f367ab368",
+     "archive_normalized_sha256": "bac564e55d151fa1bcbce0bc00d91868eb825d9e82d9d8f7e5575be4ceb14d26"
+    }
+   ],
+   "archive_url": "https://web.archive.org/web/20260826031600/https://man.openbsd.org/ssh-agent",
+   "archive_timestamp": "20260826031600",
+   "raw_matches_baseline": false,
+   "normalized_matches_baseline": false
+  },
+  {
+   "id": "S31",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S32",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 503,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S33",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    },
+    {
+     "pass": 2,
+     "availability_http": 200,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  },
+  {
+   "id": "S34",
+   "passes": [
+    {
+     "pass": 1,
+     "availability_http": 503,
+     "archive_url": null,
+     "archive_timestamp": null,
+     "archive_raw_sha256": null,
+     "archive_normalized_sha256": null
+    }
+   ],
+   "archive_url": null
+  }
+ ]
+}

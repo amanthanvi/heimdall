@@ -1,0 +1,1737 @@
+{
+ "schema_version": 2,
+ "task_id": "M00-T02 (v1) + M00-T02-fix (v2)",
+ "method": "v2 (M00-T02-fix): `python3 docs/sources/tools/fetch_pins.py fetch` (stdlib, GET only) fetches every source and records raw-body sha256, normalized-text sha256 (normalizer v1, documented in the script docstring), size, status and date markers; baseline in docs/sources/fetch-baseline.json (retrieved 2026-10-03T21:18Z), identical repeat run in docs/sources/fetch-repeat.json. GitHub sources are fetched at the pinned commit via raw.githubusercontent.com/<repo>/<sha>/<path> and their git blob sha1 is recomputed and compared with the pinned blob. 27 non-git sources have a deterministic compressed normalized-text snapshot under docs/sources/snapshots/. The v1 `text_sha256` values were produced by a script that was not retained, could not be reproduced by the independent review (0/34), and are kept only as `pin.legacy_text_sha256_unreproducible`; they are not drift detectors. v1 method text (superseded): curl -sL GET of each spec URL (HTML converted to text, sha256 of text and of raw body; raw HTML hashes are advisory only), gh api GET for GitHub, crates.io and npm registry GET. Text sha256 re-fetched ~10 minutes apart: all 34 stable.",
+ "sources": [
+  {
+   "id": "S01",
+   "url": "https://man.openbsd.org/ssh_config",
+   "fetched_url": "https://man.openbsd.org/ssh_config",
+   "retrieved_at_utc": "2026-10-02T23:56:01Z",
+   "claim": "Client config, first-value precedence, identity selection, Match exec, multiplexing",
+   "claim_status": "supported",
+   "excerpt": "\"Since the first obtained value for each directive is used, more host-specific declarations should be given near the beginning of the file\" ; \"ControlPersist ... master connection should remain open in the background\"; Match exec listed among directives that run/accept commands (\"The exec keyword executes the specified command under the user's shell\")",
+   "note": "",
+   "pin": {
+    "type": "mdoc_footer_date",
+    "value": "OpenBSD-current September 20, 2026 (SSH_CONFIG(5))",
+    "legacy_text_sha256_unreproducible": "a7dd6a12d6b079889fd5f9c368534e1a9739c0f90d9d8547d5095144b629531e",
+    "legacy_raw_body_sha256_v1": "3d8e498373fc78cf844ce3317848867fb80624f0b981a92a6440bc9890b4980f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://man.openbsd.org/ssh_config",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "3d8e498373fc78cf844ce3317848867fb80624f0b981a92a6440bc9890b4980f",
+    "raw_bytes": 116889,
+    "normalized_text_sha256": "54d27f610a118efa69ba7b78a1256272dcd206bc18a8391f86a7516dc720dd67",
+    "normalized_text_chars": 67154,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "mdoc_footer": "September 20, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S01.txt.gz",
+     "gz_sha256": "3cfc36204f739eab4e7e7f6c392b25f9e3e1ad51af1f9a0eccbd47264c8a2e51",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S01",
+     "archive_url": "https://web.archive.org/web/20260907172532/https://man.openbsd.org/ssh_config",
+     "archive_timestamp": "20260907172532",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S02",
+   "url": "https://man.openbsd.org/ssh",
+   "fetched_url": "https://man.openbsd.org/ssh",
+   "retrieved_at_utc": "2026-10-02T23:56:01Z",
+   "claim": "Config evaluation, client behavior, multiplex control incl. stop",
+   "claim_status": "supported",
+   "excerpt": "\"-G Causes ssh to print its configuration after evaluating Host and Match blocks and exit.\" ; \"-O ... stop: Request the master to stop accepting further multiplexing requests.\"",
+   "note": "Spec 7.x/line 488 says -G \"evaluates configuration; Match exec may run commands\". No single sentence says -G executes Match exec; this is an inference from S01+S02. Tested behavior belongs to G07/G09, not this pin.",
+   "pin": {
+    "type": "mdoc_footer_date",
+    "value": "OpenBSD-current September 5, 2026 (SSH(1))",
+    "legacy_text_sha256_unreproducible": "41e74049d4221d7d77e2fa75e452c231f95eade2f45ea8b90a28fb8f1fed5639",
+    "legacy_raw_body_sha256_v1": "16c3540970d44f4904f8989509ac46a812e26847f9a1a5945355af260175c4b0"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://man.openbsd.org/ssh",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "16c3540970d44f4904f8989509ac46a812e26847f9a1a5945355af260175c4b0",
+    "raw_bytes": 82410,
+    "normalized_text_sha256": "272138d0e56aefe4bec5e876073d24c7a7ce36e57f6e8739ef1b0afd81175c25",
+    "normalized_text_chars": 41579,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "mdoc_footer": "September 5, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S02.txt.gz",
+     "gz_sha256": "c8c766f41a6057c343b03e27347243833b23db796a820cbac9f63bb46997cdc0",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S02",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S03",
+   "url": "https://www.openssh.org/agent-restrict.html",
+   "fetched_url": "https://www.openssh.org/agent-restrict.html",
+   "retrieved_at_utc": "2026-10-02T23:56:02Z",
+   "claim": "Destination restrictions need protocol support and authenticated bindings",
+   "claim_status": "supported",
+   "excerpt": "\"A new agent protocol key constraint extension ... A new agent protocol session binding extension ... A modified publickey authentication method ... incorporates the server hostkey into the signed data.\"",
+   "note": "",
+   "pin": {
+    "type": "http_last_modified",
+    "value": "Tue, 22 Sep 2026 19:18:50 GMT",
+    "legacy_text_sha256_unreproducible": "16e722646a74095d4fce2e9597ff53a65ed1e94f8d49f7d7bcadae84f2d09f2d",
+    "legacy_raw_body_sha256_v1": "28939c425c736c784915e63bf8e1febfd238422c4ede43c759fe0bd8e0417f1c"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://www.openssh.org/agent-restrict.html",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "28939c425c736c784915e63bf8e1febfd238422c4ede43c759fe0bd8e0417f1c",
+    "raw_bytes": 31685,
+    "normalized_text_sha256": "7f421cdb50b95b49fa9710b820093593bde4a380b049878829dd309556037fc3",
+    "normalized_text_chars": 24203,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "http_last_modified": "Tue, 22 Sep 2026 19:18:50 GMT"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S03.txt.gz",
+     "gz_sha256": "6828505746fcfac74d2285a791c89c03ccdf7a0e80f140459ec5ade7030e1322",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S03",
+     "archive_url": "https://web.archive.org/web/20260907101706/https://www.openssh.org/agent-restrict.html",
+     "archive_timestamp": "20260907101706",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": true,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S04",
+   "url": "https://man.openbsd.org/sshd",
+   "fetched_url": "https://man.openbsd.org/sshd",
+   "retrieved_at_utc": "2026-10-02T23:56:02Z",
+   "claim": "Authorized-key options and per-account CA trust",
+   "claim_status": "supported",
+   "excerpt": "\"cert-authority: Specifies that the listed key is a certification authority (CA) that is trusted to validate signed certificates for user authentication.\" ; principals=\"principals\" on a cert-authority line",
+   "note": "",
+   "pin": {
+    "type": "mdoc_footer_date",
+    "value": "OpenBSD-current September 2, 2026 (SSHD(8))",
+    "legacy_text_sha256_unreproducible": "b7d8f90091a8cd228f88862ef8bbc617154349e0b8f8a43a1ec204229b541d5b",
+    "legacy_raw_body_sha256_v1": "3c4c65d0221c28f1a9cc54c4c91ddb40b23c67f4beff96c5584847ecd7a88d6b"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://man.openbsd.org/sshd",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "3c4c65d0221c28f1a9cc54c4c91ddb40b23c67f4beff96c5584847ecd7a88d6b",
+    "raw_bytes": 52669,
+    "normalized_text_sha256": "e75f74e2db03ca3585750e37989d57e4be176ec988995ede902801d08ca6432e",
+    "normalized_text_chars": 29861,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "mdoc_footer": "September 2, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S04.txt.gz",
+     "gz_sha256": "65877b936d1a2e0ee8cef8fa764094f13b1fbf44c759f32cbf6c0840f11a638a",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S04",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S05",
+   "url": "https://man.openbsd.org/sshd_config",
+   "fetched_url": "https://man.openbsd.org/sshd_config",
+   "retrieved_at_utc": "2026-10-02T23:56:03Z",
+   "claim": "Authentication methods, key registries, CA and principal policy",
+   "claim_status": "supported",
+   "excerpt": "AuthenticationMethods, AuthorizedKeysFile, AuthorizedPrincipalsFile, TrustedUserCAKeys all present",
+   "note": "",
+   "pin": {
+    "type": "mdoc_footer_date",
+    "value": "OpenBSD-current September 17, 2026 (SSHD_CONFIG(5))",
+    "legacy_text_sha256_unreproducible": "771272817f265f5f4be3c2a8d7708afe896680097f6e340cb7ad94aaef7bdebb",
+    "legacy_raw_body_sha256_v1": "76b5b91d17571ea57d275f412b736b56cddbbbb473aa90da4c7e8b27fd9121da"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://man.openbsd.org/sshd_config",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "76b5b91d17571ea57d275f412b736b56cddbbbb473aa90da4c7e8b27fd9121da",
+    "raw_bytes": 113957,
+    "normalized_text_sha256": "3e704e51b73647f9a6e9eb37c00788e2771fe12e01bdfe10ffeeeb56fe744c70",
+    "normalized_text_chars": 62811,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "mdoc_footer": "September 17, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S05.txt.gz",
+     "gz_sha256": "abbb22b20671510a0c68f888f956ab739e368e5567f14ae512a85ca7119aaf6d",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S05",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S06",
+   "url": "https://www.1password.dev/ssh/agent/security",
+   "fetched_url": "https://www.1password.dev/ssh/agent/security",
+   "retrieved_at_utc": "2026-10-02T23:56:03Z",
+   "claim": "Vault lock and requesting-application security behavior",
+   "claim_status": "supported",
+   "excerpt": "\"After you've added your SSH keys, any process can use any key that the OpenSSH agent is managing.\" ; 1Password agent \"asks for your consent before an SSH client or terminal session can use your key\"",
+   "note": "Pin type is page-embedded dateModified, which tracks site rebuilds as well as content; rely on text sha256.",
+   "pin": {
+    "type": "page_dateModified",
+    "value": "2026-10-02T14:06:52.625Z (embedded page metadata)",
+    "legacy_text_sha256_unreproducible": "8bfcaeb87788f987c797082c867ac75a2748f7c47b62c00c99d9a0bb512f5d47",
+    "legacy_raw_body_sha256_v1": "637ed0ac85042c599bb8adddbb5ba96247c41c110a0c3ec43573f00a6ee704b4"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://www.1password.dev/ssh/agent/security",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "94554482357ebcc66a81c2166a7eea20892fa466ab3d2518ae23d2e3f7d35806",
+    "raw_bytes": 1164484,
+    "normalized_text_sha256": "e6e8c6609fe5250949d5823b1a6e1bcf63395b6adff14e40f661de0d35feabe3",
+    "normalized_text_chars": 7501,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-10-02T14:06:52.625Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S06.txt.gz",
+     "gz_sha256": "609dbbd6b07baf06c021ebcef06bf2546d205d0c12877ebb36b3d327dfd39cb5",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S06",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S07",
+   "url": "https://www.1password.dev/ssh/agent/authorization",
+   "fetched_url": "https://www.1password.dev/ssh/agent/authorization",
+   "retrieved_at_utc": "2026-10-02T23:56:03Z",
+   "claim": "Approval contexts and remembered authorization",
+   "claim_status": "supported",
+   "excerpt": "\"Until 1Password locks (default): Every time 1Password locks, your key approvals are wiped\" ; \"For a set amount of time: ... 4, 12, or 24 hours ... your key approvals will remain in the agent's memory for that duration, even when 1Password is locked ... you'll be prompted to unlock 1Password so the SSH agent can access your private key.\"",
+   "note": "Spec line 323 says remembered approvals do not keep private keys available after lock; S06 and S07 support that sentence as written (the agent keeps authorization only; unlocking 1Password is still needed for key access). Suggested spec clarification (E1, not a contradiction): the timed options (4/12/24 h) keep key APPROVALS in agent memory while 1Password is locked, so a reader may wrongly infer approvals are also wiped on lock.",
+   "pin": {
+    "type": "page_dateModified",
+    "value": "2026-09-04T17:57:13.051Z (embedded page metadata)",
+    "legacy_text_sha256_unreproducible": "f38dd752b0b52203d2120b6bf129f624ed4f334ecc9f1848e020a2f9a7b0b860",
+    "legacy_raw_body_sha256_v1": "ae416b2bee80306177fba6c6ecb1a56063495427b69550f853c1f5d75596b5a1"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://www.1password.dev/ssh/agent/authorization",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "e0cbc7216da8e4a591a3ef20dd8951806e728921ddf00154c7977a68f695198c",
+    "raw_bytes": 1208603,
+    "normalized_text_sha256": "0c5ee2dc8039aa82449dc9b785f8e433b04db1a2429596a003a55e43eee174c2",
+    "normalized_text_chars": 8131,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-09-04T17:57:13.051Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S07.txt.gz",
+     "gz_sha256": "86b36bf79bdea174f41d962950cd14b2762b1b1ebfc0908d87853c6df07a50d8",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S07",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S08",
+   "url": "https://www.1password.dev/environments/mcp-server",
+   "fetched_url": "https://www.1password.dev/environments/mcp-server",
+   "retrieved_at_utc": "2026-10-02T23:56:04Z",
+   "claim": "Environment-variable/mount scope; not an SSH credential engine",
+   "claim_status": "supported",
+   "excerpt": "\"The server can only see variable and Environment names, and never returns the secrets stored in your Environments\" ; tools to \"Create locally mounted .env files\"",
+   "note": "",
+   "pin": {
+    "type": "page_dateModified",
+    "value": "2026-09-14T19:31:18.103Z (embedded page metadata)",
+    "legacy_text_sha256_unreproducible": "30c729a01b3fd9fe16448361701a5368103c7d4e4ffecd53ab70dec05076c083",
+    "legacy_raw_body_sha256_v1": "6928a2816607701045c17766b78ba6ec3a0799145718c2e7bdefb88f4ede82cc"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://www.1password.dev/environments/mcp-server",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "8a98eedc54bc880ac307b20cd5e7f3c88b3e9dbbd4f8bcfe1c545d12efcc2396",
+    "raw_bytes": 1258777,
+    "normalized_text_sha256": "002f6741c79eb7c87615b80bffdc3342fa7a00f2a4e18ffc1e314887ae5e1049",
+    "normalized_text_chars": 9405,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-09-14T19:31:18.103Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S08.txt.gz",
+     "gz_sha256": "c8426aa183b76699ad93a7cdbcad40b29aafb05ef3a22a0d9f605b026e9f6055",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S08",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S09",
+   "url": "https://www.1password.dev/ssh/bookmarks",
+   "fetched_url": "https://www.1password.dev/ssh/bookmarks",
+   "retrieved_at_utc": "2026-10-02T23:56:04Z",
+   "claim": "Existing host/key config capability; documented beta",
+   "claim_status": "supported",
+   "excerpt": "Title: \"Manage SSH Bookmarks in 1Password (beta)\" ; \"Match your SSH keys to specific hosts to make sure the correct key is used for each connection.\"",
+   "note": "",
+   "pin": {
+    "type": "page_dateModified",
+    "value": "2026-10-02T14:06:52.624Z (embedded page metadata)",
+    "legacy_text_sha256_unreproducible": "75b244945988602af6c29f039b423f078c553c18a7062471b90623c4798f0c4f",
+    "legacy_raw_body_sha256_v1": "8596939afdf061fd596929e37195d832e54fa86e1465babeb775bd0e7240ae8f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://www.1password.dev/ssh/bookmarks",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "795baf759a6a256162d442c5cc2c5f87f99223065acfb850a95b893220cb963e",
+    "raw_bytes": 1378248,
+    "normalized_text_sha256": "3526471b4874705882f7035e5239496a61f7f62a15220ff8e2ef40a4add4cbb6",
+    "normalized_text_chars": 13912,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-10-02T14:06:52.624Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S09.txt.gz",
+     "gz_sha256": "91e0dcc51657bfb97d345e3579710269b4589a79951ac06730f6ae6366f9c04b",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S09",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S10",
+   "url": "https://man.openbsd.org/ssh-keygen",
+   "fetched_url": "https://man.openbsd.org/ssh-keygen",
+   "retrieved_at_utc": "2026-10-02T23:56:04Z",
+   "claim": "Cert validity, principals, signing purpose, key ops",
+   "claim_status": "supported",
+   "excerpt": "\"-V validity_interval Specify a validity interval when signing a certificate\" ; -n principals ; -Y find-principals / match-principals ; -n namespace for signing",
+   "note": "Man page changed one day before pin date (Oct 1): do not assume spec-time content equals any earlier read.",
+   "pin": {
+    "type": "mdoc_footer_date",
+    "value": "OpenBSD-current October 1, 2026 (SSH-KEYGEN(1))",
+    "legacy_text_sha256_unreproducible": "70a2052b4ef155d44f28fd896f191cad826aa82391e69f39ea17308978dea385",
+    "legacy_raw_body_sha256_v1": "163d73c60b555592cc674c2a3e115d5d6c097e072bd5df09514a13cb4b8561ef"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://man.openbsd.org/ssh-keygen",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "163d73c60b555592cc674c2a3e115d5d6c097e072bd5df09514a13cb4b8561ef",
+    "raw_bytes": 77967,
+    "normalized_text_sha256": "f5c2faa4137cfaaec2438719779f0ee32703978db1daf15548db678b84da2ab9",
+    "normalized_text_chars": 39454,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "mdoc_footer": "October 1, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S10.txt.gz",
+     "gz_sha256": "4472a2600ef79cfa357f3bd867848090614707cf7f496bb103dbe9449e62233e",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S10",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S11",
+   "url": "https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+   "fetched_url": "https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+   "retrieved_at_utc": "2026-10-02T23:56:04Z",
+   "claim": "Existing issuer-based enrollment implementation to evaluate",
+   "claim_status": "supported",
+   "excerpt": "\"SSH certificate login advanced example: Run an SSH CA and connect to hosts using SSH certificates ... how to use SSH certificates (for hosts & users) generated by open source step-ca using the step ssh sub-command.\"",
+   "note": "Tutorial transcripts still show 2019 timestamps; page marker is Feb 2026.",
+   "pin": {
+    "type": "page_last_updated",
+    "value": "February 3, 2026 (\"Last updated on\")",
+    "legacy_text_sha256_unreproducible": "0f662f572cd39be523cf948eabe7189034ffa2deea2fe52ad81978e6d54c4a9a",
+    "legacy_raw_body_sha256_v1": "a6c7b173a48d0c03941fb3fe7964b4d832a458ebdfae90c5ddae3dc00fa84f92"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "c73b142813db0578f9fbbfc4a3fdcd8a9d9b953ef589e9f87d02ad02e0564d05",
+    "raw_bytes": 279315,
+    "normalized_text_sha256": "b70565475abd28d0d1717ec73ff7ab50a9d42d32b3930084caa1c02ec1644fa8",
+    "normalized_text_chars": 13838,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "last_updated_on": "February 3, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S11.txt.gz",
+     "gz_sha256": "a49ee7f1fa774d7efe9cf94d7637e2488d08815bb103dbbe4c68b1e6d40d65ed",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S11",
+     "archive_url": "https://web.archive.org/web/20260905134721/https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+     "archive_timestamp": "20260905134721",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S12",
+   "url": "https://www.1password.dev/ssh/integrations/wsl",
+   "fetched_url": "https://www.1password.dev/ssh/integrations/wsl",
+   "retrieved_at_utc": "2026-10-02T23:56:05Z",
+   "claim": "Windows SSH execution from WSL; not arbitrary Linux-native bridging",
+   "claim_status": "supported",
+   "excerpt": "\"you can effectively forward the entire SSH request from WSL to the ssh.exe process running on Windows\" ; \"any changes to your SSH configuration need to be made in your Windows %USERPROFILE%/.ssh/config\"",
+   "note": "",
+   "pin": {
+    "type": "page_dateModified",
+    "value": "2026-10-02T14:06:52.622Z (embedded page metadata)",
+    "legacy_text_sha256_unreproducible": "c13364dc82906b972dd7867204f2a42e8b11cb0bdbd4da4ba8903c11125735b7",
+    "legacy_raw_body_sha256_v1": "80f6e0b41413892011430ad66e4f3e6d126d3e66d1b7d0b3a46dd81fea7a9b96"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://www.1password.dev/ssh/integrations/wsl",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "fdd34d7cbcab4ebd5c1804dc513153d9cf8bbe4bcab393b74c6bfd6b7986f476",
+    "raw_bytes": 1276858,
+    "normalized_text_sha256": "e081095a090c9c2c6017c063fee8849397e6cd5986d7973c71653e4637fa7e32",
+    "normalized_text_chars": 7852,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-10-02T14:06:52.622Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S12.txt.gz",
+     "gz_sha256": "a6b77015c3ea847ffd9862451d5942e98a1ba6663bf646be667993792c7ba4f5",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S12",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S13",
+   "url": "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement",
+   "fetched_url": "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement",
+   "retrieved_at_utc": "2026-10-02T23:56:05Z",
+   "claim": "Windows account, service, key permission integration",
+   "claim_status": "supported",
+   "excerpt": "\"place the contents of your public key ... into a text file called administrators_authorized_keys in C:\\ProgramData\\ssh\\\" with icacls.exe permission reset (/inheritance:r)",
+   "note": "",
+   "pin": {
+    "type": "page_ms_date",
+    "value": "ms.date 2025-10-03; updated_at 2026-04-21T17:36:00Z",
+    "legacy_text_sha256_unreproducible": "a3c3d0efc13bdf2ab5cfc86043f221f478ce3a06d5df95b504f25576babce343",
+    "legacy_raw_body_sha256_v1": "a19bac2f66dd0d59bcb3b49d4c02edde920d0f827f0b7b4b87c9878f5439034f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "655d5bad160d349f9e15c54f9c3e4da6858fd34caf370bab0f23dfac6a26aaf1",
+    "raw_bytes": 60936,
+    "normalized_text_sha256": "c39cdaad6475f67f157de25180259636a9639b6465e913411df4814ec5e48b36",
+    "normalized_text_chars": 12837,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "http_last_modified": "Mon, 14 Sep 2026 17:33:07 GMT",
+     "last_updated_on": "2025-10-03",
+     "ms_date": "2025-10-03T00:00:00Z",
+     "updated_at": "2026-04-21T17:36:00Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S13.txt.gz",
+     "gz_sha256": "1a2a4cdd3fcc5b5ee542d63d976565fc4070ee847b2607a10172690eaa309a1b",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S13",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S14",
+   "url": "https://docs.iroh.computer/concepts/endpoints",
+   "fetched_url": "https://docs.iroh.computer/concepts/endpoints",
+   "retrieved_at_utc": "2026-10-02T23:56:05Z",
+   "claim": "Cryptographic endpoint identity distinct from routing",
+   "claim_status": "supported",
+   "excerpt": "\"Each endpoint in iroh has a unique identifier (EndpointID) created as a cryptographic key.\" ; EndpointAddr is a separate struct that tells iroh \"what & where to dial\"",
+   "note": "Docs now say EndpointID / EndpointAddr (older material says NodeID).",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: 531bfa52f519570fcdc4759e19ada1441bcb7bb1117ac94f3ca9646931b8d5f2",
+    "legacy_text_sha256_unreproducible": "531bfa52f519570fcdc4759e19ada1441bcb7bb1117ac94f3ca9646931b8d5f2",
+    "legacy_raw_body_sha256_v1": "7ec1d8b107bee7c27d3d16aa0c460be4ff0814fef6e6464b54e90c2398b1885f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://docs.iroh.computer/concepts/endpoints",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "7d9c1c2f0b3fcfcbceee0c59764a936e48bb46d1f1ddebabe1418a24c6b149f1",
+    "raw_bytes": 297693,
+    "normalized_text_sha256": "16a5c1dc482cb4ec3a97223a1875c297982b19bdfce33992ea7eac920be7018b",
+    "normalized_text_chars": 6354,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-09-03T21:23:54.136Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S14.txt.gz",
+     "gz_sha256": "970e022a2c1d588258614140846636dc82de90523555136e617bd11135967920",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S14",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S15",
+   "url": "https://docs.iroh.computer/concepts/tickets",
+   "fetched_url": "https://docs.iroh.computer/concepts/tickets",
+   "retrieved_at_utc": "2026-10-02T23:56:06Z",
+   "claim": "Connection bootstrapping; not one-use approval invitations",
+   "claim_status": "supported",
+   "excerpt": "\"Tickets are reusable: Unlike what the name might imply, tickets are not single-use tokens.\" ; \"Sharing a ticket means sharing your IP address\"",
+   "note": "",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: 879d2dc1f925511c317d9a4620449b0a14f93bccde63eb1d79efb7f8c53e6736",
+    "legacy_text_sha256_unreproducible": "879d2dc1f925511c317d9a4620449b0a14f93bccde63eb1d79efb7f8c53e6736",
+    "legacy_raw_body_sha256_v1": "b7b75d891b799912ee86c3b7120a3407db3b0ebf8014808c213d4648cb2bf100"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://docs.iroh.computer/concepts/tickets",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "88b459b0c1564977e4265aed3a4bae7c7655a8aab2c74072879bff0e4366d5aa",
+    "raw_bytes": 279466,
+    "normalized_text_sha256": "4929438e0c7651d59a6f53e814640da8787e1cd69176471ae9a18947164c4fbd",
+    "normalized_text_chars": 4844,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-09-03T21:23:54.135Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S15.txt.gz",
+     "gz_sha256": "d1a2ffbaf0de7f30ccae3bb9a77b658d45d6f4cf1a3fd462b33df084e76f32fa",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S15",
+     "archive_url": "https://web.archive.org/web/20260821230340/https://docs.iroh.computer/concepts/tickets",
+     "archive_timestamp": "20260821230340",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S16",
+   "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/remote.md",
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md",
+   "retrieved_at_utc": "2026-10-02T23:56:06Z",
+   "claim": "Environment identity/execution independent of routes",
+   "claim_status": "supported",
+   "excerpt": "\"An environment keeps its ID across server restarts and endpoint changes.\" ; \"Direct access, Tailscale, SSH, and T3 Connect change how the client reaches that server; they do not introduce another execution model.\"",
+   "note": "",
+   "pin": {
+    "type": "git_blob_and_path_commit",
+    "value": "cba7dd77817df2a458d86977f1daf4606c67dfc8 (last commit touching path); blob 43d96f862e3b42fe48e8035ccff0c39595cc81db",
+    "repo": "pingdotgg/t3code",
+    "path": "docs/internals/remote.md",
+    "path_last_commit": "cba7dd77817df2a458d86977f1daf4606c67dfc8",
+    "blob_sha": "43d96f862e3b42fe48e8035ccff0c39595cc81db",
+    "repo_head_at_retrieval": "7ff2eabf56d30af15a8ac86b0eb46013a9e910ee",
+    "permalink": "https://github.com/pingdotgg/t3code/blob/cba7dd77817df2a458d86977f1daf4606c67dfc8/docs/internals/remote.md",
+    "legacy_text_sha256_unreproducible": "63117f34f0d68fe50045b703490d1e69d7f686a39a73c92f6214bb81764b1fcc",
+    "legacy_raw_body_sha256_v1": "196f958196577f425a868fdfbaa427e106efe896ce96f05b39205476693cf12a"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/cba7dd77817df2a458d86977f1daf4606c67dfc8/docs/internals/remote.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "196f958196577f425a868fdfbaa427e106efe896ce96f05b39205476693cf12a",
+    "raw_bytes": 4047,
+    "normalized_text_sha256": "10496fd2c893103a1579846994e835cd07378e65dd8ede3803ef6c36263aec7e",
+    "normalized_text_chars": 4032,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "43d96f862e3b42fe48e8035ccff0c39595cc81db",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S16",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S17",
+   "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/connection-runtime.md",
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md",
+   "retrieved_at_utc": "2026-10-02T23:56:06Z",
+   "claim": "Connection supervision and mutation replay boundary",
+   "claim_status": "supported",
+   "excerpt": "\"The supervisor owns transport retry policy\" ; \"Reconnection does not automatically replay mutations, whose retry and ...\"",
+   "note": "Drift after the v1 pin: commit 9333509 (2026-10-03T04:42:36Z, \"fix(client-runtime): reconnects back off with jitter and keep healthy sockets\") changed the path on main (blob 301e1e0 -> 35c8b0a, 4650 -> 5002 bytes). The pin is the commit permalink 99641fd; v2 fetches at that commit (blob sha1 matches). The reopen condition on source change is triggered for main but not for the pinned commit; quotes used still hold in the new text per the independent review.",
+   "pin": {
+    "type": "git_blob_and_path_commit",
+    "value": "99641fd09a509feb644b3c8ef718c12c60cf436c (last commit touching path); blob 301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+    "repo": "pingdotgg/t3code",
+    "path": "docs/internals/connection-runtime.md",
+    "path_last_commit": "99641fd09a509feb644b3c8ef718c12c60cf436c",
+    "blob_sha": "301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+    "repo_head_at_retrieval": "7ff2eabf56d30af15a8ac86b0eb46013a9e910ee",
+    "permalink": "https://github.com/pingdotgg/t3code/blob/99641fd09a509feb644b3c8ef718c12c60cf436c/docs/internals/connection-runtime.md",
+    "legacy_text_sha256_unreproducible": "5013ab1c3c6f7ac233fd7f8ef235fe828be7cf76fd25eed9548a24187289a90e",
+    "legacy_raw_body_sha256_v1": "2ea79169cb0f384ad66bbc9aa11d29a07c96274bb50f2687e6b28a440d770217"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/99641fd09a509feb644b3c8ef718c12c60cf436c/docs/internals/connection-runtime.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "2ea79169cb0f384ad66bbc9aa11d29a07c96274bb50f2687e6b28a440d770217",
+    "raw_bytes": 4650,
+    "normalized_text_sha256": "d0ddc9a5384fc09f6b4addac0b763967f7f9fa94712dd0cb5305b86f1ba93ec3",
+    "normalized_text_chars": 4634,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S17",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S18",
+   "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/t3-connect.md",
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md",
+   "retrieved_at_utc": "2026-10-02T23:56:06Z",
+   "claim": "Control/transport/session separation and resource lifecycle",
+   "claim_status": "supported",
+   "excerpt": "\"The relay manages environment links, credentials for reaching environments, and managed tunnel allocations. ... the relay Worker does not proxy their HTTP or WebSocket sessions.\" ; \"normal shutdown of a CLI-managed link releases its tunnel\"",
+   "note": "",
+   "pin": {
+    "type": "git_blob_and_path_commit",
+    "value": "8d7b5e998c72b4674326cbac7d23bafe9b222668 (last commit touching path); blob 367d9116e92e42a0e53a7d19a185199a121e25cf",
+    "repo": "pingdotgg/t3code",
+    "path": "docs/internals/t3-connect.md",
+    "path_last_commit": "8d7b5e998c72b4674326cbac7d23bafe9b222668",
+    "blob_sha": "367d9116e92e42a0e53a7d19a185199a121e25cf",
+    "repo_head_at_retrieval": "7ff2eabf56d30af15a8ac86b0eb46013a9e910ee",
+    "permalink": "https://github.com/pingdotgg/t3code/blob/8d7b5e998c72b4674326cbac7d23bafe9b222668/docs/internals/t3-connect.md",
+    "legacy_text_sha256_unreproducible": "3b415e425b4648e33cb5489ca8e674efae4a2c5255479f28cf09432b5f92bf82",
+    "legacy_raw_body_sha256_v1": "4f6c365fe60836a1f701d534c4895ef24b53b58bb79b55be4f3a80de6c54009e"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/8d7b5e998c72b4674326cbac7d23bafe9b222668/docs/internals/t3-connect.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "4f6c365fe60836a1f701d534c4895ef24b53b58bb79b55be4f3a80de6c54009e",
+    "raw_bytes": 7632,
+    "normalized_text_sha256": "6c450b0ee2d0d697f1d4578f8ef24128c26e1669ace823fb0a62ca13a9e3443d",
+    "normalized_text_chars": 7611,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "367d9116e92e42a0e53a7d19a185199a121e25cf",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S18",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S19",
+   "url": "https://github.com/n0-computer/pigeons",
+   "fetched_url": "https://raw.githubusercontent.com/n0-computer/pigeons/main/README.md",
+   "retrieved_at_utc": "2026-10-02T23:56:06Z",
+   "claim": "SSH-over-Iroh and ProxyCommand integration",
+   "claim_status": "supported",
+   "excerpt": "\"`pigeons add` writes a `Host` entry to your SSH config whose `ProxyCommand` runs `pigeons fly --stdio`, so `ssh` reaches the tunnel over that command's stdin and stdout.\"",
+   "note": "Repo pinned to main HEAD 7800c52076012d5d14a28e5e5946ed32fa82e0f0 (2026-09-29); latest release v0.2.1. Behaviors recorded in v2 (README at pinned commit): (1) opt-in anonymous telemetry: asks once on the first setup command (roost, fly, add, service install) in a terminal; nothing sent unless telemetry_enabled = true; endpoint counters sampled once a minute and pushed to iroh-services (relay usage, hole-punching success, bytes moved); the sending endpoint ID is visible to the collector; (2) `pigeons service install` installs a system service (systemd, launchd, Windows SCM) and the roost then runs as root, reading a machine-wide config (/etc/pigeons/config.toml or C:\\ProgramData\\pigeons\\config.toml); (3) `pigeons add` writes a Host entry to ~/.ssh/config (README example output: \"Pigeon route 'my-server' added to ~/.ssh/config\"); (4) a dedicated keypair .ssh/pigeons_ed25519 is used; (5) security model: anyone holding the endpoint ID can reach the SSH port. M00 fixture rule (inference from CLAUDE.md boundaries): run with HOME pointed at a scratch directory, never run `service install`, and answer or preset telemetry off.",
+   "pin": {
+    "type": "git_commit_and_blob",
+    "value": "commit 7800c52076012d5d14a28e5e5946ed32fa82e0f0; README blob 9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+    "repo": "n0-computer/pigeons",
+    "path": "README.md",
+    "repo_head_at_retrieval": "7800c52076012d5d14a28e5e5946ed32fa82e0f0",
+    "blob_sha": "9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+    "permalink": "https://github.com/n0-computer/pigeons/blob/7800c52076012d5d14a28e5e5946ed32fa82e0f0/README.md",
+    "legacy_text_sha256_unreproducible": "9f807f5d9328b4e6930c9225de45bab7671914783ddf482b617b847bf0ce1b25",
+    "legacy_raw_body_sha256_v1": "577dbc3e19f9155a485ff60bbe6f27158e0975efd238273df795888d4d4ec135"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/n0-computer/pigeons/7800c52076012d5d14a28e5e5946ed32fa82e0f0/README.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "577dbc3e19f9155a485ff60bbe6f27158e0975efd238273df795888d4d4ec135",
+    "raw_bytes": 9748,
+    "normalized_text_sha256": "6817e313230ad50491fe7a23bd741c5119cc1edceb377b643349c4244ff6b2f7",
+    "normalized_text_chars": 8424,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S19",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S20",
+   "url": "https://docs.iroh.computer/concepts/security-privacy",
+   "fetched_url": "https://docs.iroh.computer/concepts/security-privacy",
+   "retrieved_at_utc": "2026-10-02T23:56:06Z",
+   "claim": "Encrypted payloads, metadata disclosure, shared relay caveats",
+   "claim_status": "supported",
+   "excerpt": "\"relays are not able to read any of the traffic ... However, the relays are able to see metadata about connections, such as source and destination IP addresses, connection times, and the amount of relayed data.\" ; default shared public infrastructure operated by n0.computer",
+   "note": "",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: d8b01ac348b2a9d1f9488dd807b1b585788a9934a4f37ed48473b1e6cf2698ae",
+    "legacy_text_sha256_unreproducible": "d8b01ac348b2a9d1f9488dd807b1b585788a9934a4f37ed48473b1e6cf2698ae",
+    "legacy_raw_body_sha256_v1": "a3206db7141bddb0ede0e454940831206c4b9b85640b66140531e9f93686b0db"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://docs.iroh.computer/concepts/security-privacy",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "d8cbcf53a5f41105ae5bf8482410c9f13f7061b62bc82246cef1f386461bc016",
+    "raw_bytes": 295397,
+    "normalized_text_sha256": "e2b026250fe2ac35494a5cf12dbe99a50cb503d01907f1814bcc88382bdd6782",
+    "normalized_text_chars": 9334,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-09-03T21:23:54.123Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S20.txt.gz",
+     "gz_sha256": "8799bfa2da7282a0701a0dbb72ae8c3e27cb57dfd0d6e35ee9345e8070cb91c6",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S20",
+     "archive_url": "https://web.archive.org/web/20260821230240/https://docs.iroh.computer/concepts/security-privacy",
+     "archive_timestamp": "20260821230240",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S21",
+   "url": "https://docs.iroh.computer/languages/rust",
+   "fetched_url": "https://docs.iroh.computer/languages/rust",
+   "retrieved_at_utc": "2026-10-02T23:56:07Z",
+   "claim": "Native Rust interface and published platform list",
+   "claim_status": "supported",
+   "excerpt": "iOS device+simulator; Android aarch64, armv7; macOS arm64, x86_64; Linux x86_64, aarch64, armv7 (glibc and musl); Windows x86_64, aarch64",
+   "note": "crates.io iroh 1.3.0 (see candidates).",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: c80e02d4e454124816d49e3ef8d1b620b5de0a81b5f8a5aa2fb2c514465d72fc",
+    "legacy_text_sha256_unreproducible": "c80e02d4e454124816d49e3ef8d1b620b5de0a81b5f8a5aa2fb2c514465d72fc",
+    "legacy_raw_body_sha256_v1": "934cb6a9acca94d6c880aef18f6b40f24fd80120b2b9b1e85b2093cb7b7c261c"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://docs.iroh.computer/languages/rust",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "70219d86230965e25324051453c6f19aefb6e1ceaee7aefdb24e721cbeb2dac7",
+    "raw_bytes": 284919,
+    "normalized_text_sha256": "a96c1837085523bfe6ff8a7d22760a59b7930c6c0fcb79f8ca75ed4454898be7",
+    "normalized_text_chars": 2202,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-06-11T18:58:34.973Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S21.txt.gz",
+     "gz_sha256": "ce8d0807df6f70acef748f5e400e8e9416a139c91dcced43d4667bf0a78db02e",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S21",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S22",
+   "url": "https://docs.iroh.computer/languages/javascript",
+   "fetched_url": "https://docs.iroh.computer/languages/javascript",
+   "retrieved_at_utc": "2026-10-02T23:56:07Z",
+   "claim": "Native JS bindings/platform packaging, not assumed portable",
+   "claim_status": "supported",
+   "excerpt": "\"JavaScript bindings ... @number0/iroh ... built with napi-rs ... macOS: arm64 (no Intel build)\" ; Linux x86_64/aarch64 (glibc+musl), armv7; Windows x86_64, aarch64; Android aarch64, armv7; Node.js >=20.3.0",
+   "note": "No darwin-x64 prebuilt: an Intel-Mac TS+Iroh path has no published binary. Relevant to G02 (escalation E4). v2: page also says \"Endpoint.bind applies the n0 preset (public discovery + default relays) by default\" (public network use unless overridden; relevant to the no-public-network fixture boundary).",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: e0ca98621d53b7e96f5a82b433a8cf1ebc7a99eece4a7aa27538d7ee67b57266",
+    "legacy_text_sha256_unreproducible": "e0ca98621d53b7e96f5a82b433a8cf1ebc7a99eece4a7aa27538d7ee67b57266",
+    "legacy_raw_body_sha256_v1": "5395916a6c431cd46f72547bc9758f08e4987412140d65741927f6647b38d397"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://docs.iroh.computer/languages/javascript",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "6d9f8c7fe6cd5528a2e48677bd87d60593a9f2e5024c2dd494ac87465d7f81a5",
+    "raw_bytes": 333062,
+    "normalized_text_sha256": "5e7ff1b110b49b9179322c9b9ef176297dec68be298c59d011fe84352ac8b8cc",
+    "normalized_text_chars": 4087,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {
+     "page_dateModified": "2026-06-11T18:43:52.437Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S22.txt.gz",
+     "gz_sha256": "9d0d821ff967a7a0f3975746abd9f95f65cd756b7a0d6766d212895d03f50a91",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S22",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S23",
+   "url": "https://mitchellh.com/writing/building-block-economy",
+   "fetched_url": "https://mitchellh.com/writing/building-block-economy",
+   "retrieved_at_utc": "2026-10-02T23:56:07Z",
+   "claim": "April 7, 2026 essay on reusable primitives",
+   "claim_status": "supported",
+   "excerpt": "Dated \"April 7, 2026\"; \"I use the term 'building block' to describe how they're being used\"",
+   "note": "",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: 49326b4c42b3afbeccd7f9a8dbfd141354c347619c12033564021909214099e4",
+    "legacy_text_sha256_unreproducible": "49326b4c42b3afbeccd7f9a8dbfd141354c347619c12033564021909214099e4",
+    "legacy_raw_body_sha256_v1": "f29e59ef0ff58b0fff8979ceb104fdafeb94ef4e6b0067238d4eda114a878e81"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://mitchellh.com/writing/building-block-economy",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "f29e59ef0ff58b0fff8979ceb104fdafeb94ef4e6b0067238d4eda114a878e81",
+    "raw_bytes": 46148,
+    "normalized_text_sha256": "12a977ce0a5db862bcd73bb7fd7184ee1e02451654543b1f6f8ab07ea888fdf5",
+    "normalized_text_chars": 7395,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "page_dateModified": "2026-04-07T00:00:00.000Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S23.txt.gz",
+     "gz_sha256": "42d81db732ca6c3a994bc7c5a441f021689d498b84bc2ac705712ee1068bc0fb",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S23",
+     "archive_url": "https://web.archive.org/web/20260814011132/https://mitchellh.com/writing/building-block-economy",
+     "archive_timestamp": "20260814011132",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S24",
+   "url": "https://developers.openai.com/api/docs/guides/function-calling",
+   "fetched_url": "https://developers.openai.com/api/docs/guides/function-calling",
+   "retrieved_at_utc": "2026-10-02T23:56:07Z",
+   "claim": "Compact predictable operations; move routine orchestration to code",
+   "claim_status": "supported",
+   "excerpt": "\"Offload the burden from the model and use code where possible. Don't make the model fill arguments you already know. Combine functions that are always called in sequence.\" ; \"Aim for fewer than 20 functions available at the start of a turn\"",
+   "note": "sha is of the .md variant served by the same site.",
+   "pin": {
+    "type": "text_sha256_markdown_variant",
+    "value": "sha256 of extracted text: ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
+    "legacy_text_sha256_unreproducible": "ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
+    "legacy_raw_body_sha256_v1": null
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://developers.openai.com/api/docs/guides/function-calling.md",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
+    "raw_bytes": 77573,
+    "normalized_text_sha256": "51a9bd1593d64e8a2402a5acfa3eec4b8205986afe96f582eb5b9d7b42a32b44",
+    "normalized_text_chars": 68931,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": null,
+    "markers": {
+     "http_last_modified": "Sat, 03 Oct 2026 20:10:54 GMT"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S24.txt.gz",
+     "gz_sha256": "c0e22594bb654ac679cbd8886d5cbc76c0990f0cef2b05ee5f300cd78c7b42c7",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S24",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S25",
+   "url": "https://learn.chatgpt.com/docs/build-skills",
+   "fetched_url": "https://learn.chatgpt.com/docs/build-skills",
+   "retrieved_at_utc": "2026-10-02T23:56:08Z",
+   "claim": "Progressive disclosure for optional skill guidance",
+   "claim_status": "supported",
+   "excerpt": "\"Skills use progressive disclosure to manage context efficiently.\"",
+   "note": "",
+   "pin": {
+    "type": "text_sha256_markdown_variant",
+    "value": "sha256 of extracted text: d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
+    "legacy_text_sha256_unreproducible": "d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
+    "legacy_raw_body_sha256_v1": null
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://learn.chatgpt.com/docs/build-skills.md",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
+    "raw_bytes": 10925,
+    "normalized_text_sha256": "6bbf6cd1028ec1d6df6ce8621d42e1bc8a9cb748f966d2e3a91980c1bdc80e84",
+    "normalized_text_chars": 9727,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": null,
+    "markers": {},
+    "snapshot": {
+     "path": "docs/sources/snapshots/S25.txt.gz",
+     "gz_sha256": "abdecde98c2bdeaa54f27384ce4ffef00d759869d109a19ef815c04d7e5bd268",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S25",
+     "archive_url": "https://web.archive.org/web/20260807110108/https://learn.chatgpt.com/docs/build-skills.md",
+     "archive_timestamp": "20260807110108",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S26",
+   "url": "https://developers.openai.com/api/docs/guides/latest-model",
+   "fetched_url": "https://developers.openai.com/api/docs/guides/latest-model",
+   "retrieved_at_utc": "2026-10-02T23:56:08Z",
+   "claim": "Outcome-focused instructions, follow-through, file hygiene, verification scope",
+   "claim_status": "supported",
+   "excerpt": "Sections \"Initiative and follow-through\" and \"Testing and verification\"; \"unclear or conflicting guidance in a skill file may cause the model to pause and block work early\"; \"Make the priority of user instructions and skills explicit\"; \"complete all the necessary work until the intended outcome is fulfilled\"",
+   "note": "Page now headlines GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna. v2 correction: the v1 excerpt also quoted \"Be very specific about your end goal\"; that sentence is on S31 (reasoning-best-practices), not S26. The S26 claim stays supported by the quotes above (checked in docs/sources/snapshots/S26.txt.gz). The S31 quote is attributed to S31 below.",
+   "pin": {
+    "type": "text_sha256_markdown_variant",
+    "value": "sha256 of extracted text: 14b1d9281eb2132c5f14075eb44572cda843ec1101ad9680cd4adc004c0147d3",
+    "legacy_text_sha256_unreproducible": "14b1d9281eb2132c5f14075eb44572cda843ec1101ad9680cd4adc004c0147d3",
+    "legacy_raw_body_sha256_v1": null
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://developers.openai.com/api/docs/guides/latest-model.md",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "14b1d9281eb2132c5f14075eb44572cda843ec1101ad9680cd4adc004c0147d3",
+    "raw_bytes": 19257,
+    "normalized_text_sha256": "f6ecbbe14400b8f766e53930e151123c4b5e0317ad77c953239f8a31a49cb352",
+    "normalized_text_chars": 19150,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": null,
+    "markers": {
+     "http_last_modified": "Sat, 03 Oct 2026 20:04:56 GMT"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S26.txt.gz",
+     "gz_sha256": "1df5cd30e136fb1c18aa9b3ab0738b38a07fbdc398d937fed85b2a2ff92e3ae0",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S26",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S27",
+   "url": "https://github.com/charmbracelet/bubbletea",
+   "fetched_url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/main/README.md",
+   "retrieved_at_utc": "2026-10-02T23:56:08Z",
+   "claim": "Go TUI candidate; no perf/interop claim",
+   "claim_status": "supported",
+   "excerpt": "\"a high-performance cell-based renderer, built-in color downsampling\" (project claim, not a Heimdall claim); import path tea \"charm.land/bubbletea/v2\"; License MIT",
+   "note": "MODULE PATH CHANGED: v2 is imported as charm.land/bubbletea/v2, not github.com/charmbracelet/bubbletea. Informational (E3). The pin commit 96d69d2 is the main head at retrieval; release v2.0.10 is commit d5bfd5c2ff7480a6b94536c1cf4e73569b8d523e per the Go module proxy (https://proxy.golang.org/charm.land/bubbletea/v2/@v/v2.0.10.info). They differ; cite the tag for the release and 96d69d2 only for README text.",
+   "pin": {
+    "type": "git_commit_and_blob",
+    "value": "commit 96d69d2f7eb182bb311be08fc56ed2c208239aff; README blob 4d08d355bf1076e36b4f3843ed59a8a37e8d332c; release v2.0.10",
+    "repo": "charmbracelet/bubbletea",
+    "path": "README.md",
+    "repo_head_at_retrieval": "96d69d2f7eb182bb311be08fc56ed2c208239aff",
+    "blob_sha": "4d08d355bf1076e36b4f3843ed59a8a37e8d332c",
+    "permalink": "https://github.com/charmbracelet/bubbletea/blob/96d69d2f7eb182bb311be08fc56ed2c208239aff/README.md",
+    "legacy_text_sha256_unreproducible": "7d0b89d95addb7d14204c7ec4ffd4480f3cd5c2bac97ea6f46ba0a72478efaa7",
+    "legacy_raw_body_sha256_v1": "5039b3d120bccea147692e63c21f724254e3809f30b3b32948d67534bf66891f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/96d69d2f7eb182bb311be08fc56ed2c208239aff/README.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "5039b3d120bccea147692e63c21f724254e3809f30b3b32948d67534bf66891f",
+    "raw_bytes": 14892,
+    "normalized_text_sha256": "7755fb75d9a367accad6dcf5371f6d932d532c788a0facf4d437c881397263d7",
+    "normalized_text_chars": 14110,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "4d08d355bf1076e36b4f3843ed59a8a37e8d332c",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S27",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S28",
+   "url": "https://ratatui.rs/",
+   "fetched_url": "https://ratatui.rs/",
+   "retrieved_at_utc": "2026-10-02T23:56:09Z",
+   "claim": "Rust TUI candidate",
+   "claim_status": "supported",
+   "excerpt": "\"Ratatui is a Rust library for building fast, lightweight, and rich terminal user interfaces\" ; site shows version 0.30.2",
+   "note": "Page text hash stable across two fetches; site stat counters could make it drift.",
+   "pin": {
+    "type": "text_sha256",
+    "value": "sha256 of extracted text: 6e6d4e2aa02e3a49e0462721d4f36b580f27bd53e178440dfb55264096fff322; site-displayed version 0.30.2",
+    "legacy_text_sha256_unreproducible": "6e6d4e2aa02e3a49e0462721d4f36b580f27bd53e178440dfb55264096fff322",
+    "legacy_raw_body_sha256_v1": "2dc9f22326443fb0b72e42d06c28c097113c0a445a8dde5723a286ad66554e0f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://ratatui.rs/",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "1a17186f4b044fce4d76a7191c362e628bbc3f997a9e83de0a1f6479fdc18ccb",
+    "raw_bytes": 355248,
+    "normalized_text_sha256": "cfe35cc965427aa51aa9198bf23f8595cead8b001851f25166fa1b630b01475d",
+    "normalized_text_chars": 4203,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": false,
+    "markers": {},
+    "snapshot": {
+     "path": "docs/sources/snapshots/S28.txt.gz",
+     "gz_sha256": "ed925131c9635dc323d4d4bd95e76a8cf6dfafd4c49911521d49b717b04f01cb",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S28",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S29",
+   "url": "https://github.com/anomalyco/opentui",
+   "fetched_url": "https://raw.githubusercontent.com/anomalyco/opentui/main/README.md",
+   "retrieved_at_utc": "2026-10-02T23:56:09Z",
+   "claim": "TS-facing TUI candidate; native/runtime packaging considerations",
+   "claim_status": "supported",
+   "excerpt": "\"It is written in Zig. You write TypeScript directly or through React and Solid.\" ; \"Development requires Bun 1.4.1 or later and Zig 0.16.0.\" ; @opentui/native is a private workspace",
+   "note": "",
+   "pin": {
+    "type": "git_commit_and_blob",
+    "value": "commit de8dc97080e4c404d9018d9e6a485036aeaef7d2; README blob 6f2523a1afb3bf091b91eab073bc6fb0066d9844; release v0.5.14",
+    "repo": "anomalyco/opentui",
+    "path": "README.md",
+    "repo_head_at_retrieval": "de8dc97080e4c404d9018d9e6a485036aeaef7d2",
+    "blob_sha": "6f2523a1afb3bf091b91eab073bc6fb0066d9844",
+    "permalink": "https://github.com/anomalyco/opentui/blob/de8dc97080e4c404d9018d9e6a485036aeaef7d2/README.md",
+    "legacy_text_sha256_unreproducible": "8bf2dd1066a27580a5538e1a7062112dacfd9870c13db0a4a521b13ed5429118",
+    "legacy_raw_body_sha256_v1": "6266260d556e4511deb45075aec7d3bf89b4a65464e204c2f1dec9426ca3d71f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/anomalyco/opentui/de8dc97080e4c404d9018d9e6a485036aeaef7d2/README.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "6266260d556e4511deb45075aec7d3bf89b4a65464e204c2f1dec9426ca3d71f",
+    "raw_bytes": 3264,
+    "normalized_text_sha256": "0a26997c5eeb0e1f064c00455e0a72662ff8dc10e0c4e8b1b1174d52a3b69dc4",
+    "normalized_text_chars": 3222,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "6f2523a1afb3bf091b91eab073bc6fb0066d9844",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S29",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S30",
+   "url": "https://man.openbsd.org/ssh-agent",
+   "fetched_url": "https://man.openbsd.org/ssh-agent",
+   "retrieved_at_utc": "2026-10-02T23:56:09Z",
+   "claim": "Agent socket and same-user/root trust limits",
+   "claim_status": "supported",
+   "excerpt": "\"It is accessible only to the current user, but is easily abused by root or another instance of the same user.\"",
+   "note": "",
+   "pin": {
+    "type": "mdoc_footer_date",
+    "value": "OpenBSD-current September 18, 2026 (SSH-AGENT(1))",
+    "legacy_text_sha256_unreproducible": "9663242fbbbe34a3b4a14f4f9c51e5053c627fe78aa4536bc64cd9d0c79c9300",
+    "legacy_raw_body_sha256_v1": "ee873a3e04c286169850c0e57c39c4a6586b2bf6fb0f92635c074b5bd5f8649f"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://man.openbsd.org/ssh-agent",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "ee873a3e04c286169850c0e57c39c4a6586b2bf6fb0f92635c074b5bd5f8649f",
+    "raw_bytes": 21260,
+    "normalized_text_sha256": "a2048f6b8afcb6abb536bb24799555cf12dc0383bd1b0ae0aa26ee4c396e7940",
+    "normalized_text_chars": 8945,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {
+     "mdoc_footer": "September 18, 2026"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S30.txt.gz",
+     "gz_sha256": "905e6510d1dc708c4dcb78508de185a097b2f81e2a49eee5d1c6e50238bb3e0b",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S30",
+     "archive_url": "https://web.archive.org/web/20260826031600/https://man.openbsd.org/ssh-agent",
+     "archive_timestamp": "20260826031600",
+     "raw_matches_baseline": false,
+     "normalized_matches_baseline": false,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S31",
+   "url": "https://developers.openai.com/api/docs/guides/reasoning-best-practices",
+   "fetched_url": "https://developers.openai.com/api/docs/guides/reasoning-best-practices",
+   "retrieved_at_utc": "2026-10-02T23:56:09Z",
+   "claim": "Clear goals/constraints; avoid demanding hidden CoT; some sections describe older models",
+   "claim_status": "supported",
+   "excerpt": "\"Avoid chain-of-thought prompts: Since these models perform reasoning internally, prompting them to 'think step by step' ... is unnecessary.\" ; page covers o1/o3/o4-mini/GPT-4.1 era models",
+   "note": "v2: S31 carries \"Be very specific about your end goal: In your instructions, try to give very specific parameters for a successful response\" (moved here from the v1 S26 excerpt).",
+   "pin": {
+    "type": "text_sha256_markdown_variant",
+    "value": "sha256 of extracted text: 00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
+    "legacy_text_sha256_unreproducible": "00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
+    "legacy_raw_body_sha256_v1": null
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://developers.openai.com/api/docs/guides/reasoning-best-practices.md",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
+    "raw_bytes": 17199,
+    "normalized_text_sha256": "1d11c6880da3275e547cdb45f85d45107f4bfdf8f5e5ea703c5620b93df8184c",
+    "normalized_text_chars": 17006,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": null,
+    "markers": {
+     "http_last_modified": "Sat, 03 Oct 2026 20:17:41 GMT"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S31.txt.gz",
+     "gz_sha256": "fc2646dc4271edd358d31361cac38825c06cc0a44c2de617ae8ff861df5c4e29",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S31",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S32",
+   "url": "https://developers.openai.com/api/docs/guides/evaluation-best-practices",
+   "fetched_url": "https://developers.openai.com/api/docs/guides/evaluation-best-practices",
+   "retrieved_at_utc": "2026-10-02T23:56:10Z",
+   "claim": "Task-specific evaluation and evidence",
+   "claim_status": "supported",
+   "excerpt": "Eval process: collect dataset, define metrics, \"Run and compare evals\"; judge tasks \"against specific criteria instead of open-ended generation\"",
+   "note": "Banner: \"OpenAI is deprecating the Evals platform ... read-only on October 31, 2026 ... shut down on November 30, 2026.\" Guidance text still stands; the platform it points to is going away (E5).",
+   "pin": {
+    "type": "text_sha256_markdown_variant",
+    "value": "sha256 of extracted text: 93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
+    "legacy_text_sha256_unreproducible": "93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
+    "legacy_raw_body_sha256_v1": null
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://developers.openai.com/api/docs/guides/evaluation-best-practices.md",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
+    "raw_bytes": 23604,
+    "normalized_text_sha256": "30b9b23c5c754b052c357641a6c886e96fd233824bc7da3c92f3a4662f6cc562",
+    "normalized_text_chars": 22663,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": null,
+    "markers": {
+     "http_last_modified": "Sat, 03 Oct 2026 20:06:01 GMT"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S32.txt.gz",
+     "gz_sha256": "038e0e5dc3f22454f8a8c09cc6eb6846a21e4207617803923689b472b3f52af8",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S32",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S33",
+   "url": "https://developers.openai.com/api/docs/guides/agent-builder-safety",
+   "fetched_url": "https://developers.openai.com/api/docs/guides/agent-builder-safety",
+   "retrieved_at_utc": "2026-10-02T23:56:10Z",
+   "claim": "Structured trust boundaries; untrusted content; no claim of eliminating injection",
+   "claim_status": "supported",
+   "excerpt": "\"Use structured outputs to constrain data flow\" ; \"Don't use untrusted variables in developer messages\" ; \"you can significantly reduce risks of prompt injection\" (not eliminate)",
+   "note": "",
+   "pin": {
+    "type": "text_sha256_markdown_variant",
+    "value": "sha256 of extracted text: e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
+    "legacy_text_sha256_unreproducible": "e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
+    "legacy_raw_body_sha256_v1": null
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://developers.openai.com/api/docs/guides/agent-builder-safety.md",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
+    "raw_bytes": 5808,
+    "normalized_text_sha256": "f9b8be94ef4a431f80ba79335d9a43554f48380b992580c4ca8931bef742ad11",
+    "normalized_text_chars": 5764,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": null,
+    "markers": {
+     "http_last_modified": "Sat, 03 Oct 2026 20:43:26 GMT"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/S33.txt.gz",
+     "gz_sha256": "a45598c2de68e0aacc25b928627400813ff032a32ae98c83c634ae0a4302562b",
+     "content": "normalized text, one line"
+    },
+    "archive": {
+     "id": "S33",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  },
+  {
+   "id": "S34",
+   "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/environment-auth.md",
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md",
+   "retrieved_at_utc": "2026-10-02T23:56:10Z",
+   "claim": "Pairing/management boundaries; project-vs-sandbox",
+   "claim_status": "supported",
+   "excerpt": "\"Pairing delegates a set of scopes. ... cannot widen it.\" ; \"Projects are organizational boundaries, not filesystem sandboxes.\"",
+   "note": "",
+   "pin": {
+    "type": "git_blob_and_path_commit",
+    "value": "3b75e607eb909522a8f5562fb40e44efc72bb66c (last commit touching path); blob 2428783ccc56531e1281ef056ed3b216539210e4",
+    "repo": "pingdotgg/t3code",
+    "path": "docs/internals/environment-auth.md",
+    "path_last_commit": "3b75e607eb909522a8f5562fb40e44efc72bb66c",
+    "blob_sha": "2428783ccc56531e1281ef056ed3b216539210e4",
+    "repo_head_at_retrieval": "7ff2eabf56d30af15a8ac86b0eb46013a9e910ee",
+    "permalink": "https://github.com/pingdotgg/t3code/blob/3b75e607eb909522a8f5562fb40e44efc72bb66c/docs/internals/environment-auth.md",
+    "legacy_text_sha256_unreproducible": "6c1fe44d05c12ee270e7772bae8c2767ae5e2ca0af5e03c02568f5cb1c4259ab",
+    "legacy_raw_body_sha256_v1": "e743ed4c50da6603f3c0ab4fa448672253e8e58b263d9eebf02100746d38b7b8"
+   },
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-03T21:18Z",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/3b75e607eb909522a8f5562fb40e44efc72bb66c/docs/internals/environment-auth.md",
+    "http_status": 200,
+    "primary": "raw_body_sha256",
+    "raw_body_sha256": "e743ed4c50da6603f3c0ab4fa448672253e8e58b263d9eebf02100746d38b7b8",
+    "raw_bytes": 4347,
+    "normalized_text_sha256": "bc6434abfdf811c973903c452ef27cf98a67a57dd69f44afdd483aa2c946cadd",
+    "normalized_text_chars": 4331,
+    "normalizer_version": 1,
+    "raw_reproduced_vs_v1_pin": true,
+    "markers": {},
+    "git_blob_sha1": "2428783ccc56531e1281ef056ed3b216539210e4",
+    "git_blob_matches_pin": true,
+    "snapshot": null,
+    "archive": {
+     "id": "S34",
+     "archive_url": null,
+     "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    }
+   }
+  }
+ ],
+ "candidates": {
+  "bubbletea": {
+   "source": "S27",
+   "module_path": "charm.land/bubbletea/v2",
+   "legacy_path": "github.com/charmbracelet/bubbletea (v1)",
+   "latest_stable_tag": "v2.0.10",
+   "released_at": "2026-09-24T08:08:55Z",
+   "license": "MIT",
+   "default_branch_head": "96d69d2f7eb182bb311be08fc56ed2c208239aff",
+   "last_commit": "2026-10-02T11:07:33Z",
+   "stars": 45249,
+   "notes": "Go library. v2 import path moved to charm.land vanity domain."
+  },
+  "ratatui": {
+   "source": "S28",
+   "crate": "ratatui",
+   "latest_stable": "0.30.2",
+   "published_at": "2026-06-19T08:56:46Z",
+   "license": "MIT",
+   "rust_version": "1.88.0",
+   "github_release": "ratatui-v0.30.2",
+   "repo_head": "7767679c138b383933fef4227e7fbf077b7cfeca",
+   "last_commit": "2026-09-28T19:29:48Z",
+   "companion_crate": {
+    "name": "ratatui-crossterm",
+    "version": "0.1.2",
+    "license": "MIT",
+    "note": "ratatui-crossterm defaults to feature crossterm_0_29, optional crossterm_0_28"
+   }
+  },
+  "crossterm": {
+   "crate": "crossterm",
+   "latest_stable": "0.29.0",
+   "published_at": "2025-04-05T15:21:48Z",
+   "license": "MIT",
+   "rust_version": "1.63.0",
+   "default_branch": "master",
+   "repo_head": "f6cb07514195edbe6c75547f15b0b82679726626",
+   "last_commit": "2026-09-14T00:24:37Z",
+   "maintenance_note": "Last crates.io release is 18 months before pin date though master has commits in Sept 2026. GitHub \"latest release\" tag is 0.28 (2024-07-31) and lags crates.io 0.29.0."
+  },
+  "opentui": {
+   "source": "S29",
+   "repo": "anomalyco/opentui",
+   "latest_release": "v0.5.14",
+   "released_at": "2026-09-30T14:50:28Z (GH) / npm 2026-09-30T14:52:09Z",
+   "license": "MIT",
+   "repo_head": "de8dc97080e4c404d9018d9e6a485036aeaef7d2",
+   "last_commit": "2026-10-02T05:32:51Z",
+   "npm": {
+    "@opentui/core": {
+     "version": "0.5.14",
+     "license": "MIT",
+     "engines": {
+      "bun": ">=1.3.0",
+      "node": ">=26.4.0"
+     },
+     "optional_platform_packages": [
+      "@opentui/core-darwin-arm64",
+      "@opentui/core-darwin-x64",
+      "@opentui/core-linux-x64",
+      "@opentui/core-linux-arm64",
+      "@opentui/core-linux-x64-musl",
+      "@opentui/core-linux-arm64-musl",
+      "@opentui/core-win32-x64",
+      "@opentui/core-win32-arm64"
+     ],
+     "peer": {
+      "web-tree-sitter": "0.25.10"
+     },
+     "dependencies": [
+      "diff",
+      "marked",
+      "strip-ansi",
+      "string-width",
+      "bun-ffi-structs"
+     ],
+     "integrity": "sha512-tfQ+PWQyeBnYloB3diEcPqbILv14xemH5jjAEICfPuyNDtGBqrjhUtThrhbvFRuPMcj6IEeXrAk6VE8e91h0kg==",
+     "shasum": "fad26be1b292d609bf9b7a09b74c0516173ccc67",
+     "engines_note": "SOURCE-BACKED: package.json engines lists two separate keys, bun >=1.3.0 and node >=26.4.0, and the exports \".\" entry has conditions bun (./index.bun.js), node (./index.node.js), import (./index.node.js), types. INFERENCE: the earlier wording \"node >=26.4 or bun >=1.3\" read the two keys as alternatives; npm does not state whether both are required or either is sufficient. Not tested here.",
+     "tarball": "https://registry.npmjs.org/@opentui/core/-/core-0.5.14.tgz"
+    },
+    "@opentui/react": {
+     "version": "0.5.14",
+     "license": "MIT",
+     "peer": {
+      "react": ">=19.2.0"
+     }
+    },
+    "@opentui/solid": {
+     "version": "0.5.14",
+     "license": "MIT"
+    },
+    "@opentui/keymap": {
+     "version": "0.5.14",
+     "license": "MIT"
+    },
+    "@opentui/ssh": {
+     "version": "0.5.14",
+     "license": "MIT",
+     "dependencies": [
+      "ssh2 ^1.16.0"
+     ]
+    }
+   },
+   "native_components": "SOURCE-BACKED: Zig implementation in the private @opentui/native workspace, shipped as prebuilt per-platform optional npm packages (8 packages: darwin x64/arm64, linux x64/arm64 plus musl variants, win32 x64/arm64); npm dependency bun-ffi-structs 0.3.1; dev needs Bun 1.4.1+ and Zig 0.16.0 (README, S29). INFERENCE (not stated in any source; G02 must test): that the native code is loaded through Bun FFI on every runtime (inferred from the bun-ffi-structs dependency name and the \"bun\" export condition); that a Node 26.4+ runtime can load the same native packages (the npm exports map has a distinct \"node\" condition pointing to ./index.node.js, but loading behavior was not run).",
+   "notes": "0.x pre-1.0 versioning; all packages version-locked to the same number. Full tarball integrity for @opentui/core recorded in v2 (v1 stored a truncated value); other candidate packages carry no integrity pin yet (reopen when a candidate is installed for G02)."
+  },
+  "iroh": {
+   "source": [
+    "S21",
+    "S22"
+   ],
+   "rust_crate": {
+    "name": "iroh",
+    "latest_stable": "1.3.0",
+    "published_at": "2026-09-28T19:22:11Z",
+    "license": "MIT OR Apache-2.0 (crate metadata; GitHub detects Apache-2.0)",
+    "rust_version": "1.91",
+    "repo_head": "b4c8fc68ef21b78781741fab8c6c86a1043d0f97",
+    "last_commit": "2026-10-02T16:42:21Z",
+    "platforms_per_docs": "iOS; Android aarch64, armv7; macOS arm64, x86_64; Linux x86_64, aarch64, armv7 (glibc, musl); Windows x86_64, aarch64"
+   },
+   "iroh_tickets_crate": {
+    "version": "1.0.0",
+    "license": "MIT OR Apache-2.0"
+   },
+   "javascript": {
+    "npm": "@number0/iroh",
+    "latest": "1.1.0",
+    "published_at": "2026-07-16T14:51:02Z",
+    "license": "MIT OR Apache-2.0",
+    "engines": {
+     "node": ">=20.3.0"
+    },
+    "prebuilt_platform_packages": [
+     "android-arm-eabi",
+     "android-arm64",
+     "darwin-arm64",
+     "linux-arm-gnueabihf",
+     "linux-arm-musleabihf",
+     "linux-arm64-gnu",
+     "linux-arm64-musl",
+     "linux-x64-gnu",
+     "linux-x64-musl",
+     "win32-arm64-msvc",
+     "win32-x64-msvc"
+    ],
+    "missing": "darwin-x64 (macOS Intel) not published",
+    "source_repo": "n0-computer/iroh-ffi",
+    "ffi_repo_release": "v1.1.0 (2026-07-16)",
+    "ffi_repo_head": "3103bf5295be6d50c5272ff7a426e9b539f3f587"
+   },
+   "other_bindings": {
+    "python_swift_kotlin": "via iroh-ffi/uniffi (present in repo; not individually version-checked here)",
+    "go": "git.coopcloud.tech/decentral1se/iroh-go, docs label it experimental, Linux x86_64/aarch64 (musl) only, no stable tag, third-party host",
+    "c": "iroh-c-ffi, build from source, no prebuilt binaries; Linux x86_64 glibc, macOS arm64, Windows x86_64"
+   },
+   "docs_platform_compat_page": "Linux, macOS, Windows, Android, iOS, WebAssembly, FreeRTOS: Yes"
+  },
+  "pigeons": {
+   "source": "S19",
+   "repo": "n0-computer/pigeons",
+   "latest_release": "v0.2.1",
+   "released_at": "2026-08-03T11:08:26Z",
+   "crate": "iroh-pigeons 0.2.1",
+   "license": "MIT OR Apache-2.0 (Cargo.toml and LICENSE-MIT + LICENSE-APACHE files; GitHub API reports Apache-2.0 only)",
+   "repo_head": "7800c52076012d5d14a28e5e5946ed32fa82e0f0",
+   "last_commit": "2026-09-29T09:59:04Z",
+   "depends_on": "iroh = \"1\" ; rust-version 1.91, edition 2024",
+   "release_assets": [
+    "darwin-aarch64",
+    "darwin-x86_64",
+    "linux-aarch64",
+    "linux-x86_64",
+    "windows-x86_64 (.zip)"
+   ],
+   "integration": "`pigeons roost` on server; `pigeons add --id <endpoint id> --name <host>` writes an ssh_config Host entry whose ProxyCommand runs `pigeons fly --stdio`; ssh then uses the tunnel over stdin/stdout. Install script is curl|bash from an S3 bucket (do not use in fixtures; use release assets or cargo). v2 additions (README at 7800c52, see S19 note): opt-in anonymous telemetry to iroh-services; `pigeons service install` runs the roost as root; `pigeons add` writes ~/.ssh/config; dedicated .ssh/pigeons_ed25519 key; anyone with the endpoint ID can reach the SSH port. Fixtures must use a scratch HOME, no service install, telemetry off.",
+   "stars": 181
+  },
+  "win32_openssh": {
+   "v1_error": "v1 examined PowerShell/Win32-OpenSSH (default branch L1-Prod), which only tracks releases and issues; its README says active development is in PowerShell/openssh-portable. The v1 statements \"no LICENSE file\" and \"head 39d8050 on 2026-09-23\" described the wrong repository (39d8050 is an issue-triage bot commit).",
+   "release_repo": "PowerShell/Win32-OpenSSH",
+   "latest_release_tag": "10.0.0.0p2-Preview",
+   "published_at": "2025-10-27T18:58:57Z",
+   "github_prerelease_flag": false,
+   "name_says": "Preview",
+   "recent_tags": [
+    "10.0.0.0p2-Preview (2025-10-27)",
+    "v9.8.3.0p2-Preview (2025-04-18)",
+    "v9.8.2.0p2-Preview (2025-04-08)",
+    "v9.8.1.0p1-Preview (2024-10-10)",
+    "v9.8.0.0p1-Preview (2024-10-08)"
+   ],
+   "release_repo_default_branch": "L1-Prod",
+   "release_repo_head_v1": "39d805023462aea5f994bdb793ea1f560378d3cf (2026-09-23; issue-triage bot commit, not code)",
+   "release_repo_readme_quote": "\"As of Nov 1st 2016, active development on \\\"Windows for OpenSSH\\\" is being done in https://github.com/PowerShell/openssh-portable.\" (README at 39d8050)",
+   "source_repo": "PowerShell/openssh-portable",
+   "source_default_branch": "latestw_all",
+   "source_head": "e581929d3d0cf44e033e47bf3b75a2544918b87e",
+   "source_head_date": "2026-09-25T17:09:31Z",
+   "source_head_message": "Merge pull request #877 from tgauth/merge-v10.3P1",
+   "source_pushed_at": "2026-09-25T17:09:32Z",
+   "source_archived": false,
+   "license_file": "LICENCE (British spelling; a check for a file named LICENSE finds nothing)",
+   "license_file_blob_sha1": "aeb3017e76c6ca6a53337dfb4af2f434e1628568",
+   "license_file_raw_sha256": "5bb5b160726ef5756e4f32fe95b35249c294962419650f48d05134b486d27ccb",
+   "license_file_bytes": 21140,
+   "license_file_permalink": "https://github.com/PowerShell/openssh-portable/blob/e581929d3d0cf44e033e47bf3b75a2544918b87e/LICENCE",
+   "license_text_quotes": [
+    "\"all components are under a BSD licence, or a licence more free than that.\"",
+    "\"OpenSSH contains no GPL code.\""
+   ],
+   "github_license_field": "NOASSERTION (key \"other\"): GitHub does not classify the multi-clause LICENCE file",
+   "windows_specific_code_sample": "contrib/win32/win32compat/misc.c at e581929 carries \"Copyright(c) 2016 Microsoft Corp.\" with a BSD-2-clause-style notice. One file sampled; the Windows-specific tree was not audited file by file.",
+   "releases_on_source_repo": "GitHub releases API returns none for PowerShell/openssh-portable; installable assets (MSI/zip) are attached to PowerShell/Win32-OpenSSH releases",
+   "notes": "Upstream sync is current in source (merge of OpenSSH 10.3p1 on 2026-09-25) but the newest published Windows release is 10.0.0.0p2-Preview from 2025-10-27, so source head is ahead of any release. Every one of the 5 latest releases carries \"Preview\" in its tag. Windows 11/Server inbox OpenSSH is a separate Microsoft-distributed build and is not pinned here.",
+   "status_of_e6": "E6 restated: licensing is a BSD-style LICENCE in openssh-portable (not absent). The open owner decision is the support baseline: whether a Preview-only release line, with source ahead of releases, may be called a supported Windows OpenSSH baseline."
+  },
+  "smallstep": {
+   "step_ca": {
+    "repo": "smallstep/certificates",
+    "latest_release": "v0.30.2",
+    "released_at": "2026-03-23T00:17:17Z",
+    "license": "Apache-2.0",
+    "repo_head": "fdeb6fdf53f9ad430c283940eb4c5f1203406fa7",
+    "last_commit": "2026-09-29T12:27:36Z"
+   },
+   "step_cli": {
+    "repo": "smallstep/cli",
+    "latest_release": "v0.31.0",
+    "released_at": "2026-09-25T20:09:06Z",
+    "license": "Apache-2.0",
+    "repo_head": "8301c0dfb1546ccddb808375b9f9311be03c2ba9",
+    "last_commit": "2026-09-25T19:43:47Z"
+   },
+   "notes": "S11 says SSH certificate activation on the hosted Certificate Manager requires contacting Smallstep; open-source step-ca covers SSH CA per tutorial."
+  }
+ },
+ "escalations": [
+  {
+   "id": "E1",
+   "source": "S07",
+   "summary": "Suggested spec clarification, not a contradiction. Spec line 323 says remembered approvals do not keep private keys available after lock; S06 and S07 support that as written (unlock still required for key access). S07 also documents timed remembering (4/12/24 h) under which key APPROVALS stay in agent memory while 1Password is locked. A clarifying sentence distinguishing approvals from key availability would prevent misreading; wording is the spec owner's decision."
+  },
+  {
+   "id": "E2",
+   "source": "S02/S01",
+   "summary": "Spec says ssh -G evaluation may run Match exec; no single source sentence states this; it is an inference. Needs G07/G09 behavioral evidence, not a doc citation."
+  },
+  {
+   "id": "E3",
+   "source": "S27",
+   "summary": "Bubble Tea v2 module path is charm.land/bubbletea/v2; any plan text assuming github.com/charmbracelet/bubbletea import path would be stale."
+  },
+  {
+   "id": "E4",
+   "source": "S22",
+   "summary": "S22: Iroh JS bindings publish no macOS Intel (darwin-x64) binary; the Rust crate lists macOS x86_64. TS+Iroh on Intel Macs would need a source build. OpenTUI @opentui/core package.json lists engines bun >=1.3.0 and node >=26.4.0 as separate keys; whether either runtime alone suffices, and how native code loads under Node, is INFERENCE until tested in G02."
+  },
+  {
+   "id": "E5",
+   "source": "S32",
+   "summary": "OpenAI Evals platform banner: read-only 2026-10-31, shutdown 2026-11-30. Guidance text supports the spec claim; the platform should not be a Heimdall dependency."
+  },
+  {
+   "id": "E6",
+   "source": "PowerShell/Win32-OpenSSH (releases) and PowerShell/openssh-portable (source, LICENCE)",
+   "summary": "Restated after review. The BSD-style licence is present as LICENCE in PowerShell/openssh-portable (latestw_all, head e581929, 2026-09-25); v1 looked at the release-tracking repo and wrongly reported no licence. Open owner decision: all 5 latest Win32-OpenSSH releases are tagged Preview (latest 10.0.0.0p2-Preview, 2025-10-27) while source head is ahead (merged OpenSSH 10.3p1); whether that can be a \"supported\" Windows OpenSSH baseline is not decided here."
+  },
+  {
+   "id": "E7",
+   "source": "crossterm/pigeons",
+   "summary": "crossterm last crates.io release 0.29.0 is 2025-04-05 while master is active; GitHub release tag 0.28 lags crates.io. Pigeons license: Cargo.toml says MIT OR Apache-2.0, GitHub API says Apache-2.0. Recorded, not decided."
+  },
+  {
+   "id": "E8",
+   "source": "docs/sources/snapshots",
+   "summary": "27 compressed normalized-text snapshots of third-party documentation are committed for independent verification (docs/sources/snapshots/README.md). Copyright stays with the publishers. If the repository is ever published, the owner should decide whether to keep, replace with hashes plus archive URLs, or remove them; not decided here."
+  }
+ ],
+ "reopen_conditions": [
+  "Any listed source Mdocdate or text sha256 changes before a gate that cites it is closed.",
+  "A candidate dependency ships a new major/minor release before G02 selection is locked.",
+  "Win32-OpenSSH (PowerShell/Win32-OpenSSH) publishes a release tag without \"Preview\", or PowerShell/openssh-portable changes LICENCE.",
+  "Iroh JS publishes darwin-x64 or Pigeons changes its ProxyCommand integration.",
+  "Owner amends spec 19 or the support matrix cites a source not listed here.",
+  "v2: `fetch_pins.py compare` against docs/sources/fetch-baseline.json reports drift (exit 2) for a source cited by a gate that is still open; read docs/sources/snapshots/<id>.txt.gz to see what the pin said."
+ ],
+ "v1_generated_at_utc": "2026-10-02T23:56:00Z",
+ "generated_at_utc": "2026-10-03T21:18:23Z",
+ "reproducibility": {
+  "tool": "docs/sources/tools/fetch_pins.py",
+  "normalizer_version": 1,
+  "baseline": "docs/sources/fetch-baseline.json",
+  "repeat": "docs/sources/fetch-repeat.json",
+  "repeat_result": "34/34 raw_body_sha256 identical and 34/34 normalized_text_sha256 + date markers identical between baseline (21:17:52Z start) and repeat (immediately after); 27/27 snapshot .gz files byte-identical",
+  "snapshots_dir": "docs/sources/snapshots",
+  "archive_lookups": "docs/sources/archive-lookups.json",
+  "raw_stability": "15 sources reproduced the original v1 raw_body_sha256 about 21 h after the v1 retrieval (S01-S05, S10, S16-S19, S23, S27, S29, S30, S34); 13 did not (S06-S09, S11-S15, S20-S22, S28: HTML page chrome or content changed); 6 OpenAI/ChatGPT .md pages (S24, S25, S26, S31, S32, S33) had no v1 raw hash. Raw hash is the primary pin only for the 15 stable sources; the other 19 use the normalized-text hash as primary and keep the raw hash as secondary evidence of the exact bytes fetched.",
+  "verify": "python3 docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = identical; exit 2 lists drifted ids; compare the drifted id snapshot with `zcat docs/sources/snapshots/<id>.txt.gz`)"
+ }
+}
