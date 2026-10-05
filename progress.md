@@ -35,6 +35,7 @@
   3. conformance for go/rust/ts;
   4. one fix round, a re-run and a targeted review per failing candidate;
   5. re-measure go and rust.
+- Status 2026-10-05 07:50: harness-r4 is done and committed (2.4.0, b224801; result in `m00-wf6/`). A T3 restart at about 00:56 killed review-harness-r4; it was resumed at 07:49 and harness-r4 replayed from cache.
 - To resume: `Workflow({scriptPath, resumeFromRunId: "wf_a7ee1c85-12f"})`. Resume can re-run completed agents (seen once). If one re-runs, stop the run and replace that agent with a static object pointing at its saved result.
 - `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them at cleanup.
 
