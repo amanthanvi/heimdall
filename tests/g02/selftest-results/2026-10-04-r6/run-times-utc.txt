@@ -1,0 +1,1 @@
+selftest driver (macOS host and Linux container concurrently): started 2026-10-05T01:47:40Z, finished 2026-10-05T04:19:20Z

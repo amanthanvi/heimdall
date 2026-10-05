@@ -1,0 +1,91 @@
+{
+  "task_id": "M00-T05-harness-r4",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/g02/conformance.py",
+    "<repo>/tests/g02/harness_lib.py",
+    "<repo>/tests/g02/reference_impl.py",
+    "<repo>/tests/g02/selftest.py",
+    "<repo>/tests/g02/README.md",
+    "<repo>/tests/g02/SELFTEST.md",
+    "<repo>/tests/g02/selftest-results/2026-10-04-r6/ (new: selftest-darwin.console.log, selftest-linux.console.log, selftest-linux.json, SELFTEST-linux.md, tested-file-sha256-prefixes.txt, run-times-utc.txt, info-{go,rust}-{darwin,linux}-arm64.json, stress-k6e-{nograce,grace}-load-darwin.json, run1-aborted-*, run2-aborted-*)"
+  ],
+  "commands_run": [
+    {
+      "command": "python3 tests/g02/selftest.py --repeat-baseline 2 --workdir /tmp/M00-T05-harness-r4/st2/mac --json-out ... --linux-results /tmp/M00-T05-harness-r4/st2/linux/selftest-linux.json --linux-results-wait 21600 (detached driver /tmp/M00-T05-harness-r4/st2/drive.sh, 2026-10-05T01:47:40Z..04:19:20Z)",
+      "exit_code": 0,
+      "observed": "SELFTEST PASS. Host: baseline + 2 repeats 138/138 pass, no flaky checks; reference mutations caught 132/132 observable (agent_reset_unhandled not observable on darwin, caught on Linux); harness mutations 2/2; harness/environment faults 5/5; conforming variants 4/4."
+    },
+    {
+      "command": "tests/g02/linux/run.sh --selftest /tmp/M00-T05-harness-r4/st2/linux -- --repeat-baseline 1 (same driver, concurrent)",
+      "exit_code": 0,
+      "observed": "SELFTEST PASS. Linux: baseline + 1 repeat 138/138 pass; mutations 132/132 observable (run_double_signal not observable on Linux, caught on darwin); harness 2/2; faults 5/5; variants 4/4."
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --only 'run.k6e_child_self_stop,k12.*' (informational, final harness)",
+      "exit_code": 0,
+      "observed": "Both checks pass. K12: SIGPIPE death with and without --json. Non-gating: SIGSTOP self-stop forms (bash, zsh) not reported to the shell."
+    },
+    {
+      "command": "tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go --only 'run.k6e_child_self_stop,k12.*' (informational)",
+      "exit_code": 0,
+      "observed": "Both checks pass. Non-gating: SIGSTOP self-stop reported, but $? is 148 where the control gives 147."
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --only 'run.k6e_child_self_stop,k12.*' (informational)",
+      "exit_code": 1,
+      "observed": "Both checks fail. First failing assertion: '[bash SIGTSTP: hp1] stop 1: the shell reports the job stopped ...'. K12: plain exit 1 against --json exit 0 for version, profile show and agent list."
+    },
+    {
+      "command": "tests/g02/linux/run.sh --artifact-dir prototypes/rust/dist/linux-arm64 --candidate rust --only 'run.k6e_child_self_stop,k12.*' (informational)",
+      "exit_code": 1,
+      "observed": "Same as darwin: both checks fail. No stop notice in any self-stop form; plain exit 1 against --json exit 0."
+    },
+    {
+      "command": "REF_MUTATE=run_text_mode tests/g02/linux/run.sh --reference --only 'run.stdio_passthrough,run.stdio_inherited,run.k6a_inherited_ignore,run.k6e_child_self_stop' (after the run_text_mode streaming fix)",
+      "exit_code": 0,
+      "observed": "Harness completed with no kill (stdio_passthrough, stdio_inherited and k6e_child_self_stop fail as the mutation intends). The runner reported exit=0 because $? was taken after the grep pipeline."
+    },
+    {
+      "command": "stress.py 20 (K6E_ITERATIONS=20) --only run.k6e_job_control against reference with STOP_GRACE_S=0.0, 20 CPU busy loops",
+      "exit_code": 1,
+      "observed": "run.k6e_job_control FAIL in 3 of 4 forms (re-stop after fg in simple/list/zsh-list). This is the race behind the run-1 flake."
+    },
+    {
+      "command": "stress.py 20 --only run.k6e_job_control,run.k6e_child_self_stop against final reference_impl.py (STOP_GRACE_S=0.2), same load",
+      "exit_code": 0,
+      "observed": "Both checks pass: 160 Ctrl-Z/fg cycles and 4 self-stop forms."
+    },
+    {
+      "command": "HM_G02_HARNESS_MUTATE=k6es_control_no_stop conformance.py --selftest --only run.k6e_child_self_stop",
+      "exit_code": 1,
+      "observed": "Outcome ERR (harness precondition failed: the direct-exec control behaves), verdict inconclusive. Not a fail."
+    },
+    {
+      "command": "first full self-test (/tmp/M00-T05-harness-r4/st), aborted",
+      "exit_code": null,
+      "observed": "Darwin flake: run.k6e_job_control re-stop after fg (list form) in mutation run run_meta_exit_for_signal. This was a stale-stop race in my new reference stop mirroring and is fixed with STOP_GRACE_S. Agent stopped the run and its container 53c7d50659b7 (identity-checked)."
+    },
+    {
+      "command": "second full self-test (/tmp/M00-T05-harness-r4/st), aborted",
+      "exit_code": null,
+      "observed": "Linux: run_text_mode harness exit -9, caught=False. The mutation read endless `yes` output into memory, past the 2 GiB container limit; fixed by streaming. Both runs were then killed by the tool's 2 h background limit. Container 1b2c541661e1 stopped after an identity check."
+    }
+  ],
+  "escalations": [
+    "Q16 (new, recorded in OPEN_QUESTIONS and README): §9.4 says the shell must report the job stopped and `fg` must resume the child. It does not say whether the child must STAY stopped until `fg`. A launcher could report the stop to the shell but continue the child at once. The harness records this per stop (resumed_before_fg, non-gating) and does not gate it. Decide: gate it (exec semantics) or not.",
+    "§9.4 gates SIGTSTP self-stops under bash and only records SIGSTOP. Go's non-gating SIGSTOP results differ by platform. On darwin the stop is not reported to the shell. On Linux it is reported, but as a SIGTSTP stop ($? 148 where the control gives 147). The orchestrator may want this as an ADR-0002 input.",
+    "Open from earlier rounds: Q11, Q12, Q13 (zsh gating), Q14, Q15."
+  ],
+  "limitations": [
+    "No independent adversarial review of the 2.4.0 changes was obtained (no delegation was available in this agent context). Validation is the self-test on both platforms plus informational runs against the prototypes. This is self-review, not independent evidence.",
+    "run.k6e_child_self_stop runs only under `bash -i`: 5 heimdall-proto jobs x 2 SIGTSTP self-stops, after a direct-exec control job. SIGSTOP and zsh are non-gating. Not covered: a self-stop while the job is in the background, inside a pipeline or command list, SIGTTIN/SIGTTOU stops, other shells.",
+    "k12.closed_stdout_exit_parity covers version, profile show (homelab) and agent list (normal agent). SIGPIPE is at its default and the read end is closed before start. Not covered: an inherited SIGPIPE ignore, a reader that closes mid-output, error results and usage errors on a closed stdout, a closed stderr.",
+    "The record key observations.signal_duplicates was renamed to observations.harness_os_probe_back_to_back_signal_merge (with measures_heimdall_proto=false and a 'what' text). Consumers of 2.3.0 records that read the old key must be updated. In tests/g02 only selftest.py read it, and it is updated. tests/evidence/artifacts/review-adr-0002/review.md mentions the old name; I did not touch it (outside my write ownership).",
+    "I changed reference baseline behaviour, which affects only the harness self-test, not the checks. The reference now mirrors child stops: it stops itself when the child stays stopped for 200 ms with no continue report. That grace avoids a stale-stop race that made run.k6e_job_control flake once on darwin under load. The run_text_mode mutation now streams; previously it OOM-killed the harness in the Linux container. Neither change weakens any check, and both are documented in README guarantee (h).",
+    "All 2.4.0 checks run after a harness self-test baseline. Wall time: about 250 s per full catalogue on darwin and about 240 s on Linux. The full self-test with both platforms concurrent took 2 h 32 min.",
+    "Windows/WSL are not covered (blocked_on: native Windows host / Windows host with WSL). No change from earlier rounds.",
+    "The selftest-results directory is named 2026-10-04-r6 to match the task's date. The final self-test ran 2026-10-05T01:47Z..04:19Z."
+  ],
+  "summary": "Harness 2.4.0 now judges both §9.4 rulings itself. The full self-test passed on both platforms: macOS selftest.py exited 0 with SELFTEST PASS (3 baselines 138/138, 132/132 observable mutations caught, 2/2 harness mutations, 5/5 harness faults, 4/4 conforming variants). The Linux container via run.sh --selftest exited 0 with the same counts (2 baselines). SELFTEST.md was regenerated, and the results are in tests/g02/selftest-results/2026-10-04-r6/.\n\nNew and changed checks:\n\n1. **run.k6e_child_self_stop** (gating). Runs in one `bash -i` pty session. First a direct-exec control job, then 5 `heimdall-proto run --` jobs. Each child prints a heartbeat, stops itself with kill(getpid(), SIGTSTP) twice, and reads a typed line after each `fg`; it then exits 42. Gated per stop:\n   - the shell prints its stop notice and prompt with no user action within 4 s;\n   - `fg` resumes the child;\n   - there is no notice or prompt after `fg`, and none within 1.5 s;\n   - the child reads the line;\n   - finally `fg` reports 42 and no job is left.\n\n   The control is a harness precondition: if it misbehaves the outcome is `error`, never `fail` (harness fault k6es_control_no_stop proves this). SIGSTOP and zsh forms are non-gating in observations.k6e_child_self_stop. That record also holds the notice word and `$?` next to the control's, the child's state, and resumed_before_fg (Q16).\n\n2. **k12.closed_stdout_exit_parity** (gating). Runs version, profile show (homelab) and agent list (fake agent) with and without --json. Stdout is the write end of a pipe whose read end the harness closed before spawning, so the run is deterministic. SIGPIPE starts at its default. The two wait statuses must be equal, death by signal included. Results are in observations.k12_closed_stdout. common.exit_codes_without_json is unchanged. harness_lib.run_capture and T.proto gained a stdout_fd option for this.\n\n3. **Observation rename.** observations.signal_duplicates is now observations.harness_os_probe_back_to_back_signal_merge, with measures_heimdall_proto=false and a 'what' text. The check title, assertion text and K6 limitation now say it is the harness's own OS probe. It stays non-gating, and selftest's platform gating reads the new key.\n\n4. **reference_impl mutations**, each required by the self-test:\n   - run_ignore_child_stop: waits only for the exit. Required first failing assertion: \"stop 1: the shell reports the job stopped\".\n   - run_child_stop_no_continue: own foreground group; stops itself on a child stop but never continues the child on `fg`. Required first failing assertion: \"stop 1: `fg` resumes the child\".\n   - plain_epipe_exit1 and plain_epipe_sigpipe: the non-json path exits 1 or dies of SIGPIPE on a closed stdout.\n\n   New conforming variant closed_stdout_sigpipe_both (dies of SIGPIPE in both modes) must pass, and does. The baseline reference now mirrors child stops with a 200 ms stale-report grace; stress runs show why the grace is needed. run_text_mode now streams; before, it OOM-killed the Linux harness.\n\n5. **README.** Catalogue regenerated, coverage tables updated, new guarantee (h), limitations, Q16. HARNESS_VERSION is 2.4.0.\n\nInformational runs with the final harness (not verdicts):\n- Go darwin-arm64 and linux-arm64 pass both checks. Go dies of SIGPIPE with and without --json.\n- Rust darwin-arm64 and linux-arm64 fail both. No stop notice appears in any self-stop form, and the plain path exits 1 against 0 with --json. This reproduces both round-3b Rust review findings.\n\nNo commits were made. Only tests/g02/** was written, plus /tmp/M00-T05-harness-r4. I stopped two of my own Linux runner containers after identity checks. No processes of mine are left running."
+}

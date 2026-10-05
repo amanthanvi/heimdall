@@ -1,0 +1,2538 @@
+{
+  "case_id": "G02-go-conformance",
+  "status": "in_progress",
+  "requirement_ids": [
+    "R-SS-04",
+    "R-SS-02",
+    "R-SE-05",
+    "R-QU-07"
+  ],
+  "build_commit": "df7cda75754b5f4573fdb8f5e623b0786aa9bb26+dirty",
+  "artifact_digest": "sha256:a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310",
+  "environment": {
+    "os": "Darwin",
+    "os_release": "27.0.0",
+    "machine": "arm64",
+    "platform": "darwin-arm64",
+    "platform_detail": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "python": "3.14.8",
+    "pyte": "available",
+    "harness_version": "2.4.0",
+    "binary": "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 18,
+    "loadavg_start": [
+      2.22,
+      4.13,
+      4.35
+    ],
+    "loadavg_end": [
+      2.0,
+      3.79,
+      4.21
+    ]
+  },
+  "provider_versions": [
+    {
+      "name": "openssh (ssh-keygen used for fingerprints; version from /usr/bin/ssh -V)",
+      "path": "/usr/bin/ssh-keygen",
+      "version": "OpenSSH_10.3p1, LibreSSL 3.3.6"
+    },
+    {
+      "name": "python",
+      "version": "3.14.8"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2"
+    },
+    {
+      "name": "wcwidth",
+      "version": "0.9.1"
+    }
+  ],
+  "started_at": "2026-10-05T00:23:28-04:00",
+  "commands_or_harness": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14 tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/M00-T05-harness-r4/final/info-go-darwin-arm64.json --artifacts-dir /tmp/M00-T05-harness-r4/final/info-go-darwin-art --only run.k6e_child_self_stop,k12.*",
+    "harness_lib.py / minischema.py / tests/fixtures/fake-agent/fake_agent.py (sha256 ec52fd7482c991dadf041738a942c55b45d4d4c2b1d9564a275dbcfb6a1c515c)"
+  ],
+  "observed_result": {
+    "verdict": "inconclusive",
+    "criterion": "every check of the full catalogue passes against docs/g02/slice-contract.md incl. section 9",
+    "summary": {
+      "pass": 2,
+      "fail": 0,
+      "error": 0,
+      "skipped": 0,
+      "total": 2,
+      "duration_s": 48.6
+    },
+    "checks": [
+      {
+        "id": "run.k6e_child_self_stop",
+        "group": "run",
+        "clause": "§4/K6e",
+        "title": "child-initiated stop (contract section 9.4): `heimdall-proto run -- <child>` as a job of `bash -i` in a pty, 5 jobs; each child prints a heartbeat, stops ITSELF with kill(getpid(), SIGTSTP) (OpenSSH's ~^Z) 2 times and, after each `fg`, reads a typed line, then exits 42. Each self-stop: the shell reports the job stopped and prompts again with no user action (like a direct-exec control run in the same session, a harness precondition), `fg` resumes the child, no re-stop (no notice/prompt after `fg`, none within 1.5 s), the child reads the line; finally `fg` reports status 42 and no job is left. SIGSTOP and zsh -f -i are recorded as non-gating observations",
+        "outcome": "pass",
+        "hard_bound_s": 360,
+        "duration_ms": 47882.0,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "[bash SIGTSTP] harness precondition: interactive bash printed its prompt",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "prompt",
+            "observed": "\\x1b[?1034hHMPS1$ "
+          },
+          {
+            "desc": "[bash SIGTSTP] harness precondition: bash enabled job control (no 'no job control' notice)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "job control on",
+            "observed": "\\x1b[?1034hHMPS1$ "
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] the child started (control (direct exec)) and reached its heartbeat",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT ctl 1 5\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" ctl 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"shell\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: ctl] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: ctl] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 1: `fg` resumes the child",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"shell\"}}"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$Y\" \"$D/s.py\" \"$D\" ctl 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 1: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "K6ES-CTL-1\\n",
+            "observed": "K6ES-CTL-1\n"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 1: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"shell\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" ctl 2 SIGTSTP 42\\\\x0d\\nK6ES-CTL-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: the child is back in its heartbeat after reading the previous line",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT ctl 2 59\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" ctl 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"shell\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: ctl] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: ctl] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: `fg` resumes the child",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"shell\"}}"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$Y\" \"$D/s.py\" \"$D\" ctl 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "K6ES-CTL-2\\n",
+            "observed": "K6ES-CTL-2\n"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] stop 2: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": \"shell\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" ctl 2 SIGTSTP 42\\\\x0d\\nK6ES-CTL-2\\\\x0d\\nHMPS1$ \"}"
+          },
+          {
+            "desc": "harness precondition: the direct-exec control behaves: [bash SIGTSTP: ctl] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] the child started (heimdall-proto) and reached its heartbeat",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 1 5\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp1 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP1-1\\n",
+            "observed": "K6ES-HP1-1\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 1: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\nK6ES-HP1-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: the child is back in its heartbeat after reading the previous line",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 2 59\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp1 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP1-2\\n",
+            "observed": "K6ES-HP1-2\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] stop 2: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\nK6ES-HP1-2\\\\x0d\\nHMPS1$ \"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp1] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] the child started (heimdall-proto) and reached its heartbeat",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp2 1 5\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp2 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP2-1\\n",
+            "observed": "K6ES-HP2-1\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 1: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\nK6ES-HP2-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: the child is back in its heartbeat after reading the previous line",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp2 2 59\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp2 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP2-2\\n",
+            "observed": "K6ES-HP2-2\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] stop 2: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\nK6ES-HP2-2\\\\x0d\\nHMPS1$ \"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp2] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] the child started (heimdall-proto) and reached its heartbeat",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp3 1 5\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp3 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp3 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP3-1\\n",
+            "observed": "K6ES-HP3-1\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 1: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp3 2 SIGTSTP 42\\\\x0d\\nK6ES-HP3-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: the child is back in its heartbeat after reading the previous line",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp3 2 59\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp3 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp3 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP3-2\\n",
+            "observed": "K6ES-HP3-2\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] stop 2: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp3 2 SIGTSTP 42\\\\x0d\\nK6ES-HP3-2\\\\x0d\\nHMPS1$ \"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp3] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] the child started (heimdall-proto) and reached its heartbeat",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp4 1 5\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp4 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp4 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP4-1\\n",
+            "observed": "K6ES-HP4-1\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 1: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp4 2 SIGTSTP 42\\\\x0d\\nK6ES-HP4-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: the child is back in its heartbeat after reading the previous line",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp4 2 60\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp4 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp4 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP4-2\\n",
+            "observed": "K6ES-HP4-2\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] stop 2: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp4 2 SIGTSTP 42\\\\x0d\\nK6ES-HP4-2\\\\x0d\\nHMPS1$ \"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp4] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] the child started (heimdall-proto) and reached its heartbeat",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp5 1 5\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp5 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp5 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP5-1\\n",
+            "observed": "K6ES-HP5-1\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 1: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp5 2 SIGTSTP 42\\\\x0d\\nK6ES-HP5-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: the child is back in its heartbeat after reading the previous line",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "ok": true,
+            "gating": true,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp5 2 59\\\\x0d\\n\\\\x0d\\n[1]+  Stopped                 \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp5 2 SIGTSTP 42\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: `fg` resumes the child",
+            "ok": true,
+            "gating": true,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, no prompt",
+            "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp5 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: the child reads the line typed after `fg` (terminal input reaches it)",
+            "ok": true,
+            "gating": true,
+            "expected": "K6ES-HP5-2\\n",
+            "observed": "K6ES-HP5-2\n"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] stop 2: no re-stop within 1.5 s of `fg`: no 'Stopped' notice since the `fg` and the child is not stopped",
+            "ok": true,
+            "gating": true,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"fg\\\\x0d\\n\\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp5 2 SIGTSTP 42\\\\x0d\\nK6ES-HP5-2\\\\x0d\\nHMPS1$ \"}"
+          },
+          {
+            "desc": "[bash SIGTSTP: hp5] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left",
+            "ok": true,
+            "gating": true,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[bash SIGTSTP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)",
+            "ok": true,
+            "gating": false,
+            "expected": "[[\"Stopped\", 146]]",
+            "observed": "[[\"Stopped\", 146]]"
+          },
+          {
+            "desc": "[bash SIGTSTP] no process of the job left behind (alive members are killed after an identity check)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[bash SIGSTOP: ctl] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[bash SIGSTOP: ctl] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGSTOP: ctl] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[bash SIGSTOP: ctl] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[bash SIGSTOP: hp1] the child started (heimdall-proto) and reached its heartbeat (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGSTOP: hp1] stop 1: the child printed its heartbeat and stopped itself with SIGSTOP (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[bash SIGSTOP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)",
+            "ok": false,
+            "gating": false,
+            "expected": "'Stopped' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 1 5\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": null, \"parent\": null}}"
+          },
+          {
+            "desc": "[bash SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)",
+            "ok": false,
+            "gating": false,
+            "expected": "[[\"Stopped\", 145]]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[zsh SIGTSTP: ctl] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: ctl] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGTSTP: ctl] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: ctl] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] the child started (heimdall-proto) and reached its heartbeat (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: the shell reports the job stopped ('suspended') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "'suspended' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 1 5\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: `fg` resumes the child (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: after `fg` the job is not stopped again: no 'suspended' notice and no prompt (the job holds the terminal) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, no prompt",
+            "observed": "f\\x08fg\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp1 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "K6ES-HP1-1\\n",
+            "observed": "K6ES-HP1-1\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 1: no re-stop within 1.5 s of `fg`: no 'suspended' notice since the `fg` and the child is not stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"f\\\\x08fg\\\\x0d\\\\x0d\\n[1]  + continued  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\nK6ES-HP1-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: the child is back in its heartbeat after reading the previous line (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: the shell reports the job stopped ('suspended') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "'suspended' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 2 59\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: `fg` resumes the child (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: after `fg` the job is not stopped again: no 'suspended' notice and no prompt (the job holds the terminal) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, no prompt",
+            "observed": "f\\x08fg\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp1 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "K6ES-HP1-2\\n",
+            "observed": "K6ES-HP1-2\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] stop 2: no re-stop within 1.5 s of `fg`: no 'suspended' notice since the `fg` and the child is not stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"f\\\\x08fg\\\\x0d\\\\x0d\\n[1]  + continued  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp1 2 SIGTSTP 42\\\\x0d\\nK6ES-HP1-2\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp1] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] the child started (heimdall-proto) and reached its heartbeat (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: the child printed its heartbeat and stopped itself with SIGTSTP (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: the shell reports the job stopped ('suspended') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "'suspended' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp2 1 5\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: `fg` resumes the child (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: after `fg` the job is not stopped again: no 'suspended' notice and no prompt (the job holds the terminal) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, no prompt",
+            "observed": "f\\x08fg\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp2 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "K6ES-HP2-1\\n",
+            "observed": "K6ES-HP2-1\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 1: no re-stop within 1.5 s of `fg`: no 'suspended' notice since the `fg` and the child is not stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}, \"terminal\": \"f\\\\x08fg\\\\x0d\\\\x0d\\n[1]  + continued  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\nK6ES-HP2-1\\\\x0d\\n\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: the child is back in its heartbeat after reading the previous line (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: the child printed its heartbeat and stopped itself with SIGTSTP (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: the shell reports the job stopped ('suspended') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "'suspended' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp2 2 59\\\\x0d\\n\\\\x0d\\nzsh: suspended  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \", \"states\": {\"child\": \"T\", \"parent\": \"T\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"T\"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: `fg` resumes the child (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "{\"states\": {\"child\": \"S\", \"parent\": \"S\"}}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: after `fg` the job is not stopped again: no 'suspended' notice and no prompt (the job holds the terminal) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, no prompt",
+            "observed": "f\\x08fg\\x0d\\x0d\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/s.py\" \"$D\" hp2 2 SIGTSTP 42\\x0d\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: the child reads the line typed after `fg` (terminal input reaches it) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "K6ES-HP2-2\\n",
+            "observed": "K6ES-HP2-2\n"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] stop 2: no re-stop within 1.5 s of `fg`: no 'suspended' notice since the `fg` and the child is not stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "no notice, child not T",
+            "observed": "{\"states\": {\"child\": null, \"parent\": null}, \"terminal\": \"f\\\\x08fg\\\\x0d\\\\x0d\\n[1]  + continued  \\\"$P\\\" run -- \\\"$Y\\\" \\\"$D/s.py\\\" \\\"$D\\\" hp2 2 SIGTSTP 42\\\\x0d\\nK6ES-HP2-2\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \"}"
+          },
+          {
+            "desc": "[zsh SIGTSTP: hp2] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "[true, [42, 0]]",
+            "observed": "[true, [42, 0]]"
+          },
+          {
+            "desc": "[zsh SIGTSTP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)",
+            "ok": true,
+            "gating": false,
+            "expected": "[[\"suspended\", 146]]",
+            "observed": "[[\"suspended\", 146]]"
+          },
+          {
+            "desc": "[zsh SIGTSTP] no process of the job left behind (alive members are killed after an identity check) (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "[]",
+            "observed": "{\"alive_pids_with_state\": {}}"
+          },
+          {
+            "desc": "[zsh SIGSTOP: ctl] stop 1: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[zsh SIGSTOP: ctl] stop 1: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGSTOP: ctl] stop 2: the child itself is stopped while the shell reports the job stopped (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "T",
+            "observed": "{\"child\": \"T\", \"parent\": \"shell\"}"
+          },
+          {
+            "desc": "[zsh SIGSTOP: ctl] stop 2: the child is not resumed before `fg` while the shell lists the job as stopped (non-gating observation, escalated as Q16)",
+            "ok": true,
+            "gating": false,
+            "expected": "false",
+            "observed": "false"
+          },
+          {
+            "desc": "[zsh SIGSTOP: hp1] the child started (heimdall-proto) and reached its heartbeat (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGSTOP: hp1] stop 1: the child printed its heartbeat and stopped itself with SIGSTOP (non-gating observation)",
+            "ok": true,
+            "gating": false,
+            "expected": "true",
+            "observed": "null"
+          },
+          {
+            "desc": "[zsh SIGSTOP: hp1] stop 1: the shell reports the job stopped ('suspended') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)",
+            "ok": false,
+            "gating": false,
+            "expected": "'suspended' then the prompt",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 1 5\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \", \"states\": {\"child\": null, \"parent\": null}}"
+          },
+          {
+            "desc": "[zsh SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)",
+            "ok": false,
+            "gating": false,
+            "expected": "[[\"suspended (signal)\", 145]]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-bash-sigtstp.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-bash-sigtstp.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-bash-sigstop.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-bash-sigstop.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-zsh-sigtstp.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-zsh-sigtstp.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-zsh-sigstop.pty",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in k6es-zsh-sigstop.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[k6es-bash-sigtstp] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[k6es-bash-sigstop] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[k6es-zsh-sigtstp] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "[k6es-zsh-sigstop] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [],
+        "notes": {
+          "check_seconds": 47.862
+        },
+        "artifacts": [
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-bash-sigtstp.raw.bin",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-bash-sigtstp.stderr.txt",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-bash-sigstop.raw.bin",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-bash-sigstop.stderr.txt",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-zsh-sigtstp.raw.bin",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-zsh-sigtstp.stderr.txt",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-zsh-sigstop.raw.bin",
+          "info-go-darwin-art/run.k6e_child_self_stop/k6es-zsh-sigstop.stderr.txt"
+        ]
+      },
+      {
+        "id": "k12.closed_stdout_exit_parity",
+        "group": "k12",
+        "clause": "§1/K12",
+        "title": "closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified)",
+        "outcome": "pass",
+        "hard_bound_s": 120.0,
+        "duration_ms": 455.3,
+        "error": null,
+        "assertions": [
+          {
+            "desc": "harness precondition: a write into a pipe whose read end is closed fails with EPIPE (the harness ignores SIGPIPE; the program under test starts with SIGPIPE at its default)",
+            "ok": true,
+            "gating": false,
+            "precondition": true,
+            "expected": "EPIPE",
+            "observed": "EPIPE"
+          },
+          {
+            "desc": "[version-json-closed-stdout] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in version-json-closed-stdout.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in version-json-closed-stdout.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[version-json-closed-stdout] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[version-json-closed-stdout] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[version-plain-closed-stdout] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in version-plain-closed-stdout.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in version-plain-closed-stdout.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[version-plain-closed-stdout] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[version-plain-closed-stdout] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[version] stdout closed by its reader: the wait status without --json equals the one with --json",
+            "ok": true,
+            "gating": true,
+            "expected": "signal SIGPIPE",
+            "observed": "signal SIGPIPE"
+          },
+          {
+            "desc": "[profile-show-homelab-json-closed-stdout] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in profile-show-homelab-json-closed-stdout.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in profile-show-homelab-json-closed-stdout.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[profile-show-homelab-json-closed-stdout] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[profile-show-homelab-json-closed-stdout] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[profile-show-homelab-plain-closed-stdout] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in profile-show-homelab-plain-closed-stdout.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in profile-show-homelab-plain-closed-stdout.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[profile-show-homelab-plain-closed-stdout] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[profile-show-homelab-plain-closed-stdout] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[profile-show-homelab] stdout closed by its reader: the wait status without --json equals the one with --json",
+            "ok": true,
+            "gating": true,
+            "expected": "signal SIGPIPE",
+            "observed": "signal SIGPIPE"
+          },
+          {
+            "desc": "[agent-list-normal-json-closed-stdout] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-list-normal-json-closed-stdout.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-list-normal-json-closed-stdout.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[agent-list-normal-json-closed-stdout] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[agent-list-normal-json-closed-stdout] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[agent-list-normal-plain-closed-stdout] K11 no new file in HOME, TMPDIR, the working directory or the --meta-file directory (outside paths named on the command line)",
+            "ok": true,
+            "gating": true,
+            "expected": "[]",
+            "observed": "[]"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-list-normal-plain-closed-stdout.stdout",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "no HEIMDALL_CANARY_ in agent-list-normal-plain-closed-stdout.stderr",
+            "ok": true,
+            "gating": true,
+            "expected": "absent",
+            "observed": "absent"
+          },
+          {
+            "desc": "[agent-list-normal-plain-closed-stdout] completed within 20.0s",
+            "ok": true,
+            "gating": true,
+            "expected": "no timeout",
+            "observed": "ok"
+          },
+          {
+            "desc": "[agent-list-normal-plain-closed-stdout] no process left in the process group after exit",
+            "ok": true,
+            "gating": true,
+            "expected": "none left",
+            "observed": "none left"
+          },
+          {
+            "desc": "[agent-list-normal] stdout closed by its reader: the wait status without --json equals the one with --json",
+            "ok": true,
+            "gating": true,
+            "expected": "signal SIGPIPE",
+            "observed": "signal SIGPIPE"
+          }
+        ],
+        "failed_assertions": [],
+        "captures": [
+          {
+            "label": "version-json-closed-stdout",
+            "argv": [
+              "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+              "version",
+              "--json"
+            ],
+            "exit_code": -13,
+            "elapsed_ms": 9.0,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "version-plain-closed-stdout",
+            "argv": [
+              "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+              "version"
+            ],
+            "exit_code": -13,
+            "elapsed_ms": 5.2,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "profile-show-homelab-json-closed-stdout",
+            "argv": [
+              "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+              "profile",
+              "show",
+              "--file",
+              "<repo>/tests/fixtures/g02/profiles/homelab.toml",
+              "--json"
+            ],
+            "exit_code": -13,
+            "elapsed_ms": 4.3,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "profile-show-homelab-plain-closed-stdout",
+            "argv": [
+              "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+              "profile",
+              "show",
+              "--file",
+              "<repo>/tests/fixtures/g02/profiles/homelab.toml"
+            ],
+            "exit_code": -13,
+            "elapsed_ms": 4.0,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "agent-list-normal-json-closed-stdout",
+            "argv": [
+              "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+              "agent",
+              "list",
+              "--socket",
+              "/tmp/hmg02-r_ine_8q/005-k12c-agent/normal.sock",
+              "--json"
+            ],
+            "exit_code": -13,
+            "elapsed_ms": 4.6,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          },
+          {
+            "label": "agent-list-normal-plain-closed-stdout",
+            "argv": [
+              "<repo>/prototypes/go/dist/darwin-arm64/heimdall-proto",
+              "agent",
+              "list",
+              "--socket",
+              "/tmp/hmg02-r_ine_8q/006-k12c-agent/normal.sock"
+            ],
+            "exit_code": -13,
+            "elapsed_ms": 4.7,
+            "timed_out": false,
+            "leftover_processes": false,
+            "stdout_bytes": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_excerpt": "",
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_excerpt": ""
+          }
+        ],
+        "notes": {
+          "sigpipe_disposition_given_to_program": "default (subprocess restore_signals)",
+          "check_seconds": 0.455
+        },
+        "artifacts": [
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/01-version-json-closed-stdout.stdout.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/01-version-json-closed-stdout.stderr.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/02-version-plain-closed-stdout.stdout.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/02-version-plain-closed-stdout.stderr.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/03-profile-show-homelab-json-closed-stdout.stdout.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/03-profile-show-homelab-json-closed-stdout.stderr.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/04-profile-show-homelab-plain-closed-stdout.stdout.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/04-profile-show-homelab-plain-closed-stdout.stderr.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/05-agent-list-normal-json-closed-stdout.stdout.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/05-agent-list-normal-json-closed-stdout.stderr.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/06-agent-list-normal-plain-closed-stdout.stdout.txt",
+          "info-go-darwin-art/k12.closed_stdout_exit_parity/06-agent-list-normal-plain-closed-stdout.stderr.txt"
+        ]
+      }
+    ],
+    "observations": {
+      "k6e_child_self_stop": {
+        "bash-SIGTSTP": {
+          "shell": "bash",
+          "signal": "SIGTSTP",
+          "gating": true,
+          "proto_jobs": 5,
+          "stops_per_job": 2,
+          "ok": true,
+          "first_failed_step": null,
+          "control": {
+            "tag": "ctl",
+            "via": "direct exec (control)",
+            "stops": [
+              {
+                "stop": 1,
+                "shell_reported_stop": true,
+                "notice": "Stopped",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.003,
+                "shell_status_of_stopped_job": 146,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              },
+              {
+                "stop": 2,
+                "shell_reported_stop": true,
+                "notice": "Stopped",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.006,
+                "shell_status_of_stopped_job": 146,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              }
+            ],
+            "pids_reported": true,
+            "final": [
+              true,
+              [
+                42,
+                0
+              ]
+            ],
+            "ok": true,
+            "seconds": 3.29
+          },
+          "jobs": [
+            {
+              "tag": "hp1",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.003,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.013,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.37
+            },
+            {
+              "tag": "hp2",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.015,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.017,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.35
+            },
+            {
+              "tag": "hp3",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.003,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.009,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.34
+            },
+            {
+              "tag": "hp4",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.009,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.026,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.36
+            },
+            {
+              "tag": "hp5",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.016,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "Stopped",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.015,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.36
+            }
+          ],
+          "notice_and_status_same_as_control": true,
+          "notice_and_status": {
+            "control": [
+              [
+                "Stopped",
+                146
+              ]
+            ],
+            "heimdall_proto": [
+              [
+                "Stopped",
+                146
+              ]
+            ]
+          }
+        },
+        "bash-SIGSTOP": {
+          "shell": "bash",
+          "signal": "SIGSTOP",
+          "gating": false,
+          "proto_jobs": 2,
+          "stops_per_job": 2,
+          "ok": false,
+          "first_failed_step": {
+            "desc": "[bash SIGSTOP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 1 5\\\\x0d\\nHMPS1$ \", \"states\": {\"child\": null, \"parent\": null}}"
+          },
+          "control": {
+            "tag": "ctl",
+            "via": "direct exec (control)",
+            "stops": [
+              {
+                "stop": 1,
+                "shell_reported_stop": true,
+                "notice": "Stopped",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.024,
+                "shell_status_of_stopped_job": 145,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              },
+              {
+                "stop": 2,
+                "shell_reported_stop": true,
+                "notice": "Stopped",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.005,
+                "shell_status_of_stopped_job": 145,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              }
+            ],
+            "pids_reported": true,
+            "final": [
+              true,
+              [
+                42,
+                0
+              ]
+            ],
+            "ok": true,
+            "seconds": 3.31
+          },
+          "jobs": [
+            {
+              "tag": "hp1",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": false,
+                  "notice": null,
+                  "states_at_notice": {
+                    "child": null,
+                    "parent": null
+                  },
+                  "notice_after_go_s": null
+                }
+              ],
+              "pids_reported": true,
+              "ok": false,
+              "seconds": 4.15
+            }
+          ],
+          "notice_and_status_same_as_control": false,
+          "notice_and_status": {
+            "control": [
+              [
+                "Stopped",
+                145
+              ]
+            ],
+            "heimdall_proto": []
+          }
+        },
+        "zsh-SIGTSTP": {
+          "shell": "zsh",
+          "signal": "SIGTSTP",
+          "gating": false,
+          "proto_jobs": 2,
+          "stops_per_job": 2,
+          "ok": true,
+          "first_failed_step": null,
+          "control": {
+            "tag": "ctl",
+            "via": "direct exec (control)",
+            "stops": [
+              {
+                "stop": 1,
+                "shell_reported_stop": true,
+                "notice": "suspended",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.014,
+                "shell_status_of_stopped_job": 146,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              },
+              {
+                "stop": 2,
+                "shell_reported_stop": true,
+                "notice": "suspended",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.024,
+                "shell_status_of_stopped_job": 146,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              }
+            ],
+            "pids_reported": true,
+            "final": [
+              true,
+              [
+                42,
+                0
+              ]
+            ],
+            "ok": true,
+            "seconds": 3.31
+          },
+          "jobs": [
+            {
+              "tag": "hp1",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "suspended",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.013,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "suspended",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.02,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.35
+            },
+            {
+              "tag": "hp2",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": true,
+                  "notice": "suspended",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.02,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                },
+                {
+                  "stop": 2,
+                  "shell_reported_stop": true,
+                  "notice": "suspended",
+                  "states_at_notice": {
+                    "child": "T",
+                    "parent": "T"
+                  },
+                  "notice_after_go_s": 0.003,
+                  "shell_status_of_stopped_job": 146,
+                  "resumed_before_fg": false,
+                  "resumed_after_fg": true
+                }
+              ],
+              "pids_reported": true,
+              "final": [
+                true,
+                [
+                  42,
+                  0
+                ]
+              ],
+              "ok": true,
+              "seconds": 3.35
+            }
+          ],
+          "notice_and_status_same_as_control": true,
+          "notice_and_status": {
+            "control": [
+              [
+                "suspended",
+                146
+              ]
+            ],
+            "heimdall_proto": [
+              [
+                "suspended",
+                146
+              ]
+            ]
+          }
+        },
+        "zsh-SIGSTOP": {
+          "shell": "zsh",
+          "signal": "SIGSTOP",
+          "gating": false,
+          "proto_jobs": 2,
+          "stops_per_job": 2,
+          "ok": false,
+          "first_failed_step": {
+            "desc": "[zsh SIGSTOP: hp1] stop 1: the shell reports the job stopped ('suspended') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run)",
+            "observed": "{\"terminal\": \"K6ES-BEAT hp1 1 5\\\\x0d\\n%                                                                               \\\\x0d \\\\x0d\\\\x0dHMPS1$ \", \"states\": {\"child\": null, \"parent\": null}}"
+          },
+          "control": {
+            "tag": "ctl",
+            "via": "direct exec (control)",
+            "stops": [
+              {
+                "stop": 1,
+                "shell_reported_stop": true,
+                "notice": "suspended (signal)",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.023,
+                "shell_status_of_stopped_job": 145,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              },
+              {
+                "stop": 2,
+                "shell_reported_stop": true,
+                "notice": "suspended (signal)",
+                "states_at_notice": {
+                  "child": "T",
+                  "parent": "shell"
+                },
+                "notice_after_go_s": 0.008,
+                "shell_status_of_stopped_job": 145,
+                "resumed_before_fg": false,
+                "resumed_after_fg": true
+              }
+            ],
+            "pids_reported": true,
+            "final": [
+              true,
+              [
+                42,
+                0
+              ]
+            ],
+            "ok": true,
+            "seconds": 3.31
+          },
+          "jobs": [
+            {
+              "tag": "hp1",
+              "via": "heimdall-proto run",
+              "stops": [
+                {
+                  "stop": 1,
+                  "shell_reported_stop": false,
+                  "notice": null,
+                  "states_at_notice": {
+                    "child": null,
+                    "parent": null
+                  },
+                  "notice_after_go_s": null
+                }
+              ],
+              "pids_reported": true,
+              "ok": false,
+              "seconds": 4.17
+            }
+          ],
+          "notice_and_status_same_as_control": false,
+          "notice_and_status": {
+            "control": [
+              [
+                "suspended (signal)",
+                145
+              ]
+            ],
+            "heimdall_proto": []
+          }
+        }
+      },
+      "k12_closed_stdout": {
+        "version": {
+          "json": {
+            "wait_status": "signal SIGPIPE",
+            "rc": -13
+          },
+          "plain": {
+            "wait_status": "signal SIGPIPE",
+            "rc": -13
+          }
+        },
+        "profile-show-homelab": {
+          "json": {
+            "wait_status": "signal SIGPIPE",
+            "rc": -13
+          },
+          "plain": {
+            "wait_status": "signal SIGPIPE",
+            "rc": -13
+          }
+        },
+        "agent-list-normal": {
+          "json": {
+            "wait_status": "signal SIGPIPE",
+            "rc": -13
+          },
+          "plain": {
+            "wait_status": "signal SIGPIPE",
+            "rc": -13
+          }
+        }
+      },
+      "canary_selfcheck": {
+        "registered_canaries": [
+          "fixture invalid-forbidden-key.toml key private_key",
+          "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+          "per-run canary in the HM_G02_SECRET_ENV environment variable",
+          "per-run canary inside [meta] of a generated profile",
+          "per-run canary on the malformed line of a generated profile"
+        ],
+        "pattern": "the canary prefix followed by [A-Za-z0-9]",
+        "artifact_files_scanned": 20,
+        "record_hits": [],
+        "artifact_hits": [],
+        "result": "clean"
+      }
+    },
+    "open_contract_questions": [
+      "Q1 meta for a signal-killed child: contract gives exit_code int|null and signal int|null; harness gates only on signal==9 and launched==true and records exit_code (non-gating).",
+      "Q3 (settled by K6b, recorded here for traceability): duplicate delivery of a terminal-generated signal, or of a group-directed signal from another process (killpg), is recorded and not gated; the harness gates on the child's exit status and records the delivery count (run.sigint_process_group, run.explicit_signal_with_tty).",
+      "Q11 (round 4) K18 makes every OFFENDING input value secret on stdout and stderr; it does not name the values of OTHER keys that an error diagnostic might quote (the unsupported-schema_version case: the profile name, a destination host). The harness gates them in the JSON result (section 2) and records them on stderr as a non-gating observation (observations.value_on_stderr, gating=false). Escalated: confirm, or extend the stderr gate to every input value.",
+      "Q12 (round 4) K6e: after `bg`, a child that reads the terminal is stopped by the kernel (SIGTTIN). A wrapper that does not mirror that stop leaves the child stopped while the shell lists the job as running, until `fg`. run.k6e_job_control avoids that case (the child does not touch the terminal while in the background) and gates 'never left stopped while the shell believes the job is running' only for a child that is not reading the terminal. Escalated: does K6e also require mirroring a background tty-input stop to the shell?",
+      "Q13 (round 5) K6e says 'an interactive job-control shell'. The harness gates K6e under bash (3.2 macOS, 5.2 Linux) and runs the same forms under zsh 5.9 (the macOS default shell; added to the Linux image) as non-gating observations (observations.k6e_job_control zsh-*). Whether zsh (or every common job-control shell) is gating is not decided by the contract; escalated.",
+      "Q14 (round 5) K6c: K6a/K6c speak of inherited IGNORED dispositions. Whether a DEFAULT SIGPIPE disposition heimdall-proto inherited must stay default in the child (a runtime that ignores SIGPIPE itself and leaks that into every child: classification child_always_ignores) is not stated in section 4, K6a or K6c. Recorded non-gating; escalated as an ADR-0002 input.",
+      "Q15 (round 5) K17 does not define the keystroke population of the p95. The harness samples 5 filter sessions of 6 edits (the first keystroke after `/` is 1 in 6), so a TUI slow only on the first keystroke of a session fails; with one pooled session it passed. Sampling choice made by the harness and escalated for confirmation.",
+      "Q16 (round 6) K6e child-initiated stop (section 9.4): the harness gates that the shell reports the job stopped, that `fg` resumes the child, no re-stop and that the child reads the typed line. Whether the child must also STAY stopped until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop (resumed_before_fg, non-gating), not gated. Escalated: gate it (exec semantics) or not.",
+      "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating); by section 9.4: the round-3b child self-stop finding -> K6e covers child-initiated stops (SIGTSTP under bash gated: run.k6e_child_self_stop), the closed-stdout K12 finding -> k12.closed_stdout_exit_parity."
+    ],
+    "not_covered": [
+      "native Windows (named pipe, CommandLineToArgvW, console Ctrl-C)",
+      "WSL",
+      "linux-arm64 (separate record, K13)"
+    ]
+  },
+  "evidence_paths": [
+    "/tmp/M00-T05-harness-r4/final/info-go-darwin-arm64.json",
+    "/tmp/M00-T05-harness-r4/final/info-go-darwin-art"
+  ],
+  "limitations": [
+    "Windows is NOT covered: named-pipe agent path, CommandLineToArgvW quoting, console Ctrl-C and ConPTY behaviour need a native Windows run (blocked_on: native Windows host).",
+    "WSL is NOT covered (blocked_on: Windows host with WSL).",
+    "Section 7 / K11 build and sidecar rules (clean machine without toolchain, manifest sidecars, sidecar loading from the executable's own directory, environment overrides ignored) are NOT judged by this harness.",
+    "K11 stray-file detection covers the sandbox HOME, TMPDIR and the working directory of each invocation; writes elsewhere (for example a hard-coded /tmp or the per-user temp directory outside TMPDIR) are not detected.",
+    "TUI is judged through a pty plus the pyte VT emulator (with an xterm-compatible double-width cell renderer, see harness.screen_wide_chars), which answers DA and cursor-position queries but not OSC colour/XTVERSION/kitty-keyboard queries (a framework that waits for those answers will show a slower first frame); real terminal emulators may differ. stdout and the TUI frames share the tty, so stdout-vs-stderr separation of TUI output cannot be proven; SELECTED and 'no stdout' are judged on the text after the alternate screen is left.",
+    "Restoration and exit 1 after an internal panic/uncaught exception (K10) cannot be induced black-box and are NOT tested; select, quit, Ctrl-C (also in filter mode), SIGTERM, SIGHUP and terminal hangup paths are.",
+    "After a terminal hangup only the exit status is judged (the terminal is gone, so restoration cannot be observed).",
+    "'No network' and 'no shell invocation' (contract section 1) cannot be proven black-box; only observable effects are tested (no shell metacharacter expansion, sentinel files, no fake-agent contact, no stray files).",
+    "Allocation behaviour ('never allocate from an untrusted length first') is inferred from fast, correct failure on 0x7fffffff / nkeys 100000 frames, not measured.",
+    "Timing thresholds (500 ms SIGINT, 100 ms resize, 100 ms p95 filter update (K17), 2 s malformed-agent failure) are wall-clock on a possibly loaded machine; SIGINT uses best-of-3, resize best-of-5, and the record stores the load average before/after so a loaded run can be recognised and repeated.",
+    "Signal counts use the child's wakeup fd (one byte per delivery), but the kernel still merges two identical standard signals sent while the first is pending, so a heimdall-proto that forwards twice back-to-back may be seen once; exact-once is reliable for deliveries that are separated in time (terminal vs forwarded) and is a best-effort lower bound otherwise.",
+    "Invalid UTF-8 handling uses isolated invalid bytes (each one U+FFFD); runs of invalid bytes are deliberately not tested because the contract does not define replacement-character counting.",
+    "Every check runs under a hard wall-clock bound (default 120 s, cleanup 30 s); a check that hits it is recorded as 'error', never as pass.",
+    "The disposable keys are generated per run, private halves deleted immediately; fingerprints are cross-checked against /usr/bin/ssh-keygen -lf.",
+    "K6b precedence (K6a, then K6, then the section 4 terminal-SIGINT rule) is reflected as follows: run.k6a_* gate K6a; run.forward_* and run.explicit_signal_with_tty gate exactly-once for signals sent to the heimdall-proto PID; terminal and killpg duplicate counts are non-gating observations. Giving the child its own foreground group is not penalised where heimdall-proto is alone in its process group (run.explicit_signal_with_tty) and is caught where it is not (run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty).",
+    "K6a is judged on three scenarios only: a pipeline job of bash -i (bash 3.2 on macOS, the image's bash 5.2 on Linux) whose peer reads the tty, a non-job-control script whose `&` job is heimdall-proto (stdin the tty or /dev/null), and inherited SIG_IGN for SIGHUP and for SIGINT (gated, K6c; SIGQUIT, SIGTERM, SIGWINCH, SIGPIPE ignores and an inherited blocked SIGUSR2 are recorded non-gating in observations.k6c_other_inherited_signal_state). Other shells (zsh, fish, dash) are not tested for K6a (zsh only for K6e, non-gating) and nested job control is not tested; with an ignoring child, 'not forwarded' is observed only through the child's own handler in phase 2.",
+    "K14 uses a FIFO without a writer, a listening AF_UNIX socket, a directory and /dev/null; other devices (blocking or infinite ones such as /dev/zero) are deliberately not used.",
+    "K15 wall time is measured by tests/g02/rss_wrap.py from spawn to reap (includes process start-up); peak RSS is the os.wait4 rusage of the binary and the descendants it waited for (descendants it did not wait for are not counted). The tui variant's first-frame time also includes the pty shim's and the wrapper's start-up. Shapes: deep inline tables, arrays, arrays of inline tables, inline tables of arrays, dotted keys, a table header, and wide tables, each at most 1 MiB.",
+    "K16 detects only executions resolved through PATH of the names tmux, tput, infocmp, stty, sh, bash, ssh and git; an execution by absolute path (for example /usr/bin/tput) or of another name is not detected.",
+    "K6d (shared mode) is judged in three layouts: heimdall-proto as the child of a foreground non-job-control `/bin/sh -c` script (sh is bash 3.2 in POSIX mode on macOS, dash in the Linux image), and as the first and as the last member of a `bash -i` pipeline job; one explicit kill(<pid>, sig) per signal and layout, delivery awaited 3 s. That the job containing heimdall-proto holds the terminal foreground (sh -c: the script's group; pipelines: the other member's group, reported by that member, not the shell's) is a harness precondition: if any layout misses it the check is 'error' (invalid evidence), never a silent pass on delivery alone; whether heimdall-proto itself stayed in that group is recorded per setup (observations.k6d_shared_setups). Other shells, Makefiles proper, nested scripts and rapid repeats are not exercised. A delivery that the kernel merges with a pending identical signal is counted once.",
+    "K6e (job control) is judged under `bash -i` (bash 3.2 on macOS, bash 5.2 in the Linux image), 5 iterations of Ctrl-Z/fg (child blocked in a terminal read) and Ctrl-Z/bg/fg (child running without terminal access); 'not re-stopped' is judged 0.5 s after `fg` and again, blaming that `fg`, before the next step once at least 1.5 s have passed since it (shell output and the /bin/ps or /proc state of the child). The same forms run under `zsh -f -i` (zsh 5.9 on macOS and in the Linux image) as NON-GATING observations (observations.k6e_job_control, keys zsh-*) until the gating question is decided. A re-stop later than 1.5 s after `fg` that does not disturb a later step, races needing more iterations, fish/dash job control and a background terminal read (Q12) are not covered.",
+    "K17 is measured like the earlier latency observation: from writing the keystroke to the pty master until the pyte emulator shows the expected status line AND the expected list rows (the first min(N, capacity) matching destinations in fixture order; 2 ms polling), 30 edits on large-100.toml in 5 filter sessions (`/`, 3 characters, 3 Backspaces, Esc) so the first keystroke after `/` is weighted per session, p95 by nearest rank; it includes pty and emulator overhead and is wall-clock on a possibly loaded machine (load average recorded). The session weighting (6 edits per session) is a harness sampling choice, not a contract figure.",
+    "K6e child-initiated stop (section 9.4) is judged by run.k6e_child_self_stop under `bash -i` only (bash 3.2 on macOS, 5.2 in the Linux image): 5 heimdall-proto jobs, each child stopping itself 2 times with kill(getpid(), SIGTSTP) after a heartbeat and reading a typed line after each `fg`, preceded by a direct-exec control job in the same shell session (a harness precondition: if the control does not stop, resume and read, the check is 'error'). SIGSTOP self-stops and the same under `zsh -f -i` (2 jobs each) are NON-GATING observations (observations.k6e_child_self_stop). Not covered: a self-stop while the job is in the background, a self-stop of a child in a pipeline or command list, stops by SIGTTIN/SIGTTOU, other shells; whether the child stays stopped until `fg` (resumed_before_fg) is recorded, not gated (Q16).",
+    "K12 closed stdout (section 9.4) is judged by k12.closed_stdout_exit_parity for version, profile show (homelab fixture) and agent list (fake agent, normal mode), each with and without --json, stdout being the write end of a pipe whose read end the harness closed before the start; heimdall-proto starts with SIGPIPE at its default disposition (as from a shell). Not covered: an inherited SIGPIPE ignore, a reader that closes after part of the output, error results (exit 2/5) and usage errors on a closed stdout, stderr closed.",
+    "K6c SIGPIPE: the SIGPIPE disposition of a non-Python child is observed for both dispositions heimdall-proto can inherit (ignored and default): `yes` writing into a pipe whose reader closes exits 1 on EPIPE (ignored) or dies of SIGPIPE (default); on Linux also /bin/cat /proc/self/status SigIgn. Classified as inherited_disposition_kept (exec semantics), child_always_default (inherited ignore reset), child_always_ignores (the runtime's ignore leaks into every child) or other; inherited_sigpipe_ignore_kept is true only for the first. Non-gating (K6c); whether a default disposition must stay default in the child is not stated by the contract (escalated). The probe's own preconditions are non-gating too (classification probe_invalid), so they never affect the gated K6a check.",
+    "K13: the G02 verdict needs the full harness to pass on darwin-arm64 AND linux-arm64; this record covers darwin-arm64 only. The Linux run is a separate record produced by tests/g02/linux/run.sh with the candidate's linux-arm64 artifact.",
+    "Evidence incomplete (status in_progress): partial selection, skipped or errored checks; verdict inconclusive.",
+    "Partial run (--only run.k6e_child_self_stop,k12.*): 2 of 138 checks selected; cannot be 'verified'."
+  ]
+}

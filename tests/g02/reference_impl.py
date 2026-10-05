@@ -127,6 +127,10 @@ MUTATIONS = {
     "run_shared_drop": "shared mode (controlling terminal held by heimdall-proto's group, stdin/stdout a pipe or not the group leader): SIGINT/SIGHUP/SIGQUIT/SIGWINCH assumed terminal-generated and silently dropped (K6d; the Go round-2 finding)",
     "run_fg_restop": "under job control a later `fg` (the third its SIGCONT handler sees) re-stops the job at once with SIGTSTP to its own group; earlier ones work (K6e; the Go round-2 Linux finding)",
     "run_fg_restop_late": "under job control the second `fg` re-stops the job 700 ms later with SIGTSTP to its own group (K6e; round-3 review rv_restop_700ms: the 0.5 s look after `fg` missed it and a later step took the blame)",
+    "run_ignore_child_stop": "a child that stops itself (kill(getpid(), SIGTSTP), OpenSSH ~^Z) is ignored: heimdall-proto waits only for the child's exit, so the shell never learns that the job stopped (K6e child-initiated stop, section 9.4; the Rust round-3b finding)",
+    "run_child_stop_no_continue": "job-control launcher (child in its own foreground process group when heimdall-proto leads its group and holds the terminal) that answers a child stop by taking the terminal back and stopping itself, but on `fg` never hands the terminal back to the child or continues it (K6e child-initiated stop, section 9.4)",
+    "plain_epipe_exit1": "without --json, a write error on stdout (EPIPE: the reader closed) is fatal: 'panic' message, exit 1, while --json ignores it and exits normally (K12 closed stdout, section 9.4; the Rust round-3b println! finding)",
+    "plain_epipe_sigpipe": "without --json, SIGPIPE is reset to the default before writing, so a closed stdout kills heimdall-proto with SIGPIPE, while --json ignores the write error and exits normally (K12 closed stdout, section 9.4)",
     "run_child_sigpipe_ignored": "the child is started without restoring the runtime's own SIGPIPE ignore (Popen restore_signals=False): every child runs with SIGPIPE ignored, also when heimdall-proto inherited the default (K6c observation; round-3 review rv_child_sigpipe_ignored)",
     # version
     "version_wrong_candidate": "version reports candidate 'rust'",
@@ -181,6 +185,9 @@ VARIANTS = {
                        "update: slow, but inside the K17 p95 bound of 100 ms (round-3 review control rv_delay_90ms, "
                        "lowered to keep 30 ms margin for pty/emulator overhead while the host and Linux self-tests "
                        "run concurrently; observed overhead about 6 ms on an idle darwin host)",
+    "closed_stdout_sigpipe_both": "SIGPIPE is reset to the default before writing the result, with and without --json: a "
+                                  "closed stdout kills heimdall-proto with SIGPIPE in both modes (allowed: section 9.4 "
+                                  "K12 requires equal wait statuses, not a particular one)",
     "run_job_control_own_group": "job-control alternative (round-3 review control rv_jc2): when heimdall-proto is its "
                                  "own process-group leader, holds the terminal foreground and has a terminal on stdin "
                                  "and stdout, the child gets its own process group made the foreground; heimdall-proto "
@@ -202,8 +209,21 @@ def out_json(doc, exit_code):
     data = json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
     if "stdout_extra_newline" in MUT:
         data += b"\n"
-    sys.stdout.buffer.write(data)
-    sys.stdout.buffer.flush()
+    plain = "--json" not in sys.argv
+    if (plain and "plain_epipe_sigpipe" in MUT) or "closed_stdout_sigpipe_both" in MUT:
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)       # mutation: a closed stdout kills the plain path
+    try:
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        # K12 (section 9.4): the reader of stdout has gone; the exit status is the same with and without --json.
+        # Point fd 1 at /dev/null so the interpreter's final flush cannot fail again.
+        if plain and "plain_epipe_exit1" in MUT:
+            err("panicked: failed printing to stdout: Broken pipe")
+            exit_code = 1
+        nul = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(nul, 1)
+        os.close(nul)
     sys.exit(exit_code)
 
 
@@ -673,6 +693,49 @@ def write_meta(path, code, launched, exit_code, sig):
         fh.write(json.dumps(doc, ensure_ascii=False) + "\n")
 
 
+STOP_GRACE_S = 0.2
+
+
+def wait_mirroring_stops(child):
+    """Wait for the child's exit; when the child stops (also by itself, e.g. kill(getpid(), SIGTSTP) as OpenSSH's
+    ~^Z escape does), stop heimdall-proto too, so the shell that waits for heimdall-proto sees the job stop (K6e,
+    section 9.4).  The child shares heimdall-proto's process group, so the shell's `fg`/`bg` (SIGCONT to the group)
+    continues both.  A stop report can be stale when it is read: a terminal Ctrl-Z stops the whole group, and the
+    shell's `fg` continues it member by member, so heimdall-proto may run again and read the child's stop report
+    before the child has been continued (seen on darwin: a re-stop after `fg`).  So a stop is mirrored only if no
+    'continued' (or exit) report follows within STOP_GRACE_S; a stale report must not stop heimdall-proto again."""
+    flags = os.WUNTRACED | os.WCONTINUED
+    while True:
+        try:
+            _pid, st = os.waitpid(child.pid, flags)
+        except ChildProcessError:            # reaped by Popen.send_signal's poll() in a forwarding handler
+            return child.returncode
+        if os.WIFCONTINUED(st):
+            continue
+        while os.WIFSTOPPED(st):
+            end = time.monotonic() + STOP_GRACE_S
+            while True:
+                try:
+                    _pid, st2 = os.waitpid(child.pid, flags | os.WNOHANG)
+                except ChildProcessError:
+                    return child.returncode
+                if _pid != 0 or time.monotonic() >= end:
+                    break
+                time.sleep(0.005)
+            if _pid == 0:                     # still stopped: mirror the stop to the shell
+                sig = os.WSTOPSIG(st)
+                if sig not in (signal.SIGTSTP, signal.SIGTTIN, signal.SIGTTOU) or signal.getsignal(sig) != signal.SIG_DFL:
+                    sig = signal.SIGSTOP
+                os.kill(os.getpid(), sig)
+                break
+            st = st2
+        if os.WIFSTOPPED(st) or os.WIFCONTINUED(st):
+            continue
+        rc = -os.WTERMSIG(st) if os.WIFSIGNALED(st) else os.WEXITSTATUS(st)
+        child.returncode = rc
+        return rc
+
+
 def cmd_run(args):
     meta = None
     i = 0
@@ -731,7 +794,7 @@ def cmd_run(args):
         signal.signal(signal.SIGTTOU, signal.SIG_IGN)
         popen_kw["process_group"] = 0
     JC = False
-    if "run_job_control_own_group" in MUT and os.isatty(0) and os.isatty(1):
+    if ("run_job_control_own_group" in MUT or "run_child_stop_no_continue" in MUT) and os.isatty(0) and os.isatty(1):
         try:
             JC = os.getpgrp() == os.getpid() and os.tcgetpgrp(0) == os.getpgrp()
         except OSError:
@@ -880,11 +943,27 @@ def cmd_run(args):
             if s not in inherited_ign:
                 signal.signal(s, forward)
     if "run_text_mode" in MUT:
-        data = child.stdout.read()
-        sys.stdout.buffer.write(data.decode("utf-8", "replace").encode("utf-8"))
-        sys.stdout.buffer.flush()
+        # mutation: the child's stdout is re-coded through text (lossy for binary data).  Copied chunk by chunk, and
+        # copying stops when heimdall-proto's own stdout reader has gone (closing the pipe ends the child with
+        # EPIPE/SIGPIPE): reading an endless child (the K6c `yes` probe) into memory exhausted the Linux runner's
+        # 2 GiB container limit and the kernel killed the harness (round-6 self-test).
+        while True:
+            chunk = os.read(child.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            try:
+                sys.stdout.buffer.write(chunk.decode("utf-8", "replace").encode("utf-8"))
+                sys.stdout.buffer.flush()
+            except BrokenPipeError:
+                nul = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(nul, 1)
+                os.close(nul)
+                break
+        child.stdout.close()
     if JC:
         def jc_on_cont(signum, frame):
+            if "run_child_stop_no_continue" in MUT:
+                return              # mutation: the child is never handed the terminal or continued on `fg`
             end = time.monotonic() + 0.2
             fgnow = False
             while True:
@@ -938,8 +1017,10 @@ def cmd_run(args):
             os.tcsetpgrp(0, os.getpgrp())
         except OSError:
             pass
+    elif "run_ignore_child_stop" in MUT:
+        rc = child.wait()           # mutation: waits only for the exit; a child's own stop goes unnoticed
     else:
-        rc = child.wait()
+        rc = wait_mirroring_stops(child)
     for th in copiers:
         th.join()
     if fg_tty is not None:

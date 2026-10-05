@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Prove the G02 harness against tests/g02/reference_impl.py (contract section 9 incl. 9.1, 9.2 and the round-3
-rulings of 9.3: K6d, K6e, K17, K18, K10 exit form).
+"""Prove the G02 harness against tests/g02/reference_impl.py (contract section 9 incl. 9.1, 9.2, the round-3
+rulings of 9.3: K6d, K6e, K17, K18, K10 exit form, and the round-3c rulings of 9.4: K6e child-initiated stop,
+K12 closed stdout).
 
 1. Baseline: the full harness run against the unmutated reference must exit 0 with every check passing.
 2. Mutations: every defect in reference_impl.MUTATIONS is injected via REF_MUTATE and the relevant
@@ -25,7 +26,8 @@ rulings of 9.3: K6d, K6e, K17, K18, K10 exit form).
    allows (for example K10 exit form: dying of the re-raised signal).  Each is injected like a mutation, but
    the run must PASS (exit 0, every check in scope passes): the harness must not reject allowed behaviour.
 9. Blame (INTENDED_FIRST_ASSERTION): for some mutations the intended check must fail with a specific FIRST
-   failing assertion, so the defect is attributed to the right step (K6e late re-stop after `fg`).
+   failing assertion, so the defect is attributed to the right step (K6e late re-stop after `fg`; K6e child
+   self-stop not reported versus `fg` not resuming the child).
 10. Observation mutations (OBSERVED): defects in non-gating observations (K6c) - the run may pass, but the
    record's observation must show the defect and the baseline's must not.
 11. Harness/environment faults (HARNESS_EXPECT): injected through HM_G02_HARNESS_MUTATE; a failed harness
@@ -70,6 +72,9 @@ SCOPE_OVERRIDE = {
     "version_tput_probe": "version.*,common.*,canary.*",
     "run_double_signal": "harness.signal_duplicate_probe,run.*",
     "run_meta_tmp_left": "run.*,common.*,canary.*",
+    # K12 closed stdout (section 9.4): the defect is in the shared output path of version/profile/agent
+    "plain_epipe_exit1": "version.*,common.*,k12.*,canary.*",
+    "plain_epipe_sigpipe": "version.*,common.*,k12.*,canary.*",
 }
 
 # mutation -> the check(s) written for it; the self-test requires that THESE checks fail
@@ -134,6 +139,11 @@ INTENDED = {
     "tui_rows_lag": "tui.large_100_filter_latency",
     "tui_slow_first_filter_key": "tui.large_100_filter_latency",
     "run_fg_restop_late": "run.k6e_job_control",
+    # round 6 (M00-T05-harness-r4, contract section 9.4): the round-3b review findings the 2.3.0 harness passed
+    "run_ignore_child_stop": "run.k6e_child_self_stop",
+    "run_child_stop_no_continue": "run.k6e_child_self_stop",
+    "plain_epipe_exit1": "k12.closed_stdout_exit_parity",
+    "plain_epipe_sigpipe": "k12.closed_stdout_exit_parity",
 }
 
 # mutation -> (check id, text of the assertion that must be the FIRST failing gating assertion of that check):
@@ -141,6 +151,11 @@ INTENDED = {
 INTENDED_FIRST_ASSERTION = {
     "run_fg_restop_late": ("run.k6e_job_control", "the job is not stopped again after `fg`: no 'Stopped' notice and "
                                                   "the child is not stopped from the `fg` until the next step"),
+    # K6e child-initiated stop: the stop is never reported (the Rust round-3b defect) ...
+    "run_ignore_child_stop": ("run.k6e_child_self_stop", "stop 1: the shell reports the job stopped ('Stopped') and "
+                                                         "prompts again, with no user action"),
+    # ... or it is reported, but `fg` never resumes the child
+    "run_child_stop_no_continue": ("run.k6e_child_self_stop", "stop 1: `fg` resumes the child"),
 }
 
 # mutations of non-gating observations (K6c): the run need not fail, but the record's observation must show the
@@ -158,6 +173,7 @@ CONFORMING = {
     "tui_reraise_signal": "tui.sigterm_restores_terminal,tui.sighup_exit_129,tui.hangup_exit_129",
     "tui_filter_70ms": "tui.large_100_filter_latency",
     "run_job_control_own_group": "run.*",
+    "closed_stdout_sigpipe_both": "version.*,common.*,k12.*,canary.*",
 }
 
 # harness mutations that are not canary leaks: an injected harness/environment fault and the check outcomes it
@@ -179,6 +195,10 @@ HARNESS_EXPECT = {
         "run.k6a_inherited_ignore", {"run.k6a_inherited_ignore": "pass"}, "inconclusive",
         (lambda obs: ((obs.get("k6c_other_inherited_signal_state") or {}).get("sigpipe-non-python") or {}),
          lambda v: v.get("classification") == "probe_invalid")),
+    "k6es_control_no_stop": (
+        "K6e child-initiated stop: the direct-exec control child does not stop itself (simulated: it sends itself "
+        "SIGWINCH instead of SIGTSTP); the control is a harness precondition, so the check must be 'error', never 'fail'",
+        "run.k6e_child_self_stop", {"run.k6e_child_self_stop": "error"}, "inconclusive", None),
     "emulator_no_scroll": (
         "pty emulator without SU/SD (stock pyte 0.8.2, harness defect (g)): the reference TUI scrolls with SU/SD, "
         "so the K17 row check and the emulator regression check must fail",
@@ -201,7 +221,8 @@ PLATFORM_GATED = {
                               lambda v: bool(v) and all(x == "ECONNRESET" for x in v.values())),
     # K6: standard signals do not queue; where the kernel merges two back-to-back kill() calls the double
     # forward is not observable (harness.signal_duplicate_probe)
-    "run_double_signal": ("signal_duplicates", lambda v: bool(v) and v.get("duplicates_observable") is True),
+    "run_double_signal": ("harness_os_probe_back_to_back_signal_merge",
+                          lambda v: bool(v) and v.get("duplicates_observable") is True),
 }
 
 
@@ -505,6 +526,15 @@ def md_platform_summary(L, name, P):
     L.append("- baseline K6e forms: %s" % ", ".join("`%s` %s%s" % (k, "ok" if v.get("ok") else "NOT ok: %s" % (
         v.get("not_run") or v.get("first_failed_step")), "" if v.get("gating", True) else " (non-gating)")
         for k, v in k6e.items()))
+    k6es = (b.get("observations") or {}).get("k6e_child_self_stop") or {}
+    L.append("- baseline K6e child self-stop forms (section 9.4): %s" % (", ".join("`%s` %s%s, notice/$? %s" % (
+        k, "ok" if v.get("ok") else "NOT ok: %s" % (v.get("not_run") or (v.get("first_failed_step") or {}).get("desc")),
+        "" if v.get("gating") else " (non-gating)", json.dumps(v.get("notice_and_status")))
+        for k, v in k6es.items()) or "none"))
+    k12c = (b.get("observations") or {}).get("k12_closed_stdout") or {}
+    L.append("- baseline K12 closed-stdout wait statuses (section 9.4): %s" % (", ".join("`%s` json `%s` / plain `%s`" % (
+        k, (v.get("json") or {}).get("wait_status"), (v.get("plain") or {}).get("wait_status"))
+        for k, v in k12c.items()) or "none"))
     L.append("- full canary values in any record/artifact of this self-test's work directory: %s" % (
         P["canary_leak_files"] or "none"))
     L.append("- platform result: **%s**\n" % ("PASS" if P["ok"] else "FAIL"))
@@ -520,7 +550,7 @@ def write_md(path, started, host, linux, ok, reasons):
     L.append("Subject: `tests/g02/reference_impl.py` (a minimal Python implementation of contract sections 2, 3, 4, 6 plus a small "
              "raw-ANSI `tui` stand-in, used ONLY to validate the harness; it says nothing about any language candidate). "
              "Harness version %s, contract incl. section 9 (K1-K12, K3a), 9.1 (K6a, K10, K13-K16), 9.2 (K6b, K6c) and "
-             "9.3 (K6d, K6e, K17, K18, K10 exit form).\n" % _harness_version())
+             "9.3 (K6d, K6e, K17, K18, K10 exit form) and 9.4 (K6e child-initiated stop, K12 closed stdout).\n" % _harness_version())
     L.append("Every exit code below is the real exit status of the command that was run in this pass.\n")
     L.append("## Verdict: **%s**\n" % ("PASS" if ok else "FAIL"))
     if reasons:

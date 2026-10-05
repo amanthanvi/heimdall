@@ -1,0 +1,814 @@
+{
+ "note": "Informational stress, not a verdict: run.k6e_job_control (K6E_ITERATIONS=20) and run.k6e_child_self_stop against tests/g02/reference_impl.py as tested (STOP_GRACE_S=0.2), same 20 CPU busy loops; darwin-arm64, 2026-10-04.",
+ "source_record": "stress/grace-load.json",
+ "case_id": "G02-harness-selftest-go",
+ "status": "in_progress",
+ "verdict": "inconclusive",
+ "environment": {
+  "platform": "darwin-arm64",
+  "os_release": "27.0.0",
+  "harness_version": "2.4.0",
+  "binary": "<repo>/tests/g02/reference_impl.py",
+  "candidate": "go",
+  "cpu_count": 18,
+  "loadavg_start": [
+   32.68,
+   21.37,
+   11.2
+  ],
+  "loadavg_end": [
+   37.12,
+   33.92,
+   21.51
+  ]
+ },
+ "build_commit": "df7cda75754b5f4573fdb8f5e623b0786aa9bb26+dirty",
+ "checks": [
+  {
+   "id": "run.k6e_job_control",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 348141.2,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.k6e_child_self_stop",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 56556.1,
+   "failed_assertions": []
+  }
+ ],
+ "observations": {
+  "k6e_job_control": {
+   "simple": {
+    "shell": "bash",
+    "gating": true,
+    "iterations": 20,
+    "lines_delivered": 40,
+    "ok": true,
+    "first_failed_step": null
+   },
+   "list": {
+    "shell": "bash",
+    "gating": true,
+    "iterations": 20,
+    "lines_delivered": 40,
+    "ok": true,
+    "first_failed_step": null
+   },
+   "zsh-simple": {
+    "shell": "zsh",
+    "gating": false,
+    "iterations": 20,
+    "lines_delivered": 40,
+    "ok": true,
+    "first_failed_step": null
+   },
+   "zsh-list": {
+    "shell": "zsh",
+    "gating": false,
+    "iterations": 20,
+    "lines_delivered": 40,
+    "ok": true,
+    "first_failed_step": null
+   }
+  },
+  "k6e_child_self_stop": {
+   "bash-SIGTSTP": {
+    "shell": "bash",
+    "signal": "SIGTSTP",
+    "gating": true,
+    "proto_jobs": 5,
+    "stops_per_job": 2,
+    "ok": true,
+    "first_failed_step": null,
+    "control": {
+     "tag": "ctl",
+     "via": "direct exec (control)",
+     "stops": [
+      {
+       "stop": 1,
+       "shell_reported_stop": true,
+       "notice": "Stopped",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.008,
+       "shell_status_of_stopped_job": 146,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      },
+      {
+       "stop": 2,
+       "shell_reported_stop": true,
+       "notice": "Stopped",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.023,
+       "shell_status_of_stopped_job": 146,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      }
+     ],
+     "pids_reported": true,
+     "final": [
+      true,
+      [
+       42,
+       0
+      ]
+     ],
+     "ok": true,
+     "seconds": 3.31
+    },
+    "jobs": [
+     {
+      "tag": "hp1",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.214,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.229,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.8
+     },
+     {
+      "tag": "hp2",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.219,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.221,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.79
+     },
+     {
+      "tag": "hp3",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.212,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.204,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.77
+     },
+     {
+      "tag": "hp4",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.208,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.21,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.77
+     },
+     {
+      "tag": "hp5",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.202,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.207,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.75
+     }
+    ],
+    "notice_and_status_same_as_control": true,
+    "notice_and_status": {
+     "control": [
+      [
+       "Stopped",
+       146
+      ]
+     ],
+     "heimdall_proto": [
+      [
+       "Stopped",
+       146
+      ]
+     ]
+    }
+   },
+   "bash-SIGSTOP": {
+    "shell": "bash",
+    "signal": "SIGSTOP",
+    "gating": false,
+    "proto_jobs": 2,
+    "stops_per_job": 2,
+    "ok": true,
+    "first_failed_step": null,
+    "control": {
+     "tag": "ctl",
+     "via": "direct exec (control)",
+     "stops": [
+      {
+       "stop": 1,
+       "shell_reported_stop": true,
+       "notice": "Stopped",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.01,
+       "shell_status_of_stopped_job": 145,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      },
+      {
+       "stop": 2,
+       "shell_reported_stop": true,
+       "notice": "Stopped",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.002,
+       "shell_status_of_stopped_job": 145,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      }
+     ],
+     "pids_reported": true,
+     "final": [
+      true,
+      [
+       42,
+       0
+      ]
+     ],
+     "ok": true,
+     "seconds": 3.28
+    },
+    "jobs": [
+     {
+      "tag": "hp1",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.216,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.215,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.79
+     },
+     {
+      "tag": "hp2",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.215,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.223,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.78
+     }
+    ],
+    "notice_and_status_same_as_control": true,
+    "notice_and_status": {
+     "control": [
+      [
+       "Stopped",
+       145
+      ]
+     ],
+     "heimdall_proto": [
+      [
+       "Stopped",
+       145
+      ]
+     ]
+    }
+   },
+   "zsh-SIGTSTP": {
+    "shell": "zsh",
+    "signal": "SIGTSTP",
+    "gating": false,
+    "proto_jobs": 2,
+    "stops_per_job": 2,
+    "ok": true,
+    "first_failed_step": null,
+    "control": {
+     "tag": "ctl",
+     "via": "direct exec (control)",
+     "stops": [
+      {
+       "stop": 1,
+       "shell_reported_stop": true,
+       "notice": "suspended",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.005,
+       "shell_status_of_stopped_job": 146,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      },
+      {
+       "stop": 2,
+       "shell_reported_stop": true,
+       "notice": "suspended",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.011,
+       "shell_status_of_stopped_job": 146,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      }
+     ],
+     "pids_reported": true,
+     "final": [
+      true,
+      [
+       42,
+       0
+      ]
+     ],
+     "ok": true,
+     "seconds": 3.3
+    },
+    "jobs": [
+     {
+      "tag": "hp1",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "suspended",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.209,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "suspended",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.225,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.78
+     },
+     {
+      "tag": "hp2",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "suspended",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.215,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "suspended",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.217,
+        "shell_status_of_stopped_job": 146,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.75
+     }
+    ],
+    "notice_and_status_same_as_control": true,
+    "notice_and_status": {
+     "control": [
+      [
+       "suspended",
+       146
+      ]
+     ],
+     "heimdall_proto": [
+      [
+       "suspended",
+       146
+      ]
+     ]
+    }
+   },
+   "zsh-SIGSTOP": {
+    "shell": "zsh",
+    "signal": "SIGSTOP",
+    "gating": false,
+    "proto_jobs": 2,
+    "stops_per_job": 2,
+    "ok": true,
+    "first_failed_step": null,
+    "control": {
+     "tag": "ctl",
+     "via": "direct exec (control)",
+     "stops": [
+      {
+       "stop": 1,
+       "shell_reported_stop": true,
+       "notice": "suspended (signal)",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.021,
+       "shell_status_of_stopped_job": 145,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      },
+      {
+       "stop": 2,
+       "shell_reported_stop": true,
+       "notice": "suspended (signal)",
+       "states_at_notice": {
+        "child": "T",
+        "parent": "shell"
+       },
+       "notice_after_go_s": 0.006,
+       "shell_status_of_stopped_job": 145,
+       "resumed_before_fg": false,
+       "resumed_after_fg": true
+      }
+     ],
+     "pids_reported": true,
+     "final": [
+      true,
+      [
+       42,
+       0
+      ]
+     ],
+     "ok": true,
+     "seconds": 3.3
+    },
+    "jobs": [
+     {
+      "tag": "hp1",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "suspended (signal)",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.203,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "suspended (signal)",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.222,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.77
+     },
+     {
+      "tag": "hp2",
+      "via": "heimdall-proto run",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "suspended (signal)",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.212,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "suspended (signal)",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "T"
+        },
+        "notice_after_go_s": 0.211,
+        "shell_status_of_stopped_job": 145,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.77
+     }
+    ],
+    "notice_and_status_same_as_control": true,
+    "notice_and_status": {
+     "control": [
+      [
+       "suspended (signal)",
+       145
+      ]
+     ],
+     "heimdall_proto": [
+      [
+       "suspended (signal)",
+       145
+      ]
+     ]
+    }
+   }
+  }
+ }
+}

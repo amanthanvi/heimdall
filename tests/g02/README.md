@@ -3,7 +3,8 @@
 One harness judges all three G02 prototypes (Go + Bubble Tea, Rust + Ratatui, TypeScript + OpenTUI)
 identically against the frozen slice contract `docs/g02/slice-contract.md`, **including §9 "Clarifications"
 K1-K12, K3a, §9.1 round-2 rulings K6a, K10 (confirmation), K13-K16, §9.2 K6b, K6c and §9.3 round-3 rulings K6d, K6e,
-K17, K18, K10 exit form and the start-up window** (harness version 2.3.0), and emits a plan.md §6.6 evidence record
+K17, K18, K10 exit form and the start-up window, and the §9.4 round-3c rulings (K6e child-initiated stop, K12 closed
+stdout)** (harness version 2.4.0), and emits a plan.md §6.6 evidence record
 per candidate and platform. K13: a candidate passes the common slice only if the full harness passes on
 darwin-arm64 **and** linux-arm64; the Linux record comes from `linux/run.sh` (below). It also contains the
 instrumented fake SSH agent reused by later gates.
@@ -29,7 +30,7 @@ validated against `reference_impl.py` / `reference_tui.py` and their injectable 
 | `reference_impl.py`, `reference_tui.py` | reference implementation of the clarified contract + injectable defects (`REF_MUTATE`), harness validation only |
 | `selftest.py` / `SELFTEST.md` | proves the baseline passes (plus `--repeat-baseline N` flake runs), every reference mutation is caught (by the check(s) written for it where listed in `INTENDED`; with the right first failing assertion where listed in `INTENDED_FIRST_ASSERTION`; in the record's observation for non-gating ones, `OBSERVED`), every conforming variant (`CONFORMING`, behaviour a §9 ruling allows) passes, every canary harness mutation trips the canary self-check, and every injected harness/environment fault (`HARNESS_EXPECT`) gives the required check outcome (a failed precondition is `error`, never `fail`); `--linux` runs the same self-test inside the Linux runner container and merges it (platform-gated K3a mutation proven there) |
 | `requirements.txt` | pinned, hashed `pyte==0.8.2`, `wcwidth==0.9.1` (TUI checks only) |
-| `selftest-results/2026-10-04-r5/` | machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.3.0), the old-versus-new harness runs on the round-3 review defects (`old-vs-new-darwin.json`), the zsh outcomes of a superseded first run, plus the sha256 prefixes of the tested files (`2026-10-04-r4/`, `2026-10-03-r3/` and `2026-10-03-r2/`: earlier rounds, kept for history) |
+| `selftest-results/2026-10-04-r6/` | machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.4.0), the informational runs of the two §9.4 checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the K6e stress runs behind the reference's stop-mirroring grace (`stress-*.json`), the console logs and the flaking result of the aborted first self-test (`run1-aborted-*`), the console logs of the aborted second one (`run2-aborted-*`: Linux `run_text_mode` exit -9, then the tool's 2 h limit), plus the sha256 prefixes of the tested files (`2026-10-04-r5/`, `2026-10-04-r4/`, `2026-10-03-r3/` and `2026-10-03-r2/`: earlier rounds, kept for history) |
 | `../fixtures/fake-agent/fake_agent.py` | instrumented fake SSH agent (stdlib only) |
 
 ## Running
@@ -292,6 +293,54 @@ self-test.
   * Not changed: the review's "base2" neutrality control is covered by construction (every injected behaviour is
     gated by its `REF_MUTATE` name; the unmutated baseline and its repeats must pass the full catalogue).
 
+* **(h) Round-6 coverage of the §9.4 rulings (M00-T05-harness-r4, harness 2.4.0).** The round-3b prototype reviews found
+  two defects that harness 2.3.0 passed (verdicts then rested on reviewer probes). Both are now judged by the harness;
+  each has reference mutations the self-test requires the new check to catch, on macOS and in the Linux container:
+  * K6e child-initiated stop (the Rust review: a child that stops itself with `kill(getpid(), SIGTSTP)`, as OpenSSH's
+    `~^Z` does, stayed stopped while bash/zsh believed the job was running). New `run.k6e_child_self_stop`: in one
+    `bash -i` session, first a direct-exec control job, then 5 `heimdall-proto run --` jobs; each child heartbeats,
+    stops itself (SIGTSTP) twice and reads a typed line after each `fg`, then exits 42. Gated per self-stop: the shell
+    prints its stop notice and prompt with no user action within 4 s, `fg` resumes the child, no notice/prompt after
+    `fg` and none within 1.5 s (K6e "never re-stopped"), the child reads the line; finally `fg` reports 42 and no job
+    is left. The control (same steps) is a harness precondition: if it does not behave the check is `error`, never
+    `fail` (harness fault `k6es_control_no_stop`). SIGSTOP self-stops and both signals under `zsh -f -i` are
+    non-gating observations (`observations.k6e_child_self_stop`, with the stop notice word and the shell's `$?` of
+    the stopped job next to the control's, the child's state while reported stopped and whether it resumed before
+    `fg`). Mutations `run_ignore_child_stop` (waits only for the exit: the Rust shape; first failing assertion "stop 1:
+    the shell reports the job stopped") and `run_child_stop_no_continue` (own foreground group; answers the child's
+    stop by stopping itself but never continues the child on `fg`; first failing assertion "stop 1: `fg` resumes the
+    child"). The reference baseline now mirrors a child stop (`waitpid` with `WUNTRACED|WCONTINUED`; heimdall-proto
+    stops itself with the child's stop signal only if no 'continued' report follows within 200 ms). The grace is
+    needed: a terminal Ctrl-Z stops the whole group and `fg` continues it member by member, so the launcher can read a
+    stale stop report of a child not yet continued. Without it the first full 2.4.0 self-test failed
+    `run.k6e_job_control` once on darwin under load (a re-stop after `fg`, list form), and a 20-iteration K6e stress
+    under 20 CPU burners re-stopped in 3 of 4 forms; with it the same stress passed all 160 Ctrl-Z/`fg` cycles and
+    the 4 self-stop forms (`selftest-results/2026-10-04-r6/stress-*.json`). The job-control variant
+    `run_job_control_own_group` still passes all `run.*`.
+  * K12 closed stdout (the Rust review: without `--json`, `profile show` and `version` exited 1 on a closed stdout
+    pipe, 0 with `--json`). New `k12.closed_stdout_exit_parity`: version, profile show (homelab) and agent list
+    (fake agent, normal) each run with and without `--json`, stdout being the write end of a pipe whose read end the
+    harness closed before the program started (deterministic, no reader race), SIGPIPE at its default disposition;
+    the two wait statuses must be equal, death by signal included (`observations.k12_closed_stdout`). Mutations
+    `plain_epipe_exit1` (Rust shape) and `plain_epipe_sigpipe` (plain path dies of SIGPIPE); conforming variant
+    `closed_stdout_sigpipe_both` (dies of SIGPIPE in both modes) must pass. `common.exit_codes_without_json` is
+    unchanged.
+  * Record naming (the Go review: `observations.signal_duplicates` was read as a heimdall-proto duplicate count). The
+    observation is renamed `observations.harness_os_probe_back_to_back_signal_merge` and carries
+    `measures_heimdall_proto: false` and a `what` text; the check title, its assertion text and the K6 limitation
+    say that it is the harness's own OS probe. It stays non-gating; the self-test's platform gating of
+    `run_double_signal` reads the new key.
+  * Reference robustness: the `run_text_mode` mutation used to read the child's whole stdout into memory before
+    re-coding it. Against the endless `yes` of the K6c probe that exhausted the Linux runner's 2 GiB limit and the
+    kernel killed the harness (round-6 Linux self-test: exit -9, mutation not caught). It now re-codes chunk by chunk
+    and stops copying when its own stdout reader has gone; the defect (lossy re-coding of binary output) and the
+    checks that catch it are unchanged.
+  * Informational runs (not verdicts) of the two new checks with the final 2.4.0 harness against the prototype builds
+    in the tree, 2026-10-05: Go darwin-arm64 and linux-arm64 pass both (Go dies of SIGPIPE with and without `--json`;
+    non-gating: on darwin its SIGSTOP self-stop forms are not reported to the shell, on Linux they are reported as a
+    SIGTSTP stop, `$?` 148 where the control gives 147); Rust darwin-arm64 and linux-arm64 fail both (no stop notice
+    for any self-stop form; plain exit 1 versus `--json` exit 0). Records `selftest-results/2026-10-04-r6/info-*.json`.
+
 ## Instrumented fake agent
 
 `python3 tests/fixtures/fake-agent/fake_agent.py --socket PATH --mode MODE [--pubkey FILE ...] --log FILE --ready-file FILE`
@@ -329,7 +378,9 @@ record (stock-pyte behaviour, the legacy pty teardown, the kernel's delivery of 
 for terminal-generated SIGINT (Q3) and for K6d deliveries, meta `exit_code`/`signal` of a signalled or unlaunched
 child (Q1), terminal output during `run` under a pty, the stderr message of a K14 tui refusal, K6c observations,
 whether heimdall-proto stayed in the K6d shared group, heimdall-proto's own process state after `fg` (K6e), the K6e
-forms under zsh and other-key values on stderr (Q11)). Harness preconditions are recorded as `precondition`
+forms under zsh, the K6e child self-stop forms with SIGSTOP or under zsh, the child's state while a self-stopped job is
+reported stopped, whether it resumed before `fg` (Q16), the stop notice word and `$?` compared with the control, the
+harness's own back-to-back signal OS probe, and other-key values on stderr (Q11)). Harness preconditions are recorded as `precondition`
 assertions: when one fails the check's outcome is `error` (invalid evidence), never `fail`. On Linux the K3a reset
 delivery is such a precondition instead of an observation. `run.argv_invalid_utf8` (K8) is an ordinary gating check.
 
@@ -347,7 +398,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | `harness.pty_close_undrained` | harness | defect (b): tearing down a pty session with undrained output finishes in bounded time (needs pyte) |
 | `harness.check_bound` | harness | defect (c): a blocked check and a blocked cleanup are cut off by the hard wall-clock bound |
 | `harness.rss_probe` | harness | measurement used by the K15 checks: rss_wrap reports wall time, peak RSS (bytes on macOS, KiB on Linux, normalised) and the exit status of one child |
-| `harness.signal_duplicate_probe` | harness | observability probe for the K6 exactly-once checks: a known double-forwarding wrapper (two back-to-back kill() calls per signal) runs the signal-counting child; records whether this OS delivers both or merges them (standard signals do not queue) |
+| `harness.signal_duplicate_probe` | harness | observability probe for the K6 exactly-once checks (the harness's own OS probe; heimdall-proto is not involved): a double-forwarding wrapper written by the harness (two back-to-back kill() calls per signal) runs the signal-counting child; records whether this OS delivers both or merges them (standard signals do not queue) in observations.harness_os_probe_back_to_back_signal_merge |
 | `harness.canary_selfcheck` | harness | canary rule: fixture canaries load by key path, the scanner finds registered and unregistered full canary values (not the bare prefix) and redaction removes them; labels never hold a value |
 | `usage.unknown_subcommand_json` | §1 | usage errors with --json |
 | `usage.unknown_subcommand_plain` | §1 | usage errors without --json: stderr only |
@@ -440,6 +491,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | `run.k6a_inherited_ignore` | §4/K6a | a signal heimdall-proto inherited as ignored stays SIG_IGN in the child and is not forwarded; heimdall-proto survives it. Gated (K6c): SIGHUP (nohup) and SIGINT (non-interactive & job, started with SIGINT+SIGQUIT ignored). Recorded, not gated: SIGQUIT, SIGTERM, SIGWINCH ignores and the blocked mask (CPython child) and the SIGPIPE ignore (non-Python `yes`/`cat` child) |
 | `run.k6d_shared_mode_explicit_signals` | §4/K6d | heimdall-proto sharing its process group with the terminal's foreground job (child of a foreground non-job-control `sh -c` script; first and last member of a `bash -i` pipeline job): SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH sent explicitly to the heimdall-proto pid each reach the child at least once (count recorded; duplicates allowed, K6b; silent loss fails); exit statuses are the child's (needs pyte) |
 | `run.k6e_job_control` | §4/K6e | `heimdall-proto run -- <child>` as a job of an interactive job-control shell (bash -i in a pty; the same under zsh -f -i recorded as a non-gating observation), as a simple command and inside a command list (`run ...; echo`), 5 iterations each of: Ctrl-Z stops the job (shell reports it, the child stops), `fg` resumes it without a re-stop and the child reads the next typed line; Ctrl-Z, `bg` (the child runs again, nothing left stopped while the shell believes the job runs), `fg` (no re-stop) and the child reads the next line; after every `fg` no re-stop within 1.5 s (asserted before the next step, blaming that `fg`); finally the job exits 0 and no job is left (needs pyte) |
+| `run.k6e_child_self_stop` | §4/K6e | child-initiated stop (contract section 9.4): `heimdall-proto run -- <child>` as a job of `bash -i` in a pty, 5 jobs; each child prints a heartbeat, stops ITSELF with kill(getpid(), SIGTSTP) (OpenSSH's ~^Z) 2 times and, after each `fg`, reads a typed line, then exits 42. Each self-stop: the shell reports the job stopped and prompts again with no user action (like a direct-exec control run in the same session, a harness precondition), `fg` resumes the child, no re-stop (no notice/prompt after `fg`, none within 1.5 s), the child reads the line; finally `fg` reports status 42 and no job is left. SIGSTOP and zsh -f -i are recorded as non-gating observations (needs pyte) |
 | `tui.non_tty` | §5 | requires a TTY on stdin and stdout, else exit 2 (stderr) (needs pyte) |
 | `tui.first_frame` | §5 | first frame: all aliases, N/M status, '> ' prefix, row format; latency recorded (needs pyte) |
 | `tui.filter_basic` | §5 | '/' filter 'nas' -> 1/3, status shows filter text, other rows hidden (needs pyte) |
@@ -470,6 +522,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | `common.exit_codes_without_json` | §1/K12 | without --json the exit codes equal the --json ones (output not judged) |
 | `common.no_helper_processes` | §1/K16 | apart from the run child, heimdall-proto never executes another program: tripwire tmux/tput/infocmp/stty/sh/bash/ssh/git on PATH (prepended; for run after the child's own directory) under four environments (TMUX/TERM_PROGRAM/COLORTERM with TERM=xterm-256color and TERM=tmux-256color; TERM=screen-256color with STY; TERM=screen), for version, profile show (ok, invalid), a usage error, agent list, tui and run (needs pyte) |
 | `common.no_stray_writes` | §1/K11 | no new files in HOME, TMPDIR or the working directory after any invocation; fixtures unchanged |
+| `k12.closed_stdout_exit_parity` | §1/K12 | closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified) |
 | `canary.no_canary_anywhere` | §1 | no HEIMDALL_CANARY_ in any captured stdout/stderr/meta/pty stream |
 
 ### §9 clarification coverage
@@ -482,18 +535,20 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | K3a | connection reset classified like EOF in the same position | `agent.reset_before_reply` (-> `AGENT_UNAVAILABLE`), `agent.reset_after_partial_header` (-> `AGENT_PROTOCOL_ERROR`); each records the kernel delivery. On Linux this is a real `ECONNRESET` (mutation `agent_reset_unhandled` caught in the self-test's Linux container); on macOS the kernel delivers EOF, so only the EOF-equivalent path is exercised and the record says so in `limitations` |
 | K4 | type-5 frame with payload -> `AGENT_PROTOCOL_ERROR` | `agent.failure_with_payload` (and `agent.failure_refused` for length 1) |
 | K5 | meta `state`: `CHILD_EXITED` -> `succeeded` always, `CHILD_LAUNCH_FAILED` -> `failed` | `run.meta_state`; also asserted in `run.exit_codes`, `run.meta_child_exited`, `run.child_killed_by_signal`, `run.launch_failure_*` |
-| K6 | explicit signal to heimdall-proto reaches the child exactly once in every state; any mechanism | `run.forward_*` (explicit `kill <pid>` without a controlling terminal: SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGWINCH), `run.explicit_signal_with_tty` (same five signals while heimdall-proto is the foreground job of a pty, plus a terminal Ctrl-C), `run.sigint_process_group`; `harness.signal_duplicate_probe` records how far this OS can show a back-to-back double forward at all |
+| K6 | explicit signal to heimdall-proto reaches the child exactly once in every state; any mechanism | `run.forward_*` (explicit `kill <pid>` without a controlling terminal: SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGWINCH), `run.explicit_signal_with_tty` (same five signals while heimdall-proto is the foreground job of a pty, plus a terminal Ctrl-C), `run.sigint_process_group`; `harness.signal_duplicate_probe` (the harness's own OS probe, heimdall-proto not involved; `observations.harness_os_probe_back_to_back_signal_merge`) records how far this OS can show a back-to-back double forward at all |
 | K7 | refusing `.`/empty PATH entries is allowed | not tested (by ruling) |
 | K8 | invalid UTF-8 argv passed byte-for-byte, gating | `run.argv_invalid_utf8` (gating; 7 malformed byte patterns) |
 | K9 | append, Backspace, Esc clear reset the selection to the first shown row; Enter keeps it | `tui.filter_edit_resets_selection` |
 | K10 | TUI SIGTERM -> 143, SIGHUP/hangup -> 129, panic -> 1, never stdout; terminal restored | `tui.sigterm_restores_terminal`, `tui.sighup_exit_129`, `tui.hangup_exit_129` (shell-like and bare hangup; each also accepts the re-raised-signal death per K10 exit form); panic path not testable black-box |
 | K11 | no runtime writes outside paths named on the command line (sidecar/extraction rules) | per-invocation assertion (HOME, TMPDIR, cwd and the `--meta-file` directory) in every check that runs the binary + aggregate `common.no_stray_writes` (lists every stray path with check id and invocation); sidecar/manifest rules not covered |
 | K12 | output without `--json` not judged; exit codes equal | `common.exit_codes_without_json`; `usage.*_plain` keep judging §1 usage errors |
+| K12 closed stdout (§9.4) | exit codes equal also when stdout is a pipe whose reader has closed; "exit status" includes death by signal | `k12.closed_stdout_exit_parity` (version, profile show, agent list; read end closed before the start; `observations.k12_closed_stdout`) |
 | K6a | `run` never takes the terminal foreground from another process, never stops a member of its own job; inherited SIG_IGN stays ignored in the child and is not forwarded | `run.k6a_pipeline_peer_not_stopped` (`run -- child \| peer` as a `bash -i` pipeline job, peer reads `/dev/tty`: no `Stopped`, statuses `0 0`, peer read succeeds, job pgrp keeps the foreground), `run.k6a_background_script_tty` (non-job-control script runs `run -- sleep 1 &` with SIGINT/SIGQUIT ignored, stdin tty or /dev/null, then reads the tty with SIGTTIN ignored: no EIO, foreground group unchanged before/during/after), `run.k6a_inherited_ignore` (gated per K6c: SIGHUP ignored (nohup) and SIGINT ignored (non-interactive & job, started with SIGINT+SIGQUIT ignored): child disposition SIG_IGN via `signal.getsignal` and on Linux `/proc` SigIgn, child survives the signal without a handler, and with a handler sees no forwarded delivery; heimdall-proto survives) |
 | K6b | precedence K6a > K6 (explicit signal exactly once) > §4 (terminal SIGINT not twice); own foreground group only when alone in the process group; terminal/killpg duplicates recorded, not gated | K6a and K6 checks gate as above; `run.explicit_signal_with_tty` (heimdall-proto alone as the foreground job: giving the child its own group is not penalised) versus `run.k6a_pipeline_peer_not_stopped` / `run.k6a_background_script_tty` (not alone: penalised); terminal Ctrl-C and `killpg` delivery counts stay non-gating observations (`run.explicit_signal_with_tty`, `run.sigint_process_group`) |
 | K6c | inherited-ignore gate covers SIGHUP and SIGINT only; other inherited ignores and the blocked mask are a recorded stack limitation | `run.k6a_inherited_ignore`: SIGQUIT in the `async-job` variant and the `other-ignores-K6c` variant (CPython child: SIGQUIT, SIGTERM, SIGWINCH ignored, SIGUSR2 blocked) and the SIGPIPE ignore observed with a non-Python child (`yes` into a closed pipe; Linux also `/bin/cat /proc/self/status`) are non-gating observations, collected in `observations.k6c_other_inherited_signal_state` |
 | K6d | shared mode: an explicit SIGINT/SIGTERM/SIGHUP/SIGQUIT/SIGWINCH to the heimdall-proto pid reaches the child at least once; duplicates allowed (K6b), silent loss fails | `run.k6d_shared_mode_explicit_signals` (`sh -c` script child; first and last member of a `bash -i` pipeline; counts in `observations.k6d_shared_mode_deliveries`) |
 | K6e | job control: Ctrl-Z stops the run job, `fg` resumes it and the child reads terminal input, `bg` then `fg` works, never left stopped while the shell believes it runs, never re-stopped after `fg` | `run.k6e_job_control` (`bash -i`, simple command and command list, 5 iterations each of Ctrl-Z/fg and Ctrl-Z/bg/fg) |
+| K6e child-initiated stop (§9.4) | a child that stops itself (`kill(getpid(), SIGTSTP)`, OpenSSH `~^Z`): the shell reports the job stopped as for a direct run, `fg` resumes the child and it reads terminal input; gated SIGTSTP under bash, SIGSTOP and zsh recorded | `run.k6e_child_self_stop` (`bash -i`: direct-exec control job as a harness precondition, then 5 jobs x 2 self-stops; SIGSTOP and `zsh -f -i` non-gating, `observations.k6e_child_self_stop`) |
 | K17 | large-100 filter-mode keystroke-to-update p95 <= 100 ms (harness pty emulator) | `tui.large_100_filter_latency` (30 edits, nearest-rank p95, gating) |
 | K18 | every offending input value is potentially secret: never on stdout or stderr; key names may appear | `profile.error_value_not_echoed`, `profile.invalid_port` (stdout and stderr gating); values of other keys on stderr: non-gating, Q11 |
 | K10 exit form | exit status 143/129 or a death by the re-raised signal both conform | `tui.sigterm_restores_terminal`, `tui.sighup_exit_129`, `tui.hangup_exit_129`; conforming variant `tui_reraise_signal` in the self-test; `observations.k10_exit_form` |
@@ -528,7 +583,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | §4 byte-exact stdio, exit codes, argv fidelity (incl. invalid UTF-8), PATH lookup, cwd/env; stdin/stdout/stderr inherited (same open files, tty stays a tty) | run.stdio_passthrough, run.stdio_inherited, run.exit_codes, run.argv_exact, run.argv_invalid_utf8, run.path_lookup, run.cwd_env_inherited, run.proto_silent_stdout |
 | §4 meta file and its state; launch failure; signal death | run.meta_child_exited, run.meta_state, run.launch_failure_*, run.child_killed_by_signal |
 | §4 signal forwarding, wait for child, no orphans | run.forward_*, run.repeated_signals (a second SIGINT/SIGTERM), run.explicit_signal_with_tty (incl. explicit SIGINT twice and terminal Ctrl-C twice), run.k6d_shared_mode_explicit_signals (shared mode, K6d), run.sigint_process_group, run.no_surviving_child |
-| §4/K6e job control (Ctrl-Z, fg, bg) | run.k6e_job_control |
+| §4/K6e job control (Ctrl-Z, fg, bg; child-initiated stop, §9.4) | run.k6e_job_control, run.k6e_child_self_stop |
 | §4/K6a job and signal transparency | run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty, run.k6a_inherited_ignore |
 | §4 missing `--` / empty argv | run.usage_errors |
 | §5 TTY requirement; non-regular `--file` (K14); parser bound (K15) | tui.non_tty, tui.non_regular_file, tui.parser_resource_bound |
@@ -538,6 +593,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | §5 terminal restoration and exit code on every exit path | assert_restored in tui.select_down_enter, tui.quit_q, tui.ctrl_c, tui.ctrl_c_in_filter_mode, tui.sigterm_restores_terminal, tui.sighup_exit_129, tui.start_tiny_no_crash; tui.hangup_exit_129 (exit code only) |
 | §5 no agent contact / file writes; 100-destination fixture | tui.no_agent_contact, common.no_stray_writes (+ per-session K11), tui.large_100_filter_latency (K17: p95 <= 100 ms over 30 edits, gating) |
 | §6 version | version.valid |
+| §1/K12 exit codes without `--json`, also on a closed stdout (§9.4) | common.exit_codes_without_json, k12.closed_stdout_exit_parity |
 | §7 distributable build (clean machine, no toolchain on PATH, K11 sidecars) | NOT covered by this harness; the record stores the tested binary's sha256 so a build-evidence record can reference it |
 | Windows named pipe, CommandLineToArgvW quoting, console Ctrl-C | NOT covered (blocked_on: native Windows host) |
 
@@ -558,6 +614,8 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   (e)). The round-4 checks (guarantee (f)) close gaps found by the round-2 prototype reviews; no independent review
   of the round-4 harness changes was obtained from this task's agent context: the self-test (mutations and conforming
   variants on both platforms) and an informational reproduction of the reviewers' findings are their only validation.
+  The same holds for the round-6 checks (guarantee (h)): no independent review of the harness 2.4.0 changes was
+  obtained from this task's agent context.
 * Value non-echo (§2, K18) is judged with distinctive markers on 13 generated cases and 2 fixtures; it is a sample.
   Offending values gate on stdout and stderr (K18); values of other keys on stderr are recorded only (Q11).
 * K6d is judged in three layouts (`/bin/sh -c` script child, first and last member of a `bash -i` pipeline), one
@@ -567,6 +625,13 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   output and the `/bin/ps` (macOS) or `/proc` (Linux) state of the child. A later re-stop, races needing more
   iterations, zsh/fish job control and a terminal read while in the background (Q12) are not covered.
   heimdall-proto's own state after `fg` is recorded, not gated (K6e names the child).
+* K6e child-initiated stop (§9.4) is judged under `bash -i` only, 5 jobs x 2 SIGTSTP self-stops after a direct-exec
+  control in the same session; SIGSTOP and zsh are recorded only. Not covered: a self-stop while the job is in the
+  background, inside a pipeline or command list, SIGTTIN/SIGTTOU stops, other shells. Whether the child must stay
+  stopped until `fg` is recorded (`resumed_before_fg`), not gated (Q16).
+* K12 closed stdout covers version, profile show (valid) and agent list (normal) with SIGPIPE at its default
+  disposition and the read end closed before the start; an inherited SIGPIPE ignore, a reader that closes after part
+  of the output, error results and usage errors on a closed stdout, and a closed stderr are not covered.
 * K17 includes pty and emulator overhead (2 ms polling) and is wall-clock on a possibly loaded machine; the record
   stores the load average.
 * Signal repetition is tested with two signals 150 ms apart; longer bursts and other signal pairs (SIGHUP, SIGQUIT)
@@ -583,7 +648,8 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   signals sent while the first is still pending, so a heimdall-proto that forwards twice back-to-back may be seen
   once; exact-once is reliable for deliveries separated in time (terminal vs forwarded) and a lower bound otherwise.
   `harness.signal_duplicate_probe` measures this per run with a known double-forwarding wrapper and the record
-  states the result (`observations.signal_duplicates`, plus a limitation): measured 2026-10-03, macOS showed both
+  states the result (`observations.harness_os_probe_back_to_back_signal_merge`, named `observations.signal_duplicates`
+  before harness 2.4.0; it is the harness's own probe, not a heimdall-proto measurement; plus a limitation): measured 2026-10-03, macOS showed both
   signals in 6-7 of 10 trials, the Linux container in none. On macOS the double forward is therefore caught
   probabilistically (ten separate single-signal deliveries in `run.forward_*` and `run.explicit_signal_with_tty`);
   on Linux it is observably identical to a single forward. The self-test treats the `run_double_signal` mutation as
@@ -606,10 +672,17 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   "never left stopped while the shell believes the job is running" only for a child that is not reading the
   terminal. Does K6e also require mirroring a background tty-input stop to the shell?
 
+* Q16 (round 6) K6e child-initiated stop (§9.4): the harness gates that the shell reports the job stopped, that `fg`
+  resumes the child, no re-stop and that the child reads the typed line. Whether the child must also stay stopped
+  until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop
+  (`resumed_before_fg`, non-gating), not gated. Gate it (exec semantics) or not?
+
 Resolved by §9 (no longer open): Q2 invalid UTF-8 argv -> K8 (now gating), Q4 TUI SIGTERM exit code -> K10,
 Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without `--json`
 -> K12. Resolved by §9.3: Q8 -> K10 exit form (exit 143/129 or death by the re-raised signal), Q9 -> K18 (offending
-values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating).
+values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating). §9.4 settles the round-3b review findings:
+K6e covers child-initiated stops (gated: SIGTSTP under bash, `run.k6e_child_self_stop`) and K12 parity covers a closed
+stdout (`k12.closed_stdout_exit_parity`).
 
 ## Maintaining the harness
 

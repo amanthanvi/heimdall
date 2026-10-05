@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_lib as H  # noqa: E402
 import minischema  # noqa: E402
 
-HARNESS_VERSION = "2.3.0"
+HARNESS_VERSION = "2.4.0"
 REPO = H.REPO
 FIX = REPO / "tests" / "fixtures" / "g02" / "profiles"
 SPACED = FIX / "spaced dir ü" / "prøfile homelab.toml"
@@ -377,7 +377,7 @@ class T:
 
     # -- running the binary
     def proto(self, *args, label=None, stdin_data=None, env=None, cwd=None, timeout=20.0, pre=None,
-              post=None, ok_leftover=False, wrap=None, preexec_fn=None):
+              post=None, ok_leftover=False, wrap=None, preexec_fn=None, stdout_fd=None):
         """Run the binary under test.  wrap: argv prefix of a measuring wrapper (rss_wrap.py);
         preexec_fn: run in the child before exec (e.g. inherited SIG_IGN dispositions)."""
         argv = list(wrap or []) + [self.ctx.bin] + list(args)
@@ -385,7 +385,7 @@ class T:
         before = self.ctx.k11_snapshot(cwd, argv)
         cap = H.run_capture(label or " ".join(os.fsdecode(a) for a in args[:2]) or "proto", argv,
                             self.ctx.env(env), cwd, stdin_data=stdin_data,
-                            timeout=timeout, pre=pre, post=post, preexec_fn=preexec_fn)
+                            timeout=timeout, pre=pre, post=post, preexec_fn=preexec_fn, stdout_fd=stdout_fd)
         self.k11_check(cap.label, before, cwd, argv)
         self._record_cap(cap)
         self.check("[%s] completed within %ss" % (cap.label, timeout), not cap.timed_out, "no timeout",
@@ -3016,6 +3016,66 @@ def _(t):
         fa.stop()
 
 
+def wait_status_text(rc):
+    """'exit N', 'signal SIGNAME' (death by signal) or None (no status: timed out)."""
+    if rc is None:
+        return None
+    if rc < 0:
+        try:
+            return "signal " + signal.Signals(-rc).name
+        except ValueError:
+            return "signal %d" % -rc
+    return "exit %d" % rc
+
+
+@check("k12.closed_stdout_exit_parity", "§1/K12 closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified)")
+def _(t):
+    # environment fact behind 'deterministic': this harness's own write into such a pipe fails at once
+    r, w = os.pipe()
+    os.close(r)
+    try:
+        os.write(w, b"x")
+        probe = "write succeeded"
+    except BrokenPipeError:
+        probe = "EPIPE"
+    finally:
+        os.close(w)
+    t.precondition("harness precondition: a write into a pipe whose read end is closed fails with EPIPE (the "
+                   "harness ignores SIGPIPE; the program under test starts with SIGPIPE at its default)",
+                   probe == "EPIPE", "EPIPE", probe)
+    cases = (("version", ["version"], None),
+             ("profile-show-homelab", ["profile", "show", "--file", str(FIX / "homelab.toml")], None),
+             ("agent-list-normal", ["agent", "list", "--socket"], "normal"))
+    seen = {}
+    for label, args, agent_mode in cases:
+        per = {}
+        for variant in ("json", "plain"):
+            argv = list(args)
+            fa = None
+            if agent_mode:
+                fa = H.FakeAgent(t.ctx.sandbox, t.ctx.new_dir("k12c-agent"), agent_mode, agent_mode,
+                                 [k["pub"] for k in t.ctx.keys()])
+                t.agents.append(fa)
+                argv.append(fa.sock)
+            if variant == "json":
+                argv.append("--json")
+            r, w = os.pipe()
+            os.close(r)               # no reader exists before the program starts: the first write fails, no race
+            try:
+                c = t.proto(*argv, label="%s-%s-closed-stdout" % (label, variant), stdout_fd=w)
+            finally:
+                os.close(w)
+                if fa:
+                    fa.stop()
+            per[variant] = {"wait_status": wait_status_text(c.rc), "rc": c.rc}
+        seen[label] = per
+        t.check("[%s] stdout closed by its reader: the wait status without --json equals the one with --json"
+                % label, per["json"]["rc"] is not None and per["plain"]["rc"] == per["json"]["rc"],
+                per["json"]["wait_status"], per["plain"]["wait_status"])
+    t.note("sigpipe_disposition_given_to_program", "default (subprocess restore_signals)")
+    t.ctx.observations["k12_closed_stdout"] = seen
+
+
 TRIPWIRE_NAMES = ("tmux", "tput", "infocmp", "stty", "sh", "bash", "ssh", "git")
 TRIPWIRE_SRC = (
     "#!%(py)s\n"
@@ -4088,6 +4148,281 @@ def _(t):
     t.ctx.observations["k6e_job_control"] = res
 
 
+# -- K6e child-initiated stop (contract section 9.4) --------------------------------------------------------------
+# Child for run.k6e_child_self_stop: `stops` rounds of (heartbeat until the harness writes <tag>.go.<j>, print a
+# heartbeat line to the terminal, stop ITSELF with kill(getpid(), SIG) - how OpenSSH's ~^Z escape works - and,
+# once continued, read one line from the terminal); finally exit with the code given as the last argument.
+K6ES_CHILD = r'''
+import json, os, signal, sys, time
+d, tag, stops, sig, rc = sys.argv[1], sys.argv[2], int(sys.argv[3]), getattr(signal, sys.argv[4]), int(sys.argv[5])
+def put(name, text):
+    p = os.path.join(d, tag + "." + name)
+    with open(p + ".part", "w") as f:
+        f.write(text)
+    os.replace(p + ".part", p)
+put("child.json", json.dumps({"pid": os.getpid(), "ppid": os.getppid(), "pgrp": os.getpgrp()}))
+got, beat = [], 0
+for j in range(1, stops + 1):
+    put("wait.%d" % j, "1")
+    while not os.path.exists(os.path.join(d, "%s.go.%d" % (tag, j))):
+        beat += 1
+        put("beat", str(beat))
+        time.sleep(0.02)
+    sys.stdout.write("K6ES-BEAT %s %d %d\n" % (tag, j, beat))
+    sys.stdout.flush()
+    put("stopping.%d" % j, "1")
+    os.kill(os.getpid(), sig)
+    put("resumed.%d" % j, "1")
+    got.append(os.read(0, 4096).decode("utf-8", "replace"))
+    put("got", json.dumps(got))
+put("done", "1")
+sys.exit(rc)
+'''
+K6ES_RC = 42            # the child's exit status: the job's status as `fg` reports it at the end
+K6ES_JOBS = 5           # heimdall-proto jobs in the gated form (each a fresh launch: start-up races)
+K6ES_STOPS = 2          # self-stops per job (a later stop of the same launcher: state races)
+K6ES_NOTICE_S = 4.0     # time allowed from the child's stop to the shell's stop notice and prompt
+# (shell, stop signal, heimdall-proto jobs, gating): section 9.4 gates SIGTSTP under bash; SIGSTOP and zsh are
+# recorded, not gated
+K6ES_FORMS = (("bash", "SIGTSTP", K6ES_JOBS, True), ("bash", "SIGSTOP", 2, False),
+              ("zsh", "SIGTSTP", 2, False), ("zsh", "SIGSTOP", 2, False))
+
+
+def _k6es_form(t, shell, signame, jobs, gate):
+    """One shell / stop-signal form of run.k6e_child_self_stop: a direct-exec control job, then `jobs`
+    heimdall-proto jobs, all in the same interactive shell session; each child stops itself K6ES_STOPS times."""
+    argv, env_extra, stopw, jobs_expr = K6E_SHELLS[shell]
+    ftag = "%s %s" % (shell, signame)
+    res = {"shell": shell, "signal": signame, "gating": gate, "proto_jobs": jobs, "stops_per_job": K6ES_STOPS,
+           "ok": None, "first_failed_step": None, "control": None, "jobs": []}
+
+    def note_fail(desc, expected, observed):
+        t.check("%s (non-gating; form not run)" % desc, False, expected, observed, gating=False)
+
+    if not os.access(argv[0], os.X_OK):
+        desc = "[%s] harness precondition: %s is executable" % (ftag, argv[0])
+        if gate:
+            t.precondition(desc, False, "executable", argv[0])
+        note_fail(desc, "executable", argv[0])
+        res["not_run"] = "%s not executable" % argv[0]
+        return res
+    d = t.ctx.new_dir("k6es-%s-%s" % (shell, signame.lower()))
+    (d / "s.py").write_text(K6ES_CHILD)
+    env = dict({"P": t.ctx.bin, "Y": PY, "D": str(d), "PS1": "HMPS1$ ", "HISTFILE": str(d / "shell-history")},
+               **env_extra)
+    s = t.pty(argv, env=env, cwd=t.ctx.run_cwd, label="k6es-%s-%s" % (shell, signame.lower()), stderr_tty=True)
+    prompt = b"HMPS1$ "
+    started = []          # every pid a job of this session reported (child, its parent unless that is the shell)
+
+    def release():
+        H.kill_session_pids([p for p in started if p != s.pid], s.shim.pid)
+
+    def env_pre(desc, ok, expected, observed):
+        if ok:
+            if gate:
+                t.precondition(desc, True, expected, observed)
+            return True
+        release()
+        if gate:
+            t.precondition(desc, False, expected, observed)
+        note_fail(desc, expected, observed)
+        return False
+
+    if not env_pre("[%s] harness precondition: interactive %s printed its prompt" % (ftag, shell),
+                   s.wait_for(lambda x: prompt in bytes(x.raw), 10.0) is not None, "prompt",
+                   H.printable(bytes(s.raw)[-200:])):
+        res["not_run"] = "no prompt"
+        return res
+    jc_notice = b"no job control" in bytes(s.raw) or "bash_no_job_control" in t.ctx.harness_mutate
+    if not env_pre("[%s] harness precondition: %s enabled job control (no 'no job control' notice)" % (ftag, shell),
+                   not jc_notice, "job control on", H.printable(bytes(s.raw)[-200:])):
+        res["not_run"] = "no job control"
+        return res
+
+    def since(m):
+        return bytes(s.raw)[m:]
+
+    notice_re = re.compile(re.escape(stopw) + rb"(?: ?\([^)\r\n]{1,24}\))?")
+
+    def notice_line(out):
+        """The shell's stop word with its optional '(signal)' suffix (the rest of the line is the command text,
+        which differs between the control and the heimdall-proto job)."""
+        mm = notice_re.search(H.strip_csi(out))
+        return mm.group(0).decode("ascii", "replace") if mm else None
+
+    def run_job(tag, via_proto):
+        """One job.  For the control (via_proto False) every expectation is a harness precondition (gated form:
+        outcome 'error'; recorded form: the form is not run); for heimdall-proto it is a K6e assertion."""
+        info = {"tag": tag, "via": "heimdall-proto run" if via_proto else "direct exec (control)", "stops": []}
+        t_job = time.monotonic()
+        kind = "heimdall-proto" if via_proto else "control (direct exec)"
+
+        def judge(desc, ok, expected=None, observed=None):
+            desc = "[%s: %s] %s" % (ftag, tag, desc)
+            if via_proto:
+                if not ok and res.get("first_failed_step") is None:
+                    res["first_failed_step"] = {"desc": desc, "observed": short(observed)}
+                return t.check(desc if gate else "%s (non-gating observation)" % desc, ok, expected, observed,
+                               gating=gate)
+            return env_pre("harness precondition: the direct-exec control behaves: " + desc, ok, expected, observed)
+
+        sig_arg = signame
+        if not via_proto and "k6es_control_no_stop" in t.ctx.harness_mutate:
+            sig_arg = "SIGWINCH"          # selftest-only fault: the control child does not stop at all
+        cmd = '"$Y" "$D/s.py" "$D" %s %d %s %d' % (tag, K6ES_STOPS, sig_arg, K6ES_RC)
+        if via_proto:
+            cmd = '"$P" run -- ' + cmd
+        s.send(cmd + "\r")
+        ok = judge("the child started (%s) and reached its heartbeat" % kind,
+                   _wait_file(d / (tag + ".wait.1"), 10, s), True, None)
+        ids = _read_json(d / (tag + ".child.json")) or {}
+        child, parent = ids.get("pid"), ids.get("ppid")
+        started.extend(x for x in (child, parent) if isinstance(x, int) and x != s.pid)
+        info["pids_reported"] = isinstance(child, int)
+
+        def states():
+            return {"child": H.proc_state(child) if isinstance(child, int) else None,
+                    "parent": (H.proc_state(parent) if isinstance(parent, int) and parent != s.pid else "shell")}
+
+        for j in range(1, K6ES_STOPS + 1):
+            if not ok:
+                break
+            step = {"stop": j}
+            info["stops"].append(step)
+            if j > 1:
+                ok = judge("stop %d: the child is back in its heartbeat after reading the previous line" % j,
+                           _wait_file(d / ("%s.wait.%d" % (tag, j)), 5, s), True, None)
+                if not ok:
+                    break
+            s.settle(0.1)
+            m = len(s.raw)
+            t_go = time.monotonic()
+            (d / ("%s.go.%d" % (tag, j))).write_text("1")
+            ok = judge("stop %d: the child printed its heartbeat and stopped itself with %s" % (j, signame),
+                       _wait_file(d / ("%s.stopping.%d" % (tag, j)), 3, s), True, None)
+            if not ok:
+                break
+            r = s.wait_for(lambda x: stopw in since(m) and prompt in since(m)[since(m).find(stopw):],
+                           K6ES_NOTICE_S - (time.monotonic() - t_go), t_start=t_go)
+            st = states()
+            step.update(shell_reported_stop=r is not None, notice=notice_line(since(m)), states_at_notice=st,
+                        notice_after_go_s=None if r is None else round(r, 3))
+            ok = judge("stop %d: the shell reports the job stopped ('%s') and prompts again, with no user action, "
+                       "within %.1f s of the harness's go to the child (as for the direct run)" % (j, stopw.decode(),
+                                                                                         K6ES_NOTICE_S),
+                       r is not None, "'%s' then the prompt" % stopw.decode(),
+                       {"terminal": H.printable(H.strip_csi(since(m))[-240:]), "states": st})
+            if not ok:
+                break
+            t.check("[%s: %s] stop %d: the child itself is stopped while the shell reports the job stopped "
+                    "(non-gating observation)" % (ftag, tag, j), st["child"] == "T", "T", st, gating=False)
+            m2 = len(s.raw)
+            s.send('echo "K6ES_STOPRC=$?"\r')
+            rc_re = re.compile(rb"K6ES_STOPRC=(\d+)")
+            s.wait_for(lambda x: rc_re.search(H.strip_csi(since(m2))) is not None
+                       and H.strip_csi(since(m2)).rstrip().endswith(prompt.rstrip()), 3.0)
+            mm = rc_re.search(H.strip_csi(since(m2)))
+            step["shell_status_of_stopped_job"] = int(mm.group(1)) if mm else None
+            early = (d / ("%s.resumed.%d" % (tag, j))).exists()
+            step["resumed_before_fg"] = early
+            t.check("[%s: %s] stop %d: the child is not resumed before `fg` while the shell lists the job as stopped "
+                    "(non-gating observation, escalated as Q16)" % (ftag, tag, j), not early, False, early,
+                    gating=False)
+            m3 = len(s.raw)
+            s.send("fg\r")
+            t_fg = time.monotonic()
+            resumed = _wait_file(d / ("%s.resumed.%d" % (tag, j)), 3, s)
+            step["resumed_after_fg"] = resumed
+            ok = judge("stop %d: `fg` resumes the child" % j, resumed, True, {"states": states()})
+            if not ok:
+                break
+            s.settle(0.3)
+            out = since(m3)
+            restop = stopw in out or prompt in out
+            ok = judge("stop %d: after `fg` the job is not stopped again: no '%s' notice and no prompt (the job holds "
+                       "the terminal)" % (j, stopw.decode()), not restop, "no notice, no prompt",
+                       H.printable(H.strip_csi(out)[-200:]))
+            if not ok:
+                break
+            text = "K6ES-%s-%d" % (tag.upper(), j)
+            s.send(text + "\r")
+            s.wait_for(lambda x: len(_read_json(d / (tag + ".got")) or []) >= j, 3.0)
+            got = _read_json(d / (tag + ".got")) or []
+            ok = judge("stop %d: the child reads the line typed after `fg` (terminal input reaches it)" % j,
+                       len(got) >= j and got[j - 1] == text + "\n", text + "\\n",
+                       got[j - 1] if len(got) >= j else {"lines_received": len(got)})
+            if not ok:
+                break
+            rest = K6E_RESTOP_WINDOW_S - (time.monotonic() - t_fg)
+            if rest > 0:
+                s.settle(rest)
+            st = states()
+            ok = judge("stop %d: no re-stop within %.1f s of `fg`: no '%s' notice since the `fg` and the child is not "
+                       "stopped" % (j, K6E_RESTOP_WINDOW_S, stopw.decode()),
+                       stopw not in since(m3) and st["child"] != "T", "no notice, child not T",
+                       {"states": st, "terminal": H.printable(H.strip_csi(since(m3))[-200:])})
+        if ok:
+            done = _wait_file(d / (tag + ".done"), 5, s)
+            s.wait_for(lambda x: H.strip_csi(bytes(x.raw)[-200:]).rstrip().endswith(prompt.rstrip()), 5.0)
+            m = len(s.raw)
+            s.send('echo "K6ES_RC=$? K6ES_JOBS=%s"\r' % jobs_expr)
+            res_re = re.compile(rb"K6ES_RC=(\d+) K6ES_JOBS=\s*(\d+)")
+            s.wait_for(lambda x: res_re.search(since(m)) is not None, 5.0)
+            mm = res_re.search(since(m))
+            final = [done, [int(x) for x in mm.groups()] if mm else None]
+            info["final"] = final
+            ok = judge("the job finished: the child completed, the job's status (as `fg` reports it) is %d and no "
+                       "job is left" % K6ES_RC, final == [True, [K6ES_RC, 0]], [True, [K6ES_RC, 0]], final)
+        info["ok"] = bool(ok)
+        info["seconds"] = round(time.monotonic() - t_job, 2)
+        if not ok:
+            release()           # abandoned mid-way: identity-checked SIGCONT+SIGKILL of the job's processes
+            s.settle(0.5)
+        return info
+
+    ctl = run_job("ctl", False)
+    res["control"] = ctl
+    if not ctl["ok"]:
+        res["not_run"] = "direct-exec control did not behave"
+        s.send("exit\r")
+        s.wait_exit(3.0)
+        return res
+    ok = True
+    for i in range(1, jobs + 1):
+        info = run_job("hp%d" % i, True)
+        res["jobs"].append(info)
+        if not info["ok"]:
+            ok = False
+            break
+    res["ok"] = ok
+    ctl_view = sorted({(x.get("notice"), x.get("shell_status_of_stopped_job")) for x in ctl["stops"]}, key=repr)
+    hp_view = sorted({(x.get("notice"), x.get("shell_status_of_stopped_job")) for j in res["jobs"]
+                      for x in j["stops"] if x.get("shell_reported_stop")}, key=repr)
+    same = bool(hp_view) and hp_view == ctl_view
+    res["notice_and_status_same_as_control"] = same
+    res["notice_and_status"] = {"control": ctl_view, "heimdall_proto": hp_view}
+    t.check("[%s] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec "
+            "control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not "
+            "which stop signal it names)" % ftag, same, ctl_view, hp_view, gating=False)
+    s.send("exit\r")
+    s.settle(0.3)
+    s.send("exit\r")
+    s.wait_exit(3.0)
+    if ok:
+        _session_leftovers(t, s, [p for p in started if p != s.pid], ftag, gating=gate)
+    else:
+        release()
+    return res
+
+
+@check("run.k6e_child_self_stop", "§4/K6e child-initiated stop (contract section 9.4): `heimdall-proto run -- <child>` as a job of `bash -i` in a pty, %d jobs; each child prints a heartbeat, stops ITSELF with kill(getpid(), SIGTSTP) (OpenSSH's ~^Z) %d times and, after each `fg`, reads a typed line, then exits %d. Each self-stop: the shell reports the job stopped and prompts again with no user action (like a direct-exec control run in the same session, a harness precondition), `fg` resumes the child, no re-stop (no notice/prompt after `fg`, none within %.1f s), the child reads the line; finally `fg` reports status %d and no job is left. SIGSTOP and zsh -f -i are recorded as non-gating observations" % (K6ES_JOBS, K6ES_STOPS, K6ES_RC, K6E_RESTOP_WINDOW_S, K6ES_RC), "pyte", budget=360)
+def _(t):
+    res = {}
+    for shell, signame, jobs, gate in K6ES_FORMS:
+        res["%s-%s" % (shell, signame)] = _k6es_form(t, shell, signame, jobs, gate)
+    t.ctx.observations["k6e_child_self_stop"] = res
+
+
 # -- K14 ------------------------------------------------------------------
 def k14_targets(t):
     """(label, path) for a FIFO without writer, a listening socket, a directory and a character device,
@@ -4296,6 +4631,13 @@ def _(t):
 
 
 # -- can this OS show a back-to-back duplicate forward? ------------------------
+SIGNAL_MERGE_PROBE_KEY = "harness_os_probe_back_to_back_signal_merge"
+SIGNAL_MERGE_PROBE_WHAT = ("harness self-probe of the OS, NOT a heimdall-proto measurement: a Python wrapper written by "
+                           "the harness sends each signal twice back to back with kill() to the harness's signal-counting "
+                           "child (heimdall-proto is not involved); deliveries_per_trial counts what that child saw, i.e. "
+                           "whether this kernel merges two identical pending standard signals. It bounds what the "
+                           "run.forward_* / run.explicit_signal_with_tty exactly-once assertions can observe. "
+                           "heimdall-proto's own delivery counts are in the run.* checks and observations.k6d_*")
 DOUBLE_FORWARDER = r"""
 import signal, subprocess, sys
 child = subprocess.Popen(sys.argv[1:])
@@ -4308,7 +4650,7 @@ sys.exit(child.wait())
 """
 
 
-@check("harness.signal_duplicate_probe", "observability probe for the K6 exactly-once checks: a known double-forwarding wrapper (two back-to-back kill() calls per signal) runs the signal-counting child; records whether this OS delivers both or merges them (standard signals do not queue)")
+@check("harness.signal_duplicate_probe", "observability probe for the K6 exactly-once checks (the harness's own OS probe; heimdall-proto is not involved): a double-forwarding wrapper written by the harness (two back-to-back kill() calls per signal) runs the signal-counting child; records whether this OS delivers both or merges them (standard signals do not queue) in observations.harness_os_probe_back_to_back_signal_merge")
 def _(t):
     import signal as sg
     counts = []
@@ -4332,13 +4674,17 @@ def _(t):
                 {"rc": cap.rc, "signals": sigs})
         counts.append(len(sigs))
     n2 = sum(1 for c in counts if c == 2)
-    obs = {"deliveries_per_trial": counts, "trials_with_duplicate": "%d/%d" % (n2, len(counts)),
+    obs = {"what": SIGNAL_MERGE_PROBE_WHAT, "measures_heimdall_proto": False,
+           "deliveries_per_trial": counts, "trials_with_duplicate": "%d/%d" % (n2, len(counts)),
            "duplicates_observable": n2 > 0, "always_observable": bool(counts) and n2 == len(counts),
            "os": platform.system()}
-    t.ctx.observations["signal_duplicates"] = obs
-    t.note("signal_duplicates", obs)
-    t.check("back-to-back duplicate deliveries observed on %s (non-gating observation: in a trial with 1 delivery the "
-            "kernel merged the two signals, so a heimdall-proto that forwards twice back to back looked like a single "
+    # Renamed in harness 2.4.0 (was observations.signal_duplicates, which the round-3b stage summary misread as a
+    # heimdall-proto duplicate count): this is the harness's own OS probe, not a measurement of the candidate.
+    t.ctx.observations[SIGNAL_MERGE_PROBE_KEY] = obs
+    t.note(SIGNAL_MERGE_PROBE_KEY, obs)
+    t.check("harness OS probe, not heimdall-proto: back-to-back duplicate deliveries from the harness's own "
+            "double-forwarding wrapper observed on %s (non-gating observation: in a trial with 1 delivery the "
+            "kernel merged the two signals, so a heimdall-proto that forwards twice back to back would look like a single "
             "forward)" % platform.system(), True, "2 per trial", counts, gating=False)
 
 
@@ -4366,7 +4712,7 @@ def _(t):
 
 
 # --------------------------------------------------------------------------
-ORDER = ["harness", "usage", "version", "profile", "agent", "run", "tui", "common", "canary"]
+ORDER = ["harness", "usage", "version", "profile", "agent", "run", "tui", "common", "k12", "canary"]
 
 
 def ordered_checks():
@@ -4525,6 +4871,8 @@ STATIC_LIMITATIONS = [
     "K6d (shared mode) is judged in three layouts: heimdall-proto as the child of a foreground non-job-control `/bin/sh -c` script (sh is bash 3.2 in POSIX mode on macOS, dash in the Linux image), and as the first and as the last member of a `bash -i` pipeline job; one explicit kill(<pid>, sig) per signal and layout, delivery awaited 3 s. That the job containing heimdall-proto holds the terminal foreground (sh -c: the script's group; pipelines: the other member's group, reported by that member, not the shell's) is a harness precondition: if any layout misses it the check is 'error' (invalid evidence), never a silent pass on delivery alone; whether heimdall-proto itself stayed in that group is recorded per setup (observations.k6d_shared_setups). Other shells, Makefiles proper, nested scripts and rapid repeats are not exercised. A delivery that the kernel merges with a pending identical signal is counted once.",
     "K6e (job control) is judged under `bash -i` (bash 3.2 on macOS, bash 5.2 in the Linux image), 5 iterations of Ctrl-Z/fg (child blocked in a terminal read) and Ctrl-Z/bg/fg (child running without terminal access); 'not re-stopped' is judged 0.5 s after `fg` and again, blaming that `fg`, before the next step once at least 1.5 s have passed since it (shell output and the /bin/ps or /proc state of the child). The same forms run under `zsh -f -i` (zsh 5.9 on macOS and in the Linux image) as NON-GATING observations (observations.k6e_job_control, keys zsh-*) until the gating question is decided. A re-stop later than 1.5 s after `fg` that does not disturb a later step, races needing more iterations, fish/dash job control and a background terminal read (Q12) are not covered.",
     "K17 is measured like the earlier latency observation: from writing the keystroke to the pty master until the pyte emulator shows the expected status line AND the expected list rows (the first min(N, capacity) matching destinations in fixture order; 2 ms polling), 30 edits on large-100.toml in 5 filter sessions (`/`, 3 characters, 3 Backspaces, Esc) so the first keystroke after `/` is weighted per session, p95 by nearest rank; it includes pty and emulator overhead and is wall-clock on a possibly loaded machine (load average recorded). The session weighting (6 edits per session) is a harness sampling choice, not a contract figure.",
+    "K6e child-initiated stop (section 9.4) is judged by run.k6e_child_self_stop under `bash -i` only (bash 3.2 on macOS, 5.2 in the Linux image): %d heimdall-proto jobs, each child stopping itself %d times with kill(getpid(), SIGTSTP) after a heartbeat and reading a typed line after each `fg`, preceded by a direct-exec control job in the same shell session (a harness precondition: if the control does not stop, resume and read, the check is 'error'). SIGSTOP self-stops and the same under `zsh -f -i` (2 jobs each) are NON-GATING observations (observations.k6e_child_self_stop). Not covered: a self-stop while the job is in the background, a self-stop of a child in a pipeline or command list, stops by SIGTTIN/SIGTTOU, other shells; whether the child stays stopped until `fg` (resumed_before_fg) is recorded, not gated (Q16)." % (K6ES_JOBS, K6ES_STOPS),
+    "K12 closed stdout (section 9.4) is judged by k12.closed_stdout_exit_parity for version, profile show (homelab fixture) and agent list (fake agent, normal mode), each with and without --json, stdout being the write end of a pipe whose read end the harness closed before the start; heimdall-proto starts with SIGPIPE at its default disposition (as from a shell). Not covered: an inherited SIGPIPE ignore, a reader that closes after part of the output, error results (exit 2/5) and usage errors on a closed stdout, stderr closed.",
     "K6c SIGPIPE: the SIGPIPE disposition of a non-Python child is observed for both dispositions heimdall-proto can inherit (ignored and default): `yes` writing into a pipe whose reader closes exits 1 on EPIPE (ignored) or dies of SIGPIPE (default); on Linux also /bin/cat /proc/self/status SigIgn. Classified as inherited_disposition_kept (exec semantics), child_always_default (inherited ignore reset), child_always_ignores (the runtime's ignore leaks into every child) or other; inherited_sigpipe_ignore_kept is true only for the first. Non-gating (K6c); whether a default disposition must stay default in the child is not stated by the contract (escalated). The probe's own preconditions are non-gating too (classification probe_invalid), so they never affect the gated K6a check.",
 ]
 OPEN_QUESTIONS = [
@@ -4535,7 +4883,8 @@ OPEN_QUESTIONS = [
     "Q13 (round 5) K6e says 'an interactive job-control shell'. The harness gates K6e under bash (3.2 macOS, 5.2 Linux) and runs the same forms under zsh 5.9 (the macOS default shell; added to the Linux image) as non-gating observations (observations.k6e_job_control zsh-*). Whether zsh (or every common job-control shell) is gating is not decided by the contract; escalated.",
     "Q14 (round 5) K6c: K6a/K6c speak of inherited IGNORED dispositions. Whether a DEFAULT SIGPIPE disposition heimdall-proto inherited must stay default in the child (a runtime that ignores SIGPIPE itself and leaks that into every child: classification child_always_ignores) is not stated in section 4, K6a or K6c. Recorded non-gating; escalated as an ADR-0002 input.",
     "Q15 (round 5) K17 does not define the keystroke population of the p95. The harness samples 5 filter sessions of 6 edits (the first keystroke after `/` is 1 in 6), so a TUI slow only on the first keystroke of a session fails; with one pooled session it passed. Sampling choice made by the harness and escalated for confirmation.",
-    "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating).",
+    "Q16 (round 6) K6e child-initiated stop (section 9.4): the harness gates that the shell reports the job stopped, that `fg` resumes the child, no re-stop and that the child reads the typed line. Whether the child must also STAY stopped until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop (resumed_before_fg, non-gating), not gated. Escalated: gate it (exec semantics) or not.",
+    "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating); by section 9.4: the round-3b child self-stop finding -> K6e covers child-initiated stops (SIGTSTP under bash gated: run.k6e_child_self_stop), the closed-stdout K12 finding -> k12.closed_stdout_exit_parity.",
 ]
 
 
@@ -4599,15 +4948,17 @@ def build_record(ctx, args, selected, partial, results, started, t_start, binpat
                            "reaches the reader as %s, not ECONNRESET (Darwin AF_UNIX stream sockets never report a "
                            "reset), so agent.reset_* exercised the EOF-equivalent path only; the ECONNRESET code path is "
                            "blocked_on: Linux host run." % (platform.system(), sorted(set(map(str, k3a.values())))))
-    dup = ctx.observations.get("signal_duplicates") or {}
+    dup = ctx.observations.get(SIGNAL_MERGE_PROBE_KEY) or {}
     if dup and not dup.get("always_observable"):
-        limitations.append("K6 exactly-once on %s: harness.signal_duplicate_probe ran a known double-forwarding wrapper "
-                           "(two back-to-back kill() calls) and the child saw both signals in %s trials (deliveries per "
+        limitations.append("K6 exactly-once on %s: harness.signal_duplicate_probe (observations.%s: the harness's own "
+                           "OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by "
+                           "the harness (two back-to-back kill() calls) and the child saw both signals in %s trials (deliveries per "
                            "trial %s); in the other trials the kernel merged them (standard signals do not queue). A "
                            "heimdall-proto that forwards twice back to back is therefore caught only probabilistically by "
                            "the run.forward_* / run.explicit_signal_with_tty exact-once assertions on this OS%s; the "
                            "assertions themselves are unchanged and judge what the child observes."
-                           % (platform.system(), dup.get("trials_with_duplicate"), dup.get("deliveries_per_trial"),
+                           % (platform.system(), SIGNAL_MERGE_PROBE_KEY, dup.get("trials_with_duplicate"),
+                              dup.get("deliveries_per_trial"),
                               " (here: not at all)" if not dup.get("duplicates_observable") else ""))
     failed = [r["id"] for r in results if r["outcome"] in ("fail", "error")]
     if failed:

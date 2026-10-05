@@ -330,17 +330,23 @@ class Cap:
         }
 
 
-def run_capture(label, argv, env, cwd, stdin_data=None, timeout=20.0, pre=None, post=None, preexec_fn=None):
+def run_capture(label, argv, env, cwd, stdin_data=None, timeout=20.0, pre=None, post=None, preexec_fn=None,
+                stdout_fd=None):
     """Run a command in its own session, capture everything, clean the group.
 
     pre(proc)   - called right after spawn (may send signals / wait for readiness)
     preexec_fn  - run in the child before exec (e.g. ignore_signals_preexec)
+    stdout_fd   - give the command this descriptor as stdout instead of a captured pipe (K12 closed-stdout
+                  check: the write end of a pipe whose read end the caller has already closed); cap.stdout
+                  stays empty
     The call never raises on timeout; it kills the group and sets cap.timed_out.
     """
     cap = Cap(label, argv)
     t0 = time.monotonic()
     stdin = subprocess.PIPE if stdin_data is not None else subprocess.DEVNULL
     kw = {"preexec_fn": preexec_fn} if preexec_fn else {}
+    if stdout_fd is not None:
+        kw["stdout"] = stdout_fd
     proc = spawn(argv, env, cwd, stdin=stdin, **kw)
     cap.pid = proc.pid
     try:

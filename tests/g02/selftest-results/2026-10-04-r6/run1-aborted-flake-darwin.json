@@ -1,0 +1,283 @@
+{
+ "note": "First full 2.4.0 self-test (started 2026-10-04T22:23Z, aborted by the agent after this result): with the reference baseline mirroring child stops without a grace period, run.k6e_job_control failed (re-stop after fg, list form) in the run of the unrelated mutation run_meta_exit_for_signal on darwin. Superseded by the reference fix (STOP_GRACE_S) and the second self-test.",
+ "source_record": "st-aborted/mac/mut-run_meta_exit_for_signal.json",
+ "case_id": "G02-harness-selftest-go",
+ "status": "in_progress",
+ "verdict": "fail",
+ "environment": {
+  "platform": "darwin-arm64",
+  "os_release": "27.0.0",
+  "harness_version": "2.4.0",
+  "binary": "<repo>/tests/g02/reference_impl.py",
+  "candidate": "go",
+  "cpu_count": 18,
+  "loadavg_start": [
+   4.12,
+   3.41,
+   2.98
+  ],
+  "loadavg_end": [
+   3.29,
+   3.5,
+   3.09
+  ]
+ },
+ "build_commit": "df7cda75754b5f4573fdb8f5e623b0786aa9bb26+dirty",
+ "checks": [
+  {
+   "id": "run.stdio_passthrough",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 55.9,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.exit_codes",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 180.4,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.meta_child_exited",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 90.4,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.argv_exact",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 47.6,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.argv_invalid_utf8",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 46.6,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.meta_state",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 172.2,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.path_lookup",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 46.7,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.launch_failure_missing_absolute",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 33.2,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.launch_failure_missing_path",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 32.7,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.launch_failure_not_executable",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 31.3,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.child_killed_by_signal",
+   "outcome": "fail",
+   "error": null,
+   "duration_ms": 45.3,
+   "failed_assertions": [
+    "meta signal"
+   ]
+  },
+  {
+   "id": "run.forward_sigterm",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 579.9,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.forward_sigint",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 602.8,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.forward_sighup",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 607.3,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.forward_sigquit",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 604.1,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.forward_sigwinch",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 651.3,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.repeated_signals",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 3565.1,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.sigint_process_group",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 903.8,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.explicit_signal_with_tty",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 7819.0,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.stdio_inherited",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 339.0,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.proto_silent_stdout",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 119.1,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.cwd_env_inherited",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 47.7,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.no_surviving_child",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 44.3,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.usage_errors",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 117.4,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.k6a_pipeline_peer_not_stopped",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 2057.6,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.k6a_background_script_tty",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 2597.6,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.k6a_inherited_ignore",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 2880.1,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.k6d_shared_mode_explicit_signals",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 10940.8,
+   "failed_assertions": []
+  },
+  {
+   "id": "run.k6e_job_control",
+   "outcome": "fail",
+   "error": null,
+   "duration_ms": 80645.2,
+   "failed_assertions": [
+    "[list: iteration 2 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+    "[list: iteration 2 z-fg] after `fg` the child is not in the stopped state",
+    "[list] all 5 iterations completed without a re-stop or lost input"
+   ]
+  },
+  {
+   "id": "run.k6e_child_self_stop",
+   "outcome": "pass",
+   "error": null,
+   "duration_ms": 52277.7,
+   "failed_assertions": []
+  }
+ ],
+ "observations": {
+  "k6e_job_control": {
+   "simple": {
+    "shell": "bash",
+    "gating": true,
+    "iterations": 5,
+    "lines_delivered": 10,
+    "ok": true,
+    "first_failed_step": null
+   },
+   "list": {
+    "shell": "bash",
+    "gating": true,
+    "iterations": 5,
+    "lines_delivered": 2,
+    "ok": false,
+    "first_failed_step": {
+     "desc": "[list: iteration 2 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+     "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\n\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 5\\x0d\nHMPS1$ "
+    }
+   },
+   "zsh-simple": {
+    "shell": "zsh",
+    "gating": false,
+    "iterations": 5,
+    "lines_delivered": 10,
+    "ok": true,
+    "first_failed_step": null
+   },
+   "zsh-list": {
+    "shell": "zsh",
+    "gating": false,
+    "iterations": 5,
+    "lines_delivered": 10,
+    "ok": true,
+    "first_failed_step": null
+   }
+  }
+ }
+}

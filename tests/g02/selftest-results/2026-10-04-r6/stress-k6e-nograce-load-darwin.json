@@ -1,0 +1,87 @@
+{
+ "note": "Informational stress, not a verdict: run.k6e_job_control with K6E_ITERATIONS=20 against a copy of reference_impl.py with STOP_GRACE_S=0.0 (stale stop reports mirrored at once), 20 CPU busy loops running; harness 2.4.0 code, darwin-arm64, 2026-10-04.",
+ "source_record": "stress/nograce-load.json",
+ "case_id": "G02-harness-selftest-go",
+ "status": "in_progress",
+ "verdict": "fail",
+ "environment": {
+  "platform": "darwin-arm64",
+  "os_release": "27.0.0",
+  "harness_version": "2.4.0",
+  "binary": "/tmp/M00-T05-harness-r4/stress/ref_nograce.py",
+  "candidate": "go",
+  "cpu_count": 18,
+  "loadavg_start": [
+   2.61,
+   3.28,
+   3.15
+  ],
+  "loadavg_end": [
+   37.99,
+   21.98,
+   11.29
+  ]
+ },
+ "build_commit": "df7cda75754b5f4573fdb8f5e623b0786aa9bb26+dirty",
+ "checks": [
+  {
+   "id": "run.k6e_job_control",
+   "outcome": "fail",
+   "error": null,
+   "duration_ms": 210785.6,
+   "failed_assertions": [
+    "[simple: iteration 4 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+    "[simple: iteration 4 z-fg] after `fg` the child is not in the stopped state",
+    "[simple] all 20 iterations completed without a re-stop or lost input",
+    "[list: iteration 16 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+    "[list: iteration 16 z-fg] after `fg` the child is not in the stopped state",
+    "[list] all 20 iterations completed without a re-stop or lost input"
+   ]
+  }
+ ],
+ "observations": {
+  "k6e_job_control": {
+   "simple": {
+    "shell": "bash",
+    "gating": true,
+    "iterations": 20,
+    "lines_delivered": 6,
+    "ok": false,
+    "first_failed_step": {
+     "desc": "[simple: iteration 4 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+     "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 20\\x0d\n\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 20\\x0d\nHMPS1$ "
+    }
+   },
+   "list": {
+    "shell": "bash",
+    "gating": true,
+    "iterations": 20,
+    "lines_delivered": 30,
+    "ok": false,
+    "first_failed_step": {
+     "desc": "[list: iteration 16 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)",
+     "observed": "fg\\x0d\n\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 20\\x0d\n\\x0d\n[1]+  Stopped                 \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 20\\x0d\nHMPS1$ "
+    }
+   },
+   "zsh-simple": {
+    "shell": "zsh",
+    "gating": false,
+    "iterations": 20,
+    "lines_delivered": 40,
+    "ok": true,
+    "first_failed_step": null
+   },
+   "zsh-list": {
+    "shell": "zsh",
+    "gating": false,
+    "iterations": 20,
+    "lines_delivered": 20,
+    "ok": false,
+    "first_failed_step": {
+     "desc": "[zsh list: iteration 11 z-fg] after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal) (non-gating observation)",
+     "observed": "\n[1]  + continued  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 20\\x0d\n\\x0d\nzsh: suspended  \"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\" 20\\x0d\n%                                                                               \\x0d \\x0d\\x0dHMPS1$ "
+    }
+   }
+  }
+ }
+}

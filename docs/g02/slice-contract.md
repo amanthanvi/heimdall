@@ -380,3 +380,8 @@ candidate that fails gets one fix round.
   - The Windows executable search order differs from plain PATH lookup (Rust
     std searches the application directory and System32 first). This is from
     code review only.
+- **Q16 (harness 2.4.0).** A launcher can report a child's self-stop to the
+  shell and still let the child keep running before `fg`. For G02 this is
+  recorded (`resumed_before_fg`) and not gated. It is the same kind of
+  divergence as the explicit-SIGTSTP item above. M01 takes it as an input
+  for exec-equivalent job control.
