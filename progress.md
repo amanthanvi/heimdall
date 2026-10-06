@@ -84,7 +84,10 @@
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
    - G02 native: commit 48f854a. linux-x64 139/139 for both; windows-x64 Go 63/63, Rust 60/63 gating before §9.6.
    - Contract §9.6 (Windows rulings): 7127b20.
-   - X1b Windows fix round: workflow `wf_14fda136-d13` (script `heimdall-m00-x1b-windows-fix-wf_14fda136-d13.js`).
+   - X1b Windows fix round is done:
+     - Baseline under §9.6: Go 67/71 (batch-file injection), Rust 68/71.
+     - After one fix round each: Go 71/71 (refuses .bat/.cmd, 84c7665) and Rust 71/71 (GetFileType checks, 001a791). Both still 139/139 on darwin+linux.
+     - Independent reviews found no major in either.
 3. Still blocked on the owner, for G03:
    - a disposable second WSL distribution and WSL restarts (P-B08/09/10);
    - a second Windows account (P-W05, P-W06 cross-user, P-B11);
