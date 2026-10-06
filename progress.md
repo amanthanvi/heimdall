@@ -1,7 +1,7 @@
 # Progress
 
 **Current milestone:** M00 — evidence baseline and gate experiments
-**Owner decision pending:** none yet. The G02 language decision and the batched questions come at the end of M00.
+**Owner decision pending:** G02 D1, deferred by the owner until round 4 and the Windows/WSL tests (see below).
 
 | Task | Status | Notes |
 |---|---|---|
@@ -13,6 +13,43 @@
 | M00-T05 G02 language/TUI + ADR | blocked | Decision package complete: ADR-0002 proposed, re-reviewed, parity-probed. Blocked on owner decision D1 (with D2–D4) |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 
+## Owner decisions and inputs (2026-10-06)
+
+- **G02:**
+  - D1 language: deferred until more research and experiments (round 4) and
+    G03 Windows/WSL testing.
+  - D2: the owner's personal ergonomics are not a factor; the row becomes
+    agentic and open-source maintainability.
+  - D3: the orchestrator's rulings stand.
+- **G04:** D1–D5 are all yes (new grants under lock; memory-only working key;
+  signed macOS bundle; P5 may create and delete a CTK identity in the real
+  token store; encrypted offline K_ca backup). Q4 was delegated, and the
+  decision is recorded in g04 §9.1.
+- **G03:**
+  - E-2: default non-exposure is accepted.
+  - E-3: the clients are Claude Code, Codex, Pi, Cursor and OpenCode. The
+    upstream set is re-asked.
+  - E-4: delegated; no packaged client (keep it simple).
+  - E-5: delegated; accept and disclose. Recorded in g03 §6.1.
+- **Primitives Q1:** accept and disclose (option a).
+- **Windows host:** the owner's Windows 11 PC with WSL2 Ubuntu
+  (amangamingpc-Ubuntu, 100.66.192.34, reached over the tailnet) is
+  available for G03/G02 testing. A dedicated, revocable test key is waiting
+  for the owner to install it (the orchestrator does not extract the owner's
+  Termius credentials).
+- **Cleanup:** `d.env`, `p.env` and the Heimdall `/tmp` residue (1209
+  entries) were deleted on 2026-10-06 with owner approval.
+- **Still open from the owner:**
+  - macOS lock/logout/reboot probes;
+  - the SSH pain-point list;
+  - E6 (Win32-OpenSSH Preview baseline);
+  - E8 (doc snapshots);
+  - whether a record that ran everywhere except Windows is `verified` or
+    `blocked`;
+  - whether synthetic canary-format strings in test inputs break the canary
+    rule;
+  - the E-3 upstream set.
+
 ## Decisions recorded by the orchestrator
 
 - 2026-10-03: G02 contract clarifications K1–K12 (`docs/g02/slice-contract.md` §9).
@@ -20,7 +57,7 @@
 
 ## Blockers
 
-- No native Windows 11 / WSL2 host. This blocks every G03 native probe and Windows artifact execution.
+- Windows 11 / WSL2 host: available (owner PC). Access is waiting on the owner installing the dedicated test key. Probes that need a second Windows account or admin rights are still blocked until authorized.
 - Owner-driven macOS screen lock, logout and reboot cycles block the G04 lock probes.
 - An owner pain-point list blocks the ADR-0001 baseline-friction worksheet.
 

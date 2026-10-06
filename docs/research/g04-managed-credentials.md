@@ -607,6 +607,42 @@ These are not decided here.
 | **Q4** (escalation) | For the §6.5 "maximum residual remote-access window" and A07's "maximum residual validity": does stating the live-connection and remote-process parts as "until Heimdall closes owned connections; unbounded for unmanaged connections and remote processes" satisfy the obligation? And after **revocation** (not expiry), must Heimdall close owned dedicated connections, or may the graceful policy keep them as at expiry (spec §6.6, §6.7)? | Authority semantics; decides the stated window and what revocation does to live connections. Not decided here |
 | **Q3** (escalation) | Retention of third-party documentation snapshots. Retained: extracted text of Apple, Microsoft, 1Password, Smallstep and freedesktop pages, plus permissively licensed raw texts (OpenSSH, RFC, man7, tpm2-pkcs11). Raw vendor HTML was discarded; hashes are kept in `MANIFEST.tsv`. | Copyright before any public release (spec §15.3); evidence pinning (plan §1.4) |
 
+### 9.1 Decisions recorded 2026-10-06
+
+| ID | Decision | By |
+|---|---|---|
+| D1 | **Yes.** Standing-policy activation may create new grants while the desktop is locked. The issuer must therefore be able to sign under lock, which constrains K_ca custody (F-6) | owner |
+| D2 | **Yes.** Memory-only custody of a working key is acceptable where no store is readable under lock or after a restart. The cost: loss at logout or reboot needs a new approval | owner |
+| D3 | **Yes.** Heimdall ships a provisioning-profile-signed, app-like bundle on macOS. This needs the owner's Apple Developer membership and signing identity when the time comes. It feeds G02 distribution | owner |
+| D4 | **Yes.** P5 may create, and then delete, a CTK identity in the owner's real user token store | owner |
+| D5 | **Yes.** K_ca gets an encrypted offline backup | owner |
+| Q4 | Decided by the orchestrator under owner delegation ("choose what works best"); see below | orchestrator |
+
+**Q4.**
+- **(a) The residual window is stated per component:**
+  - Credential: `latest_possible_credential_expiry`, never later than the
+    grant deadline.
+  - Heimdall-owned multiplexed masters: closed at the deadline or on
+    revocation, because `ssh -O stop` does not stop control connections that
+    were already accepted (E7 phase 5).
+  - Heimdall-owned dedicated connections: as described in (b).
+  - Unmanaged connections and detached remote processes: unbounded, and
+    disclosed as such.
+  - This satisfies spec §6.5 and A07 because each part is stated together
+    with its mechanism. Spec §6.6 already excludes unmanaged connections and
+    detached processes from control.
+- **(b) Expiry and revocation behave differently:**
+  - **Expiry** follows the graceful default (spec §6.6): new connections stop
+    at the deadline, and existing dedicated sessions may stay connected.
+  - **Revocation**, and lock-revokes when the user chooses it, is an explicit
+    "stop now". Heimdall closes every owned connection immediately, both
+    masters and dedicated sessions. The revoke confirmation lists the
+    sessions it will close, and the result reports `local_applied`,
+    `remote_pending` and `latest_possible_credential_expiry` (spec §6.7).
+  - Rationale: a user who revokes expects access to end. Silently keeping
+    shells alive after revocation would mislead them, while the graceful
+    policy suits expiry, where the user did not act.
+
 ## 10. Status of this task's deliverables
 
 | Deliverable | Status | Evidence |

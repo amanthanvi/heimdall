@@ -164,6 +164,11 @@ and tested in M01-T02).
   verification (e.g. platform biometric/password prompt) for approvals;
   (c) a separate approval process/UI not reachable through the agent's IPC.
   Needs a G05 decision with evidence; recommendation pending experiments.
+  **Decided 2026-10-06 (owner): option (a).** Accept the non-guarantee and
+  disclose it: an agent running as the owner's OS user can drive the
+  approval CLI/TUI. This is consistent with spec §14.2, which puts a
+  compromised owner session out of scope. Setup and documentation state it
+  plainly.
 - **Q2 — Delegated-worker authentication.** Same-user IPC cannot tell a worker
   from its parent (spec §13.2). The V1 narrower-binding demo must rely on a
   signer/principal mechanism or a validated isolated context (spec §8.7); the

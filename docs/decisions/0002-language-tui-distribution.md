@@ -1,7 +1,7 @@
 # ADR-0002: Implementation language, TUI stack, and distribution (G02)
 
-**Status:** proposed. The owner decides the language. No production stack is
-locked until that decision is recorded in §10.
+**Status:** proposed, with the decision deferred by the owner (§10). No
+production stack is locked until the decision is recorded in §10.
 **Date:** 2026-10-06 · **Gate:** G02 · **Task:** M00-T05
 **Affects:** every production requirement, through the stack choice. This ADR
 cites prototype-level evidence for R-SS-04, R-UX-05, R-DI-01, R-AP-02 and
@@ -459,7 +459,19 @@ those hooks.
 - **D4. Open hard-gate caveats:** accept that Windows/WSL and dependency
   maintenance are uncertain for every candidate and decide now, conditional
   on G03, or wait for G03.
-- **Recorded decision:** _pending_.
+- **Owner input recorded 2026-10-06** (not yet a decision):
+  - **D1: deferred.** More research and experimentation is needed before
+    deciding. Round 4 runs the decision experiments in
+    `docs/g02/round4-plan.md`.
+  - **D2:** the owner's personal ergonomics are **not a factor**. The project
+    will be developed and maintained mostly by agents, and published as open
+    source. What counts is what is best for the product: maintainability,
+    security and performance. The 15 % row is redefined as **agentic and
+    open-source maintainability**, measured in round 4 (§7 is re-scored then).
+  - **D3:** all of the orchestrator's rulings stand.
+  - **D4:** wait until Windows/WSL has been tested. The owner's Windows 11 PC
+    with WSL2 Ubuntu is now available for this.
+- **Recorded decision:** _pending, after round 4 and G03 Windows/WSL testing_.
 
 ## 11. Consequences once decided
 

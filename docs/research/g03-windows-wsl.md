@@ -332,6 +332,29 @@ cross-compile or defer Mode B into a vague future feature while calling V1 compl
 | D-G03-04 | Pipe-name scheme and server-side client-SID check for N2 | G08 (local IPC) | P-W05/P-W06 failure. |
 | D-G03-05 | Whether Mode A ships a Heimdall `ssh.exe` shim for WSL (argv/path translation) | M04, after P-A01..P-A04 | P-A03 argv failures. |
 
+### 6.1 Decisions recorded 2026-10-06
+
+- **E-2 (owner):** "not exposed by default" is accepted. Heimdall guarantees
+  default non-exposure and labels access across distributions, and by the
+  same Windows user, as convenience, not isolation.
+- **E-3 (owner answer, partly re-asked):**
+  - The owner named the AI coding agents Mode B must serve: Claude Code,
+    Codex, Pi, Cursor and OpenCode. These are downstream **clients**, and the
+    Mode B probes (P-B*) must cover how they start `ssh`.
+  - The **upstream** question is still open. The orchestrator's proposed
+    default: Heimdall-held managed credentials (G04) as the path with real
+    scope, and the system agent / 1Password as filtered convenience upstreams,
+    disclosed as such. Waiting for owner confirmation.
+- **E-4 (orchestrator, delegated by the owner, "keep it simple"):** V1 does
+  not package an alternative Windows SSH client.
+  - If P-W03 shows the in-box client cannot select a Heimdall pipe, the
+    fallback is env/`run`-based binding plus a documented limitation.
+  - Revisit only if no wrapper path works.
+- **E-5 (orchestrator, delegated):** accepted, with disclosure.
+  - Heimdall's own approval prompt names the destination and grant.
+  - Setup text and the approval detail state that the 1Password prompt names
+    the relay or runtime process, not Heimdall or the end client (spec §14.4).
+
 ## 7. What was checked in this environment (observations about the harness only)
 
 All commands ran on macOS 27.0 arm64 (pwsh 7.6.6 / .NET 10.0.12, OpenSSH_10.3p1, Python 3.14.7,
