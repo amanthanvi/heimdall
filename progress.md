@@ -76,4 +76,11 @@
 
 ## Next actions
 
-1. Present the decision package (D1, D2, D3 rulings) together with the other batched owner questions. Do not start M01 before the owner records D1.
+1. G02 round 4 (`docs/g02/round4-plan.md`):
+   - Workflow `wf_27f810ac-f00`, script `<session>/workflows/scripts/heimdall-m00-g02-round4-wf_27f810ac-f00.js`. To resume: `Workflow({scriptPath, resumeFromRunId})`.
+   - Hidden X2 tests are at `~/.local/share/heimdall-m00/r4-hidden/`, outside the repo. Copy them into the evidence after evaluation.
+   - Scratch is `/tmp/hm-r4/`.
+   - After the run, compute tokens and tool calls per X2 cell from the agent transcripts, then persist the results to `m00-wf7/`.
+2. X1 / G03 on the owner's Windows PC, once the owner installs the dedicated test key: `~/.local/share/heimdall-m00/hosts/amangamingpc/` (host key ED25519 SHA256:Rx0DJ3QQhXEEWuN5gTqjo/o1o41OnysT6LZ7O/IinTI, pinned via `known_hosts.scan`).
+3. Re-score ADR-0002 §7 and get an independent review. The decision waits for X1 (owner D4).
+4. G04 follow-ups unblocked by the owner's decisions: P5, using the real token store, is now authorized.
