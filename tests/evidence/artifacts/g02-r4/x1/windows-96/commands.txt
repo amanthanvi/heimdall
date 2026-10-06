@@ -1,0 +1,19 @@
+M00-T05-x1b-script: commands run (2026-10-06 UTC). Real exit codes. Host paths shown as placeholders.
+Mac:
+  python3 sha256 of prototypes/{go,rust}/dist/windows-x64/heimdall-proto.exe vs dist/manifest.json  exit 0  go ca5145d1... 5100032 MATCH; rust dde9662f... 841728 MATCH
+  GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off go vet . && go build -trimpath -buildvcs=false -ldflags='-s -w' (tests/native/windows-g02/argvdump)  exit 0  sha256 678efbbc... (byte-identical to X1)
+  pwsh Parser::ParseFile on Invoke-G02WindowsX1.ps1 and StallPipe.ps1  0 parse errors each
+  pwsh (dev only, not evidence): schema-port unit cases + UCRT decoder cases against 26 X1 stdout artifacts  all X1 results valid; 10 invalid cases rejected with the expected error
+  staged layout (26 files) sha256 vs host copy (sha256sum)  identical (staged-root.sha256), before the first run and again before the evidence runs
+Host (scratch <wslhome>/hm-m00/M00-T05-x1b-script and %LOCALAPPDATA%\hm-m00\M00-T05-x1b-script):
+  winrun.sh ps51 dev1   exit=1  183 rows; development run (not evidence): directory rows failed for both candidates (harness: lazy NTFS subdirectory mtime); Go batch rows required exit 0
+  dbg-tree.ps1 (snapshot twice, no heimdall-proto)  exit 0  same_without_anything=False: the subdirectory mtime from enumeration changed by itself
+  winrun.sh ps51 dev2   exit=1  183 rows; development run (not evidence) after both fixes
+  winrun.sh ps51 s96-ps51-a  exit=1  rows=183 gating_not_pass=7
+  winrun.sh ps7  s96-ps7-a   exit=1  rows=183 gating_not_pass=7
+  winrun.sh ps51 s96-ps51-b  exit=1  rows=183 gating_not_pass=7   (verdicts identical across the three runs for all 183 rows)
+  heimdall-proto/argvdump processes after the runs (WSL ps, Windows tasklist)  0 / 0
+  Win32_Process with the task scratch in its command line (count only)  0
+  rm -rf both scratch directories  removed; the parent hm-m00 directories were left as found (empty)
+Mac:
+  make-records.py  exit 0; minischema.validate(record.schema.json, both records)  [] []

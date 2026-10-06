@@ -1,0 +1,106 @@
+{
+  "task_id": "M00-T05-x1b-script",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/native/windows-g02/Invoke-G02WindowsX1.ps1",
+    "<repo>/tests/native/windows-g02/StallPipe.ps1",
+    "<repo>/tests/evidence/g02-go-x1-windows.json",
+    "<repo>/tests/evidence/g02-rust-x1-windows.json",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1/RESULTS.md",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1/prev-records/g02-go-x1-windows.pre-9.6.json",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1/prev-records/g02-rust-x1-windows.pre-9.6.json",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1/windows-96/ (s96-ps51-a, s96-ps7-a, s96-ps51-b with results.json + rows/, *.console.txt, staged-root.sha256, winrun.sh, commands.txt, make-records.py)"
+  ],
+  "commands_run": [
+    {
+      "command": "python3 sha256 of prototypes/{go,rust}/dist/windows-x64/heimdall-proto.exe vs dist/manifest.json",
+      "exit_code": 0,
+      "observed": "go ca5145d1... 5100032 MATCH; rust dde9662f... 841728 MATCH"
+    },
+    {
+      "command": "GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off go vet + go build -trimpath -buildvcs=false -ldflags='-s -w' (argvdump helper)",
+      "exit_code": 0,
+      "observed": "sha256 678efbbc..., byte-identical to the X1 helper"
+    },
+    {
+      "command": "pwsh Parser::ParseFile Invoke-G02WindowsX1.ps1 / StallPipe.ps1",
+      "exit_code": 0,
+      "observed": "0 parse errors each; both files pure ASCII"
+    },
+    {
+      "command": "pwsh dev unit test of schema port + UCRT decoder (Mac, not evidence)",
+      "exit_code": 0,
+      "observed": "26 X1 stdout results valid; 10 crafted invalid docs rejected with expected errors; decoder cases correct"
+    },
+    {
+      "command": "staged layout sha256 Mac vs host sha256sum",
+      "exit_code": 0,
+      "observed": "identical (26 files), checked again before the evidence runs"
+    },
+    {
+      "command": "winrun.sh ps51 dev1 (development run, not evidence)",
+      "exit_code": 1,
+      "observed": "183 rows; exposed harness defects: lazy NTFS subdirectory mtime made directory rows fail for both candidates; batch exact criterion wrongly required exit 0"
+    },
+    {
+      "command": "dbg-tree.ps1 on host (no heimdall-proto)",
+      "exit_code": 0,
+      "observed": "same_without_anything=False: subdirectory mtime via enumeration changed by itself; fixed by per-path query + stable baseline"
+    },
+    {
+      "command": "winrun.sh ps51 dev2 (development run, not evidence)",
+      "exit_code": 1,
+      "observed": "183 rows, gating_not_pass=7, behaved as intended"
+    },
+    {
+      "command": "winrun.sh ps51 s96-ps51-a",
+      "exit_code": 1,
+      "observed": "rows=183 gating_not_pass=7 (script exit 1 = some gating row failed)"
+    },
+    {
+      "command": "winrun.sh ps7 s96-ps7-a",
+      "exit_code": 1,
+      "observed": "rows=183 gating_not_pass=7"
+    },
+    {
+      "command": "winrun.sh ps51 s96-ps51-b",
+      "exit_code": 1,
+      "observed": "rows=183 gating_not_pass=7; verdicts identical across the 3 runs for all 183 rows"
+    },
+    {
+      "command": "WSL ps / tasklist count of heimdall-proto|argvdump; Win32_Process count with task scratch in command line",
+      "exit_code": 1,
+      "observed": "0 / 0 / 0 (grep -c exit 1 because of zero matches)"
+    },
+    {
+      "command": "rm -rf WSL and Windows task scratch",
+      "exit_code": 0,
+      "observed": "both removed; parent hm-m00 dirs left as found (empty)"
+    },
+    {
+      "command": "make-records.py + minischema.validate(record.schema.json) on both records",
+      "exit_code": 0,
+      "observed": "[] [] (valid)"
+    },
+    {
+      "command": "redaction scan (WSL/Windows user, machine, hostname; full canary values; /Users/, /home/, mail domains) over records, RESULTS.md, windows-96/, prev-records/, tests/native/windows-g02",
+      "exit_code": 0,
+      "observed": "0 hits each"
+    }
+  ],
+  "escalations": [
+    "Batch-row 'exact bytes' interpretation (please confirm or rule): cmd.exe has no single unescaping rule for embedded quotes, so the harness counts the forwarded argument as received exactly when it decodes correctly under either CommandLineToArgvW or the UCRT/msvcrt-2008 rules. This matters for one argument: Rust's `a\" & break>...` passes only under UCRT, because Rust doubles the quote and CommandLineToArgvW splits at the space. If only CommandLineToArgvW counts, Rust fails all four run.batch_target rows.",
+    "Batch-row exit code is recorded, not gated. Section 9.6 does not ask for it. Every Go batch run exits 1. cmd.exe /c without /d also exits 1 on this host, where the owner's AutoRun is configured, so I attribute the 1 to AutoRun rather than to Go. Rust exits 0 because it passes /d.",
+    "The agent --socket refusal rows also require the result code, not only the exit code: exit 5 must come with AGENT_UNAVAILABLE and exit 2 with USAGE_ERROR, as the §9.6 text reads. The task text said only 'exit 5 or 2'. Rust's regular-file case fails either way, because the file was modified."
+  ],
+  "limitations": [
+    "No independent review of the §9.6 script changes yet; self-checks only (parse, dev unit tests, controls).",
+    "One host and one Windows build, non-elevated, pseudoconsoles only. No second account, no SMB peer, no real Win32-OpenSSH agent.",
+    "Batch coverage: 16 arguments, .bat/.cmd, one path with and one without a space. Not tested: `!`, newline, NUL or non-ASCII batch arguments. DelayedExpansion state not inspected. Bare-name PATHEXT stays info-only.",
+    "K14 pipe rows use a server that never answers. A pipe that serves a valid profile and closes was not tested.",
+    "The schema port treats PowerShell 7 DateTime-converted strings as strings. No G02 field is affected.",
+    "The harness ran from the working tree on top of e0ead9b, uncommitted at run time. Its sha256 is recorded in the records and in staged-root.sha256.",
+    "The two development runs (dev1, dev2) were not kept as evidence. Their purpose and what they found are logged in windows-96/commands.txt and RESULTS.md."
+  ],
+  "summary": "The X1 Windows script now gates §9.6 the same way for both candidates. I re-ran it on the owner's PC three times against the frozen windows-x64 artifacts (SHA-256 matched the manifests, nothing rebuilt): Windows PowerShell 5.1 twice and PowerShell 7.6.6 once. All three runs exited 1 with 183 rows and gave the same verdict on every row. The four host harness rows passed every time.\n\n**Go: 67/71 gating rows, verdict fail.** Failing rows:\n- run.batch_target.cmd_space_path\n- run.batch_target.bat_space_path\n- run.batch_target.cmd_nospace_path\n- run.batch_target.bat_nospace_path\n\nDetails:\n- **Path without a space:** 6 of 16 arguments reach the batch file exactly. 8 run an injected command: `&`, `|`, `>`, `<` plus `&`, `^^&`, both `%VAR%` forms, and `a\" & ...`. `a<file` and `a^b` arrive changed.\n- **Path with a space:** only `plain` reaches the batch file, and 8 inject. 5 never start the batch file because cmd.exe splits the path; they exit 1, which is not a 127 refusal. 2 arrive changed.\n- **Everything else passes:** K14 pipe, NUL and directory (exit 2 in about 21–27 ms), and the three --socket non-endpoints (exit 5 AGENT_UNAVAILABLE, nothing modified or created).\n\n**Rust: 68/71 gating rows, verdict fail.** Failing rows:\n- profile.named_pipe_as_file and tui.named_pipe_as_file: no exit within 10 s, so the script killed it. It did open the pipe once.\n- agent.regular_file_not_modified: the first 5 bytes of the file became 00 00 00 01 0b and its mtime changed. It exited 5 with AGENT_PROTOCOL_ERROR, which is not an allowed refusal code either.\n\nA directory and a non-existent path as --socket are refused correctly. All 4 batch rows pass, with all 16 arguments exact for .bat and .cmd, with and without a space.\n\n**What changed in the script:**\n- **§9.6 K14:** the named-pipe rows cite §9.6, and there is a new tui.directory_as_file row.\n- **§9.6 --socket:** the regular-file row now also requires an allowed refusal result. New rows cover a directory and a non-existent path. Hash and mtime are compared against a stable baseline.\n- **§9.6 batch files:** a new control row, run.batch_control, plus four gating rows for .bat and .cmd, path with and without a space. Each runs 16 arguments: plain, a space, `& | > < ^ %VAR% \"` variants. Refusal (127 + stderr, child never ran) or exact delivery both pass. Injection is detected by files the injected command creates.\n- **Review fixes:**\n  - JSON results and --meta-file documents are validated against schemas/g02/result.schema.json.\n  - K18 non-echo is checked on all six invalid fixtures, for both the --json and the plain run.\n  - Every captured stream is scanned for the canary, and the criterion now states exactly what is covered.\n  - pipe_connects is a final count: StallPipe.ps1 now accepts a stop file.\n- Every other row keeps its id and criterion.\n\n**Evidence:** both records were updated and validate against record.schema.json. The earlier records are now in x1/prev-records/. Runs, staging hashes, the wrapper, the command log and the record generator are in x1/windows-96/. RESULTS.md has a new \"§9.6 baseline\" section. No user or host names, profile paths or canary values appear in anything written. Both host scratch directories were removed, and none of my processes were left running.\n\n**Caveats:** two development runs came first and found two harness bugs, both fixed before the evidence runs:\n- a subdirectory's mtime, read through its parent's directory listing, changed by itself on NTFS;\n- an exit-0 requirement on exact batch delivery that §9.6 does not ask for.\n\nNothing has been independently reviewed yet, and nothing was committed."
+}

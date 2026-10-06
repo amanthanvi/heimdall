@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T07:53:42.8712013Z","agent_pid":40536,"event":"listening","keys":["SHA256:3CBED3AaBR7VQgJZFCjoZEEy10teBWyBNWAdTJMIaq8","SHA256:G/YVzhreNRhEGYUAjMmo4V0NQ+gYdHIk3gEmhbcWMP8"],"pipe":"hm-x1-agent-rust-ef13f85a","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-ef13f85a"}
+{"client_pid":69204,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T07:53:43.1166097Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T07:53:43.1318038Z","event":"request","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T07:53:43.1318038Z","event":"response","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-ef13f85a","agent_pid":40536,"event":"disconnect","ts":"2026-10-06T07:53:43.1394720Z"}
+{"method":"disconnect","ts":"2026-10-06T07:53:43.1410071Z","event":"rearm","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","conn":1}
+{"client_pid":33708,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T07:53:43.5071589Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T07:53:43.5102992Z","event":"request","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T07:53:43.5102992Z","event":"response","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-ef13f85a","agent_pid":40536,"event":"disconnect","ts":"2026-10-06T07:53:43.5118331Z"}
+{"method":"disconnect","ts":"2026-10-06T07:53:43.5118331Z","event":"rearm","agent_pid":40536,"pipe":"hm-x1-agent-rust-ef13f85a","conn":2}

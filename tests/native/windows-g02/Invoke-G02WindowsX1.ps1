@@ -12,17 +12,22 @@
     integrity   sha256 of each exe against the candidate's dist manifest.json
     version     version --json (section 6), plain version exit (K12)
     profile     profile show: homelab under a path with spaces, Unicode and a non-BMP character; plain fixture;
-                large-100; every invalid fixture (exit 2, codes, canary non-echo, K18 value non-echo); missing
-                file, directory, NUL device, a named pipe as --file (K14 analogs), >1 MiB (INPUT_TOO_LARGE)
+                large-100; every invalid fixture (exit 2, codes, canary non-echo, K18 non-echo of each fixture's
+                offending value on stdout and stderr of the --json and the plain run); missing file, directory,
+                NUL device, a named pipe as --file (K14, section 9.6), >1 MiB (INPUT_TOO_LARGE)
     usage       usage errors with and without --json (section 1)
     agent       agent list --socket on the fixture agent tests/native/windows/InstrumentedAgent.ps1 (ASCII and
-                space+Unicode pipe names), missing pipe, a regular file as --socket (must not be modified),
-                a pipe that never answers (--timeout-ms)
+                space+Unicode pipe names), missing pipe, a regular file, a directory and a non-existent path
+                as --socket (section 9.6: refused without modification, exit 5 AGENT_UNAVAILABLE or exit 2
+                USAGE_ERROR), a pipe that never answers (--timeout-ms)
     run         argv fidelity for tests/native/windows/fixtures/quoting-cases.json (byte compare of the child's
                 CommandLineToArgvW split, with a direct-launch control), a lone UTF-16 surrogate (recorded),
                 exit codes incl. values above 255 and NTSTATUS-like codes, 127 launch failures, usage errors,
                 --meta-file, binary stdout/stdin pass-through, environment and working-directory inheritance,
-                a .cmd target with a cmd metacharacter argument (recorded)
+                a .cmd target with a cmd metacharacter argument (recorded), and (section 9.6, gating) .bat and
+                .cmd targets in directories with and without a space, each run with one argument holding
+                cmd metacharacters (& | < > ^ %VAR% "): the launch is refused (exit 127 + stderr, child never
+                ran) or the child receives the exact argument; no argument byte may run as a command
     resolution  which executable `run -- <name>` starts: application directory vs PATH vs current directory,
                 PATHEXT (.cmd) and a System32 name shadowed earlier on PATH
     ctrlc       console Ctrl-C: the process runs on a new pseudoconsole (no window); the event is raised by a
@@ -32,7 +37,11 @@
                 Ctrl-Break (recorded)
     tui         tui on a pseudoconsole (CreatePseudoConsole via P/Invoke): no-TTY usage error, navigation,
                 filter (incl. non-ASCII input), Esc clear, select, quit, ^C key and console Ctrl-C event,
-                resize to 40x12 and 20x5, NO_COLOR, large-100
+                resize to 40x12 and 20x5, NO_COLOR, large-100; a named pipe, NUL and a directory as --file
+                (K14, section 9.6)
+
+  Every JSON result the script parses (stdout of --json runs, --meta-file documents) must also validate against
+  schemas/g02/result.schema.json (a port of tests/g02/minischema.py; unsupported keywords fail closed).
 
   Expected layout under -Root (built by the operator, nothing is downloaded or built here):
     bin\<candidate>\heimdall-proto.exe      frozen artifacts       manifests\<candidate>-manifest.json
@@ -40,6 +49,7 @@
     fixtures\quoting-cases.json             tests/native/windows/fixtures/quoting-cases.json
     g03\G03Common.psm1, g03\InstrumentedAgent.ps1   (tests/native/windows)
     helpers\argvdump.exe                    tests/native/windows-g02/argvdump (cross-compiled)
+    schemas\result.schema.json              schemas/g02/result.schema.json
     this directory's G02X1Native.cs, Send-ConsoleCtrl.ps1, StallPipe.ps1, expected-homelab.json next to this script
 
   Safety: non-elevated only (aborts when elevated); fixture agent and stall pipe use a protected current-user-only
@@ -76,6 +86,9 @@ $Scratch = Join-Path $Root 'scratch'
 New-Item -ItemType Directory -Force -Path $Scratch | Out-Null
 Add-Type -TypeDefinition ([System.IO.File]::ReadAllText((Join-Path $Here 'G02X1Native.cs')))
 Import-Module (Join-Path $Root 'g03\G03Common.psm1') -Force
+$SchemaPath = Join-Path $Root 'schemas\result.schema.json'
+if (-not (Test-Path -LiteralPath $SchemaPath)) { [Console]::Error.WriteLine('setup error: schemas\result.schema.json is missing under -Root'); exit 2 }
+$ResultSchema = [System.IO.File]::ReadAllText($SchemaPath, (New-Object System.Text.UTF8Encoding($false))) | ConvertFrom-Json
 
 $MySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $Rows = New-Object System.Collections.ArrayList
@@ -173,6 +186,8 @@ function Invoke-X1 { param([string]$Exe, [string[]]$ArgList = @(), [string]$RawA
     $code = $null; if (-not $timedOut) { $code = ConvertTo-U32 $p.ExitCode }
     $r = [pscustomobject]@{ Exit = $code; TimedOut = $timedOut; Ms = $ms; Out = $o.ToArray(); Err = $e.ToArray()
         OutText = $Utf8.GetString($o.ToArray()); ErrText = $Utf8.GetString($e.ToArray()); CmdLine = $psi.Arguments }
+    # canary rule: every captured stream is scanned, whether or not it is later stored
+    if ((Test-CanaryText $r.OutText) -or (Test-CanaryText $r.ErrText)) { $script:CanaryHits++ }
     $p.Dispose()
     return $r }
 
@@ -186,6 +201,77 @@ function Get-JsonDoc { param($R)
         try { $res.doc = $body | ConvertFrom-Json; $res.parsed = $true } catch { $res.error = $_.Exception.Message }
     } else { $res.error = 'stdout does not end with a single LF' }
     return [pscustomobject]$res }
+
+# ---- JSON Schema subset (port of tests/g02/minischema.py: the keywords schemas/g02/result.schema.json uses;
+# any other keyword throws, so a schema change cannot be silently under-validated). ConvertFrom-Json types:
+# integer = Int16/32/64/BigInteger; number adds Decimal/Double/Single; PowerShell 7 turns ISO-8601 strings into
+# DateTime, which is treated as a string here.
+$SchemaKeys = @('type', 'const', 'enum', 'required', 'properties', 'additionalProperties', 'items', 'minLength', 'minimum', 'maximum', 'pattern', 'allOf', 'if', 'then', '$ref')
+$SchemaAnnotations = @('$schema', '$id', 'title', 'description', '$defs', 'default', 'examples', '$comment')
+function Get-SV { param($S, [string]$N) $pp = $S.PSObject.Properties[$N]; if ($null -eq $pp) { return $null }; return , $pp.Value }
+function Get-SVL { param($S, [string]$N) $pp = $S.PSObject.Properties[$N]; if ($null -eq $pp) { return , @() }; $v = $pp.Value; if ($v -is [array]) { return , $v }; return , @($v) }
+function Test-SK { param($S, [string]$N) return ($null -ne $S.PSObject.Properties[$N]) }
+function Test-X1JsonType { param($V, [string]$T)
+    if ($T -eq 'null') { return ($null -eq $V) }
+    if ($null -eq $V) { return $false }
+    $tn = $V.GetType().FullName
+    if ($T -eq 'object') { return ($tn -eq 'System.Management.Automation.PSCustomObject') }
+    if ($T -eq 'array') { return ($V -is [array]) }
+    if ($T -eq 'string') { return ($V -is [string]) -or ($V -is [datetime]) }
+    if ($T -eq 'boolean') { return ($V -is [bool]) }
+    $isInt = @('System.Int16', 'System.Int32', 'System.Int64', 'System.Numerics.BigInteger') -contains $tn
+    if ($T -eq 'integer') { return $isInt }
+    if ($T -eq 'number') { return $isInt -or (@('System.Decimal', 'System.Double', 'System.Single') -contains $tn) }
+    throw ('schema: unsupported type ' + $T) }
+function Test-X1JsonScalarEq { param($A, $B)
+    if ($null -eq $A -or $null -eq $B) { return ($null -eq $A -and $null -eq $B) }
+    if ($A -is [bool] -or $B -is [bool]) { return ($A -is [bool]) -and ($B -is [bool]) -and ($A -eq $B) }
+    $na = Test-X1JsonType $A 'number'; $nb = Test-X1JsonType $B 'number'
+    if ($na -or $nb) { return $na -and $nb -and ([decimal]$A -eq [decimal]$B) }
+    if ($A -is [string] -and $B -is [string]) { return ($A -ceq $B) }
+    return $false }
+function Invoke-X1SchemaCheck { param($Root0, $S, $V, [string]$Path, [System.Collections.ArrayList]$Errs)
+    if ($S -is [bool]) { if (-not $S) { [void]$Errs.Add($Path + ': schema is false') }; return }
+    foreach ($pp in $S.PSObject.Properties) { if (($SchemaKeys -notcontains $pp.Name) -and ($SchemaAnnotations -notcontains $pp.Name)) { throw ('schema: unsupported keyword ' + $pp.Name + ' at ' + $Path) } }
+    if (Test-SK $S '$ref') {
+        $ref = [string](Get-SV $S '$ref'); if (-not $ref.StartsWith('#/')) { throw ('schema: unsupported $ref ' + $ref) }
+        $node = $Root0; foreach ($part in $ref.Substring(2).Split('/')) { $node = Get-SV $node ($part.Replace('~1', '/').Replace('~0', '~')) }
+        Invoke-X1SchemaCheck $Root0 $node $V $Path $Errs }
+    if (Test-SK $S 'type') {
+        $types = Get-SVL $S 'type'; $okT = $false
+        foreach ($t in $types) { if (Test-X1JsonType $V ([string]$t)) { $okT = $true } }
+        if (-not $okT) { [void]$Errs.Add($Path + ': expected type ' + ($types -join '|')); return } }
+    if ((Test-SK $S 'const') -and -not (Test-X1JsonScalarEq $V (Get-SV $S 'const'))) { [void]$Errs.Add($Path + ': expected const ' + [string](Get-SV $S 'const')) }
+    if (Test-SK $S 'enum') { $hit = $false; foreach ($e in (Get-SVL $S 'enum')) { if (Test-X1JsonScalarEq $V $e) { $hit = $true } }; if (-not $hit) { [void]$Errs.Add($Path + ': value not in enum') } }
+    if ($V -is [string]) {
+        if ((Test-SK $S 'minLength') -and $V.Length -lt [int](Get-SV $S 'minLength')) { [void]$Errs.Add($Path + ': shorter than minLength') }
+        if ((Test-SK $S 'pattern') -and -not [regex]::IsMatch($V, [string](Get-SV $S 'pattern'))) { [void]$Errs.Add($Path + ': does not match pattern') } }
+    if (Test-X1JsonType $V 'number') {
+        if ((Test-SK $S 'minimum') -and ([decimal]$V -lt [decimal](Get-SV $S 'minimum'))) { [void]$Errs.Add($Path + ': below minimum') }
+        if ((Test-SK $S 'maximum') -and ([decimal]$V -gt [decimal](Get-SV $S 'maximum'))) { [void]$Errs.Add($Path + ': above maximum') } }
+    if (Test-X1JsonType $V 'object') {
+        foreach ($req in (Get-SVL $S 'required')) { if ($null -ne $req -and $null -eq $V.PSObject.Properties[[string]$req]) { [void]$Errs.Add($Path + ': missing required property ' + $req) } }
+        $props = Get-SV $S 'properties'; $names = @()
+        if ($null -ne $props) {
+            foreach ($pp in $props.PSObject.Properties) { $names += $pp.Name; $vp = $V.PSObject.Properties[$pp.Name]
+                if ($null -ne $vp) { Invoke-X1SchemaCheck $Root0 $pp.Value $vp.Value ($Path + '.' + $pp.Name) $Errs } } }
+        if (Test-SK $S 'additionalProperties') {
+            $ap = Get-SV $S 'additionalProperties'
+            foreach ($vp in $V.PSObject.Properties) { if ($names -notcontains $vp.Name) {
+                if ($ap -is [bool]) { if (-not $ap) { [void]$Errs.Add($Path + ': additional property ' + $vp.Name + ' not allowed') } }
+                else { Invoke-X1SchemaCheck $Root0 $ap $vp.Value ($Path + '.' + $vp.Name) $Errs } } } } }
+    if (($V -is [array]) -and (Test-SK $S 'items')) { $it = Get-SV $S 'items'; for ($i = 0; $i -lt $V.Count; $i++) { Invoke-X1SchemaCheck $Root0 $it $V[$i] ($Path + '[' + $i + ']') $Errs } }
+    foreach ($sub in (Get-SVL $S 'allOf')) { if ($null -ne $sub) { Invoke-X1SchemaCheck $Root0 $sub $V $Path $Errs } }
+    if (Test-SK $S 'if') {
+        $probe = New-Object System.Collections.ArrayList
+        Invoke-X1SchemaCheck $Root0 (Get-SV $S 'if') $V $Path $probe
+        if ($probe.Count -eq 0 -and (Test-SK $S 'then')) { Invoke-X1SchemaCheck $Root0 (Get-SV $S 'then') $V $Path $Errs } } }
+# Returns the first errors (empty array: valid). A $null document counts as invalid.
+function Get-X1SchemaErrors { param($Doc)
+    $errs = New-Object System.Collections.ArrayList
+    if ($null -eq $Doc) { return , @('no document') }
+    Invoke-X1SchemaCheck $ResultSchema $ResultSchema $Doc '$' $errs
+    return , @($errs | Select-Object -First 5) }
 
 function Get-P { param($Obj, [string]$Path)
     $cur = $Obj
@@ -223,13 +309,22 @@ function Start-Owned { param([string]$Exe, [string[]]$ArgList)
 function Start-StallPipe { param([string]$Name)
     $dir = Join-Path $Scratch ('stall-' + (New-G03RandomHex 3)); New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $marker = Join-Path $dir 'connects.txt'; $ready = Join-Path $dir 'ready.txt'
+    $stop = Join-Path $dir 'stop.txt'
     $o = Start-Owned $HostExe @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Here 'StallPipe.ps1'),
-        '-PipeName', $Name, '-MarkerFile', $marker, '-ReadyFile', $ready, '-RunSeconds', '600')
+        '-PipeName', $Name, '-MarkerFile', $marker, '-ReadyFile', $ready, '-RunSeconds', '600', '-StopFile', $stop)
     $dl = [DateTime]::UtcNow.AddSeconds(30)
     while (-not (Test-Path -LiteralPath $ready) -and -not $o.Process.HasExited -and [DateTime]::UtcNow -lt $dl) { Start-Sleep -Milliseconds 100 }
     if (-not (Test-Path -LiteralPath $ready)) { throw "stall pipe did not start: $(Protect-X1 ([string]$o.StderrTask.Result))" }
-    return [pscustomobject]@{ Name = $Name; Path = "\\.\pipe\$Name"; Marker = $marker; Owned = $o } }
+    return [pscustomobject]@{ Name = $Name; Path = "\\.\pipe\$Name"; Marker = $marker; Stop = $stop; Owned = $o } }
 function Get-StallConnects { param($S) if (Test-Path -LiteralPath $S.Marker) { return @([System.IO.File]::ReadAllLines($S.Marker)).Count } return 0 }
+# Final connection count without a race: call after every client process has exited. The helper sees the stop
+# file, records any accept that already completed, and exits; only then is the marker read. If it does not exit
+# within 10 s it is killed and the count is reported as not final.
+function Stop-StallPipe { param($S)
+    [System.IO.File]::WriteAllText($S.Stop, "stop`n")
+    $final = $S.Owned.Process.WaitForExit(10000)
+    if (-not $final) { [void](Stop-G03Owned -Owned $S.Owned) }
+    return [pscustomobject]@{ Connects = (Get-StallConnects $S); Final = $final } }
 
 function Send-Ctrl { param([int]$TargetPid, [int]$Event = 0)
     $r = Invoke-X1 -Exe $HostExe -ArgList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Here 'Send-ConsoleCtrl.ps1'),
@@ -342,11 +437,14 @@ function Test-ResultDoc { param($R, [int]$ExpExit, [string]$ExpCode, [string]$Ex
     $o = [ordered]@{ exit = $R.Exit; ms = $R.Ms; stdout_one_json_lf = $j.one_line_lf; parsed = $j.parsed; code = $null; state = $null; schema_version = $null
         warnings_is_array = $false; has_next = $false; stderr_bytes = $R.Err.Length; parse_error = $j.error }
     $ok = ($R.Exit -eq $ExpExit) -and $j.one_line_lf -and $j.parsed
+    $o['schema_valid'] = $false
     if ($j.parsed) {
         $o.code = Get-P $j.doc 'code'; $o.state = Get-P $j.doc 'state'; $o.schema_version = Get-P $j.doc 'schema_version'
         $o.warnings_is_array = ($null -ne $j.doc.PSObject.Properties['warnings'])
         $o.has_next = $j.doc.PSObject.Properties['next'] -ne $null
-        $ok = $ok -and ($o.code -ceq $ExpCode) -and ($o.state -ceq $ExpState) -and ($o.schema_version -ceq '1') -and $o.has_next
+        $se = Get-X1SchemaErrors $j.doc
+        $o['schema_valid'] = ($se.Count -eq 0); if ($se.Count -gt 0) { $o['schema_errors'] = $se }
+        $ok = $ok -and ($o.code -ceq $ExpCode) -and ($o.state -ceq $ExpState) -and ($o.schema_version -ceq '1') -and $o.has_next -and $o['schema_valid']
     }
     return [pscustomobject]@{ Ok = $ok; Obs = $o; Doc = $j.doc } }
 
@@ -387,24 +485,58 @@ foreach ($c in $Candidates) {
         $r = Invoke-X1 $X @('profile', 'show', '--file', (Join-Path $FixDir 'homelab.toml'))
         Add-Row $c 'profile.plain_exit' (Get-Verdict ($r.Exit -eq 0)) $true 'K12: plain profile show exits 0' ([ordered]@{ exit = $r.Exit })
 
+        # K18 (section 9.3): each fixture's offending input value must not appear on stdout or stderr, for the --json
+        # run and the plain run. Values are read from the fixture at run time and held in memory only; rows name them
+        # by key. Mode 'sub' = substring; 'word' = not adjacent to [A-Za-z0-9] (short values such as "dup" would
+        # otherwise match words like "duplicate"). Like tests/g02 (Q11), the schema_version fixture's other-key value
+        # (name) is gated in the JSON result only and recorded on stderr; its offending value 2 is exempt because
+        # section 2 requires the warning to name the unsupported version.
         $invalid = @(
-            @('invalid-forbidden-key.toml', 'private_key'), @('invalid-unknown-dest-key.toml', 'identity_file'), @('invalid-malformed.toml', $null),
-            @('invalid-schema-version.toml', 'schema_version'), @('invalid-duplicate-alias.toml', $null), @('invalid-port.toml', 'port'))
+            @('invalid-forbidden-key.toml', 'private_key', @(, @('value of key private_key (canary)', '(?m)^private_key = "([^"]*)"', 'sub', 'canary'))),
+            @('invalid-unknown-dest-key.toml', 'identity_file', @(, @('value of key destinations[0].identity_file (canary)', '(?m)^identity_file = "([^"]*)"', 'sub', 'canary'))),
+            @('invalid-malformed.toml', $null, @(, @('value of the unterminated string of key name', '(?m)^name = "([^"\r\n]*)\r?$', 'word', 'k18'))),
+            @('invalid-schema-version.toml', 'schema_version', @(, @('value of key name (another key; Q11)', '(?m)^name = "([^"]*)"', 'word', 'other'))),
+            @('invalid-duplicate-alias.toml', $null, @(, @('the duplicated value of key alias', '(?m)^alias = "([^"]*)"', 'word', 'k18'))),
+            @('invalid-port.toml', 'port', @(, @('value of key destinations[0].port', '(?m)^port = (\d+)', 'word', 'k18'))))
+        function Test-Echo { param([AllowNull()][string]$Text, [string]$Value, [string]$Mode)
+            if (-not $Text) { return $false }
+            if ($Mode -eq 'sub') { return $Text.Contains($Value) }
+            return [regex]::IsMatch($Text, '(?<![A-Za-z0-9])' + [regex]::Escape($Value) + '(?![A-Za-z0-9])') }
         foreach ($inv in $invalid) {
             $id = 'profile.' + ($inv[0] -replace '\.toml$', '')
+            $fixText = [System.IO.File]::ReadAllText((Join-Path $FixDir $inv[0]), $Utf8)
             $r = Invoke-X1 $X @('profile', 'show', '--file', (Join-Path $FixDir $inv[0]), '--json')
+            $rp = Invoke-X1 $X @('profile', 'show', '--file', (Join-Path $FixDir $inv[0]))
             $t = Test-ResultDoc $r 2 'SCHEMA_INVALID' 'failed'
             $kp = Get-P $t.Doc 'data.error.key_path'; $msg = Get-P $t.Doc 'data.error.message'
-            $canaryHit = (Test-CanaryText $r.OutText) -or (Test-CanaryText $r.ErrText)
-            $valueEcho = $false
-            if ($inv[0] -eq 'invalid-port.toml') { $valueEcho = $r.OutText.Contains('70000') -or $r.ErrText.Contains('70000') }
-            $t.Obs['key_path'] = $kp; $t.Obs['message_present'] = [bool]$msg; $t.Obs['canary_prefix_in_stdout_or_stderr'] = $canaryHit; $t.Obs['offending_value_echoed'] = $valueEcho
-            $ok = $t.Ok -and $t.Doc.PSObject.Properties['data'] -ne $null -and ($null -ne (Get-P $t.Doc 'data.error')) -and [bool]$msg -and -not $canaryHit -and -not $valueEcho
+            $canaryHit = (Test-CanaryText $r.OutText) -or (Test-CanaryText $r.ErrText) -or (Test-CanaryText $rp.OutText) -or (Test-CanaryText $rp.ErrText)
+            $k18 = [ordered]@{}; $k18Ok = $true
+            foreach ($v in $inv[2]) {
+                $m = [regex]::Match($fixText, $v[1])
+                if (-not $m.Success) { $k18[$v[0]] = 'harness precondition failed: value not found in the fixture'; $k18Ok = $false; continue }
+                $vals = @($m.Groups[1].Value)
+                if ($v[3] -eq 'canary') { $vals += $m.Groups[1].Value.Substring($CanaryPrefix.Length) }   # also without the prefix
+                $where = @()
+                foreach ($val in $vals) {
+                    if (Test-Echo $r.OutText $val $v[2]) { $where += 'json_run_stdout' }
+                    if (Test-Echo $r.ErrText $val $v[2]) { $where += 'json_run_stderr' }
+                    if (Test-Echo $rp.OutText $val $v[2]) { $where += 'plain_run_stdout' }
+                    if (Test-Echo $rp.ErrText $val $v[2]) { $where += 'plain_run_stderr' } }
+                $where = @($where | Select-Object -Unique)
+                if ($v[3] -eq 'other') {
+                    $gated = @($where | Where-Object { $_ -eq 'json_run_stdout' })
+                    $k18[$v[0]] = [ordered]@{ gating_json_result = ($gated.Count -eq 0); recorded_on_stderr = @($where | Where-Object { $_ -like '*stderr' }) }
+                    if ($gated.Count -gt 0) { $k18Ok = $false }
+                } else {
+                    $k18[$v[0]] = [ordered]@{ echoed_in = $where }
+                    if ($where.Count -gt 0) { $k18Ok = $false } } }
+            $t.Obs['key_path'] = $kp; $t.Obs['message_present'] = [bool]$msg; $t.Obs['canary_prefix_in_stdout_or_stderr'] = $canaryHit; $t.Obs['k18_value_non_echo'] = $k18; $t.Obs['plain_exit'] = $rp.Exit
+            $ok = $t.Ok -and $t.Doc.PSObject.Properties['data'] -ne $null -and ($null -ne (Get-P $t.Doc 'data.error')) -and [bool]$msg -and -not $canaryHit -and $k18Ok -and $rp.Exit -eq 2
             if ($inv[1]) { $ok = $ok -and ([string]$kp).Contains($inv[1]) }
             Save-RowArtifact $c $id 'stdout.txt' $r.OutText
             Save-RowArtifact $c $id 'stderr.txt' $r.ErrText
-            Add-Row $c $id (Get-Verdict $ok) $true ('section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}' + $(if ($inv[1]) { ", key_path names '$($inv[1])'" } else { '' }) + ', no canary or offending value on stdout/stderr') $t.Obs
-            $rp = Invoke-X1 $X @('profile', 'show', '--file', (Join-Path $FixDir $inv[0]))
+            Save-RowArtifact $c $id 'plain-stderr.txt' $rp.ErrText
+            Add-Row $c $id (Get-Verdict $ok) $true ('section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}' + $(if ($inv[1]) { ", key_path names '$($inv[1])'" } else { '' }) + '; no canary prefix and no offending value of this fixture (' + (($inv[2] | ForEach-Object { $_[0] }) -join '; ') + ') on stdout or stderr of the --json run or the plain run; the plain run exits 2') $t.Obs
             if ($inv[0] -eq 'invalid-forbidden-key.toml') {
                 Add-Row $c 'profile.invalid_plain_exit' (Get-Verdict ($rp.Exit -eq 2 -and -not (Test-CanaryText $rp.OutText) -and -not (Test-CanaryText $rp.ErrText))) $true 'K12/K18: plain run exits 2, no canary' ([ordered]@{ exit = $rp.Exit })
             }
@@ -418,12 +550,12 @@ foreach ($c in $Candidates) {
         Add-Row $c 'profile.directory' (Get-Verdict ($t.Ok -and $r.Ms -lt 2000)) $true 'K14: a directory -> exit 2 USAGE_ERROR within 2 s' $t.Obs
         $r = Invoke-X1 $X @('profile', 'show', '--file', 'NUL', '--json') -TimeoutMs 10000
         $t = Test-ResultDoc $r 2 'USAGE_ERROR' 'failed'; $t.Obs['timed_out'] = $r.TimedOut
-        Add-Row $c 'profile.nul_device' (Get-Verdict ($t.Ok -and $r.Ms -lt 2000)) $true 'K14 analog: the NUL device -> exit 2 USAGE_ERROR within 2 s' $t.Obs
+        Add-Row $c 'profile.nul_device' (Get-Verdict ($t.Ok -and $r.Ms -lt 2000)) $true 'K14 / section 9.6 (any path that is not a regular file): the NUL device -> exit 2 USAGE_ERROR within 2 s' $t.Obs
         $sp = Start-StallPipe ('hm-x1-file-' + $c + '-' + $RunTag)
         $r = Invoke-X1 $X @('profile', 'show', '--file', $sp.Path, '--json') -TimeoutMs 10000
-        $t = Test-ResultDoc $r 2 'USAGE_ERROR' 'failed'; $t.Obs['timed_out'] = $r.TimedOut; $t.Obs['pipe_connects'] = Get-StallConnects $sp
-        Add-Row $c 'profile.named_pipe_as_file' (Get-Verdict ($t.Ok -and $r.Ms -lt 2000)) $true 'K14 analog: a named pipe (never answers) as --file -> exit 2 USAGE_ERROR within 2 s, never blocking' $t.Obs
-        [void](Stop-G03Owned -Owned $sp.Owned)
+        $sc = Stop-StallPipe $sp
+        $t = Test-ResultDoc $r 2 'USAGE_ERROR' 'failed'; $t.Obs['timed_out'] = $r.TimedOut; $t.Obs['pipe_connects'] = $sc.Connects; $t.Obs['pipe_connects_final'] = $sc.Final
+        Add-Row $c 'profile.named_pipe_as_file' (Get-Verdict ($t.Ok -and $r.Ms -lt 2000)) $true 'K14 / section 9.6: a named pipe (\\.\pipe\..., a server that never answers) as --file -> exit 2 USAGE_ERROR within 2 s, never blocking (pipe_connects is read after the helper stopped: opening the pipe is recorded, not gated)' $t.Obs
         $big = Join-Path $Scratch 'oversize x1.toml'
         if (-not (Test-Path -LiteralPath $big)) {
             $sb = New-Object System.Text.StringBuilder
@@ -488,6 +620,33 @@ foreach ($c in $Candidates) {
         $t = Test-ResultDoc $r 5 'AGENT_UNAVAILABLE' 'failed'
         Add-Row $c 'agent.missing_pipe' (Get-Verdict $t.Ok) $true 'section 3: connect failure -> exit 5 AGENT_UNAVAILABLE' $t.Obs
 
+        # Section 9.6: agent list --socket never writes to a path that is not an endpoint. A regular file, a directory
+        # and a non-existent path must be refused without modifying anything: exit 5 AGENT_UNAVAILABLE, or exit 2
+        # USAGE_ERROR (a usage-class error); the JSON result must be schema-valid.
+        function Test-Refusal { param($R)
+            $t5 = Test-ResultDoc $R 5 'AGENT_UNAVAILABLE' 'failed'; $t2 = Test-ResultDoc $R 2 'USAGE_ERROR' 'failed'
+            $o = $t5.Obs; if ($t2.Ok) { $o = $t2.Obs }
+            return [pscustomobject]@{ Ok = ($t5.Ok -or $t2.Ok); Obs = $o } }
+        $refusalCrit = 'exit 5 AGENT_UNAVAILABLE or exit 2 USAGE_ERROR, one schema-valid JSON result + LF'
+        function Get-TreeState { param([string]$D)
+            # directory mtime plus, for every entry below it: relative name, mtime, size and sha256 (files). Times are
+            # queried per path: a subdirectory's time reported through its parent's enumeration is updated lazily by
+            # NTFS and changes on its own.
+            $lines = @('.|' + [System.IO.Directory]::GetLastWriteTimeUtc($D).Ticks)
+            foreach ($it in @(Get-ChildItem -LiteralPath $D -Force -Recurse | Sort-Object FullName)) {
+                if ($it.PSIsContainer) { $h = 'dir'; $mt = [System.IO.Directory]::GetLastWriteTimeUtc($it.FullName).Ticks }
+                else { $h = [string]$it.Length + ':' + (Get-G03FileSha256 $it.FullName); $mt = [System.IO.File]::GetLastWriteTimeUtc($it.FullName).Ticks }
+                $lines += ($it.FullName.Substring($D.Length) + '|' + $mt + '|' + $h) }
+            return ($lines -join "`n") }
+        # Baseline: snapshot until two consecutive snapshots 200 ms apart are equal (at most 3 s).
+        function Get-StableTreeState { param([string]$D)
+            $prev = Get-TreeState $D; $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.ElapsedMilliseconds -lt 3000) { Start-Sleep -Milliseconds 200; $cur = Get-TreeState $D; if ($cur -ceq $prev) { return [pscustomobject]@{ State = $cur; Stable = $true } }; $prev = $cur }
+            return [pscustomobject]@{ State = $prev; Stable = $false } }
+        function Get-TreeDiff { param([string]$A, [string]$B)
+            $la = @($A -split "`n"); $lb = @($B -split "`n")
+            return [ordered]@{ before_only = @($la | Where-Object { $lb -cnotcontains $_ }); after_only = @($lb | Where-Object { $la -cnotcontains $_ }) } }
+
         $reg = Join-Path $Scratch ('regular file as socket ' + $c + '.bin')
         $content = New-Object byte[] 4096
         for ($i = 0; $i -lt $content.Length; $i++) { $content[$i] = [byte](($i * 7 + 3) % 256) }
@@ -498,16 +657,36 @@ foreach ($c in $Candidates) {
         $now = [System.IO.File]::ReadAllBytes($reg)
         $firstDiff = -1; for ($i = 0; $i -lt [Math]::Min($now.Length, $content.Length); $i++) { if ($now[$i] -ne $content[$i]) { $firstDiff = $i; break } }
         $j = Get-JsonDoc $r
-        $obs = [ordered]@{ exit = $r.Exit; code = (Get-P $j.doc 'code'); ms = $r.Ms; unchanged = ($before -eq $after); length_after = $lenAfter; mtime_changed = ($mtBefore -ne $mtAfter)
-            first_changed_offset = $firstDiff; first_16_bytes_after_hex = (Get-Hex $now 16); first_16_bytes_before_hex = (Get-Hex $content 16); stderr = $r.ErrText }
-        Add-Row $c 'agent.regular_file_not_modified' (Get-Verdict ($before -eq $after -and $mtBefore -eq $mtAfter)) $true 'X1 task criterion: a regular file given as --socket is not modified (section 3: on Windows <path> is a named pipe; section 1 forbids writes outside paths named on the command line, and this path is named, so the contract does not literally forbid it; the criterion protects user data from a mistyped --socket)' $obs
+        $rf = Test-Refusal $r
+        $obs = [ordered]@{ exit = $r.Exit; code = (Get-P $j.doc 'code'); ms = $r.Ms; timed_out = $r.TimedOut; unchanged = ($before -eq $after); length_after = $lenAfter; mtime_changed = ($mtBefore -ne $mtAfter)
+            first_changed_offset = $firstDiff; first_16_bytes_after_hex = (Get-Hex $now 16); first_16_bytes_before_hex = (Get-Hex $content 16); refusal_result_ok = $rf.Ok; result = $rf.Obs; stderr = $r.ErrText }
+        Add-Row $c 'agent.regular_file_not_modified' (Get-Verdict ($before -eq $after -and $mtBefore -eq $mtAfter -and $rf.Ok)) $true ('section 9.6: a regular file given as --socket is refused without modifying it (sha256 and mtime unchanged); ' + $refusalCrit) $obs
         Add-Row $c 'agent.regular_file_result' (Get-Verdict ($r.Exit -eq 5)) $false 'recorded: a regular file as --socket gives exit 5 (AGENT_UNAVAILABLE or AGENT_PROTOCOL_ERROR)' ([ordered]@{ exit = $r.Exit; code = (Get-P $j.doc 'code') })
+
+        $sd = Join-Path $Scratch ('directory as socket ' + $c)
+        New-Item -ItemType Directory -Force -Path (Join-Path $sd 'sub') | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $sd 'inside.bin'), $content); [System.IO.File]::WriteAllText((Join-Path $sd 'sub\note.txt'), "x1`n")
+        $bl = Get-StableTreeState $sd; $stBefore = $bl.State
+        $r = Invoke-X1 $X @('agent', 'list', '--socket', $sd, '--timeout-ms', '2000', '--json') -TimeoutMs 15000
+        $stAfter = Get-TreeState $sd
+        $rf = Test-Refusal $r
+        Add-Row $c 'agent.directory_as_socket_refused' (Get-Verdict ($bl.Stable -and $stBefore -ceq $stAfter -and $rf.Ok)) $true ('section 9.6: a directory given as --socket is refused without modifying it (directory mtime and every entry''s name, mtime, size and sha256 unchanged against a baseline that was stable for 200 ms); ' + $refusalCrit) ([ordered]@{
+            exit = $r.Exit; ms = $r.Ms; timed_out = $r.TimedOut; baseline_stable = $bl.Stable; tree_unchanged = ($stBefore -ceq $stAfter); tree_diff = (Get-TreeDiff $stBefore $stAfter); refusal_result_ok = $rf.Ok; result = $rf.Obs; stderr = $r.ErrText })
+
+        $np = Join-Path $Scratch ('absent parent ' + $c); New-Item -ItemType Directory -Force -Path $np | Out-Null
+        $absent = Join-Path $np ('no such socket ' + $RunTag + '.sock')
+        $bl = Get-StableTreeState $np; $stBefore = $bl.State
+        $r = Invoke-X1 $X @('agent', 'list', '--socket', $absent, '--timeout-ms', '2000', '--json') -TimeoutMs 15000
+        $stAfter = Get-TreeState $np; $created = Test-Path -LiteralPath $absent
+        $rf = Test-Refusal $r
+        Add-Row $c 'agent.nonexistent_path_as_socket_refused' (Get-Verdict ((-not $created) -and $bl.Stable -and $stBefore -ceq $stAfter -and $rf.Ok)) $true ('section 9.6: a non-existent path (not under \\.\pipe\) given as --socket is refused without creating it (path still absent, parent directory mtime and entries unchanged); ' + $refusalCrit) ([ordered]@{
+            exit = $r.Exit; ms = $r.Ms; timed_out = $r.TimedOut; path_created = $created; baseline_stable = $bl.Stable; parent_unchanged = ($stBefore -ceq $stAfter); parent_diff = (Get-TreeDiff $stBefore $stAfter); refusal_result_ok = $rf.Ok; result = $rf.Obs; stderr = $r.ErrText })
 
         $sp = Start-StallPipe ('hm-x1-stall-' + $c + '-' + $RunTag)
         $r = Invoke-X1 $X @('agent', 'list', '--socket', $sp.Path, '--timeout-ms', '1000', '--json') -TimeoutMs 15000
-        $t = Test-ResultDoc $r 5 'AGENT_UNAVAILABLE' 'failed'; $t.Obs['pipe_connects'] = Get-StallConnects $sp
+        $sc = Stop-StallPipe $sp
+        $t = Test-ResultDoc $r 5 'AGENT_UNAVAILABLE' 'failed'; $t.Obs['pipe_connects'] = $sc.Connects; $t.Obs['pipe_connects_final'] = $sc.Final
         Add-Row $c 'agent.timeout_no_reply' (Get-Verdict ($t.Ok -and $r.Ms -ge 900 -and $r.Ms -lt 3000)) $true 'section 3: no response within --timeout-ms 1000 -> exit 5 AGENT_UNAVAILABLE after ~1 s (900..3000 ms incl. start-up)' $t.Obs
-        [void](Stop-G03Owned -Owned $sp.Owned)
     }
 
     # ================================================================== run
@@ -555,8 +734,9 @@ foreach ($c in $Candidates) {
             $r = Invoke-X1 $X @('run', '--meta-file', $meta, '--', $ArgvDump) -Env @{ 'ARGVDUMP_EXIT' = [string]$code }
             $m = $null; if (Test-Path -LiteralPath $meta) { $m = [System.IO.File]::ReadAllText($meta, $Utf8) | ConvertFrom-Json }
             $want = ConvertTo-U32 $code
-            $mobs = $null; if ($m) { $mobs = [ordered]@{ code = $m.code; state = $m.state; launched = (Get-P $m 'data.launched'); exit_code = (Get-P $m 'data.exit_code'); signal = (Get-P $m 'data.signal') } }
-            $metaOk = $m -and $m.code -ceq 'CHILD_EXITED' -and $m.state -ceq 'succeeded' -and (Get-P $m 'data.launched') -eq $true -and $null -ne (Get-P $m 'data.exit_code') -and ((ConvertTo-U32 ([long](Get-P $m 'data.exit_code'))) -eq $want) -and $null -eq (Get-P $m 'data.signal')
+            $mse = Get-X1SchemaErrors $m
+            $mobs = $null; if ($m) { $mobs = [ordered]@{ code = $m.code; state = $m.state; launched = (Get-P $m 'data.launched'); exit_code = (Get-P $m 'data.exit_code'); signal = (Get-P $m 'data.signal'); schema_valid = ($mse.Count -eq 0) }; if ($mse.Count -gt 0) { $mobs['schema_errors'] = $mse } }
+            $metaOk = ($mse.Count -eq 0) -and $m -and $m.code -ceq 'CHILD_EXITED' -and $m.state -ceq 'succeeded' -and (Get-P $m 'data.launched') -eq $true -and $null -ne (Get-P $m 'data.exit_code') -and ((ConvertTo-U32 ([long](Get-P $m 'data.exit_code'))) -eq $want) -and $null -eq (Get-P $m 'data.signal')
             $gate = ($code -ge 0 -and $code -le 255)
             Add-Row $c ('run.exit_code.' + $code) (Get-Verdict ($r.Exit -eq $want -and $metaOk -and $r.Out.Length -eq 0)) $gate ('section 4/K5: heimdall-proto exits with the child''s code (' + $want + ' as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null' + $(if (-not $gate) { '; codes outside 0..255 are recorded (the contract does not name them)' } else { '' })) ([ordered]@{ child_code_u32 = $want; heimdall_exit_u32 = $r.Exit; meta = $mobs })
             if (Test-Path -LiteralPath $meta) { Remove-Item -LiteralPath $meta } }
@@ -565,8 +745,9 @@ foreach ($c in $Candidates) {
         $nf = 'hm-x1-no-such-program-' + $RunTag
         $r = Invoke-X1 $X @('run', '--meta-file', $meta, '--', $nf)
         $m = $null; if (Test-Path -LiteralPath $meta) { $m = [System.IO.File]::ReadAllText($meta, $Utf8) | ConvertFrom-Json; Remove-Item -LiteralPath $meta }
-        $ok = $r.Exit -eq 127 -and $r.Out.Length -eq 0 -and $r.Err.Length -gt 0 -and $m -and $m.code -ceq 'CHILD_LAUNCH_FAILED' -and $m.state -ceq 'failed' -and (Get-P $m 'data.launched') -eq $false -and $null -eq (Get-P $m 'data.exit_code')
-        Add-Row $c 'run.launch_failure_not_found' (Get-Verdict $ok) $true 'section 4/K5: not found -> exit 127, stderr message, stdout empty, meta CHILD_LAUNCH_FAILED state failed launched false exit_code null' ([ordered]@{ exit = $r.Exit; stderr = $r.ErrText; meta = $m })
+        $mse = Get-X1SchemaErrors $m
+        $ok = ($mse.Count -eq 0) -and $r.Exit -eq 127 -and $r.Out.Length -eq 0 -and $r.Err.Length -gt 0 -and $m -and $m.code -ceq 'CHILD_LAUNCH_FAILED' -and $m.state -ceq 'failed' -and (Get-P $m 'data.launched') -eq $false -and $null -eq (Get-P $m 'data.exit_code')
+        Add-Row $c 'run.launch_failure_not_found' (Get-Verdict $ok) $true 'section 4/K5: not found -> exit 127, stderr message, stdout empty, meta CHILD_LAUNCH_FAILED state failed launched false exit_code null' ([ordered]@{ exit = $r.Exit; stderr = $r.ErrText; meta = $m; meta_schema_valid = ($mse.Count -eq 0) })
         $txt = Join-Path $Scratch 'not an executable.txt'; [System.IO.File]::WriteAllText($txt, "plain text`n")
         $r = Invoke-X1 $X @('run', '--', $txt)
         Add-Row $c 'run.launch_failure_not_executable' (Get-Verdict ($r.Exit -eq 127 -and $r.Out.Length -eq 0)) $true 'section 4: a .txt file as argv[0] -> exit 127' ([ordered]@{ exit = $r.Exit; stderr = $r.ErrText })
@@ -607,6 +788,110 @@ foreach ($c in $Candidates) {
                 exit = $r.Exit; injected = $injected; cmd_script_ran = (@($lines | Where-Object { $_.StartsWith('ARGS:') }).Count -gt 0); script_saw_args = @($lines | Where-Object { $_.StartsWith('ARGS:') })
                 stderr_lines = $errLines.Count; stderr_says_not_recognized = (@($errLines | Where-Object { $_ -match 'is not recognized' }).Count); cmd_autorun_configured = $autorun })
         }
+
+        # ---- section 9.6: .bat/.cmd targets. "Without a shell" covers batch files: no argument byte may run as a
+        # command, with or without a space in the path. Either the launch is refused (exit 127, stderr message, the
+        # child never ran) or the child receives the exact argument. Each metacharacter argument runs on its own, so
+        # refusing one argument does not hide another.
+        # Child: a batch file that forwards %* to a copy of argvdump.exe next to it ("%~dp0argvdump.exe" %*). The
+        # forwarded argument is decoded both with CommandLineToArgvW (argvdump's split) and with the UCRT/msvcrt
+        # 2008+ rules (a "" pair inside quotes is one literal quote), because cmd.exe has no single unescaping rule
+        # for quotes: either decoding giving the exact UTF-16 code units counts as received exactly.
+        # Injection detector: every injected command is `break>hmx1injN.txt`, which creates a file in the working
+        # directory (a fresh directory per run). Any file appearing there or next to the batch file = injection.
+        # stderr is stored only for refusals (when cmd.exe runs it may print the owner's AutoRun output).
+        function ConvertFrom-U16Hex { param([string]$H) $sb = New-Object System.Text.StringBuilder; for ($i = 0; $i + 4 -le $H.Length; $i += 4) { [void]$sb.Append([char][Convert]::ToUInt16($H.Substring($i, 4), 16)) }; return $sb.ToString() }
+        function Split-X1Ucrt { param([string]$Line)
+            $outA = New-Object System.Collections.Generic.List[string]; $i = 0; $n = $Line.Length
+            $sb = New-Object System.Text.StringBuilder; $inq = $false
+            while ($i -lt $n) { $ch = $Line[$i]; if ($ch -eq [char]'"') { $inq = -not $inq; $i++; continue }; if (-not $inq -and ($ch -eq [char]' ' -or $ch -eq [char]9)) { break }; [void]$sb.Append($ch); $i++ }
+            $outA.Add($sb.ToString())
+            while ($true) {
+                while ($i -lt $n -and ($Line[$i] -eq [char]' ' -or $Line[$i] -eq [char]9)) { $i++ }
+                if ($i -ge $n) { break }
+                $sb = New-Object System.Text.StringBuilder; $inq = $false
+                while ($i -lt $n) {
+                    $bs = 0; while ($i -lt $n -and $Line[$i] -eq [char]'\') { $bs++; $i++ }
+                    if ($i -lt $n -and $Line[$i] -eq [char]'"') {
+                        [void]$sb.Append(('\' * [int][Math]::Floor($bs / 2)))
+                        if ($bs % 2 -eq 1) { [void]$sb.Append('"'); $i++; continue }
+                        if ($inq -and ($i + 1) -lt $n -and $Line[$i + 1] -eq [char]'"') { [void]$sb.Append('"'); $i += 2; continue }
+                        $inq = -not $inq; $i++; continue }
+                    [void]$sb.Append(('\' * $bs))
+                    if ($i -ge $n) { break }
+                    $ch = $Line[$i]
+                    if (-not $inq -and ($ch -eq [char]' ' -or $ch -eq [char]9)) { break }
+                    [void]$sb.Append($ch); $i++ }
+                $outA.Add($sb.ToString()) }
+            return , $outA.ToArray() }
+        $batRoot = Join-Path $Scratch ('bat-' + $c); if (Test-Path -LiteralPath $batRoot) { Remove-Item -LiteralPath $batRoot -Recurse -Force }
+        $batBody = "@echo off`r`n`"%~dp0argvdump.exe`" %*`r`nexit /b %ERRORLEVEL%`r`n"
+        $batTargets = @()
+        foreach ($dn in @(@('space', 'bat dir x1', 'echo args x1'), @('nospace', 'batdirx1', 'echoargsx1'))) {
+            $bd = Join-Path $batRoot $dn[1]; New-Item -ItemType Directory -Force -Path $bd | Out-Null
+            Copy-Item -LiteralPath $ArgvDump -Destination (Join-Path $bd 'argvdump.exe')
+            foreach ($ext in @('cmd', 'bat')) {
+                $bf = Join-Path $bd ($dn[2] + '.' + $ext)
+                [System.IO.File]::WriteAllText($bf, $batBody, (New-Object System.Text.ASCIIEncoding))
+                $batTargets += , @(('run.batch_target.' + $ext + '_' + $dn[0] + '_path'), $bf, $bd, $ext) } }
+        $batVals = @(
+            @('plain', 'plain'), @('space', 'two words'),
+            @('amp', 'a&break>hmx1inj1.txt'), @('amp_spaced', 'a & break>hmx1inj2.txt'),
+            @('pipe', 'a|break>hmx1inj3.txt'), @('gt', 'a>hmx1inj4.txt'),
+            @('lt', 'a<hmx1src.txt'), @('lt_amp', 'a<hmx1src.txt&break>hmx1inj5.txt'),
+            @('caret', 'a^b'), @('caret_caret_amp', 'a^^&break>hmx1inj6.txt'),
+            @('percent_var', '%HMX1BATVAR%'), @('percent_var_inner', 'x%HMX1BATVAR%y'),
+            @('quote_amp', 'a"&break>hmx1inj8.txt'), @('quote_amp_spaced', 'a" & break>hmx1inj9.txt'),
+            @('backslash_quote_amp', 'a\"&break>hmx1inj10.txt'), @('quoted_amp', '"a&break>hmx1inj11.txt"'))
+        $batEnv = 'b&break>hmx1inj7.txt'   # value of HMX1BATVAR: expanding %HMX1BATVAR% unquoted runs it
+        function Invoke-BatCase { param([string]$Exe0, [string[]]$Pre, [string]$Bat, [string]$BatDir, [string]$Val, [string]$RawArgs)
+            $cwd = Join-Path $batRoot ('cwd-' + (New-G03RandomHex 4)); New-Item -ItemType Directory -Force -Path $cwd | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $cwd 'hmx1src.txt'), "src`r`n")
+            $before = @(Get-ChildItem -LiteralPath $BatDir -Force | ForEach-Object { $_.Name })
+            $out = Join-Path $batRoot ('rep-' + (New-G03RandomHex 4) + '.json')
+            $e = @{ 'ARGVDUMP_OUT' = $out; 'HMX1BATVAR' = $batEnv }
+            if ($RawArgs) { $r = Invoke-X1 -Exe $Exe0 -RawArgs $RawArgs -Env $e -Cwd $cwd -TimeoutMs 15000 }
+            else { $r = Invoke-X1 -Exe $Exe0 -ArgList ($Pre + @($Bat, $Val)) -Env $e -Cwd $cwd -TimeoutMs 15000 }
+            Start-Sleep -Milliseconds 50
+            $rep = $null; if (Test-Path -LiteralPath $out) { $rep = [System.IO.File]::ReadAllText($out, $Utf8) | ConvertFrom-Json; Remove-Item -LiteralPath $out }
+            $stray = @(Get-ChildItem -LiteralPath $cwd -Force | Where-Object { $_.Name -ne 'hmx1src.txt' } | ForEach-Object { $_.Name })
+            $stray += @(Get-ChildItem -LiteralPath $BatDir -Force | Where-Object { $before -notcontains $_.Name } | ForEach-Object { 'next to the batch file: ' + $_.Name })
+            Remove-Item -LiteralPath $cwd -Recurse -Force -ErrorAction SilentlyContinue
+            $want = Get-U16 $Val; $byW = $false; $byU = $false; $gotW = $null; $gotU = $null
+            if ($rep -and $null -ne $rep.PSObject.Properties['argv_u16']) { $aw = @($rep.argv_u16); $gotW = @($aw | Select-Object -Skip 1); $byW = ($aw.Count -eq 2 -and $aw[1] -eq $want) }
+            if ($rep) { $au = Split-X1Ucrt (ConvertFrom-U16Hex ([string]$rep.cmdline_u16)); $gotU = @($au | Select-Object -Skip 1 | ForEach-Object { Get-U16 $_ }); $byU = ($au.Count -eq 2 -and (Get-U16 $au[1]) -eq $want) }
+            $refused = ($r.Exit -eq 127) -and ($r.Err.Length -gt 0) -and ($null -eq $rep) -and ($stray.Count -eq 0)
+            $exact = ($null -ne $rep) -and ($byW -or $byU) -and ($stray.Count -eq 0)
+            $outcome = 'other'
+            if ($refused) { $outcome = 'refused' } elseif ($exact) { $outcome = 'received_exactly' } elseif ($stray.Count -gt 0) { $outcome = 'INJECTED' } elseif ($rep) { $outcome = 'argument_changed' } elseif ($r.TimedOut) { $outcome = 'timed_out' }
+            $o = [ordered]@{ outcome = $outcome; exit = $r.Exit; child_ran = ($null -ne $rep); files_created = $stray; decoded_exactly_by = @($(if ($byW) { 'CommandLineToArgvW' }), $(if ($byU) { 'UCRT' }) | Where-Object { $_ }); stderr_bytes = $r.Err.Length }
+            if ($outcome -eq 'refused') { $o['stderr'] = $r.ErrText }
+            if ($outcome -eq 'argument_changed' -or $outcome -eq 'INJECTED') { $o['want_u16'] = $want; $o['got_u16_commandlinetoargvw'] = $gotW; $o['got_u16_ucrt'] = $gotU }
+            return [pscustomobject]@{ Ok = ($refused -or $exact); Obs = $o } }
+        # harness controls (cmd.exe /d, no heimdall-proto): UCRT decoder unit cases; the forwarding batch delivers a
+        # properly quoted argument exactly; the detector sees an injection when cmd.exe is given one unquoted.
+        $ucCases = @(@('x "a""b c"', @('x', 'a"b c')), @('x a\\\"b', @('x', 'a\"b')), @('x "a\\" b', @('x', 'a\', 'b')), @('x "" y', @('x', '', 'y')), @('x a"b c"d', @('x', 'ab cd')), @('"C:\p q\x.exe" "z"', @('C:\p q\x.exe', 'z')))
+        $ucOk = $true; $ucObs = [ordered]@{}
+        foreach ($uc in $ucCases) { $g = Split-X1Ucrt $uc[0]; $okc = (@($g) -join [char]0) -ceq (@($uc[1]) -join [char]0); $ucObs[$uc[0]] = $okc; if (-not $okc) { $ucOk = $false } }
+        $cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
+        $sp0 = $batTargets[0]; $ns0 = @($batTargets | Where-Object { $_[0] -like '*_nospace_path' })[0]
+        $fw = Invoke-BatCase $cmdExe @() $sp0[1] $sp0[2] 'two words' ('/d /c ""' + $sp0[1] + '" "two words""')
+        # ^% keeps cmd.exe from expanding the variable on its own command line, so the batch gets %HMX1BATVAR% literally;
+        # an exact result shows the forwarding line does not expand percent signs inside %* a second time.
+        $fwp = Invoke-BatCase $cmdExe @() $sp0[1] $sp0[2] '%HMX1BATVAR%' ('/d /c ""' + $sp0[1] + '" ^%HMX1BATVAR^%"')
+        $det = Invoke-BatCase $cmdExe @() $ns0[1] $ns0[2] 'a&break>hmx1inj1.txt' ('/d /c "' + $ns0[1] + ' a&break>hmx1inj1.txt"')
+        # recorded only: the same plain run through cmd.exe /c WITHOUT /d (as CreateProcess does for a .bat/.cmd), so a
+        # non-zero exit seen through heimdall-proto can be attributed to cmd.exe AutoRun or to the launcher
+        $noD = Invoke-BatCase $cmdExe @() $ns0[1] $ns0[2] 'plain' ('/c "' + $ns0[1] + ' plain"')
+        $batCtlOk = $ucOk -and $fw.Obs.outcome -eq 'received_exactly' -and $fwp.Obs.outcome -eq 'received_exactly' -and $det.Obs.outcome -eq 'INJECTED'
+        Add-Row $c 'run.batch_control' (Get-Verdict $batCtlOk) $true 'harness control for the section 9.6 batch rows (cmd.exe /d /c, no heimdall-proto): the UCRT decoder passes its unit cases; a correctly quoted argument with a space, and a literal %HMX1BATVAR% (^% escaped), reach argvdump exactly through the forwarding batch; an unquoted "&break>file" is detected as an injection' ([ordered]@{ ucrt_decoder_cases = $ucObs; forwarding = $fw.Obs; forwarding_percent = $fwp.Obs; detector = $det.Obs; recorded_plain_via_cmd_without_d = [ordered]@{ outcome = $noD.Obs.outcome; exit = $noD.Obs.exit; stderr_bytes = $noD.Obs.stderr_bytes; cmd_autorun_configured = $autorun } })
+        foreach ($bt in $batTargets) {
+            $cases = [ordered]@{}; $allOk = $true
+            foreach ($bv in $batVals) { $res = Invoke-BatCase $X @('run', '--') $bt[1] $bt[2] $bv[1] $null; $cases[$bv[0]] = $res.Obs; if (-not $res.Ok) { $allOk = $false } }
+            $hasSpace = $bt[1].Contains(' ')
+            Add-Row $c $bt[0] (Get-Verdict ($allOk -and $batCtlOk)) $true ('section 9.6 (section 4 "without a shell" covers batch files): run -- <.' + $bt[3] + ' file, full path ' + $(if ($hasSpace) { 'with' } else { 'without' }) + ' a space> <one argument>, for each of ' + $batVals.Count + ' arguments (plain, a space, & | > < ^ %VAR% and " forms): no argument byte runs as a command (no file appears), and either the launch is refused (exit 127, stderr message, child never ran) or the child receives the exact argument (the exit code is recorded, not gated here: run.exit_code.* gate it, and a cmd.exe started without /d also runs the user''s AutoRun first); requires run.batch_control') ([ordered]@{ path_has_space = $hasSpace; cases = $cases })
+        }
+        Remove-Item -LiteralPath $batRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     # ================================================================== resolution
@@ -767,17 +1052,20 @@ foreach ($c in $Candidates) {
         $ok = $w0.Ok -and $st.j_moves_to_nas -and $st.k_moves_back -and $st.down_arrow_moves -and $st.unicode_filter_1_of_3 -and $st.esc_clears_filter_selection_first -and $st.filter_case_insensitive_1_of_3 -and $st.enter_keeps_filter -and $res.Exit -eq 0 -and (@($res.Selected) -join '|') -ceq 'nas' -and $res.Restored
         Add-Row $c 'tui.navigate_filter_select' (Get-Verdict $ok) $true 'section 5 on an 80x24 pseudoconsole (screen model): rows "alias  account@host:port", "> " marks the selection, n/total status; j/k/Down move; / with non-ASCII input filters to 1/3 with the selection on the first shown row (K9); Esc clears (3/3); case-insensitive filter NAS -> 1/3; Enter keeps the filter; Enter selects -> "SELECTED nas", exit 0, alternate screen left and cursor shown' $st
         # K14 analog for tui --file: a named pipe that never answers and the NUL device, on a pseudoconsole
-        foreach ($nr in @(@('tui.named_pipe_as_file', 'pipe'), @('tui.nul_device_as_file', 'NUL'))) {
+        foreach ($nr in @(@('tui.named_pipe_as_file', 'pipe'), @('tui.nul_device_as_file', 'NUL'), @('tui.directory_as_file', 'dir'))) {
             $sp = $null; $target = 'NUL'
             if ($nr[1] -eq 'pipe') { $sp = Start-StallPipe ('hm-x1-tuifile-' + $c + '-' + $RunTag); $target = $sp.Path }
+            if ($nr[1] -eq 'dir') { $target = $uniDir }
             $p = Start-Tui $target
             $ex = $p.WaitExit(10000); if (-not $ex) { [void]$p.Kill(); [void]$p.WaitExit(3000) }
             $ms = $null; if ($ex -and $p.ExitTicksUtc -gt 0) { $ms = [int](($p.ExitTicksUtc - $p.StartedUtc.Ticks) / 10000) }
             $code = $null; if ($ex) { $code = $p.ExitCode }
             Start-Sleep -Milliseconds 200; [void]$p.ScreenText(); $restored = (-not $p.Screen.AltActive)
+            if (Test-CanaryText ($Utf8.GetString($p.Snapshot(0)))) { $script:CanaryHits++ }
             $p.Dispose()
-            $conn = $null; if ($sp) { $conn = Get-StallConnects $sp; [void](Stop-G03Owned -Owned $sp.Owned) }
-            Add-Row $c $nr[0] (Get-Verdict ($ex -and $code -eq 2 -and $null -ne $ms -and $ms -lt 2000 -and $restored)) $true ('K14 analog (tests/g02 tui.non_regular_file): tui --file ' + $(if ($nr[1] -eq 'pipe') { 'naming a named pipe that never answers' } else { 'NUL' }) + ' on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active') ([ordered]@{ exit = $code; ms_from_start = $ms; killed_by_harness = (-not $ex); pipe_connects = $conn; alt_screen_active_after = (-not $restored) })
+            $conn = $null; $connFinal = $null; if ($sp) { $sc = Stop-StallPipe $sp; $conn = $sc.Connects; $connFinal = $sc.Final }
+            $what = @{ pipe = 'naming a named pipe (\\.\pipe\..., a server that never answers)'; NUL = 'NUL'; dir = 'naming a directory' }[$nr[1]]
+            Add-Row $c $nr[0] (Get-Verdict ($ex -and $code -eq 2 -and $null -ne $ms -and $ms -lt 2000 -and $restored)) $true ('K14 / section 9.6 (tests/g02 tui.non_regular_file): tui --file ' + $what + ' on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active') ([ordered]@{ exit = $code; ms_from_start = $ms; killed_by_harness = (-not $ex); pipe_connects = $conn; pipe_connects_final = $connFinal; alt_screen_active_after = (-not $restored) })
         }
         # 2 quit
         $p = Start-Tui $hl; $w0 = Wait-Screen $p { param($t) $t -match '(?m)^3/3' } 8000
@@ -830,7 +1118,7 @@ foreach ($c in $Candidates) {
 
 # ------------------------------------------------------------------ write results
 # Canary rule: count before redaction (Protect-X1), so a leak is reported even though nothing written contains it.
-Add-Row 'host' 'harness.canary_scan' (Get-Verdict ($script:CanaryHits -eq 0)) $true 'canary rule: no HEIMDALL_CANARY_ value (fixture canary or the per-run environment canary given to every child) appeared in any captured output or row before redaction' ([ordered]@{ hits_before_redaction = $script:CanaryHits })
+Add-Row 'host' 'harness.canary_scan' (Get-Verdict ($script:CanaryHits -eq 0)) $true 'canary rule: the canary prefix (fixture canaries; the per-run canary given to every child in its environment) appears, before redaction, in none of: the stdout and stderr of every process run without a console (Invoke-X1: every heimdall-proto run outside a pseudoconsole, helpers and controls), the pseudoconsole output of the K14 tui rows, and every row and artifact written (these include the full pseudoconsole transcripts of the other tui rows and of the ctrlc rows). Not scanned: the pseudoconsole of harness.ctrlc_control_direct (argvdump only) and the stderr file of ctrlc.agent_list_event.' ([ordered]@{ hits_before_redaction = $script:CanaryHits })
 $summary = [ordered]@{}
 foreach ($c in @($Candidates + 'host')) {
     $rs = @($Rows | Where-Object { $_.candidate -eq $c })
@@ -839,6 +1127,9 @@ foreach ($c in @($Candidates + 'host')) {
         gating_not_pass = @($rs | Where-Object { $_.gating -and $_.verdict -ne 'pass' } | ForEach-Object { $_.id }) }
 }
 $doc = [ordered]@{ script = 'tests/native/windows-g02/Invoke-G02WindowsX1.ps1'; powershell = $PSVersionTable.PSVersion.ToString(); finished_at = [DateTime]::UtcNow.ToString('o')
+    contract = 'docs/g02/slice-contract.md sections 1-9.6 (gating per section 9.6 for K14 on Windows, --socket non-endpoints, batch-file targets)'
+    conventions = @('every row whose criterion names a JSON result (Test-ResultDoc) and every --meta-file check also requires the document to validate against schemas/g02/result.schema.json',
+        'pipe_connects is read after the stall-pipe helper stopped on its stop file (final), not while it runs')
     summary = $summary; rows = @($Rows) }
 $json = $doc | ConvertTo-Json -Depth 12
 $json = Protect-X1 $json

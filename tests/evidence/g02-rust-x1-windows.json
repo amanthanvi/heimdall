@@ -1,1540 +1,2548 @@
 {
-  "case_id": "G02-rust-x1-windows",
-  "status": "verified",
-  "requirement_ids": [
-    "R-SS-04",
-    "R-SS-02",
-    "R-SE-05",
-    "R-QU-07"
+ "case_id": "G02-rust-x1-windows",
+ "status": "verified",
+ "requirement_ids": [
+  "R-SS-04",
+  "R-SS-02",
+  "R-SE-05",
+  "R-QU-07"
+ ],
+ "build_commit": "e0ead9b",
+ "artifact_digest": "sha256:dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+ "environment": {
+  "platform": "windows-x64",
+  "host": "owner personal PC (authorized for X1), reached over SSH into WSL2 and Windows interop; non-elevated Windows user",
+  "os": "Microsoft Windows 11 Pro",
+  "build": "26300",
+  "ubr": 9550,
+  "display_version": "26H2",
+  "arch": "AMD64",
+  "powershell": [
+   "Windows PowerShell 5.1.26100.9549 (runs s96-ps51-a, s96-ps51-b)",
+   "PowerShell 7.6.6 (run s96-ps7-a)"
   ],
-  "build_commit": "772a6b1",
-  "artifact_digest": "sha256:dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
-  "environment": {
-    "platform": "windows-x64",
-    "host": "owner personal PC (authorized for X1), reached over SSH into WSL2 and Windows interop; non-elevated Windows user",
-    "os": "Microsoft Windows 11 Pro",
-    "build": "26300",
-    "ubr": 9550,
-    "display_version": "26H2",
-    "arch": "AMD64",
-    "powershell": [
-      "Windows PowerShell 5.1.26100.9549 (runs final-ps51-a, final-ps51-b)",
-      "PowerShell 7.6.6 (run final-ps7-a)"
-    ],
-    "clr": "4.0.30319.42000",
-    "elevated": false,
-    "path_for_artifacts": "C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\",
-    "path_entries_before_reduction": 75,
-    "removed_env": [
-      "GOPATH"
-    ],
-    "ssh_auth_sock": "sentinel pipe name that does not exist (never unset, never the system agent pipe)",
-    "console": "pseudoconsoles (CreatePseudoConsole) or no console; no windows created",
-    "candidate": "rust",
-    "candidate_commit": "d8f0cbe",
-    "artifact": "prototypes/rust/dist/windows-x64/heimdall-proto.exe",
-    "harness": {
-      "path": "tests/native/windows-g02/Invoke-G02WindowsX1.ps1",
-      "sha256": "d32c57235f7248406d9d7fd7e95c158e98158fa1ae96f75af0eab8a8d41ea80c",
-      "supporting_sha256": {
-        "tests/native/windows-g02/G02X1Native.cs": "394f66f44fa2926cca43ebfdb7162702f7846247b56f7696ab1eb4f0289e2273",
-        "tests/native/windows-g02/Send-ConsoleCtrl.ps1": "b9a19e7687525ae383bc70fd1aade8e0140449a2b63fd67cbaa083291cfe4b08",
-        "tests/native/windows-g02/StallPipe.ps1": "70e9288d529c287dd575023177ffcfd574dbdd80d9185d2092cfe5286a7a4849",
-        "tests/native/windows-g02/expected-homelab.json": "b270a1fef407b6f81042a7ae28dc7c2e8503d3fc0e5bef937cf60dfdbb0781a4",
-        "tests/native/windows-g02/argvdump/main.go": "587cf44534b64d990ef63a13eaf7bfeef690b31bc1dfe62b4f22916aa03d287e",
-        "tests/native/windows/G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
-        "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
-        "tests/native/windows/fixtures/quoting-cases.json": "8c2e924f9eed2b93cf6e2713d08a55228b68c8be32c07a9a5225ca81e96858d5"
-      },
-      "argvdump_exe_sha256": "678efbbc7856adcd3623fac6f39fd2505d4c72ae65c4381b4e181a4a8a870f2c"
-    }
+  "clr": "4.0.30319.42000",
+  "elevated": false,
+  "path_for_artifacts": "C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\",
+  "path_entries_before_reduction": 75,
+  "removed_env": [
+   "GOPATH"
+  ],
+  "ssh_auth_sock": "sentinel pipe name that does not exist (never unset, never the system agent pipe)",
+  "cmd_autorun_configured": true,
+  "console": "pseudoconsoles (CreatePseudoConsole) or no console; no windows created",
+  "candidate": "rust",
+  "candidate_commit": "d8f0cbe",
+  "artifact": "prototypes/rust/dist/windows-x64/heimdall-proto.exe",
+  "artifact_check": "sha256 and size equal prototypes/<c>/dist/manifest.json windows-x64 on the Mac before staging and on the host (integrity row); not rebuilt",
+  "harness": {
+   "path": "tests/native/windows-g02/Invoke-G02WindowsX1.ps1",
+   "sha256": "4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0",
+   "source_state": "working tree on top of e0ead9b (uncommitted at run time); the staged copies equal these sha256 values (tests/evidence/artifacts/g02-r4/x1/windows-96/staged-root.sha256)",
+   "supporting_sha256": {
+    "tests/native/windows-g02/G02X1Native.cs": "394f66f44fa2926cca43ebfdb7162702f7846247b56f7696ab1eb4f0289e2273",
+    "tests/native/windows-g02/Send-ConsoleCtrl.ps1": "b9a19e7687525ae383bc70fd1aade8e0140449a2b63fd67cbaa083291cfe4b08",
+    "tests/native/windows-g02/StallPipe.ps1": "f075e88122495e00f999aa179cf8d3e8ac64bd7dbe8e73507c350293d48be32d",
+    "tests/native/windows-g02/expected-homelab.json": "b270a1fef407b6f81042a7ae28dc7c2e8503d3fc0e5bef937cf60dfdbb0781a4",
+    "tests/native/windows-g02/argvdump/main.go": "587cf44534b64d990ef63a13eaf7bfeef690b31bc1dfe62b4f22916aa03d287e",
+    "tests/native/windows/G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+    "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+    "tests/native/windows/fixtures/quoting-cases.json": "8c2e924f9eed2b93cf6e2713d08a55228b68c8be32c07a9a5225ca81e96858d5",
+    "schemas/g02/result.schema.json": "50a8d52163bb2e59748382b4a325aa18c028248a63713501d02101007e0e76ab"
+   },
+   "argvdump_exe_sha256": "678efbbc7856adcd3623fac6f39fd2505d4c72ae65c4381b4e181a4a8a870f2c",
+   "argvdump_build": "rebuilt on the Mac with the recorded command (go1.27.1, GOOS=windows GOARCH=amd64 CGO_ENABLED=0 -trimpath -buildvcs=false -ldflags=-s -w); byte-identical to the X1 helper"
+  }
+ },
+ "provider_versions": [
+  {
+   "name": "Windows PowerShell",
+   "version": "5.1.26100.9549"
   },
-  "provider_versions": [
-    {
-      "name": "Windows PowerShell",
-      "version": "5.1.26100.9549"
-    },
-    {
-      "name": "PowerShell",
-      "version": "7.6.6"
-    },
-    {
-      "name": "go (argvdump cross-compile on the Mac)",
-      "version": "go1.27.1"
-    }
-  ],
-  "started_at": "2026-10-06T06:50:05.0271147Z",
-  "commands_or_harness": [
-    "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <scratch>\\tools\\Invoke-G02WindowsX1.ps1 -Root <scratch> -OutDir <scratch>\\out\\final-ps51-a",
-    "pwsh.exe (same arguments) -OutDir <scratch>\\out\\final-ps7-a",
-    "powershell.exe (same arguments) -OutDir <scratch>\\out\\final-ps51-b",
-    "wrapper: tests/evidence/artifacts/g02-r4/x1/windows/winrun.sh (run inside WSL; <scratch> = %LOCALAPPDATA%\\hm-m00\\M00-T05-x1-g02-native)"
-  ],
-  "observed_result": {
-    "verdict": "fail",
-    "criterion": "every gating row of tests/native/windows-g02/Invoke-G02WindowsX1.ps1 passes for this candidate on native Windows 11 x64, with every harness control row passing",
-    "summary": {
-      "rows": 81,
-      "gating": 63,
-      "gating_pass": 60,
+  {
+   "name": "PowerShell",
+   "version": "7.6.6"
+  },
+  {
+   "name": "go (argvdump cross-compile on the Mac)",
+   "version": "go1.27.1"
+  }
+ ],
+ "started_at": "2026-10-06T07:49:26.8068165Z",
+ "commands_or_harness": [
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <scratch>\\tools\\Invoke-G02WindowsX1.ps1 -Root <scratch> -OutDir <scratch>\\out\\s96-ps51-a",
+  "pwsh.exe (same arguments) -OutDir <scratch>\\out\\s96-ps7-a",
+  "powershell.exe (same arguments) -OutDir <scratch>\\out\\s96-ps51-b",
+  "wrapper: tests/evidence/artifacts/g02-r4/x1/windows-96/winrun.sh (run inside WSL; <scratch> = %LOCALAPPDATA%\\hm-m00\\M00-T05-x1b-script)"
+ ],
+ "observed_result": {
+  "verdict": "fail",
+  "criterion": "every gating row of tests/native/windows-g02/Invoke-G02WindowsX1.ps1 passes for this candidate on native Windows 11 x64 under docs/g02/slice-contract.md sections 1-9.6 (section 9.6 baseline), with every harness control row passing",
+  "summary": {
+   "rows": 89,
+   "gating": 71,
+   "gating_pass": 68,
+   "gating_not_pass": [
+    "profile.named_pipe_as_file",
+    "agent.regular_file_not_modified",
+    "tui.named_pipe_as_file"
+   ],
+   "non_gating_not_pass": [
+    "tui.ctrl_c_event"
+   ],
+   "runs": {
+    "s96-ps51-a": {
+     "powershell": "5.1.26100.9549",
+     "summary": {
+      "rows": 89,
+      "gating": 71,
+      "gating_pass": 68,
       "gating_not_pass": [
-        "profile.named_pipe_as_file",
-        "agent.regular_file_not_modified",
-        "tui.named_pipe_as_file"
-      ],
-      "non_gating_not_pass": [
-        "tui.ctrl_c_event"
-      ],
-      "runs": {
-        "final-ps51-a": {
-          "powershell": "5.1.26100.9549",
-          "summary": {
-            "rows": 81,
-            "gating": 63,
-            "gating_pass": 60,
-            "gating_not_pass": [
-              "profile.named_pipe_as_file",
-              "agent.regular_file_not_modified",
-              "tui.named_pipe_as_file"
-            ]
-          }
-        },
-        "final-ps7-a": {
-          "powershell": "7.6.6",
-          "summary": {
-            "rows": 81,
-            "gating": 63,
-            "gating_pass": 60,
-            "gating_not_pass": [
-              "profile.named_pipe_as_file",
-              "agent.regular_file_not_modified",
-              "tui.named_pipe_as_file"
-            ]
-          }
-        },
-        "final-ps51-b": {
-          "powershell": "5.1.26100.9549",
-          "summary": {
-            "rows": 81,
-            "gating": 63,
-            "gating_pass": 60,
-            "gating_not_pass": [
-              "profile.named_pipe_as_file",
-              "agent.regular_file_not_modified",
-              "tui.named_pipe_as_file"
-            ]
-          }
-        }
-      },
-      "verdicts_identical_across_runs": true
+       "profile.named_pipe_as_file",
+       "agent.regular_file_not_modified",
+       "tui.named_pipe_as_file"
+      ]
+     }
     },
-    "harness_controls": [
-      {
-        "id": "env.facts",
-        "verdict": "info",
-        "gating": false,
-        "observed": {
-          "os": "Microsoft Windows NT 10.0.26300.0",
-          "product": "Windows 10 Pro",
-          "display_version": "26H2",
-          "build": "26300",
-          "ubr": 9550,
-          "arch": "AMD64",
-          "powershell": "5.1.26100.9549",
-          "edition": "Desktop",
-          "caption": "Microsoft Windows 11 Pro",
-          "clr": "4.0.30319.42000",
-          "elevated": false,
-          "py_launcher_in_systemroot": true,
-          "original_path_entries": 75,
-          "path_now": "C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\",
-          "removed_env": [
-            "GOPATH"
-          ],
-          "ssh_auth_sock": "sentinel pipe that does not exist",
-          "console_host": "checks run under pseudoconsoles or with no console; no windows created"
-        }
-      },
-      {
-        "id": "env.no_toolchain_on_path",
-        "verdict": "pass",
-        "gating": true,
-        "observed": {
-          "found": []
-        }
-      },
-      {
-        "id": "harness.screen_model_unit",
-        "verdict": "pass",
-        "gating": true,
-        "observed": {
-          "cup_and_text": true,
-          "pending_wrap_survives_sgr": true,
-          "wide_chars_two_cells": true,
-          "wide_char_at_last_column_wraps": true,
-          "erase_and_ech": true,
-          "alt_screen_leave_restores_main": true
-        }
-      },
-      {
-        "id": "harness.ctrlc_control_direct",
-        "verdict": "pass",
-        "gating": true,
-        "observed": {
-          "sender": "ok 639268662060753491",
-          "interrupts": 1,
-          "exit": 42
-        }
-      },
-      {
-        "id": "harness.canary_scan",
-        "verdict": "pass",
-        "gating": true,
-        "observed": {
-          "hits_before_redaction": 0
-        }
-      }
-    ],
-    "rows": [
-      {
-        "id": "integrity.sha256_matches_manifest",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "sha256 and size equal dist/manifest.json windows-x64",
-        "observed": {
-          "sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
-          "manifest_sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
-          "bytes": 841728,
-          "authenticode": "NotSigned",
-          "mark_of_the_web": false
-        }
-      },
-      {
-        "id": "version.json",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 6: exit 0, one JSON doc + LF, VERSION_OK, data fields, candidate matches, empty stderr",
-        "observed": {
-          "exit": 0,
-          "ms": 21,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "VERSION_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "data": {
-            "name": "heimdall-proto",
-            "version": "0.0.0-g02",
-            "candidate": "rust",
-            "runtime": "rustc 1.99.0 (b940084d7 2026-09-28)",
-            "tui_framework": "ratatui",
-            "tui_framework_version": "0.30.2"
-          }
-        }
-      },
-      {
-        "id": "version.plain_exit",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "K12: plain version exits 0",
-        "observed": {
-          "exit": 0,
-          "stdout_bytes": 103
-        }
-      },
-      {
-        "id": "profile.homelab_unicode_space_path",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2: exit 0 PROFILE_OK and data equal to the homelab fixture (order, default port, Unicode alias); path may contain spaces and non-ASCII",
-        "observed": {
-          "exit": 0,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "PROFILE_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "data_equals_expected": true,
-          "path_utf16_units": 121
-        }
-      },
-      {
-        "id": "profile.homelab_fixture",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2: exit 0 PROFILE_OK and data equal to the homelab fixture (order, default port, Unicode alias); path may contain spaces and non-ASCII",
-        "observed": {
-          "exit": 0,
-          "ms": 19,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "PROFILE_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "data_equals_expected": true,
-          "path_utf16_units": 88
-        }
-      },
-      {
-        "id": "profile.homelab_spaced_fixture",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2: exit 0 PROFILE_OK and data equal to the homelab fixture (order, default port, Unicode alias); path may contain spaces and non-ASCII",
-        "observed": {
-          "exit": 0,
-          "ms": 19,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "PROFILE_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "data_equals_expected": true,
-          "path_utf16_units": 109
-        }
-      },
-      {
-        "id": "profile.large_100",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "large-100.toml: PROFILE_OK with 100 destinations",
-        "observed": {
-          "exit": 0,
-          "ms": 20,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "PROFILE_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "destinations": 100
-        }
-      },
-      {
-        "id": "profile.plain_exit",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "K12: plain profile show exits 0",
-        "observed": {
-          "exit": 0
-        }
-      },
-      {
-        "id": "profile.invalid-forbidden-key",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}, key_path names 'private_key', no canary or offending value on stdout/stderr",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "SCHEMA_INVALID",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 56,
-          "parse_error": null,
-          "key_path": "private_key",
-          "message_present": true,
-          "canary_prefix_in_stdout_or_stderr": false,
-          "offending_value_echoed": false
-        }
-      },
-      {
-        "id": "profile.invalid_plain_exit",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "K12/K18: plain run exits 2, no canary",
-        "observed": {
-          "exit": 2
-        }
-      },
-      {
-        "id": "profile.invalid-unknown-dest-key",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}, key_path names 'identity_file', no canary or offending value on stdout/stderr",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "SCHEMA_INVALID",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 74,
-          "parse_error": null,
-          "key_path": "destinations[0].identity_file",
-          "message_present": true,
-          "canary_prefix_in_stdout_or_stderr": false,
-          "offending_value_echoed": false
-        }
-      },
-      {
-        "id": "profile.invalid-malformed",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}, no canary or offending value on stdout/stderr",
-        "observed": {
-          "exit": 2,
-          "ms": 17,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "SCHEMA_INVALID",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 67,
-          "parse_error": null,
-          "key_path": null,
-          "message_present": true,
-          "canary_prefix_in_stdout_or_stderr": false,
-          "offending_value_echoed": false
-        }
-      },
-      {
-        "id": "profile.invalid-schema-version",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}, key_path names 'schema_version', no canary or offending value on stdout/stderr",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "SCHEMA_INVALID",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 91,
-          "parse_error": null,
-          "key_path": "schema_version",
-          "message_present": true,
-          "canary_prefix_in_stdout_or_stderr": false,
-          "offending_value_echoed": false
-        }
-      },
-      {
-        "id": "profile.invalid-duplicate-alias",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}, no canary or offending value on stdout/stderr",
-        "observed": {
-          "exit": 2,
-          "ms": 17,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "SCHEMA_INVALID",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 60,
-          "parse_error": null,
-          "key_path": "destinations[1].alias",
-          "message_present": true,
-          "canary_prefix_in_stdout_or_stderr": false,
-          "offending_value_echoed": false
-        }
-      },
-      {
-        "id": "profile.invalid-port",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2/K18: exit 2 SCHEMA_INVALID, data.error{key_path,message}, key_path names 'port', no canary or offending value on stdout/stderr",
-        "observed": {
-          "exit": 2,
-          "ms": 19,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "SCHEMA_INVALID",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 57,
-          "parse_error": null,
-          "key_path": "destinations[0].port",
-          "message_present": true,
-          "canary_prefix_in_stdout_or_stderr": false,
-          "offending_value_echoed": false
-        }
-      },
-      {
-        "id": "profile.missing_file",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2: missing file -> exit 2 USAGE_ERROR",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 64,
-          "parse_error": null
-        }
-      },
-      {
-        "id": "profile.directory",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "K14: a directory -> exit 2 USAGE_ERROR within 2 s",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 72,
-          "parse_error": null,
-          "timed_out": false
-        }
-      },
-      {
-        "id": "profile.nul_device",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "K14 analog: the NUL device -> exit 2 USAGE_ERROR within 2 s",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 72,
-          "parse_error": null,
-          "timed_out": false
-        }
-      },
-      {
-        "id": "profile.named_pipe_as_file",
-        "verdict": "fail",
-        "gating": true,
-        "criterion": "K14 analog: a named pipe (never answers) as --file -> exit 2 USAGE_ERROR within 2 s, never blocking",
-        "observed": {
-          "exit": null,
-          "ms": 10044,
-          "stdout_one_json_lf": false,
-          "parsed": false,
-          "code": null,
-          "state": null,
-          "schema_version": null,
-          "warnings_is_array": false,
-          "has_next": false,
-          "stderr_bytes": 0,
-          "parse_error": "stdout does not end with a single LF",
-          "timed_out": true,
-          "pipe_connects": 1
-        }
-      },
-      {
-        "id": "profile.oversize",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 2: > 1 MiB -> exit 2 INPUT_TOO_LARGE",
-        "observed": {
-          "exit": 2,
-          "ms": 20,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "INPUT_TOO_LARGE",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 80,
-          "parse_error": null,
-          "file_bytes": 1048605
-        }
-      },
-      {
-        "id": "usage.unknown_subcommand_json",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 1: exit 2 and a USAGE_ERROR JSON result with --json",
-        "observed": {
-          "exit": 2,
-          "ms": 19,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 302,
-          "parse_error": null
-        }
-      },
-      {
-        "id": "usage.unknown_subcommand_plain",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 1: exit 2, stdout empty, stderr text",
-        "observed": {
-          "exit": 2,
-          "stdout_bytes": 0,
-          "stderr_bytes": 302
-        }
-      },
-      {
-        "id": "usage.unknown_flag_json",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 1: unknown flag with --json",
-        "observed": {
-          "exit": 2,
-          "ms": 19,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 307,
-          "parse_error": null
-        }
-      },
-      {
-        "id": "usage.profile_missing_file_arg",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 1: missing --file",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 301,
-          "parse_error": null
-        }
-      },
-      {
-        "id": "usage.agent_missing_socket_arg",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 1: missing --socket",
-        "observed": {
-          "exit": 2,
-          "ms": 18,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "USAGE_ERROR",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 303,
-          "parse_error": null
-        }
-      },
-      {
-        "id": "agent.list_fixture_agent",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 3: exit 0 AGENT_OK; identities (key_type, SHA256 fingerprint, comment; no blob) equal the fixture agent keys in order; only type-11 requests reach the agent (one per run); plain run exits 0 (K12)",
-        "observed": {
-          "exit": 0,
-          "ms": 88,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "AGENT_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "identities": 2,
-          "identities_match_fixture": true,
-          "agent_request_types": [
-            11,
-            11
-          ],
-          "agent_connections": 2,
-          "client_identity_seen_by_agent": [
-            "same_user",
-            "same_user"
-          ],
-          "plain_exit": 0
-        }
-      },
-      {
-        "id": "agent.client_identifiable_by_server",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded (not in the contract; interop input for G03): the fixture agent can identify the client (ImpersonateNamedPipeClient + OpenThreadToken yields the same user SID). error 1347 (ERROR_CANT_OPEN_ANONYMOUS) means the client connected at SecurityAnonymous, so a server that checks its client (as Win32-OpenSSH ssh-agent does) cannot",
-        "observed": {
-          "seen": [
-            "same_user",
-            "same_user"
-          ]
-        }
-      },
-      {
-        "id": "agent.list_unicode_space_pipe",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 3: exit 0 AGENT_OK; identities (key_type, SHA256 fingerprint, comment; no blob) equal the fixture agent keys in order; only type-11 requests reach the agent (one per run); plain run exits 0 (K12)",
-        "observed": {
-          "exit": 0,
-          "ms": 128,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "AGENT_OK",
-          "state": "succeeded",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 0,
-          "parse_error": null,
-          "identities": 2,
-          "identities_match_fixture": true,
-          "agent_request_types": [
-            11,
-            11
-          ],
-          "agent_connections": 2,
-          "client_identity_seen_by_agent": [
-            "same_user",
-            "same_user"
-          ],
-          "plain_exit": 0
-        }
-      },
-      {
-        "id": "agent.missing_pipe",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 3: connect failure -> exit 5 AGENT_UNAVAILABLE",
-        "observed": {
-          "exit": 5,
-          "ms": 19,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "AGENT_UNAVAILABLE",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 34,
-          "parse_error": null
-        }
-      },
-      {
-        "id": "agent.regular_file_not_modified",
-        "verdict": "fail",
-        "gating": true,
-        "criterion": "X1 task criterion: a regular file given as --socket is not modified (section 3: on Windows <path> is a named pipe; section 1 forbids writes outside paths named on the command line, and this path is named, so the contract does not literally forbid it; the criterion protects user data from a mistyped --socket)",
-        "observed": {
-          "exit": 5,
-          "code": "AGENT_PROTOCOL_ERROR",
-          "ms": 20,
-          "unchanged": false,
-          "length_after": 4096,
-          "mtime_changed": true,
-          "first_changed_offset": 0,
-          "first_16_bytes_after_hex": "000000010b262d343b424950575e656c",
-          "first_16_bytes_before_hex": "030a11181f262d343b424950575e656c",
-          "stderr": "heimdall-proto: AGENT_PROTOCOL_ERROR\n"
-        }
-      },
-      {
-        "id": "agent.regular_file_result",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded: a regular file as --socket gives exit 5 (AGENT_UNAVAILABLE or AGENT_PROTOCOL_ERROR)",
-        "observed": {
-          "exit": 5,
-          "code": "AGENT_PROTOCOL_ERROR"
-        }
-      },
-      {
-        "id": "agent.timeout_no_reply",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 3: no response within --timeout-ms 1000 -> exit 5 AGENT_UNAVAILABLE after ~1 s (900..3000 ms incl. start-up)",
-        "observed": {
-          "exit": 5,
-          "ms": 1023,
-          "stdout_one_json_lf": true,
-          "parsed": true,
-          "code": "AGENT_UNAVAILABLE",
-          "state": "failed",
-          "schema_version": "1",
-          "warnings_is_array": true,
-          "has_next": true,
-          "stderr_bytes": 34,
-          "parse_error": null,
-          "pipe_connects": 1
-        }
-      },
-      {
-        "id": "run.argv_control_direct",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "harness control: argvdump launched directly with the same command-line quoting receives every value exactly (UTF-16 code units)",
-        "observed": {
-          "ok": true,
-          "mismatched_indexes": []
-        }
-      },
-      {
-        "id": "run.argv_quoting_cases",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: every quoting-cases.json value (17) plus 8 Windows quoting edge cases reaches the child unchanged (CommandLineToArgvW split compared code unit by code unit); exit 0; nothing on stdout",
-        "observed": {
-          "ok": true,
-          "mismatched_indexes": [],
-          "heimdall_exit": 0,
-          "stdout_bytes": 0,
-          "values": 25,
-          "child_cmdline_utf16_hex": "00220043003a005c00550073006500720073005c0061006d0061006e0074005c0041007000700044006100740061005c004c006f00630061006c005c0068006d002d006d00300030005c004d00300030002d005400300035002d00780031002d006700300032002d006e00610074006900760065005c00680065006c0070006500720073005c006100720067007600640075006d0070002e006500780065002200200070006c00610069006e00200022007700690074006800200073007000610063006500220020002200fc006e00ef006300f8006400e9002026030022002000220064007200610067006f006e0020d83ddc09002200200064006f00750062006c0065005c002200710075006f00740065002000730069006e0067006c0065002700710075006f007400650020006200610063006b005c0073006c006100730068005c005c0064006f00750062006c006500200074007200610069006c0069006e0067005c00200061005c005c005c002200620020002200700065007200630065006e0074002000250050004100540048002500200025002500220020002200630061007200650074005e00200061006d0070002600200070006900700065007c0020006c0074003c002000670074003e00220020002200620061006e006700200021007800210022002000220064006f006c006c00610072002000240048004f004d004500200024002800690064002900200060006900640060002200200022007400610062000900680065007200650022002000730065006d0069003b0063006f006c006f006e0020002d006f0020002200220020005c005c007300650072007600650072005c00730068006100720065005c002000220043003a005c007000610074006800200077006900740068002000730070006100630065005c005c002200200061005c00220062005c002200630020005c00220020005c00200022002000220020006e006c000a006c0069006e006500200078003d0031003b0079003d0024007a"
-        }
-      },
-      {
-        "id": "run.argv_lone_surrogate",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded (Windows analog of K8, not gated by the contract): an argument holding an unpaired UTF-16 surrogate (U+D800) reaches the child unchanged",
-        "observed": {
-          "ok": true,
-          "mismatched_indexes": [],
-          "control_ok": true,
-          "heimdall_exit": 0,
-          "child_argv1_u16": "006c006f006e0065d8000073007500720072006f0067006100740065"
-        }
-      },
-      {
-        "id": "run.exit_code.0",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (0 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 0,
-          "heimdall_exit_u32": 0,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 0,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.1",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (1 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 1,
-          "heimdall_exit_u32": 1,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 1,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.2",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (2 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 2,
-          "heimdall_exit_u32": 2,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 2,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.7",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (7 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 7,
-          "heimdall_exit_u32": 7,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 7,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.42",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (42 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 42,
-          "heimdall_exit_u32": 42,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 42,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.127",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (127 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 127,
-          "heimdall_exit_u32": 127,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 127,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.128",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (128 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 128,
-          "heimdall_exit_u32": 128,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 128,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.255",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (255 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
-        "observed": {
-          "child_code_u32": 255,
-          "heimdall_exit_u32": 255,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 255,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.256",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (256 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
-        "observed": {
-          "child_code_u32": 256,
-          "heimdall_exit_u32": 256,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 256,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.1000",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (1000 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
-        "observed": {
-          "child_code_u32": 1000,
-          "heimdall_exit_u32": 1000,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 1000,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.65536",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (65536 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
-        "observed": {
-          "child_code_u32": 65536,
-          "heimdall_exit_u32": 65536,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": 65536,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.-1",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (4294967295 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
-        "observed": {
-          "child_code_u32": 4294967295,
-          "heimdall_exit_u32": 4294967295,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": -1,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.exit_code.-1073741510",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "section 4/K5: heimdall-proto exits with the child's code (3221225786 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
-        "observed": {
-          "child_code_u32": 3221225786,
-          "heimdall_exit_u32": 3221225786,
-          "meta": {
-            "code": "CHILD_EXITED",
-            "state": "succeeded",
-            "launched": true,
-            "exit_code": -1073741510,
-            "signal": null
-          }
-        }
-      },
-      {
-        "id": "run.launch_failure_not_found",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4/K5: not found -> exit 127, stderr message, stdout empty, meta CHILD_LAUNCH_FAILED state failed launched false exit_code null",
-        "observed": {
-          "exit": 127,
-          "stderr": "heimdall-proto: cannot launch command: NotFound\n",
-          "meta": {
-            "schema_version": "1",
-            "state": "failed",
-            "code": "CHILD_LAUNCH_FAILED",
-            "data": {
-              "launched": false,
-              "exit_code": null,
-              "signal": null
-            },
-            "warnings": [],
-            "next": null
-          }
-        }
-      },
-      {
-        "id": "run.launch_failure_not_executable",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: a .txt file as argv[0] -> exit 127",
-        "observed": {
-          "exit": 127,
-          "stderr": "heimdall-proto: cannot launch command: Uncategorized\n"
-        }
-      },
-      {
-        "id": "run.usage_missing_separator",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: missing -- -> exit 2, stdout empty",
-        "observed": {
-          "exit": 2,
-          "stderr": "heimdall-proto: run requires -- before the command\nusage:\n  heimdall-proto profile show --file <path> [--json]\n  heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]\n  heimdall-proto run [--meta-file <path>] -- <argv...>\n  heimdall-proto tui --file <path>\n  heimdall-proto version [--json]\n"
-        }
-      },
-      {
-        "id": "run.usage_empty_argv",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: empty argv -> exit 2, stdout empty",
-        "observed": {
-          "exit": 2,
-          "stderr": "heimdall-proto: run requires a command after --\nusage:\n  heimdall-proto profile show --file <path> [--json]\n  heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]\n  heimdall-proto run [--meta-file <path>] -- <argv...>\n  heimdall-proto tui --file <path>\n  heimdall-proto version [--json]\n"
-        }
-      },
-      {
-        "id": "run.stdout_binary_passthrough",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: child stdout bytes (NUL, CR/LF, 0x1A, ESC, invalid UTF-8) arrive unmodified",
-        "observed": {
-          "expected_hex": "00fffe0d0a1a1b5b33316dc3280a0d800041",
-          "got_hex": "00fffe0d0a1a1b5b33316dc3280a0d800041",
-          "exit": 0
-        }
-      },
-      {
-        "id": "run.stdin_binary_passthrough",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: 70,000 stdin bytes (every byte value incl. NUL and 0x1A) reach the child unmodified",
-        "observed": {
-          "sent": 70000,
-          "received": 70000,
-          "same": true,
-          "exit": 0
-        }
-      },
-      {
-        "id": "run.env_inherited",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: the child inherits the environment (a variable set for heimdall-proto is seen by the child)",
-        "observed": {
-          "seen": true
-        }
-      },
-      {
-        "id": "run.cwd_inherited",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4: the child inherits the working directory (a directory name with a space and U+00E9)",
-        "observed": {
-          "child_cwd": "<scratch>\\scratch\\cwd é x1",
-          "expected": "<scratch>\\scratch\\cwd é x1"
-        }
-      },
-      {
-        "id": "run.cmd_metachar_argument",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded (BatBadBut class; section 4 forbids shell invocation but a .cmd target implies cmd.exe): argument \"a&echo INJECTED_X1\" to a .cmd whose path has a space must not run a second command",
-        "observed": {
-          "exit": 0,
-          "injected": false,
-          "cmd_script_ran": true,
-          "script_saw_args": [
-            "ARGS:\"a&echo INJECTED_X1\""
-          ],
-          "stderr_lines": 0,
-          "stderr_says_not_recognized": 0,
-          "cmd_autorun_configured": true
-        }
-      },
-      {
-        "id": "run.cmd_metachar_argument_nospace_path",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded (BatBadBut class; section 4 forbids shell invocation but a .cmd target implies cmd.exe): argument \"a&echo INJECTED_X1\" to a .cmd whose path has no space must not run a second command",
-        "observed": {
-          "exit": 0,
-          "injected": false,
-          "cmd_script_ran": true,
-          "script_saw_args": [
-            "ARGS:\"a&echo INJECTED_X1\""
-          ],
-          "stderr_lines": 0,
-          "stderr_says_not_recognized": 0,
-          "cmd_autorun_configured": true
-        }
-      },
-      {
-        "id": "resolution.path_only",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4 PATH lookup: name (no extension) only on PATH -> the PATH copy runs",
-        "observed": {
-          "ran": "path_dir",
-          "exit": 0,
-          "stdout_bytes": 0,
-          "stderr": ""
-        }
-      },
-      {
-        "id": "resolution.app_dir_vs_path",
-        "verdict": "info",
-        "gating": false,
-        "criterion": "recorded (section 9.4 noted the Windows search order from code review only): same name in heimdall-proto's own directory and on PATH; which runs",
-        "observed": {
-          "ran": "app_dir",
-          "exit": 0,
-          "stdout_bytes": 0,
-          "stderr": ""
-        }
-      },
-      {
-        "id": "resolution.cwd_vs_path",
-        "verdict": "info",
-        "gating": false,
-        "criterion": "recorded: same name in the current directory and on PATH (different files); which runs (CreateProcess would take the current directory)",
-        "observed": {
-          "ran": "path_dir",
-          "exit": 0,
-          "stdout_bytes": 0,
-          "stderr": ""
-        }
-      },
-      {
-        "id": "resolution.cwd_only",
-        "verdict": "info",
-        "gating": false,
-        "criterion": "recorded: name only in the current directory (not on PATH); whether it runs (Go: ErrDot policy; K7 allows refusing)",
-        "observed": {
-          "cwd_copy_ran": false,
-          "exit": 127,
-          "stderr": "heimdall-proto: cannot launch command: NotFound\n"
-        }
-      },
-      {
-        "id": "resolution.pathext_cmd",
-        "verdict": "info",
-        "gating": false,
-        "criterion": "recorded: `run -- hmx1cmd` where only hmx1cmd.cmd exists on PATH (PATHEXT resolution, implies cmd.exe; stderr not stored, AutoRun output possible)",
-        "observed": {
-          "exit": 127,
-          "cmd_ran": false,
-          "stderr_lines": 1
-        }
-      },
-      {
-        "id": "resolution.system32_vs_earlier_path",
-        "verdict": "info",
-        "gating": false,
-        "criterion": "recorded: `run -- hostname` with a PATH directory holding hostname.exe placed BEFORE System32; which runs (stdout of the system hostname.exe is not stored)",
-        "observed": {
-          "ran": "not the PATH copy (System32 or other)",
-          "exit": 0
-        }
-      },
-      {
-        "id": "ctrlc.run_event",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4 (Windows: console Ctrl-C, GenerateConsoleCtrlEvent from another process attached to the console): the child receives exactly one interrupt, heimdall-proto does not exit first (alive 600 ms later while the child waits 1.5 s) and exits with the child's code 42",
-        "observed": {
-          "child_ready": true,
-          "sender": "ok 639268662516639797",
-          "heimdall_alive_600ms_after": true,
-          "child_interrupts": 1,
-          "heimdall_exit": 42,
-          "heimdall_exit_ms_after_event": 1507,
-          "killed_by_harness": false
-        }
-      },
-      {
-        "id": "ctrlc.run_keystroke",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 4 (Windows: console Ctrl-C, ^C typed into the console input): the child receives exactly one interrupt, heimdall-proto does not exit first (alive 600 ms later while the child waits 1.5 s) and exits with the child's code 42",
-        "observed": {
-          "child_ready": true,
-          "sender": "typed ^C into the pseudoconsole input",
-          "heimdall_alive_600ms_after": true,
-          "child_interrupts": 1,
-          "heimdall_exit": 42,
-          "heimdall_exit_ms_after_event": 1505,
-          "killed_by_harness": false
-        }
-      },
-      {
-        "id": "ctrlc.run_break_event",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded: CTRL_BREAK_EVENT on the console of `run`: child sees it once, heimdall-proto still running 600 ms later and exits with the child's 42",
-        "observed": {
-          "child_ready": true,
-          "sender": "ok 639268662558128284",
-          "heimdall_alive_600ms_after": true,
-          "child_interrupts": 1,
-          "heimdall_exit": 42,
-          "heimdall_exit_ms_after_event": 1503,
-          "killed_by_harness": false
-        }
-      },
-      {
-        "id": "ctrlc.agent_list_event",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 3: console Ctrl-C (event) while waiting for the agent -> exit 130, {\"state\":\"cancelled\",\"code\":\"CANCELLED\"} on stdout, within 500 ms",
-        "observed": {
-          "connected": true,
-          "sender": "ok 639268662583750296",
-          "exit": 130,
-          "exit_ms_after_event": 15,
-          "json_state": "cancelled",
-          "json_code": "CANCELLED",
-          "killed_by_harness": false,
-          "stdout_source": "file (STARTF_USESTDHANDLES)"
-        }
-      },
-      {
-        "id": "ctrlc.agent_list_keystroke",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 3: console Ctrl-C (keystroke) while waiting for the agent -> exit 130, {\"state\":\"cancelled\",\"code\":\"CANCELLED\"} on stdout, within 500 ms",
-        "observed": {
-          "connected": true,
-          "sender": "typed ^C",
-          "exit": 130,
-          "exit_ms_after_event": 17,
-          "json_state": "cancelled",
-          "json_code": "CANCELLED",
-          "killed_by_harness": false,
-          "stdout_source": "pseudoconsole output, VT stripped"
-        }
-      },
-      {
-        "id": "tui.no_tty_usage_error",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: stdin/stdout are pipes (no console) -> exit 2, stdout empty",
-        "observed": {
-          "exit": 2,
-          "stderr": "heimdall-proto: USAGE_ERROR: tui requires a terminal on stdin and stdout\n",
-          "timed_out": false
-        }
-      },
-      {
-        "id": "tui.navigate_filter_select",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5 on an 80x24 pseudoconsole (screen model): rows \"alias  account@host:port\", \"> \" marks the selection, n/total status; j/k/Down move; / with non-ASCII input filters to 1/3 with the selection on the first shown row (K9); Esc clears (3/3); case-insensitive filter NAS -> 1/3; Enter keeps the filter; Enter selects -> \"SELECTED nas\", exit 0, alternate screen left and cursor shown",
-        "observed": {
-          "first_frame": true,
-          "first_frame_ms": 32,
-          "alt_screen_entered": true,
-          "j_moves_to_nas": true,
-          "k_moves_back": true,
-          "down_arrow_moves": true,
-          "unicode_filter_1_of_3": true,
-          "unicode_filter_ms": 15,
-          "esc_clears_filter_selection_first": true,
-          "filter_case_insensitive_1_of_3": true,
-          "enter_keeps_filter": true,
-          "exit": 0,
-          "selected": [
-            "nas"
-          ],
-          "terminal_restored": true,
-          "alt_enter_leave": [
-            1,
-            1
-          ]
-        }
-      },
-      {
-        "id": "tui.named_pipe_as_file",
-        "verdict": "fail",
-        "gating": true,
-        "criterion": "K14 analog (tests/g02 tui.non_regular_file): tui --file naming a named pipe that never answers on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active",
-        "observed": {
-          "exit": null,
-          "ms_from_start": null,
-          "killed_by_harness": true,
-          "pipe_connects": 1,
-          "alt_screen_active_after": false
-        }
-      },
-      {
-        "id": "tui.nul_device_as_file",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "K14 analog (tests/g02 tui.non_regular_file): tui --file NUL on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active",
-        "observed": {
-          "exit": 2,
-          "ms_from_start": 21,
-          "killed_by_harness": false,
-          "pipe_connects": null,
-          "alt_screen_active_after": false
-        }
-      },
-      {
-        "id": "tui.quit",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: q -> exit 0, no SELECTED, terminal restored",
-        "observed": {
-          "started": true,
-          "exit": 0,
-          "restored": true
-        }
-      },
-      {
-        "id": "tui.ctrl_c_key",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: ^C typed into the console -> exit 130, no SELECTED, terminal restored",
-        "observed": {
-          "started": true,
-          "exit": 130,
-          "restored": true
-        }
-      },
-      {
-        "id": "tui.ctrl_c_key_in_filter_mode",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: ^C typed into the console while typing a filter -> exit 130, no SELECTED, terminal restored",
-        "observed": {
-          "started": true,
-          "exit": 130,
-          "restored": true
-        }
-      },
-      {
-        "id": "tui.ctrl_c_event",
-        "verdict": "fail",
-        "gating": false,
-        "criterion": "recorded (Windows analog of an explicit SIGINT; tests/g02 gates the Ctrl-C key only): CTRL_C_EVENT raised on the TUI console by another process -> exit 130 with the terminal restored",
-        "observed": {
-          "started": true,
-          "sender": "ok 639268662730385306",
-          "exit": 3221225786,
-          "restored": false,
-          "alt_screen_still_active": true,
-          "killed_by_harness": false
-        }
-      },
-      {
-        "id": "tui.resize",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: console resize to 40x12 re-lays out (alias only), 20x5 does not crash, back to 80x24 shows account@host:port; q exits 0, terminal restored",
-        "observed": {
-          "wide_frame": true,
-          "resize_hresults": [
-            0,
-            0,
-            0
-          ],
-          "narrow_alias_only": true,
-          "narrow_ms": 14,
-          "alive_after_20x5": true,
-          "wide_again": true,
-          "exit": 0,
-          "restored": true
-        }
-      },
-      {
-        "id": "tui.resize_latency",
-        "verdict": "pass",
-        "gating": false,
-        "criterion": "recorded: narrow layout on the screen model within 100 ms of ResizePseudoConsole (includes conhost re-rendering and 3 ms polling)",
-        "observed": {
-          "ms": 14
-        }
-      },
-      {
-        "id": "tui.no_color",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: NO_COLOR=1 -> no color SGR in the pseudoconsole output (conhost re-encodes what the application drew); selection still marked by \"> \"",
-        "observed": {
-          "started": true,
-          "color_sgr_found": [],
-          "exit": 0
-        }
-      },
-      {
-        "id": "tui.large_100",
-        "verdict": "pass",
-        "gating": true,
-        "criterion": "section 5: 100-destination fixture shows 100/100; a filter matching nothing shows 0/100; q exits 0",
-        "observed": {
-          "started": true,
-          "first_frame_ms": 30,
-          "filter_0_of_100": true,
-          "filter_ms": 30,
-          "exit": 0
-        }
-      }
-    ],
-    "interpretations": [
-      "profile.named_pipe_as_file and tui.named_pipe_as_file treat a Windows named pipe as the FIFO analog of K14 (K14 names a FIFO, socket, device or directory); the contract does not name Windows pipes. Escalated.",
-      "agent.regular_file_not_modified is an X1 task criterion: section 3 says the Windows --socket path is a named pipe, and section 1 forbids writes only outside paths named on the command line, so the contract does not literally forbid writing to a named regular file.",
-      "tui.ctrl_c_event (a CTRL_C_EVENT raised by another process) is recorded, not gated: tests/g02 gates the Ctrl-C key only (tui.ctrl_c), not an explicit SIGINT to the TUI."
-    ]
+    "s96-ps7-a": {
+     "powershell": "7.6.6",
+     "summary": {
+      "rows": 89,
+      "gating": 71,
+      "gating_pass": 68,
+      "gating_not_pass": [
+       "profile.named_pipe_as_file",
+       "agent.regular_file_not_modified",
+       "tui.named_pipe_as_file"
+      ]
+     }
+    },
+    "s96-ps51-b": {
+     "powershell": "5.1.26100.9549",
+     "summary": {
+      "rows": 89,
+      "gating": 71,
+      "gating_pass": 68,
+      "gating_not_pass": [
+       "profile.named_pipe_as_file",
+       "agent.regular_file_not_modified",
+       "tui.named_pipe_as_file"
+      ]
+     }
+    }
+   },
+   "verdicts_identical_across_runs": true
   },
-  "evidence_paths": [
-    "tests/evidence/artifacts/g02-r4/x1/RESULTS.md",
-    "tests/evidence/artifacts/g02-r4/x1/windows/final-ps51-a",
-    "tests/evidence/artifacts/g02-r4/x1/windows/final-ps7-a",
-    "tests/evidence/artifacts/g02-r4/x1/windows/final-ps51-b",
-    "tests/evidence/artifacts/g02-r4/x1/windows/staged-root.sha256",
-    "tests/native/windows-g02",
-    "tests/evidence/artifacts/g02-r4/x1/windows/used-g03-module/G03Common.psm1"
+  "findings": [
+   "profile.named_pipe_as_file and tui.named_pipe_as_file (K14, section 9.6): Rust does not exit within 10 s on a named pipe whose server never answers; the script killed it. It opened the pipe (pipe_connects 1, final count). NUL and a directory give exit 2 within ~25 ms.",
+   "agent.regular_file_not_modified (section 9.6): Rust overwrites the first 5 bytes of the regular file with the request frame 00 00 00 01 0b (mtime changes) and exits 5 with AGENT_PROTOCOL_ERROR, which is also not one of the allowed refusal results. A directory and a non-existent path are refused correctly (exit 5 AGENT_UNAVAILABLE, nothing modified or created).",
+   "run.batch_target.* (section 9.6): Rust passes all four; all 16 arguments reach the batch file exactly for .bat and .cmd, with and without a space in the path, and no injected command ran. The argument `a\" & break>...` decodes exactly only under the UCRT rule (Rust doubles the quote: `\"a\"\" & break>...\"`); CommandLineToArgvW splits it at the space. The harness accepts either decoding (see interpretations). Exit 0 in every case (Rust starts cmd.exe with /d, so AutoRun does not run)."
   ],
-  "limitations": [
-    "One host: the owner's Windows 11 Pro 26300 x64 PC, non-elevated user. Three full runs (Windows PowerShell 5.1 twice, PowerShell 7.6.6 once) gave identical verdicts for every row; timing values differ between runs.",
-    "Console coverage is pseudoconsole only (CreatePseudoConsole driven by P/Invoke, judged on a small VT screen model; harness.screen_model_unit covers the model). A classic conhost window, Windows Terminal and the legacy console were not exercised; no window was created on the owner's desktop.",
-    "Console Ctrl-C was delivered two ways: GenerateConsoleCtrlEvent from a separate process attached to the console (Send-ConsoleCtrl.ps1; harness.ctrlc_control_direct proves delivery to a plain child) and ^C typed into the console input. CTRL_BREAK is recorded only. CTRL_CLOSE/LOGOFF/SHUTDOWN events were not tested.",
-    "Timing: process exit times are the kernel exit time (GetProcessTimes) compared with the sender's timestamp taken just before GenerateConsoleCtrlEvent (same clock); TUI waits poll the screen every ~3 ms.",
-    "Not covered: a second Windows account (pipe DACL from another user), remote (SMB) pipe clients, interop with the real Win32-OpenSSH ssh-agent (the owner's agent must not be contacted; the fixture agent stands in), ARM64 Windows, paths longer than MAX_PATH, UNC working directories, console code pages other than the default, SmartScreen/Mark-of-the-Web (files were copied through WSL and carry no Zone.Identifier), Defender behaviour, launching the .exe from WSL through interop.",
-    "The artifacts ran with PATH reduced to %SystemRoot%\\System32 and its WindowsPowerShell directory (%SystemRoot% itself is left out because the Python launcher py.exe lives there on this host); env.no_toolchain_on_path found no Go, Rust, C, Node, Bun, Deno, Python, zig or git.",
-    "Resolution-order, .cmd and lone-surrogate rows are recorded observations (info or non-gating), not contract verdicts.",
-    "The X1 Windows script is new in this task; its controls passed, but it has had no independent review yet.",
-    "tests/native/windows/G03Common.psm1 was staged from the working tree while another task was editing it: the copy that ran (sha256 e0bf3cc4..., kept as tests/evidence/artifacts/g02-r4/x1/windows/used-g03-module/G03Common.psm1) differs from HEAD 772a6b1 (57d295c1...) only in Get-G03Sha256Hex (accepts an empty array) and Protect-G03Text (token names) plus a new Set-G03FileSystemDacl; this script calls Protect-G03Text only on an agent start failure (none occurred) and Get-G03Sha256Hex only with non-empty input, so no row depends on the difference. InstrumentedAgent.ps1 and quoting-cases.json equal HEAD.",
-    "Orchestrator 2026-10-06 (x1-review): the agent.client_identifiable_by_server row is non-gating and tests only ImpersonateNamedPipeClient. Win32-OpenSSH's ssh-agent identifies clients by process token instead, and the reviewer's server-side probe identified both clients that way. The Anonymous level matters only to servers that use pipe impersonation."
-  ]
+  "harness_controls": [
+   {
+    "id": "env.facts",
+    "verdict": "info",
+    "gating": false,
+    "observed": {
+     "os": "Microsoft Windows NT 10.0.26300.0",
+     "product": "Windows 10 Pro",
+     "display_version": "26H2",
+     "build": "26300",
+     "ubr": 9550,
+     "arch": "AMD64",
+     "powershell": "5.1.26100.9549",
+     "edition": "Desktop",
+     "caption": "Microsoft Windows 11 Pro",
+     "clr": "4.0.30319.42000",
+     "elevated": false,
+     "py_launcher_in_systemroot": true,
+     "original_path_entries": 75,
+     "path_now": "C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\",
+     "removed_env": [
+      "GOPATH"
+     ],
+     "ssh_auth_sock": "sentinel pipe that does not exist",
+     "console_host": "checks run under pseudoconsoles or with no console; no windows created"
+    }
+   },
+   {
+    "id": "env.no_toolchain_on_path",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "no Go/Rust/C/Node/Bun/Deno/Python/zig/git resolvable on the PATH the artifacts run with (contract section 7)",
+    "observed": {
+     "found": []
+    }
+   },
+   {
+    "id": "harness.screen_model_unit",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "harness self-test: the VT screen model renders CUP/text, pending wrap across SGR, wide characters, ECH/EL and the alternate buffer as a terminal would",
+    "observed": {
+     "cup_and_text": true,
+     "pending_wrap_survives_sgr": true,
+     "wide_chars_two_cells": true,
+     "wide_char_at_last_column_wraps": true,
+     "erase_and_ech": true,
+     "alt_screen_leave_restores_main": true
+    }
+   },
+   {
+    "id": "harness.ctrlc_control_direct",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "harness control: the sender (AttachConsole + GenerateConsoleCtrlEvent) reaches argvdump on a pseudoconsole exactly once, without heimdall-proto",
+    "observed": {
+     "sender": "ok 639268697675703351",
+     "interrupts": 1,
+     "exit": 42
+    }
+   },
+   {
+    "id": "harness.canary_scan",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "canary rule: the canary prefix (fixture canaries; the per-run canary given to every child in its environment) appears, before redaction, in none of: the stdout and stderr of every process run without a console (Invoke-X1: every heimdall-proto run outside a pseudoconsole, helpers and controls), the pseudoconsole output of the K14 tui rows, and every row and artifact written (these include the full pseudoconsole transcripts of the other tui rows and of the ctrlc rows). Not scanned: the pseudoconsole of harness.ctrlc_control_direct (argvdump only) and the stderr file of ctrlc.agent_list_event.",
+    "observed": {
+     "hits_before_redaction": 0
+    }
+   }
+  ],
+  "rows": [
+   {
+    "id": "integrity.sha256_matches_manifest",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "sha256 and size equal dist/manifest.json windows-x64",
+    "observed": {
+     "sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+     "manifest_sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+     "bytes": 841728,
+     "authenticode": "NotSigned",
+     "mark_of_the_web": false
+    }
+   },
+   {
+    "id": "version.json",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 6: exit 0, one JSON doc + LF, VERSION_OK, data fields, candidate matches, empty stderr",
+    "observed": {
+     "exit": 0,
+     "ms": 20,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "VERSION_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "data": {
+      "name": "heimdall-proto",
+      "version": "0.0.0-g02",
+      "candidate": "rust",
+      "runtime": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "tui_framework": "ratatui",
+      "tui_framework_version": "0.30.2"
+     }
+    }
+   },
+   {
+    "id": "version.plain_exit",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K12: plain version exits 0",
+    "observed": {
+     "exit": 0,
+     "stdout_bytes": 103
+    }
+   },
+   {
+    "id": "profile.homelab_unicode_space_path",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2: exit 0 PROFILE_OK and data equal to the homelab fixture (order, default port, Unicode alias); path may contain spaces and non-ASCII",
+    "observed": {
+     "exit": 0,
+     "ms": 18,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "PROFILE_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "data_equals_expected": true,
+     "path_utf16_units": 118
+    }
+   },
+   {
+    "id": "profile.homelab_fixture",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2: exit 0 PROFILE_OK and data equal to the homelab fixture (order, default port, Unicode alias); path may contain spaces and non-ASCII",
+    "observed": {
+     "exit": 0,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "PROFILE_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "data_equals_expected": true,
+     "path_utf16_units": 85
+    }
+   },
+   {
+    "id": "profile.homelab_spaced_fixture",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2: exit 0 PROFILE_OK and data equal to the homelab fixture (order, default port, Unicode alias); path may contain spaces and non-ASCII",
+    "observed": {
+     "exit": 0,
+     "ms": 18,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "PROFILE_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "data_equals_expected": true,
+     "path_utf16_units": 106
+    }
+   },
+   {
+    "id": "profile.large_100",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "large-100.toml: PROFILE_OK with 100 destinations",
+    "observed": {
+     "exit": 0,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "PROFILE_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "destinations": 100
+    }
+   },
+   {
+    "id": "profile.plain_exit",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K12: plain profile show exits 0",
+    "observed": {
+     "exit": 0
+    }
+   },
+   {
+    "id": "profile.invalid-forbidden-key",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}, key_path names 'private_key'; no canary prefix and no offending value of this fixture (value of key private_key (canary)) on stdout or stderr of the --json run or the plain run; the plain run exits 2",
+    "observed": {
+     "exit": 2,
+     "ms": 18,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "SCHEMA_INVALID",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 56,
+     "parse_error": null,
+     "schema_valid": true,
+     "key_path": "private_key",
+     "message_present": true,
+     "canary_prefix_in_stdout_or_stderr": false,
+     "k18_value_non_echo": {
+      "value of key private_key (canary)": {
+       "echoed_in": []
+      }
+     },
+     "plain_exit": 2
+    }
+   },
+   {
+    "id": "profile.invalid_plain_exit",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K12/K18: plain run exits 2, no canary",
+    "observed": {
+     "exit": 2
+    }
+   },
+   {
+    "id": "profile.invalid-unknown-dest-key",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}, key_path names 'identity_file'; no canary prefix and no offending value of this fixture (value of key destinations[0].identity_file (canary)) on stdout or stderr of the --json run or the plain run; the plain run exits 2",
+    "observed": {
+     "exit": 2,
+     "ms": 18,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "SCHEMA_INVALID",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 74,
+     "parse_error": null,
+     "schema_valid": true,
+     "key_path": "destinations[0].identity_file",
+     "message_present": true,
+     "canary_prefix_in_stdout_or_stderr": false,
+     "k18_value_non_echo": {
+      "value of key destinations[0].identity_file (canary)": {
+       "echoed_in": []
+      }
+     },
+     "plain_exit": 2
+    }
+   },
+   {
+    "id": "profile.invalid-malformed",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}; no canary prefix and no offending value of this fixture (value of the unterminated string of key name) on stdout or stderr of the --json run or the plain run; the plain run exits 2",
+    "observed": {
+     "exit": 2,
+     "ms": 20,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "SCHEMA_INVALID",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 67,
+     "parse_error": null,
+     "schema_valid": true,
+     "key_path": null,
+     "message_present": true,
+     "canary_prefix_in_stdout_or_stderr": false,
+     "k18_value_non_echo": {
+      "value of the unterminated string of key name": {
+       "echoed_in": []
+      }
+     },
+     "plain_exit": 2
+    }
+   },
+   {
+    "id": "profile.invalid-schema-version",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}, key_path names 'schema_version'; no canary prefix and no offending value of this fixture (value of key name (another key; Q11)) on stdout or stderr of the --json run or the plain run; the plain run exits 2",
+    "observed": {
+     "exit": 2,
+     "ms": 20,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "SCHEMA_INVALID",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 91,
+     "parse_error": null,
+     "schema_valid": true,
+     "key_path": "schema_version",
+     "message_present": true,
+     "canary_prefix_in_stdout_or_stderr": false,
+     "k18_value_non_echo": {
+      "value of key name (another key; Q11)": {
+       "gating_json_result": true,
+       "recorded_on_stderr": []
+      }
+     },
+     "plain_exit": 2
+    }
+   },
+   {
+    "id": "profile.invalid-duplicate-alias",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}; no canary prefix and no offending value of this fixture (the duplicated value of key alias) on stdout or stderr of the --json run or the plain run; the plain run exits 2",
+    "observed": {
+     "exit": 2,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "SCHEMA_INVALID",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 60,
+     "parse_error": null,
+     "schema_valid": true,
+     "key_path": "destinations[1].alias",
+     "message_present": true,
+     "canary_prefix_in_stdout_or_stderr": false,
+     "k18_value_non_echo": {
+      "the duplicated value of key alias": {
+       "echoed_in": []
+      }
+     },
+     "plain_exit": 2
+    }
+   },
+   {
+    "id": "profile.invalid-port",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2/K18: exit 2 SCHEMA_INVALID (schema-valid result), data.error{key_path,message}, key_path names 'port'; no canary prefix and no offending value of this fixture (value of key destinations[0].port) on stdout or stderr of the --json run or the plain run; the plain run exits 2",
+    "observed": {
+     "exit": 2,
+     "ms": 49,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "SCHEMA_INVALID",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 57,
+     "parse_error": null,
+     "schema_valid": true,
+     "key_path": "destinations[0].port",
+     "message_present": true,
+     "canary_prefix_in_stdout_or_stderr": false,
+     "k18_value_non_echo": {
+      "value of key destinations[0].port": {
+       "echoed_in": []
+      }
+     },
+     "plain_exit": 2
+    }
+   },
+   {
+    "id": "profile.missing_file",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2: missing file -> exit 2 USAGE_ERROR",
+    "observed": {
+     "exit": 2,
+     "ms": 20,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 64,
+     "parse_error": null,
+     "schema_valid": true
+    }
+   },
+   {
+    "id": "profile.directory",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K14: a directory -> exit 2 USAGE_ERROR within 2 s",
+    "observed": {
+     "exit": 2,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 72,
+     "parse_error": null,
+     "schema_valid": true,
+     "timed_out": false
+    }
+   },
+   {
+    "id": "profile.nul_device",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K14 / section 9.6 (any path that is not a regular file): the NUL device -> exit 2 USAGE_ERROR within 2 s",
+    "observed": {
+     "exit": 2,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 72,
+     "parse_error": null,
+     "schema_valid": true,
+     "timed_out": false
+    }
+   },
+   {
+    "id": "profile.named_pipe_as_file",
+    "verdict": "fail",
+    "gating": true,
+    "criterion": "K14 / section 9.6: a named pipe (\\\\.\\pipe\\..., a server that never answers) as --file -> exit 2 USAGE_ERROR within 2 s, never blocking (pipe_connects is read after the helper stopped: opening the pipe is recorded, not gated)",
+    "observed": {
+     "exit": null,
+     "ms": 10019,
+     "stdout_one_json_lf": false,
+     "parsed": false,
+     "code": null,
+     "state": null,
+     "schema_version": null,
+     "warnings_is_array": false,
+     "has_next": false,
+     "stderr_bytes": 0,
+     "parse_error": "stdout does not end with a single LF",
+     "schema_valid": false,
+     "timed_out": true,
+     "pipe_connects": 1,
+     "pipe_connects_final": true
+    }
+   },
+   {
+    "id": "profile.oversize",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 2: > 1 MiB -> exit 2 INPUT_TOO_LARGE",
+    "observed": {
+     "exit": 2,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "INPUT_TOO_LARGE",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 80,
+     "parse_error": null,
+     "schema_valid": true,
+     "file_bytes": 1048605
+    }
+   },
+   {
+    "id": "usage.unknown_subcommand_json",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 1: exit 2 and a USAGE_ERROR JSON result with --json",
+    "observed": {
+     "exit": 2,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 302,
+     "parse_error": null,
+     "schema_valid": true
+    }
+   },
+   {
+    "id": "usage.unknown_subcommand_plain",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 1: exit 2, stdout empty, stderr text",
+    "observed": {
+     "exit": 2,
+     "stdout_bytes": 0,
+     "stderr_bytes": 302
+    }
+   },
+   {
+    "id": "usage.unknown_flag_json",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 1: unknown flag with --json",
+    "observed": {
+     "exit": 2,
+     "ms": 29,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 307,
+     "parse_error": null,
+     "schema_valid": true
+    }
+   },
+   {
+    "id": "usage.profile_missing_file_arg",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 1: missing --file",
+    "observed": {
+     "exit": 2,
+     "ms": 20,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 301,
+     "parse_error": null,
+     "schema_valid": true
+    }
+   },
+   {
+    "id": "usage.agent_missing_socket_arg",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 1: missing --socket",
+    "observed": {
+     "exit": 2,
+     "ms": 20,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "USAGE_ERROR",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 303,
+     "parse_error": null,
+     "schema_valid": true
+    }
+   },
+   {
+    "id": "agent.list_fixture_agent",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 3: exit 0 AGENT_OK; identities (key_type, SHA256 fingerprint, comment; no blob) equal the fixture agent keys in order; only type-11 requests reach the agent (one per run); plain run exits 0 (K12)",
+    "observed": {
+     "exit": 0,
+     "ms": 81,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "AGENT_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "identities": 2,
+     "identities_match_fixture": true,
+     "agent_request_types": [
+      11,
+      11
+     ],
+     "agent_connections": 2,
+     "client_identity_seen_by_agent": [
+      "same_user",
+      "same_user"
+     ],
+     "plain_exit": 0
+    }
+   },
+   {
+    "id": "agent.client_identifiable_by_server",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded (not in the contract; interop input for G03): the fixture agent can identify the client (ImpersonateNamedPipeClient + OpenThreadToken yields the same user SID). error 1347 (ERROR_CANT_OPEN_ANONYMOUS) means the client connected at SecurityAnonymous, so a server that checks its client (as Win32-OpenSSH ssh-agent does) cannot",
+    "observed": {
+     "seen": [
+      "same_user",
+      "same_user"
+     ]
+    }
+   },
+   {
+    "id": "agent.list_unicode_space_pipe",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 3: exit 0 AGENT_OK; identities (key_type, SHA256 fingerprint, comment; no blob) equal the fixture agent keys in order; only type-11 requests reach the agent (one per run); plain run exits 0 (K12)",
+    "observed": {
+     "exit": 0,
+     "ms": 78,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "AGENT_OK",
+     "state": "succeeded",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 0,
+     "parse_error": null,
+     "schema_valid": true,
+     "identities": 2,
+     "identities_match_fixture": true,
+     "agent_request_types": [
+      11,
+      11
+     ],
+     "agent_connections": 2,
+     "client_identity_seen_by_agent": [
+      "same_user",
+      "same_user"
+     ],
+     "plain_exit": 0
+    }
+   },
+   {
+    "id": "agent.missing_pipe",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 3: connect failure -> exit 5 AGENT_UNAVAILABLE",
+    "observed": {
+     "exit": 5,
+     "ms": 19,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "AGENT_UNAVAILABLE",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 34,
+     "parse_error": null,
+     "schema_valid": true
+    }
+   },
+   {
+    "id": "agent.regular_file_not_modified",
+    "verdict": "fail",
+    "gating": true,
+    "criterion": "section 9.6: a regular file given as --socket is refused without modifying it (sha256 and mtime unchanged); exit 5 AGENT_UNAVAILABLE or exit 2 USAGE_ERROR, one schema-valid JSON result + LF",
+    "observed": {
+     "exit": 5,
+     "code": "AGENT_PROTOCOL_ERROR",
+     "ms": 18,
+     "timed_out": false,
+     "unchanged": false,
+     "length_after": 4096,
+     "mtime_changed": true,
+     "first_changed_offset": 0,
+     "first_16_bytes_after_hex": "000000010b262d343b424950575e656c",
+     "first_16_bytes_before_hex": "030a11181f262d343b424950575e656c",
+     "refusal_result_ok": false,
+     "result": {
+      "exit": 5,
+      "ms": 18,
+      "stdout_one_json_lf": true,
+      "parsed": true,
+      "code": "AGENT_PROTOCOL_ERROR",
+      "state": "failed",
+      "schema_version": "1",
+      "warnings_is_array": true,
+      "has_next": true,
+      "stderr_bytes": 37,
+      "parse_error": null,
+      "schema_valid": true
+     },
+     "stderr": "heimdall-proto: AGENT_PROTOCOL_ERROR\n"
+    }
+   },
+   {
+    "id": "agent.regular_file_result",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded: a regular file as --socket gives exit 5 (AGENT_UNAVAILABLE or AGENT_PROTOCOL_ERROR)",
+    "observed": {
+     "exit": 5,
+     "code": "AGENT_PROTOCOL_ERROR"
+    }
+   },
+   {
+    "id": "agent.directory_as_socket_refused",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 9.6: a directory given as --socket is refused without modifying it (directory mtime and every entry's name, mtime, size and sha256 unchanged against a baseline that was stable for 200 ms); exit 5 AGENT_UNAVAILABLE or exit 2 USAGE_ERROR, one schema-valid JSON result + LF",
+    "observed": {
+     "exit": 5,
+     "ms": 19,
+     "timed_out": false,
+     "baseline_stable": true,
+     "tree_unchanged": true,
+     "tree_diff": {
+      "before_only": [],
+      "after_only": []
+     },
+     "refusal_result_ok": true,
+     "result": {
+      "exit": 5,
+      "ms": 19,
+      "stdout_one_json_lf": true,
+      "parsed": true,
+      "code": "AGENT_UNAVAILABLE",
+      "state": "failed",
+      "schema_version": "1",
+      "warnings_is_array": true,
+      "has_next": true,
+      "stderr_bytes": 34,
+      "parse_error": null,
+      "schema_valid": true
+     },
+     "stderr": "heimdall-proto: AGENT_UNAVAILABLE\n"
+    }
+   },
+   {
+    "id": "agent.nonexistent_path_as_socket_refused",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 9.6: a non-existent path (not under \\\\.\\pipe\\) given as --socket is refused without creating it (path still absent, parent directory mtime and entries unchanged); exit 5 AGENT_UNAVAILABLE or exit 2 USAGE_ERROR, one schema-valid JSON result + LF",
+    "observed": {
+     "exit": 5,
+     "ms": 18,
+     "timed_out": false,
+     "path_created": false,
+     "baseline_stable": true,
+     "parent_unchanged": true,
+     "parent_diff": {
+      "before_only": [],
+      "after_only": []
+     },
+     "refusal_result_ok": true,
+     "result": {
+      "exit": 5,
+      "ms": 18,
+      "stdout_one_json_lf": true,
+      "parsed": true,
+      "code": "AGENT_UNAVAILABLE",
+      "state": "failed",
+      "schema_version": "1",
+      "warnings_is_array": true,
+      "has_next": true,
+      "stderr_bytes": 34,
+      "parse_error": null,
+      "schema_valid": true
+     },
+     "stderr": "heimdall-proto: AGENT_UNAVAILABLE\n"
+    }
+   },
+   {
+    "id": "agent.timeout_no_reply",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 3: no response within --timeout-ms 1000 -> exit 5 AGENT_UNAVAILABLE after ~1 s (900..3000 ms incl. start-up)",
+    "observed": {
+     "exit": 5,
+     "ms": 1029,
+     "stdout_one_json_lf": true,
+     "parsed": true,
+     "code": "AGENT_UNAVAILABLE",
+     "state": "failed",
+     "schema_version": "1",
+     "warnings_is_array": true,
+     "has_next": true,
+     "stderr_bytes": 34,
+     "parse_error": null,
+     "schema_valid": true,
+     "pipe_connects": 1,
+     "pipe_connects_final": true
+    }
+   },
+   {
+    "id": "run.argv_control_direct",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "harness control: argvdump launched directly with the same command-line quoting receives every value exactly (UTF-16 code units)",
+    "observed": {
+     "ok": true,
+     "mismatched_indexes": []
+    }
+   },
+   {
+    "id": "run.argv_quoting_cases",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: every quoting-cases.json value (17) plus 8 Windows quoting edge cases reaches the child unchanged (CommandLineToArgvW split compared code unit by code unit); exit 0; nothing on stdout",
+    "observed": {
+     "ok": true,
+     "mismatched_indexes": [],
+     "heimdall_exit": 0,
+     "stdout_bytes": 0,
+     "values": 25,
+     "child_cmdline_utf16_hex": "00220043003a005c00550073006500720073005c0061006d0061006e0074005c0041007000700044006100740061005c004c006f00630061006c005c0068006d002d006d00300030005c004d00300030002d005400300035002d007800310062002d007300630072006900700074005c00680065006c0070006500720073005c006100720067007600640075006d0070002e006500780065002200200070006c00610069006e00200022007700690074006800200073007000610063006500220020002200fc006e00ef006300f8006400e9002026030022002000220064007200610067006f006e0020d83ddc09002200200064006f00750062006c0065005c002200710075006f00740065002000730069006e0067006c0065002700710075006f007400650020006200610063006b005c0073006c006100730068005c005c0064006f00750062006c006500200074007200610069006c0069006e0067005c00200061005c005c005c002200620020002200700065007200630065006e0074002000250050004100540048002500200025002500220020002200630061007200650074005e00200061006d0070002600200070006900700065007c0020006c0074003c002000670074003e00220020002200620061006e006700200021007800210022002000220064006f006c006c00610072002000240048004f004d004500200024002800690064002900200060006900640060002200200022007400610062000900680065007200650022002000730065006d0069003b0063006f006c006f006e0020002d006f0020002200220020005c005c007300650072007600650072005c00730068006100720065005c002000220043003a005c007000610074006800200077006900740068002000730070006100630065005c005c002200200061005c00220062005c002200630020005c00220020005c00200022002000220020006e006c000a006c0069006e006500200078003d0031003b0079003d0024007a"
+    }
+   },
+   {
+    "id": "run.argv_lone_surrogate",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded (Windows analog of K8, not gated by the contract): an argument holding an unpaired UTF-16 surrogate (U+D800) reaches the child unchanged",
+    "observed": {
+     "ok": true,
+     "mismatched_indexes": [],
+     "control_ok": true,
+     "heimdall_exit": 0,
+     "child_argv1_u16": "006c006f006e0065d8000073007500720072006f0067006100740065"
+    }
+   },
+   {
+    "id": "run.exit_code.0",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (0 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 0,
+     "heimdall_exit_u32": 0,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 0,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.1",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (1 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 1,
+     "heimdall_exit_u32": 1,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 1,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.2",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (2 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 2,
+     "heimdall_exit_u32": 2,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 2,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.7",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (7 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 7,
+     "heimdall_exit_u32": 7,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 7,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.42",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (42 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 42,
+     "heimdall_exit_u32": 42,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 42,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.127",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (127 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 127,
+     "heimdall_exit_u32": 127,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 127,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.128",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (128 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 128,
+     "heimdall_exit_u32": 128,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 128,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.255",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (255 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null",
+    "observed": {
+     "child_code_u32": 255,
+     "heimdall_exit_u32": 255,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 255,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.256",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (256 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
+    "observed": {
+     "child_code_u32": 256,
+     "heimdall_exit_u32": 256,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 256,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.1000",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (1000 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
+    "observed": {
+     "child_code_u32": 1000,
+     "heimdall_exit_u32": 1000,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 1000,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.65536",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (65536 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
+    "observed": {
+     "child_code_u32": 65536,
+     "heimdall_exit_u32": 65536,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": 65536,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.-1",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (4294967295 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
+    "observed": {
+     "child_code_u32": 4294967295,
+     "heimdall_exit_u32": 4294967295,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": -1,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.exit_code.-1073741510",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "section 4/K5: heimdall-proto exits with the child's code (3221225786 as uint32); --meta-file CHILD_EXITED, state succeeded, launched true, exit_code equal (as uint32), signal null; codes outside 0..255 are recorded (the contract does not name them)",
+    "observed": {
+     "child_code_u32": 3221225786,
+     "heimdall_exit_u32": 3221225786,
+     "meta": {
+      "code": "CHILD_EXITED",
+      "state": "succeeded",
+      "launched": true,
+      "exit_code": -1073741510,
+      "signal": null,
+      "schema_valid": true
+     }
+    }
+   },
+   {
+    "id": "run.launch_failure_not_found",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4/K5: not found -> exit 127, stderr message, stdout empty, meta CHILD_LAUNCH_FAILED state failed launched false exit_code null",
+    "observed": {
+     "exit": 127,
+     "stderr": "heimdall-proto: cannot launch command: NotFound\n",
+     "meta": {
+      "schema_version": "1",
+      "state": "failed",
+      "code": "CHILD_LAUNCH_FAILED",
+      "data": {
+       "launched": false,
+       "exit_code": null,
+       "signal": null
+      },
+      "warnings": [],
+      "next": null
+     },
+     "meta_schema_valid": true
+    }
+   },
+   {
+    "id": "run.launch_failure_not_executable",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: a .txt file as argv[0] -> exit 127",
+    "observed": {
+     "exit": 127,
+     "stderr": "heimdall-proto: cannot launch command: Uncategorized\n"
+    }
+   },
+   {
+    "id": "run.usage_missing_separator",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: missing -- -> exit 2, stdout empty",
+    "observed": {
+     "exit": 2,
+     "stderr": "heimdall-proto: run requires -- before the command\nusage:\n  heimdall-proto profile show --file <path> [--json]\n  heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]\n  heimdall-proto run [--meta-file <path>] -- <argv...>\n  heimdall-proto tui --file <path>\n  heimdall-proto version [--json]\n"
+    }
+   },
+   {
+    "id": "run.usage_empty_argv",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: empty argv -> exit 2, stdout empty",
+    "observed": {
+     "exit": 2,
+     "stderr": "heimdall-proto: run requires a command after --\nusage:\n  heimdall-proto profile show --file <path> [--json]\n  heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]\n  heimdall-proto run [--meta-file <path>] -- <argv...>\n  heimdall-proto tui --file <path>\n  heimdall-proto version [--json]\n"
+    }
+   },
+   {
+    "id": "run.stdout_binary_passthrough",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: child stdout bytes (NUL, CR/LF, 0x1A, ESC, invalid UTF-8) arrive unmodified",
+    "observed": {
+     "expected_hex": "00fffe0d0a1a1b5b33316dc3280a0d800041",
+     "got_hex": "00fffe0d0a1a1b5b33316dc3280a0d800041",
+     "exit": 0
+    }
+   },
+   {
+    "id": "run.stdin_binary_passthrough",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: 70,000 stdin bytes (every byte value incl. NUL and 0x1A) reach the child unmodified",
+    "observed": {
+     "sent": 70000,
+     "received": 70000,
+     "same": true,
+     "exit": 0
+    }
+   },
+   {
+    "id": "run.env_inherited",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: the child inherits the environment (a variable set for heimdall-proto is seen by the child)",
+    "observed": {
+     "seen": true
+    }
+   },
+   {
+    "id": "run.cwd_inherited",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4: the child inherits the working directory (a directory name with a space and U+00E9)",
+    "observed": {
+     "child_cwd": "<scratch>\\scratch\\cwd é x1",
+     "expected": "<scratch>\\scratch\\cwd é x1"
+    }
+   },
+   {
+    "id": "run.cmd_metachar_argument",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded (BatBadBut class; section 4 forbids shell invocation but a .cmd target implies cmd.exe): argument \"a&echo INJECTED_X1\" to a .cmd whose path has a space must not run a second command",
+    "observed": {
+     "exit": 0,
+     "injected": false,
+     "cmd_script_ran": true,
+     "script_saw_args": [
+      "ARGS:\"a&echo INJECTED_X1\""
+     ],
+     "stderr_lines": 0,
+     "stderr_says_not_recognized": 0,
+     "cmd_autorun_configured": true
+    }
+   },
+   {
+    "id": "run.cmd_metachar_argument_nospace_path",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded (BatBadBut class; section 4 forbids shell invocation but a .cmd target implies cmd.exe): argument \"a&echo INJECTED_X1\" to a .cmd whose path has no space must not run a second command",
+    "observed": {
+     "exit": 0,
+     "injected": false,
+     "cmd_script_ran": true,
+     "script_saw_args": [
+      "ARGS:\"a&echo INJECTED_X1\""
+     ],
+     "stderr_lines": 0,
+     "stderr_says_not_recognized": 0,
+     "cmd_autorun_configured": true
+    }
+   },
+   {
+    "id": "run.batch_control",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "harness control for the section 9.6 batch rows (cmd.exe /d /c, no heimdall-proto): the UCRT decoder passes its unit cases; a correctly quoted argument with a space, and a literal %HMX1BATVAR% (^% escaped), reach argvdump exactly through the forwarding batch; an unquoted \"&break>file\" is detected as an injection",
+    "observed": {
+     "ucrt_decoder_cases": {
+      "x \"a\"\"b c\"": true,
+      "x a\\\\\\\"b": true,
+      "x \"a\\\\\" b": true,
+      "x \"\" y": true,
+      "x a\"b c\"d": true,
+      "\"C:\\p q\\x.exe\" \"z\"": true
+     },
+     "forwarding": {
+      "outcome": "received_exactly",
+      "exit": 0,
+      "child_ran": true,
+      "files_created": [],
+      "decoded_exactly_by": [
+       "CommandLineToArgvW",
+       "UCRT"
+      ],
+      "stderr_bytes": 0
+     },
+     "forwarding_percent": {
+      "outcome": "received_exactly",
+      "exit": 0,
+      "child_ran": true,
+      "files_created": [],
+      "decoded_exactly_by": [
+       "CommandLineToArgvW",
+       "UCRT"
+      ],
+      "stderr_bytes": 0
+     },
+     "detector": {
+      "outcome": "INJECTED",
+      "exit": 0,
+      "child_ran": true,
+      "files_created": [
+       "hmx1inj1.txt"
+      ],
+      "decoded_exactly_by": [],
+      "stderr_bytes": 0,
+      "want_u16": "006100260062007200650061006b003e0068006d007800310069006e006a0031002e007400780074",
+      "got_u16_commandlinetoargvw": [
+       "0061"
+      ],
+      "got_u16_ucrt": [
+       "0061"
+      ]
+     },
+     "recorded_plain_via_cmd_without_d": {
+      "outcome": "received_exactly",
+      "exit": 1,
+      "stderr_bytes": 94,
+      "cmd_autorun_configured": true
+     }
+    }
+   },
+   {
+    "id": "run.batch_target.cmd_space_path",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 9.6 (section 4 \"without a shell\" covers batch files): run -- <.cmd file, full path with a space> <one argument>, for each of 16 arguments (plain, a space, & | > < ^ %VAR% and \" forms): no argument byte runs as a command (no file appears), and either the launch is refused (exit 127, stderr message, child never ran) or the child receives the exact argument (the exit code is recorded, not gated here: run.exit_code.* gate it, and a cmd.exe started without /d also runs the user's AutoRun first); requires run.batch_control",
+    "observed": {
+     "path_has_space": true,
+     "cases": {
+      "plain": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "space": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "pipe": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "gt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret_caret_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var_inner": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "backslash_quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quoted_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      }
+     }
+    }
+   },
+   {
+    "id": "run.batch_target.bat_space_path",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 9.6 (section 4 \"without a shell\" covers batch files): run -- <.bat file, full path with a space> <one argument>, for each of 16 arguments (plain, a space, & | > < ^ %VAR% and \" forms): no argument byte runs as a command (no file appears), and either the launch is refused (exit 127, stderr message, child never ran) or the child receives the exact argument (the exit code is recorded, not gated here: run.exit_code.* gate it, and a cmd.exe started without /d also runs the user's AutoRun first); requires run.batch_control",
+    "observed": {
+     "path_has_space": true,
+     "cases": {
+      "plain": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "space": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "pipe": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "gt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret_caret_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var_inner": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "backslash_quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quoted_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      }
+     }
+    }
+   },
+   {
+    "id": "run.batch_target.cmd_nospace_path",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 9.6 (section 4 \"without a shell\" covers batch files): run -- <.cmd file, full path without a space> <one argument>, for each of 16 arguments (plain, a space, & | > < ^ %VAR% and \" forms): no argument byte runs as a command (no file appears), and either the launch is refused (exit 127, stderr message, child never ran) or the child receives the exact argument (the exit code is recorded, not gated here: run.exit_code.* gate it, and a cmd.exe started without /d also runs the user's AutoRun first); requires run.batch_control",
+    "observed": {
+     "path_has_space": false,
+     "cases": {
+      "plain": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "space": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "pipe": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "gt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret_caret_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var_inner": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "backslash_quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quoted_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      }
+     }
+    }
+   },
+   {
+    "id": "run.batch_target.bat_nospace_path",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 9.6 (section 4 \"without a shell\" covers batch files): run -- <.bat file, full path without a space> <one argument>, for each of 16 arguments (plain, a space, & | > < ^ %VAR% and \" forms): no argument byte runs as a command (no file appears), and either the launch is refused (exit 127, stderr message, child never ran) or the child receives the exact argument (the exit code is recorded, not gated here: run.exit_code.* gate it, and a cmd.exe started without /d also runs the user's AutoRun first); requires run.batch_control",
+    "observed": {
+     "path_has_space": false,
+     "cases": {
+      "plain": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "space": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "pipe": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "gt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "lt_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "caret_caret_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "percent_var_inner": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quote_amp_spaced": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "backslash_quote_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      },
+      "quoted_amp": {
+       "outcome": "received_exactly",
+       "exit": 0,
+       "child_ran": true,
+       "files_created": [],
+       "decoded_exactly_by": [
+        "CommandLineToArgvW",
+        "UCRT"
+       ],
+       "stderr_bytes": 0
+      }
+     }
+    }
+   },
+   {
+    "id": "resolution.path_only",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4 PATH lookup: name (no extension) only on PATH -> the PATH copy runs",
+    "observed": {
+     "ran": "path_dir",
+     "exit": 0,
+     "stdout_bytes": 0,
+     "stderr": ""
+    }
+   },
+   {
+    "id": "resolution.app_dir_vs_path",
+    "verdict": "info",
+    "gating": false,
+    "criterion": "recorded (section 9.4 noted the Windows search order from code review only): same name in heimdall-proto's own directory and on PATH; which runs",
+    "observed": {
+     "ran": "app_dir",
+     "exit": 0,
+     "stdout_bytes": 0,
+     "stderr": ""
+    }
+   },
+   {
+    "id": "resolution.cwd_vs_path",
+    "verdict": "info",
+    "gating": false,
+    "criterion": "recorded: same name in the current directory and on PATH (different files); which runs (CreateProcess would take the current directory)",
+    "observed": {
+     "ran": "path_dir",
+     "exit": 0,
+     "stdout_bytes": 0,
+     "stderr": ""
+    }
+   },
+   {
+    "id": "resolution.cwd_only",
+    "verdict": "info",
+    "gating": false,
+    "criterion": "recorded: name only in the current directory (not on PATH); whether it runs (Go: ErrDot policy; K7 allows refusing)",
+    "observed": {
+     "cwd_copy_ran": false,
+     "exit": 127,
+     "stderr": "heimdall-proto: cannot launch command: NotFound\n"
+    }
+   },
+   {
+    "id": "resolution.pathext_cmd",
+    "verdict": "info",
+    "gating": false,
+    "criterion": "recorded: `run -- hmx1cmd` where only hmx1cmd.cmd exists on PATH (PATHEXT resolution, implies cmd.exe; stderr not stored, AutoRun output possible)",
+    "observed": {
+     "exit": 127,
+     "cmd_ran": false,
+     "stderr_lines": 1
+    }
+   },
+   {
+    "id": "resolution.system32_vs_earlier_path",
+    "verdict": "info",
+    "gating": false,
+    "criterion": "recorded: `run -- hostname` with a PATH directory holding hostname.exe placed BEFORE System32; which runs (stdout of the system hostname.exe is not stored)",
+    "observed": {
+     "ran": "not the PATH copy (System32 or other)",
+     "exit": 0
+    }
+   },
+   {
+    "id": "ctrlc.run_event",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4 (Windows: console Ctrl-C, GenerateConsoleCtrlEvent from another process attached to the console): the child receives exactly one interrupt, heimdall-proto does not exit first (alive 600 ms later while the child waits 1.5 s) and exits with the child's code 42",
+    "observed": {
+     "child_ready": true,
+     "sender": "ok 639268698392313871",
+     "heimdall_alive_600ms_after": true,
+     "child_interrupts": 1,
+     "heimdall_exit": 42,
+     "heimdall_exit_ms_after_event": 1505,
+     "killed_by_harness": false
+    }
+   },
+   {
+    "id": "ctrlc.run_keystroke",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 4 (Windows: console Ctrl-C, ^C typed into the console input): the child receives exactly one interrupt, heimdall-proto does not exit first (alive 600 ms later while the child waits 1.5 s) and exits with the child's code 42",
+    "observed": {
+     "child_ready": true,
+     "sender": "typed ^C into the pseudoconsole input",
+     "heimdall_alive_600ms_after": true,
+     "child_interrupts": 1,
+     "heimdall_exit": 42,
+     "heimdall_exit_ms_after_event": 1505,
+     "killed_by_harness": false
+    }
+   },
+   {
+    "id": "ctrlc.run_break_event",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded: CTRL_BREAK_EVENT on the console of `run`: child sees it once, heimdall-proto still running 600 ms later and exits with the child's 42",
+    "observed": {
+     "child_ready": true,
+     "sender": "ok 639268698434257496",
+     "heimdall_alive_600ms_after": true,
+     "child_interrupts": 1,
+     "heimdall_exit": 42,
+     "heimdall_exit_ms_after_event": 1504,
+     "killed_by_harness": false
+    }
+   },
+   {
+    "id": "ctrlc.agent_list_event",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 3: console Ctrl-C (event) while waiting for the agent -> exit 130, {\"state\":\"cancelled\",\"code\":\"CANCELLED\"} on stdout, within 500 ms",
+    "observed": {
+     "connected": true,
+     "sender": "ok 639268698461210545",
+     "exit": 130,
+     "exit_ms_after_event": 16,
+     "json_state": "cancelled",
+     "json_code": "CANCELLED",
+     "killed_by_harness": false,
+     "stdout_source": "file (STARTF_USESTDHANDLES)"
+    }
+   },
+   {
+    "id": "ctrlc.agent_list_keystroke",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 3: console Ctrl-C (keystroke) while waiting for the agent -> exit 130, {\"state\":\"cancelled\",\"code\":\"CANCELLED\"} on stdout, within 500 ms",
+    "observed": {
+     "connected": true,
+     "sender": "typed ^C",
+     "exit": 130,
+     "exit_ms_after_event": 17,
+     "json_state": "cancelled",
+     "json_code": "CANCELLED",
+     "killed_by_harness": false,
+     "stdout_source": "pseudoconsole output, VT stripped"
+    }
+   },
+   {
+    "id": "tui.no_tty_usage_error",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: stdin/stdout are pipes (no console) -> exit 2, stdout empty",
+    "observed": {
+     "exit": 2,
+     "stderr": "heimdall-proto: USAGE_ERROR: tui requires a terminal on stdin and stdout\n",
+     "timed_out": false
+    }
+   },
+   {
+    "id": "tui.navigate_filter_select",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5 on an 80x24 pseudoconsole (screen model): rows \"alias  account@host:port\", \"> \" marks the selection, n/total status; j/k/Down move; / with non-ASCII input filters to 1/3 with the selection on the first shown row (K9); Esc clears (3/3); case-insensitive filter NAS -> 1/3; Enter keeps the filter; Enter selects -> \"SELECTED nas\", exit 0, alternate screen left and cursor shown",
+    "observed": {
+     "first_frame": true,
+     "first_frame_ms": 38,
+     "alt_screen_entered": true,
+     "j_moves_to_nas": true,
+     "k_moves_back": true,
+     "down_arrow_moves": true,
+     "unicode_filter_1_of_3": true,
+     "unicode_filter_ms": 15,
+     "esc_clears_filter_selection_first": true,
+     "filter_case_insensitive_1_of_3": true,
+     "enter_keeps_filter": true,
+     "exit": 0,
+     "selected": [
+      "nas"
+     ],
+     "terminal_restored": true,
+     "alt_enter_leave": [
+      1,
+      1
+     ]
+    }
+   },
+   {
+    "id": "tui.named_pipe_as_file",
+    "verdict": "fail",
+    "gating": true,
+    "criterion": "K14 / section 9.6 (tests/g02 tui.non_regular_file): tui --file naming a named pipe (\\\\.\\pipe\\..., a server that never answers) on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active",
+    "observed": {
+     "exit": null,
+     "ms_from_start": null,
+     "killed_by_harness": true,
+     "pipe_connects": 1,
+     "pipe_connects_final": true,
+     "alt_screen_active_after": false
+    }
+   },
+   {
+    "id": "tui.nul_device_as_file",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K14 / section 9.6 (tests/g02 tui.non_regular_file): tui --file NUL on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active",
+    "observed": {
+     "exit": 2,
+     "ms_from_start": 22,
+     "killed_by_harness": false,
+     "pipe_connects": null,
+     "pipe_connects_final": null,
+     "alt_screen_active_after": false
+    }
+   },
+   {
+    "id": "tui.directory_as_file",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "K14 / section 9.6 (tests/g02 tui.non_regular_file): tui --file naming a directory on a pseudoconsole -> exit 2 within 2 s, never blocking, alternate screen not left active",
+    "observed": {
+     "exit": 2,
+     "ms_from_start": 22,
+     "killed_by_harness": false,
+     "pipe_connects": null,
+     "pipe_connects_final": null,
+     "alt_screen_active_after": false
+    }
+   },
+   {
+    "id": "tui.quit",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: q -> exit 0, no SELECTED, terminal restored",
+    "observed": {
+     "started": true,
+     "exit": 0,
+     "restored": true
+    }
+   },
+   {
+    "id": "tui.ctrl_c_key",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: ^C typed into the console -> exit 130, no SELECTED, terminal restored",
+    "observed": {
+     "started": true,
+     "exit": 130,
+     "restored": true
+    }
+   },
+   {
+    "id": "tui.ctrl_c_key_in_filter_mode",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: ^C typed into the console while typing a filter -> exit 130, no SELECTED, terminal restored",
+    "observed": {
+     "started": true,
+     "exit": 130,
+     "restored": true
+    }
+   },
+   {
+    "id": "tui.ctrl_c_event",
+    "verdict": "fail",
+    "gating": false,
+    "criterion": "recorded (Windows analog of an explicit SIGINT; tests/g02 gates the Ctrl-C key only): CTRL_C_EVENT raised on the TUI console by another process -> exit 130 with the terminal restored",
+    "observed": {
+     "started": true,
+     "sender": "ok 639268698622305621",
+     "exit": 3221225786,
+     "restored": false,
+     "alt_screen_still_active": true,
+     "killed_by_harness": false
+    }
+   },
+   {
+    "id": "tui.resize",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: console resize to 40x12 re-lays out (alias only), 20x5 does not crash, back to 80x24 shows account@host:port; q exits 0, terminal restored",
+    "observed": {
+     "wide_frame": true,
+     "resize_hresults": [
+      0,
+      0,
+      0
+     ],
+     "narrow_alias_only": true,
+     "narrow_ms": 14,
+     "alive_after_20x5": true,
+     "wide_again": true,
+     "exit": 0,
+     "restored": true
+    }
+   },
+   {
+    "id": "tui.resize_latency",
+    "verdict": "pass",
+    "gating": false,
+    "criterion": "recorded: narrow layout on the screen model within 100 ms of ResizePseudoConsole (includes conhost re-rendering and 3 ms polling)",
+    "observed": {
+     "ms": 14
+    }
+   },
+   {
+    "id": "tui.no_color",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: NO_COLOR=1 -> no color SGR in the pseudoconsole output (conhost re-encodes what the application drew); selection still marked by \"> \"",
+    "observed": {
+     "started": true,
+     "color_sgr_found": [],
+     "exit": 0
+    }
+   },
+   {
+    "id": "tui.large_100",
+    "verdict": "pass",
+    "gating": true,
+    "criterion": "section 5: 100-destination fixture shows 100/100; a filter matching nothing shows 0/100; q exits 0",
+    "observed": {
+     "started": true,
+     "first_frame_ms": 31,
+     "filter_0_of_100": true,
+     "filter_ms": 15,
+     "exit": 0
+    }
+   }
+  ],
+  "interpretations": [
+   "Gating follows docs/g02/slice-contract.md section 9.6 (2026-10-06), identically for both candidates: K14 covers a named pipe and any other non-regular path as --file for profile show and tui (exit 2 within 2 s; the tui rows also require the alternate screen not to be left active, as tests/g02 tui.non_regular_file does); agent list --socket must refuse a regular file, a directory and a non-existent path without modifying anything, with exit 5 AGENT_UNAVAILABLE or exit 2 USAGE_ERROR; a .bat/.cmd target must not run any argument byte as a command, with or without a space in its path.",
+   "Batch-file rows: the child is a batch file that forwards %* to argvdump.exe. 'Received exactly' means the forwarded argument decodes to the original UTF-16 code units under CommandLineToArgvW or under the UCRT (msvcrt 2008+) rules; cmd.exe has no single unescaping rule for embedded quotes, so both standard decodings are accepted. 'Refused' means exit 127, a stderr message and the child never ran. Injection is detected by files the injected `break>file` commands create. The control row run.batch_control shows the forwarding batch delivers a quoted argument and a literal %VAR% exactly, and that the detector sees an injection.",
+   "tui.ctrl_c_event (CTRL_C_EVENT raised by another process) stays recorded, not gated (section 9.6 'recorded, not gated'). Resolution-order rows stay info.",
+   "Review fixes applied to the script (x1-review): every parsed JSON result and every --meta-file document is validated against schemas/g02/result.schema.json; K18 value non-echo is checked for all six invalid fixtures on stdout and stderr of the --json and the plain run; pipe_connects is read after the stall-pipe helper has stopped (final count); the canary-scan criterion states exactly what is scanned (Invoke-X1 now scans every captured stream)."
+  ],
+  "previous_record": {
+   "path": "tests/evidence/artifacts/g02-r4/x1/prev-records/g02-rust-x1-windows.pre-9.6.json",
+   "verdict": "fail",
+   "summary": {
+    "rows": 81,
+    "gating": 63,
+    "gating_pass": 60,
+    "gating_not_pass": [
+     "profile.named_pipe_as_file",
+     "agent.regular_file_not_modified",
+     "tui.named_pipe_as_file"
+    ]
+   },
+   "relation": "same frozen artifact; the script now gates section 9.6 (8 new gating rows per candidate: run.batch_control, 4 run.batch_target.*, agent.directory_as_socket_refused, agent.nonexistent_path_as_socket_refused, tui.directory_as_file) and applies the x1-review fixes"
+  }
+ },
+ "evidence_paths": [
+  "tests/evidence/artifacts/g02-r4/x1/RESULTS.md",
+  "tests/evidence/artifacts/g02-r4/x1/windows-96/s96-ps51-a",
+  "tests/evidence/artifacts/g02-r4/x1/windows-96/s96-ps7-a",
+  "tests/evidence/artifacts/g02-r4/x1/windows-96/s96-ps51-b",
+  "tests/evidence/artifacts/g02-r4/x1/windows-96/staged-root.sha256",
+  "tests/evidence/artifacts/g02-r4/x1/windows-96/winrun.sh",
+  "tests/native/windows-g02",
+  "tests/evidence/artifacts/g02-r4/x1/prev-records/g02-rust-x1-windows.pre-9.6.json"
+ ],
+ "limitations": [
+  "One host: the owner's Windows 11 Pro 26300 x64 PC, non-elevated user. Three full runs (Windows PowerShell 5.1 twice, PowerShell 7.6.6 once) gave identical verdicts for every row; timing values differ between runs.",
+  "Console coverage is pseudoconsole only (CreatePseudoConsole driven by P/Invoke, judged on a small VT screen model; harness.screen_model_unit covers the model). A classic conhost window, Windows Terminal and the legacy console were not exercised; no window was created on the owner's desktop.",
+  "Console Ctrl-C was delivered two ways: GenerateConsoleCtrlEvent from a separate process attached to the console (Send-ConsoleCtrl.ps1; harness.ctrlc_control_direct proves delivery to a plain child) and ^C typed into the console input. CTRL_BREAK is recorded only. CTRL_CLOSE/LOGOFF/SHUTDOWN events were not tested.",
+  "Timing: process exit times are the kernel exit time (GetProcessTimes) compared with the sender's timestamp taken just before GenerateConsoleCtrlEvent (same clock); TUI waits poll the screen every ~3 ms.",
+  "Not covered: a second Windows account (pipe DACL from another user), remote (SMB) pipe clients, interop with the real Win32-OpenSSH ssh-agent (the owner's agent must not be contacted; the fixture agent stands in), ARM64 Windows, paths longer than MAX_PATH, UNC working directories, console code pages other than the default, SmartScreen/Mark-of-the-Web (files were copied through WSL and carry no Zone.Identifier), Defender behaviour, launching the .exe from WSL through interop.",
+  "The artifacts ran with PATH reduced to %SystemRoot%\\System32 and its WindowsPowerShell directory (%SystemRoot% itself is left out because the Python launcher py.exe lives there on this host); env.no_toolchain_on_path found no Go, Rust, C, Node, Bun, Deno, Python, zig or git.",
+  "Resolution-order rows, the lone-surrogate row and the X1 .cmd rows run.cmd_metachar_argument(_nospace_path) are recorded observations (info or non-gating), not contract verdicts; batch-file behaviour is gated by the section 9.6 rows run.batch_target.*.",
+  "Orchestrator 2026-10-06 (x1-review): the agent.client_identifiable_by_server row is non-gating and tests only ImpersonateNamedPipeClient. Win32-OpenSSH's ssh-agent identifies clients by process token instead, and the reviewer's server-side probe identified both clients that way. The Anonymous level matters only to servers that use pipe impersonation.",
+  "The section 9.6 script changes have not had an independent review. Two development runs on the host preceded the three evidence runs; they exposed two harness defects that were fixed before the evidence runs: subdirectory mtimes read through the parent's enumeration change by themselves on NTFS (now read per path against a baseline stable for 200 ms), and the batch rows required exit 0 for an exact delivery (dropped: section 9.6 does not ask for it, and cmd.exe AutoRun on this host makes it exit 1).",
+  "Batch-file coverage: 16 arguments, .bat and .cmd, one path with and one without a space, under the owner's cmd.exe configuration (AutoRun configured; DelayedExpansion state not inspected; `!` arguments not tested). Arguments containing newlines, NUL, or non-ASCII were not tested as batch arguments. The batch file is resolved by full path; PATHEXT resolution of a bare name stays the info row resolution.pathext_cmd.",
+  "K14 named-pipe rows use a server that accepts and never answers; a pipe server that sends a valid profile and closes was not tested.",
+  "PowerShell 7 ConvertFrom-Json turns ISO-8601 strings into DateTime; the schema port treats DateTime as a string (no G02 result field holds such a string)."
+ ]
 }

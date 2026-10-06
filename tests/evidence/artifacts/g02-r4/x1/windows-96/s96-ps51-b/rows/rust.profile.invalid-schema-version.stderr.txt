@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: unsupported schema_version; this prototype supports only 1

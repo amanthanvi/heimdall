@@ -304,3 +304,95 @@ The WSL scratch `~/hm-m00/M00-T05-x1-g02-native` and the Windows scratch `%LOCAL
 - Windows result checks do not validate against `schemas/g02/result.schema.json`, and K18 is checked only
   for the invalid-port case. Both gaps apply equally to both candidates.
 - Rust's `fail` rests on rows the orchestrator ruled on in `docs/g02/slice-contract.md` §9.6.
+
+## §9.6 baseline (2026-10-06, task `M00-T05-x1b-script`)
+
+The script now gates `docs/g02/slice-contract.md` §9.6, identically for both candidates, and applies the
+cheap review fixes. It was re-run on the same host against the same frozen windows-x64 artifacts
+(SHA-256 checked against `dist/manifest.json`; nothing rebuilt). Runs, staging hashes and the wrapper are in
+`windows-96/`; the commands and exit codes are in `windows-96/commands.txt`. The previous records are kept
+in `prev-records/`.
+
+| Run | Shell | Exit | Rows |
+|---|---|---|---|
+| `s96-ps51-a` | Windows PowerShell 5.1.26100.9549 | 1 | 183 |
+| `s96-ps7-a` | PowerShell 7.6.6 | 1 | 183 |
+| `s96-ps51-b` | Windows PowerShell 5.1.26100.9549 | 1 | 183 |
+
+Verdicts are identical across the three runs for all 183 rows. Host rows (`env.no_toolchain_on_path`,
+`harness.screen_model_unit`, `harness.ctrlc_control_direct`, `harness.canary_scan`) pass in all three.
+
+| | go | rust |
+|---|---|---|
+| Gating rows | **67/71**, verdict **fail** | **68/71**, verdict **fail** |
+| Failing gating rows | `run.batch_target.cmd_space_path`, `run.batch_target.bat_space_path`, `run.batch_target.cmd_nospace_path`, `run.batch_target.bat_nospace_path` | `profile.named_pipe_as_file`, `tui.named_pipe_as_file`, `agent.regular_file_not_modified` |
+| Previous record (pre-§9.6 script) | 63/63, pass | 60/63, fail (same three rows) |
+
+### What changed in the script
+
+| §9.6 / review item | Rows |
+|---|---|
+| K14: a named pipe or any non-regular path as `--file` → exit 2 within 2 s (`profile show` with `USAGE_ERROR`; `tui` with the alternate screen not left active, as in tests/g02) | `profile.named_pipe_as_file`, `profile.directory`, `profile.nul_device`, `tui.named_pipe_as_file`, `tui.nul_device_as_file`, new `tui.directory_as_file` |
+| `agent list --socket` on a regular file, a directory, a non-existent path: refused without modification (file hash and mtime; directory mtime plus every entry's name, mtime, size, hash; non-existent path not created and its parent unchanged), exit 5 `AGENT_UNAVAILABLE` or exit 2 `USAGE_ERROR` | `agent.regular_file_not_modified` (now also requires the refusal result), new `agent.directory_as_socket_refused`, new `agent.nonexistent_path_as_socket_refused` |
+| `.bat`/`.cmd` targets: no argument byte run as a command, path with and without a space; refusal (127 + stderr, child never ran) or exact delivery both pass | new `run.batch_control` (harness control) and `run.batch_target.{cmd,bat}_{space,nospace}_path`, 16 arguments each: plain, a space, `&` (two forms), `|`, `>`, `<`, `<`+`&`, `^`, `^^&`, `%VAR%` (two forms), `"` (four forms) |
+| Review: schema validation | every parsed JSON result and every `--meta-file` document must validate against `schemas/g02/result.schema.json` (PowerShell port of `tests/g02/minischema.py`, fails closed on unknown keywords) |
+| Review: K18 for all invalid fixtures | each fixture's offending value, read from the fixture at run time, must be absent from stdout and stderr of the `--json` and the plain run (schema_version fixture: other-key value gated in the JSON result, recorded on stderr, as tests/g02 Q11) |
+| Review: canary scan | `Invoke-X1` now scans every captured stream; the criterion lists exactly what is and is not scanned |
+| Review: racy `pipe_connects` | `StallPipe.ps1` takes a stop file; the count is read after the helper has exited (`pipe_connects_final: true` in every run) |
+
+Unchanged rows keep their ids and criteria. The X1 `.cmd` rows `run.cmd_metachar_argument(_nospace_path)`
+stay non-gating.
+
+### How the batch rows decide
+
+- **Child.** The batch file forwards `%*` to `argvdump.exe` next to it.
+- **Exact delivery.** The forwarded argument decodes to the original UTF-16 code units under
+  CommandLineToArgvW **or** under the UCRT (msvcrt 2008+) rules. cmd.exe has no single unescaping rule for
+  embedded quotes, so both standard decodings are accepted. This is an interpretation of "the child received
+  the exact bytes"; it applies to both candidates.
+- **Injection.** Every injected command is `break>hmx1injN.txt`. Any file appearing in the per-run working
+  directory, or next to the batch file, counts as an injection.
+- **Exit code.** Recorded, not gated: §9.6 does not ask for it, and `run.exit_code.*` gate exit codes.
+- **Control.** `run.batch_control` passes for both candidates in all runs. It shows that `cmd.exe /d /c`
+  delivers a quoted argument and a literal `%HMX1BATVAR%` exactly through the forwarding batch, and that an
+  unquoted `&break>file` is detected.
+
+### Findings
+
+| Item | go | rust |
+|---|---|---|
+| Named pipe as `profile show --file` / `tui --file` | pass: exit 2 in 21–25 ms over the three runs; opened the pipe once (final count) | **FAIL**: no exit within 10 s, killed; opened the pipe once (final count) |
+| Directory as `tui --file` (new) | pass, exit 2 in 23–27 ms | pass, exit 2 in 21–24 ms |
+| Regular file as `--socket` | pass: exit 5 `AGENT_UNAVAILABLE`, file unchanged | **FAIL**: first 5 bytes became `00 00 00 01 0b`, mtime changed; exit 5 `AGENT_PROTOCOL_ERROR` (also not an allowed refusal code) |
+| Directory / non-existent path as `--socket` (new) | pass: exit 5 `AGENT_UNAVAILABLE`, nothing modified or created | pass: same |
+| `.bat`/`.cmd`, path without a space | **FAIL**: 6/16 exact; 8 inject (`&`, `|`, `>`, `<`+`&`, `^^&`, both `%VAR%` forms, `a" & …`); `a<file` and `a^b` arrive changed | pass: 16/16 exact |
+| `.bat`/`.cmd`, path with a space | **FAIL**: 1/16 exact (`plain`); 8 inject; 5 never start the batch file (cmd.exe splits the path; exit 1, not a 127 refusal); 2 arrive changed | pass: 16/16 exact |
+| Exit code of batch runs (recorded) | 1 in every case. `cmd.exe /c` without `/d` also exits 1 on this host (AutoRun configured, 94 stderr bytes), so this is attributed to AutoRun: CreateProcess starts `.bat`/`.cmd` without `/d` | 0 in every case (Rust starts cmd.exe with `/d`) |
+| `a" & break>…` | injects (both path forms) | exact under UCRT only: Rust doubles the quote (`"a"" & …"`), and CommandLineToArgvW splits it at the space |
+| JSON results vs `result.schema.json` | all valid | all valid. The only `schema_valid: false` is `profile.named_pipe_as_file`, which produced no output before it was killed |
+| K18, all six invalid fixtures | no offending value on stdout or stderr | same |
+
+The Go batch mechanism (CreateProcess on a `.bat`/`.cmd` runs `cmd.exe /c` over Go's
+CommandLineToArgvW-style quoting) is an inference from the outcomes and the Go source. It was not
+instrumented.
+
+### Limitations of this baseline
+
+- **No independent review yet.** The §9.6 script changes have not been independently reviewed.
+- **Two development runs** (`dev1`, `dev2`, not kept) came before the evidence runs. They exposed two harness
+  defects, both fixed before the evidence runs:
+  - a subdirectory's mtime read through its parent's enumeration changes by itself on NTFS. The script now
+    reads it per path, against a baseline that is stable for 200 ms;
+  - the batch rows required exit 0 for an exact delivery. That requirement was dropped (see above).
+- **Batch coverage.** Batch arguments with `!`, newlines, NUL or non-ASCII were not tested. Delayed
+  expansion was not inspected. Bare-name PATHEXT resolution remains the info row `resolution.pathext_cmd`.
+- **K14 pipe server.** The named-pipe server accepts and never answers. A server that sends a valid profile
+  and closes was not tested.
+- **PowerShell 7 dates.** PowerShell 7's ConvertFrom-Json turns ISO-8601 strings into DateTime, and the
+  schema port treats DateTime as a string. No G02 result field holds such a string.
+- **Earlier limitations still apply:** one host, pseudoconsoles only, no second account, no SMB peer, no
+  real Win32-OpenSSH agent.
+
+**Cleanup.** Both task scratch directories were removed. No heimdall-proto or argvdump process, and no
+process with the task scratch in its command line, was left running. The parent `hm-m00` directories were
+left as found.

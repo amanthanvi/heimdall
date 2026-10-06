@@ -1,0 +1,11 @@
+{"access":"OwnerOnly","ts":"2026-10-06T07:52:02.2536014Z","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-b1c2e677","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"event":"listening","keys":["SHA256:9QPVrVgoAUs7IfkPOE/D208xo9DaYi5sLTJS+LAfCq8","SHA256:Tv2GJVvd0wqIogAAaF1m+gShwiGZY/TWZ0wrP1LOtKg"]}
+{"client_image":"heimdall-proto","client_pid":71468,"ts":"2026-10-06T07:52:02.4629063Z","client_sid":"S-1-5-21-<redacted>-1001","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"event":"connect","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","conn":1}
+{"ts":"2026-10-06T07:52:02.4748363Z","msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"msg_type":11,"length":1,"conn":1,"event":"request"}
+{"ts":"2026-10-06T07:52:02.4753999Z","result":"identities:2","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"msg_type":11,"conn":1,"event":"response"}
+{"ts":"2026-10-06T07:52:02.4987551Z","pipe":"hm-x1-agent-rust-b1c2e677","event":"disconnect","agent_pid":51732,"conn":1}
+{"method":"disconnect","ts":"2026-10-06T07:52:02.5000384Z","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"event":"rearm","conn":1}
+{"client_image":"heimdall-proto","client_pid":37908,"ts":"2026-10-06T07:52:02.8443563Z","client_sid":"S-1-5-21-<redacted>-1001","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"event":"connect","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","conn":2}
+{"ts":"2026-10-06T07:52:02.8459239Z","msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"msg_type":11,"length":1,"conn":2,"event":"request"}
+{"ts":"2026-10-06T07:52:02.8464017Z","result":"identities:2","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"msg_type":11,"conn":2,"event":"response"}
+{"ts":"2026-10-06T07:52:02.8476767Z","pipe":"hm-x1-agent-rust-b1c2e677","event":"disconnect","agent_pid":51732,"conn":2}
+{"method":"disconnect","ts":"2026-10-06T07:52:02.8481121Z","pipe":"hm-x1-agent-rust-b1c2e677","agent_pid":51732,"event":"rearm","conn":2}

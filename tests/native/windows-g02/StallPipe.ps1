@@ -5,11 +5,16 @@
   \\.\pipe\<PipeName>, created with CreateNamedPipeW: protected DACL granting only the current user
   (D:P(A;;GA;;;<user SID>)), PIPE_REJECT_REMOTE_CLIENTS, FILE_FLAG_FIRST_PIPE_INSTANCE, up to 8 instances.
   Each accepted client is held open without a reply until it disconnects or RunSeconds elapse; a line
-  "connect <n> <utc ticks>" is appended to MarkerFile per connection (bytes read are counted, never logged).
-  Used for: agent list timeout, Ctrl-C while waiting, and a pipe given as profile --file (K14 analog).
+  "connect <n> <utc ticks>" is appended to MarkerFile per connection (nothing is read from clients).
+  A client that connected and closed before the accept was issued (ERROR_NO_DATA) is counted as
+  "connect-closed-before-accept <n> <utc ticks>".
+  StopFile (optional): when that file appears the helper stops accepting, waits up to 1 s for an accept that
+  has already completed in the kernel to surface, records it, and exits 0. A reader that creates StopFile
+  after its client process has exited and then waits for this process to exit gets a final count with no race.
+  Used for: agent list timeout, Ctrl-C while waiting, and a pipe given as profile/tui --file (K14, section 9.6).
 #>
 param([Parameter(Mandatory = $true)][string]$PipeName, [Parameter(Mandatory = $true)][string]$MarkerFile,
-      [int]$RunSeconds = 120, [string]$ReadyFile)
+      [int]$RunSeconds = 120, [string]$ReadyFile, [string]$StopFile)
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
@@ -48,16 +53,23 @@ function New-Instance {
     $safe = New-Object Microsoft.Win32.SafeHandles.SafePipeHandle($raw, $true)
     return New-Object System.IO.Pipes.NamedPipeServerStream([System.IO.Pipes.PipeDirection]::InOut, $true, $false, $safe)
 }
+# A faulted accept (ERROR_NO_DATA: the client connected and closed before ConnectNamedPipe) is a completed one.
+function Test-Accepted { param($W, [int]$Ms) try { return $W.Wait($Ms) } catch { return $true } }
 $srv = New-Instance
 if ($ReadyFile) { [System.IO.File]::WriteAllText($ReadyFile, "listening $PID`n") }
 while ([DateTime]::UtcNow -lt $deadline) {
     $w = $srv.WaitForConnectionAsync()
-    $ok = $false
-    while ([DateTime]::UtcNow -lt $deadline) { if ($w.Wait(200)) { $ok = $true; break } }
-    if (-not $ok) { break }
+    $done = $false; $stop = $false
+    while (-not $done -and [DateTime]::UtcNow -lt $deadline) {
+        $done = Test-Accepted $w 200
+        if (-not $done -and $StopFile -and (Test-Path -LiteralPath $StopFile)) { $stop = $true; $done = Test-Accepted $w 1000; break }
+    }
+    if (-not $done) { break }
     $n++
-    [System.IO.File]::AppendAllText($MarkerFile, ("connect {0} {1}`n" -f $n, [DateTime]::UtcNow.Ticks))
+    $kind = 'connect'; if ($w.IsFaulted) { $kind = 'connect-closed-before-accept' }
+    [System.IO.File]::AppendAllText($MarkerFile, ("{0} {1} {2}`n" -f $kind, $n, [DateTime]::UtcNow.Ticks))
     [void]$held.Add($srv)          # held open, never answered
+    if ($stop -or ($StopFile -and (Test-Path -LiteralPath $StopFile))) { break }
     $srv = New-Instance
 }
 foreach ($s in $held) { try { $s.Dispose() } catch { } }

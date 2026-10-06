@@ -1,0 +1,116 @@
+\e[?9001h\e[?1004h\e[?25l\e[>4m\e[2J\e[m\e[H\e]0;<scratch>\bin\go\heimdall-proto.exe\e[?25h\e[?1049h\e[?2004h\e[>4;2m\e[>1u\e[?u\e[2J\e[36m\e[1m> host-000-web  aman@h000.example.internal:2200\e[m\e[K
+  host-001-db  deploy@h001.example.internal:22\e[K
+  host-002-lab  root@h002.example.internal:22\e[K
+  host-003-ci  aman@h003.example.internal:2203\e[K
+  host-004-web  deploy@h004.example.internal:22\e[K
+  host-005-db  root@h005.example.internal:22\e[K
+  host-006-lab  aman@h006.example.internal:2206\e[K
+  host-007-ci  deploy@h007.example.internal:22\e[K
+  host-008-web  root@h008.example.internal:22\e[K
+  host-009-db  aman@h009.example.internal:2209\e[K
+  host-010-lab  deploy@h010.example.internal:22\e[K
+  host-011-ci  root@h011.example.internal:22\e[K
+  host-012-web  aman@h012.example.internal:2212\e[K
+  host-013-db  deploy@h013.example.internal:22\e[K
+  host-014-lab  root@h014.example.internal:22\e[K
+  host-015-ci  aman@h015.example.internal:2215\e[K
+  host-016-web  deploy@h016.example.internal:22\e[K
+  host-017-db  root@h017.example.internal:22\e[K
+  host-018-lab  aman@h018.example.internal:2218\e[K
+  host-019-ci  deploy@h019.example.internal:22\e[K
+  host-020-web  root@h020.example.internal:22\e[K
+  host-021-db  aman@h021.example.internal:2221\e[K
+  host-022-lab  deploy@h022.example.internal:22\e[K
+100/100\e[K\e[?25l\e[73C\e[2J\e[36m\e[1m\e[H> host-000-web  aman@h000.example.internal:2200\e[m\e[K
+  host-001-db  deploy@h001.example.internal:22\e[K
+  host-002-lab  root@h002.example.internal:22\e[K
+  host-003-ci  aman@h003.example.internal:2203\e[K
+  host-004-web  deploy@h004.example.internal:22\e[K
+  host-005-db  root@h005.example.internal:22\e[K
+  host-006-lab  aman@h006.example.internal:2206\e[K
+  host-007-ci  deploy@h007.example.internal:22\e[K
+  host-008-web  root@h008.example.internal:22\e[K
+  host-009-db  aman@h009.example.internal:2209\e[K
+  host-010-lab  deploy@h010.example.internal:22\e[K
+  host-011-ci  root@h011.example.internal:22\e[K
+  host-012-web  aman@h012.example.internal:2212\e[K
+  host-013-db  deploy@h013.example.internal:22\e[K
+  host-014-lab  root@h014.example.internal:22\e[K
+  host-015-ci  aman@h015.example.internal:2215\e[K
+  host-016-web  deploy@h016.example.internal:22\e[K
+  host-017-db  root@h017.example.internal:22\e[K
+  host-018-lab  aman@h018.example.internal:2218\e[K
+  host-019-ci  deploy@h019.example.internal:22\e[K
+  host-020-web  root@h020.example.internal:22\e[K
+  host-021-db  aman@h021.example.internal:2221\e[K
+  host-022-lab  deploy@h022.example.internal:22\e[K
+100/100\e[K\e[73C\e[H\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+0/100 /zzz-no-match\e[36m\e[1m\e[H> host-000-web  aman@h000.example.internal:2200\e[m
+  host-001-db  deploy@h001.example.internal:22
+  host-002-lab  root@h002.example.internal:22
+  host-003-ci  aman@h003.example.internal:2203
+  host-004-web  deploy@h004.example.internal:22
+  host-005-db  root@h005.example.internal:22
+  host-006-lab  aman@h006.example.internal:2206
+  host-007-ci  deploy@h007.example.internal:22
+  host-008-web  root@h008.example.internal:22
+  host-009-db  aman@h009.example.internal:2209
+  host-010-lab  deploy@h010.example.internal:22
+  host-011-ci  root@h011.example.internal:22
+  host-012-web  aman@h012.example.internal:2212
+  host-013-db  deploy@h013.example.internal:22
+  host-014-lab  root@h014.example.internal:22
+  host-015-ci  aman@h015.example.internal:2215
+  host-016-web  deploy@h016.example.internal:22
+  host-017-db  root@h017.example.internal:22
+  host-018-lab  aman@h018.example.internal:2218
+  host-019-ci  deploy@h019.example.internal:22
+  host-020-web  root@h020.example.internal:22
+  host-021-db  aman@h021.example.internal:2221
+  host-022-lab  deploy@h022.example.internal:22
+100/100\e[K\e[73C\e[>4m\e[<1u\e[?1049l\e[?2004l\e[H\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K\e[H\e[?25h

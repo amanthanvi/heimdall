@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T07:50:21.1021334Z","agent_pid":68324,"event":"listening","keys":["SHA256:J4USq5UFhU+lNoLIPhLczOK4VCwkaM9UAheeWVfVGa4","SHA256:ywfmoHwB4vuMgYgS/+/twcLiyx7qyxG2HnstxqzY0BQ"],"pipe":"hm-x1-agent-rust-5c720745","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-5c720745"}
+{"client_pid":75772,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T07:50:21.3858232Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T07:50:21.3997268Z","event":"request","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T07:50:21.3997268Z","event":"response","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-5c720745","agent_pid":68324,"event":"disconnect","ts":"2026-10-06T07:50:21.4075739Z"}
+{"method":"disconnect","ts":"2026-10-06T07:50:21.4091004Z","event":"rearm","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","conn":1}
+{"client_pid":66220,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T07:50:21.7626184Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T07:50:21.7646502Z","event":"request","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T07:50:21.7646502Z","event":"response","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-5c720745","agent_pid":68324,"event":"disconnect","ts":"2026-10-06T07:50:21.7663281Z"}
+{"method":"disconnect","ts":"2026-10-06T07:50:21.7663281Z","event":"rearm","agent_pid":68324,"pipe":"hm-x1-agent-rust-5c720745","conn":2}

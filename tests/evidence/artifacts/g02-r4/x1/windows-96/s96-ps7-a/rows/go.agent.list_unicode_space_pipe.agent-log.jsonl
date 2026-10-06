@@ -1,0 +1,11 @@
+{"keys":["SHA256:ulEiwsTo+rXc5gwqOC4/EMsEQRWzPYEfXyDEpm6W0KY","SHA256:g3n6+Q0EzgaJjS5tJOZbfGh2Buc3+IFAV+mQBcgYT40"],"pipe":"heimdall g03 ü-x1-go-b1c2e677","agent_pid":13264,"ts":"2026-10-06T07:51:13.1869102Z","access":"OwnerOnly","event":"listening","endpoint":"\\\\.\\pipe\\heimdall g03 ü-x1-go-b1c2e677"}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","ts":"2026-10-06T07:51:13.3937591Z","agent_pid":13264,"client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","conn":1,"client_sid":"error:openthreadtoken:1347","client_image":"heimdall-proto","event":"connect","client_pid":59696}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","length":1,"ts":"2026-10-06T07:51:13.4056283Z","msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","conn":1,"msg_type":11,"agent_pid":13264,"event":"request"}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","ts":"2026-10-06T07:51:13.4061982Z","conn":1,"result":"identities:2","msg_type":11,"agent_pid":13264,"event":"response"}
+{"event":"disconnect","pipe":"heimdall g03 ü-x1-go-b1c2e677","agent_pid":13264,"ts":"2026-10-06T07:51:13.4264650Z","conn":1}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","ts":"2026-10-06T07:51:13.4277504Z","conn":1,"method":"disconnect","agent_pid":13264,"event":"rearm"}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","ts":"2026-10-06T07:51:13.7743327Z","agent_pid":13264,"client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","conn":2,"client_sid":"error:openthreadtoken:1347","client_image":"heimdall-proto","event":"connect","client_pid":53664}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","length":1,"ts":"2026-10-06T07:51:13.7763856Z","msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","conn":2,"msg_type":11,"agent_pid":13264,"event":"request"}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","ts":"2026-10-06T07:51:13.7774150Z","conn":2,"result":"identities:2","msg_type":11,"agent_pid":13264,"event":"response"}
+{"event":"disconnect","pipe":"heimdall g03 ü-x1-go-b1c2e677","agent_pid":13264,"ts":"2026-10-06T07:51:13.7786684Z","conn":2}
+{"pipe":"heimdall g03 ü-x1-go-b1c2e677","ts":"2026-10-06T07:51:13.7792985Z","conn":2,"method":"disconnect","agent_pid":13264,"event":"rearm"}
