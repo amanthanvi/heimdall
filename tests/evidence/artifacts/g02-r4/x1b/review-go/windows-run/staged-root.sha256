@@ -1,0 +1,24 @@
+# staged layout: Mac sha256 (left) == host sha256sum (diff empty, HOST_EQUAL); identical to x1b/go/windows-run/staged-root.sha256
+795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a  ./bin/go/heimdall-proto.exe
+a60d56a77af0b565296849c9439e481220bb8011fc9d0030404228b30958c800  ./fixtures/profiles/README.md
+3843ba82bdc980b2fa24e48c2f98dcd170fe65c69b7f69f10957ece1dd8f961e  ./fixtures/profiles/gen_large.py
+8df6776be68e0630949d2230a5de998f36715d841e0c3624e0ed5c753528c741  ./fixtures/profiles/homelab.toml
+cce05f46dd7d5c3e5c80c95510078fa1455f34e549a500620d0358e64b61506c  ./fixtures/profiles/invalid-duplicate-alias.toml
+dd6496c7884665f2a47ca5724dd5ba7a05e79af0ae908b8406a0fccc5ae78d14  ./fixtures/profiles/invalid-forbidden-key.toml
+68fb442d9bd871529f2b0460e28b59748d153e42e29140c98ea18af2bf6c2485  ./fixtures/profiles/invalid-malformed.toml
+dffce89c96027f4402b66b7f7028bd507e371721322f082489d6581b64ece6eb  ./fixtures/profiles/invalid-port.toml
+50116cfea1369fb8cd9ed8eaf5879604ef7fc8ebc0b720f022f0d0312653d53a  ./fixtures/profiles/invalid-schema-version.toml
+44e215089087f7199753e93e415ebe6e224054dc673edddde119f58451113ed9  ./fixtures/profiles/invalid-unknown-dest-key.toml
+19814f6f32cd14109600ef3dcba056a43d0b6886c57326f2ec7fa752f0bfe639  ./fixtures/profiles/large-100.toml
+8df6776be68e0630949d2230a5de998f36715d841e0c3624e0ed5c753528c741  ./fixtures/profiles/spaced dir ü/prøfile homelab.toml
+8c2e924f9eed2b93cf6e2713d08a55228b68c8be32c07a9a5225ca81e96858d5  ./fixtures/quoting-cases.json
+e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581  ./g03/G03Common.psm1
+521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276  ./g03/InstrumentedAgent.ps1
+678efbbc7856adcd3623fac6f39fd2505d4c72ae65c4381b4e181a4a8a870f2c  ./helpers/argvdump.exe
+fbdb256cffc1a9a2121f48d82f95cdafabc68d8a907454515ba1aa8d5aec6475  ./manifests/go-manifest.json
+50a8d52163bb2e59748382b4a325aa18c028248a63713501d02101007e0e76ab  ./schemas/result.schema.json
+394f66f44fa2926cca43ebfdb7162702f7846247b56f7696ab1eb4f0289e2273  ./tools/G02X1Native.cs
+4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0  ./tools/Invoke-G02WindowsX1.ps1
+b9a19e7687525ae383bc70fd1aade8e0140449a2b63fd67cbaa083291cfe4b08  ./tools/Send-ConsoleCtrl.ps1
+f075e88122495e00f999aa179cf8d3e8ac64bd7dbe8e73507c350293d48be32d  ./tools/StallPipe.ps1
+b270a1fef407b6f81042a7ae28dc7c2e8503d3fc0e5bef937cf60dfdbb0781a4  ./tools/expected-homelab.json

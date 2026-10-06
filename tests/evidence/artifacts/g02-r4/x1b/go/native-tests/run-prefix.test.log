@@ -1,0 +1,365 @@
+=== RUN   TestBatchTargetRefused
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd||lower.cmd: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|.|lower.cmd.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|.|lower.cmd.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|.|lower.cmd.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd|.|lower.cmd.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.cmd| |lower.cmd : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|..|lower.cmd..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|..|lower.cmd..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|..|lower.cmd..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd|..|lower.cmd..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|. .|lower.cmd. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|. .|lower.cmd. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.cmd|. .|lower.cmd. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.cmd|. .|lower.cmd. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat||lower.bat: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|.|lower.bat.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|.|lower.bat.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|.|lower.bat.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat|.|lower.bat.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/lower.bat| |lower.bat : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|..|lower.bat..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|..|lower.bat..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|..|lower.bat..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat|..|lower.bat..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|. .|lower.bat. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|. .|lower.bat. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/lower.bat|. .|lower.bat. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/lower.bat|. .|lower.bat. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD||upper.CMD: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|.|upper.CMD.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|.|upper.CMD.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|.|upper.CMD.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD|.|upper.CMD.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/upper.CMD| |upper.CMD : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|..|upper.CMD..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|..|upper.CMD..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|..|upper.CMD..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD|..|upper.CMD..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|. .|upper.CMD. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|. .|upper.CMD. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/upper.CMD|. .|upper.CMD. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/upper.CMD|. .|upper.CMD. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT||mixed.BaT: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|.|mixed.BaT.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|.|mixed.BaT.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|.|mixed.BaT.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|.|mixed.BaT.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: bat dir ü/mixed.BaT| |mixed.BaT : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|..|mixed.BaT..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|..|mixed.BaT..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|..|mixed.BaT..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|..|mixed.BaT..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|. .|mixed.BaT. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|. .|mixed.BaT. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\002\bat' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|. .|mixed.BaT. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: bat dir ü/mixed.BaT|. .|mixed.BaT. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.cmd||lower.cmd: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|.|lower.cmd.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|.|lower.cmd.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|.|lower.cmd.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd|.|lower.cmd.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.cmd| |lower.cmd : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|..|lower.cmd..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|..|lower.cmd..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|..|lower.cmd..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd|..|lower.cmd..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|. .|lower.cmd. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|. .|lower.cmd. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.cmd.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.cmd|. .|lower.cmd. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.cmd|. .|lower.cmd. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.bat||lower.bat: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|.|lower.bat.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|.|lower.bat.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|.|lower.bat.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat|.|lower.bat.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/lower.bat| |lower.bat : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|..|lower.bat..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|..|lower.bat..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|..|lower.bat..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat|..|lower.bat..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|. .|lower.bat. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|. .|lower.bat. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\lower.bat.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/lower.bat|. .|lower.bat. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/lower.bat|. .|lower.bat. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/upper.CMD||upper.CMD: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|.|upper.CMD.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|.|upper.CMD.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|.|upper.CMD.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD|.|upper.CMD.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/upper.CMD| |upper.CMD : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|..|upper.CMD..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|..|upper.CMD..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|..|upper.CMD..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD|..|upper.CMD..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|. .|upper.CMD. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|. .|upper.CMD. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\upper.CMD.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/upper.CMD|. .|upper.CMD. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/upper.CMD|. .|upper.CMD. .: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/mixed.BaT||mixed.BaT: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|.|mixed.BaT.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|.|mixed.BaT.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|.|mixed.BaT.: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT|.|mixed.BaT.: cmd.exe ran (hpinj.txt exists)
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : cmd.exe ran (RAN exists)
+    batch_windows_test.go:67: batdir/mixed.BaT| |mixed.BaT : cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|..|mixed.BaT..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|..|mixed.BaT..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT..' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|..|mixed.BaT..: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT|..|mixed.BaT..: cmd.exe ran (hpinj.txt exists)
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|. .|mixed.BaT. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|. .|mixed.BaT. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+'<scratch>\tmp\TestBatchTargetRefused2403012072\003\batdir\mixed.BaT.' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:67: batdir/mixed.BaT|. .|mixed.BaT. .: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:0 LaunchErr:}
+    batch_windows_test.go:67: batdir/mixed.BaT|. .|mixed.BaT. .: cmd.exe ran (hpinj.txt exists)
+'fnm' is not recognized as an internal or external command,
+operable program or batch file.
+    batch_windows_test.go:82: PATHEXT bare name: want refusal (127, not launched, message), got {Launched:true ExitCode:<ptr> Signal:<nil> Exit:1 LaunchErr:}
+    batch_windows_test.go:82: PATHEXT bare name: cmd.exe ran (RAN exists)
+    batch_windows_test.go:82: PATHEXT bare name: cmd.exe ran (hpinj.txt exists)
+--- FAIL: TestBatchTargetRefused (10.35s)
+=== RUN   TestBatchPrefixExtensionNotRun
+--- PASS: TestBatchPrefixExtensionNotRun (0.02s)
+=== RUN   TestExeTargetStillLaunches
+--- PASS: TestExeTargetStillLaunches (0.20s)
+FAIL
+exit=1

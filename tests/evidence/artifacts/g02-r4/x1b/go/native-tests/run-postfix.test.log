@@ -1,0 +1,8 @@
+=== RUN   TestBatchTargetRefused
+--- PASS: TestBatchTargetRefused (0.02s)
+=== RUN   TestBatchPrefixExtensionNotRun
+--- PASS: TestBatchPrefixExtensionNotRun (0.02s)
+=== RUN   TestExeTargetStillLaunches
+--- PASS: TestExeTargetStillLaunches (0.23s)
+PASS
+exit=0

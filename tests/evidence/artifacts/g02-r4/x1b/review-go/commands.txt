@@ -1,0 +1,32 @@
+M00-T05-x1b-review-go: independent review of the go Windows fix round (M00-T05-x1b-fix-go), 2026-10-06 UTC.
+Real exit codes. <tmp> = /tmp/M00-T05-x1b-review-go on the Mac; host paths as placeholders.
+
+Mac (go1.27.1 darwin/arm64; prototype sources = working tree on HEAD e0ead9b, copied to <tmp>/src/go without dist/ and bin/):
+  cd / && sh <tmp>/src/go/build.sh                       exit 0   build/build.log; build/rebuilt-manifest.json
+  diff (json.tool) prototypes/go/dist/manifest.json vs rebuilt manifest   exit 0   identical (all 4 targets; windows-x64 795c4826... 5100544 bytes)
+  gofmt -l . (copy)                                       empty
+  go vet ./... for darwin/arm64, linux/amd64, windows/amd64 (copy)   exit 0 each
+  GOOS=windows GOARCH=amd64 go test -c -trimpath -o <tmp>/run.test.exe ./internal/run   exit 0
+  go test -count=1 ./... (copy, HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02/profiles)   exit 0 (native-tests/darwin-go-test.txt)
+      (a first attempt without HEIMDALL_G02_FIXTURES exited 1: internal/profile could not find the fixtures above the /tmp copy; not a product failure)
+  go mod verify (repo)                                    exit 0
+  argvdump: GOOS=windows ... go build -trimpath -buildvcs=false -ldflags='-s -w'   exit 0, sha256 678efbbc... (same as X1)
+  staged layout (23 files) sha256 on the Mac == sha256sum on the host == x1b/go/windows-run/staged-root.sha256 (hash column)
+  tests/g02/.venv/bin/python tests/g02/conformance.py --bin <tmp>/src/go/dist/darwin-arm64/heimdall-proto --candidate go ...   exit 0  139/139 (harness 2.4.2)
+  sh tests/g02/linux/run.sh --artifact-dir <tmp>/src/go/dist/linux-arm64 --candidate go ...   exit 0  139/139 (harness 2.4.2)
+  mutant: run_windows.go without strings.TrimRight and without strings.ToLower (native-tests/mutant.diff); GOOS=windows go test -c   exit 0
+
+Host (owner's Windows 11 PC through WSL interop, non-elevated; scratch <wslhome>/hm-m00/M00-T05-x1b-review-go and %LOCALAPPDATA%\hm-m00\M00-T05-x1b-review-go):
+  winrun.sh ps51 rev-ps51-a -Candidates go (Invoke-G02WindowsX1.ps1 4b05649f..., unchanged)   exit 0  rows=94 gating_not_pass=0
+  winrun.sh ps7  rev-ps7-a  -Candidates go                                                   exit 0  rows=94 gating_not_pass=0
+      verdicts for all 94 rows identical to x1b/go/windows-run/fix-ps51-a
+  runtest.sh run.test.exe -test.v -test.count=1 (reviewer's build, sha256 in native-tests/test-binaries.sha256)   exit 0  3/3 PASS
+  runtest.sh mut.test.exe -test.v -test.count=1 (mutant)   exit 1  TestBatchTargetRefused FAIL, 72 "cmd.exe ran" lines (trailing-dot/space spellings and non-lowercase extensions); mutant killed
+      (the mutant ran cmd.exe, so the owner's cmd.exe AutoRun ran, as in the fix round's pre-fix runs)
+  probe.sh probe1 (pwsh 7, probes/Probe-Review.ps1)   exit 0  76 probes, 0 fail; SUPERSEDED: a probe bug reused the ready/stop file names of the pipe helper, so agent.foreign_pipe_silent tested a pipe that no longer existed
+  probe.sh probe2 (fixed helper naming)               exit 0  76 probes, 0 fail (probes/probe2.jsonl, probes/probe2.console.txt)
+  Win32_Process / WSL ps with the task id in the command line or executable path, excluding the query itself   none
+  rm -rf both task scratch directories   exit 0; both gone; the parent hm-m00 directories hold another task's entry and were left as found
+
+Redaction: identifier scan (WSL user, WSL host, Windows user, Windows host, user SID; counts only) over this directory after redaction: 0 hits.
+The only e-mail-shaped strings are fixture accounts at *.example.internal and vps1.example.invalid. No HEIMDALL_CANARY_ string.

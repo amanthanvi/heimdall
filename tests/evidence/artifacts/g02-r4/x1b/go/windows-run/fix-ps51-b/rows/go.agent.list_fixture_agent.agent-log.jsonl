@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T08:09:07.0120842Z","agent_pid":77336,"event":"listening","keys":["SHA256:GCVOZDwMLg8O5hjmvv7lu26K5wcrxLMhFP3BqwCt+2w","SHA256:jaBEdSIhGcH3+ct1zJgNuV0NOLaTVJOwiGzFfH/dmV4"],"pipe":"hm-x1-agent-go-ef10c1e7","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-go-ef10c1e7"}
+{"client_pid":67600,"client_sid":"error:openthreadtoken:1347","client_image":"heimdall-proto","ts":"2026-10-06T08:09:07.2829478Z","client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","event":"connect","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:09:07.2952132Z","event":"request","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T08:09:07.2952132Z","event":"response","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-go-ef10c1e7","agent_pid":77336,"event":"disconnect","ts":"2026-10-06T08:09:07.3034055Z"}
+{"method":"disconnect","ts":"2026-10-06T08:09:07.3039130Z","event":"rearm","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","conn":1}
+{"client_pid":34736,"client_sid":"error:openthreadtoken:1347","client_image":"heimdall-proto","ts":"2026-10-06T08:09:07.6625979Z","client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","event":"connect","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:09:07.6647461Z","event":"request","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T08:09:07.6662733Z","event":"response","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-go-ef10c1e7","agent_pid":77336,"event":"disconnect","ts":"2026-10-06T08:09:07.6679077Z"}
+{"method":"disconnect","ts":"2026-10-06T08:09:07.6684204Z","event":"rearm","agent_pid":77336,"pipe":"hm-x1-agent-go-ef10c1e7","conn":2}

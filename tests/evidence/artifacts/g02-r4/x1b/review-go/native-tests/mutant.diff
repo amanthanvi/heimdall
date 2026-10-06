@@ -1,0 +1,22 @@
+diff --git a/../src/go/internal/run/run_windows.go b/internal/run/run_windows.go
+index 351eff5..6f19043 100644
+--- a/../src/go/internal/run/run_windows.go
++++ b/internal/run/run_windows.go
+@@ -7,7 +7,7 @@ import (
+ 	"os/exec"
+ 	"os/signal"
+ 	"path/filepath"
+-	"strings"
++
+ )
+ 
+ // refuseTarget refuses .bat/.cmd targets (docs/g02/slice-contract.md §9.6).
+@@ -18,7 +18,7 @@ import (
+ // same file; they are trimmed before the extension check. Observed natively
+ // in batch_windows_test.go.
+ func refuseTarget(path string) string {
+-	switch strings.ToLower(filepath.Ext(strings.TrimRight(filepath.Base(path), ". "))) {
++	switch (filepath.Ext(filepath.Base(path))) {
+ 	case ".bat", ".cmd":
+ 		return "batch-file target (.bat/.cmd) refused: cmd.exe would re-parse its arguments as commands"
+ 	}

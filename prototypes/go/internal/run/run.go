@@ -43,6 +43,9 @@ func Run(argv []string) Status {
 		}
 		return Status{Exit: ExitLaunchFailed, LaunchErr: msg}
 	}
+	if msg := refuseTarget(path); msg != "" {
+		return Status{Exit: ExitLaunchFailed, LaunchErr: msg}
+	}
 	cmd := exec.Command(path, argv[1:]...)
 	cmd.Args[0] = argv[0] // preserve argv[0] exactly as given
 	// *os.File stdio is passed as raw descriptors: no copy goroutines, so

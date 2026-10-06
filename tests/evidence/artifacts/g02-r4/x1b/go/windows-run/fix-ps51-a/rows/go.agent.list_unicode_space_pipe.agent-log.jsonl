@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T08:03:52.4593052Z","agent_pid":50764,"event":"listening","keys":["SHA256:VaWZmJtJ82TxLi5JHMAVDhLjfMhphAI7A2FYBDJFS98","SHA256:cx2XKt95CQLKpO/z0xxAmmVagqZY4yMhazghofR8aHc"],"pipe":"heimdall g03 ü-x1-go-af9958c1","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\heimdall g03 ü-x1-go-af9958c1"}
+{"client_pid":71032,"client_sid":"error:openthreadtoken:1347","client_image":"heimdall-proto","ts":"2026-10-06T08:03:52.7673772Z","client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","event":"connect","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:03:52.7838040Z","event":"request","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T08:03:52.7838040Z","event":"response","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"heimdall g03 ü-x1-go-af9958c1","agent_pid":50764,"event":"disconnect","ts":"2026-10-06T08:03:52.7936906Z"}
+{"method":"disconnect","ts":"2026-10-06T08:03:52.7957105Z","event":"rearm","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","conn":1}
+{"client_pid":42796,"client_sid":"error:openthreadtoken:1347","client_image":"heimdall-proto","ts":"2026-10-06T08:03:53.1536903Z","client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","event":"connect","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:03:53.1562462Z","event":"request","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T08:03:53.1562462Z","event":"response","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"heimdall g03 ü-x1-go-af9958c1","agent_pid":50764,"event":"disconnect","ts":"2026-10-06T08:03:53.1577828Z"}
+{"method":"disconnect","ts":"2026-10-06T08:03:53.1577828Z","event":"rearm","agent_pid":50764,"pipe":"heimdall g03 ü-x1-go-af9958c1","conn":2}

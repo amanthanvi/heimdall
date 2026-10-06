@@ -145,6 +145,9 @@ func chooseMode(ttyFD, own int) mode {
 	}
 }
 
+// refuseTarget: no target is refused by name on Unix (execve runs no shell).
+func refuseTarget(string) string { return "" }
+
 // startAndWait launches the child, forwards signals according to the mode,
 // reaps the child, and in modeExclusive returns the terminal foreground to
 // heimdall-proto's group if the child's group held it.

@@ -1,0 +1,99 @@
+{
+  "task_id": "M00-T05-x1b-fix-go",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/prototypes/go/internal/run/run.go",
+    "<repo>/prototypes/go/internal/run/run_windows.go",
+    "<repo>/prototypes/go/internal/run/run_unix.go",
+    "<repo>/prototypes/go/internal/run/batch_windows_test.go (new)",
+    "<repo>/prototypes/go/REPORT.md (appended section 'Round 4 Windows (§9.6)')",
+    "<repo>/prototypes/go/dist/ (rebuilt by build.sh, gitignored; manifest hashes recorded in REPORT.md)",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1b/go/commands.txt",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1b/go/native-tests/ (run-prefix.test.log, run-postfix.test.log, darwin-go-test.txt, runtest.sh, test-binaries.sha256)",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1b/go/windows-run/ (fix-ps51-a, fix-ps7-a, fix-ps51-b with results.json + rows/, *.console.txt, ROWS.md, staged-root.sha256, winrun.sh)",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1b/go/harness/harness-summary.json"
+  ],
+  "commands_run": [
+    {
+      "command": "GOOS=windows go test -c ./internal/run (pre-fix sources + new batch_windows_test.go), run on host via runtest.sh -test.v",
+      "exit_code": 1,
+      "observed": "TestBatchTargetRefused FAIL with 90 'cmd.exe ran' lines (.bat/.cmd in all casings, trailing '.', '..', '. .', ' ' spellings, and a PATHEXT bare name all reached cmd.exe; '::$DATA' did not launch); TestBatchPrefixExtensionNotRun PASS; TestExeTargetStillLaunches PASS. An earlier attempt exited 2 because PowerShell split '-test.v' (runner fixed)."
+    },
+    {
+      "command": "post-fix GOOS=windows go test -c ./internal/run, run on host via runtest.sh -test.v",
+      "exit_code": 0,
+      "observed": "all 3 tests PASS, no cmd.exe run"
+    },
+    {
+      "command": "gofmt -l .; go vet ./... for darwin/arm64, linux/amd64, linux/arm64, windows/amd64; GOOS=windows go test -c for 5 packages; go mod verify; go mod tidy -diff",
+      "exit_code": 0,
+      "observed": "gofmt empty; every vet, test -c and module check exit 0"
+    },
+    {
+      "command": "cd / && sh prototypes/go/build.sh (twice)",
+      "exit_code": 0,
+      "observed": "4 targets built, manifests byte-identical; windows-x64 795c4826... 5100544 bytes, darwin-arm64 bdfd64a2..., linux-arm64 18d96a07..., linux-x64 bfb668bb..."
+    },
+    {
+      "command": "go test -count=1 ./... (darwin-arm64)",
+      "exit_code": 0,
+      "observed": "all packages ok"
+    },
+    {
+      "command": "staged layout sha256 Mac vs host sha256sum",
+      "exit_code": 0,
+      "observed": "23 files identical; equal to x1/windows-96 staging except the new go exe and go manifest; rust not staged"
+    },
+    {
+      "command": "winrun.sh ps51 fix-ps51-a -Candidates go (Invoke-G02WindowsX1.ps1, unchanged §9.6 version)",
+      "exit_code": 0,
+      "observed": "rows=94 gating_not_pass=0; go 71/71 gating, host 4/4"
+    },
+    {
+      "command": "winrun.sh ps7 fix-ps7-a -Candidates go",
+      "exit_code": 0,
+      "observed": "rows=94 gating_not_pass=0"
+    },
+    {
+      "command": "winrun.sh ps51 fix-ps51-b -Candidates go",
+      "exit_code": 0,
+      "observed": "rows=94 gating_not_pass=0; verdicts identical across all 3 runs for all 94 rows; vs baseline s96-ps51-a only run.batch_target.* x4 and non-gating run.cmd_metachar_argument changed fail->pass"
+    },
+    {
+      "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/M00-T05-x1b-fix-go/harness/go-conformance-darwin.json --artifacts-dir /tmp/M00-T05-x1b-fix-go/harness/darwin-art",
+      "exit_code": 0,
+      "observed": "harness 2.4.2: 139/139 pass, status verified"
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go --out /tmp/M00-T05-x1b-fix-go/harness/go-conformance-linux.json --artifacts-out /tmp/M00-T05-x1b-fix-go/harness/linux-art",
+      "exit_code": 0,
+      "observed": "harness 2.4.2 in heimdall-g02-harness:d0c8e448a3a7: 139/139 pass"
+    },
+    {
+      "command": "host process counts (WSL ps, tasklist, Win32_Process with task scratch in command line, counts only)",
+      "exit_code": 0,
+      "observed": "0 / 0 / 0"
+    },
+    {
+      "command": "rm -rf WSL and Windows task scratch",
+      "exit_code": 0,
+      "observed": "both removed; parent hm-m00 dirs hold another task's entry, left as found"
+    },
+    {
+      "command": "identifier scan (Windows/WSL user and host names, canary prefix, profile paths, SIDs; counts only) over tests/evidence/artifacts/g02-r4/x1b/go and my source/REPORT diff",
+      "exit_code": 0,
+      "observed": "0 hits; e-mail-shaped strings are fixture accounts only (*.example.internal, vps1.example.invalid from homelab.toml)"
+    }
+  ],
+  "escalations": [],
+  "limitations": [
+    "Fix is refusal, not escaping (§9.6 allows both): the Go prototype now cannot run .bat/.cmd targets at all, including PATHEXT bare names (info row resolution.pathext_cmd now 127). Production remedy if batch targets are wanted: explicit cmd.exe /d /c with a dedicated cmd escaper (Rust-std style after CVE-2024-24576/43402). Recorded as an M01 input in REPORT.md.",
+    "The check is name-based on the resolved path passed to CreateProcess. Not tested: symlinks/junctions whose name differs from the batch target. 8.3 short names are covered by the rule only by inference.",
+    "One host, one Windows build, non-elevated, pseudoconsoles only. The §9.6 script (from M00-T05-x1b-script) still has no independent review, and this fix has had no independent adversarial review (no delegation was used).",
+    "The owner's cmd.exe AutoRun ran during the pre-fix native test runs (as in the X1 baseline runs). It does not run after the fix.",
+    "Non-gating rows agent.client_identifiable_by_server and tui.ctrl_c_event still do not pass (unchanged, §9.6 recorded).",
+    "Full harness records stay at /tmp/M00-T05-x1b-fix-go/harness/ because they contain Mac paths. The repo holds a per-check summary (harness/harness-summary.json).",
+    "The git working tree also has uncommitted prototypes/rust changes from another task; this task did not touch them."
+  ],
+  "summary": "Go failed only the four §9.6 gating rows run.batch_target.{cmd,bat}_{space,nospace}_path, because CreateProcess runs .bat/.cmd through cmd.exe /c, which re-parses Go's CommandLineToArgvW quoting. Fix: run.Run now calls refuseTarget(path) after PATH resolution. On Windows it refuses any resolved path whose last component, after trimming trailing dots and spaces, has a .bat or .cmd extension (case-insensitive): exit 127, stderr message, CHILD_LAUNCH_FAILED. On Unix it is a no-op, so behaviour there is unchanged (darwin go test ok; harness 139/139 on darwin and linux-arm64). The new native test internal/run/batch_windows_test.go was cross-compiled and run on the host. It failed before the fix (90 cmd.exe executions: all casings, trailing-dot/space spellings, PATHEXT bare name) and passes after; it includes controls that ordinary executables still launch with exact argv. The unchanged Windows script was run for go only, 3 times (PS 5.1 x2, PS 7): exit 0, 94 rows, go 71/71 gating and host 4/4, verdicts identical across runs. The only verdict changes from the baseline are the four batch rows plus the non-gating run.cmd_metachar_argument (fail -> pass). REPORT.md has the 'Round 4 Windows (§9.6)' section with the full row table. Evidence is in tests/evidence/artifacts/g02-r4/x1b/go/. Host scratch was removed and no processes were left. Nothing was committed."
+}

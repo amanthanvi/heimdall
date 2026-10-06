@@ -1,0 +1,103 @@
+{
+  "subject": "M00-T05-x1b-review-go: independent adversarial review of the go Windows fix round (M00-T05-x1b-fix-go) under docs/g02/slice-contract.md §9.6",
+  "reexecuted_commands": [
+    {
+      "command": "cd / && sh /tmp/M00-T05-x1b-review-go/src/go/build.sh (rebuild from a /tmp copy of prototypes/go without dist/ and bin/), then a JSON diff of the rebuilt manifest against prototypes/go/dist/manifest.json",
+      "exit_code": 0,
+      "observed": "All 4 targets built. The manifests are identical: windows-x64 795c4826... (5100544 bytes), darwin-arm64 bdfd64a2..., linux-arm64 18d96a07..., linux-x64 bfb668bb..."
+    },
+    {
+      "command": "gofmt -l .; go vet ./... for darwin/arm64, linux/amd64 and windows/amd64 (/tmp copy)",
+      "exit_code": 0,
+      "observed": "gofmt printed nothing; every vet run exited 0"
+    },
+    {
+      "command": "HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02/profiles go test -count=1 ./... (darwin-arm64, /tmp copy)",
+      "exit_code": 0,
+      "observed": "Every package passed. A first attempt without the env var exited 1 only because internal/profile could not find the fixtures from /tmp."
+    },
+    {
+      "command": "GOOS=windows go test -c -trimpath ./internal/run, then on the host: runtest.sh run.test.exe -test.v -test.count=1",
+      "exit_code": 0,
+      "observed": "TestBatchTargetRefused, TestBatchPrefixExtensionNotRun and TestExeTargetStillLaunches passed. The test binary's sha256 7b79270d... matches the fix round's run-postfix.test.exe, so the build is reproducible."
+    },
+    {
+      "command": "Mutant: run_windows.go with strings.TrimRight and strings.ToLower removed; GOOS=windows go test -c, run on the host with -test.v",
+      "exit_code": 1,
+      "observed": "TestBatchTargetRefused failed with 72 'cmd.exe ran' lines for the trailing-dot and trailing-space spellings and the non-lowercase extensions. The native tests catch both parts of the check. Because cmd.exe ran, the owner's cmd AutoRun also ran, as in the fix round's pre-fix runs."
+    },
+    {
+      "command": "winrun.sh ps51 rev-ps51-a -Candidates go (unchanged Invoke-G02WindowsX1.ps1 4b05649f...; my own staged layout, hash-equal on the Mac, on the host and to the fix round's staging)",
+      "exit_code": 0,
+      "observed": "94 rows, 0 gating rows not passing. The integrity row matched the exe to the manifest (795c4826...)."
+    },
+    {
+      "command": "winrun.sh ps7 rev-ps7-a -Candidates go",
+      "exit_code": 0,
+      "observed": "94 rows, 0 gating rows not passing. All 94 verdicts match fix-ps51-a. The only non-pass rows are the known non-gating agent.client_identifiable_by_server and tui.ctrl_c_event."
+    },
+    {
+      "command": "probe.sh probe2 (pwsh 7 Probe-Review.ps1: 76 probes beyond the script for --file, --socket and run batch targets)",
+      "exit_code": 0,
+      "observed": "76 probes, 0 fail. probe1 also exited 0 but is superseded: a probe bug made agent.foreign_pipe_silent target a pipe that had already been stopped."
+    },
+    {
+      "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin <tmp>/src/go/dist/darwin-arm64/heimdall-proto --candidate go ...",
+      "exit_code": 0,
+      "observed": "139/139 pass, harness 2.4.2, status=verified, artifact sha256:bdfd64a2..."
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir <tmp>/src/go/dist/linux-arm64 --candidate go ...",
+      "exit_code": 0,
+      "observed": "139/139 pass, harness 2.4.2, status=verified, artifact sha256:18d96a07..."
+    },
+    {
+      "command": "Host cleanup: process check by task id (excluding the query itself), then rm -rf of both task scratch directories",
+      "exit_code": 0,
+      "observed": "No leftover processes; both scratch directories are gone. The other task's entries in hm-m00 were not touched."
+    }
+  ],
+  "confirmed_claims": [
+    "The dist/manifest.json digests reproduce exactly from a clean /tmp copy (all 4 targets; windows-x64 795c4826..., 5100544 bytes).",
+    "The fix is minimal and correct. Run calls refuseTarget(path) on the path LookPath resolved, before exec.Command. On Windows it trims trailing dots and spaces from the base name, lowercases the extension, and refuses .bat/.cmd with exit 127, a stderr message and meta CHILD_LAUNCH_FAILED (the same path as other launch failures). On Unix refuseTarget returns \"\" (run_unix.go is //go:build !windows), so Unix behaviour is unchanged.",
+    "No Unix regression: darwin 139/139 and linux-arm64 139/139 on harness 2.4.2 against my rebuild, and darwin go test ./... passes.",
+    "On Windows the go gating rows still all pass with my build: 94 rows, 0 gating rows not passing, under both PS 5.1 and PS 7. All 94 verdicts match the fix round's fix-ps51-a. All 16 arguments of the four run.batch_target.* rows are refused (exit 127, child_ran false, no files created).",
+    "The native tests reproduce (3/3 PASS, test binary byte-identical to run-postfix.test.exe) and catch the fix being weakened: removing the trailing-dot/space trimming and the case folding makes TestBatchTargetRefused fail with 72 cmd.exe runs.",
+    "The pre-fix log shows 90 'cmd.exe ran' lines and exit 1; the post-fix log shows 3 PASS and exit 0, as reported.",
+    "Batch targets I tried beyond the fix's tests: no argument byte reached cmd.exe for any of 30 run probes. They covered ADS spellings (x.bat:s.exe, y.txt:s.bat, x.bat:$DATA), batch content named .exe, .com or with no extension, a hard link and a symlink named .exe pointing at a .bat, 8.3 short names (LONGNA~1.BAT for longname.batch, VERYLO~1.CMD), the \\\\?\\ and \\\\.\\ prefixes, forward slashes, .\\relative and ..\\ components, 'x.bat . . .', a literal 'lit.bat.' file reached through \\\\?\\, and PATH/PATHEXT bare names (upper and lower case, empty PATHEXT, a PATHEXT entry with a trailing space, 'name.cmd.', 'NAME.CMD'). A batch file found only in the cwd is refused through ErrDot. Each probe either got the batch refusal or failed to start (127), with no marker and no injected file.",
+    "Controls still launch: argvdump.exe, and a copy named 'argv dump.exe' inside a directory named dir.bat, exit 7 and receive argv[1..] exactly (&, quotes, %PATH%, ^, an empty string, a trailing backslash, non-ASCII).",
+    "§9.6 K14 holds beyond the script's rows. profile show --file and tui --file (tui on a pseudoconsole) gave exit 2 in under 200 ms, with the alternate screen not left active, for: a directory, a directory via \\\\?\\, a junction, NUL, \\\\.\\NUL, \\\\?\\GLOBALROOT\\Device\\Null, dir\\NUL, CON, CONIN$, CONOUT$, COM1, LPT1, \\\\.\\pipe\\, \\\\.\\C:, a missing mailslot, a pipe that accepts and never writes, and the same pipe spelled \\\\?\\pipe\\. Regular-file spellings (\\\\?\\ prefix, trailing dot, ::$DATA, a named ADS) still give exit 0 PROFILE_OK.",
+    "§9.6 --socket never writes to a non-endpoint. Device-path tricks that normalize to a regular file or directory (\\\\.\\pipe\\..\\C:\\..., \\\\.\\pipe\\..\\..\\, mixed slashes, \\\\.\\PIPE\\..\\, \\\\?\\ and \\\\.\\ file paths, //./pipe/../, a trailing dot, ::$DATA) all gave exit 5 AGENT_UNAVAILABLE in about 20 ms. The victim file's sha256, length and mtime were unchanged.",
+    "Pipes owned by another process of the same user that are not agents fail closed with exit 5: a silent server gives AGENT_UNAVAILABLE at about 1522 ms (timeout 1500), a garbage reply gives AGENT_PROTOCOL_ERROR (frame length bound), close-on-accept gives AGENT_UNAVAILABLE, and a busy single-instance pipe gives AGENT_UNAVAILABLE at about 1534 ms. Each server received only the 5-byte type-11 request (00-00-00-01-0B)."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "REPORT.md 'Limits': a symlink whose name differs from its batch-file target is 'not tested'",
+      "evidence": "This is a coverage gap in the report, not a wrong result. Probe run.symlink_exe_to_bat: the non-elevated user could create sl.exe -> x.bat. heimdall-proto gave 127 'command could not be started', cmd.exe did not run and nothing was injected. Hard link hl.exe -> x.bat behaved the same. The 8.3 inference is also now observed: LONGNA~1.BAT and VERYLO~1.CMD are refused by name."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "minor",
+      "description": "Stale comments still say 'COMPILE-CHECKED ONLY (no native Windows host)'. These Windows paths now have native evidence from X1, X1b and this review. The fix updated the comment in run_windows.go only. Documentation only; behaviour is not affected.",
+      "location": "prototypes/go/internal/agent/dial_windows.go:14-15, internal/agent/reset_windows.go:13, internal/profile/open_windows.go:9, cmd/heimdall-proto/meta_windows.go:7"
+    },
+    {
+      "severity": "minor",
+      "description": "Over-refusal, allowed by §9.6 and recorded for M01. The check uses only the file name, so a real PE image named x.cmd is refused (probe run.pe_named_cmd: 127), although CreateProcess would map it as an image. So are 8.3 aliases ending .BAT/.CMD and literal 'x.bat.' files reached through \\\\?\\. REPORT.md already says the prototype cannot run batch files at all; the PE case is a further consequence.",
+      "location": "prototypes/go/internal/run/run_windows.go refuseTarget"
+    },
+    {
+      "severity": "minor",
+      "description": "Pre-existing, not introduced by this round, and not gated (the script records it). Passing a named pipe as --file makes Go's os.Stat open the pipe, so the pipe server sees a client connection with 0 bytes read: 4 such connections over the profile and tui pipe probes. The program never blocks and the exit is 2. A server that acts on connect alone would observe it.",
+      "location": "prototypes/go/internal/profile/profile.go Load (os.Stat before the regular-file check)"
+    }
+  ],
+  "unverifiable_here": [
+    "Behaviour on other Windows builds or editions, on elevated sessions, on volumes without 8.3 names, on ReFS or with per-directory case sensitivity, and on real (non-pseudo) consoles. Only one host was used: Windows 11 x64, non-elevated, reached through WSL interop.",
+    "Whether CreateProcess's batch-extension check could match some non-ASCII case-fold variant of .bat/.cmd that Go's strings.ToLower does not fold. Not probed; inference says it is unlikely.",
+    "The linux-x64 artifact was built and its digest matched, but it was not executed. The Linux harness ran linux-arm64 in a container.",
+    "The pre-fix baseline numbers in REPORT.md (for example 8 of 16 arguments injected without a space) were not re-run. I checked only that the pre-fix log has 90 'cmd.exe ran' lines and exit 1."
+  ],
+  "summary": "Verdict: the go Windows fix holds. I found no blocker or major defect. The change refuses .bat/.cmd targets after PATH resolution, case-insensitively and after trimming trailing dots and spaces. On Unix it does nothing. It is minimal, matches §9.6, and caused no regression. My rebuild from a /tmp copy reproduces dist/manifest.json exactly, and the Windows test binary is byte-identical to the fix round's. With my build, the unchanged §9.6 Windows script gives 94 rows and 0 gating rows not passing under both PS 5.1 and PS 7, with every verdict the same as the fix round's. The native tests pass 3/3, and a mutant without the trimming and case folding fails (72 cmd.exe runs), so the tests do pin the fix. I ran 76 extra Windows probes and all passed: 30 batch-target spellings (ADS, 8.3 names, \\\\\\\\?\\\\ and \\\\\\\\.\\\\ prefixes, a hard link and a symlink, PATHEXT bare names, the cwd/ErrDot case); 33 non-regular --file paths for profile and tui (NUL, CON, CONIN$, CONOUT$, COM1, LPT1, GLOBALROOT, a volume, the pipe root, a silent pipe, a junction); \\\\\\\\.\\\\pipe\\\\.. tricks against --socket, which left the victim file unmodified; and same-user non-agent pipes (silent, garbage, close, busy), which all fail closed with exit 5. No argument byte reached cmd.exe. darwin and linux-arm64 harness 2.4.2 runs on my build: 139/139 each. Minor items: stale COMPILE-CHECKED comments in four Windows files; over-refusal of a real PE named .cmd (allowed); and a pre-existing, ungated pipe connect caused by os.Stat on --file. Evidence is in <repo>/tests/evidence/artifacts/g02-r4/x1b/review-go/ (commands.txt, windows-run/, probes/, native-tests/, harness/harness-summary.json, build/), redacted with an identifier scan of 0 hits. Host scratch directories were removed and no processes I started remain. Nothing was committed."
+}

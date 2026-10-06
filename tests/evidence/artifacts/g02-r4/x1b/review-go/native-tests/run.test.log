@@ -1,0 +1,9 @@
+7b79270de95c237f212678656f9f302a2e10fd62d1f0418551785d1d081920be  run.test.exe
+=== RUN   TestBatchTargetRefused
+--- PASS: TestBatchTargetRefused (0.02s)
+=== RUN   TestBatchPrefixExtensionNotRun
+--- PASS: TestBatchPrefixExtensionNotRun (0.02s)
+=== RUN   TestExeTargetStillLaunches
+--- PASS: TestExeTargetStillLaunches (0.20s)
+PASS
+exit=0

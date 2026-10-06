@@ -1,0 +1,24 @@
+M00-T05-x1b-fix-go: commands run (2026-10-06 UTC). Real exit codes. Host paths shown as placeholders.
+Mac (<repo> = the repository checkout, HEAD e0ead9b plus uncommitted work):
+  GOOS=windows go vet ./internal/run; GOOS=windows go test -c -trimpath ./internal/run (pre-fix sources + new batch_windows_test.go)  exit 0  run-prefix.test.exe (sha256 in native-tests/test-binaries.sha256)
+  gofmt -l . (after the fix)  empty
+  go vet ./... for darwin/arm64, linux/amd64, linux/arm64, windows/amd64  exit 0 each
+  GOOS=windows go test -c -trimpath ./internal/run (post-fix)  exit 0  run-postfix.test.exe
+  GOOS=windows go test -c for cmd/heimdall-proto, internal/{agent,profile,run,tui}  exit 0 each
+  go mod verify  exit 0 (all modules verified); go mod tidy -diff  exit 0
+  cd / && sh <repo>/prototypes/go/build.sh  exit 0 (twice; manifests byte-identical)
+  go test -count=1 ./... (darwin-arm64)  exit 0 (native-tests/darwin-go-test.txt)
+  staged layout (23 files) sha256 on the Mac vs sha256sum on the host  identical (windows-run/staged-root.sha256); equal to the x1/windows-96 staging except the new go exe and go manifest; rust not staged
+  tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/M00-T05-x1b-fix-go/harness/go-conformance-darwin.json --artifacts-dir /tmp/M00-T05-x1b-fix-go/harness/darwin-art  exit 0  139/139
+  sh tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go --out /tmp/M00-T05-x1b-fix-go/harness/go-conformance-linux.json --artifacts-out /tmp/M00-T05-x1b-fix-go/harness/linux-art  exit 0  139/139
+Host (scratch <wslhome>/hm-m00/M00-T05-x1b-fix-go and %LOCALAPPDATA%\hm-m00\M00-T05-x1b-fix-go; TEMP/TMP pointed into the scratch for the test binaries):
+  runtest.sh run-prefix.test.exe -test.v -test.count=1 (first build, without TestBatchPrefixExtensionNotRun)  exit 1  TestBatchTargetRefused FAIL; first attempt exit 2 because PowerShell split "-test.v" (runner fixed to quote flags)
+  runtest.sh run-prefix.test.exe -test.run=TestBatchPrefixExtensionNotRun (rebuilt with the probe test)  exit 0  PASS
+  runtest.sh run-prefix.test.exe -test.v -test.count=1  exit 1  TestBatchTargetRefused FAIL (90 "cmd.exe ran" lines), the other two PASS (native-tests/run-prefix.test.log)
+  runtest.sh run-postfix.test.exe -test.v -test.count=1  exit 0  all 3 PASS (native-tests/run-postfix.test.log)
+  winrun.sh ps51 fix-ps51-a -Candidates go  exit 0  rows=94 gating_not_pass=0
+  winrun.sh ps7  fix-ps7-a  -Candidates go  exit 0  rows=94 gating_not_pass=0
+  winrun.sh ps51 fix-ps51-b -Candidates go  exit 0  rows=94 gating_not_pass=0   (verdicts identical across the three runs for all 94 rows)
+  WSL ps / tasklist count of heimdall-proto|argvdump|test binaries; Win32_Process with the task scratch in its command line (count only)  0 / 0 / 0
+  rm -rf both task scratch directories  removed; the parent hm-m00 directories hold another entry and were left as found
+Redaction: identifier scan (Windows and WSL user and host names, canary prefix, profile paths, SIDs; counts only) over every file in this directory: 0 hits; the only e-mail-shaped strings are fixture accounts at *.example.internal and vps1.example.invalid. Full harness records stay outside the repo (they hold Mac paths); harness/harness-summary.json is the per-check summary.

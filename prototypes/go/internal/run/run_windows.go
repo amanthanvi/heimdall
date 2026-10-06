@@ -6,14 +6,30 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 )
 
-// startAndWait on Windows. COMPILE-CHECKED ONLY (no native Windows host).
+// refuseTarget refuses .bat/.cmd targets (docs/g02/slice-contract.md §9.6).
+// CreateProcess runs such a file as `cmd.exe /c <command line>`, and cmd.exe
+// re-parses the line, so Go's CommandLineToArgvW quoting cannot stop argument
+// bytes from running as commands. Win32 path normalization drops trailing
+// dots and spaces from the last component, so "x.bat." and "x.bat " run the
+// same file; they are trimmed before the extension check. Observed natively
+// in batch_windows_test.go.
+func refuseTarget(path string) string {
+	switch strings.ToLower(filepath.Ext(strings.TrimRight(filepath.Base(path), ". "))) {
+	case ".bat", ".cmd":
+		return "batch-file target (.bat/.cmd) refused: cmd.exe would re-parse its arguments as commands"
+	}
+	return ""
+}
+
+// startAndWait on Windows (run natively in round 4, X1/X1b).
 //
 //   - Command line: os/exec builds it with syscall.EscapeArg/makeCmdLine,
-//     which follows CommandLineToArgvW rules for ordinary executables. It is
-//     NOT safe for .bat/.cmd targets (cmd.exe re-parses the line); see
-//     REPORT.md.
+//     which follows CommandLineToArgvW rules for ordinary executables.
+//     .bat/.cmd targets never get here (refuseTarget).
 //   - Console Ctrl-C: the console delivers CTRL_C_EVENT to every process
 //     attached to the console, including the child. heimdall-proto therefore
 //     swallows os.Interrupt (so it does not exit before the child) and does

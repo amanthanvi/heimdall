@@ -464,3 +464,182 @@ Task M00-T05-go-round3c-fix is the one fix round under §9.4 and the Q17 ruling 
   - darwin `conformance.py`: 139/139, exit 0.
   - `tests/g02/linux/run.sh`: 139/139, exit 0.
   - Summary: round3c-20261006/harness-summary.json.
+
+
+## Round 4 Windows (§9.6)
+
+Task M00-T05-x1b-fix-go is the one Windows fix round under `docs/g02/slice-contract.md` §9.6. All results were observed on 2026-10-06 UTC on the owner's Windows 11 Pro 26300 x64 PC (non-elevated user, through WSL interop), on darwin-arm64, and in the linux-arm64 harness container. Evidence: `tests/evidence/artifacts/g02-r4/x1b/go/` (`commands.txt` lists every command with its real exit code). The prototype changes are uncommitted.
+
+**Baseline** (§9.6 script, task M00-T05-x1b-script, frozen artifact `ca5145d1…`): go 67/71 gating rows. The four failures were `run.batch_target.{cmd,bat}_{space,nospace}_path`. Every other gating row, including the §9.6 K14 rows and the `--socket` non-endpoint rows, already passed.
+
+### Item table
+
+| Item | Outcome | Where / proof |
+|---|---|---|
+| §9.6 batch targets: `run -- <x.bat or x.cmd> <arg>` injected argument bytes as commands (8 of 16 arguments without a space in the path; with a space, cmd.exe also split the path) | **fixed (refusal)** | **Cause:** CreateProcess runs a `.bat`/`.cmd` file as `cmd.exe /c <command line>`. cmd.exe re-parses that line, and Go's CommandLineToArgvW-style quoting does not escape for cmd.exe. **Fix:** `internal/run/run_windows.go` `refuseTarget`, called from `Run` after PATH resolution (`internal/run/run.go`). If the resolved path names a `.bat` or `.cmd` file, the launch is refused with exit 127, a stderr message, and meta `CHILD_LAUNCH_FAILED` (`launched:false`). The check is case-insensitive and trims trailing dots and spaces from the last path component first. **Why refusal, not escaping:** §9.6 allows both. Refusal is the smallest change and leaves no cmd.exe parsing rules to get right. Escaping for cmd.exe would be a new quoting implementation, covering `%`, `^`, `"` and `!`, the AutoRun/`/d` question, and arguments that cannot be represented safely. That is beyond this round. On Unix, `refuseTarget` returns "" (`internal/run/run_unix.go`), so Unix behaviour is unchanged. |
+| Spellings that reach cmd.exe | **observed natively, all covered** | Pre-fix test log (`native-tests/run-prefix.test.log`). cmd.exe ran for `x.cmd`, `x.bat`, `X.CMD` and `x.BaT`. It also ran for the same paths with a trailing `.`, `..`, `. .` or space appended (Win32 normalization), and for a bare name resolved through PATH + PATHEXT. It did not run for the `::$DATA` stream spelling, which already ended as a 127 launch failure before the fix. It also did not run for names whose extension only starts with `.bat`/`.cmd` (`p.batx`, `p.cmdfoo`, `p.bat_`): those are 127 launch failures before and after. So an exact extension match after trimming is enough. |
+
+### Native tests (Go `testing`, cross-compiled with `GOOS=windows go test -c`, run on the host)
+
+New file: `internal/run/batch_windows_test.go` (`//go:build windows`, its own `TestMain` helper child).
+
+- **`TestBatchTargetRefused`.** Covers `.cmd`/`.bat` in a directory with a space and non-ASCII (`bat dir ü`) and in one without, four extension casings, six path spellings, and no argument, `plain`, and `a&break>hpinj.txt` each. Also a PATHEXT bare name. Each case requires: exit 127, not launched, a message, no `RAN` marker (written by the batch file if cmd.exe ever runs it), and no injected file.
+- **`TestBatchPrefixExtensionNotRun`.** Regression control for the prefix-extension names above. It passes before and after the fix.
+- **`TestExeTargetStillLaunches`.** Control: the test binary and a copy named `child prog.exe` inside a directory named `d.bat` still launch. Exit 7 and argv (`a&break>…`, `a"b c`, `%PATH%`, `x^y`, an empty string, a trailing backslash) arrive exactly.
+- **Red, pre-fix sources + new tests:** exit 1. `TestBatchTargetRefused` FAILs with 90 "cmd.exe ran" lines; the other two pass.
+- **Green, post-fix:** exit 0, all three pass, no cmd.exe run.
+- Test-binary hashes are in `native-tests/test-binaries.sha256`.
+- TEMP/TMP pointed into the task scratch (`native-tests/runtest.sh`).
+
+### Windows script, go only
+
+`tests/native/windows-g02/Invoke-G02WindowsX1.ps1` was run unchanged (the working-tree §9.6 version, sha256 `4b05649f…`) with `-Candidates go`, on a staged layout. That layout equals the `x1/windows-96` staging except the new go exe and manifest; it was hash-checked on the Mac and on the host (`windows-run/staged-root.sha256`). The script's `integrity` row matched the exe to the new manifest.
+
+| Run | Shell | Exit | Rows | go gating | Host gating |
+|---|---|---|---|---|---|
+| `fix-ps51-a` | Windows PowerShell 5.1.26100.9549 | 0 | 94 | 71/71 | 4/4 |
+| `fix-ps7-a` | PowerShell 7.6.6 | 0 | 94 | 71/71 | 4/4 |
+| `fix-ps51-b` | Windows PowerShell 5.1.26100.9549 | 0 | 94 | 71/71 | 4/4 |
+
+Verdicts are identical across the three runs for all 94 rows. Compared with the baseline `s96-ps51-a`, the only verdicts that changed:
+
+- the four `run.batch_target.*` rows, fail → pass: all 16 arguments `refused` in each row;
+- the non-gating X1 row `run.cmd_metachar_argument` (`.cmd` in a path with a space), fail → pass: now refused, so nothing is injected.
+
+Other observations:
+
+- **Recorded behaviour changes.** The info row `resolution.pathext_cmd` now gives 127 with cmd.exe not run, where before it ran `hmx1cmd.cmd` through cmd.exe. Batch-run exit codes are no longer 1 (AutoRun): they are 127 refusals.
+- **Non-gating rows still not passing (unchanged from the baseline).**
+  - `agent.client_identifiable_by_server`: Anonymous impersonation level, §9.6 recorded.
+  - `tui.ctrl_c_event`: exit 1, terminal restored, §9.6 recorded.
+
+Full row table (`windows-run/ROWS.md`; per-row observations in `windows-run/fix-*/results.json` and `rows/`):
+
+| Row | Candidate | Gating | Verdict (all 3 runs) | Baseline s96-ps51-a |
+|---|---|---|---|---|
+| `env.facts` | host | no | info | info |
+| `env.no_toolchain_on_path` | host | yes | pass | pass |
+| `integrity.sha256_matches_manifest` | go | yes | pass | pass |
+| `harness.screen_model_unit` | host | yes | pass | pass |
+| `harness.ctrlc_control_direct` | host | yes | pass | pass |
+| `version.json` | go | yes | pass | pass |
+| `version.plain_exit` | go | yes | pass | pass |
+| `profile.homelab_unicode_space_path` | go | yes | pass | pass |
+| `profile.homelab_fixture` | go | yes | pass | pass |
+| `profile.homelab_spaced_fixture` | go | yes | pass | pass |
+| `profile.large_100` | go | yes | pass | pass |
+| `profile.plain_exit` | go | yes | pass | pass |
+| `profile.invalid-forbidden-key` | go | yes | pass | pass |
+| `profile.invalid_plain_exit` | go | yes | pass | pass |
+| `profile.invalid-unknown-dest-key` | go | yes | pass | pass |
+| `profile.invalid-malformed` | go | yes | pass | pass |
+| `profile.invalid-schema-version` | go | yes | pass | pass |
+| `profile.invalid-duplicate-alias` | go | yes | pass | pass |
+| `profile.invalid-port` | go | yes | pass | pass |
+| `profile.missing_file` | go | yes | pass | pass |
+| `profile.directory` | go | yes | pass | pass |
+| `profile.nul_device` | go | yes | pass | pass |
+| `profile.named_pipe_as_file` | go | yes | pass | pass |
+| `profile.oversize` | go | yes | pass | pass |
+| `usage.unknown_subcommand_json` | go | yes | pass | pass |
+| `usage.unknown_subcommand_plain` | go | yes | pass | pass |
+| `usage.unknown_flag_json` | go | yes | pass | pass |
+| `usage.profile_missing_file_arg` | go | yes | pass | pass |
+| `usage.agent_missing_socket_arg` | go | yes | pass | pass |
+| `agent.list_fixture_agent` | go | yes | pass | pass |
+| `agent.client_identifiable_by_server` | go | no | fail | fail |
+| `agent.list_unicode_space_pipe` | go | yes | pass | pass |
+| `agent.missing_pipe` | go | yes | pass | pass |
+| `agent.regular_file_not_modified` | go | yes | pass | pass |
+| `agent.regular_file_result` | go | no | pass | pass |
+| `agent.directory_as_socket_refused` | go | yes | pass | pass |
+| `agent.nonexistent_path_as_socket_refused` | go | yes | pass | pass |
+| `agent.timeout_no_reply` | go | yes | pass | pass |
+| `run.argv_control_direct` | go | yes | pass | pass |
+| `run.argv_quoting_cases` | go | yes | pass | pass |
+| `run.argv_lone_surrogate` | go | no | pass | pass |
+| `run.exit_code.0` | go | yes | pass | pass |
+| `run.exit_code.1` | go | yes | pass | pass |
+| `run.exit_code.2` | go | yes | pass | pass |
+| `run.exit_code.7` | go | yes | pass | pass |
+| `run.exit_code.42` | go | yes | pass | pass |
+| `run.exit_code.127` | go | yes | pass | pass |
+| `run.exit_code.128` | go | yes | pass | pass |
+| `run.exit_code.255` | go | yes | pass | pass |
+| `run.exit_code.256` | go | no | pass | pass |
+| `run.exit_code.1000` | go | no | pass | pass |
+| `run.exit_code.65536` | go | no | pass | pass |
+| `run.exit_code.-1` | go | no | pass | pass |
+| `run.exit_code.-1073741510` | go | no | pass | pass |
+| `run.launch_failure_not_found` | go | yes | pass | pass |
+| `run.launch_failure_not_executable` | go | yes | pass | pass |
+| `run.usage_missing_separator` | go | yes | pass | pass |
+| `run.usage_empty_argv` | go | yes | pass | pass |
+| `run.stdout_binary_passthrough` | go | yes | pass | pass |
+| `run.stdin_binary_passthrough` | go | yes | pass | pass |
+| `run.env_inherited` | go | yes | pass | pass |
+| `run.cwd_inherited` | go | yes | pass | pass |
+| `run.cmd_metachar_argument` | go | no | pass | fail |
+| `run.cmd_metachar_argument_nospace_path` | go | no | pass | pass |
+| `run.batch_control` | go | yes | pass | pass |
+| `run.batch_target.cmd_space_path` | go | yes | pass | fail |
+| `run.batch_target.bat_space_path` | go | yes | pass | fail |
+| `run.batch_target.cmd_nospace_path` | go | yes | pass | fail |
+| `run.batch_target.bat_nospace_path` | go | yes | pass | fail |
+| `resolution.path_only` | go | yes | pass | pass |
+| `resolution.app_dir_vs_path` | go | no | info | info |
+| `resolution.cwd_vs_path` | go | no | info | info |
+| `resolution.cwd_only` | go | no | info | info |
+| `resolution.pathext_cmd` | go | no | info | info |
+| `resolution.system32_vs_earlier_path` | go | no | info | info |
+| `ctrlc.run_event` | go | yes | pass | pass |
+| `ctrlc.run_keystroke` | go | yes | pass | pass |
+| `ctrlc.run_break_event` | go | no | pass | pass |
+| `ctrlc.agent_list_event` | go | yes | pass | pass |
+| `ctrlc.agent_list_keystroke` | go | yes | pass | pass |
+| `tui.no_tty_usage_error` | go | yes | pass | pass |
+| `tui.navigate_filter_select` | go | yes | pass | pass |
+| `tui.named_pipe_as_file` | go | yes | pass | pass |
+| `tui.nul_device_as_file` | go | yes | pass | pass |
+| `tui.directory_as_file` | go | yes | pass | pass |
+| `tui.quit` | go | yes | pass | pass |
+| `tui.ctrl_c_key` | go | yes | pass | pass |
+| `tui.ctrl_c_key_in_filter_mode` | go | yes | pass | pass |
+| `tui.ctrl_c_event` | go | no | fail | fail |
+| `tui.resize` | go | yes | pass | pass |
+| `tui.resize_latency` | go | no | pass | pass |
+| `tui.no_color` | go | yes | pass | pass |
+| `tui.large_100` | go | yes | pass | pass |
+| `harness.canary_scan` | host | yes | pass | pass |
+
+### Build (`cd / && sh build.sh`, twice, exit 0, identical manifests)
+
+| Target | Bytes | sha256 |
+|---|---|---|
+| darwin-arm64 | 5,212,000 | bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214 (ad-hoc, hardened runtime) |
+| linux-x64 | 5,451,936 | bfb668bb0f7045e3f50606ccd2acff444ed5c4e733400b997624519e0fc23c3b (built, not executed in this round) |
+| linux-arm64 | 5,177,504 | 18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96 |
+| windows-x64 | 5,100,544 | 795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a |
+
+### Tests and harness (exit codes as observed)
+
+- **Mac checks:**
+  - gofmt: empty.
+  - `go vet ./...` on darwin/arm64, linux/amd64, linux/arm64 and windows/amd64: exit 0 each.
+  - Windows `go test -c` for 5 packages: exit 0 each.
+  - `go mod verify` and `go mod tidy -diff`: exit 0.
+  - darwin `go test -count=1 ./...`: exit 0.
+- **Shared harness 2.4.2, read-only, outputs under /tmp/M00-T05-x1b-fix-go/harness/:**
+  - darwin `conformance.py`: 139/139, exit 0.
+  - `tests/g02/linux/run.sh` (linux-arm64, heimdall-g02-harness:d0c8e448a3a7): 139/139, exit 0.
+  - Per-check summary: `harness/harness-summary.json`.
+
+### Limits and M01 inputs
+
+- **Refusal means the Go prototype cannot run batch files at all, including by PATHEXT bare name.** §9.6 allows this. For the product it is a policy choice. **Production remedy**, if batch targets are wanted: start `cmd.exe /d /c` explicitly, with a dedicated cmd.exe escaper (quote every argument, double `"`, neutralise `%` and `!`, refuse newlines and other unrepresentable bytes), in the way Rust std does after CVE-2024-24576/CVE-2024-43402. Pin it with tests like the §9.6 rows.
+- **The check is name-based**, on the path Go hands to CreateProcess (the resolved `lpApplicationName`). Not tested:
+  - a symlink or junction whose name differs from its batch-file target;
+  - 8.3 short names (they keep the `.BAT`/`.CMD` extension, so the rule covers them; inference).
+- **One host, one Windows build, non-elevated, pseudoconsoles only**, as in X1. The script changes from task M00-T05-x1b-script still have no independent review.
+- The owner's cmd.exe AutoRun ran during the pre-fix test runs, as it did in the X1 baseline runs. It does not run after the fix, because cmd.exe is never started.
+- **Cleanup:** both task scratch directories were removed. No heimdall-proto, argvdump or test-binary process, and no process with the task scratch in its command line, was left (counts 0/0/0).

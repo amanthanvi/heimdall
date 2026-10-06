@@ -1,0 +1,70 @@
+\e[?9001h\e[?1004h\e[?25l\e[>4m\e[2J\e[m\e[H\e]0;<scratch>\bin\go\heimdall-proto.exe\e[?25h\e[?1049h\e[?2004h\e[>4;2m\e[>1u\e[?u\e[2J> lab-server  aman@lab.example.internal:22\e[K
+  nas  admin@nas.example.internal:22\e[K
+  vps-東京  deploy@vps1.example.invalid:2222\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+3/3\e[K\e[?25l\e[77C\e[2J\e[H  lab-server  aman@lab.example.internal:22\e[K
+> nas  admin@nas.example.internal:22\e[K
+  vps-東京  deploy@vps1.example.invalid:2222\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+3/3\e[K\e[77C\e[>4m\e[<1u\e[?1049l\e[?2004l\e[H\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K
+\e[K\e[H\e[?25h
