@@ -1,0 +1,228 @@
+r3c    version                      stdout_normal              plain=exit 0           json=exit 0           
+r3c    version                      stdout_closed_reader       plain=exit 0           json=exit 0           
+r3c    version                      stderr_closed_reader       plain=exit 0           json=exit 0           
+r3c    version                      both_closed_reader         plain=exit 0           json=exit 0           
+r3c    version                      stdout_fd_closed           plain=exit 0           json=exit 0           
+r3c    version                      stdout_closed_sigpipe_ign  plain=exit 0           json=exit 0           
+r3c    profile-ok-homelab           stdout_normal              plain=exit 0           json=exit 0           
+r3c    profile-ok-homelab           stdout_closed_reader       plain=exit 0           json=exit 0           
+r3c    profile-ok-homelab           stderr_closed_reader       plain=exit 0           json=exit 0           
+r3c    profile-ok-homelab           both_closed_reader         plain=exit 0           json=exit 0           
+r3c    profile-ok-homelab           stdout_fd_closed           plain=exit 0           json=exit 0           
+r3c    profile-ok-homelab           stdout_closed_sigpipe_ign  plain=exit 0           json=exit 0           
+r3c    profile-ok-large-100         stdout_normal              plain=exit 0           json=exit 0           
+r3c    profile-ok-large-100         stdout_closed_reader       plain=exit 0           json=exit 0           
+r3c    profile-ok-large-100         stderr_closed_reader       plain=exit 0           json=exit 0           
+r3c    profile-ok-large-100         both_closed_reader         plain=exit 0           json=exit 0           
+r3c    profile-ok-large-100         stdout_fd_closed           plain=exit 0           json=exit 0           
+r3c    profile-ok-large-100         stdout_closed_sigpipe_ign  plain=exit 0           json=exit 0           
+r3c    profile-missing              stdout_normal              plain=exit 2           json=exit 2           
+r3c    profile-missing              stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-missing              stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-missing              both_closed_reader         plain=exit 2           json=exit 2           
+r3c    profile-missing              stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    profile-missing              stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    profile-schema-invalid       stdout_normal              plain=exit 2           json=exit 2           
+r3c    profile-schema-invalid       stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-schema-invalid       stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-schema-invalid       both_closed_reader         plain=exit 2           json=exit 2           
+r3c    profile-schema-invalid       stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    profile-schema-invalid       stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    profile-malformed            stdout_normal              plain=exit 2           json=exit 2           
+r3c    profile-malformed            stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-malformed            stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-malformed            both_closed_reader         plain=exit 2           json=exit 2           
+r3c    profile-malformed            stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    profile-malformed            stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    profile-fifo-k14             stdout_normal              plain=exit 2           json=exit 2           
+r3c    profile-fifo-k14             stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-fifo-k14             stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-fifo-k14             both_closed_reader         plain=exit 2           json=exit 2           
+r3c    profile-fifo-k14             stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    profile-fifo-k14             stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    profile-no-file-flag         stdout_normal              plain=exit 2           json=exit 2           
+r3c    profile-no-file-flag         stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-no-file-flag         stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    profile-no-file-flag         both_closed_reader         plain=exit 2           json=exit 2           
+r3c    profile-no-file-flag         stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    profile-no-file-flag         stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    agent-ok                     stdout_normal              plain=exit 0           json=exit 0           
+r3c    agent-ok                     stdout_closed_reader       plain=exit 0           json=exit 0           
+r3c    agent-ok                     stderr_closed_reader       plain=exit 0           json=exit 0           
+r3c    agent-ok                     both_closed_reader         plain=exit 0           json=exit 0           
+r3c    agent-ok                     stdout_fd_closed           plain=exit 0           json=exit 0           
+r3c    agent-ok                     stdout_closed_sigpipe_ign  plain=exit 0           json=exit 0           
+r3c    agent-refused                stdout_normal              plain=exit 5           json=exit 5           
+r3c    agent-refused                stdout_closed_reader       plain=exit 5           json=exit 5           
+r3c    agent-refused                stderr_closed_reader       plain=exit 5           json=exit 5           
+r3c    agent-refused                both_closed_reader         plain=exit 5           json=exit 5           
+r3c    agent-refused                stdout_fd_closed           plain=exit 5           json=exit 5           
+r3c    agent-refused                stdout_closed_sigpipe_ign  plain=exit 5           json=exit 5           
+r3c    agent-protocol-error         stdout_normal              plain=exit 5           json=exit 5           
+r3c    agent-protocol-error         stdout_closed_reader       plain=exit 5           json=exit 5           
+r3c    agent-protocol-error         stderr_closed_reader       plain=exit 5           json=exit 5           
+r3c    agent-protocol-error         both_closed_reader         plain=exit 5           json=exit 5           
+r3c    agent-protocol-error         stdout_fd_closed           plain=exit 5           json=exit 5           
+r3c    agent-protocol-error         stdout_closed_sigpipe_ign  plain=exit 5           json=exit 5           
+r3c    agent-unavailable            stdout_normal              plain=exit 5           json=exit 5           
+r3c    agent-unavailable            stdout_closed_reader       plain=exit 5           json=exit 5           
+r3c    agent-unavailable            stderr_closed_reader       plain=exit 5           json=exit 5           
+r3c    agent-unavailable            both_closed_reader         plain=exit 5           json=exit 5           
+r3c    agent-unavailable            stdout_fd_closed           plain=exit 5           json=exit 5           
+r3c    agent-unavailable            stdout_closed_sigpipe_ign  plain=exit 5           json=exit 5           
+r3c    agent-bad-timeout            stdout_normal              plain=exit 2           json=exit 2           
+r3c    agent-bad-timeout            stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    agent-bad-timeout            stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    agent-bad-timeout            both_closed_reader         plain=exit 2           json=exit 2           
+r3c    agent-bad-timeout            stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    agent-bad-timeout            stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    usage-unknown-subcommand     stdout_normal              plain=exit 2           json=exit 2           
+r3c    usage-unknown-subcommand     stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-unknown-subcommand     stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-unknown-subcommand     both_closed_reader         plain=exit 2           json=exit 2           
+r3c    usage-unknown-subcommand     stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    usage-unknown-subcommand     stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    usage-no-subcommand          stdout_normal              plain=exit 2           json=exit 2           
+r3c    usage-no-subcommand          stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-no-subcommand          stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-no-subcommand          both_closed_reader         plain=exit 2           json=exit 2           
+r3c    usage-no-subcommand          stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    usage-no-subcommand          stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    usage-profile-no-show        stdout_normal              plain=exit 2           json=exit 2           
+r3c    usage-profile-no-show        stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-profile-no-show        stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-profile-no-show        both_closed_reader         plain=exit 2           json=exit 2           
+r3c    usage-profile-no-show        stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    usage-profile-no-show        stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    usage-unknown-flag           stdout_normal              plain=exit 2           json=exit 2           
+r3c    usage-unknown-flag           stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-unknown-flag           stderr_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-unknown-flag           both_closed_reader         plain=exit 2           json=exit 2           
+r3c    usage-unknown-flag           stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    usage-unknown-flag           stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    usage-run-missing-dashdash   stdout_normal              plain=exit 2           json=exit 2           
+r3c    usage-run-missing-dashdash   stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-run-missing-dashdash   stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3c    usage-run-missing-dashdash   both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3c    usage-run-missing-dashdash   stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    usage-run-missing-dashdash   stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3c    usage-tui-unknown-flag       stdout_normal              plain=exit 2           json=exit 2           
+r3c    usage-tui-unknown-flag       stdout_closed_reader       plain=exit 2           json=exit 2           
+r3c    usage-tui-unknown-flag       stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3c    usage-tui-unknown-flag       both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3c    usage-tui-unknown-flag       stdout_fd_closed           plain=exit 2           json=exit 2           
+r3c    usage-tui-unknown-flag       stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3b    version                      stdout_normal              plain=exit 0           json=exit 0           
+r3b    version                      stdout_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    version                      stderr_closed_reader       plain=exit 0           json=exit 0           
+r3b    version                      both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    version                      stdout_fd_closed           plain=exit 0           json=exit 0           
+r3b    version                      stdout_closed_sigpipe_ign  plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-ok-homelab           stdout_normal              plain=exit 0           json=exit 0           
+r3b    profile-ok-homelab           stdout_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-ok-homelab           stderr_closed_reader       plain=exit 0           json=exit 0           
+r3b    profile-ok-homelab           both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-ok-homelab           stdout_fd_closed           plain=exit 0           json=exit 0           
+r3b    profile-ok-homelab           stdout_closed_sigpipe_ign  plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-ok-large-100         stdout_normal              plain=exit 0           json=exit 0           
+r3b    profile-ok-large-100         stdout_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-ok-large-100         stderr_closed_reader       plain=exit 0           json=exit 0           
+r3b    profile-ok-large-100         both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-ok-large-100         stdout_fd_closed           plain=exit 0           json=exit 0           
+r3b    profile-ok-large-100         stdout_closed_sigpipe_ign  plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-missing              stdout_normal              plain=exit 2           json=exit 2           
+r3b    profile-missing              stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-missing              stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-missing              both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-missing              stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    profile-missing              stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-schema-invalid       stdout_normal              plain=exit 2           json=exit 2           
+r3b    profile-schema-invalid       stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-schema-invalid       stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-schema-invalid       both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-schema-invalid       stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    profile-schema-invalid       stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-malformed            stdout_normal              plain=exit 2           json=exit 2           
+r3b    profile-malformed            stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-malformed            stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-malformed            both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-malformed            stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    profile-malformed            stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-fifo-k14             stdout_normal              plain=exit 2           json=exit 2           
+r3b    profile-fifo-k14             stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-fifo-k14             stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-fifo-k14             both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-fifo-k14             stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    profile-fifo-k14             stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-no-file-flag         stdout_normal              plain=exit 2           json=exit 2           
+r3b    profile-no-file-flag         stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    profile-no-file-flag         stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-no-file-flag         both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    profile-no-file-flag         stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    profile-no-file-flag         stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    agent-ok                     stdout_normal              plain=exit 0           json=exit 0           
+r3b    agent-ok                     stdout_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-ok                     stderr_closed_reader       plain=exit 0           json=exit 0           
+r3b    agent-ok                     both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-ok                     stdout_fd_closed           plain=exit 0           json=exit 0           
+r3b    agent-ok                     stdout_closed_sigpipe_ign  plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-refused                stdout_normal              plain=exit 5           json=exit 5           
+r3b    agent-refused                stdout_closed_reader       plain=exit 5           json=signal SIGPIPE   MISMATCH
+r3b    agent-refused                stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-refused                both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-refused                stdout_fd_closed           plain=exit 5           json=exit 5           
+r3b    agent-refused                stdout_closed_sigpipe_ign  plain=exit 5           json=signal SIGPIPE   MISMATCH
+r3b    agent-protocol-error         stdout_normal              plain=exit 5           json=exit 5           
+r3b    agent-protocol-error         stdout_closed_reader       plain=exit 5           json=signal SIGPIPE   MISMATCH
+r3b    agent-protocol-error         stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-protocol-error         both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-protocol-error         stdout_fd_closed           plain=exit 5           json=exit 5           
+r3b    agent-protocol-error         stdout_closed_sigpipe_ign  plain=exit 5           json=signal SIGPIPE   MISMATCH
+r3b    agent-unavailable            stdout_normal              plain=exit 5           json=exit 5           
+r3b    agent-unavailable            stdout_closed_reader       plain=exit 5           json=signal SIGPIPE   MISMATCH
+r3b    agent-unavailable            stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-unavailable            both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-unavailable            stdout_fd_closed           plain=exit 5           json=exit 5           
+r3b    agent-unavailable            stdout_closed_sigpipe_ign  plain=exit 5           json=signal SIGPIPE   MISMATCH
+r3b    agent-bad-timeout            stdout_normal              plain=exit 2           json=exit 2           
+r3b    agent-bad-timeout            stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    agent-bad-timeout            stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-bad-timeout            both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    agent-bad-timeout            stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    agent-bad-timeout            stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-unknown-subcommand     stdout_normal              plain=exit 2           json=exit 2           
+r3b    usage-unknown-subcommand     stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-unknown-subcommand     stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-unknown-subcommand     both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-unknown-subcommand     stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    usage-unknown-subcommand     stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-no-subcommand          stdout_normal              plain=exit 2           json=exit 2           
+r3b    usage-no-subcommand          stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-no-subcommand          stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-no-subcommand          both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-no-subcommand          stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    usage-no-subcommand          stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-profile-no-show        stdout_normal              plain=exit 2           json=exit 2           
+r3b    usage-profile-no-show        stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-profile-no-show        stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-profile-no-show        both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-profile-no-show        stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    usage-profile-no-show        stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-unknown-flag           stdout_normal              plain=exit 2           json=exit 2           
+r3b    usage-unknown-flag           stdout_closed_reader       plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-unknown-flag           stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-unknown-flag           both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-unknown-flag           stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    usage-unknown-flag           stdout_closed_sigpipe_ign  plain=exit 2           json=signal SIGPIPE   MISMATCH
+r3b    usage-run-missing-dashdash   stdout_normal              plain=exit 2           json=exit 2           
+r3b    usage-run-missing-dashdash   stdout_closed_reader       plain=exit 2           json=exit 2           
+r3b    usage-run-missing-dashdash   stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-run-missing-dashdash   both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-run-missing-dashdash   stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    usage-run-missing-dashdash   stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           
+r3b    usage-tui-unknown-flag       stdout_normal              plain=exit 2           json=exit 2           
+r3b    usage-tui-unknown-flag       stdout_closed_reader       plain=exit 2           json=exit 2           
+r3b    usage-tui-unknown-flag       stderr_closed_reader       plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-tui-unknown-flag       both_closed_reader         plain=signal SIGPIPE   json=signal SIGPIPE   
+r3b    usage-tui-unknown-flag       stdout_fd_closed           plain=exit 2           json=exit 2           
+r3b    usage-tui-unknown-flag       stdout_closed_sigpipe_ign  plain=exit 2           json=exit 2           

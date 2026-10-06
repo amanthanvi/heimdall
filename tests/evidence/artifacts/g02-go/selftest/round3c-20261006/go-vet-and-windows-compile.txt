@@ -1,0 +1,27 @@
+# 2026-10-06T01:13:58Z
+$ gofmt -l .
+exit=0
+$ CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go vet ./...
+exit=0
+$ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go vet ./...
+exit=0
+$ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go vet ./...
+exit=0
+$ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go vet ./...
+exit=0
+$ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./cmd/heimdall-proto
+exit=0
+$ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./internal/agent
+exit=0
+$ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./internal/profile
+exit=0
+$ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./internal/run
+?   	github.com/heimdall-g02/proto-go/internal/run	[no test files]
+exit=0
+$ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./internal/tui
+exit=0
+$ go mod verify
+all modules verified
+exit=0
+$ go mod tidy -diff
+exit=0

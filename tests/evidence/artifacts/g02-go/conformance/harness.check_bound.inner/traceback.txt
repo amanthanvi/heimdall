@@ -1,10 +1,10 @@
 Traceback (most recent call last):
-  File "<repo>/tests/g02/conformance.py", line 4407, in run_one
+  File "<home>/GitRepos/heimdall/tests/g02/conformance.py", line 4910, in run_one
     fn(t)
     ~~^^^
-  File "<repo>/tests/g02/conformance.py", line 951, in hangs_in_waitpid
+  File "<home>/GitRepos/heimdall/tests/g02/conformance.py", line 951, in hangs_in_waitpid
     os.waitpid(p.pid, 0)          # would block for 60 s
     ~~~~~~~~~~^^^^^^^^^^
-  File "<repo>/tests/g02/harness_lib.py", line 122, in _on_alarm
+  File "<home>/GitRepos/heimdall/tests/g02/harness_lib.py", line 122, in _on_alarm
     raise CheckTimeout("hard wall-clock bound exceeded")
 harness_lib.CheckTimeout: hard wall-clock bound exceeded

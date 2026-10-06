@@ -1,1 +1,1 @@
-{"schema_version":"1","state":"succeeded","code":"AGENT_OK","data":{"identities":[{"key_type":"ssh-ed25519","fingerprint":"SHA256:+gsOMgok1+6oGdcPuYx7W15kLAHsPOe9kd60m9l2WUU","comment":"bad-�-comment"}]},"warnings":[],"next":null}
+{"schema_version":"1","state":"succeeded","code":"AGENT_OK","data":{"identities":[{"key_type":"ssh-ed25519","fingerprint":"SHA256:tNSYmc4mCg1PG58RL5UM8G0UvVpJX3q9vyqFzN5i20E","comment":"bad-�-comment"}]},"warnings":[],"next":null}

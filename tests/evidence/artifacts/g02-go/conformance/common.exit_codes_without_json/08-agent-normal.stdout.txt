@@ -1,3 +1,3 @@
-ssh-ed25519 SHA256:kU4rSUQWbopMGPccKu1Imvc6OGpVPBHDkWEo3qovrD8 lab key ü 東京 spaced
-ecdsa-sha2-nistp256 SHA256:rLlFXgs61C2c0OYuflgIWQ1Jhe6o8yFD8Yc9RWoMpBU second
-ssh-rsa SHA256:r/1Djvna+zXFmiNfgiRTlzeKfqKw+z6f+nxLc1XkDJI 
+ssh-ed25519 SHA256:4WQrJ5t8dDrlcVGGw67UiYfRbDuezBISVJks9N5/dT4 lab key ü 東京 spaced
+ecdsa-sha2-nistp256 SHA256:4KONWEZiK9XOdN1/Ia53KO4LAYI9vWgpXhF+PeGE5sw second
+ssh-rsa SHA256:B28kGNGZxchJYfrT6/lkAvBsX5n9MLmCdZp9MxsdYAs 

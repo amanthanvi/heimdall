@@ -1,0 +1,5 @@
+r3c plain read=100 status=exit 0
+r3c json  read=100 status=exit 0
+r3b plain read=100 status=signal SIGPIPE
+r3b json  read=100 status=signal SIGPIPE
+exit=0

@@ -1,0 +1,31 @@
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 112 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x1f1c95bf2960, {0x4c97f8, 0x279ab0})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x4c97f8?, 0x279ab0?})
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x594d30?}, {0x4f8930?, 0x1f1c954e43c0?})
+	/tmp/rv3c/src-wt/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x1f1c95bf2960, {0x506eb8?, 0x1f1c95fd0280?}, 0x1f1c954d8b60)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x1f1c95bf2960)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x506eb8, 0x1f1c95fd0280}, 0x1f1c95fd0280, 0x1f1c9596c330, {0x505938, 0x1f1c9595fc80}, {0x505938, 0x1f1c9595fcb0}, {0x1f1c956ace90, 0x2, ...})
+	/tmp/rv3c/src-wt/cmd/heimdall-proto/main.go:357 +0x330
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x1f1c9597cfc8)
+	/tmp/rv3c/src-wt/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x1f1c9597cfc8, 0x507f98)
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2258 +0x3b8
+
+PASS

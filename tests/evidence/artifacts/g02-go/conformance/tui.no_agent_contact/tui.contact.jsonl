@@ -1,2 +1,2 @@
-{"seq": 1, "ts": "2026-10-04T21:17:51.894Z", "mono_ms": 0.282, "event": "listen", "socket": "/tmp/hmg02-latbl__1/144-tui-agent/tui.sock", "mode": "normal", "keys": 3}
-{"seq": 2, "ts": "2026-10-04T21:17:52.803Z", "mono_ms": 908.954, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T01:45:42.848Z", "mono_ms": 0.346, "event": "listen", "socket": "/tmp/hmg02-9k0suxug/149-tui-agent/tui.sock", "mode": "normal", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T01:45:43.759Z", "mono_ms": 911.844, "event": "shutdown"}

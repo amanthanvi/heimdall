@@ -1,6 +1,6 @@
-{"seq": 1, "ts": "2026-10-04T21:18:03.526Z", "mono_ms": 0.096, "event": "listen", "socket": "/tmp/hmg02-bmh3v8yh/001-fa/fa dir \u00fc/ag\u00e9nt \u6771.sock", "mode": "normal", "keys": 3}
-{"seq": 2, "ts": "2026-10-04T21:18:03.528Z", "mono_ms": 1.954, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T21:18:03.528Z", "mono_ms": 2.095, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "normal", "sent_bytes": 497}
-{"seq": 4, "ts": "2026-10-04T21:18:03.528Z", "mono_ms": 2.154, "event": "message", "conn": 1, "type": 13, "length": 1, "bytes": 5, "responded": "failure_unsupported_type", "sent_bytes": 5}
-{"seq": 5, "ts": "2026-10-04T21:18:03.528Z", "mono_ms": 2.181, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 10, "bytes_sent": 502, "partial_bytes": 0}
-{"seq": 6, "ts": "2026-10-04T21:18:03.633Z", "mono_ms": 107.478, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T01:45:51.934Z", "mono_ms": 0.103, "event": "listen", "socket": "/tmp/hmg02-gzesv5vk/001-fa/fa dir \u00fc/ag\u00e9nt \u6771.sock", "mode": "normal", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T01:45:51.935Z", "mono_ms": 0.259, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T01:45:51.935Z", "mono_ms": 0.403, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "normal", "sent_bytes": 497}
+{"seq": 4, "ts": "2026-10-06T01:45:51.935Z", "mono_ms": 0.458, "event": "message", "conn": 1, "type": 13, "length": 1, "bytes": 5, "responded": "failure_unsupported_type", "sent_bytes": 5}
+{"seq": 5, "ts": "2026-10-06T01:45:51.935Z", "mono_ms": 0.487, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 10, "bytes_sent": 502, "partial_bytes": 0}
+{"seq": 6, "ts": "2026-10-06T01:45:52.040Z", "mono_ms": 106.032, "event": "shutdown"}

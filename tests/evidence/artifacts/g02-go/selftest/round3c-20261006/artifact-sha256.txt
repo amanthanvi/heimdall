@@ -1,0 +1,4 @@
+31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6  darwin-arm64/heimdall-proto
+d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9  linux-arm64/heimdall-proto
+429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a  linux-x64/heimdall-proto
+ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed  windows-x64/heimdall-proto.exe

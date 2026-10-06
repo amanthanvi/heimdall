@@ -1,5 +1,5 @@
-{"seq": 1, "ts": "2026-10-04T21:15:12.768Z", "mono_ms": 0.279, "event": "listen", "socket": "/tmp/hmg02-latbl__1/043-agent-nkeys_over/nkeys_over.sock", "mode": "nkeys_over", "keys": 1}
-{"seq": 2, "ts": "2026-10-04T21:15:12.775Z", "mono_ms": 7.022, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T21:15:12.776Z", "mono_ms": 8.171, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "nkeys_over", "sent_bytes": 85084}
-{"seq": 4, "ts": "2026-10-04T21:15:12.776Z", "mono_ms": 8.198, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 85084, "partial_bytes": 0}
-{"seq": 5, "ts": "2026-10-04T21:15:12.878Z", "mono_ms": 110.099, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T01:41:46.980Z", "mono_ms": 0.294, "event": "listen", "socket": "/tmp/hmg02-9k0suxug/043-agent-nkeys_over/nkeys_over.sock", "mode": "nkeys_over", "keys": 1}
+{"seq": 2, "ts": "2026-10-06T01:41:46.985Z", "mono_ms": 5.158, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T01:41:46.986Z", "mono_ms": 6.321, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "nkeys_over", "sent_bytes": 85084}
+{"seq": 4, "ts": "2026-10-06T01:41:46.986Z", "mono_ms": 6.356, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 85084, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T01:41:47.086Z", "mono_ms": 106.381, "event": "shutdown"}

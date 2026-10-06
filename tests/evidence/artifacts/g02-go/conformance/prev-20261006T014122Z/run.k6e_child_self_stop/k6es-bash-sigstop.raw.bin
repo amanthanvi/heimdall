@@ -1,0 +1,24 @@
+[?1034hHMPS1$ "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-BEAT ctl 1 5
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=145
+HMPS1$ fg
+"$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-CTL-1
+K6ES-BEAT ctl 2 59
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=145
+HMPS1$ fg
+"$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-CTL-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+K6ES-BEAT hp1 1 5
+HMPS1$ exit
+exit
+exit

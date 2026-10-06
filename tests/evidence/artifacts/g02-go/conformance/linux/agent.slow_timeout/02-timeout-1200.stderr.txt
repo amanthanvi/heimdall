@@ -1,1 +1,1 @@
-heimdall-proto: agent list: read: no complete response within timeout
+heimdall-proto: agent list: read failed

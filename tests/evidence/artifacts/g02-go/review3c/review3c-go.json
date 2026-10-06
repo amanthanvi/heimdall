@@ -1,0 +1,119 @@
+{
+ "task_id": "M00-T05-review3c-go",
+ "role": "independent adversarial reviewer of the go round-3c change (did not write it)",
+ "started_utc": "2026-10-06T01:51:55Z",
+ "ended_utc": "2026-10-06T03:26:23Z",
+ "subject": {
+  "diff": "git diff HEAD -- prototypes/go (main.go +14 lines: exitByResultOnBrokenPipe; new k12_closed_stdout_test.go; REPORT.md)",
+  "base": "HEAD 0aaee74 (round-3b sources)",
+  "harness": "tests/g02/conformance.py 2.4.2 sha256 fdd4d91e..."
+ },
+ "builds": {
+  "method": "rsync working tree (minus dist, bin) and git archive HEAD to /tmp; cd / && GOPROXY=off GOTOOLCHAIN=local sh build.sh; go1.27.1",
+  "r3c": "build/manifest-r3c-tmpbuild.json == prototypes/go/dist/manifest.json on all 4 targets (darwin 31c3ee17..., linux-arm64 d55b4ffe...)",
+  "r3b": "build/manifest-r3b-head-tmpbuild.json (darwin a5644a4f..., linux-arm64 efd3ee08...) used as no-regression baseline"
+ },
+ "commands": [
+  {
+   "cmd": "sh build.sh (r3c /tmp copy, then HEAD /tmp copy)",
+   "exit": [
+    0,
+    0
+   ],
+   "out": "build/build-tmp.log"
+  },
+  {
+   "cmd": "python3 tests/g02/conformance.py --bin <tmp r3c darwin> --candidate go",
+   "exit": 0,
+   "observed": "139/139",
+   "out": "harness/darwin-console.log, harness/review3c-go-conformance-darwin.json"
+  },
+  {
+   "cmd": "sh tests/g02/linux/run.sh --artifact-dir <tmp r3c linux-arm64> --candidate go",
+   "exit": 0,
+   "observed": "139/139",
+   "out": "harness/linux-console.log, harness/review3c-go-conformance-linux.json"
+  },
+  {
+   "cmd": "probes/k12_probe.py darwin r3c+r3b (19 cases x 6 setups x plain/json)",
+   "exit": 0,
+   "observed": "r3c 0/114 mismatches; r3b 26/114",
+   "out": "k12/k12-darwin.*"
+  },
+  {
+   "cmd": "probes/k12_probe.py linux container r3c+r3b",
+   "exit": 0,
+   "observed": "r3c 0/114 mismatches; r3b 26/114",
+   "out": "k12/k12-linux.*"
+  },
+  {
+   "cmd": "probes/k12_partial_reader.py linux container (4096-byte pipe, reader closes mid-output)",
+   "exit": 0,
+   "observed": "r3c exit 0/0; r3b SIGPIPE/SIGPIPE",
+   "out": "k12/partial-linux.txt"
+  },
+  {
+   "cmd": "go test -count=1 ./... (darwin, HEIMDALL_G02_FIXTURES set)",
+   "exit": 0,
+   "out": "gotest/gotest-darwin-wt.txt",
+   "note": "first attempt without HEIMDALL_G02_FIXTURES exit 1 (fixtures not found from /tmp copy; environmental)"
+  },
+  {
+   "cmd": "go test -run TestK12ClosedStdoutExitParity (darwin r3c / r3b sources + new test)",
+   "exit": [
+    0,
+    1
+   ],
+   "out": "gotest/gotest-k12-darwin-*.txt"
+  },
+  {
+   "cmd": "linux/arm64 go test -c binaries x5 in harness image",
+   "exit": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "out": "gotest/linux-*.out.txt, gotest/cmd-v.txt (17 PASS, 0 SKIP)"
+  },
+  {
+   "cmd": "gofmt -l; go vet x4 targets; go mod verify",
+   "exit": 0,
+   "out": "gotest/vet.txt"
+  },
+  {
+   "cmd": "selftest.py (fix author's) on r3c / r3b darwin builds",
+   "exit": [
+    0,
+    1
+   ],
+   "observed": "76/76; 75/76 (cli.k12_closed_stdout_parity)",
+   "out": "selftest/"
+  },
+  {
+   "cmd": "probes/sigjob3c_probe.py bash,zsh pty (self-stop TSTP/STOP/TTIN/TTOU x control/exclusive/pipeline/sh -c x3 iterations, bg, beat/nohup/pipeline_last, EPIPE, explicit x8 layouts, ^C, SIGWINCH, ^Z/fg, bg (Q12), explicit TSTP, hangup)",
+   "runs": {
+    "darwin-r3b": 0,
+    "darwin-r3c (run1, child with non-reentrant lock; shared-mode counts invalid)": 0,
+    "darwin-r3c2 (launched from an & subshell: SIGINT/SIGQUIT inherited ignored even for control; invalid for SIGINT)": 0,
+    "darwin-r3c3 (valid)": 0,
+    "linux-r3b": 0,
+    "linux-r3c (run1, flawed child)": 0,
+    "linux-r3c2 (valid)": 0
+   },
+   "comparison": "jobctl/compare-darwin.txt: r3b vs r3c3 0 differing fields over 112 scenarios; jobctl/compare-linux.txt: r3b vs r3c2 3 fields (shared-mode duplicate counts 2->1, hangup 3->4; none lost)"
+  },
+  {
+   "cmd": "probes/selfstop_detail.py darwin bash SIGSTOP/SIGTSTP exclusive (r3c, r3b) and external kill -STOP to child (bash, zsh)",
+   "exit": 0,
+   "observed": "SIGSTOP (self or external): heimdall-proto exits 255 within ms, meta CHILD_EXITED exit_code -1 signal null, child gets SIGHUP+SIGCONT then EIO; identical on r3b. SIGTSTP: correct stop.",
+   "out": "detail/"
+  }
+ ],
+ "probe_sources": {
+  "probes/sigjob3c_probe.py": "copied from review3/probes/sigjob_probe.py (sha256 41649a95...) and extended",
+  "probes/child3c.py": "RLock + beat-thread signal mask fix at 02:15:57Z (run1 used the earlier version)"
+ },
+ "redaction": "absolute home and per-user TMPDIR paths replaced with <home>/<tmpdir>/<id>; no HEIMDALL_CANARY_ value present (scan: 0 files)"
+}

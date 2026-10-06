@@ -1,0 +1,233 @@
+# started 2026-10-06T01:14:14Z image alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 platform linux/arm64, --network none, uid 10001, cap-drop ALL; sources = round 3c (fixed)
+Linux 7.0.14-linuxkit aarch64
+=== linux/arm64 agent.test -test.count=1 -test.v
+=== RUN   TestParseOK
+--- PASS: TestParseOK (0.00s)
+=== RUN   TestParseRejects
+--- PASS: TestParseRejects (0.00s)
+=== RUN   TestReadFrameBounds
+--- PASS: TestReadFrameBounds (0.00s)
+=== RUN   TestSafeTextStripsEscapes
+--- PASS: TestSafeTextStripsEscapes (0.00s)
+=== RUN   TestProbeOK
+--- PASS: TestProbeOK (0.00s)
+=== RUN   TestProbeRefusedAndProtocol
+--- PASS: TestProbeRefusedAndProtocol (0.00s)
+=== RUN   TestProbeUnavailable
+--- PASS: TestProbeUnavailable (0.30s)
+=== RUN   TestProbeCancel
+    agent_test.go:211: cancel latency after signal: 3.20975ms
+--- PASS: TestProbeCancel (0.20s)
+=== RUN   TestK3EOFClassification
+--- PASS: TestK3EOFClassification (0.00s)
+=== RUN   TestK4FailureFrameShape
+--- PASS: TestK4FailureFrameShape (0.00s)
+=== RUN   TestK1ControlCharactersInIdentity
+--- PASS: TestK1ControlCharactersInIdentity (0.00s)
+=== RUN   TestK3aResetClassificationReadFrame
+--- PASS: TestK3aResetClassificationReadFrame (0.00s)
+=== RUN   TestK3aResetEndToEnd
+=== RUN   TestK3aResetEndToEnd/before_any_byte
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa2971671780/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/after_1_byte
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa664745327/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/after_3_header_bytes
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa1167707131/agent sock: read: connection reset by peer (reset=true)
+=== RUN   TestK3aResetEndToEnd/mid_body
+    k3a_test.go:128: kernel delivered: read unix @->/tmp/hpa2220898833/agent sock: read: connection reset by peer (reset=true)
+--- PASS: TestK3aResetEndToEnd (0.62s)
+    --- PASS: TestK3aResetEndToEnd/before_any_byte (0.00s)
+    --- PASS: TestK3aResetEndToEnd/after_1_byte (0.21s)
+    --- PASS: TestK3aResetEndToEnd/after_3_header_bytes (0.21s)
+    --- PASS: TestK3aResetEndToEnd/mid_body (0.21s)
+PASS
+agent.test exit=0
+=== linux/arm64 profile.test -test.count=1 -test.v
+=== RUN   TestGuardSyntax
+--- PASS: TestGuardSyntax (0.00s)
+=== RUN   TestGuardAcceptsValidCorpus
+    guard_test.go:81: go command or module version unavailable: corpus check runs only with a Go toolchain
+--- SKIP: TestGuardAcceptsValidCorpus (0.00s)
+=== RUN   TestK14NonRegularFiles
+--- PASS: TestK14NonRegularFiles (0.00s)
+=== RUN   TestFixtures
+=== RUN   TestFixtures/homelab.toml
+=== RUN   TestFixtures/large-100.toml
+=== RUN   TestFixtures/spaced_dir_ü/prøfile_homelab.toml
+=== RUN   TestFixtures/invalid-forbidden-key.toml
+=== RUN   TestFixtures/invalid-unknown-dest-key.toml
+=== RUN   TestFixtures/invalid-malformed.toml
+=== RUN   TestFixtures/invalid-schema-version.toml
+=== RUN   TestFixtures/invalid-duplicate-alias.toml
+=== RUN   TestFixtures/invalid-port.toml
+--- PASS: TestFixtures (0.01s)
+    --- PASS: TestFixtures/homelab.toml (0.00s)
+    --- PASS: TestFixtures/large-100.toml (0.00s)
+    --- PASS: TestFixtures/spaced_dir_ü/prøfile_homelab.toml (0.00s)
+    --- PASS: TestFixtures/invalid-forbidden-key.toml (0.00s)
+    --- PASS: TestFixtures/invalid-unknown-dest-key.toml (0.00s)
+    --- PASS: TestFixtures/invalid-malformed.toml (0.00s)
+    --- PASS: TestFixtures/invalid-schema-version.toml (0.00s)
+    --- PASS: TestFixtures/invalid-duplicate-alias.toml (0.00s)
+    --- PASS: TestFixtures/invalid-port.toml (0.00s)
+=== RUN   TestHomelabValues
+--- PASS: TestHomelabValues (0.00s)
+=== RUN   TestOversize
+--- PASS: TestOversize (0.01s)
+=== RUN   TestMissingFile
+--- PASS: TestMissingFile (0.00s)
+=== RUN   TestMoreSchemaRules
+--- PASS: TestMoreSchemaRules (0.00s)
+=== RUN   TestFilter
+--- PASS: TestFilter (0.00s)
+=== RUN   TestK2ControlCharactersInValues
+--- PASS: TestK2ControlCharactersInValues (0.00s)
+=== RUN   FuzzGuard
+=== RUN   FuzzGuard/seed#0
+=== RUN   FuzzGuard/seed#1
+=== RUN   FuzzGuard/seed#2
+=== RUN   FuzzGuard/seed#3
+=== RUN   FuzzGuard/seed#4
+=== RUN   FuzzGuard/seed#5
+--- PASS: FuzzGuard (0.00s)
+    --- PASS: FuzzGuard/seed#0 (0.00s)
+    --- PASS: FuzzGuard/seed#1 (0.00s)
+    --- PASS: FuzzGuard/seed#2 (0.00s)
+    --- PASS: FuzzGuard/seed#3 (0.00s)
+    --- PASS: FuzzGuard/seed#4 (0.00s)
+    --- PASS: FuzzGuard/seed#5 (0.00s)
+PASS
+profile.test exit=0
+=== linux/arm64 run.test -test.count=1 -test.v
+=== RUN   TestDotPathRefusalNotEnvironmentControlled
+--- PASS: TestDotPathRefusalNotEnvironmentControlled (0.00s)
+=== RUN   TestArgvPassthroughAndExitCode
+--- PASS: TestArgvPassthroughAndExitCode (0.00s)
+=== RUN   TestInvalidUTF8ArgBytes
+--- PASS: TestInvalidUTF8ArgBytes (0.00s)
+=== RUN   TestSignalDeath
+--- PASS: TestSignalDeath (0.00s)
+=== RUN   TestLaunchFailure
+--- PASS: TestLaunchFailure (0.00s)
+=== RUN   TestForwardSignalsAndReap
+--- PASS: TestForwardSignalsAndReap (0.28s)
+PASS
+run.test exit=0
+=== linux/arm64 tui.test -test.count=1 -test.v
+=== RUN   TestLayoutWideNarrowTiny
+--- PASS: TestLayoutWideNarrowTiny (0.00s)
+=== RUN   TestColorSelectionNotColorOnly
+--- PASS: TestColorSelectionNotColorOnly (0.00s)
+=== RUN   TestKeysFilterSelect
+--- PASS: TestKeysFilterSelect (0.00s)
+=== RUN   TestSanitize
+--- PASS: TestSanitize (0.00s)
+=== RUN   TestK9SelectionAfterFilterEdit
+--- PASS: TestK9SelectionAfterFilterEdit (0.00s)
+PASS
+tui.test exit=0
+=== linux/arm64 heimdall-proto.test -test.count=1 -test.v
+=== RUN   TestK12ClosedStdoutExitParity
+    k12_closed_stdout_test.go:78: [version] plain=exit 0 json=exit 0
+    k12_closed_stdout_test.go:78: [profile-show-homelab] plain=exit 0 json=exit 0
+    k12_closed_stdout_test.go:78: [profile-missing] plain=exit 2 json=exit 2
+    k12_closed_stdout_test.go:78: [profile-schema-invalid] plain=exit 2 json=exit 2
+    k12_closed_stdout_test.go:78: [agent-unavailable] plain=exit 5 json=exit 5
+    k12_closed_stdout_test.go:78: [usage-unknown-flag] plain=exit 2 json=exit 2
+--- PASS: TestK12ClosedStdoutExitParity (0.05s)
+=== RUN   TestK15ParserResourceBound
+    k15_test.go:168: inline nest depth 4000 (16 KB)          24056 B  SCHEMA_INVALID  0.003s  peak   21.1 MiB  killed=""
+    k15_test.go:168: array of inline nest 1 MiB             696056 B  SCHEMA_INVALID  0.003s  peak   21.1 MiB  killed=""
+    k15_test.go:168: long header components, many keys      421942 B  SCHEMA_INVALID  0.003s  peak   21.1 MiB  killed=""
+    k15_test.go:168: at limit: inline nest 30 x1049         198250 B  PROFILE_OK      0.071s  peak   74.3 MiB  killed=""
+    k15_test.go:168: at limit: deep header 28000 keys       297000 B  PROFILE_OK      0.033s  peak   64.8 MiB  killed=""
+    k15_test.go:168: at limit: 10000 destinations           707823 B  PROFILE_OK      0.029s  peak   28.1 MiB  killed=""
+    k15_test.go:168: dotted keys depth 8, 1 MiB            1041940 B  SCHEMA_INVALID  0.003s  peak   21.1 MiB  killed=""
+    k15_test.go:168: many keys 1 MiB                        978940 B  SCHEMA_INVALID  0.004s  peak   22.6 MiB  killed=""
+    k15_test.go:168: wide array 1 MiB                      1048575 B  PROFILE_OK      0.054s  peak   35.7 MiB  killed=""
+    k15_test.go:168: long string 1 MiB                     1048576 B  PROFILE_OK      0.010s  peak   22.6 MiB  killed=""
+--- PASS: TestK15ParserResourceBound (0.23s)
+=== RUN   TestK16TUINoHelperProcesses
+--- PASS: TestK16TUINoHelperProcesses (0.50s)
+=== RUN   TestK6dSharedModeExplicitSignals
+    k6d_test.go:143: sh-c/SIGINT              shared=true child_got=[SIGINT] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGTERM             shared=true child_got=[SIGTERM] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGHUP              shared=true child_got=[SIGHUP] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGQUIT             shared=true child_got=[SIGQUIT] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGWINCH            shared=true child_got=[SIGWINCH] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-first/SIGINT    shared=true child_got=[SIGINT] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGTERM   shared=true child_got=[SIGTERM] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGHUP    shared=true child_got=[SIGHUP] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGQUIT   shared=true child_got=[SIGQUIT] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGWINCH  shared=true child_got=[SIGWINCH] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-last/SIGINT     shared=true child_got=[SIGINT] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGTERM    shared=true child_got=[SIGTERM] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGHUP     shared=true child_got=[SIGHUP] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGQUIT    shared=true child_got=[SIGQUIT] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGWINCH   shared=true child_got=[SIGWINCH] heimdall_rc=RC=7
+--- PASS: TestK6dSharedModeExplicitSignals (7.49s)
+=== RUN   TestUsageErrors
+--- PASS: TestUsageErrors (0.00s)
+=== RUN   TestProfileShowOversizeAndMissing
+--- PASS: TestProfileShowOversizeAndMissing (0.00s)
+=== RUN   TestCanaryNeverEmitted
+--- PASS: TestCanaryNeverEmitted (0.00s)
+=== RUN   TestRunMetaFile
+--- PASS: TestRunMetaFile (0.00s)
+=== RUN   TestVersion
+--- PASS: TestVersion (0.00s)
+=== RUN   TestTUIRequiresTTY
+--- PASS: TestTUIRequiresTTY (0.00s)
+=== RUN   TestK5MetaState
+--- PASS: TestK5MetaState (0.00s)
+=== RUN   TestRunMetaFIFO
+--- PASS: TestRunMetaFIFO (0.00s)
+=== RUN   TestK10PanicRestoresAndExits1
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 151 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0xfbaa7b80960, {0x4c9b38, 0x279ab0})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x4c9b38?, 0x279ab0?})
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x594d30?}, {0x4f8c70?, 0xfbaa832ec60?})
+	<repo>/prototypes/go/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0xfbaa7b80960, {0x5071f8?, 0xfbaa809a100?}, 0xfbaa83a4070)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0xfbaa7b80960)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x5071f8, 0xfbaa809a100}, 0xfbaa809a100, 0xfbaa7b342c0, {0x505c78, 0xfbaa7b32c60}, {0x505c78, 0xfbaa7b32c90}, {0xfbaa83afe90, 0x2, ...})
+	<repo>/prototypes/go/cmd/heimdall-proto/main.go:357 +0x330
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0xfbaa7a64908)
+	<repo>/prototypes/go/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0xfbaa7a64908, 0x5082d8)
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2258 +0x3b8
+
+--- PASS: TestK10PanicRestoresAndExits1 (0.60s)
+=== RUN   TestK10SIGHUPRestoresAndExits129
+--- PASS: TestK10SIGHUPRestoresAndExits129 (0.61s)
+=== RUN   TestK10TerminalHangupNoSignalExits129
+--- PASS: TestK10TerminalHangupNoSignalExits129 (0.40s)
+=== RUN   TestTUIEnvironmentSelectedTerminfo
+    tui_terminfo_test.go:125: control: TERM=xterm-256color       exit=0 drew=true first=36.2ms peak=11.0MiB killed=""
+    tui_terminfo_test.go:125: TERM path traversal to /dev/zero   exit=0 drew=true first=33.7ms peak=11.0MiB killed=""
+    tui_terminfo_test.go:125: TERMINFO FIFO named after TERM     exit=0 drew=true first=34.4ms peak=9.0MiB killed=""
+    tui_terminfo_test.go:125: TERMINFO_DIRS FIFO                 exit=0 drew=true first=34.8ms peak=11.0MiB killed=""
+    tui_terminfo_test.go:125: malformed terminfo entry           exit=0 drew=true first=34.0ms peak=8.9MiB killed=""
+--- PASS: TestTUIEnvironmentSelectedTerminfo (1.54s)
+=== RUN   TestK10PanicBeforeRunExits1
+    tui_terminfo_test.go:162: exit=1 stderr="heimdall-proto: tui: internal error (panic)\n" tty_output=""
+--- PASS: TestK10PanicBeforeRunExits1 (0.11s)
+PASS
+heimdall-proto.test exit=0
+exit=0

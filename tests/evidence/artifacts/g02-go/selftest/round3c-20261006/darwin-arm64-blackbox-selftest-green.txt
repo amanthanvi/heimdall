@@ -1,0 +1,84 @@
+# started 2026-10-06T01:15:15Z darwin-arm64 native; selftest.py sha256 00edbe7c6824ab9361b016dffa392d8190fd6ec9a9c74d7479b3e138e736165e; artifact 31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6 round-3c build
+PASS run.stdin_stdout_bytes exit=0
+PASS run.signal_meta exit=137 meta={'exit_code': None, 'launched': True, 'signal': 9}
+PASS run.group_sigint_once exit=11 (10+count)
+PASS tui.select_down_enter exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.j_k_select exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.filter_unicode exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.filter_esc_clears exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.filter_backspace exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.quit_q exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.ctrl_c exit=130 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.large_100_filter exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.sigterm_restores exit=143 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.no_color exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.no_color_sgr color_sgr_count=0
+PASS tui.color_default exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.color_when_allowed TERM=xterm-256color, NO_COLOR empty
+PASS tui.resize_20x5_redraw_within_100ms bytes=61 alive=True
+PASS tui.resize_49x10_redraw_within_100ms bytes=96 alive=True
+PASS tui.resize_120x40_redraw_within_100ms bytes=311 alive=True
+PASS tui.resize_20x5_redraw_within_100ms bytes=61 alive=True
+PASS tui.resize_then_select exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.requires_tty exit=2
+PASS run.tty_ctrl_c_once exit=11 (10+count) termios_same=True
+PASS run.shared_tty_bg_then_fg_once_each exit=12 (10+count, want 12)
+PASS agent.ok exit=0 code=AGENT_OK key_type=ssh-ed25519 comment='fixture �' fp_ok=True
+PASS agent.failure exit=5 code=AGENT_REFUSED
+PASS agent.oversize_len exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.huge_nkeys exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.trailing exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.truncated exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.wrong_type exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.string_over exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.connect_failure exit=5
+PASS agent.timeout exit=5 elapsed=0.306s
+PASS agent.sigint_cancel exit=130 latency=2.7ms
+PASS agent.k1_controls_replaced exit=0 control_code_points_left=0
+PASS agent.k3_eof_zero_bytes exit=5 code=AGENT_UNAVAILABLE
+PASS agent.k3_eof_after_one_byte exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.k3_eof_mid_body exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.k4_failure_with_payload exit=5 code=AGENT_PROTOCOL_ERROR
+PASS agent.k4_failure_len1 exit=5 code=AGENT_REFUSED
+PASS profile.k2_name_esc exit=2 code=SCHEMA_INVALID key_path=name canary_leak=False
+PASS profile.k2_name_raw_tab exit=2 code=SCHEMA_INVALID key_path=name canary_leak=False
+PASS profile.k2_alias_del exit=2 code=SCHEMA_INVALID key_path=destinations[0].alias canary_leak=False
+PASS profile.k2_host_c1 exit=2 code=SCHEMA_INVALID key_path=destinations[0].host canary_leak=False
+PASS profile.k2_account_nul exit=2 code=SCHEMA_INVALID key_path=destinations[0].account canary_leak=False
+PASS profile.k2_label_newline exit=2 code=SCHEMA_INVALID key_path=destinations[0].labels[1] canary_leak=False
+PASS profile.k2_meta_tolerated exit=0
+PASS run.k5_meta_state cases_ok=[True, True, True]
+PASS run.k8_invalid_utf8_argv_bytes exit=0 bytes_equal=True
+PASS run.k6_foreground_explicit_sigint_once exit=11 (10+count, want 11) termios_same=True
+PASS run.k6_bg_fg_explicit_and_terminal_once_each exit=13 (10+count, want 13)
+PASS tui.k9_append_resets exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.k9_backspace_resets exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.k9_esc_resets exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.k9_enter_keeps exit=0 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.k10_sighup_restores_129 exit=129 altscreen_in=True restored_screen=True termios_restored=True selection_ok=True
+PASS tui.k10_hangup_master_close_129 exit=129
+PASS k11.no_writes_no_sidecars exits=[0, 0, 5, 0, 0] files_written=[] sidecars=[] control_program_wrote=[]
+PASS run.k6a_pipeline_run_first shell=/bin/bash control_got=True control_stopped=False got=True stopped=False
+PASS run.k6a_pipeline_run_last shell=/bin/bash control_got=True control_stopped=False got=True stopped=False
+PASS run.k6a_pipeline_slow_reader_then_run shell=/bin/bash control_got=True control_stopped=False got=True stopped=False
+PASS run.k6a_pipeline_run_then_slow_reader shell=/bin/bash control_got=True control_stopped=False got=True stopped=False
+PASS run.k6a_pipeline_child_reads_tty shell=/bin/bash control_got=True control_stopped=False got=True stopped=False
+PASS run.k6a_async_job_of_script shell=/bin/bash control_got=True control_stopped=False got=True stopped=False
+PASS run.k6a_inherited_ignore_int_hup exit=5 (want 5: child unaffected) child_dispositions='SIGHUP=ign SIGINT=ign SIGQUIT=dfl'
+OBSERVE run.k6a_inherited_ignore_quit (stack limitation, not counted): child SIGQUIT=dfl (exec semantics would be ign)
+PASS run.k6_foreground_explicit_sigint_once_stderr_piped exit=11 (10+count, want 11)
+PASS run.k6a_ctty_not_on_stdio_child_reads_tty exit=0 child_got='GOT:hello'
+PASS run.k6e_job_control_bash_simple lines=10
+PASS run.k6e_job_control_bash_list lines=10
+OBSERVE run.k6e_job_control_zsh_simple (non-gating, not counted): ok lines=10
+OBSERVE run.k6e_job_control_zsh_list (non-gating, not counted): ok lines=10
+PASS run.k6d_pipeline_first_explicit_signals SIGINT:shared=True,got=SIGINT SIGTERM:shared=True,got=SIGTERM SIGHUP:shared=True,got=SIGHUP SIGQUIT:shared=True,got=SIGQUIT SIGWINCH:shared=True,got=SIGWINCH
+PASS run.k6d_pipeline_last_explicit_signals SIGINT:shared=True,got=SIGINT SIGTERM:shared=True,got=SIGTERM SIGHUP:shared=True,got=SIGHUP SIGQUIT:shared=True,got=SIGQUIT SIGWINCH:shared=True,got=SIGWINCH
+OBSERVE run.terminal_ctrl_c_deliveries_first (non-gating, not counted): darwin heimdall-proto shares the foreground job (modeShared); child SIGINT deliveries per trial [2, 2, 2]
+OBSERVE run.terminal_ctrl_c_deliveries_alone (non-gating, not counted): darwin heimdall-proto alone in its job (modeExclusive); child SIGINT deliveries per trial [1, 1, 1]
+PASS tui.terminfo_traversal_dev_zero drew=True exit=0 peak_rss_kib=8896
+PASS tui.terminfo_fifo_terminfo drew=True exit=0 peak_rss_kib=8624
+PASS tui.terminfo_malformed_entry drew=True exit=0 peak_rss_kib=8880
+PASS cli.k12_closed_stdout_parity plain/json version:exit 0/exit 0 profile-show-homelab:exit 0/exit 0 agent-list-ok:exit 0/exit 0 profile-missing:exit 2/exit 2 profile-schema-invalid:exit 2/exit 2 agent-unavailable:exit 5/exit 5 usage-unknown-flag:exit 2/exit 2
+SUMMARY 76/76 passed
+exit=0

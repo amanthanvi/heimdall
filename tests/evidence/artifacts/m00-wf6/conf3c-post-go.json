@@ -1,0 +1,22 @@
+{
+  "candidate": "go",
+  "harness_version": "2.4.2",
+  "darwin": {
+    "harness_exit_code": 0,
+    "evidence_record": "tests/evidence/g02-go-conformance.json",
+    "passed": 139,
+    "failed": 0,
+    "errored": 0,
+    "artifact_sha256": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6"
+  },
+  "linux": {
+    "harness_exit_code": 0,
+    "evidence_record": "tests/evidence/g02-go-conformance-linux.json",
+    "passed": 139,
+    "failed": 0,
+    "errored": 0,
+    "artifact_sha256": "d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9"
+  },
+  "failures": [],
+  "summary": "Harness 2.4.2 (K13) verdict run for go on darwin-arm64 and linux-arm64: both runs passed 139/139, with 0 fail, 0 error and 0 skipped, harness exit code 0 on each. Both records have status verified and verdict pass.\n\nBuild: prototypes/go/build.sh rebuilt all four targets (go1.27.1, exit 0). The sha256s match the previous manifest exactly, so the build is reproducible. Digests:\n- darwin-arm64: 31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6\n- linux-arm64: d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9\n- linux-x64 (not judged): 429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a\n- windows-x64 (not judged): ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed\n\nLinux ran through tests/g02/linux/run.sh in the digest-pinned linux/arm64 container (Docker server 29.8.1, arm64), so the K3a reset checks were judged on a native ECONNRESET path. The build_commit in both records is 0aaee7480b75860dcf6e11b657e19fa281b7e1ce+dirty, because the working tree has uncommitted go changes (REPORT.md, main.go, and the untracked k12_closed_stdout_test.go).\n\nRecord sha256s:\n- tests/evidence/g02-go-conformance.json: 7a8c4cc36f283224b39e548dcf59c9d9c9afd2008e0b76ffc6c50cf15e40aa69\n- tests/evidence/g02-go-conformance-linux.json: 89fc06f8eed922dca1204a6f1705e8c93f6a62fe85cb38d7362c5800784f269c\n- tests/g02/conformance.py: fdd4d91ee42a534d7097fb7919e13c905ef422e6a088aae73d229182d52b5d3d\n\nThe gated K6e self-stop (run.k6a_child_self_stop_not_spread) and k12.closed_stdout_exit_parity checks passed on both platforms.\n\nFlake reruns: none needed, because nothing failed (0 of 3 reruns used).\n\nScans over both records and all 1,342 artifact files: no full HEIMDALL_CANARY_ value anywhere (only the allowed prefix appears). The harness had written absolute home paths into both records and one artifact, harness.check_bound.inner/traceback.txt. I replaced them with <home> using sed, re-scanned (0 remaining), and confirmed both JSON records still parse.\n\nHousekeeping: the previous top-level contents of tests/evidence/artifacts/g02-go/conformance/ (including linux/) were moved to prev-20261006T014122Z/. The old records are saved there as record-darwin.json and record-linux.json. The older prev-* directories were left untouched. No prototype files, commits, or pushes. Not covered, as before: native Windows and WSL."
+}

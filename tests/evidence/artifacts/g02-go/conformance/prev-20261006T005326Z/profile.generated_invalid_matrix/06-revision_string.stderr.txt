@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: revision: must be an integer >= 1

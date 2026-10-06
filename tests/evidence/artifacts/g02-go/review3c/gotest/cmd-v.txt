@@ -1,0 +1,102 @@
+=== RUN   TestK12ClosedStdoutExitParity
+    k12_closed_stdout_test.go:78: [version] plain=exit 0 json=exit 0
+    k12_closed_stdout_test.go:78: [profile-show-homelab] plain=exit 0 json=exit 0
+    k12_closed_stdout_test.go:78: [profile-missing] plain=exit 2 json=exit 2
+    k12_closed_stdout_test.go:78: [profile-schema-invalid] plain=exit 2 json=exit 2
+    k12_closed_stdout_test.go:78: [agent-unavailable] plain=exit 5 json=exit 5
+    k12_closed_stdout_test.go:78: [usage-unknown-flag] plain=exit 2 json=exit 2
+--- PASS: TestK12ClosedStdoutExitParity (0.04s)
+=== RUN   TestK15ParserResourceBound
+    k15_test.go:168: at limit: 10000 destinations           707823 B  PROFILE_OK      0.028s  peak   29.8 MiB  killed=""
+    k15_test.go:168: inline nest depth 4000 (16 KB)          24056 B  SCHEMA_INVALID  0.003s  peak   22.9 MiB  killed=""
+    k15_test.go:168: array of inline nest 1 MiB             696056 B  SCHEMA_INVALID  0.003s  peak   22.9 MiB  killed=""
+    k15_test.go:168: dotted keys depth 8, 1 MiB            1041940 B  SCHEMA_INVALID  0.003s  peak   22.9 MiB  killed=""
+    k15_test.go:168: wide array 1 MiB                      1048575 B  PROFILE_OK      0.062s  peak   29.0 MiB  killed=""
+    k15_test.go:168: at limit: deep header 28000 keys       297000 B  PROFILE_OK      0.033s  peak   67.2 MiB  killed=""
+    k15_test.go:168: long header components, many keys      421942 B  SCHEMA_INVALID  0.003s  peak   24.9 MiB  killed=""
+    k15_test.go:168: many keys 1 MiB                        978940 B  SCHEMA_INVALID  0.004s  peak   24.9 MiB  killed=""
+    k15_test.go:168: long string 1 MiB                     1048576 B  PROFILE_OK      0.010s  peak   26.8 MiB  killed=""
+    k15_test.go:168: at limit: inline nest 30 x1049         198250 B  PROFILE_OK      0.074s  peak   72.4 MiB  killed=""
+--- PASS: TestK15ParserResourceBound (0.23s)
+=== RUN   TestK16TUINoHelperProcesses
+--- PASS: TestK16TUINoHelperProcesses (0.50s)
+=== RUN   TestK6dSharedModeExplicitSignals
+    k6d_test.go:143: sh-c/SIGINT              shared=true child_got=[SIGINT] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGTERM             shared=true child_got=[SIGTERM] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGHUP              shared=true child_got=[SIGHUP] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGQUIT             shared=true child_got=[SIGQUIT] heimdall_rc=RC=7
+    k6d_test.go:143: sh-c/SIGWINCH            shared=true child_got=[SIGWINCH] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-first/SIGINT    shared=true child_got=[SIGINT] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGTERM   shared=true child_got=[SIGTERM] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGHUP    shared=true child_got=[SIGHUP] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGQUIT   shared=true child_got=[SIGQUIT] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-first/SIGWINCH  shared=true child_got=[SIGWINCH] heimdall_rc=RC=0
+    k6d_test.go:143: pipeline-last/SIGINT     shared=true child_got=[SIGINT] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGTERM    shared=true child_got=[SIGTERM] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGHUP     shared=true child_got=[SIGHUP] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGQUIT    shared=true child_got=[SIGQUIT] heimdall_rc=RC=7
+    k6d_test.go:143: pipeline-last/SIGWINCH   shared=true child_got=[SIGWINCH] heimdall_rc=RC=7
+--- PASS: TestK6dSharedModeExplicitSignals (7.46s)
+=== RUN   TestUsageErrors
+--- PASS: TestUsageErrors (0.00s)
+=== RUN   TestProfileShowOversizeAndMissing
+--- PASS: TestProfileShowOversizeAndMissing (0.00s)
+=== RUN   TestCanaryNeverEmitted
+--- PASS: TestCanaryNeverEmitted (0.00s)
+=== RUN   TestRunMetaFile
+--- PASS: TestRunMetaFile (0.00s)
+=== RUN   TestVersion
+--- PASS: TestVersion (0.00s)
+=== RUN   TestTUIRequiresTTY
+--- PASS: TestTUIRequiresTTY (0.00s)
+=== RUN   TestK5MetaState
+--- PASS: TestK5MetaState (0.00s)
+=== RUN   TestRunMetaFIFO
+--- PASS: TestRunMetaFIFO (0.00s)
+=== RUN   TestK10PanicRestoresAndExits1
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 140 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x17cc67d01c20, {0x4c97f8, 0x279ab0})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x4c97f8?, 0x279ab0?})
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x594d30?}, {0x4f8930?, 0x17cc67d1db30?})
+	/tmp/rv3c/src-wt/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x17cc67d01c20, {0x506eb8?, 0x17cc67bc8500?}, 0x17cc684884d0)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x17cc67d01c20)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x506eb8, 0x17cc67bc8500}, 0x17cc67bc8500, 0x17cc67d12378, {0x505938, 0x17cc67d1d950}, {0x505938, 0x17cc67d1d980}, {0x17cc67cf4e90, 0x2, ...})
+	/tmp/rv3c/src-wt/cmd/heimdall-proto/main.go:357 +0x330
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x17cc67d93448)
+	/tmp/rv3c/src-wt/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x17cc67d93448, 0x507f98)
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.1/libexec/src/testing/testing.go:2258 +0x3b8
+
+--- PASS: TestK10PanicRestoresAndExits1 (0.61s)
+=== RUN   TestK10SIGHUPRestoresAndExits129
+--- PASS: TestK10SIGHUPRestoresAndExits129 (0.61s)
+=== RUN   TestK10TerminalHangupNoSignalExits129
+--- PASS: TestK10TerminalHangupNoSignalExits129 (0.40s)
+=== RUN   TestTUIEnvironmentSelectedTerminfo
+    tui_terminfo_test.go:125: TERMINFO_DIRS FIFO                 exit=0 drew=true first=34.7ms peak=11.0MiB killed=""
+    tui_terminfo_test.go:125: malformed terminfo entry           exit=0 drew=true first=34.7ms peak=11.0MiB killed=""
+    tui_terminfo_test.go:125: control: TERM=xterm-256color       exit=0 drew=true first=34.3ms peak=11.1MiB killed=""
+    tui_terminfo_test.go:125: TERM path traversal to /dev/zero   exit=0 drew=true first=34.1ms peak=11.1MiB killed=""
+    tui_terminfo_test.go:125: TERMINFO FIFO named after TERM     exit=0 drew=true first=33.9ms peak=10.9MiB killed=""
+--- PASS: TestTUIEnvironmentSelectedTerminfo (1.54s)
+=== RUN   TestK10PanicBeforeRunExits1
+    tui_terminfo_test.go:162: exit=1 stderr="heimdall-proto: tui: internal error (panic)\n" tty_output=""
+--- PASS: TestK10PanicBeforeRunExits1 (0.11s)
+PASS

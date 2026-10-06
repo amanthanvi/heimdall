@@ -1,0 +1,4 @@
+DIFF winch bash pipeline_first per_trial_deliveries A=[2, 2, 2] B=[2, 1, 2]
+DIFF hangup bash pipeline_first deliveries A={"SIGINT": 0, "SIGTERM": 0, "SIGHUP": 3, "SIGQUIT": 0, "SIGWINCH": 0} B={"SIGINT": 0, "SIGTERM": 0, "SIGHUP": 4, "SIGQUIT": 0, "SIGWINCH": 0}
+DIFF winch zsh wrapper per_trial_deliveries A=[2, 2, 2] B=[2, 2, 1]
+scenarios_compared=112 differing_fields=3

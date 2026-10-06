@@ -62,7 +62,21 @@ func usage(stdout, stderr io.Writer, jsonOut bool, msg string) int {
 	return result.ExitUsage
 }
 
+// exitByResultOnBrokenPipe makes a write to a stdout or stderr whose reader
+// has gone fail with EPIPE instead of killing the process (K12 closed stdout,
+// slice-contract §9.4, Q17). By default the Go runtime turns that write on
+// fd 1/2 into death by SIGPIPE, so a --json error result (which writes
+// stdout) died of SIGPIPE while the same error without --json (stderr only)
+// exited 2 or 5. With SIGPIPE routed to a channel nobody reads, write errors
+// are ignored as before and every mode exits with its result's code.
+// Not used for run (the child's signal state must stay as inherited) or tui
+// (stdout is a terminal).
+func exitByResultOnBrokenPipe() { signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE) }
+
 func realMain(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || (args[0] != "run" && args[0] != "tui") {
+		exitByResultOnBrokenPipe()
+	}
 	jsonOut := hasJSON(args)
 	if len(args) == 0 {
 		return usage(stdout, stderr, jsonOut, "missing subcommand")

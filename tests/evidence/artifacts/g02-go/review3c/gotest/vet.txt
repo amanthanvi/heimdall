@@ -1,0 +1,7 @@
+gofmt -l . : 0 files
+go vet darwin/arm64 exit=0
+go vet linux/arm64 exit=0
+go vet linux/amd64 exit=0
+go vet windows/amd64 exit=0
+all modules verified
+go mod verify exit=0

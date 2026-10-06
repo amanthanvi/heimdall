@@ -1,0 +1,6 @@
+[?1034hHMPS1$ /bin/sh -c 'echo $$ > "$D/script-hp.peer.pid"; "$P" run -- "$Y" "$D/s.py"  "$D" script-hp; echo "K6AS_SCRIPT_RC=$?"'
+K6AS_SCRIPT_RC=0
+exit
+HMPS1$ exit
+exit
+exit

@@ -412,3 +412,55 @@ Remaining gaps, stated plainly:
 ### Leftovers
 
 The killed first attempt left temporary directories from its selftest runs (`hp-k6e-*`, `hp-k6d-*`) in the macOS per-user TMPDIR. Older `hp-k6a-*` and `hpa*` directories also remain from earlier rounds; the `hpa*` ones are in /tmp. The selftest now removes its own `hp-k6e-*`/`hp-k6d-*` directories. The existing ones were left in place.
+
+## Round 3c (2026-10-04)
+
+Task M00-T05-go-round3c-fix is the one fix round under §9.4 and the Q17 ruling (harness 2.4.2, `K12_ERROR_RESULTS_GATING = True`).
+
+- Every result below was observed on 2026-10-06 UTC (`date -u`). The task packet is dated 2026-10-04. Platforms: darwin-arm64 (native) and linux-arm64 (native arm64 kernel 7.0.14-linuxkit in the Docker Desktop VM, `--network none`, uid 10001, all capabilities dropped).
+- Raw, redacted outputs are in tests/evidence/artifacts/g02-go/selftest/round3c-20261006/. The record tests/evidence/g02-go-selftest.json keeps attempts 1-4 and adds attempt 5.
+- Base: HEAD 0aaee74, whose prototype sources equal round 3b. The prototype changes are uncommitted.
+- Baseline, from the harness 2.4.2 records on the round-3b artifacts (tests/evidence/g02-go-conformance{,-linux}.json): 138/139 on each OS. The only failure was `k12.closed_stdout_exit_parity`.
+
+### Item table
+
+| Item | Outcome | Where / proof |
+|---|---|---|
+| K12 closed stdout, error results (§9.4, Q17): with stdout a pipe whose reader had closed, `--json` error results died of SIGPIPE while the plain run exited 2, 2, 5, 2 (profile missing, profile schema-invalid, agent unavailable, usage error) | **fixed** | **Cause:** the Go runtime turns an EPIPE write on fd 1/2 into death by SIGPIPE unless SIGPIPE is passed to `os/signal`. The plain error path writes only to stderr, so it never hit the broken pipe. The `--json` error path writes the envelope to stdout. **Fix:** `cmd/heimdall-proto/main.go` `exitByResultOnBrokenPipe`. For every subcommand except `run` and `tui`, `realMain` calls `signal.Notify` with SIGPIPE on a channel that nobody reads. A write to a broken stdout or stderr then fails with EPIPE, and the program ignores that error as it already did for other write errors. Both modes exit with the result's code. `run` is excluded so the child's signal state stays as inherited (K6a/K6c). `tui` is excluded because its stdout is a terminal. **Consequence for success results:** `version`, `profile show` and `agent list` now exit 0 in both modes on a closed stdout. They used to die of SIGPIPE in both modes. §9.4 requires equal statuses, not a particular one. **Tests:** new `TestK12ClosedStdoutExitParity` (cmd/heimdall-proto/k12_closed_stdout_test.go) runs version, profile show homelab, and the four error cases, each with and without `--json`. It requires equal wait statuses, and for error cases exit 2/5 in both modes. Red on the round-3b sources: darwin exit 1 and linux/arm64 exit 1, with the 4 error cases at `exit N` vs `signal broken pipe`. Green after on both. The selftest has a new check, `cli.k12_closed_stdout_parity`, which adds an agent-list OK case. It fails on the round-3b artifacts (darwin and linux 75/76, exit 1) and passes on the round-3c artifacts (76/76, exit 0, both OSes). **Harness 2.4.2:** `k12.closed_stdout_exit_parity` went from fail to pass on both OSes. Every case is `exit 0/0` or `exit 2/2`, `5/5`; `all_equal` is true. |
+| Duplicate keys in the environment block are dropped (§9.4, recorded, not gated; review3 defect) | **stack limitation, recorded; no change** | **Evidence:** review3 probes `env-fd-darwin.json` and `linux/env-fd-linux.json`. With a raw envp `[…, DUPKEY=first, …, DUPKEY=last, …]`, the control child sees both entries and heimdall-proto's child sees only `DUPKEY=first`. **Cause:** Go `syscall.copyenv` blanks every later duplicate key in the runtime's copy of the environment at the first environment access. `os.Environ`, `os/exec` (which also de-duplicates) and `os.StartProcess` all start from that copy. The raw envp is not reachable from safe Go. Reaching it through `go:linkname` to runtime internals or `/proc/self/environ` parsing would be routing around in the K8 sense, so it is not done. **Production remedy:** read `environ` through a cgo constructor before the Go runtime copies it and pass it to the exec unchanged, or accept first-wins (the value libc `getenv` returns) and document it as a deviation from exec(2). |
+| An explicit SIGTSTP or SIGSTOP sent to the heimdall-proto PID stops only heimdall-proto (§9.4, recorded, not gated; review3 defect) | **recorded; no change** | **Evidence:** review3 `sigjob-darwin.json` and `linux/sigjob-linux.json`, scenario `tstp`. The shell reports the job stopped, but the child keeps running (10 heartbeats/s, state S). Without heimdall-proto, the control stops. **Cause:** SIGTSTP is not among the five forwarded signals. heimdall-proto takes the default stop, and nothing propagates it to the child's process group. SIGSTOP cannot be caught by any program, so a launcher can never see it before it stops. **Not changed:** a SIGTSTP handler that stops the child's group first and then stops heimdall-proto would be new job-control behavior in code that gates K6e. §9.4 does not require it, and the round allows no features beyond the contract. **Production remedy:** an exec-equivalent design. Either heimdall-proto is not a separate stoppable process in the job (exec, or a supervisor outside the job), or SIGTSTP is caught and mirrored onto the child's group before the launcher stops itself. SIGSTOP stays a limit for any separate launcher process. |
+
+### Other observations (harness 2.4.2, non-gating)
+
+- `run.k6e_child_self_stop` SIGSTOP variants (§9.4: recorded, not gated):
+  - darwin: under bash and zsh, the shell did not report the job stopped within 4 s.
+  - linux: the stop was reported, but as SIGTSTP (status 148, control 147), because heimdall-proto mirrors SIGSTOP as SIGTSTP (round 3b).
+  - The pre-fix records on the round-3b artifacts show the same darwin result. This round did not change it and did not investigate it.
+- The gated `bash-SIGTSTP` variant passed on both OSes. zsh SIGTSTP was also ok.
+- K17 filter p95: 17.8 ms (darwin), 19.0 ms (linux).
+
+### Build (`cd / && sh build.sh`, twice, exit 0, identical manifests)
+
+| Target | Bytes | sha256 |
+|---|---|---|
+| darwin-arm64 | 5,212,000 | 31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6 (ad-hoc, hardened runtime) |
+| linux-x64 | 5,451,936 | 429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a (built, not executed) |
+| linux-arm64 | 5,177,504 | d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9 |
+| windows-x64 | 5,100,032 | ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed (built, never executed) |
+
+### Tests (exit codes as observed)
+
+- **darwin-arm64:**
+  - `go test -count=1 -v ./...`: exit 0.
+  - Red run of `TestK12ClosedStdoutExitParity` on the round-3b sources plus the new test file: exit 1.
+  - gofmt, `go vet` on 4 targets, Windows `go test -c` for 5 packages, `go mod verify` and `go mod tidy -diff`: 12/12 exit 0.
+  - Selftest: 76/76, exit 0. Against the round-3b artifact: 75/76, exit 1.
+  - schema_check: 23/23, exit 0.
+  - `env -i` run without Go on PATH: exit 0.
+- **linux-arm64:**
+  - Go test binaries in alpine@sha256:5291449c…, uid 10001: exit 0 for all 5 packages. Red: exit 1.
+  - Selftest in heimdall-g02-harness:d0c8e448a3a7: 76/76, exit 0. Against the round-3b artifact: 75/76, exit 1.
+- **Shared harness 2.4.2, read-only, outputs under /tmp/M00-T05-go-round3c-fix/:**
+  - darwin `conformance.py`: 139/139, exit 0.
+  - `tests/g02/linux/run.sh`: 139/139, exit 0.
+  - Summary: round3c-20261006/harness-summary.json.

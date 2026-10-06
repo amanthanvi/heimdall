@@ -1,5 +1,5 @@
 Traceback (most recent call last):
-  File "/repo/tests/g02/conformance.py", line 4407, in run_one
+  File "/repo/tests/g02/conformance.py", line 4910, in run_one
     fn(t)
     ~~^^^
   File "/repo/tests/g02/conformance.py", line 951, in hangs_in_waitpid

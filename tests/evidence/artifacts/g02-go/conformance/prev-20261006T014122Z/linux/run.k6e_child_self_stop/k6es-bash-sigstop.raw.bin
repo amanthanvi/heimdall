@@ -1,0 +1,60 @@
+[?2004hHMPS1$ "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+[?2004lK6ES-BEAT ctl 1 5
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=147
+[?2004hHMPS1$ fg
+[?2004l"$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-CTL-1
+K6ES-BEAT ctl 2 62
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=147
+[?2004hHMPS1$ fg
+[?2004l"$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-CTL-2
+[?2004hHMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+[?2004lK6ES_RC=42 K6ES_JOBS=0
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+[?2004lK6ES-BEAT hp1 1 6
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=148
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+K6ES-HP1-1
+K6ES-BEAT hp1 2 62
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=148
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+K6ES-HP1-2
+[?2004hHMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+[?2004lK6ES_RC=42 K6ES_JOBS=0
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGSTOP 42
+[?2004lK6ES-BEAT hp2 1 5
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGSTOP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=148
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGSTOP 42
+K6ES-HP2-1
+K6ES-BEAT hp2 2 62
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGSTOP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=148
+[?2004hHMPS1$ fg
+[?2004l"$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGSTOP 42
+K6ES-HP2-2
+[?2004hHMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+[?2004lK6ES_RC=42 K6ES_JOBS=0
+[?2004hHMPS1$ exit
+[?2004lexit
+exit

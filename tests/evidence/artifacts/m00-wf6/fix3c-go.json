@@ -1,0 +1,107 @@
+{
+  "task_id": "M00-T05-go-round3c-fix",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/prototypes/go/cmd/heimdall-proto/main.go",
+    "<repo>/prototypes/go/cmd/heimdall-proto/k12_closed_stdout_test.go",
+    "<repo>/prototypes/go/REPORT.md",
+    "<repo>/prototypes/go/dist/manifest.json (and dist/*/heimdall-proto rebuilt; dist is untracked)",
+    "<repo>/tests/evidence/artifacts/g02-go/selftest/selftest.py",
+    "<repo>/tests/evidence/artifacts/g02-go/selftest/round3c-20261006/ (new: go test red/green both OSes, selftest red/green both OSes, vet/windows compile, build.log, manifest.json, artifact-sha256.txt, schema check, no-toolchain run, harness consoles, harness-summary.json, main-go.diff)",
+    "<repo>/tests/evidence/g02-go-selftest.json"
+  ],
+  "commands_run": [
+    {
+      "command": "go test -count=1 -v -run TestK12ClosedStdoutExitParity ./cmd/heimdall-proto/ (darwin-arm64, round-3b sources + new test, before fix)",
+      "exit_code": 1,
+      "observed": "RED: version/profile-show passed parity (signal broken pipe both modes); profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag: plain exit 2/2/5/2 vs --json signal broken pipe"
+    },
+    {
+      "command": "linux/arm64 cmd.test -test.run TestK12ClosedStdoutExitParity in alpine@sha256:5291449c... (--network none, uid 10001, cap-drop ALL), red sources",
+      "exit_code": 1,
+      "observed": "RED: same 4 error cases fail identically on Linux 7.0.14-linuxkit aarch64"
+    },
+    {
+      "command": "go test -count=1 -v -run TestK12ClosedStdoutExitParity ./cmd/heimdall-proto/ (darwin, after fix)",
+      "exit_code": 0,
+      "observed": "all cases equal: version exit 0/0, profile-show exit 0/0, errors exit 2/2, 2/2, 5/5, 2/2"
+    },
+    {
+      "command": "go test -count=1 -v ./... (darwin-arm64)",
+      "exit_code": 0,
+      "observed": "5 packages ok"
+    },
+    {
+      "command": "linux/arm64 go test -c binaries for 5 packages run in alpine@sha256:5291449c... (fixed sources)",
+      "exit_code": 0,
+      "observed": "each package exit 0, TestK12ClosedStdoutExitParity PASS"
+    },
+    {
+      "command": "gofmt -l; go vet x4 targets; GOOS=windows go test -c x5 packages; go mod verify; go mod tidy -diff",
+      "exit_code": 0,
+      "observed": "12/12 exit 0"
+    },
+    {
+      "command": "cd / && sh prototypes/go/build.sh (twice) + cmp manifests",
+      "exit_code": 0,
+      "observed": "4/4 targets built both runs, manifests identical; darwin 31c3ee17..., linux-arm64 d55b4ffe..., linux-x64 429063bf..., windows-x64 ca5145d1...; darwin ad-hoc hardened runtime"
+    },
+    {
+      "command": "python3 selftest.py <darwin round-3c artifact> <repo>",
+      "exit_code": 0,
+      "observed": "76/76 incl. new cli.k12_closed_stdout_parity"
+    },
+    {
+      "command": "python3 selftest.py <darwin round-3b artifact a5644a4f...> <repo>",
+      "exit_code": 1,
+      "observed": "75/76; cli.k12_closed_stdout_parity fails (errors: exit N vs signal SIGPIPE)"
+    },
+    {
+      "command": "selftest.py in heimdall-g02-harness:d0c8e448a3a7 linux/arm64 with round-3c artifact",
+      "exit_code": 0,
+      "observed": "76/76"
+    },
+    {
+      "command": "selftest.py in heimdall-g02-harness:d0c8e448a3a7 linux/arm64 with round-3b artifact efd3ee08...",
+      "exit_code": 1,
+      "observed": "75/76; cli.k12_closed_stdout_parity fails"
+    },
+    {
+      "command": "/tmp/hp-go-ev/venv/bin/python schema_check.py <darwin artifact> <repo>",
+      "exit_code": 0,
+      "observed": "23/23 PASS"
+    },
+    {
+      "command": "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json",
+      "exit_code": 0,
+      "observed": "VERSION_OK envelope"
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/M00-T05-go-round3c-fix/harness-darwin/... (harness 2.4.2, read-only)",
+      "exit_code": 0,
+      "observed": "139/139 pass, status verified; k12 closed stdout all_equal true; K17 p95 17.8 ms"
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir dist/linux-arm64 --candidate go --out /tmp/M00-T05-go-round3c-fix/harness-linux/...",
+      "exit_code": 0,
+      "observed": "139/139 pass, status verified; k12 closed stdout all_equal true; K17 p95 19.0 ms"
+    },
+    {
+      "command": "jsonschema validate tests/evidence/g02-go-selftest.json against tests/evidence/record.schema.json",
+      "exit_code": 0,
+      "observed": "schema valid; attempts 1-4 kept, attempt 5 added"
+    }
+  ],
+  "escalations": [],
+  "limitations": [
+    "Observations dated 2026-10-06 UTC by date -u. The task packet says 2026-10-04, and REPORT.md uses the requested heading 'Round 3c (2026-10-04)'.",
+    "Success results on a closed stdout (version, profile show, agent list) now exit 0 in both modes instead of dying of SIGPIPE in both. §9.4 requires parity, not a particular status. Not covered: a reader that closes partway through the output, and an inherited SIGPIPE ignore.",
+    "Duplicate env keys and explicit SIGTSTP/SIGSTOP to the launcher: recorded with evidence and production remedies, no code change. Both are §9.4 not gated. Go syscall.copyenv blanks later duplicates before user code runs, as confirmed in the go1.27.1 source. SIGSTOP cannot be caught.",
+    "Non-gating harness observation, unchanged from the round-3b artifact and not investigated: on darwin, a child self-stop by SIGSTOP is not reported by bash or zsh. On linux it is reported as SIGTSTP (148 vs control 147).",
+    "Windows was not executed (compile-only), so the selftest record stays blocked. linux-x64 was built but not executed. Linux ran in the Docker Desktop arm64 VM, not on bare metal.",
+    "No independent review of round 3c. The red/green tests were written by this prototype agent.",
+    "The red linux/darwin selftest used round-3b artifact copies taken from /tmp/hp-go-rv3. Their sha256 was checked against the round-3b manifest: a5644a4f... and efd3ee08....",
+    "The working tree also holds uncommitted prototypes/rust changes made by another agent. This task did not touch them."
+  ],
+  "summary": "Fixed K12 closed-stdout parity for error results (§9.4, Q17) in the Go prototype. Both platforms now pass the full harness 2.4.2: 139/139 on darwin-arm64 and on linux-arm64, exit 0 each.\n\nCause: the Go runtime kills the process with SIGPIPE on an EPIPE write to fd 1/2 unless SIGPIPE is passed to os/signal. Error results with --json write the envelope to stdout and died of SIGPIPE. Without --json they write only to stderr and exited 2/5.\n\nFix: one small change in prototypes/go/cmd/heimdall-proto/main.go. A new function, exitByResultOnBrokenPipe, calls signal.Notify(SIGPIPE) on a channel nobody reads, for every subcommand except run and tui. run keeps the child's inherited signal state; tui's stdout is a terminal. A broken-pipe write now returns EPIPE, which is ignored like other write errors, and both modes exit with the result code.\n\nProof:\n- New native test TestK12ClosedStdoutExitParity (cmd/heimdall-proto/k12_closed_stdout_test.go): red on round-3b sources (exit 1 on darwin and linux/arm64), green after.\n- New blackbox selftest check cli.k12_closed_stdout_parity: red on the round-3b artifacts (75/76 on both OSes), green on round 3c (76/76 on both).\n- Harness: k12.closed_stdout_exit_parity went from fail to pass on both OSes. Every case is exit 0/0, 2/2 or 5/5.\n\nAlso done:\n- build.sh run twice: 4/4 targets, identical manifests (darwin 31c3ee17..., linux-arm64 d55b4ffe...).\n- go vet, Windows compile and mod checks: 12/12 exit 0. schema_check: 23/23.\n- Selftest record: attempt 5 added, history kept, schema-valid.\n- REPORT.md: new section 'Round 3c (2026-10-04)'. It records the env-duplicate-key stack limitation (Go syscall.copyenv) and the explicit SIGTSTP/SIGSTOP-to-launcher item, each with evidence and a production remedy and no code change.\n\nEvidence is in tests/evidence/artifacts/g02-go/selftest/round3c-20261006/. The full harness outputs are under /tmp/M00-T05-go-round3c-fix/."
+}

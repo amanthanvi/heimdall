@@ -1,0 +1,11 @@
+cmd_heimdall-proto exit=0
+
+PASS
+internal_agent exit=0
+PASS
+internal_profile exit=0
+PASS
+internal_run exit=0
+PASS
+internal_tui exit=0
+PASS

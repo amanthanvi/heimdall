@@ -1,0 +1,1841 @@
+{
+ "uname": "Linux 7.0.14-linuxkit aarch64",
+ "bins": [
+  "r3c",
+  "r3b"
+ ],
+ "setups": [
+  "stdout_normal",
+  "stdout_closed_reader",
+  "stderr_closed_reader",
+  "both_closed_reader",
+  "stdout_fd_closed",
+  "stdout_closed_sigpipe_ign"
+ ],
+ "results": [
+  {
+   "bin": "r3c",
+   "case": "version",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "version",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "version",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "version",
+   "setup": "both_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "version",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "version",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-homelab",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-homelab",
+   "setup": "both_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-large-100",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-large-100",
+   "setup": "both_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-missing",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-missing",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-missing",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-missing",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-missing",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-missing",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-schema-invalid",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-schema-invalid",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-malformed",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-malformed",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-malformed",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-malformed",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-malformed",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-malformed",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-fifo-k14",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-fifo-k14",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-no-file-flag",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-no-file-flag",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-ok",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-ok",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-ok",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-ok",
+   "setup": "both_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-ok",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-ok",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-refused",
+   "setup": "stdout_normal",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-refused",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-refused",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-refused",
+   "setup": "both_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-refused",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-refused",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-protocol-error",
+   "setup": "stdout_normal",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-protocol-error",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-protocol-error",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-protocol-error",
+   "setup": "both_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-protocol-error",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-protocol-error",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-unavailable",
+   "setup": "stdout_normal",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-unavailable",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-unavailable",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-unavailable",
+   "setup": "both_closed_reader",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-unavailable",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-unavailable",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-bad-timeout",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-bad-timeout",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-subcommand",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-subcommand",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-no-subcommand",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-no-subcommand",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-profile-no-show",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-profile-no-show",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-flag",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-flag",
+   "setup": "both_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-run-missing-dashdash",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-tui-unknown-flag",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3c",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "version",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "version",
+   "setup": "stdout_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "version",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "version",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "version",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "version",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-homelab",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-homelab",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-homelab",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-large-100",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-large-100",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-ok-large-100",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-missing",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-missing",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-missing",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-missing",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-missing",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-missing",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-schema-invalid",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-schema-invalid",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-schema-invalid",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-malformed",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-malformed",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-malformed",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-malformed",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-malformed",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-malformed",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-fifo-k14",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-fifo-k14",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-fifo-k14",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-no-file-flag",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-no-file-flag",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "profile-no-file-flag",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-ok",
+   "setup": "stdout_normal",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-ok",
+   "setup": "stdout_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-ok",
+   "setup": "stderr_closed_reader",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-ok",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-ok",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 0",
+   "json": "exit 0",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-ok",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-refused",
+   "setup": "stdout_normal",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-refused",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 5",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-refused",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-refused",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-refused",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-refused",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 5",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-protocol-error",
+   "setup": "stdout_normal",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-protocol-error",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 5",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-protocol-error",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-protocol-error",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-protocol-error",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-protocol-error",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 5",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-unavailable",
+   "setup": "stdout_normal",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-unavailable",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 5",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-unavailable",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-unavailable",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-unavailable",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 5",
+   "json": "exit 5",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-unavailable",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 5",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-bad-timeout",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-bad-timeout",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "agent-bad-timeout",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-subcommand",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-subcommand",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-subcommand",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-no-subcommand",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-no-subcommand",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-no-subcommand",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-profile-no-show",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-profile-no-show",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-profile-no-show",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-flag",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-flag",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-unknown-flag",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "signal SIGPIPE",
+   "parity": false
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-run-missing-dashdash",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-run-missing-dashdash",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_normal",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_closed_reader",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stderr_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-tui-unknown-flag",
+   "setup": "both_closed_reader",
+   "plain": "signal SIGPIPE",
+   "json": "signal SIGPIPE",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_fd_closed",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  },
+  {
+   "bin": "r3b",
+   "case": "usage-tui-unknown-flag",
+   "setup": "stdout_closed_sigpipe_ign",
+   "plain": "exit 2",
+   "json": "exit 2",
+   "parity": true
+  }
+ ]
+}

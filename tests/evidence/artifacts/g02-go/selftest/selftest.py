@@ -1032,5 +1032,44 @@ with tempfile.TemporaryDirectory() as d:
         check("tui.terminfo_" + name, drew and rc == 0 and b"goroutine " not in out and peak < 256 * 1024,
               "drew=%s exit=%s peak_rss_kib=%d" % (drew, rc, peak))
 
+# K12 closed stdout (slice-contract section 9.4, Q17): stdout is a pipe whose reader closed before the start; the
+# wait status is the same with and without --json, for success and error results; error results keep exit 2/5.
+# heimdall-proto starts with SIGPIPE at its default (subprocess restore_signals). Round 3b: --json errors died of SIGPIPE.
+def closed_stdout_status(argv):
+    r, w = os.pipe()
+    os.close(r)
+    try:
+        p = subprocess.run([BIN] + argv, stdout=w, stderr=subprocess.DEVNULL, env=ENV, timeout=20)
+    finally:
+        os.close(w)
+    return ("signal %s" % signal.Signals(-p.returncode).name) if p.returncode < 0 else "exit %d" % p.returncode
+
+
+d = tempfile.mkdtemp(prefix="hpa", dir="/tmp")
+k12_cases = [("version", ["version"], None, None),
+             ("profile-show-homelab", ["profile", "show", "--file", os.path.join(FIX, "homelab.toml")], None, None),
+             ("agent-list-ok", ["agent", "list", "--socket"], "ok", None),
+             ("profile-missing", ["profile", "show", "--file", os.path.join(d, "missing.toml")], None, "exit 2"),
+             ("profile-schema-invalid", ["profile", "show", "--file", os.path.join(FIX, "invalid-forbidden-key.toml")],
+              None, "exit 2"),
+             ("agent-unavailable", ["agent", "list", "--socket", os.path.join(d, "none.sock")], None, "exit 5"),
+             ("usage-unknown-flag", ["version", "--no-such-flag"], None, "exit 2")]
+k12_seen, k12_ok = [], True
+for label, argv, agent, want in k12_cases:
+    st = {}
+    for variant in ("plain", "json"):
+        a = list(argv)
+        if agent:
+            sock = os.path.join(d, "%s-%s.sock" % (label, variant))
+            t, _ = fake_agent(sock, frame(ok_body))
+            a.append(sock)
+        st[variant] = closed_stdout_status(a + (["--json"] if variant == "json" else []))
+        if agent:
+            t.join(2)
+    ok = st["plain"] == st["json"] and (want is None or st["plain"] == want)
+    k12_ok = k12_ok and ok
+    k12_seen.append("%s:%s/%s" % (label, st["plain"], st["json"]))
+check("cli.k12_closed_stdout_parity", k12_ok, "plain/json " + " ".join(k12_seen))
+
 print(f"SUMMARY {sum(results)}/{len(results)} passed", flush=True)
 sys.exit(0 if all(results) else 1)

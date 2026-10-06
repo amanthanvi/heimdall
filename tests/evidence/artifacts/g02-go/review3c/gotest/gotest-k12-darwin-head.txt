@@ -1,0 +1,19 @@
+=== RUN   TestK12ClosedStdoutExitParity
+    k12_closed_stdout_test.go:78: [version] plain=signal broken pipe json=signal broken pipe
+    k12_closed_stdout_test.go:78: [profile-show-homelab] plain=signal broken pipe json=signal broken pipe
+    k12_closed_stdout_test.go:73: [profile-missing] closed stdout: plain "exit 2", --json "signal broken pipe" (must be equal)
+    k12_closed_stdout_test.go:76: [profile-missing] closed stdout: plain "exit 2", --json "signal broken pipe", want "exit 2" for both
+    k12_closed_stdout_test.go:78: [profile-missing] plain=exit 2 json=signal broken pipe
+    k12_closed_stdout_test.go:73: [profile-schema-invalid] closed stdout: plain "exit 2", --json "signal broken pipe" (must be equal)
+    k12_closed_stdout_test.go:76: [profile-schema-invalid] closed stdout: plain "exit 2", --json "signal broken pipe", want "exit 2" for both
+    k12_closed_stdout_test.go:78: [profile-schema-invalid] plain=exit 2 json=signal broken pipe
+    k12_closed_stdout_test.go:73: [agent-unavailable] closed stdout: plain "exit 5", --json "signal broken pipe" (must be equal)
+    k12_closed_stdout_test.go:76: [agent-unavailable] closed stdout: plain "exit 5", --json "signal broken pipe", want "exit 5" for both
+    k12_closed_stdout_test.go:78: [agent-unavailable] plain=exit 5 json=signal broken pipe
+    k12_closed_stdout_test.go:73: [usage-unknown-flag] closed stdout: plain "exit 2", --json "signal broken pipe" (must be equal)
+    k12_closed_stdout_test.go:76: [usage-unknown-flag] closed stdout: plain "exit 2", --json "signal broken pipe", want "exit 2" for both
+    k12_closed_stdout_test.go:78: [usage-unknown-flag] plain=exit 2 json=signal broken pipe
+--- FAIL: TestK12ClosedStdoutExitParity (0.04s)
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	0.047s
+FAIL

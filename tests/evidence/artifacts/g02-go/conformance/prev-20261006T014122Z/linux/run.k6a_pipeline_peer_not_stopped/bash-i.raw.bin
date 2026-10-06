@@ -1,0 +1,5 @@
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/c.py" 1.5 | "$Y" "$D/p.py"; echo "PIPE_DONE ${PIPESTATUS[*]}"
+[?2004lK6A-PEER-INPUT
+PIPE_DONE 0 0
+[?2004hHMPS1$ exit
+[?2004lexit

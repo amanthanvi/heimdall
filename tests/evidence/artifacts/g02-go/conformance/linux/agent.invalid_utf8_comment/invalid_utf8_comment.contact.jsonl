@@ -1,5 +1,5 @@
-{"seq": 1, "ts": "2026-10-04T21:18:29.585Z", "mono_ms": 0.15, "event": "listen", "socket": "/tmp/hmg02-bmh3v8yh/054-agent-invalid_utf8_comment/invalid_utf8_comment.sock", "mode": "invalid_utf8_comment", "keys": 1}
-{"seq": 2, "ts": "2026-10-04T21:18:29.590Z", "mono_ms": 5.747, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T21:18:29.591Z", "mono_ms": 6.018, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "invalid_utf8_comment", "sent_bytes": 81}
-{"seq": 4, "ts": "2026-10-04T21:18:29.591Z", "mono_ms": 6.141, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 81, "partial_bytes": 0}
-{"seq": 5, "ts": "2026-10-04T21:18:29.696Z", "mono_ms": 111.093, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T01:46:17.184Z", "mono_ms": 0.083, "event": "listen", "socket": "/tmp/hmg02-gzesv5vk/054-agent-invalid_utf8_comment/invalid_utf8_comment.sock", "mode": "invalid_utf8_comment", "keys": 1}
+{"seq": 2, "ts": "2026-10-06T01:46:17.188Z", "mono_ms": 4.553, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T01:46:17.189Z", "mono_ms": 4.706, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "invalid_utf8_comment", "sent_bytes": 81}
+{"seq": 4, "ts": "2026-10-06T01:46:17.189Z", "mono_ms": 4.783, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 81, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T01:46:17.294Z", "mono_ms": 110.346, "event": "shutdown"}

@@ -1,7 +1,7 @@
 {
  "case_id": "G02-go-selftest",
  "status": "blocked",
- "blocked_on": "native Windows x64 host: windows-x64 artifact execution, named-pipe agent probe (including the K3a pipe-reset mapping), console Ctrl-C, CreateProcess quoting and console TUI are compile-checked only. darwin-arm64 (native) and linux-arm64 (native arm64 kernel, Docker Desktop VM) were executed in attempt 4; linux-x64 was built but not executed.",
+ "blocked_on": "native Windows x64 host: windows-x64 artifact execution, named-pipe agent probe (including the K3a pipe-reset mapping), console Ctrl-C, CreateProcess quoting and console TUI are compile-checked only. darwin-arm64 (native) and linux-arm64 (native arm64 kernel, Docker Desktop VM) were executed in attempt 5; linux-x64 was built but not executed.",
  "requirement_ids": [
   "R-SS-04",
   "R-UX-05",
@@ -9,8 +9,8 @@
   "R-AP-02",
   "R-SE-05"
  ],
- "build_commit": "3263e11f19445b0ed4778dca23f75bf6b7c67d55 (HEAD at round-3b start; prototypes/go changes are uncommitted working-tree content)",
- "artifact_digest": "sha256:a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310 (darwin-arm64/heimdall-proto, attempt 4); linux-arm64 sha256:efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04; all targets in tests/evidence/artifacts/g02-go/selftest/round3b-20261004/manifest.json",
+ "build_commit": "0aaee74 (HEAD at round-3c start; prototypes/go sources there equal round 3b; round-3c changes are uncommitted working-tree content)",
+ "artifact_digest": "sha256:31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6 (darwin-arm64/heimdall-proto, attempt 5); linux-arm64 sha256:d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9; all targets in tests/evidence/artifacts/g02-go/selftest/round3c-20261006/manifest.json",
  "environment": {
   "host": "macOS 27.0 (Darwin 27.0.0) arm64, Apple M5 Max",
   "go": "go1.27.1 darwin/arm64",
@@ -28,6 +28,10 @@
   "container_images_attempt4": [
    "alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 (Go test binaries)",
    "heimdall-g02-harness:d0c8e448a3a7 (image id sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92; bash 5.2.15, zsh 5.9; selftest and shared harness)"
+  ],
+  "container_images_attempt5": [
+   "alpine@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 (Go test binaries)",
+   "heimdall-g02-harness:d0c8e448a3a7 (image id sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92; selftest and shared harness 2.4.2)"
   ]
  },
  "provider_versions": [
@@ -72,24 +76,26 @@
    "version": "v1.6.0"
   }
  ],
- "started_at": "2026-10-04T20:17:12Z",
+ "started_at": "2026-10-06T01:12:51Z",
  "commands_or_harness": [
-  "go test -count=1 -v ./... (darwin-arm64 native) -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-go-test.txt]",
-  "RED: TestK6dSharedModeExplicitSignals, TestTUIEnvironmentSelectedTerminfo, TestK10PanicBeforeRunExits1 against HEAD 3263e11 (round-2) sources + round-3b test files + no-op tuiBeforeRun hook, darwin -> exit 1, 3/3 fail  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-go-test-red-round2-sources.txt]",
-  "linux/arm64 go test -c binaries in alpine@sha256:5291449c... --network none, uid 10001: after exit 0 x5 packages; RED (same red sources) exit 1, 3/3 new tests fail  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/linux-arm64-go-test-before-after.txt]",
-  "gofmt -l; go vet x4 targets; GOOS=windows go test -c per package; go mod verify; go mod tidy -diff -> exit 0 each (14/14)  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/go-vet-and-windows-compile.txt]",
-  "cd / && sh prototypes/go/build.sh, twice -> exit 0, 4/4 targets, identical manifests  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/build.log, manifest.json, artifact-sha256.txt]",
-  "python3 selftest.py <darwin round-3b artifact> <repo> -> exit 0, 75/75  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-blackbox-selftest-green.txt]",
-  "RED: selftest.py against the round-2 darwin artifact (sha256 20e8c5c1...) -> exit 1, 70/75 (k6d x2, terminfo x3; K6e passes on darwin)  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-blackbox-selftest-red.txt]",
-  "selftest.py with dist/linux-arm64 in heimdall-g02-harness:d0c8e448a3a7 (bash 5.2.15, zsh 5.9; --network none, uid 10001) -> exit 0, 75/75  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/linux-arm64-blackbox-selftest-green.txt]",
-  "RED: same with the round-2 linux-arm64 artifact (sha256 f7d38318...) -> exit 1, 68/75 (k6e bash x2, k6d x2, terminfo x3)  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/linux-arm64-blackbox-selftest-red.txt]",
-  "/tmp/hp-go-ev/venv/bin/python schema_check.py <darwin artifact> <repo> -> exit 0, 23/23  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-schema-check.txt]",
-  "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-no-toolchain-run.txt]",
-  "INFORMATIONAL (verdict records are written by another stage): tests/g02/conformance.py 2.3.0 read-only, darwin -> exit 0, 136/136; tests/g02/linux/run.sh -> exit 0, 136/136; --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals x3 per OS -> exit 0 each; outputs under /tmp/hp-go-r3b  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/harness-*-console.txt, harness-k6e-k6d-repeats-console.txt, harness-summary.json]"
+  "RED: go test -count=1 -v -run TestK12ClosedStdoutExitParity ./cmd/heimdall-proto/ on HEAD 0aaee74 sources (= round 3b) + new k12_closed_stdout_test.go, darwin-arm64 -> exit 1 (4 error cases: plain exit 2/2/5/2, --json signal broken pipe)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test-red.txt]",
+  "same test after the main.go fix, darwin -> exit 0 (all cases equal: exit 0 x2, exit 2/2/5/2)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test-green-k12.txt]",
+  "go test -count=1 -v ./... (darwin-arm64 native) -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test.txt]",
+  "linux/arm64 cmd test binary (red sources) in alpine@sha256:5291449c... --network none, uid 10001, cap-drop ALL -> exit 1, same 4 failures  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-go-test-red.txt]",
+  "linux/arm64 go test -c binaries for all 5 packages (fixed sources), same container -> exit 0 each, overall exit 0  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-go-test-green.txt]",
+  "gofmt -l; go vet x4 targets; GOOS=windows go test -c x5 packages; go mod verify; go mod tidy -diff -> exit 0 each (12/12)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/go-vet-and-windows-compile.txt]",
+  "cd / && sh prototypes/go/build.sh, twice -> exit 0 each, 4/4 targets, manifests identical (cmp exit 0)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/build.log, manifest.json, artifact-sha256.txt]",
+  "python3 selftest.py <darwin round-3c artifact> <repo> -> exit 0, 76/76 (new check cli.k12_closed_stdout_parity)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-blackbox-selftest-green.txt]",
+  "RED: selftest.py against the round-3b darwin artifact (sha256 a5644a4f...) -> exit 1, 75/76 (cli.k12_closed_stdout_parity)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-blackbox-selftest-red.txt]",
+  "selftest.py with dist/linux-arm64 in heimdall-g02-harness:d0c8e448a3a7 (--network none, uid 10001, cap-drop ALL) -> exit 0, 76/76  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-arm64-blackbox-selftest-green.txt]",
+  "RED: same with the round-3b linux-arm64 artifact (sha256 efd3ee08...) -> exit 1, 75/76 (cli.k12_closed_stdout_parity)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-arm64-blackbox-selftest-red.txt]",
+  "/tmp/hp-go-ev/venv/bin/python schema_check.py <darwin artifact> <repo> -> exit 0, 23/23  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-schema-check.txt]",
+  "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-no-toolchain-run.txt]",
+  "INFORMATIONAL (verdict records are written by another stage): tests/g02/conformance.py 2.4.2 read-only, darwin -> exit 0, 139/139; tests/g02/linux/run.sh -> exit 0, 139/139; outputs under /tmp/M00-T05-go-round3c-fix  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/harness-darwin-arm64-console.txt, harness-linux-arm64-console.txt, harness-summary.json]"
  ],
  "observed_result": {
   "verdict": "pass",
-  "verdict_note": "Attempt 4 (round 3b), criterion: every counted check on the executed platforms (darwin-arm64 native, linux-arm64 native kernel in containers) passes under slice-contract §9-§9.3. Met: Go tests, selftest 75/75 on both, schema_check 23/23; shared harness (informational) 136/136 on both. K6c items are non-gating stack limitations. Windows was not executed, so the record stays blocked.",
+  "verdict_note": "Attempt 5 (round 3c), criterion: every counted check on the executed platforms (darwin-arm64 native, linux-arm64 native kernel in containers) passes under slice-contract §9-§9.4 including Q17. Met: Go tests, selftest 76/76 on both, schema_check 23/23; shared harness 2.4.2 (informational) 139/139 on both. K6c and the §9.4 recorded items are non-gating. Windows was not executed, so the record stays blocked.",
   "attempts": [
    {
     "attempt": 1,
@@ -494,6 +500,76 @@
      "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/darwin-arm64-no-toolchain-run.txt]",
      "INFORMATIONAL (verdict records are written by another stage): tests/g02/conformance.py 2.3.0 read-only, darwin -> exit 0, 136/136; tests/g02/linux/run.sh -> exit 0, 136/136; --only run.k6e_job_control,run.k6d_shared_mode_explicit_signals x3 per OS -> exit 0 each; outputs under /tmp/hp-go-r3b  [tests/evidence/artifacts/g02-go/selftest/round3b-20261004/harness-*-console.txt, harness-k6e-k6d-repeats-console.txt, harness-summary.json]"
     ]
+   },
+   {
+    "attempt": 5,
+    "task": "M00-T05-go-round3c-fix (slice-contract §9.4 and Q17: K12 closed-stdout parity for error results; record the §9.4 env-duplicate and explicit-SIGTSTP items)",
+    "started_at": "2026-10-06T01:12:51Z",
+    "verdict_executed_scope": "pass",
+    "verdict_note": "Every counted check passes on darwin-arm64 (native) and linux-arm64 (native arm64 kernel, digest-pinned containers): Go tests (5 packages), selftest 76/76 on both, schema_check 23/23; shared harness 2.4.2 (informational) 139/139 on both. Windows not executed.",
+    "summary": "Fixed: K12 closed stdout for error results (§9.4, Q17). The Go runtime killed the process with SIGPIPE on an EPIPE write to fd 1/2; --json error results write stdout and died of SIGPIPE while plain error results (stderr only) exited 2/5. main.go exitByResultOnBrokenPipe: signal.Notify(SIGPIPE) for every subcommand except run and tui, so writes fail with EPIPE (ignored) and both modes exit with the result code. Success results on a closed stdout now exit 0 in both modes (were SIGPIPE in both). Recorded, no change: duplicate environment keys dropped by the Go runtime (syscall.copyenv); explicit SIGTSTP/SIGSTOP to the launcher stops only the launcher.",
+    "rulings_and_defects": {
+     "K12 closed stdout (Q17)": "fixed: cmd/heimdall-proto/main.go. TestK12ClosedStdoutExitParity red/green on darwin and linux/arm64; selftest cli.k12_closed_stdout_parity red on round-3b artifacts (75/76 both OSes), green on round-3c (76/76 both); harness k12.closed_stdout_exit_parity fail -> pass on both.",
+     "env duplicate keys": "stack limitation, recorded (§9.4 not gated): Go syscall.copyenv blanks later duplicates before any user code can read the environment; evidence review3 probes env-fd-{darwin,linux}. Production remedy: cgo read of environ before the runtime copy, or document first-wins.",
+     "explicit SIGTSTP/SIGSTOP to launcher": "recorded (§9.4 not gated): only heimdall-proto stops; SIGSTOP cannot be caught; no job-control feature added this round. Production remedy: exec-equivalent design or mirror a caught SIGTSTP onto the child group first.",
+     "K6e child self-stop SIGSTOP (non-gating)": "darwin: shell did not report the stop (bash, zsh), same as on the round-3b artifact; linux: reported as SIGTSTP (148 vs control 147). Not investigated this round."
+    },
+    "build": {
+     "darwin-arm64": {
+      "bytes": 5212000,
+      "sha256": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6"
+     },
+     "linux-x64": {
+      "bytes": 5451936,
+      "sha256": "429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a",
+      "executed": false
+     },
+     "linux-arm64": {
+      "bytes": 5177504,
+      "sha256": "d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9"
+     },
+     "windows-x64": {
+      "bytes": 5100032,
+      "sha256": "ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed",
+      "executed": false
+     },
+     "reproducible": "two builds, identical manifests"
+    },
+    "unit_tests": {
+     "darwin-arm64": "exit 0 (5 packages); red exit 1 (new test)",
+     "linux-arm64": "exit 0 (5 packages, alpine, uid 10001); red exit 1 (new test)"
+    },
+    "blackbox_selftest": {
+     "darwin-arm64": "76/76 exit 0 (round-3b artifact: 75/76 exit 1)",
+     "linux-arm64": "76/76 exit 0 in heimdall-g02-harness:d0c8e448a3a7 (round-3b artifact: 75/76 exit 1)"
+    },
+    "schema_check": "23/23 exit 0",
+    "no_toolchain_run": "exit 0",
+    "informational_shared_harness": {
+     "version": "2.4.2",
+     "darwin-arm64": "139/139 exit 0 (baseline round-3b artifact 138/139)",
+     "linux-arm64": "139/139 exit 0 (baseline 138/139)",
+     "k17_p95_ms": {
+      "darwin": 17.8,
+      "linux": 19.0
+     }
+    },
+    "commands_or_harness": [
+     "RED: go test -count=1 -v -run TestK12ClosedStdoutExitParity ./cmd/heimdall-proto/ on HEAD 0aaee74 sources (= round 3b) + new k12_closed_stdout_test.go, darwin-arm64 -> exit 1 (4 error cases: plain exit 2/2/5/2, --json signal broken pipe)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test-red.txt]",
+     "same test after the main.go fix, darwin -> exit 0 (all cases equal: exit 0 x2, exit 2/2/5/2)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test-green-k12.txt]",
+     "go test -count=1 -v ./... (darwin-arm64 native) -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test.txt]",
+     "linux/arm64 cmd test binary (red sources) in alpine@sha256:5291449c... --network none, uid 10001, cap-drop ALL -> exit 1, same 4 failures  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-go-test-red.txt]",
+     "linux/arm64 go test -c binaries for all 5 packages (fixed sources), same container -> exit 0 each, overall exit 0  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-go-test-green.txt]",
+     "gofmt -l; go vet x4 targets; GOOS=windows go test -c x5 packages; go mod verify; go mod tidy -diff -> exit 0 each (12/12)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/go-vet-and-windows-compile.txt]",
+     "cd / && sh prototypes/go/build.sh, twice -> exit 0 each, 4/4 targets, manifests identical (cmp exit 0)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/build.log, manifest.json, artifact-sha256.txt]",
+     "python3 selftest.py <darwin round-3c artifact> <repo> -> exit 0, 76/76 (new check cli.k12_closed_stdout_parity)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-blackbox-selftest-green.txt]",
+     "RED: selftest.py against the round-3b darwin artifact (sha256 a5644a4f...) -> exit 1, 75/76 (cli.k12_closed_stdout_parity)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-blackbox-selftest-red.txt]",
+     "selftest.py with dist/linux-arm64 in heimdall-g02-harness:d0c8e448a3a7 (--network none, uid 10001, cap-drop ALL) -> exit 0, 76/76  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-arm64-blackbox-selftest-green.txt]",
+     "RED: same with the round-3b linux-arm64 artifact (sha256 efd3ee08...) -> exit 1, 75/76 (cli.k12_closed_stdout_parity)  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-arm64-blackbox-selftest-red.txt]",
+     "/tmp/hp-go-ev/venv/bin/python schema_check.py <darwin artifact> <repo> -> exit 0, 23/23  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-schema-check.txt]",
+     "env -i PATH=/usr/bin:/bin dist/darwin-arm64/heimdall-proto version --json -> exit 0  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-no-toolchain-run.txt]",
+     "INFORMATIONAL (verdict records are written by another stage): tests/g02/conformance.py 2.4.2 read-only, darwin -> exit 0, 139/139; tests/g02/linux/run.sh -> exit 0, 139/139; outputs under /tmp/M00-T05-go-round3c-fix  [tests/evidence/artifacts/g02-go/selftest/round3c-20261006/harness-darwin-arm64-console.txt, harness-linux-arm64-console.txt, harness-summary.json]"
+    ]
    }
   ]
  },
@@ -612,7 +688,26 @@
   "tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-before.json",
   "tests/evidence/artifacts/g02-go/selftest/round2-20261003/tui-env-darwin-arm64-before.txt",
   "tests/evidence/artifacts/g02-go/selftest/round2-20261003/darwin-arm64-startup-memory.txt",
-  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/startup_probe.py"
+  "tests/evidence/artifacts/g02-go/selftest/round2-20261003/startup_probe.py",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/artifact-sha256.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/build.log",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-blackbox-selftest-green.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-blackbox-selftest-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-no-toolchain-run.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-arm64-schema-check.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test-green-k12.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/darwin-go-test.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/go-vet-and-windows-compile.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/harness-darwin-arm64-console.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/harness-linux-arm64-console.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/harness-summary.json",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-arm64-blackbox-selftest-green.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-arm64-blackbox-selftest-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-go-test-green.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/linux-go-test-red.txt",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/main-go.diff",
+  "tests/evidence/artifacts/g02-go/selftest/round3c-20261006/manifest.json"
  ],
  "limitations": [
   "Prototype-level evidence only; never production verification of R-SS-04, R-UX-05, R-DI-01, R-AP-02, R-SE-05.",
@@ -628,6 +723,8 @@
   "K6b (allowed, documented): in shared mode a terminal-generated SIGINT/SIGQUIT/SIGWINCH/SIGHUP reaches the child twice (kernel + forward); observed for ^C: [2,2,2] on darwin and on linux. A killpg of a shared group also delivers twice. Hangup in exclusive mode can deliver SIGHUP twice (not measured).",
   "K6e: verified by selftest and harness with bash (gating) and zsh (observation). Red was reproducible only on Linux; the round-2 darwin artifact already passed. Residual: a SIGCONT still in flight inside os/signal from an earlier bg/fg could end a later stop wait early (not observed); a discarded stop waits up to 1 s; a background tty read (SIGTTIN, harness Q12) is mirrored but not tested.",
   "K10: a panic in a Bubble Tea/ultraviolet goroutine without recover (input read loop, resize listener) still exits 2; inferred from bubbletea v2.0.10 source, not demonstrated natively.",
-  "Round 3b has no independent review yet; tests were written by the prototype agent."
+  "Round 3b was reviewed independently (tests/evidence/artifacts/m00-wf5/review3-go.json); round 3c has no independent review yet; tests were written by the prototype agent.",
+  "K12 closed stdout: on a closed stdout every non-run, non-tui subcommand exits with its result code in both modes (success 0, not SIGPIPE); an EPIPE write is ignored like any other output write error. Not covered: a reader that closes after part of the output, an inherited SIGPIPE ignore (not tested).",
+  "§9.4 recorded, not gated: a later duplicate environment key is dropped (Go runtime syscall.copyenv); an explicit SIGTSTP/SIGSTOP to heimdall-proto stops only heimdall-proto while the child runs. Harness non-gating: child self-stop by SIGSTOP not reported by the shell on darwin (bash, zsh), reported as SIGTSTP on linux."
  ]
 }

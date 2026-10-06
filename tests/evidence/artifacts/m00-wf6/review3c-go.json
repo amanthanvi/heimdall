@@ -1,0 +1,198 @@
+{
+  "subject": "M00-T05-review3c-go: independent adversarial review of the Go prototype round-3c change (exitByResultOnBrokenPipe, k12_closed_stdout_test.go, REPORT.md). I ran everything myself from /tmp copies of the working tree (round 3c) and of HEAD 0aaee74 (round 3b), on darwin-arm64 and linux-arm64, between 2026-10-06T01:51:55Z and 03:26:23Z.",
+  "reexecuted_commands": [
+    {
+      "command": "cd / && GOPROXY=off GOTOOLCHAIN=local sh /tmp/rv3c/src-wt/build.sh  (rsync copy of the working tree without dist/bin)",
+      "exit_code": 0,
+      "observed": "All 4 targets built. Every sha256 equals prototypes/go/dist/manifest.json: darwin-arm64 31c3ee17cc25..., linux-arm64 d55b4ffe4bff..., linux-x64 429063bf6704..., windows-x64 ca5145d16414..."
+    },
+    {
+      "command": "cd / && GOPROXY=off GOTOOLCHAIN=local sh /tmp/rv3c/head/build.sh  (git archive HEAD = round 3b)",
+      "exit_code": 0,
+      "observed": "Round-3b baseline built: darwin a5644a4f5c18..., linux-arm64 efd3ee08d591.... These match the round-3b digests cited in the fix report."
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin /tmp/rv3c/src-wt/dist/darwin-arm64/heimdall-proto --candidate go --out /tmp/rv3c/h/darwin.json (harness 2.4.2)",
+      "exit_code": 0,
+      "observed": "139 total, 139 pass, 0 fail/error/skip, status=verified verdict=pass. run.k6e_child_self_stop PASS, run.k6a_child_self_stop_not_spread PASS, k12.closed_stdout_exit_parity PASS. Observations: the non-gated darwin bash/zsh SIGSTOP variants have ok=false with child and parent states null (both processes gone)."
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir /tmp/rv3c/src-wt/dist/linux-arm64 --candidate go --out /tmp/rv3c/h/linux.json (heimdall-g02-harness:d0c8e448a3a7, arm64)",
+      "exit_code": 0,
+      "observed": "139/139 pass, 0 fail/error/skip. agent.reset_before_reply and agent.reset_after_partial_header PASS (K3a native), run.k6e_child_self_stop PASS, k12.closed_stdout_exit_parity PASS. SIGSTOP variants ok=true on Linux."
+    },
+    {
+      "command": "python3 review3c/probes/k12_probe.py (darwin) r3c=<tmp r3c> r3b=<tmp r3b>: 19 cases x 6 setups x plain/--json",
+      "exit_code": 0,
+      "observed": "r3c: 0 of 114 case/setup pairs differ between plain and --json. Setups: closed-reader stdout, closed-reader stderr, both closed, fd 1 closed, SIGPIPE inherited ignored, normal. Cases include agent OK/refused/protocol error/unavailable, a K14 FIFO, malformed profile and 5 usage errors. r3b: 26 of 114 differ (every error result: plain exit 2/5, --json SIGPIPE). r3c success results exit 0 in both modes; r3b success results die of SIGPIPE in both modes."
+    },
+    {
+      "command": "k12_probe.py inside the linux/arm64 harness image (--network none, uid 10001, cap-drop ALL), both builds",
+      "exit_code": 0,
+      "observed": "r3c 0 of 114 differ; r3b 26 of 114 differ. Same pattern as darwin."
+    },
+    {
+      "command": "k12_partial_reader.py in the linux container (pipe shrunk to 4096 bytes; the reader closes after 100 bytes, mid-output)",
+      "exit_code": 0,
+      "observed": "r3c: plain exit 0, --json exit 0. r3b: plain SIGPIPE, --json SIGPIPE. The harness does not cover this case ('a reader that closes after part of the output')."
+    },
+    {
+      "command": "go test -count=1 ./... in /tmp/rv3c/src-wt (darwin), first attempt without HEIMDALL_G02_FIXTURES",
+      "exit_code": 1,
+      "observed": "internal/profile could not find the fixtures from the /tmp copy. This is my environment, not the change; rerun below."
+    },
+    {
+      "command": "HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02/profiles go test -count=1 ./... (darwin)",
+      "exit_code": 0,
+      "observed": "5 packages ok. With -v, cmd/heimdall-proto shows 17 PASS and 0 SKIP."
+    },
+    {
+      "command": "go test -count=1 -v -run TestK12ClosedStdoutExitParity ./cmd/heimdall-proto/ on the r3c sources, then on the r3b sources plus the new test file",
+      "exit_code": 1,
+      "observed": "r3c: exit 0, all six cases equal (0/0, 0/0, 2/2, 2/2, 5/5, 2/2). r3b: exit 1, four error cases at 'exit N' vs 'signal broken pipe'. Red then green confirmed."
+    },
+    {
+      "command": "GOOS=linux GOARCH=arm64 go test -c for 5 packages, run in the harness image (uid 10001, no network)",
+      "exit_code": 0,
+      "observed": "All 5 binaries exit 0. In the cmd binary with -v, 17 PASS and 0 SKIP. TestK12ClosedStdoutExitParity PASS on Linux 7.0.14-linuxkit aarch64."
+    },
+    {
+      "command": "gofmt -l .; go vet ./... for darwin/arm64, linux/arm64, linux/amd64, windows/amd64; go mod verify",
+      "exit_code": 0,
+      "observed": "0 unformatted files; vet exit 0 on all 4 targets; all modules verified."
+    },
+    {
+      "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py <tmp r3c darwin> <repo>",
+      "exit_code": 0,
+      "observed": "SUMMARY 76/76, cli.k12_closed_stdout_parity PASS"
+    },
+    {
+      "command": "python3 tests/evidence/artifacts/g02-go/selftest/selftest.py <tmp r3b darwin> <repo>",
+      "exit_code": 1,
+      "observed": "75/76. cli.k12_closed_stdout_parity FAIL (errors: exit N vs signal SIGPIPE)."
+    },
+    {
+      "command": "python3 review3c/probes/sigjob3c_probe.py <r3b darwin> bash,zsh  (112 scenarios in interactive ptys)",
+      "exit_code": 0,
+      "observed": "Round-3b baseline for the job-control comparison."
+    },
+    {
+      "command": "python3 review3c/probes/sigjob3c_probe.py <r3c darwin> bash,zsh  (run 3, valid run)",
+      "exit_code": 0,
+      "observed": "compare_jc.py r3b vs r3c3: 0 differing behavioural fields over 112 scenarios. Earlier r3c runs are kept but are invalid. Run 1's probe child used a non-reentrant lock, which deadlocked on a nested signal, so the shared-mode counts are wrong. Run 2 was started from an & subshell, so bash children, the control included, inherited SIGINT/SIGQUIT as ignored."
+    },
+    {
+      "command": "sigjob3c_probe.py in the linux container, r3b and r3c (run 2, valid run)",
+      "exit_code": 0,
+      "observed": "compare_jc.py: 3 differing fields over 112 scenarios. All are shared-mode count variance that K6b allows: winch pipeline_first 2,2,2 vs 2,1,2; winch zsh wrapper 2,2,2 vs 2,2,1; hangup pipeline_first HUP 3 vs 4. No signal lost in either build."
+    },
+    {
+      "command": "python3 review3c/probes/selfstop_detail.py <r3c|r3b darwin> bash SIGSTOP|SIGTSTP exclusive read",
+      "exit_code": 0,
+      "observed": "SIGSTOP, both builds: the shell reports no stop, and heimdall-proto exits 255 ($?=255) within milliseconds. Meta file: CHILD_EXITED with data {launched:true, exit_code:-1, signal:null}. The child log shows SELFSTOP, SIG SIGHUP, CONT, READERR 5, EXIT (orphaned-group HUP, then EIO). SIGTSTP, both builds: the stop is reported with $?=146, and child and heimdall-proto are both T."
+    },
+    {
+      "command": "selftest_detail.py <r3c darwin> bash|zsh SIGSTOP exclusive ext  (kill -STOP from outside to the exact child pid)",
+      "exit_code": 0,
+      "observed": "Same as above. heimdall-proto exits 255, and the child and heimdall-proto are gone within 0.26 s on both shells."
+    },
+    {
+      "command": "grep of $GOROOT/src/syscall/syscall_bsd.go and the macOS SDK sys/wait.h",
+      "exit_code": 0,
+      "observed": "Go has 'func (w WaitStatus) Stopped() bool { return w&mask == stopped && Signal(w>>shift) != SIGSTOP }', where SIGSTOP = 0x11 on darwin. Darwin defines WIFSTOPPED(x) as (_WSTATUS(x) == _WSTOPPED && WSTOPSIG(x) != 0x13), where 0x13 is SIGCONT. Go therefore classifies a SIGSTOP stop as Continued() on darwin."
+    }
+  ],
+  "confirmed_claims": [
+    "The round-3c fix is correct and narrow. realMain calls signal.Notify(SIGPIPE) on a channel nobody reads for every subcommand except run and tui, so EPIPE on fd 1/2 is ignored and both modes exit with the result's code. Every error result now has plain/--json parity, observed as exit 2/2 or 5/5, on darwin and linux. This also holds with stderr closed, both streams closed, fd 1 closed, SIGPIPE inherited as ignored, and a reader that closes mid-output; the last case is Linux only.",
+    "Success results (version, profile show, agent list) now exit 0 in both modes on a closed stdout. On round 3b they died of SIGPIPE in both modes. This matches REPORT.md.",
+    "run and tui are unaffected. Their usage paths write stdout to io.Discard, so closed-stdout parity holds there too. The run code path is unchanged, and the child's signal state is unchanged.",
+    "Rebuilt from /tmp: all 4 digests are identical to prototypes/go/dist/manifest.json, so the build is reproducible.",
+    "Harness 2.4.2 on my own build: 139/139 on darwin-arm64 (exit 0) and 139/139 on linux-arm64 via tests/g02/linux/run.sh (exit 0). This matches the verdict run. Record sha256s 7a8c4cc3... and 89fc06f8... and conformance.py sha256 fdd4d91e... match the fix report.",
+    "TestK12ClosedStdoutExitParity is red on the round-3b sources (exit 1) and green on round 3c (exit 0) on darwin. It is also green as a linux/arm64 test binary. The full go test suite passes on both OSes (17 cmd tests, 0 skips). gofmt, vet on 4 targets and go mod verify are clean.",
+    "The fix author's selftest gives 76/76 on round 3c (exit 0) and 75/76 on round 3b (exit 1), failing only cli.k12_closed_stdout_parity.",
+    "No job-control or signal regression from round 3b to round 3c. On darwin there are 0 differing behavioural fields over 112 pty scenarios under bash and zsh. On Linux there are 3, all shared-mode duplicate-count variance that K6b allows, with no loss. The scenarios cover child self-stop with SIGTSTP/SIGSTOP/SIGTTIN/SIGTTOU in control, exclusive, pipeline and sh -c layouts, three iterations each to mimic ssh ~^Z repeated; a self-stop followed by bg then fg; a self-stop in a heartbeat child under nohup and pipeline_last; EPIPE (yes | head); explicit INT/TERM/HUP/QUIT/WINCH in 8 layouts; Ctrl-C; SIGWINCH; Ctrl-Z/fg; bg with SIGTTIN (Q12); explicit TSTP; and pty hangup.",
+    "Gated K6e SIGTSTP self-stop under bash, exclusive: on darwin and linux, all 3 iterations reported the stop, the child ran 0 beats while reported stopped, the child read a line after fg, and the job was not re-stopped. zsh and SIGTTIN/SIGTTOU behave the same.",
+    "In pipeline_first and sh -c layouts, a self-stopped child is not reported stopped by the shell. The direct controls (child | cat, and sh -c 'child') behave identically, so this is not a divergence.",
+    "K6d: explicit signals to the heimdall-proto PID in shared and exclusive layouts reach the child at least once in every layout. Under nohup, SIGHUP stays ignored (0 deliveries), as K6a requires.",
+    "K6c (documented in REPORT line 378, non-gating): on Linux bash, with SIGPIPE inherited as ignored, `yes | head -1` gives status 1 run directly and 141 under heimdall-proto. Same in round 3b.",
+    "The fix report's no-home-path and canary claims for the round-3c records hold: 0 files with an absolute home path in the round-3c records and artifacts, and no fixture canary values."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "REPORT.md (round 3b, line 361): 'SIGSTOP and SIGTTOU stops are mirrored as SIGTSTP'. Round 3c (lines 435-436) says the darwin SIGSTOP variant is only that 'the shell did not report the job stopped within 4 s'.",
+      "evidence": "This is false on darwin. A SIGSTOP stop of the child is never seen as a stop. Go's syscall_bsd.go WaitStatus.Stopped() excludes SIGSTOP (0x11), but darwin's WIFSTOPPED excludes 0x13 (SIGCONT), so the Wait4 loop in internal/run/run_unix.go falls through and heimdall-proto exits 255. The child is abandoned stopped in an orphaned group and gets SIGHUP+SIGCONT, then EIO. The meta file records CHILD_EXITED with exit_code -1. Observed for both self-stop and an external kill -STOP, on bash and zsh, for both r3b and r3c (detail/detail-darwin-1.txt, detail/detail-darwin-ext.txt). The harness observation agrees: child and parent are null (gone). The fix round disclosed it did not investigate this, so the characterization is incomplete rather than a hidden regression."
+    }
+  ],
+  "hard_gate_findings": [
+    {
+      "gate": "K13 full harness 2.4.2 on darwin-arm64 and linux-arm64, my own /tmp build",
+      "verdict": "pass",
+      "evidence": "darwin 139/139, exit 0; linux via run.sh 139/139, exit 0 (review3c/harness/*-console.log, *-exit.txt, review3c-go-conformance-{darwin,linux}.json)"
+    },
+    {
+      "gate": "§9.4 K12 closed-stdout parity, error results gated (Q17)",
+      "verdict": "pass",
+      "evidence": "Harness k12.closed_stdout_exit_parity PASS on both OSes. Independent probe: 0/114 mismatches per OS on r3c vs 26/114 on r3b, plus the partial-reader case (review3c/k12/)."
+    },
+    {
+      "gate": "§9.4 K6e child-initiated stop, SIGTSTP under bash (gated)",
+      "verdict": "pass",
+      "evidence": "Harness run.k6e_child_self_stop PASS on both OSes. Probe: exclusive SIGTSTP x3 iterations reported stopped, 0 beats while stopped, line read after fg, no re-stop (jobctl/darwin-r3c3.*, jobctl/linux-r3c2.*)."
+    },
+    {
+      "gate": "No regression from round 3b (job control, signals, EPIPE, nohup, pipelines, sh -c, explicit signals in shared and exclusive modes)",
+      "verdict": "pass",
+      "evidence": "jobctl/compare-darwin.txt: 0 differing fields over 112 scenarios. jobctl/compare-linux.txt: 3 fields, all K6b-allowed duplicate-count variance, none lost."
+    },
+    {
+      "gate": "Build reproducibility and digests match dist/manifest.json",
+      "verdict": "pass",
+      "evidence": "build/manifest-r3c-tmpbuild.json is identical to prototypes/go/dist/manifest.json on all 4 targets"
+    },
+    {
+      "gate": "K6e SIGSTOP self-stop variant (recorded, not gated, §9.4)",
+      "verdict": "fail",
+      "evidence": "darwin: heimdall-proto exits 255 and abandons the child (Go BSD WaitStatus bug). linux: ok. Same on r3b, so not a regression."
+    },
+    {
+      "gate": "§4 'heimdall-proto waits for the child and does not exit first' / no orphaned child, darwin, child stopped by SIGSTOP from any source",
+      "verdict": "uncertain",
+      "evidence": "Observed violated on darwin (exit 255, child orphaned, meta exit_code -1). The harness does not gate it, and §9.4 rules SIGSTOP self-stop as recorded-not-gated. Whether this also covers an external SIGSTOP to the child, and the bogus meta exit_code, is a contract question I am escalating rather than deciding."
+    },
+    {
+      "gate": "Canary rule for review3c artifacts",
+      "verdict": "pass",
+      "evidence": "0 files in tests/evidence/artifacts/g02-go/review3c match HEIMDALL_CANARY_[A-Za-z0-9]; home and TMPDIR paths redacted (0 remaining)"
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "darwin only, pre-existing (identical on round 3b), not introduced by round 3c. When the run child is stopped by SIGSTOP in exclusive mode, whether it stops itself or someone runs kill -STOP <child>, heimdall-proto exits 255 at once. It does not mirror the stop. The child is left stopped in an orphaned process group, so it gets SIGHUP+SIGCONT and then EIO on terminal reads. --meta-file records CHILD_EXITED with exit_code -1 and signal null. Root cause: Go's syscall_bsd.go WaitStatus.Stopped() excludes SIGSTOP (0x11), but darwin's WIFSTOPPED excludes 0x13 (SIGCONT). ws.Stopped() is false, the loop breaks, and ExitStatus() returns -1. Remedy for the prototype or production: decode the raw status (w&0x7f==0x7f gives stopped, with signal w>>8) instead of trusting ws.Stopped() on darwin. Escalation: whether §4 'does not exit first' / no orphaned child and the meta exit_code semantics gate this case beyond the §9.4 SIGSTOP self-stop recorded item is a contract question.",
+      "location": "prototypes/go/internal/run/run_unix.go startAndWait Wait4 loop (ws.Stopped()/ws.ExitStatus()); $GOROOT/src/syscall/syscall_bsd.go:127"
+    },
+    {
+      "severity": "minor",
+      "description": "REPORT.md is inaccurate about the defect above. Line 361 says SIGSTOP stops are mirrored as SIGTSTP; on darwin they never reach mirrorStop. Lines 435-436 describe the darwin SIGSTOP variant only as 'shell did not report the job stopped within 4 s', leaving out that heimdall-proto exits 255 and abandons the child.",
+      "location": "prototypes/go/REPORT.md lines 361, 435-436"
+    },
+    {
+      "severity": "minor",
+      "description": "The new selftest K12 block does d = tempfile.mkdtemp(prefix='hpa', dir='/tmp') and never removes it. That adds to the existing /tmp/hpa* leftovers: 934 present now, including 36 empty ones created during my two selftest runs, which I left in place because other runs may share the prefix.",
+      "location": "tests/evidence/artifacts/g02-go/selftest/selftest.py (round-3c K12 block)"
+    },
+    {
+      "severity": "minor",
+      "description": "Pre-existing since round 1, outside round-3c scope. Synthetic canary-form strings such as HEIMDALL_CANARY_<redacted> and HEIMDALL_CANARY_<redacted> appear verbatim in artifact files. The evidence README says no artifact may contain a full HEIMDALL_CANARY_ value. These are not fixture canaries, so whether the rule applies needs a ruling.",
+      "location": "tests/evidence/artifacts/g02-go/selftest/selftest.py lines 314-333, selftest/schema_check.py line 66, review/probes/profile-probes-darwin*.log"
+    }
+  ],
+  "unverifiable_here": [
+    "Native Windows behaviour of exitByResultOnBrokenPipe (signal.Notify with syscall.SIGPIPE): I only compiled and vetted it for windows/amd64; nothing ran. Blocked on a native Windows host.",
+    "linux-x64: built only, never executed. Blocked on a native x86-64 Linux host; the Docker VM is arm64.",
+    "The partial-reader K12 case on darwin: macOS has no F_SETPIPE_SZ to make the mid-output EPIPE deterministic, so it ran only on Linux.",
+    "The 'make' explicit-signal layout on Linux: make is not in the harness image, so the probe recorded it as blocked. It passed on darwin.",
+    "Whether the darwin SIGSTOP orphaning, including an external SIGSTOP to the child, is gated under §4 needs an orchestrator or owner ruling. Escalated, not decided."
+  ],
+  "summary": "I found no fault in the round-3c change, and the harness verdict holds when re-run independently. The change is a narrow signal.Notify(SIGPIPE) that applies to every subcommand except run and tui.\n\nMy /tmp rebuild reproduces all four digests in dist/manifest.json. Harness 2.4.2 on my build passed 139/139 on darwin-arm64 (exit 0) and 139/139 on linux-arm64 via run.sh (exit 0).\n\nK12 closed-stdout parity holds on both OSes for every subcommand, success and error results alike. This includes cases the harness does not cover: stderr closed, both streams closed, fd 1 closed, SIGPIPE inherited as ignored, and a reader that closes mid-output (Linux only). Round 3b differs in 26 of 114 case/setup pairs; round 3c in 0. The new Go test and the selftest check go red on round 3b and green on round 3c.\n\nI compared round 3b and 3c builds in 112 pty scenarios under bash and zsh on both OSes. They covered:\n- child self-stop with TSTP, STOP, TTIN and TTOU, repeated three times like ssh ~^Z\n- Ctrl-Z, fg and bg\n- explicit signals in shared and exclusive layouts, nohup, pipelines and sh -c\n- EPIPE\n- hangup\n\nThe comparison shows no regression: 0 differing fields on darwin, and on Linux 3 duplicate-count variances that K6b allows, with no signal lost.\n\nTwo of my early probe runs were invalid. One had a reentrancy bug in the probe child, and in the other the probe was started from a background subshell. I re-ran both and kept and labelled them.\n\nIndependently of round 3c, I found a pre-existing, non-gated darwin defect that REPORT.md misdescribes. A SIGSTOP stop of the run child, self-sent or external, makes heimdall-proto exit 255 and abandon the child. The child is orphaned and HUP'd, and the meta file records exit_code -1. The cause is Go's BSD WaitStatus.Stopped() treating SIGSTOP as \"continued\" on darwin. I am escalating whether §4 gates this.\n\nArtifacts are in tests/evidence/artifacts/g02-go/review3c/, indexed by review3c-go.json and artifact-sha256.txt, with home and TMPDIR paths redacted and no canary values."
+}

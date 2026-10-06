@@ -1,0 +1,140 @@
+{
+ "harness_version": "2.4.2",
+ "note": "read-only use of tests/g02/conformance.py; full records kept in /tmp/M00-T05-go-round3c-fix/harness-{darwin,linux}/ (not committed by this task)",
+ "darwin-arm64": {
+  "started_at": "2026-10-05T21:28:57-04:00",
+  "status": "verified",
+  "artifact_digest": "sha256:31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6",
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 261.5
+  },
+  "k12_closed_stdout": {
+   "version": [
+    "exit 0",
+    "exit 0"
+   ],
+   "profile-show-homelab": [
+    "exit 0",
+    "exit 0"
+   ],
+   "agent-list-normal": [
+    "exit 0",
+    "exit 0"
+   ]
+  },
+  "k12_closed_stdout_errors": {
+   "gating": true,
+   "all_equal": true,
+   "plain/json": {
+    "profile-missing": [
+     "exit 2",
+     "exit 2"
+    ],
+    "profile-schema-invalid": [
+     "exit 2",
+     "exit 2"
+    ],
+    "agent-unavailable": [
+     "exit 5",
+     "exit 5"
+    ],
+    "usage-unknown-flag": [
+     "exit 2",
+     "exit 2"
+    ]
+   }
+  },
+  "k6e_child_self_stop_ok": {
+   "bash-SIGTSTP": {
+    "ok": true,
+    "gating": true
+   },
+   "bash-SIGSTOP": {
+    "ok": false,
+    "gating": false
+   },
+   "zsh-SIGTSTP": {
+    "ok": true,
+    "gating": false
+   },
+   "zsh-SIGSTOP": {
+    "ok": false,
+    "gating": false
+   }
+  },
+  "k17_filter_p95_ms": 17.8
+ },
+ "linux-arm64": {
+  "started_at": "2026-10-06T01:33:19+00:00",
+  "status": "verified",
+  "artifact_digest": "sha256:d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9",
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 256.3
+  },
+  "k12_closed_stdout": {
+   "version": [
+    "exit 0",
+    "exit 0"
+   ],
+   "profile-show-homelab": [
+    "exit 0",
+    "exit 0"
+   ],
+   "agent-list-normal": [
+    "exit 0",
+    "exit 0"
+   ]
+  },
+  "k12_closed_stdout_errors": {
+   "gating": true,
+   "all_equal": true,
+   "plain/json": {
+    "profile-missing": [
+     "exit 2",
+     "exit 2"
+    ],
+    "profile-schema-invalid": [
+     "exit 2",
+     "exit 2"
+    ],
+    "agent-unavailable": [
+     "exit 5",
+     "exit 5"
+    ],
+    "usage-unknown-flag": [
+     "exit 2",
+     "exit 2"
+    ]
+   }
+  },
+  "k6e_child_self_stop_ok": {
+   "bash-SIGTSTP": {
+    "ok": true,
+    "gating": true
+   },
+   "bash-SIGSTOP": {
+    "ok": true,
+    "gating": false
+   },
+   "zsh-SIGTSTP": {
+    "ok": true,
+    "gating": false
+   },
+   "zsh-SIGSTOP": {
+    "ok": true,
+    "gating": false
+   }
+  },
+  "k17_filter_p95_ms": 19.0
+ }
+}

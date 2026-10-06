@@ -1,0 +1,25 @@
+# 2026-10-06T01:22:02Z darwin-arm64 schema_check, artifact 31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6
+PASS profile:homelab.toml exit=0 
+PASS profile:large-100.toml exit=0 
+PASS profile:spaced dir ü/prøfile homelab.toml exit=0 
+PASS profile:invalid-forbidden-key.toml exit=2 
+PASS profile:invalid-unknown-dest-key.toml exit=2 
+PASS profile:invalid-malformed.toml exit=2 
+PASS profile:invalid-schema-version.toml exit=2 
+PASS profile:invalid-duplicate-alias.toml exit=2 
+PASS profile:invalid-port.toml exit=2 
+PASS profile:oversize exit=2 
+PASS profile:missing exit=2 
+PASS run-meta:exit3 exit=3 
+PASS run-meta:missing exit=127 
+PASS run-meta:signal exit=143 
+PASS profile:k2-control-value exit=2 
+PASS version exit=0 
+PASS usage:unknown-subcommand exit=2 
+PASS usage:unknown-flag exit=2 
+PASS usage:missing-file-arg exit=2 
+PASS agent:ok exit=0 
+PASS agent:unavailable exit=5 
+PASS agent:k3-eof-zero-bytes exit=5 
+PASS manifest shape [('darwin-arm64', True), ('linux-x64', True), ('linux-arm64', True), ('windows-x64', True)]
+exit=0

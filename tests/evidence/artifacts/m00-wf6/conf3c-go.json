@@ -1,0 +1,35 @@
+{
+  "candidate": "go",
+  "harness_version": "2.4.2",
+  "darwin": {
+    "harness_exit_code": 1,
+    "evidence_record": "tests/evidence/g02-go-conformance.json",
+    "passed": 138,
+    "failed": 1,
+    "errored": 0,
+    "artifact_sha256": "a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310"
+  },
+  "linux": {
+    "harness_exit_code": 1,
+    "evidence_record": "tests/evidence/g02-go-conformance-linux.json",
+    "passed": 138,
+    "failed": 1,
+    "errored": 0,
+    "artifact_sha256": "efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04"
+  },
+  "failures": [
+    {
+      "platform": "darwin-arm64",
+      "check_id": "k12.closed_stdout_exit_parity",
+      "classification": "prototype_defect",
+      "detail": "Four error-result cases (profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag) fail the Q17 gated parity. With stdout a pipe whose reader closed first, the --json run dies of SIGPIPE (rc -13) while the plain run exits normally (exit 2, 2, 5, 2 respectively). Docs/g02/slice-contract.md section 9.4 K12 closed-stdout and the Q17 ruling (harness K12_ERROR_RESULTS_GATING = True from 2.4.2) require the same wait status with and without --json for error results too, and name this exact case (a --json error that dies of SIGPIPE while the plain run exits 2 or 5 fails). The three non-error cases (version, profile show homelab, agent list normal) pass: both modes die of SIGPIPE. Rerun of the check alone 3 of 3 times on darwin: FAIL every time, identical assertions, so deterministic, not flaky. The harness precondition (EPIPE on closed pipe) held. No harness defect or contract ambiguity found for this failure; the other 138 checks passed."
+    },
+    {
+      "platform": "linux-arm64",
+      "check_id": "k12.closed_stdout_exit_parity",
+      "classification": "prototype_defect",
+      "detail": "Same four error-result cases fail identically in the Docker linux/arm64 runner (observed plain exit 2, 2, 5, 2 vs --json SIGPIPE), same section 9.4 K12 closed-stdout / Q17 clause. The failure is the same on both platforms (138 of 139 pass). The check was not rerun on Linux; the three darwin reruns show it is deterministic and the Linux record shows the same assertions failing."
+    }
+  ],
+  "summary": "Verdict run for the go prototype under harness 2.4.2 (K13). Both platforms give 138 of 139 checks passed, 1 failed, 0 errored, 0 skipped, and the harness exits 1 on each. The only failure on either platform is k12.closed_stdout_exit_parity, a prototype defect. Go is rebuilt from source with prototypes/go/build.sh (all four targets built, manifest rewritten). The sha256s above match the files used. The darwin run used prototypes/go/dist/darwin-arm64/heimdall-proto. The Linux run used the Docker linux/arm64 runner (tests/g02/linux/run.sh, image heimdall-g02-harness:d0c8e448a3a7, network none, non-root) on prototypes/go/dist/linux-arm64. Both records are status verified, verdict fail, build_commit 0aaee7480b75860dcf6e11b657e19fa281b7e1ce+dirty. The earlier top-level conformance artifacts and the previous records were moved into tests/evidence/artifacts/g02-go/conformance/prev-20261006T005326Z/ (the record copies are record-darwin.json and record-linux.json); the older prev-* directories are untouched. New artifacts are in tests/evidence/artifacts/g02-go/conformance/ and its linux/ subdirectory. Flake handling: the one failing check was rerun 3 times on darwin with --only (outputs under /tmp/r3c-go/rerun-k12-*) and failed 3 of 3, so it is deterministic. No other check failed, so none needed reruns. Scans: no full HEIMDALL_CANARY_ value appears in either record or any new artifact (only the bare prefix, from the harness's own scan patterns). Every <home> occurrence (both records and conformance/harness.check_bound.inner/traceback.txt) was replaced with <home>, and a final grep for /Users/ finds none. I changed no prototype files and did not commit. Console logs are in /tmp/r3c-go/darwin.log and /tmp/r3c-go/linux.log. K13 outcome: the Go prototype does not pass the full harness on either platform; the failure is only the Q17-gated closed-stdout error-result parity (a --json error result dies of SIGPIPE while the plain run exits 2 or 5). No contract ambiguity needs escalating.\""
+}

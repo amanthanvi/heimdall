@@ -1,0 +1,9 @@
+=== RUN   TestK12ClosedStdoutExitParity
+    k12_closed_stdout_test.go:78: [version] plain=exit 0 json=exit 0
+    k12_closed_stdout_test.go:78: [profile-show-homelab] plain=exit 0 json=exit 0
+    k12_closed_stdout_test.go:78: [profile-missing] plain=exit 2 json=exit 2
+    k12_closed_stdout_test.go:78: [profile-schema-invalid] plain=exit 2 json=exit 2
+    k12_closed_stdout_test.go:78: [agent-unavailable] plain=exit 5 json=exit 5
+    k12_closed_stdout_test.go:78: [usage-unknown-flag] plain=exit 2 json=exit 2
+--- PASS: TestK12ClosedStdoutExitParity (0.04s)
+PASS

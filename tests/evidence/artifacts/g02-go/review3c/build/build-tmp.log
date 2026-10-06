@@ -1,0 +1,20 @@
+== src-wt 2026-10-06T01:52:04Z
+signed darwin-arm64: ad-hoc, hardened runtime
+built darwin-arm64 (5212000 bytes)
+built linux-x64 (5451936 bytes)
+built linux-arm64 (5177504 bytes)
+built windows-x64 (5100032 bytes)
+wrote /tmp/rv3c/src-wt/dist/manifest.json
+exit=0
+{"candidate":"go","targets":[{"target":"darwin-arm64","path":"darwin-arm64/heimdall-proto","bytes":5212000,"sha256":"31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6","built":true,"error":null},{"target":"linux-x64","path":"linux-x64/heimdall-proto","bytes":5451936,"sha256":"429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a","built":true,"error":null},{"target":"linux-arm64","path":"linux-arm64/heimdall-proto","bytes":5177504,"sha256":"d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9","built":true,"error":null},{"target":"windows-x64","path":"windows-x64/heimdall-proto.exe","bytes":5100032,"sha256":"ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed","built":true,"error":null}]}
+
+== head 2026-10-06T01:52:06Z
+signed darwin-arm64: ad-hoc, hardened runtime
+built darwin-arm64 (5212000 bytes)
+built linux-x64 (5451936 bytes)
+built linux-arm64 (5177504 bytes)
+built windows-x64 (5099520 bytes)
+wrote /tmp/rv3c/head/dist/manifest.json
+exit=0
+{"candidate":"go","targets":[{"target":"darwin-arm64","path":"darwin-arm64/heimdall-proto","bytes":5212000,"sha256":"a5644a4f5c18cc70fdeaa0b83ac9cc50557449f05809246cc5813af42e685310","built":true,"error":null},{"target":"linux-x64","path":"linux-x64/heimdall-proto","bytes":5451936,"sha256":"3a495ba0962932575c7f89c7ac4854d712ec69d372d8be3efd27cf07a0eeabf5","built":true,"error":null},{"target":"linux-arm64","path":"linux-arm64/heimdall-proto","bytes":5177504,"sha256":"efd3ee08d591fd9dd6d4111fba21b6f8a0c3fe62d6d49d96ff9d8308b0851c04","built":true,"error":null},{"target":"windows-x64","path":"windows-x64/heimdall-proto.exe","bytes":5099520,"sha256":"2aff8b772b3a7f223ee9dac5949ce144d6f13f87e6e50b62a3fc026720ebc43c","built":true,"error":null}]}
+
