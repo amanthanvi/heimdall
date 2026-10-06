@@ -41,6 +41,8 @@
   - harness-r4-fix produced 2.4.1. Its full self-test PASSed on both OSes, but the agent was killed by host sleep before it could report. The orchestrator archived the results (`selftest-results/2026-10-05-r7/NOTE.md`) and committed them (76325e4).
   - Contract rulings: Q17 gated, Q18 recorded.
   - The script now replaces harness-r4-fix with a static object and adds harness-q17 (2.4.2: gate K12 error results), followed by conformance, fixes and measurement. Resumed 20:44.
+  - A T3 server update at about 20:44 killed harness-q17. Its orphaned scoped self-test (PID 11191) kept running. Resumed 20:52 with a note telling the agent to wait for that run and verify it.
+  - c67bdce (a progress commit made with `-a`) swept in the q17 agent's unfinished conformance.py and reference_impl.py edits. The q17 agent reviews them, and the harness-2.4.2 commit supersedes them.
 - To resume: `Workflow({scriptPath, resumeFromRunId: "wf_a7ee1c85-12f"})`. Resume can re-run completed agents (seen once). If one re-runs, stop the run and replace that agent with a static object pointing at its saved result.
 - `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them at cleanup.
 
