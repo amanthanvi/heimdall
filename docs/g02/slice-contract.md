@@ -394,3 +394,27 @@ candidate that fails gets one fix round.
   mirrored with no grace period, the result depends on timing. The harness
   cannot detect it reliably, so it is a known harness limitation and an M01
   input.
+
+### 9.5 Closing the prototype rounds (2026-10-06, after the round-3c reviews)
+
+The round-3c reviews could not refute the 139/139 verdicts for Go and Rust,
+and each review found one new major outside the harness. Both are about stops
+that a third party (not the job-control shell) sends to the run child:
+
+- **Go (darwin only, present since before round 3c).** If the child is
+  stopped by SIGSTOP, whether it sent the signal itself or another process
+  sent it, `heimdall-proto` exits 255 and leaves the child stopped in an
+  orphaned process group. The reviewer attributes this to how Go's BSD
+  `WaitStatus` decodes a SIGSTOP stop.
+- **Rust (introduced by the round-3c stop mirror).** If another process stops
+  the child and then continues only the child's PID, `heimdall-proto` stays
+  stopped. It never reaps the child and never exits.
+
+Both cases violate the spirit of §4 ("waits for the child and does not exit
+first", no orphan), on paths that neither the harness nor §9.4 gates (SIGSTOP
+is recorded only). Ruling: they are recorded as deviations of equal weight,
+and each goes into ADR-0002 and M01 as an input. There is no further fix
+round. Under plan §3 G02, the comparison now has enough evidence to decide,
+and more rounds would polish prototypes that will be thrown away. The owner
+can overrule this and ask for one more round, for both candidates or for
+neither.
