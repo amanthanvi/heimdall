@@ -76,10 +76,15 @@
 
 ## Next actions
 
-1. G02 round 4 X2–X6: workflow `wf_27f810ac-f00` (script `heimdall-m00-g02-round4-wf_27f810ac-f00.js`).
-   - Hidden X2 tests: `~/.local/share/heimdall-m00/r4-hidden/`. Copy them into the evidence after evaluation.
-   - Scratch: `/tmp/hm-r4/`.
-   - Afterwards: compute tokens and tool calls per cell from the transcripts, persist to `m00-wf7/`, and commit `tests/evidence/artifacts/g02-r4/x2..x6`.
+1. G02 round 4:
+   - X3–X6 studies are done and committed. The X2 fairness review found 3 majors (baseline drift, implementer isolation, T1 scoring).
+   - The task-pack fix died on a 429 rate limit partway through; its partial work is in `~/.local/share/heimdall-m00/r4-hidden/`, pinned to post-X1b base 84c7665/001a791.
+   - Continuation workflow `wf_55ae5a9c-4b4` (script `heimdall-m00-g02-round4-x2-wf_55ae5a9c-4b4.js`):
+     - finishes the fix, then an independent recheck;
+     - builds 24 isolated workspaces in `/tmp/x2ws-*`;
+     - runs 3 sequential batches of 8 cells, each cell implemented, evaluated and reviewed;
+     - retries once on null.
+   - Afterwards: audit the implementer transcripts with `audit-transcript.py`, compute tokens and tool calls per cell, and commit the specs, runs and the hidden pack copy.
 2. X1 is done:
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
    - G02 native: commit 48f854a. linux-x64 139/139 for both; windows-x64 Go 63/63, Rust 60/63 gating before §9.6.
