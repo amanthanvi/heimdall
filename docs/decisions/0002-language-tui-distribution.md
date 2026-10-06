@@ -318,7 +318,7 @@ between them. TS is shown for completeness only.
 **Totals with ergonomics scored 3 for both: Go 3.80, Rust 3.80, a tie.** The
 previous draft scored Go 3 and Rust 4 on security core and release
 simplicity. review-2 showed that those scores rested on an asymmetric
-account (Rust was credited with the round-1 build effort) and on a size
+account of signal control, and on a size
 difference the ADR itself calls invisible to users. Both are now scored
 equal.
 
