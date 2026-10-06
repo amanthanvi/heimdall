@@ -1,0 +1,3 @@
+env SSH_AUTH_SOCK=/run/user/1000/hg03-d4639d/agent.sock HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-fEk2BX/home /usr/bin/ssh-add -l (exit 0)
+python3 <wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/native/wsl/agent_client.py --socket /run/user/1000/hg03-d4639d/agent.sock list (exit 0)
+env SSH_AUTH_SOCK=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-fEk2BX/up/agent.sock /usr/bin/ssh-add -l (exit 0)

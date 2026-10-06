@@ -1,0 +1,28 @@
+win-scratch-removed
+wsl-scratch-removed
+linux marker procs (excl self): 0
+hg03 left: 0
+{
+    "win_scratch_root_exists":  true,
+    "win_scratch_root_entries":  [
+                                     "hmrv-owner-state.ps1"
+                                 ],
+    "win_procs_with_marker":  [
+
+                              ],
+    "ssh_agent_service":  "Running/Automatic",
+    "ssh_agent_processes":  [
+                                "pid=5968 start_utc=2026-09-30T08:31:05.1241970Z"
+                            ],
+    "pipe_count":  1158,
+    "default_agent_pipe_name_present":  true,
+    "heimdall_pipe_names":  [
+
+                            ],
+    "public_heimdall_g03_dirs":  0,
+    "session_SSH_AUTH_SOCK_set":  false,
+    "token_elevated":  false
+}
+owner-state-exit=0
+0
+0

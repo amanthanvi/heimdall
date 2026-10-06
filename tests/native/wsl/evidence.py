@@ -19,7 +19,8 @@ control, environment problem) or no criteria -> in_progress, verdict
 verified, verdict "pass". failed_criteria/unobserved_criteria list the keys.
 Harness self-test records are written with no --req (they name no product
 requirement). The record matches tests/evidence/record.schema.json.
-Identifying values (user, host names) are redacted before writing.
+Identifying values (user, host names, home/profile prefixes) are redacted before writing:
+inside WSL as <wsluser>/<winuser>/<winhost>/<wslhome>/<winhome>, elsewhere as <redacted>/<home>.
 """
 import argparse
 import getpass
@@ -40,33 +41,65 @@ def load(path, default):
     return default
 
 
-def redactions():
-    vals = set()
-    for v in (os.environ.get("USER"), os.environ.get("LOGNAME"), os.environ.get("HEIMDALL_G03_WIN_USER")):
-        if v and len(v) >= 3:
-            vals.add(v)
+def _in_wsl():
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
     try:
-        vals.add(getpass.getuser())
+        with open("/proc/sys/kernel/osrelease", encoding="utf-8") as fh:
+            return "microsoft" in fh.read().lower()
+    except OSError:
+        return False
+
+
+def redactions():
+    """(value, token) pairs, longest value first. Inside WSL the tokens name the kind
+    (<wsluser>, <winuser>, <winhost>); elsewhere every name becomes <redacted>."""
+    wsl = _in_wsl()
+    pairs = {}
+
+    def add(v, token):
+        if v and len(v) >= 3 and v.lower() not in pairs:
+            pairs[v.lower()] = (v, token if wsl else "<redacted>")
+
+    add(os.environ.get("HEIMDALL_G03_WIN_USER"), "<winuser>")
+    for v in (os.environ.get("USER"), os.environ.get("LOGNAME")):
+        add(v, "<wsluser>")
+    try:
+        add(getpass.getuser(), "<wsluser>")
     except Exception:  # noqa: BLE001
         pass
+    add(os.environ.get("HEIMDALL_G03_WIN_HOST"), "<winhost>")
     try:
-        h = socket.gethostname()
-        if h and len(h) >= 3:
-            vals.add(h)
+        add(socket.gethostname(), "<winhost>")
     except OSError:
         pass
-    return sorted((v for v in vals if v and len(v) >= 3), key=len, reverse=True)
+    return sorted(pairs.values(), key=lambda p: len(p[0]), reverse=True)
+
+
+def _redact_paths(text):
+    """Home/profile prefixes first, so the name tokens never leave a half-redacted path."""
+    wu = os.environ.get("HEIMDALL_G03_WIN_USER")
+    if _in_wsl() and wu and len(wu) >= 3:
+        # C:\Users\<name>, C:/Users/<name>, JSON-escaped backslashes, /mnt/c/Users/<name>
+        text = re.sub(r"(?:[A-Za-z]:|/mnt/[A-Za-z])[\\/]+Users[\\/]+" + re.escape(wu) + r"(?![A-Za-z0-9])",
+                      "<winhome>", text, flags=re.IGNORECASE)
+    home = os.path.expanduser("~")
+    if home and home != "/":
+        text = text.replace(home, "<wslhome>" if _in_wsl() else "<home>")
+    return text
 
 
 def redact(text):
-    for v in redactions():
+    text = _redact_paths(text)
+    for v, token in redactions():
         # whole-token, case-insensitive (a host named "Mac" must not rewrite "macos")
-        text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(v) + r"(?![A-Za-z0-9])", "<redacted>", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(v) + r"(?![A-Za-z0-9])", token, text, flags=re.IGNORECASE)
+    # e-mail addresses (e.g. a MicrosoftAccount\<address> group in `whoami /groups`)
+    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}", "<email>", text)
     return re.sub(r"S-1-5-21-\d+-\d+-\d+", "S-1-5-21-<redacted>", text)
 
 
 def cmd_redact_tree(a):
-    home = os.path.expanduser("~")
     changed = 0
     for root, _dirs, files in os.walk(a.dir):
         for name in files:
@@ -76,8 +109,7 @@ def cmd_redact_tree(a):
                     text = fh.read()
             except (UnicodeDecodeError, OSError):
                 continue  # binary payloads (e.g. round-trip data) are left untouched
-            new = text.replace(home, "<home>") if home and home != "/" else text
-            new = redact(new)
+            new = redact(text)
             if new != text:
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(new)

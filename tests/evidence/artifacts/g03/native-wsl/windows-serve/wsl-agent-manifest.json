@@ -1,0 +1,25 @@
+{
+  "pipe_name": "heimdall-g03-wsl-a3154a3a",
+  "pipe_path": "\\\\.\\pipe\\heimdall-g03-wsl-a3154a3a",
+  "log_path": "<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\heimdall-g03-20261006T064924Z-a1dd75\\probe dir üø\\agent-wsl-cec92b\\agent-log.jsonl",
+  "public_key_dir": "<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\heimdall-g03-20261006T064924Z-a1dd75\\probe dir üø\\agent-wsl-cec92b",
+  "decoy_pipe_name": "heimdall-g03-wsldecoy-bf36baca",
+  "decoy_log_path": "<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\heimdall-g03-20261006T064924Z-a1dd75\\probe dir üø\\agent-wsldecoy-1fc046\\agent-log.jsonl",
+  "relay_script": "<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\repo\\tests\\native\\windows\\PipeStdioRelay.ps1",
+  "keys": [
+    {
+      "index": 1,
+      "fingerprint": "SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU",
+      "allowed": true,
+      "comment": "heimdall-g03-probe-1"
+    },
+    {
+      "index": 2,
+      "fingerprint": "SHA256:Jw6T56BYizc4LHgNYcfFZDpn81IV9OOrUBkYYTPbzuA",
+      "allowed": false,
+      "comment": "heimdall-g03-probe-2"
+    }
+  ],
+  "serve_seconds": 3000,
+  "started_at": "2026-10-06T06:49:26Z"
+}

@@ -1,0 +1,10 @@
+{
+ "add_identity_refused": true,
+ "allowed_key_signature_verifies": true,
+ "list_filtered_to_allowed_key": true,
+ "lock_refused": true,
+ "non_session_bind_extension_refused": true,
+ "oversize_message_closes_connection": true,
+ "unauthorized_key_sign_refused": true,
+ "upstream_keys_unchanged_by_refused_mutations": true
+}

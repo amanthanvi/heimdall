@@ -1,0 +1,6 @@
+{
+ "refuses_after_deadline": true,
+ "serves_before_deadline": true,
+ "socket_removed_on_stop": true,
+ "upstream_unaffected_by_teardown": true
+}

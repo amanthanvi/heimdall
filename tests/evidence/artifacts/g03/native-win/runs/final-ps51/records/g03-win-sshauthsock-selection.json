@@ -1,0 +1,323 @@
+{
+  "case_id": "G03-win-sshauthsock-selection",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-03",
+    "R-RT-03"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261006T063110Z-9aea63",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "5.1.26100.9549",
+      "edition": "Desktop",
+      "native_argument_passing": "n/a (Windows PowerShell 5.1 legacy)"
+    },
+    "dotnet": ".NET Framework 4.8.9345.0",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "a7504574525fe02814da5d4c78575bc921be96a58e95bd7d8bc6c2bbafe5dd89",
+      "G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:31:10Z",
+  "commands_or_harness": [
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe -l (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe -l (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe -l (exit 2)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe -l (exit 2; stdout not saved: default pipe present)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe -l (exit 2)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe -l (exit 2)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe -l (exit 2)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe -l (exit 2; stdout not saved: default pipe present)",
+    "C:\\Program Files\\OpenSSH\\ssh-add.exe -l (exit 0)",
+    "C:\\Program Files\\OpenSSH\\ssh-add.exe -l (exit 0)",
+    "C:\\Program Files\\OpenSSH\\ssh-add.exe -l (exit 2)",
+    "C:\\Program Files\\OpenSSH\\ssh-add.exe -l (exit 2; stdout not saved: default pipe present)"
+  ],
+  "observed_result": {
+    "agent_contact_WINDOWS-System32-OpenSSH": {
+      "target": {
+        "connections": 2,
+        "request_identities": 2,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [
+          73800,
+          14108
+        ],
+        "client_images": [
+          "ssh-add"
+        ],
+        "client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe"
+        ],
+        "client_sids": [
+          "S-1-5-21-<redacted>-1001"
+        ],
+        "errors": []
+      },
+      "unicode": {
+        "connections": 0,
+        "request_identities": 0,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [],
+        "client_images": [],
+        "client_paths": [],
+        "client_sids": [],
+        "errors": []
+      }
+    },
+    "agent_contact_Program-Files-Git-usr-bin": {
+      "target": {
+        "connections": 1,
+        "request_identities": 0,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [
+          46316
+        ],
+        "client_images": [],
+        "client_paths": [],
+        "client_sids": [],
+        "errors": []
+      },
+      "unicode": {
+        "connections": 1,
+        "request_identities": 0,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [
+          63476
+        ],
+        "client_images": [],
+        "client_paths": [],
+        "client_sids": [],
+        "errors": []
+      }
+    },
+    "agent_contact_Program-Files-OpenSSH": {
+      "target": {
+        "connections": 2,
+        "request_identities": 2,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [
+          69976,
+          2476
+        ],
+        "client_images": [
+          "ssh-add"
+        ],
+        "client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh-add.exe"
+        ],
+        "client_sids": [
+          "S-1-5-21-<redacted>-1001"
+        ],
+        "errors": []
+      },
+      "unicode": {
+        "connections": 0,
+        "request_identities": 0,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [],
+        "client_images": [],
+        "client_paths": [],
+        "client_sids": [],
+        "errors": []
+      }
+    },
+    "cases": [
+      {
+        "ssh_add": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+        "form": "backslash",
+        "exit_code": 0,
+        "lists_target_key": true,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": ""
+      },
+      {
+        "ssh_add": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+        "form": "forward_slash",
+        "exit_code": 0,
+        "lists_target_key": true,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": ""
+      },
+      {
+        "ssh_add": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+        "form": "space_unicode_pipe",
+        "exit_code": 2,
+        "lists_target_key": false,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": "Error connecting to agent: No such file or directory"
+      },
+      {
+        "ssh_add": "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe",
+        "form": "backslash",
+        "exit_code": 2,
+        "lists_target_key": false,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": "Error connecting to agent: Device or resource busy"
+      },
+      {
+        "ssh_add": "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe",
+        "form": "forward_slash",
+        "exit_code": 2,
+        "lists_target_key": false,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": "Error connecting to agent: No such file or directory"
+      },
+      {
+        "ssh_add": "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe",
+        "form": "space_unicode_pipe",
+        "exit_code": 2,
+        "lists_target_key": false,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": "Error connecting to agent: Device or resource busy"
+      },
+      {
+        "ssh_add": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+        "form": "backslash",
+        "exit_code": 0,
+        "lists_target_key": true,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": ""
+      },
+      {
+        "ssh_add": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+        "form": "forward_slash",
+        "exit_code": 0,
+        "lists_target_key": true,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": ""
+      },
+      {
+        "ssh_add": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+        "form": "space_unicode_pipe",
+        "exit_code": 2,
+        "lists_target_key": false,
+        "lists_unicode_agent_key": false,
+        "stderr_first_line": "Error connecting to agent: No such file or directory"
+      }
+    ],
+    "nonexistent_sentinel": [
+      {
+        "ssh_add": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+        "default_pipe_present": true,
+        "decoy": "none",
+        "decoy_connections": null,
+        "exit_code": 2,
+        "stdout_line_count": 0,
+        "fallback_judged": true,
+        "no_fallback": true,
+        "reason": null
+      },
+      {
+        "ssh_add": "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe",
+        "default_pipe_present": true,
+        "decoy": "none",
+        "decoy_connections": null,
+        "exit_code": 2,
+        "stdout_line_count": 0,
+        "fallback_judged": true,
+        "no_fallback": true,
+        "reason": null
+      },
+      {
+        "ssh_add": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+        "default_pipe_present": true,
+        "decoy": "none",
+        "decoy_connections": null,
+        "exit_code": 2,
+        "stdout_line_count": 0,
+        "fallback_judged": true,
+        "no_fallback": true,
+        "reason": null
+      }
+    ],
+    "criteria": {
+      "system32_nonexistent_fails_cleanly": true,
+      "system32_nonexistent_does_not_fall_back": true,
+      "system32_backslash_selects_fixture": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-backslash-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-forward_slash-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-space_unicode_pipe-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-backslash-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-forward_slash-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-space_unicode_pipe-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-backslash-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-forward_slash-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-sshauthsock-selection/ssh-add-l-space_unicode_pipe-Program-Files-OpenSSH.txt"
+  ],
+  "limitations": [
+    "ssh-add exit 2 = could not connect to an agent; exit 1 = agent reachable but no identities (a fallback to another agent would show 0 or 1). When the default pipe was present its server was reached only if the client fell back, and that run's stdout was not saved.",
+    "Forward-slash and space/Unicode pipe-name forms and non-System32 ssh-add builds are recorded as observations, not pass criteria."
+  ],
+  "blocked_on": null
+}

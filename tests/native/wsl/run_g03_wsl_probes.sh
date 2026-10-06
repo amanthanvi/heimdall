@@ -145,7 +145,8 @@ probe_env() {
   in_wsl || { g03_blocked $c "$NOT_WSL" R-EN-02 R-EN-03 R-QU-02; return; }
   g03_obs $c interop_binfmt --str "$(head -1 /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null || echo absent)"
   g03_obs $c wsl_conf_interop_lines --str "$(sed -n '/^\[interop\]/,/^\[/p' /etc/wsl.conf 2>/dev/null | head -10)"
-  g03_obs $c windows_path_appended --json "$(g03_bool sh -c 'echo "$PATH" | grep -q "/mnt/c/"')"
+  # Session PATH as started (before the harness appends System32 for its own interop calls).
+  g03_obs $c windows_path_appended --json "$(g03_bool sh -c 'echo "$1" | grep -q "/mnt/c/"' sh "$G03_SESSION_PATH")"
   g03_obs $c wsl_interop_env_present --json "$([ -n "${WSL_INTEROP:-}" ] && echo true || echo false)"
   g03_obs $c run_wsl_entries --str "$(find /run/WSL -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ') entries"
   g03_obs $c mnt_wsl_present --json "$([ -d /mnt/wsl ] && echo true || echo false)"
@@ -380,7 +381,9 @@ probe_a_elevation() {
   g03_run $c interop-child-elevation -- sh -c 'cd /mnt/c && powershell.exe -NoProfile -NonInteractive -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"'
   local el; el="$(tr -d '\r\n' < "$G03_LAST_OUT")"
   g03_obs $c interop_child_is_admin_token --str "$el"
-  g03_run $c interop-child-integrity -- sh -c 'cd /mnt/c && whoami.exe /groups /fo csv'
+  # Only the Mandatory Label row is kept: the full group list names accounts (e.g. a
+  # MicrosoftAccount e-mail address) and local groups; whoami's own exit code is preserved.
+  g03_run $c interop-child-integrity -- sh -c 'cd /mnt/c && whoami.exe /groups /fo csv > "$0"; rc=$?; grep -i "Mandatory Label" "$0"; exit $rc' "$G03_SCRATCH/whoami-groups.csv"
   g03_obs $c interop_child_integrity_label --str "$(grep -i 'Mandatory Label' "$G03_LAST_OUT" | cut -d, -f1 | tr -d '"\r' | head -1)"
   g03_crit $c interop_child_not_elevated "$([ "$el" = False ] && echo true || echo false)"
   g03_crit $c no_uac_prompt_observed "$([ "$NO_UAC" = 1 ] && echo true || echo null)"

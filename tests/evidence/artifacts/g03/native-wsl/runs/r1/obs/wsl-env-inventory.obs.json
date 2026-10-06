@@ -1,0 +1,17 @@
+{
+ "git_version": "git version 2.43.0",
+ "interop_binfmt": "enabled",
+ "mnt_namespace_id": "mnt:[4026532213]",
+ "mnt_wsl_fstype": "tmpfs",
+ "mnt_wsl_present": true,
+ "net_namespace_id": "net:[4026531833]",
+ "run_wsl_entries": "10 entries",
+ "ssh_exe_on_path": "none",
+ "windows_path_appended": false,
+ "wsl_conf_interop_lines": "[interop]\nenabled = true\nappendWindowsPath = false   # HUGE win: removes the massive Windows PATH from lookups",
+ "wsl_distributions": "  NAME            STATE           VERSION\n* Ubuntu          Running         2\n  kali-linux      Stopped         2\n  Ubuntu-24.04    Stopped         2",
+ "wsl_interop_env_present": true,
+ "wsl_version": "WSL version: 3.0.1.0\nKernel version: 6.18.40.1-1\nWSLg version: 1.0.79",
+ "wslconfig_networkingMode": "<not read: wslinfo available>",
+ "wslinfo_networking_mode": "nat"
+}

@@ -1,0 +1,10 @@
+label: ssh-keygen-sign-filtered
+file: C:\WINDOWS\System32\OpenSSH\ssh-keygen.exe
+arguments: -Y sign -U -f "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-selftest-395fff\probe dir üø\agent-selftest-e8ed3d\probe-key-2.pub" -n heimdall-g03 "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-selftest-395fff\probe dir üø\message.txt"
+started_utc: 2026-10-06T06:18:56.8706131Z
+exit_code: 255
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Couldn't find key in agent

@@ -1,42 +1,105 @@
 {
   "case_id": "G03-wsl-a-process-io",
-  "status": "blocked",
+  "status": "verified",
   "requirement_ids": [
     "R-EN-02",
     "R-SS-04"
   ],
-  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "build_commit": null,
   "artifact_digest": null,
   "environment": {
-    "recorded_on": "macOS 27.0 arm64 development host; the target platform is not available to this environment",
-    "recorded_at": "2026-10-03T21:25:45Z",
-    "task": "M00-T04-G03 (harness revised by M00-T04-G03-fix and M00-T04-G03-fix2)",
-    "harness": {
-      "path": "tests/native/wsl/run_g03_wsl_probes.sh",
-      "sha256": "0db86dfb1f84811e84d0589ef2137912743708240c3b8b97fd8165bf5ee6ee49",
-      "supporting_sha256": {
-        "tests/native/wsl/g03_common.sh": "78fbabd193db9f835d61c7c48b16ee46d017d184b7ab7cce6e6a3163984cafce",
-        "tests/native/wsl/evidence.py": "50a3f7e7cbf5e108858d84028b95bee2e74d81ac317273c12fbda3d71e4825a1",
-        "tests/native/wsl/agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
-        "tests/native/wsl/agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
-        "tests/native/wsl/agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
-        "tests/native/wsl/exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
-        "tests/native/wsl/argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402"
-      }
-    }
+    "arch": "x86_64",
+    "bash": "5.2.21(1)-release",
+    "distro": "Ubuntu 24.04.5 LTS",
+    "harness_appended_windows_system32_to_PATH": true,
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "91945da532d1ff1ee6a8b8c8c5322139878e43285ab64316a441cf38fada4cdc",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+    "harness_sha256_run_g03_wsl_probes.sh": "b6ed680dbe6934d29fdf84973febf2b79c0eafdc516dc844f8f01059292bf7d8",
+    "is_wsl": true,
+    "kernel": "Linux 6.18.40.1-microsoft-standard-WSL2",
+    "linux_ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024",
+    "python": "Python 3.12.3",
+    "run_id": "20261006T065342Z-939695",
+    "systemd_pid1": true,
+    "wsl_distro_name": "Ubuntu",
+    "wsl_interop_binfmt_present": true,
+    "xdg_runtime_dir_present": true,
+    "task": "M00-T04-G03-native-wsl",
+    "host": {
+      "description": "owner's personal Windows 11 Pro PC, authorized for non-destructive testing; NOT a disposable host",
+      "windows": "Windows 11 Pro build 26300.9550 (26H2, x86-64)",
+      "wsl": "WSL 3.0.1.0, kernel 6.18.40.1-microsoft-standard-WSL2; distribution 'Ubuntu' = Ubuntu 24.04.5 LTS (WSL2, systemd, networking mode nat, [interop] enabled=true, appendWindowsPath=false)",
+      "reached_via": "SSH from the Mac into the WSL distribution (sshd port 2222, dedicated revocable test key), then `wsl.exe -d Ubuntu --cd <scratch> --exec /bin/bash run.sh` through interop, so the harness ran in a WSL-launched session (WSL_DISTRO_NAME and WSL_INTEROP set) as <wsluser>; Windows processes ran as the non-admin-token Windows user <winuser> (not elevated)"
+    },
+    "fixture": "Two non-root OpenSSH 9.6p1 sshd instances in the WSL task scratch, bound to 127.0.0.1 and reached from Windows ssh.exe through WSL NAT localhost forwarding: A = public-key (scratch authorized_keys holding only manifest key 1 with `restrict`; scratch bare Git repository for clone/push); B = certificate-only (AuthorizedKeysFile none, TrustedUserCAKeys = a per-run disposable ed25519 user CA generated in scratch, not the M00-T03 CA). Windows fixture agent: tests/native/windows/Invoke-G03WindowsProbes.ps1 -ServeAgentForWsl under PowerShell 7.6.6 with TEMP pinned to the Windows task scratch (target pipe heimdall-g03-wsl-a3154a3a, key 1 allowed / key 2 filtered; decoy pipe heimdall-g03-wsldecoy-bf36baca). Configs, redacted logs and helper scripts: tests/evidence/artifacts/g03/native-wsl/fixture/, tests/evidence/artifacts/g03/native-wsl/windows-serve/.",
+    "harness_provenance": "Harness ran from a copy of the working tree at HEAD 404cc1e plus the uncommitted G03 harness changes (tests/native/wsl/CHANGELOG-native.md; the Windows harness is the M00-T04-G03-native-windows version), so the harness could not record a commit (build_commit null); environment.harness_sha256_* identify the exact WSL harness files and match the files in this commit. Windows serve harness sha256: {\"Invoke-G03WindowsProbes.ps1\": \"a7504574525fe02814da5d4c78575bc921be96a58e95bd7d8bc6c2bbafe5dd89\", \"G03Common.psm1\": \"e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581\", \"InstrumentedAgent.ps1\": \"521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276\", \"PipeStdioRelay.ps1\": \"c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec\"}",
+    "raw_record": "tests/evidence/artifacts/g03/native-wsl/runs/r2/records/g03-wsl-a-process-io.json",
+    "supplementary_r3_msi10_record": "tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/records/g03-wsl-a-process-io.json"
   },
-  "provider_versions": [],
-  "started_at": null,
-  "commands_or_harness": "tests/native/wsl/run_g03_wsl_probes.sh --probes a-io ..",
-  "observed_result": null,
+  "provider_versions": [
+    {
+      "name": "linux ssh",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024"
+    },
+    {
+      "name": "windows ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"
+    }
+  ],
+  "started_at": "2026-10-06T06:53:42Z",
+  "commands_or_harness": [
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target exit 42 (exit 42)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target printf out; printf err >&2 (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target printf '\\303\\274\\342\\230\\203\\n' (exit 0)",
+    "sh -c \"$@\" cat < \"$0\" > \"$0.out\" <wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/in.bin env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target (exit 0)",
+    "sh -c printf abc | \"$@\" \"cat; printf done\" sh env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target (exit 0)",
+    "timeout -s INT 4 env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target sleep 30 (exit 124)"
+  ],
+  "observed_result": {
+    "binary_sha256": {
+      "in": "710e85fe5ec84f6f3634fd7255e740021b811f939bcb7fa1b1a64dc556fb1994",
+      "out": "710e85fe5ec84f6f3634fd7255e740021b811f939bcb7fa1b1a64dc556fb1994"
+    },
+    "interrupt_exit_code": 124,
+    "ssh_exe_true_wall_ms": "212 209 162",
+    "utf8_bytes_hex": "c3bce298830a",
+    "windows_ssh_processes_after_interrupt": "0",
+    "criteria": {
+      "binary_roundtrip_exact": true,
+      "no_orphan_windows_ssh_after_interrupt": true,
+      "remote_exit_status_preserved": true,
+      "stderr_not_on_stdout": true,
+      "stdin_eof_propagates": true,
+      "utf8_output_bytes_exact": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
   "evidence_paths": [
-    "docs/research/g03-windows-wsl.md",
-    "tests/native/wsl/run_g03_wsl_probes.sh"
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/exit-42.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/exit-42.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stream-separation.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stream-separation.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/utf8-output.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/utf8-output.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/binary-roundtrip.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/binary-roundtrip.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stdin-eof.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stdin-eof.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/interrupt-sigint.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/interrupt-sigint.stderr"
   ],
   "limitations": [
-    "Not executed on the target platform: no Windows/WSL host is available to this environment, so there is no observation (plan.md sec. 6.5). Mocks, cross-compiles and the macOS harness self-tests do not close this record.",
-    "Probe P-A02; acceptance input A12; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.2.",
-    "Unknown until executed: Exit status, stdin EOF, interrupt and binary fidelity through interop."
+    "Interactive Ctrl-C from a WSL terminal, PTY resize, and console behavior are manual steps not run by this script.",
+    "Supplementary run r3-msi10 repeated this probe with the Win32-OpenSSH GitHub MSI client (C:\\Program Files\\OpenSSH\\ssh.exe, OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2), which is first on this host's Windows PATH: same status and criteria.",
+    "Promoted by M00-T04-G03-native-wsl from environment.raw_record (run r2, the first complete WSL run after the harness fixes in tests/native/wsl/CHANGELOG-native.md); fields added at promotion: build_commit (null), environment.task/host/fixture/harness_provenance/raw_record/supplementary_r3_msi10_record, and the limitations after the harness-written ones."
   ],
-  "blocked_on": "WSL2 distribution with interop enabled (e.g. Ubuntu 24.04, python3 + OpenSSH client) on a native Windows 11 x86-64 host running WSL 3.0.1 or the G01-selected version; the Windows-side instrumented agent on the same host (Invoke-G03WindowsProbes.ps1 -ServeAgentForWsl manifest); a disposable SSH fixture reachable from Windows ssh.exe with manifest key 1 authorized"
+  "blocked_on": null
 }

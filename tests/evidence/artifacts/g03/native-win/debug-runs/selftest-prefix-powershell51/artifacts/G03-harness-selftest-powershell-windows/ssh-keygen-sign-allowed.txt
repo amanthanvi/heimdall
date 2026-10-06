@@ -1,0 +1,11 @@
+label: ssh-keygen-sign-allowed
+file: C:\WINDOWS\System32\OpenSSH\ssh-keygen.exe
+arguments: -Y sign -U -f "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-selftest-4c16bf\probe dir üø\agent-selftest-31f6f3\probe-key-1.pub" -n heimdall-g03 "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-selftest-4c16bf\probe dir üø\message.txt"
+started_utc: 2026-10-06T06:19:05.4921306Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Signing file <winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-selftest-4c16bf\probe dir üø\message.txt
+Write signature to <winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-selftest-4c16bf\probe dir üø\message.txt.sig

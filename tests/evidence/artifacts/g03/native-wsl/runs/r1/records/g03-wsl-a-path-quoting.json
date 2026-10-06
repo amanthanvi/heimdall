@@ -1,0 +1,187 @@
+{
+  "case_id": "G03-wsl-a-path-quoting",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-02",
+    "R-SS-04"
+  ],
+  "build_commit": "",
+  "artifact_digest": null,
+  "environment": {
+    "arch": "x86_64",
+    "bash": "5.2.21(1)-release",
+    "distro": "Ubuntu 24.04.5 LTS",
+    "harness_appended_windows_system32_to_PATH": true,
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "71149d0ea1de1956e0c6115f1bdafd48b292f2a796dcc5ffdfc2ca8be7c481af",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+    "harness_sha256_run_g03_wsl_probes.sh": "387a355dc035829c3d2befc0639455348f2b6f28ce0746080291e946a37c4de7",
+    "is_wsl": true,
+    "kernel": "Linux 6.18.40.1-microsoft-standard-WSL2",
+    "linux_ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024",
+    "python": "Python 3.12.3",
+    "run_id": "20261006T064937Z-76fc7c",
+    "systemd_pid1": true,
+    "wsl_distro_name": "Ubuntu",
+    "wsl_interop_binfmt_present": true,
+    "xdg_runtime_dir_present": true
+  },
+  "provider_versions": [
+    {
+      "name": "linux ssh",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024"
+    },
+    {
+      "name": "windows ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"
+    }
+  ],
+  "started_at": "2026-10-06T06:49:37Z",
+  "commands_or_harness": [
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-fEk2BX/probe dir üø/linux ssh config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T064937Z-76fc7c/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target true (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F \\\\wsl.localhost\\Ubuntu\\home\\<wsluser>\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-fEk2BX\\probe dir üø\\linux ssh config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T064937Z-76fc7c/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target true (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T064937Z-76fc7c\\probe dir üø\\ssh config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T064937Z-76fc7c/plain/known_hosts -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target true (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w /mnt/c/Windows/System32/OpenSSH/ssh.exe -F <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T064937Z-76fc7c\\plain\\ssh_config -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T064937Z-76fc7c/probe dir üø/known_hosts\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a probe-target true (exit 0)"
+  ],
+  "observed_result": {
+    "config_linux_path_exit": 0,
+    "config_unc_wsl_localhost_path_exit": 0,
+    "config_windows_spaced_unicode_exit": 0,
+    "known_hosts_spaced_path_with_embedded_quotes_exit": 0,
+    "remote_argument_fidelity": {
+      "all_exact": true,
+      "all_exit_zero": true,
+      "cases": [
+        {
+          "case": "plain",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "space",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "unicode",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "emoji",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "double-quote",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "single-quote",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "backslashes",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "trailing-backslash",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "backslash-before-quote",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "percent",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "cmd-metachars",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "bang",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "posix-expansion",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "tab",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "semicolon",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "leading-dash",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        },
+        {
+          "case": "empty",
+          "exact": true,
+          "exact_after_crlf_normalization": true,
+          "exit_code": 0
+        }
+      ]
+    },
+    "criteria": {
+      "argv_exact_all_cases": true,
+      "windows_fs_spaced_unicode_config_works": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/config-linux-path.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/config-linux-path.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/config-unc-wsl-path.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/config-unc-wsl-path.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/config-windows-spaced-unicode.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/config-windows-spaced-unicode.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/known-hosts-embedded-quotes.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/known-hosts-embedded-quotes.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-path-quoting/argv"
+  ],
+  "limitations": [
+    "Linux-path and \\\\wsl.localhost UNC config rows are observations; WSL interop's argv-to-command-line conversion is undocumented and is what the argv rows measure."
+  ],
+  "blocked_on": null
+}

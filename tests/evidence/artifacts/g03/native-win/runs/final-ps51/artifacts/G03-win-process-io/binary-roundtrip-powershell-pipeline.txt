@@ -1,0 +1,11 @@
+label: binary-roundtrip-powershell-pipeline
+file: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+arguments: -NoProfile -NonInteractive -Command "$env:SSH_AUTH_SOCK = '\\.\pipe\heimdall-g03-auth-52d3a89054fd'; & cmd.exe /d /c type \"<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-9aea63\probe dir üø\payload in.bin\" | & 'C:\WINDOWS\System32\OpenSSH\ssh.exe' '-F' '<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-9aea63\probe dir üø\cfg 172cc4\ssh config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\"' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' 'probe-target' 'cat' > \"<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-9aea63\probe dir üø\payload ps out.bin\""
+started_utc: 2026-10-06T06:34:19.6331533Z
+exit_code: 1
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+No ED25519 host key is known for [127.0.0.1]:45321 and you have requested strict checking.
+Host key verification failed.

@@ -1,0 +1,1024 @@
+{
+  "case_id": "G03-win-identityagent-forms",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-03",
+    "R-RT-03"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261006T063110Z-9aea63",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "5.1.26100.9549",
+      "edition": "Desktop",
+      "native_argument_passing": "n/a (Windows PowerShell 5.1 legacy)"
+    },
+    "dotnet": ".NET Framework 4.8.9345.0",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "a7504574525fe02814da5d4c78575bc921be96a58e95bd7d8bc6c2bbafe5dd89",
+      "G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:31:10Z",
+  "commands_or_harness": [
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg b8649f\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 75dc9b\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 7b3845\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg f9de2f\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 051d14\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg d6511c\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 88e9dc\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg a72fff\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 56ce04\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg b5c4c4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 4b2554\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg c51369\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 14aa0f\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=\\\\.\\pipe\\heimdall-g03-target-a410fa6c018f probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 6a3050\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"\\\\.\\pipe\\heimdall-g03-target-eebd76a096bd\\\"\" probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 26d392\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=\\\\\\\\.\\\\pipe\\\\heimdall-g03-target-cb7643a7f040 probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 4f8aa0\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=//./pipe/heimdall-g03-target-ec3604d2e39e probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 933fa5\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"//./pipe/heimdall-g03-target-5caad91b4dfb\\\"\" probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg ef7f14\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=$HEIMDALL_G03_IA probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 1f9010\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=${HEIMDALL_G03_IA} probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 799333\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=SSH_AUTH_SOCK probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 433972\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=none probe-target true (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg ce83a7\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"//./pipe/heimdall g03 ü fc71ae34\\\"\" probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 8a1e3c\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 191961\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg cd61b5\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 0a8ca4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 48918d\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg c3dd95\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 726383\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 30e3b4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 089275\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 21ed80\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 40107c\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 83e9ed\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 420b44\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=\\\\.\\pipe\\heimdall-g03-target-11cd26c28754 probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg bd9f62\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"\\\\.\\pipe\\heimdall-g03-target-350fa8d56655\\\"\" probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg cd4f25\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=\\\\\\\\.\\\\pipe\\\\heimdall-g03-target-c5bb5aa9c012 probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 92aecf\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=//./pipe/heimdall-g03-target-0e343872253d probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg e24787\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"//./pipe/heimdall-g03-target-f2fc694c45fb\\\"\" probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg ac2963\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=$HEIMDALL_G03_IA probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg ab9b32\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=${HEIMDALL_G03_IA} probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 2411cf\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=SSH_AUTH_SOCK probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg bd7386\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=none probe-target true (exit 255)",
+    "C:\\Program Files\\Git\\usr\\bin\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg bd04f0\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"//./pipe/heimdall g03 ü 4453b5da\\\"\" probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg b77d2c\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 2892fb\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg d2781a\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 7a815a\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 3c97f3\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 347771\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 64717f\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg bfcd45\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg cd66c0\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg b1a3f3\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 2c0d3a\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 0b5771\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 99c726\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=\\\\.\\pipe\\heimdall-g03-target-3ca370776944 probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 8d769f\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"\\\\.\\pipe\\heimdall-g03-target-567c0f26e899\\\"\" probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg a4fbad\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=\\\\\\\\.\\\\pipe\\\\heimdall-g03-target-5eec96daf203 probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 77c995\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=//./pipe/heimdall-g03-target-bc690f611671 probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 2ed842\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"//./pipe/heimdall-g03-target-f8fd7e804bb9\\\"\" probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 229683\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=$HEIMDALL_G03_IA probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 8e6dcd\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=${HEIMDALL_G03_IA} probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 560230\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=SSH_AUTH_SOCK probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 4a0f87\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=none probe-target true (exit 255)",
+    "C:\\Program Files\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 12d0a9\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o \"IdentityAgent=\\\"//./pipe/heimdall g03 ü ef3cbd60\\\"\" probe-target true (exit 255)"
+  ],
+  "observed_result": {
+    "cases": [
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "control_env_only",
+        "value_template": "",
+        "ssh_G_identityagent": {},
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "backslash",
+        "value_template": "\\\\.\\pipe\\{T}",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-6c1f996bfcc5",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "backslash_quoted",
+        "value_template": "\"\\\\.\\pipe\\{T}\"",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-dd20a5ab2478",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "backslash_doubled",
+        "value_template": "\\\\\\\\.\\\\pipe\\\\{T}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-a9c2d74f6e29",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "forward_slash",
+        "value_template": "//./pipe/{T}",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-22ea06f5eb0d",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "forward_slash_quoted",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-9ae43d08eaa4",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "env_legacy",
+        "value_template": "$HEIMDALL_G03_IA",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "env_braced",
+        "value_template": "${HEIMDALL_G03_IA}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-75ed40cf155d",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "literal_SSH_AUTH_SOCK",
+        "value_template": "SSH_AUTH_SOCK",
+        "ssh_G_identityagent": "identityagent SSH_AUTH_SOCK",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": true,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "none",
+        "value_template": "none",
+        "ssh_G_identityagent": "identityagent none",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "fs_quoted_space_unicode",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall g03 ü fb4a652d",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "control_env_only",
+        "value_template": "",
+        "ssh_G_identityagent": {},
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash",
+        "value_template": "\\\\.\\pipe\\{T}",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-a410fa6c018f",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash_quoted",
+        "value_template": "\"\\\\.\\pipe\\{T}\"",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-eebd76a096bd",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash_doubled",
+        "value_template": "\\\\\\\\.\\\\pipe\\\\{T}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-cb7643a7f040",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "forward_slash",
+        "value_template": "//./pipe/{T}",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-ec3604d2e39e",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "forward_slash_quoted",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-5caad91b4dfb",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "env_legacy",
+        "value_template": "$HEIMDALL_G03_IA",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "env_braced",
+        "value_template": "${HEIMDALL_G03_IA}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-db6ae42e42bc",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "literal_SSH_AUTH_SOCK",
+        "value_template": "SSH_AUTH_SOCK",
+        "ssh_G_identityagent": "identityagent SSH_AUTH_SOCK",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": true,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "none",
+        "value_template": "none",
+        "ssh_G_identityagent": "identityagent none",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "fs_quoted_space_unicode",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall g03 ü fc71ae34",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "control_env_only",
+        "value_template": "",
+        "ssh_G_identityagent": {},
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "backslash",
+        "value_template": "\\\\.\\pipe\\{T}",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-daa8909ca559",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "backslash_quoted",
+        "value_template": "\"\\\\.\\pipe\\{T}\"",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-aa656643347e",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "backslash_doubled",
+        "value_template": "\\\\\\\\.\\\\pipe\\\\{T}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-a887eb63c5f1",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "forward_slash",
+        "value_template": "//./pipe/{T}",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-405289f18c19",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "forward_slash_quoted",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-4d02b663fde9",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "env_legacy",
+        "value_template": "$HEIMDALL_G03_IA",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "env_braced",
+        "value_template": "${HEIMDALL_G03_IA}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-949bb945fb50",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "literal_SSH_AUTH_SOCK",
+        "value_template": "SSH_AUTH_SOCK",
+        "ssh_G_identityagent": "identityagent SSH_AUTH_SOCK",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "none",
+        "value_template": "none",
+        "ssh_G_identityagent": "identityagent none",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "config",
+        "form": "fs_quoted_space_unicode",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall g03 ü 2b5e0a4b",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "control_env_only",
+        "value_template": "",
+        "ssh_G_identityagent": {},
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash",
+        "value_template": "\\\\.\\pipe\\{T}",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-11cd26c28754",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash_quoted",
+        "value_template": "\"\\\\.\\pipe\\{T}\"",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-350fa8d56655",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash_doubled",
+        "value_template": "\\\\\\\\.\\\\pipe\\\\{T}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-c5bb5aa9c012",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "forward_slash",
+        "value_template": "//./pipe/{T}",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-0e343872253d",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "forward_slash_quoted",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-f2fc694c45fb",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "env_legacy",
+        "value_template": "$HEIMDALL_G03_IA",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "env_braced",
+        "value_template": "${HEIMDALL_G03_IA}",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "literal_SSH_AUTH_SOCK",
+        "value_template": "SSH_AUTH_SOCK",
+        "ssh_G_identityagent": "identityagent SSH_AUTH_SOCK",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "none",
+        "value_template": "none",
+        "ssh_G_identityagent": "identityagent none",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "channel": "cli",
+        "form": "fs_quoted_space_unicode",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall g03 ü 4453b5da",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "control_env_only",
+        "value_template": "",
+        "ssh_G_identityagent": {},
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "backslash",
+        "value_template": "\\\\.\\pipe\\{T}",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-b6f712c9e653",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "backslash_quoted",
+        "value_template": "\"\\\\.\\pipe\\{T}\"",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-e4e3cbe7269e",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "backslash_doubled",
+        "value_template": "\\\\\\\\.\\\\pipe\\\\{T}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-ccf36b38c578",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "forward_slash",
+        "value_template": "//./pipe/{T}",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-07616c4a0294",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "forward_slash_quoted",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-de5455ec6549",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "env_legacy",
+        "value_template": "$HEIMDALL_G03_IA",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "env_braced",
+        "value_template": "${HEIMDALL_G03_IA}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-93afecba681c",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "literal_SSH_AUTH_SOCK",
+        "value_template": "SSH_AUTH_SOCK",
+        "ssh_G_identityagent": "identityagent SSH_AUTH_SOCK",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": true,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "none",
+        "value_template": "none",
+        "ssh_G_identityagent": "identityagent none",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "config",
+        "form": "fs_quoted_space_unicode",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall g03 ü b393fb31",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "control_env_only",
+        "value_template": "",
+        "ssh_G_identityagent": {},
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash",
+        "value_template": "\\\\.\\pipe\\{T}",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-3ca370776944",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash_quoted",
+        "value_template": "\"\\\\.\\pipe\\{T}\"",
+        "ssh_G_identityagent": "identityagent \\.\\pipe\\heimdall-g03-target-567c0f26e899",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "backslash_doubled",
+        "value_template": "\\\\\\\\.\\\\pipe\\\\{T}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-5eec96daf203",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "forward_slash",
+        "value_template": "//./pipe/{T}",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-bc690f611671",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "forward_slash_quoted",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall-g03-target-f8fd7e804bb9",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "env_legacy",
+        "value_template": "$HEIMDALL_G03_IA",
+        "ssh_G_identityagent": "identityagent $HEIMDALL_G03_IA",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "env_braced",
+        "value_template": "${HEIMDALL_G03_IA}",
+        "ssh_G_identityagent": "identityagent \\\\.\\pipe\\heimdall-g03-target-6db1564cd913",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "literal_SSH_AUTH_SOCK",
+        "value_template": "SSH_AUTH_SOCK",
+        "ssh_G_identityagent": "identityagent SSH_AUTH_SOCK",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": true,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "none",
+        "value_template": "none",
+        "ssh_G_identityagent": "identityagent none",
+        "exit_code": 255,
+        "contacted_target": false,
+        "contacted_decoy": false,
+        "target_client_paths": []
+      },
+      {
+        "ssh": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "channel": "cli",
+        "form": "fs_quoted_space_unicode",
+        "value_template": "\"//./pipe/{T}\"",
+        "ssh_G_identityagent": "identityagent //./pipe/heimdall g03 ü ef3cbd60",
+        "exit_code": 255,
+        "contacted_target": true,
+        "contacted_decoy": false,
+        "target_client_paths": [
+          "C:\\Program Files\\OpenSSH\\ssh.exe"
+        ]
+      }
+    ],
+    "system32_exclusive_forms": [
+      "config:backslash_doubled",
+      "config:forward_slash",
+      "config:forward_slash_quoted",
+      "config:env_legacy",
+      "config:env_braced",
+      "config:fs_quoted_space_unicode",
+      "cli:backslash_doubled",
+      "cli:forward_slash",
+      "cli:forward_slash_quoted",
+      "cli:env_legacy",
+      "cli:env_braced",
+      "cli:fs_quoted_space_unicode"
+    ],
+    "criteria": {
+      "some_form_selects_fixture_pipe_exclusively": true,
+      "control_reaches_publickey_auth": true,
+      "literal_SSH_AUTH_SOCK_uses_environment": true,
+      "none_disables_agent": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-control_env_only-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash_quoted-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash_doubled-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-forward_slash-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-forward_slash_quoted-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-env_legacy-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-env_braced-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-literal_SSH_AUTH_SOCK-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-none-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-fs_quoted_space_unicode-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-control_env_only-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash_quoted-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash_doubled-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-forward_slash-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-forward_slash_quoted-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-env_legacy-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-env_braced-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-literal_SSH_AUTH_SOCK-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-none-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-fs_quoted_space_unicode-WINDOWS-System32-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-control_env_only-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash_quoted-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash_doubled-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-forward_slash-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-forward_slash_quoted-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-env_legacy-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-env_braced-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-literal_SSH_AUTH_SOCK-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-none-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-fs_quoted_space_unicode-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-control_env_only-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash_quoted-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash_doubled-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-forward_slash-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-forward_slash_quoted-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-env_legacy-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-env_braced-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-literal_SSH_AUTH_SOCK-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-none-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-fs_quoted_space_unicode-Program-Files-Git-usr-bin.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-control_env_only-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash_quoted-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-backslash_doubled-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-forward_slash-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-forward_slash_quoted-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-env_legacy-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-env_braced-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-literal_SSH_AUTH_SOCK-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-none-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-config-fs_quoted_space_unicode-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-control_env_only-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash_quoted-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-backslash_doubled-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-forward_slash-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-forward_slash_quoted-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-env_legacy-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-env_braced-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-literal_SSH_AUTH_SOCK-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-none-Program-Files-OpenSSH.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-identityagent-forms/ssh-cli-fs_quoted_space_unicode-Program-Files-OpenSSH.txt"
+  ],
+  "limitations": [
+    "Selection is judged from instrumented-agent logs (REQUEST_IDENTITIES); authentication success is not required and the server may reject the key.",
+    "Results apply only to the ssh.exe builds in provider_versions; the config parser changed in upstream OpenSSH 8.7, so version floors must be re-run per shipped build."
+  ],
+  "blocked_on": null
+}

@@ -1,0 +1,10 @@
+{
+ "binary_sha256": {
+  "in": "710e85fe5ec84f6f3634fd7255e740021b811f939bcb7fa1b1a64dc556fb1994",
+  "out": "710e85fe5ec84f6f3634fd7255e740021b811f939bcb7fa1b1a64dc556fb1994"
+ },
+ "interrupt_exit_code": 124,
+ "ssh_exe_true_wall_ms": "212 209 162",
+ "utf8_bytes_hex": "c3bce298830a",
+ "windows_ssh_processes_after_interrupt": "0"
+}

@@ -1,0 +1,79 @@
+{
+  "case_id": "G03-win-agent-constraints",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-CR-08",
+    "R-SS-03"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261006T063110Z-9aea63",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "5.1.26100.9549",
+      "edition": "Desktop",
+      "native_argument_passing": "n/a (Windows PowerShell 5.1 legacy)"
+    },
+    "dotnet": ".NET Framework 4.8.9345.0",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "a7504574525fe02814da5d4c78575bc921be96a58e95bd7d8bc6c2bbafe5dd89",
+      "G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:31:10Z",
+  "commands_or_harness": [],
+  "observed_result": null,
+  "evidence_paths": [],
+  "limitations": [],
+  "blocked_on": "disposable Windows host with the OpenSSH Authentication Agent service running and owner authorization (-AllowSystemAgentMutation -IAmOnADisposableHost -OwnerAuthorizationNote); the probe adds and removes a disposable key in the per-user agent registry store"
+}

@@ -1,0 +1,8 @@
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/list-via-relay.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/list-via-relay.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/sign-via-relay.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/sign-via-relay.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/verify-relay-signature.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/verify-relay-signature.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/crafted-sign-filtered.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-b-relay-attribution/crafted-sign-filtered.stderr

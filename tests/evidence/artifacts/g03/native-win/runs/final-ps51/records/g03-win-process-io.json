@@ -1,0 +1,123 @@
+{
+  "case_id": "G03-win-process-io",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-04",
+    "R-QU-02"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261006T063110Z-9aea63",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "5.1.26100.9549",
+      "edition": "Desktop",
+      "native_argument_passing": "n/a (Windows PowerShell 5.1 legacy)"
+    },
+    "dotnet": ".NET Framework 4.8.9345.0",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "a7504574525fe02814da5d4c78575bc921be96a58e95bd7d8bc6c2bbafe5dd89",
+      "G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:31:10Z",
+  "commands_or_harness": [
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 172cc4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 probe-target \"exit 42\" (exit 42)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 172cc4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 probe-target \"printf out; printf err >&2\" (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 172cc4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 probe-target \"printf '\\303\\274\\342\\230\\203\\n'\" (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 172cc4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 probe-target cat (exit 0)",
+    "C:\\WINDOWS\\System32\\cmd.exe /d /s /c \"C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 172cc4\\ssh config\" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 probe-target cat < \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\payload in.bin\" > \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\payload out.bin\"\" (exit 0)",
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -NonInteractive -Command \"$env:SSH_AUTH_SOCK = '\\\\.\\pipe\\heimdall-g03-auth-52d3a89054fd'; & cmd.exe /d /c type \\\"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\payload in.bin\\\" | & 'C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\cfg 172cc4\\ssh config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\\\"' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' 'probe-target' 'cat' > \\\"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-9aea63\\probe dir üø\\payload ps out.bin\\\"\" (exit 1)"
+  ],
+  "observed_result": {
+    "exit_42": 42,
+    "stdout_of_stream_separation": "out",
+    "utf8_bytes_hex": "c3bce298830a",
+    "payload_sha256": "5bf828dbebbf439cd11dcb385d169b40cc9badca4eb62523a93e4b81332ffe70",
+    "process_api_sha256": "5bf828dbebbf439cd11dcb385d169b40cc9badca4eb62523a93e4b81332ffe70",
+    "cmd_redirection_sha256": "5bf828dbebbf439cd11dcb385d169b40cc9badca4eb62523a93e4b81332ffe70",
+    "powershell_pipeline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "powershell_pipeline_byte_exact": false,
+    "ssh_true_wall_ms": [
+      191,
+      155,
+      164
+    ],
+    "manual_steps_not_run": [
+      "Ctrl-C delivered to ssh.exe in an interactive console and the resulting exit code",
+      "console resize propagation to a remote PTY"
+    ],
+    "criteria": {
+      "stderr_not_on_stdout": true,
+      "remote_exit_status_preserved": true,
+      "utf8_output_bytes_exact": true,
+      "binary_roundtrip_cmd_redirection": true,
+      "binary_roundtrip_process_api": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-process-io/exit-42.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-process-io/stream-separation.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-process-io/utf8-output.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-process-io/binary-roundtrip-process-api.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-process-io/binary-roundtrip-cmd-redirection.txt",
+    "tests/evidence/artifacts/g03/native-win/runs/final-ps51/artifacts/G03-win-process-io/binary-roundtrip-powershell-pipeline.txt"
+  ],
+  "limitations": [
+    "PowerShell pipeline byte-exactness is an observation that depends on the PowerShell version, not a pass criterion."
+  ],
+  "blocked_on": null
+}

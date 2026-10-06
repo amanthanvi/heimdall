@@ -5,9 +5,11 @@ scoped endpoint, A13), plan.md §3 G03, spec §8.4. Design, sources, and pass/fa
 `docs/research/g03-windows-wsl.md`. Bash + Python 3 stdlib + OpenSSH tools; no dependency on the
 (unselected) production language.
 
-**Nothing here has run in WSL yet.** Outside WSL every probe is recorded `blocked`. The Mode B mechanics
-were self-tested on macOS with `selftest_unix.sh` (records labeled `G03-harness-selftest-unix-*`, which are
-not G03 evidence).
+**First run in WSL: 2026-10-06** (`run_g03_wsl_probes.sh` only; owner's Windows 11 PC, WSL 3.0.1,
+Ubuntu 24.04; research doc §0.2). Harness fixes from that run are in `CHANGELOG-native.md`.
+`run_g03_wsl_lifecycle.sh` has still never run (no disposable second distribution, no terminate rights).
+Outside WSL every probe is recorded `blocked`. The Mode B mechanics were also self-tested on macOS with
+`selftest_unix.sh` (records labeled `G03-harness-selftest-unix-*`, which are not G03 evidence).
 
 ## Files
 
@@ -94,10 +96,15 @@ integrating commit. Status convention as in `tests/native/windows/README.md` (ga
 
 ## Known limits
 
-Unexecuted in WSL: interop argv conversion, `wslpath`/UNC handling, Windows process counting (relay
-processes by command-line match inside PowerShell, others by image name and start time), WSL
-networking-mode detection (`wslinfo` output format [U], `.wslconfig` key), the WSLENV `/w` check, keepalive
-start/stop through interop (whether ending the Windows-side `wsl.exe` ends the target session is [U]),
-LogonUI-based lock detection (heuristic), multi-distribution staging
-(assumes the default `/mnt` automount root), `wsl.exe` argument forwarding (helper scripts are staged as
-files to keep arguments simple). Expect harness fixes on the first real run.
+Executed in WSL on 2026-10-06 (`CHANGELOG-native.md`): interop argv conversion (17 cases exact), Linux,
+`\\wsl.localhost` UNC and Windows spaced/Unicode `-F` paths, WSLENV `/w` propagation and the decoy gate,
+Windows process counting (relay command-line count, `ssh` image count), `wslinfo --networking-mode`
+(prints `nat`), interop child token, the Mode B proxy mechanics and the PowerShell relay. Windows tools are
+found through the PATH extension of fix 1 when the session PATH lacks them.
+
+Still unexecuted: the `.wslconfig` fallback for the networking mode (wslinfo was present), the
+other-Linux-user rows (`--other-linux-user`), the host-lock window (operator), and everything in
+`run_g03_wsl_lifecycle.sh`: keepalive start/stop through interop (whether ending the Windows-side
+`wsl.exe` ends the target session is [U]), multi-distribution staging (assumes the default `/mnt`
+automount root), `wsl.exe` argument forwarding to the target, and `--terminate` handling. Expect harness
+fixes when those run.

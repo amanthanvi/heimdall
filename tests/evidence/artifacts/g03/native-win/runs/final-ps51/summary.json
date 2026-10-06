@@ -1,0 +1,769 @@
+{
+    "run_id":  "20261006T063110Z-9aea63",
+    "finished_at":  "2026-10-06T06:34:34Z",
+    "records":  [
+                    "g03-win-env-inventory.json",
+                    "g03-win-sshauthsock-selection.json",
+                    "g03-win-identityagent-forms.json",
+                    "g03-win-git-ssh-selection.json",
+                    "g03-win-pipe-acl-other-user.json",
+                    "g03-win-stale-squat-pipe.json",
+                    "g03-win-process-io.json",
+                    "g03-win-path-quoting.json",
+                    "g03-win-service-elevation.json",
+                    "g03-win-1password-coexistence.json",
+                    "g03-win-agent-constraints.json",
+                    "g03-wsl-b-other-windows-user.json",
+                    "g03-win-key-file-permissions.json"
+                ],
+    "owned_process_cleanup":  [
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  59112,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  80500,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  58608,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  41840,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  8252,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  80708,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  42344,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  8288,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  53036,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  66256,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  33432,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  56408,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  64048,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  53652,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  38716,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  61088,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  49472,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  66572,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  61296,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  76420,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  50404,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  30932,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  63536,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  31380,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  48860,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  64484,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  19248,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  74456,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  21136,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  36332,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  33156,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  69924,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  14592,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  41312,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  44160,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  75184,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  68732,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  71224,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  55636,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  44688,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  53528,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  11188,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  78556,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  19432,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  35016,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  36880,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  72492,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  32900,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  72504,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  3080,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  43760,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  77148,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  34636,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  45980,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  78656,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  39236,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  54400,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  56072,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  29740,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  40024,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  41504,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  44852,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  22488,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  26956,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  25692,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  14300,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  61344,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  9832,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  7260,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  28044,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  7664,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  31516,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  77556,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  39152,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  31036,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  60232,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  78104,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  34568,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  72960,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  24792,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  57728,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  29076,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  40116,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  79424,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  37012,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  74052,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  18860,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  79876,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  19164,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  27620,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  74496,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  26960,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  64372,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  23896,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  68908,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  71140,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  80312,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  50344,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  31920,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  17456,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  69180,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  19252,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  59428,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  58024,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  42804,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  35040,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  41052,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  39092,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  51716,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  62772,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  28592,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  24592,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  8300,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  22064,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  58332,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  50680,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  58720,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  63640,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  56728,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  36556,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  35972,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  2560,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  28656,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  46324,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  24036,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  26760,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  29472,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  64992,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  77780,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  42248,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  62800,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  69428,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  71564,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  49616,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  37792,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  57816,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  66260,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  52072,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  43988,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  76980,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  50280,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  35344,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  64428,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  34608,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  61288,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  49980,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  31980,
+                                      "result":  "already-exited"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  24396,
+                                      "result":  "stopped"
+                                  },
+                                  {
+                                      "kind":  "instrumented-agent",
+                                      "pid":  11800,
+                                      "result":  "already-exited"
+                                  }
+                              ],
+    "canary_leaks":  [
+
+                     ]
+}

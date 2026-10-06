@@ -5,8 +5,10 @@ to A12/A13). Design, sources, question matrix, and pass/fail criteria:
 `docs/research/g03-windows-wsl.md`. This is harness code in PowerShell; it does not depend on the
 (unselected) production language.
 
-**Nothing here has run on Windows yet.** On non-Windows hosts the orchestrator records every probe as
-`blocked`. Parse checks, PSScriptAnalyzer, and a protocol self-test ran on macOS (research doc §7).
+**First run on Windows: 2026-10-06** (Windows 11 build 26300, non-elevated, PowerShell 7.6.6 and 5.1;
+research doc §0.1). Harness fixes from that run are listed in `CHANGELOG-native.md`. On non-Windows hosts
+the orchestrator records every probe as `blocked`. Parse checks, PSScriptAnalyzer, and a protocol
+self-test also ran on macOS (research doc §7).
 
 ## Files
 
@@ -127,13 +129,16 @@ failed control, an environment problem or a harness error → `in_progress` with
 
 ## Known limits
 
-Every Windows-only code path is unexecuted: `CreateNamedPipeW` with an SDDL DACL, wrapping the handle in
-`NamedPipeServerStream`, client PID/SID capture, the other-user Win32 helper (`CreateFileW`,
-`CreateNamedPipeW`, `ConnectNamedPipe`), `Start-Process -Credential` with the file-staged script (whether
-Windows PowerShell 5.1 behaves like the pinned PowerShell 7 source, and whether the other account can read
-the script and write its result under the staging DACL), the default-name decoy, `DisconnectNamedPipe`
-re-arming (exercised only on the .NET Unix-socket path), `sc.exe` parsing, `Get-Acl`/`Set-Acl` on the
-disposable key and the staging directory, Git/MSYS behavior. The embedded C# compiled with the PowerShell 7 (Roslyn) compiler
-on macOS; compilation by Windows PowerShell 5.1's C# 5 compiler is unverified. Expect harness fixes on
-first real run; a harness error is recorded as an `inconclusive` `G03-win-<probe>-harness-error` record
-that names no requirement, never as a platform observation.
+Executed on Windows on 2026-10-06 (`CHANGELOG-native.md`, research doc §0.1): `InstrumentedAgent.ps1`
+(`CreateNamedPipeW` with SDDL DACLs, `PIPE_REJECT_REMOTE_CLIENTS`, the first-instance flag, the
+`NamedPipeServerStream` wrap, client PID/SID capture, `DisconnectNamedPipe` re-arming; its embedded C#
+compiled under both PowerShell 7.6 and Windows PowerShell 5.1), `sc.exe` parsing, DACL edits on the
+disposable key, and Git/MSYS behavior. Still unexecuted, because the host had no second account and was
+not disposable: the other-user Win32 helper (`CreateFileW`, `CreateNamedPipeW`, `ConnectNamedPipe`; its
+C# was never compiled on Windows), `Start-Process -Credential` with the file-staged script (whether the
+other account can read the script and write its result under the staging DACL), `Set-Acl` on the staging
+directory and script (fix 2 shows that `Set-Acl` can need SeSecurityPrivilege on protected DACLs), the
+default-name decoy, the `-AllowProviderContact`/`-AllowSystemAgentMutation` paths, and the
+`G03PipeSrv` helper. Expect further harness fixes when those run. A harness error is recorded as an
+`inconclusive` `G03-win-<probe>-harness-error` record that names no requirement, never as a platform
+observation.

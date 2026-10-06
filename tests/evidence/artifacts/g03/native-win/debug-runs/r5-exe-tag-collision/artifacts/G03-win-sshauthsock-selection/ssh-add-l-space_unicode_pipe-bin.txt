@@ -1,0 +1,10 @@
+label: ssh-add-l-space_unicode_pipe-bin
+file: C:\Program Files\Git\usr\bin\ssh-add.exe
+arguments: -l
+started_utc: 2026-10-06T06:24:23.2297484Z
+exit_code: 2
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Error connecting to agent: Device or resource busy

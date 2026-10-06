@@ -1,0 +1,4 @@
+{"allowed": ["SHA256:bF4MPvwQCWtKZaIV5IowbeBsM2orV56XVUmjq0ScnIY"], "event": "listening", "generation": "666dadd6ebf9", "mode": "600", "path": "/run/user/1000/hg03-7616a6/agent.sock", "proxy_pid": 1166188, "ts": "2026-10-06T06:54:40Z"}
+{"action": "stop_without_unlink", "event": "endpoint_missing", "generation": "666dadd6ebf9", "proxy_pid": 1166188, "ts": "2026-10-06T06:54:41Z"}
+{"event": "left_path_untouched", "generation": "666dadd6ebf9", "proxy_pid": 1166188, "ts": "2026-10-06T06:54:41Z"}
+{"event": "exit", "exit_code": 7, "proxy_pid": 1166188, "ts": "2026-10-06T06:54:41Z"}

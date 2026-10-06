@@ -1,40 +1,185 @@
 {
   "case_id": "G03-win-env-inventory",
-  "status": "blocked",
+  "status": "verified",
   "requirement_ids": [
     "R-EN-01",
     "R-SS-03",
     "R-QU-02"
   ],
-  "build_commit": "18bb8dfa841c488247421952c43e50d12980a4f2",
+  "build_commit": null,
   "artifact_digest": null,
   "environment": {
-    "recorded_on": "macOS 27.0 arm64 development host; the target platform is not available to this environment",
-    "recorded_at": "2026-10-03T21:25:45Z",
-    "task": "M00-T04-G03 (harness revised by M00-T04-G03-fix and M00-T04-G03-fix2)",
-    "harness": {
-      "path": "tests/native/windows/Invoke-G03WindowsProbes.ps1",
-      "sha256": "c5802bb8b468da219e4bedbe27bbc0722378c95df96b5a1d1d8a80a155038a4b",
-      "supporting_sha256": {
-        "tests/native/windows/G03Common.psm1": "57d295c1fbf92086a2f6d1f1c986811bc2eda562c9534c828243f0c4eb57378c",
-        "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
-        "tests/native/windows/PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
-      }
-    }
+    "run_id": "20261006T063110Z-741b34",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "7.6.6",
+      "edition": "Core",
+      "native_argument_passing": "Windows"
+    },
+    "dotnet": ".NET 10.0.12",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "a7504574525fe02814da5d4c78575bc921be96a58e95bd7d8bc6c2bbafe5dd89",
+      "G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    },
+    "task": "M00-T04-G03-native-windows",
+    "host": {
+      "description": "owner's personal Windows 11 Pro PC (authorized for non-destructive testing); NOT a disposable host",
+      "windows": "Windows 11 Pro, build 26300.9550, DisplayVersion 26H2, x86-64 (registry ProductName reads \"Windows 10 Pro\")",
+      "reached_via": "SSH into WSL2 Ubuntu 24.04.5 (sshd port 2222), then WSL interop as the non-admin Windows user; token not elevated",
+      "wsl": "WSL 3.0.1.0, kernel 6.18.40.1-microsoft-standard-WSL2, networking mode nat (wslinfo)",
+      "openssh_client_builds": {
+        "C:\\WINDOWS\\System32\\OpenSSH": "in-box OpenSSH_for_Windows_9.5p2 (ssh.exe/sshd.exe/ssh-keygen.exe file version 9.5.6.3; ssh-add.exe/ssh-agent.exe 9.5.6.2)",
+        "C:\\Program Files\\OpenSSH": "Win32-OpenSSH GitHub MSI OpenSSH_for_Windows_10.0p2 (file version 10.0.0.0); first on PATH",
+        "C:\\Program Files\\Git\\usr\\bin": "Git for Windows 2.55.0.windows.3 bundled MSYS OpenSSH_10.3p1"
+      },
+      "services": "ssh-agent Running/Automatic from C:\\Program Files\\OpenSSH\\ssh-agent.exe (holds the owner keys; never contacted); sshd Running/Automatic from C:\\Program Files\\OpenSSH\\sshd.exe; %PROGRAMDATA%\\ssh\\ssh_config absent",
+      "powershell": "PowerShell 7.6.6 (.NET 10.0.12, PSNativeCommandArgumentPassing=Windows) for this record; Windows PowerShell 5.1.26100.9549 for the supplementary run"
+    },
+    "fixture": "disposable loopback SSH fixture: non-root OpenSSH 9.6p1 sshd in WSL scratch bound to 127.0.0.1 (reached from Windows by WSL NAT localhost forwarding), per-run host key, AuthorizedKeysFile in Windows scratch with keys added as \"restrict\", scratch bare Git repo; login account = the WSL user (<wsluser>); removed with the scratch at the end of the task (config and redacted log: tests/evidence/artifacts/g03/native-win/fixture/)",
+    "harness_provenance": "harness ran from a scratch copy outside a Git checkout, so build_commit is null; files = repository HEAD 404cc1e0199168b0004151cc2aef171454c8da81 plus the uncommitted fixes listed in tests/native/windows/CHANGELOG-native.md; exact files identified by environment.harness_sha256",
+    "raw_record": "tests/evidence/artifacts/g03/native-win/runs/final-pwsh7/records/g03-win-env-inventory.json",
+    "supplementary_ps51_record": "tests/evidence/artifacts/g03/native-win/runs/final-ps51/records/g03-win-env-inventory.json"
   },
-  "provider_versions": [],
-  "started_at": null,
-  "commands_or_harness": "pwsh -NoProfile -File tests/native/windows/Invoke-G03WindowsProbes.ps1 -Probes env",
-  "observed_result": null,
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:31:10Z",
+  "commands_or_harness": [
+    "C:\\Program Files\\Git\\cmd\\git.exe -C \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-741b34\\probe dir üø\" config --show-scope --name-only --get-regexp ^core\\.sshcommand$ (exit 1)"
+  ],
+  "observed_result": {
+    "ssh_candidates": [
+      {
+        "path": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "version_banner": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+        "file_version": "9.5.6.3",
+        "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9",
+        "exit_code": 0
+      },
+      {
+        "path": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "version_banner": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+        "file_version": null,
+        "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef",
+        "exit_code": 0
+      },
+      {
+        "path": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "version_banner": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+        "file_version": "10.0.0.0",
+        "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6",
+        "exit_code": 0
+      }
+    ],
+    "path_order": {
+      "ssh": [
+        "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+      ],
+      "ssh-add": [
+        "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+        "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe"
+      ],
+      "git": [
+        "C:\\Program Files\\Git\\cmd\\git.exe"
+      ]
+    },
+    "git_core_sshCommand": {
+      "exit": 1,
+      "set_in_scopes": [],
+      "note": "exit 1 = not set in any scope; values and origin paths are not read into the record"
+    },
+    "git_env_present": {
+      "GIT_SSH": false,
+      "GIT_SSH_COMMAND": false,
+      "GIT_SSH_VARIANT": false
+    },
+    "session_SSH_AUTH_SOCK": {
+      "present": false,
+      "is_named_pipe_path": false
+    },
+    "agent_service": {
+      "present": true,
+      "status": "Running",
+      "start_type": "Automatic",
+      "sc_qc_exit": 0,
+      "service_start_name": "LocalSystem",
+      "binary_path": "\"C:\\Program Files\\OpenSSH\\ssh-agent.exe\"",
+      "sc_sdshow_exit": 0,
+      "service_sddl": "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;RP;;;AU)"
+    },
+    "default_agent_pipe_present": true,
+    "agent_like_pipe_names": [
+      "openssh-ssh-agent",
+      "1Password-1-1Password-BrowserSupport_browser-addition",
+      "1Password-1-1Password-BrowserSupport"
+    ],
+    "processes_present": {
+      "1Password": true,
+      "ssh-agent": true,
+      "pageant": false,
+      "gpg-agent": false
+    },
+    "note": "Passive: pipe names were enumerated (no pipe was opened); no agent was contacted.",
+    "criteria": {
+      "inventory_collected": true,
+      "system32_ssh_present": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
   "evidence_paths": [
-    "docs/research/g03-windows-wsl.md",
-    "tests/native/windows/Invoke-G03WindowsProbes.ps1"
+    "tests/evidence/artifacts/g03/native-win/runs/final-pwsh7/artifacts/G03-win-env-inventory/git-config-core-sshCommand-scopes.txt"
   ],
   "limitations": [
-    "Not executed on the target platform: no Windows/WSL host is available to this environment, so there is no observation (plan.md sec. 6.5). Mocks, cross-compiles and the macOS harness self-tests do not close this record.",
-    "Probe P-W01; acceptance input A14; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.1.",
-    "Unknown until executed: In-box OpenSSH version per Windows build (Q02), PATH order, Git core.sshCommand origin, agent service state and DACL.",
-    "Revised (M00-T04-G03-fix2): core.sshCommand is recorded as the scopes in which it is set (git config --show-scope --name-only), never its value or origin path."
+    "Which process serves \\\\.\\pipe\\openssh-ssh-agent was not determined: that needs opening the pipe, which is forbidden on this host. A 1Password process and the ssh-agent service were both present; the task brief states the ssh-agent service holds the owner keys.",
+    "Promoted by M00-T04-G03-native-windows from environment.raw_record; fields added at promotion: environment.task/host/fixture/harness_provenance/raw_record/supplementary_ps51_record, and the limitations after the harness-written ones. The supplementary Windows PowerShell 5.1 run of the same harness gave the same status and criteria."
   ],
-  "blocked_on": "native Windows 11 x86-64 host (exact build recorded at run time; G01 selects floors) with the in-box Win32-OpenSSH client (version unknown until P-W01 runs) and Windows PowerShell 5.1 / PowerShell 7.4+"
+  "blocked_on": null
 }

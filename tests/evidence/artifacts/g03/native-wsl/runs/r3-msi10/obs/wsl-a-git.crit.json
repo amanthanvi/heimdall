@@ -1,0 +1,7 @@
+{
+ "GIT_SSH_COMMAND_overrides_core_sshCommand": true,
+ "clone_into_linux_spaced_unicode_path": true,
+ "clone_into_windows_spaced_unicode_path": true,
+ "core_sshCommand_ssh_exe_works": true,
+ "push_works": true
+}

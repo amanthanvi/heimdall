@@ -1,0 +1,50 @@
+label: ssh-cli-env_legacy-Program-Files-Git-usr-bin
+file: C:\Program Files\Git\usr\bin\ssh.exe
+arguments: -F "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-741b34\probe dir üø\cfg 4a39e6\ssh config" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir üø/known_hosts\"" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -v -o IdentityAgent=$HEIMDALL_G03_IA probe-target true
+started_utc: 2026-10-06T06:33:29.6537741Z
+exit_code: 255
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+debug1: OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026
+debug1: Reading configuration data <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-741b34\\probe dir \303\274\303\270\\cfg 4a39e6\\ssh config
+debug1: <winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T063110Z-741b34\\probe dir \303\274\303\270\\cfg 4a39e6\\ssh config line 1: Applying options for probe-target
+debug1: Connecting to 127.0.0.1 [127.0.0.1] port 45321.
+debug1: fd 4 clearing O_NONBLOCK
+debug1: Connection established.
+debug1: Local version string SSH-2.0-OpenSSH_10.3
+debug1: Remote protocol version 2.0, remote software version OpenSSH_9.6p1 Ubuntu-3ubuntu13.19
+debug1: compat_banner: match: OpenSSH_9.6p1 Ubuntu-3ubuntu13.19 pat OpenSSH* compat 0x04000000
+debug1: Authenticating to 127.0.0.1:45321 as '<wsluser>'
+debug1: SSH2_MSG_KEXINIT sent
+debug1: SSH2_MSG_KEXINIT received
+debug1: kex: algorithm: sntrup761x25519-sha512@openssh.com
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+debug1: Server host key: ssh-ed25519 SHA256:lCzl5c5nJt9VrDZUbluSQSTvA4DAS1ulohpAbWXgi0s
+debug1: Host '[127.0.0.1]:45321' is known and matches the ED25519 host key.
+debug1: Found key in <winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir \303\274\303\270/known_hosts:1
+debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+debug1: rekey out after 134217728 blocks
+debug1: SSH2_MSG_NEWKEYS sent
+debug1: Sending SSH2_MSG_EXT_INFO
+debug1: expecting SSH2_MSG_NEWKEYS
+debug1: ssh_packet_read_poll2: resetting read seqnr 3
+debug1: SSH2_MSG_NEWKEYS received
+debug1: rekey in after 134217728 blocks
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+debug1: SSH2_MSG_SERVICE_ACCEPT received
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: Authentications that can continue: publickey
+debug1: Next authentication method: publickey
+debug1: get_agent_identities: ssh_get_authentication_socket: Device or resource busy
+debug1: No more authentication methods to try.
+<wsluser>@127.0.0.1: Permission denied (publickey).

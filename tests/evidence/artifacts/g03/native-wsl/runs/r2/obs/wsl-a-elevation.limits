@@ -1,0 +1,1 @@
+The interop child inherits the token of the Windows process that started the WSL session; launching WSL from an elevated terminal is expected to change this result (inference, see research doc).

@@ -1,0 +1,119 @@
+{
+  "windows": {
+    "ProductName_registry": "Windows 10 Pro",
+    "DisplayVersion": "26H2",
+    "CurrentBuild": "26300",
+    "UBR": 9550,
+    "EditionID": "Professional",
+    "arch": "AMD64"
+  },
+  "openssh_binaries": [
+    {
+      "path": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "file_version": "9.5.6.3",
+      "product_version": "OpenSSH_9.5p2 for Windows"
+    },
+    {
+      "path": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "file_version": "9.5.6.2",
+      "product_version": "OpenSSH_9.5p2 for Windows"
+    },
+    {
+      "path": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-agent.exe",
+      "file_version": "9.5.6.2",
+      "product_version": "OpenSSH_9.5p2 for Windows"
+    },
+    {
+      "path": "C:\\WINDOWS\\System32\\OpenSSH\\sshd.exe",
+      "file_version": "9.5.6.3",
+      "product_version": "OpenSSH_9.5p2 for Windows"
+    },
+    {
+      "path": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe",
+      "file_version": "9.5.6.3",
+      "product_version": "OpenSSH_9.5p2 for Windows"
+    },
+    {
+      "path": "C:\\Program Files\\OpenSSH\\ssh.exe",
+      "file_version": "10.0.0.0",
+      "product_version": "OpenSSH_10.0p2 for Windows"
+    },
+    {
+      "path": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "file_version": "10.0.0.0",
+      "product_version": "OpenSSH_10.0p2 for Windows"
+    },
+    {
+      "path": "C:\\Program Files\\OpenSSH\\ssh-agent.exe",
+      "file_version": "10.0.0.0",
+      "product_version": "OpenSSH_10.0p2 for Windows"
+    },
+    {
+      "path": "C:\\Program Files\\OpenSSH\\sshd.exe",
+      "file_version": "10.0.0.0",
+      "product_version": "OpenSSH_10.0p2 for Windows"
+    },
+    {
+      "path": "C:\\Program Files\\OpenSSH\\ssh-keygen.exe",
+      "file_version": "10.0.0.0",
+      "product_version": "OpenSSH_10.0p2 for Windows"
+    },
+    {
+      "path": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "file_version": null,
+      "product_version": null
+    },
+    {
+      "path": "C:\\Program Files\\Git\\usr\\bin\\ssh-add.exe",
+      "file_version": null,
+      "product_version": null
+    },
+    {
+      "path": "C:\\Program Files\\Git\\usr\\bin\\ssh-agent.exe",
+      "file_version": null,
+      "product_version": null
+    },
+    {
+      "path": "C:\\Program Files\\Git\\usr\\bin\\ssh-keygen.exe",
+      "file_version": null,
+      "product_version": null
+    }
+  ],
+  "services": [
+    {
+      "name": "ssh-agent",
+      "status": "Running",
+      "start_type": "Automatic"
+    },
+    {
+      "name": "sshd",
+      "status": "Running",
+      "start_type": "Automatic"
+    }
+  ],
+  "sshd_service_binary": "\"C:\\Program Files\\OpenSSH\\sshd.exe\"",
+  "programdata_ssh_config_exists": false,
+  "pwsh7": {
+    "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "file_version": "7.6.6 SHA: 078a44214be21d0b816adb9fe8a5f1f63a85236a+078a44214be21d0b816adb9fe8a5f1f63a85236a"
+  },
+  "windows_powershell": {
+    "path": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "file_version": "10.0.26100.8972"
+  },
+  "wsl_version": [
+    "WSL version: 3.0.1.0",
+    "Kernel version: 6.18.40.1-1",
+    "WSLg version: 1.0.79",
+    "MSRDC version: 1.2.7214",
+    "Direct3D version: 1.611.1-81528511",
+    "DXCore version: 10.0.26100.1-240331-1435.ge-release",
+    "Windows version: 10.0.26300.9550"
+  ]
+}
+
+wslinfo_networking_mode: nat
+wslinfo_version: 3.0.1.0
+wsl_sshd: OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024
+wsl_kernel: 6.18.40.1-microsoft-standard-WSL2
+PRETTY_NAME="Ubuntu 24.04.5 LTS"

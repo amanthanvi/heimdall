@@ -1,0 +1,2 @@
+Selection is judged from the Windows instrumented agent logs (target and decoy); authentication success is not required.
+ssh.exe always receives the manifest decoy pipe (or a non-existent sentinel) as its Windows-side SSH_AUTH_SOCK through WSLENV; a selection criterion fails if the decoy is contacted.

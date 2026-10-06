@@ -1,0 +1,10 @@
+label: ssh-add-l-routine-fixture-pipe
+file: C:\WINDOWS\System32\OpenSSH\ssh-add.exe
+arguments: -l
+started_utc: 2026-10-06T06:21:06.7414032Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+256 SHA256:lXypOJNn2EGFZ+JIp6OzArEYrnI94RZcHJhjeYj74n8 heimdall-g03-probe-1 (ECDSA)
+
+--- stderr ---

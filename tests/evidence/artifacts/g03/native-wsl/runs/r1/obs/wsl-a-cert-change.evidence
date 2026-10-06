@@ -1,0 +1,6 @@
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-cert-change/cert-good.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-cert-change/cert-good.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-cert-change/cert-swapped.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-cert-change/cert-swapped.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-cert-change/cert-restored.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r1/artifacts/G03-wsl-a-cert-change/cert-restored.stderr

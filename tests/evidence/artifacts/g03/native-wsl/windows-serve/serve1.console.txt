@@ -1,0 +1,3 @@
+Instrumented agent for WSL probes is serving \\.\pipe\heimdall-g03-wsl-a3154a3a for 3000 s (key 1 allowed, key 2 filtered); decoy \\.\pipe\heimdall-g03-wsldecoy-bf36baca.
+Manifest (Windows path): <winhome>\AppData\Local\hm-m00\M00-T04-G03-native-wsl\serve1\wsl-agent-manifest.json
+In WSL: tests/native/wsl/run_g03_wsl_probes.sh --win-manifest "$(wslpath -u '<manifest path>')" ...

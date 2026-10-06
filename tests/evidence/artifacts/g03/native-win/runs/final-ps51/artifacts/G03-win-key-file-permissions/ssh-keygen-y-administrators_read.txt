@@ -1,0 +1,9 @@
+label: ssh-keygen-y-administrators_read
+file: C:\WINDOWS\System32\OpenSSH\ssh-keygen.exe
+arguments: -y -f "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-9aea63\probe dir üø\key perms\id_g03_perm"
+started_utc: 2026-10-06T06:34:34.2962734Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+<binary stdout: 100 bytes, sha256=f7048984de6281dbd46c218fee876dbba5eb8025c167aa2c6226446f50e45fee>
+--- stderr ---

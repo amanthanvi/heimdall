@@ -1,0 +1,10 @@
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/ls-remote-core-sshCommand.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/ls-remote-core-sshCommand.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/env-precedence.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/env-precedence.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-linux-spaced-unicode.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-linux-spaced-unicode.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-windows-spaced-unicode.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-windows-spaced-unicode.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/push.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/push.stderr

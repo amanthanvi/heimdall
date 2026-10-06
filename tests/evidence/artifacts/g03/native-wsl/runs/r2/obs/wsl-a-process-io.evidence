@@ -1,0 +1,12 @@
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/exit-42.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/exit-42.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stream-separation.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stream-separation.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/utf8-output.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/utf8-output.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/binary-roundtrip.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/binary-roundtrip.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stdin-eof.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/stdin-eof.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/interrupt-sigint.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-process-io/interrupt-sigint.stderr

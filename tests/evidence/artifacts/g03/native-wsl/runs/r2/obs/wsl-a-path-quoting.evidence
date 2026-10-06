@@ -1,0 +1,9 @@
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/config-linux-path.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/config-linux-path.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/config-unc-wsl-path.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/config-unc-wsl-path.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/config-windows-spaced-unicode.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/config-windows-spaced-unicode.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/known-hosts-embedded-quotes.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/known-hosts-embedded-quotes.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-path-quoting/argv

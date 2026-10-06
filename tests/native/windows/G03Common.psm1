@@ -38,7 +38,8 @@ function Write-G03Utf8File {
 }
 
 function Get-G03Sha256Hex {
-    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    # AllowEmptyCollection: a failed command's empty stdout is hashed too (CHANGELOG-native.md fix 3).
+    param([Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes)
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try { return (($sha.ComputeHash($Bytes) | ForEach-Object { $_.ToString('x2') }) -join '') } finally { $sha.Dispose() }
 }
@@ -151,11 +152,21 @@ function Protect-G03Text {
     param([AllowNull()][string]$Text, $Ctx)
     if ($null -eq $Text) { return $null }
     $t = $Text
-    $vals = @()
-    if ($script:OnWindows) { $vals = @($env:USERNAME, $env:COMPUTERNAME, $env:USERDOMAIN) } else { $vals = @($env:USER, [Environment]::MachineName) }
-    foreach ($v in $vals) {
+    # Token per value (M00-T04-G03-native-windows): the evidence convention names the
+    # kind of value removed (<winhome>, <winuser>, <winhost>) instead of one generic token.
+    $pairs = @()
+    if ($script:OnWindows) {
+        if ($env:USERPROFILE -and $env:USERPROFILE.Length -ge 6) {
+            foreach ($form in @($env:USERPROFILE, ($env:USERPROFILE -replace '\\', '/'), ($env:USERPROFILE -replace '\\', '\\'))) {
+                $t = $t -replace [regex]::Escape($form), '<winhome>'
+            }
+        }
+        $pairs = @(@($env:USERNAME, '<winuser>'), @($env:COMPUTERNAME, '<winhost>'), @($env:USERDOMAIN, '<windomain>'))
+    } else { $pairs = @(@($env:USER, '<redacted>'), @([Environment]::MachineName, '<redacted>')) }
+    foreach ($pv in $pairs) {
+        $v = $pv[0]
         # Whole-token, case-insensitive match so e.g. a host named "Mac" does not rewrite "macos".
-        if ($v -and $v.Length -ge 3) { $t = $t -replace ('(?<![A-Za-z0-9])' + [regex]::Escape($v) + '(?![A-Za-z0-9])'), '<redacted>' }
+        if ($v -and $v.Length -ge 3) { $t = $t -replace ('(?<![A-Za-z0-9])' + [regex]::Escape($v) + '(?![A-Za-z0-9])'), $pv[1] }
     }
     $t = $t -replace 'S-1-5-21-\d+-\d+-\d+', 'S-1-5-21-<redacted>'
     return $t
@@ -352,6 +363,20 @@ function Get-G03AgentServiceState {
         $o['service_sddl'] = ($sd.Trim())
     } catch { $o['sc_error'] = $_.Exception.Message }
     return $o
+}
+
+function Set-G03FileSystemDacl {
+    # Write ONLY the DACL of a file or directory. Set-Acl fails with
+    # PrivilegeNotHeldException (SeSecurityPrivilege) for a non-admin caller on files
+    # whose DACL is protected, e.g. keys written by Win32-OpenSSH ssh-keygen (observed
+    # 2026-10-06 under PowerShell 7.6 and 5.1). SetAccessControl with an Access-only
+    # security object persists the DACL alone. Windows PowerShell 5.1 exposes it as a
+    # FileInfo/DirectoryInfo method, PowerShell 7 as FileSystemAclExtensions.
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Acl)
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item | Get-Member -Name SetAccessControl -MemberType Method) { $item.SetAccessControl($Acl); return }
+    if ($item -is [System.IO.DirectoryInfo]) { [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.DirectoryInfo]$item, [System.Security.AccessControl.DirectorySecurity]$Acl) }
+    else { [System.IO.FileSystemAclExtensions]::SetAccessControl([System.IO.FileInfo]$item, [System.Security.AccessControl.FileSecurity]$Acl) }
 }
 
 function Get-G03ProcessPresence {

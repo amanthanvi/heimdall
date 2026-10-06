@@ -1,0 +1,27 @@
+{
+  "status": "listening",
+  "detail": "",
+  "pipe": "heimdall-g03-wsl-a3154a3a",
+  "endpoint_path": "\\\\.\\pipe\\heimdall-g03-wsl-a3154a3a",
+  "agent_pid": 15020,
+  "access": "OwnerOnly",
+  "sddl": "D:P(A;;GA;;;S-1-5-21-<redacted>-1001)",
+  "max_instances": 1,
+  "first_instance_flag": true,
+  "reject_remote_clients": true,
+  "started_at": "2026-10-06T06:49:25.8399350Z",
+  "keys": [
+    {
+      "index": 1,
+      "fingerprint": "SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU",
+      "allowed": true,
+      "comment": "heimdall-g03-probe-1"
+    },
+    {
+      "index": 2,
+      "fingerprint": "SHA256:Jw6T56BYizc4LHgNYcfFZDpn81IV9OOrUBkYYTPbzuA",
+      "allowed": false,
+      "comment": "heimdall-g03-probe-2"
+    }
+  ]
+}

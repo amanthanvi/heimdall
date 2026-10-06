@@ -1,0 +1,767 @@
+{
+  "run_id": "20261006T063110Z-741b34",
+  "finished_at": "2026-10-06T06:35:01Z",
+  "records": [
+    "g03-win-env-inventory.json",
+    "g03-win-sshauthsock-selection.json",
+    "g03-win-identityagent-forms.json",
+    "g03-win-git-ssh-selection.json",
+    "g03-win-pipe-acl-other-user.json",
+    "g03-win-stale-squat-pipe.json",
+    "g03-win-process-io.json",
+    "g03-win-path-quoting.json",
+    "g03-win-service-elevation.json",
+    "g03-win-1password-coexistence.json",
+    "g03-win-agent-constraints.json",
+    "g03-wsl-b-other-windows-user.json",
+    "g03-win-key-file-permissions.json"
+  ],
+  "owned_process_cleanup": [
+    {
+      "kind": "instrumented-agent",
+      "pid": 30552,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 32304,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 2612,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 56368,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 76888,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 58580,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 41172,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 52804,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 24100,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 61932,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 32548,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 76188,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 14108,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 41572,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 39068,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 75420,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 77972,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 19812,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 30384,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 72620,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 72668,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 34148,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 79104,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 18368,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 39640,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 46276,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 53524,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 44116,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 36248,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 40004,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 65400,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 72652,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 44768,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 77612,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 34984,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 54524,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 70724,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 77204,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 40804,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 68300,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 69688,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 40564,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 68996,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 48424,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 27540,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 39680,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 37952,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 60500,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 68188,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 55176,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 58636,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 65544,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 9564,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 75700,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 68200,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 9856,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 29360,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 32280,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 50720,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 58252,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 62164,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 45280,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 40052,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 54996,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 58240,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 36456,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 33236,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 9804,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 29220,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 10276,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 67004,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 46676,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 10800,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 71824,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 37288,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 8548,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 38712,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 70604,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 64752,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 79044,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 60084,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 38276,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 32340,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 47288,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 71448,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 71508,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 14960,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 32848,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 42684,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 57836,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 47744,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 42724,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 33560,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 80780,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 10780,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 49288,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 76780,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 56284,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 54188,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 47228,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 12664,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 76424,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 80516,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 15704,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 57608,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 10808,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 77420,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 50388,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 52264,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 37812,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 47968,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 50508,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 78292,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 8664,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 16312,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 26580,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 47420,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 39272,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 79184,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 67500,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 7080,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 44328,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 74300,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 75092,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 77540,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 70836,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 39560,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 43260,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 40356,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 30192,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 73416,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 10580,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 39756,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 24356,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 53180,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 32664,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 58536,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 43512,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 53316,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 80212,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 76528,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 63520,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 79100,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 77652,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 67088,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 53896,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 78380,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 65720,
+      "result": "stopped"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 63708,
+      "result": "already-exited"
+    }
+  ],
+  "canary_leaks": []
+}

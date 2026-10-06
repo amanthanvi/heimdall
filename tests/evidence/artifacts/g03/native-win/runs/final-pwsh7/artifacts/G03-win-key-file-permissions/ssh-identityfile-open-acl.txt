@@ -1,0 +1,18 @@
+label: ssh-identityfile-open-acl
+file: C:\WINDOWS\System32\OpenSSH\ssh.exe
+arguments: -F "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-741b34\probe dir üø\cfg 5e4d15\ssh config" -o BatchMode=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir üø/known_hosts\"" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o "IdentityFile=\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir üø/key perms/id_g03_perm\"" -o IdentitiesOnly=yes -o IdentityAgent=none probe-target true
+started_utc: 2026-10-06T06:35:00.9045195Z
+exit_code: 255
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Bad permissions. Try removing permissions for user: NT AUTHORITY\\Authenticated Users (S-1-5-11) on file <winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir \374\370/key perms/id_g03_perm.
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Permissions for '<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir \303\274\303\270/key perms/id_g03_perm' are too open.
+It is required that your private key files are NOT accessible by others.
+This private key will be ignored.
+Load key "<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-741b34/probe dir \303\274\303\270/key perms/id_g03_perm": bad permissions
+<wsluser>@127.0.0.1: Permission denied (publickey).

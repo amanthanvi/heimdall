@@ -1,0 +1,4 @@
+G03-win-env-inventory                      verified
+G03-win-service-elevation                  verified
+G03-win-key-file-permissions               verified
+Records: <winhome>\AppData\Local\hm-m00\M00-T04-G03-native-review\out-pwsh7\records

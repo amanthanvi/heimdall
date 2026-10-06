@@ -1,0 +1,4 @@
+G03-wsl-env-inventory verified
+G03-wsl-a-elevation in_progress
+G03-wsl-b-unauthorized-key verified
+[g03 07:15:59] records: <wslhome>/hm-m00/M00-T04-G03-native-review/out/rv1/records

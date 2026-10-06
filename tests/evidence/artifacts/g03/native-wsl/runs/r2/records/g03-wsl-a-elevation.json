@@ -1,0 +1,72 @@
+{
+  "case_id": "G03-wsl-a-elevation",
+  "status": "in_progress",
+  "requirement_ids": [
+    "R-EN-02",
+    "R-DI-02"
+  ],
+  "build_commit": "",
+  "artifact_digest": null,
+  "environment": {
+    "arch": "x86_64",
+    "bash": "5.2.21(1)-release",
+    "distro": "Ubuntu 24.04.5 LTS",
+    "harness_appended_windows_system32_to_PATH": true,
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "91945da532d1ff1ee6a8b8c8c5322139878e43285ab64316a441cf38fada4cdc",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+    "harness_sha256_run_g03_wsl_probes.sh": "b6ed680dbe6934d29fdf84973febf2b79c0eafdc516dc844f8f01059292bf7d8",
+    "is_wsl": true,
+    "kernel": "Linux 6.18.40.1-microsoft-standard-WSL2",
+    "linux_ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024",
+    "python": "Python 3.12.3",
+    "run_id": "20261006T065342Z-939695",
+    "systemd_pid1": true,
+    "wsl_distro_name": "Ubuntu",
+    "wsl_interop_binfmt_present": true,
+    "xdg_runtime_dir_present": true
+  },
+  "provider_versions": [
+    {
+      "name": "linux ssh",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024"
+    },
+    {
+      "name": "windows ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"
+    }
+  ],
+  "started_at": "2026-10-06T06:53:42Z",
+  "commands_or_harness": [
+    "sh -c cd /mnt/c && powershell.exe -NoProfile -NonInteractive -Command \"([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)\" (exit 0)",
+    "sh -c cd /mnt/c && whoami.exe /groups /fo csv > \"$0\"; rc=$?; grep -i \"Mandatory Label\" \"$0\"; exit $rc <wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/whoami-groups.csv (exit 0)"
+  ],
+  "observed_result": {
+    "interop_child_integrity_label": "Mandatory Label\\Medium Mandatory Level",
+    "interop_child_is_admin_token": "False",
+    "criteria": {
+      "interop_child_not_elevated": true,
+      "no_uac_prompt_observed": null
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [
+      "no_uac_prompt_observed"
+    ],
+    "verdict": "inconclusive"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-elevation/interop-child-elevation.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-elevation/interop-child-elevation.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-elevation/interop-child-integrity.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-elevation/interop-child-integrity.stderr"
+  ],
+  "limitations": [
+    "The interop child inherits the token of the Windows process that started the WSL session; launching WSL from an elevated terminal is expected to change this result (inference, see research doc)."
+  ],
+  "blocked_on": null
+}

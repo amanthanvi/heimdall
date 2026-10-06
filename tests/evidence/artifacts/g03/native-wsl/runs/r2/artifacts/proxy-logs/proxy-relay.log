@@ -1,0 +1,25 @@
+{"allowed": ["SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU"], "event": "listening", "generation": "0cabf5bd0f25", "mode": "600", "path": "/run/user/1000/hg03-07ad24/agent.sock", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:11Z"}
+{"conn": 1, "event": "connect", "peer_pid": 1165980, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:11Z"}
+{"conn": 1, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1165969, "result": "identities:1/1", "ts": "2026-10-06T06:54:11Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:11Z"}
+{"conn": 2, "event": "connect", "peer_pid": 1165994, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:11Z"}
+{"conn": 2, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1165969, "result": "identities:1/1", "ts": "2026-10-06T06:54:12Z"}
+{"conn": 2, "event": "request", "key_fp": "SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU", "msg_name": "SSH2_AGENTC_SIGN_REQUEST", "msg_type": 13, "proxy_pid": 1165969, "result": "forwarded_reply_type:14", "ts": "2026-10-06T06:54:12Z"}
+{"conn": 2, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:12Z"}
+{"conn": 3, "event": "connect", "peer_pid": 1166020, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:13Z"}
+{"conn": 3, "event": "request", "key_fp": "SHA256:Jw6T56BYizc4LHgNYcfFZDpn81IV9OOrUBkYYTPbzuA", "msg_name": "SSH2_AGENTC_SIGN_REQUEST", "msg_type": 13, "proxy_pid": 1165969, "result": "denied_key_not_allowed", "ts": "2026-10-06T06:54:13Z"}
+{"conn": 3, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:13Z"}
+{"conn": 4, "event": "connect", "peer_pid": 1166047, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:14Z"}
+{"conn": 4, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1165969, "result": "identities:1/1", "ts": "2026-10-06T06:54:14Z"}
+{"conn": 5, "event": "connect", "peer_pid": 1166052, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:14Z"}
+{"conn": 4, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:14Z"}
+{"conn": 5, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1165969, "result": "identities:1/1", "ts": "2026-10-06T06:54:14Z"}
+{"conn": 6, "event": "connect", "peer_pid": 1166057, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:14Z"}
+{"conn": 5, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:14Z"}
+{"conn": 6, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1165969, "result": "identities:1/1", "ts": "2026-10-06T06:54:15Z"}
+{"conn": 6, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:15Z"}
+{"conn": 7, "event": "connect", "peer_pid": 1166063, "peer_uid": 1000, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:15Z"}
+{"conn": 7, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1165969, "result": "identities:1/1", "ts": "2026-10-06T06:54:15Z"}
+{"conn": 7, "event": "disconnect", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:27Z"}
+{"event": "unlinked_own_endpoint", "generation": "0cabf5bd0f25", "proxy_pid": 1165969, "ts": "2026-10-06T06:54:35Z"}
+{"event": "exit", "exit_code": 0, "proxy_pid": 1165969, "ts": "2026-10-06T06:54:35Z"}

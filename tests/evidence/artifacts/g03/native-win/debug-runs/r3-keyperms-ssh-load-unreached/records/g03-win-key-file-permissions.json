@@ -1,0 +1,134 @@
+{
+  "case_id": "G03-win-key-file-permissions",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-03",
+    "R-DI-02"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261006T062308Z-0751df",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "7.6.6",
+      "edition": "Core",
+      "native_argument_passing": "Windows"
+    },
+    "dotnet": ".NET 10.0.12",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "b41f4bf8c6e2c3d4a2a2e561aba73543ccbc63506dd27d29a6c9f4d65fcac555",
+      "G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:23:08Z",
+  "commands_or_harness": [
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe -q -t ed25519 -N \"\" -C heimdall-g03-perm -f \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062308Z-0751df\\probe dir üø\\key perms\\id_g03_perm\" (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe -y -f \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062308Z-0751df\\probe dir üø\\key perms\\id_g03_perm\" (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe -y -f \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062308Z-0751df\\probe dir üø\\key perms\\id_g03_perm\" (exit 255)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe -y -f \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062308Z-0751df\\probe dir üø\\key perms\\id_g03_perm\" (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe -y -f \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062308Z-0751df\\probe dir üø\\key perms\\id_g03_perm\" (exit 0)",
+    "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe -F \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062308Z-0751df\\probe dir üø\\cfg 93a527\\ssh config\" -o BatchMode=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o \"UserKnownHostsFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T062308Z-0751df/probe dir üø/known_hosts\\\"\" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 -o \"IdentityFile=\\\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T062308Z-0751df/probe dir üø/key perms/id_g03_perm\\\"\" -o IdentitiesOnly=yes -o IdentityAgent=none probe-target true (exit 255)"
+  ],
+  "observed_result": {
+    "ssh_client_open_acl": {
+      "exit_code": 255,
+      "bad_permissions_reported": false
+    },
+    "steps": {
+      "as_generated": {
+        "exit_code": 0,
+        "bad_permissions_reported": false,
+        "file_sddl": "O:S-1-5-21-<redacted>-1001G:S-1-5-21-<redacted>-1001D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1301bf;;;S-1-5-21-<redacted>-1001)"
+      },
+      "authenticated_users_read": {
+        "exit_code": 255,
+        "bad_permissions_reported": true,
+        "file_sddl": "O:S-1-5-21-<redacted>-1001G:S-1-5-21-<redacted>-1001D:PAI(A;;FR;;;AU)(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1301bf;;;S-1-5-21-<redacted>-1001)"
+      },
+      "restored": {
+        "exit_code": 0,
+        "bad_permissions_reported": false,
+        "file_sddl": "O:S-1-5-21-<redacted>-1001G:S-1-5-21-<redacted>-1001D:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1301bf;;;S-1-5-21-<redacted>-1001)"
+      },
+      "administrators_read": {
+        "exit_code": 0,
+        "bad_permissions_reported": false,
+        "file_sddl": "O:S-1-5-21-<redacted>-1001G:S-1-5-21-<redacted>-1001D:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1301bf;;;S-1-5-21-<redacted>-1001)"
+      }
+    },
+    "disposable_key_deleted": true,
+    "current_token_elevated": false,
+    "administrators_read_ace_accepted": true,
+    "criteria": {
+      "other_principal_read_ace_rejected": true,
+      "restored_owner_only_acl_accepted": true,
+      "generated_key_accepted_control": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r3-keyperms-ssh-load-unreached/artifacts/G03-win-key-file-permissions/keygen.txt",
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r3-keyperms-ssh-load-unreached/artifacts/G03-win-key-file-permissions/ssh-keygen-y-as_generated.txt",
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r3-keyperms-ssh-load-unreached/artifacts/G03-win-key-file-permissions/ssh-keygen-y-authenticated_users_read.txt",
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r3-keyperms-ssh-load-unreached/artifacts/G03-win-key-file-permissions/ssh-keygen-y-restored.txt",
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r3-keyperms-ssh-load-unreached/artifacts/G03-win-key-file-permissions/ssh-keygen-y-administrators_read.txt",
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r3-keyperms-ssh-load-unreached/artifacts/G03-win-key-file-permissions/ssh-identityfile-open-acl.txt"
+  ],
+  "limitations": [
+    "Administrators and SYSTEM access is accepted by the client rule by design [S]; file ACLs are not a boundary against administrators, and an elevated token is not a key-use approval (spec sec. 8.4).",
+    "ssh-keygen -y exercises the same sshkey_load_private path as ssh/ssh-add on the pinned source [S]; shipped builds may differ, so the result applies to the ssh-keygen.exe in provider_versions."
+  ],
+  "blocked_on": null
+}

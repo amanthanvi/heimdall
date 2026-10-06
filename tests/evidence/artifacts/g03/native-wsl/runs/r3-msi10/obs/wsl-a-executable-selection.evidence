@@ -1,0 +1,8 @@
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/identityagent-cli.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/identityagent-cli.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/wslenv-envform.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/wslenv-envform.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/env-visible-with-wslenv.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/env-visible-with-wslenv.stderr
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/env-visible-without-wslenv.stdout
+<wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/artifacts/G03-wsl-a-executable-selection/env-visible-without-wslenv.stderr

@@ -1,0 +1,8 @@
+{
+ "attribution_observed_as_relay_process": true,
+ "relay_counter_control_sees_held_connection": true,
+ "relay_lists_allowed_key": true,
+ "relay_processes_exit_with_connections": true,
+ "relay_proxy_refuses_filtered_key": true,
+ "relay_signature_verifies": true
+}

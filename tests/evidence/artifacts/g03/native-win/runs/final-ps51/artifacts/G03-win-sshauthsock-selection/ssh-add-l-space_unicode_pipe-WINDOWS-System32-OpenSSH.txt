@@ -1,0 +1,10 @@
+label: ssh-add-l-space_unicode_pipe-WINDOWS-System32-OpenSSH
+file: C:\WINDOWS\System32\OpenSSH\ssh-add.exe
+arguments: -l
+started_utc: 2026-10-06T06:31:13.0042658Z
+exit_code: 2
+timed_out: False
+--- stdout ---
+
+--- stderr ---
+Error connecting to agent: No such file or directory

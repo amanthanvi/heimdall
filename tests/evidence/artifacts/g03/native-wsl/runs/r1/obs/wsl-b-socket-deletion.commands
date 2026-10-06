@@ -1,0 +1,2 @@
+env SSH_AUTH_SOCK=/run/user/1000/hg03-1ab18e/agent.sock HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-fEk2BX/home /usr/bin/ssh-add -l (exit 0)
+env SSH_AUTH_SOCK=/run/user/1000/hg03-450602/agent.sock HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-fEk2BX/home /usr/bin/ssh-add -l (exit 2)

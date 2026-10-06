@@ -1,0 +1,5 @@
+{
+ "cert_with_permitted_principal_accepted": true,
+ "restored_cert_accepted": true,
+ "swapped_cert_file_takes_effect_and_is_rejected": true
+}

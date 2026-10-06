@@ -1,0 +1,6 @@
+{
+ "endpoint_dir_private": true,
+ "endpoint_socket_owner_only": true,
+ "other_linux_user_blocked_by_filesystem": null,
+ "same_user_sees_only_allowed_key": true
+}

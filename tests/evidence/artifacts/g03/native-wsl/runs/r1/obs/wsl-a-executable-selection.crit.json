@@ -1,0 +1,5 @@
+{
+ "cli_identityagent_selects_windows_fixture_pipe": true,
+ "linux_env_not_visible_without_wslenv": true,
+ "wslenv_propagates_identityagent_env_form": true
+}

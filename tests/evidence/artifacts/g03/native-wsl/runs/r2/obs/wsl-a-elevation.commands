@@ -1,0 +1,2 @@
+sh -c cd /mnt/c && powershell.exe -NoProfile -NonInteractive -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)" (exit 0)
+sh -c cd /mnt/c && whoami.exe /groups /fo csv > "$0"; rc=$?; grep -i "Mandatory Label" "$0"; exit $rc <wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/whoami-groups.csv (exit 0)

@@ -1,0 +1,164 @@
+{
+  "case_id": "G03-win-env-inventory",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-01",
+    "R-SS-03",
+    "R-QU-02"
+  ],
+  "build_commit": null,
+  "artifact_digest": null,
+  "environment": {
+    "run_id": "20261006T062104Z-194232",
+    "os": {
+      "platform": "Win32NT",
+      "version": "10.0.26300.0",
+      "ProductName": "Windows 10 Pro",
+      "DisplayVersion": "26H2",
+      "CurrentBuild": "26300",
+      "UBR": "9550",
+      "EditionID": "Professional",
+      "InstallationType": "Client",
+      "arch": "AMD64"
+    },
+    "powershell": {
+      "version": "7.6.6",
+      "edition": "Core",
+      "native_argument_passing": "Windows"
+    },
+    "dotnet": ".NET 10.0.12",
+    "elevated": false,
+    "harness_sha256": {
+      "Invoke-G03WindowsProbes.ps1": "c5802bb8b468da219e4bedbe27bbc0722378c95df96b5a1d1d8a80a155038a4b",
+      "G03Common.psm1": "d044d9a234de878d3f45ca29b0afce3681e4f642e6157e87cc8931169ce0cb80",
+      "InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+      "PipeStdioRelay.ps1": "c9bf2edeb815848e72ca0e5e33393d3eab57c623d419f3374beb74b2ae0f7bec"
+    },
+    "fixture_server": "provided (port 45321)",
+    "gates": {
+      "allow_provider_contact": false,
+      "allow_system_agent_mutation": false,
+      "disposable_host_declared": false,
+      "owner_authorization_note": null
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "ssh client C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "file_version": "9.5.6.3",
+      "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+      "version": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+      "file_version": null,
+      "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef"
+    },
+    {
+      "name": "ssh client C:\\Program Files\\OpenSSH\\ssh.exe",
+      "version": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+      "file_version": "10.0.0.0",
+      "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6"
+    },
+    {
+      "name": "git C:\\Program Files\\Git\\cmd\\git.exe",
+      "version": "git version 2.55.0.windows.3"
+    },
+    {
+      "name": "1Password (running process)",
+      "version": null
+    }
+  ],
+  "started_at": "2026-10-06T06:21:04Z",
+  "commands_or_harness": [
+    "C:\\Program Files\\Git\\cmd\\git.exe -C \"<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-windows\\tmp\\heimdall-g03-20261006T062104Z-194232\\probe dir üø\" config --show-scope --name-only --get-regexp ^core\\.sshcommand$ (exit 1)"
+  ],
+  "observed_result": {
+    "ssh_candidates": [
+      {
+        "path": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
+        "version_banner": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+        "file_version": "9.5.6.3",
+        "sha256": "0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9",
+        "exit_code": 0
+      },
+      {
+        "path": "C:\\Program Files\\Git\\usr\\bin\\ssh.exe",
+        "version_banner": "OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026",
+        "file_version": null,
+        "sha256": "ff3de79218b536e7460e14f470cefca2c2516f2320ee8a54114c015254f37cef",
+        "exit_code": 0
+      },
+      {
+        "path": "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "version_banner": "OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2",
+        "file_version": "10.0.0.0",
+        "sha256": "6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6",
+        "exit_code": 0
+      }
+    ],
+    "path_order": {
+      "ssh": [
+        "C:\\Program Files\\OpenSSH\\ssh.exe",
+        "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe"
+      ],
+      "ssh-add": [
+        "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+        "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe"
+      ],
+      "git": [
+        "C:\\Program Files\\Git\\cmd\\git.exe"
+      ]
+    },
+    "git_core_sshCommand": {
+      "exit": 1,
+      "set_in_scopes": [],
+      "note": "exit 1 = not set in any scope; values and origin paths are not read into the record"
+    },
+    "git_env_present": {
+      "GIT_SSH": false,
+      "GIT_SSH_COMMAND": false,
+      "GIT_SSH_VARIANT": false
+    },
+    "session_SSH_AUTH_SOCK": {
+      "present": false,
+      "is_named_pipe_path": false
+    },
+    "agent_service": {
+      "present": true,
+      "status": "Running",
+      "start_type": "Automatic",
+      "sc_qc_exit": 0,
+      "service_start_name": "LocalSystem",
+      "binary_path": "\"C:\\Program Files\\OpenSSH\\ssh-agent.exe\"",
+      "sc_sdshow_exit": 0,
+      "service_sddl": "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;RP;;;AU)"
+    },
+    "default_agent_pipe_present": true,
+    "agent_like_pipe_names": [
+      "openssh-ssh-agent",
+      "1Password-1-1Password-BrowserSupport_browser-addition",
+      "1Password-1-1Password-BrowserSupport"
+    ],
+    "processes_present": {
+      "1Password": true,
+      "ssh-agent": true,
+      "pageant": false,
+      "gpg-agent": false
+    },
+    "note": "Passive: pipe names were enumerated (no pipe was opened); no agent was contacted.",
+    "criteria": {
+      "inventory_collected": true,
+      "system32_ssh_present": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-win/debug-runs/r1-keyperms-setacl-error/artifacts/G03-win-env-inventory/git-config-core-sshCommand-scopes.txt"
+  ],
+  "limitations": [],
+  "blocked_on": null
+}

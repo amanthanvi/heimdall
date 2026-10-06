@@ -1,0 +1,9 @@
+{"allowed": ["SHA256:vrN4TTY3l48bX2MOktYPErrMnabUjkY094pvvixjm0I"], "event": "listening", "generation": "71e657a53a43", "mode": "600", "path": "/run/user/1000/hg03-d4639d/agent.sock", "proxy_pid": 1163749, "ts": "2026-10-06T06:50:48Z"}
+{"conn": 1, "event": "connect", "peer_pid": 1163760, "peer_uid": 1000, "proxy_pid": 1163749, "ts": "2026-10-06T06:50:48Z"}
+{"conn": 1, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1163749, "result": "identities:1/2", "ts": "2026-10-06T06:50:48Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 1163749, "ts": "2026-10-06T06:50:48Z"}
+{"conn": 2, "event": "connect", "peer_pid": 1163775, "peer_uid": 1000, "proxy_pid": 1163749, "ts": "2026-10-06T06:50:56Z"}
+{"conn": 2, "event": "request", "msg_name": "SSH2_AGENTC_REQUEST_IDENTITIES", "msg_type": 11, "proxy_pid": 1163749, "result": "denied_expired", "ts": "2026-10-06T06:50:56Z"}
+{"conn": 2, "event": "disconnect", "proxy_pid": 1163749, "ts": "2026-10-06T06:50:56Z"}
+{"event": "unlinked_own_endpoint", "generation": "71e657a53a43", "proxy_pid": 1163749, "ts": "2026-10-06T06:50:57Z"}
+{"event": "exit", "exit_code": 0, "proxy_pid": 1163749, "ts": "2026-10-06T06:50:57Z"}

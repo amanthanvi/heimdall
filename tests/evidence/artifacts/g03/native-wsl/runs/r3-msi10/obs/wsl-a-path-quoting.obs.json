@@ -1,0 +1,114 @@
+{
+ "config_linux_path_exit": 0,
+ "config_unc_wsl_localhost_path_exit": 0,
+ "config_windows_spaced_unicode_exit": 0,
+ "known_hosts_spaced_path_with_embedded_quotes_exit": 0,
+ "remote_argument_fidelity": {
+  "all_exact": true,
+  "all_exit_zero": true,
+  "cases": [
+   {
+    "case": "plain",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "space",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "unicode",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "emoji",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "double-quote",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "single-quote",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "backslashes",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "trailing-backslash",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "backslash-before-quote",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "percent",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "cmd-metachars",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "bang",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "posix-expansion",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "tab",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "semicolon",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "leading-dash",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   },
+   {
+    "case": "empty",
+    "exact": true,
+    "exact_after_crlf_normalization": true,
+    "exit_code": 0
+   }
+  ]
+ }
+}

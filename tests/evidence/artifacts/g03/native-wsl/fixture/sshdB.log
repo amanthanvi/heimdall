@@ -1,0 +1,53 @@
+Server listening on 127.0.0.1 port 59849.
+Received signal 15; terminating.
+Server listening on 127.0.0.1 port 40127.
+Connection from 127.0.0.1 port 52506 on 127.0.0.1 port 40127 rdomain ""
+kex_exchange_identification: Connection closed by remote host
+Connection closed by 127.0.0.1 port 52506
+Connection from 127.0.0.1 port 46614 on 127.0.0.1 port 40127 rdomain ""
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Postponed publickey for <wsluser> from 127.0.0.1 port 46614 ssh2 [preauth]
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Accepted publickey for <wsluser> from 127.0.0.1 port 46614 ssh2: ECDSA-CERT SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU ID heimdall-g03 (serial 0) CA ED25519 SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw
+User child is on pid 1165593
+Starting session: command for <wsluser> from 127.0.0.1 port 46614 id 0
+Received disconnect from 127.0.0.1 port 46614:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 46614
+Connection from 127.0.0.1 port 46624 on 127.0.0.1 port 40127 rdomain ""
+Certificate invalid: name is not a listed principal
+Failed publickey for <wsluser> from 127.0.0.1 port 46624 ssh2: ECDSA-CERT SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU ID heimdall-g03 (serial 0) CA ED25519 SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw
+Failed publickey for <wsluser> from 127.0.0.1 port 46624 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+Connection closed by authenticating user <wsluser> 127.0.0.1 port 46624 [preauth]
+Connection from 127.0.0.1 port 46638 on 127.0.0.1 port 40127 rdomain ""
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Postponed publickey for <wsluser> from 127.0.0.1 port 46638 ssh2 [preauth]
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Accepted publickey for <wsluser> from 127.0.0.1 port 46638 ssh2: ECDSA-CERT SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU ID heimdall-g03 (serial 0) CA ED25519 SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw
+User child is on pid 1165630
+Starting session: command for <wsluser> from 127.0.0.1 port 46638 id 0
+Received disconnect from 127.0.0.1 port 46638:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 46638
+Connection from 127.0.0.1 port 59696 on 127.0.0.1 port 40127 rdomain ""
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Postponed publickey for <wsluser> from 127.0.0.1 port 59696 ssh2 [preauth]
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Accepted publickey for <wsluser> from 127.0.0.1 port 59696 ssh2: ECDSA-CERT SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU ID heimdall-g03 (serial 0) CA ED25519 SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw
+User child is on pid 1167793
+Starting session: command for <wsluser> from 127.0.0.1 port 59696 id 0
+Received disconnect from 127.0.0.1 port 59696:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 59696
+Connection from 127.0.0.1 port 59712 on 127.0.0.1 port 40127 rdomain ""
+Certificate invalid: name is not a listed principal
+Failed publickey for <wsluser> from 127.0.0.1 port 59712 ssh2: ECDSA-CERT SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU ID heimdall-g03 (serial 0) CA ED25519 SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw
+Failed publickey for <wsluser> from 127.0.0.1 port 59712 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+Connection closed by authenticating user <wsluser> 127.0.0.1 port 59712 [preauth]
+Connection from 127.0.0.1 port 59718 on 127.0.0.1 port 40127 rdomain ""
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Postponed publickey for <wsluser> from 127.0.0.1 port 59718 ssh2 [preauth]
+Accepted certificate ID "heimdall-g03" (serial 0) signed by ED25519 CA SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw via <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/user_ca.pub
+Accepted publickey for <wsluser> from 127.0.0.1 port 59718 ssh2: ECDSA-CERT SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU ID heimdall-g03 (serial 0) CA ED25519 SHA256:1ZRwzuRCSL2Pmss2GttUkbRzJAnpCCefvc6tbdTBZxw
+User child is on pid 1167830
+Starting session: command for <wsluser> from 127.0.0.1 port 59718 id 0
+Close session: user <wsluser> from 127.0.0.1 port 59718 id 0
+Received disconnect from 127.0.0.1 port 59718:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 59718

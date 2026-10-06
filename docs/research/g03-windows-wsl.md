@@ -8,24 +8,220 @@ touches them) · **Acceptance inputs:** A12 (WSL Mode A), A13 (WSL Mode B), A14 
 
 ## 0. Status in one table
 
-No Windows host, WSL distribution, or Windows-hosted provider is available to this environment. **Every
-native G03 probe is `blocked`.** Nothing below claims Windows or WSL behavior was observed. What exists:
-pinned primary sources, a labeled question matrix, candidate designs with an honest security analysis,
-executable probe harnesses, and harness self-tests that ran on macOS (they test the harness, not the
-platform).
+Since 2026-10-06 the probes run natively on the owner's Windows 11 Pro PC (build 26300, non-elevated)
+and its WSL2 Ubuntu 24.04 (§0.1, §0.2). Rows that need a second Windows account, admin rights, a
+disposable 1Password, a decoy on the system agent pipe, a disposable WSL distribution or WSL restarts,
+or an operator at the console are still `blocked` or `in_progress`, with the exact reason in each record.
+Status follows `tests/evidence/README.md`: a record with a blocked row takes the lowest row status, and
+an unobserved pass criterion gives `in_progress`/`inconclusive`. Before that date, only the pinned
+sources, the question matrix, the candidate designs, the harnesses and their macOS self-tests existed.
 
 | Probe group | Records | Status | Blocked on (short) |
 |---|---|---|---|
-| Native Windows endpoint, ACL, Git, quoting, service, 1Password, key-file permissions (P-W01..P-W12) | `tests/evidence/g03-win-*.json` (12) | blocked | native Windows 11 x86-64 host (+ fixture / second account / disposable 1Password as listed per record) |
-| WSL Mode A (P-A01..P-A06) + inventory | `tests/evidence/g03-wsl-env-inventory.json`, `g03-wsl-a-*.json` (7) | blocked | WSL2 distribution on a native Windows 11 x86-64 host with interop |
-| WSL Mode B (P-B01..P-B11) | `tests/evidence/g03-wsl-b-*.json` (11) | blocked | WSL2 distributions (two for multi-distro/restart/idle) on native Windows; second Windows account for P-B11 |
+| Native Windows, executed 2026-10-06 (P-W01 env, P-W02 `SSH_AUTH_SOCK`, P-W03 IdentityAgent, P-W04 Git, P-W06 stale/squat same-user rows, P-W07 process I/O, P-W08 paths/quoting, P-W09 service/elevation, P-W12 key-file permissions) | `tests/evidence/g03-win-{env-inventory,sshauthsock-selection,identityagent-forms,git-ssh-selection,stale-squat-pipe,process-io,path-quoting,service-elevation,key-file-permissions}.json` (9) | verified, verdict pass (§0.1) | sub-rows still blocked: P-W06 cross-user pre-squat (second account), P-W04 live `default_no_override` (disposable host), P-W07 Ctrl-C/resize (interactive console operator) |
+| Native Windows, not executable on the owner PC (P-W05 other user, P-W10 1Password, P-W11 agent constraints) | `tests/evidence/g03-win-{pipe-acl-other-user,1password-coexistence,agent-constraints}.json` (3) | blocked | P-W05: second disposable non-admin account; P-W10: disposable 1Password account on a disposable host + owner authorization to contact `\\.\pipe\openssh-ssh-agent` (+ admin for the service sub-probe); P-W11: disposable host whose agent store may be mutated |
+| WSL inventory + Mode A, executed 2026-10-06 (P-A00 inventory, P-A01 selection, P-A02 process I/O, P-A03 paths/quoting, P-A04 Git, P-A05 certificate change) | `tests/evidence/g03-wsl-{env-inventory,a-executable-selection,a-process-io,a-path-quoting,a-git,a-cert-change}.json` (6) | verified, verdict pass (§0.2); same status and criteria with the in-box 9.5p2 and the MSI 10.0p2 `ssh.exe` | sub-row not run: the P-A01 unset-variable row (the owner's `\\.\pipe\openssh-ssh-agent` exists) |
+| WSL Mode A elevation (P-A06) | `tests/evidence/g03-wsl-a-elevation.json` | in_progress, verdict inconclusive | interop child not elevated [O]; `no_uac_prompt_observed` needs an operator watching the console |
+| WSL Mode B, executed 2026-10-06 (P-B02 unauthorized key, P-B03 deletion, P-B04 relay/attribution, P-B05 stale, P-B06 teardown/deadline) | `tests/evidence/g03-wsl-b-{unauthorized-key,socket-deletion,relay-attribution,stale-socket,teardown-deadline}.json` (5) | verified, verdict pass (§0.2) | — |
+| WSL Mode B endpoint permissions (P-B01) | `tests/evidence/g03-wsl-b-endpoint-perms.json` | in_progress, verdict inconclusive | same-user rows pass [O]; other-Linux-user rows need a second Linux account with non-interactive sudo |
+| WSL Mode B, not executable on the owner PC (P-B07 host lock, P-B08 multi-distribution, P-B09 restart, P-B10 idle, P-B11 other Windows user) | `tests/evidence/g03-wsl-b-{host-lock,multi-distro-exposure,distro-restart,idle-timeout,other-windows-user}.json` (5) | blocked | P-B07: operator at the console to lock and unlock; P-B08–P-B10: a disposable second distribution plus owner authorization to create it and to `wsl --terminate` it (both forbidden in this task); P-B11: second Windows account + disposable distribution |
 | Harness self-tests (not G03 evidence) | `tests/evidence/artifacts/g03/harness-selftest/**/records/*.json` | see §7 | — |
 
 Label legend used in every table: **[D]** documented by the vendor/official documentation cited;
 **[S]** read from pinned source code at a tag (describes that build's code, not observed behavior; the
 Windows in-box build may differ from any GitHub tag); **[C]** community report in an issue tracker, not
 vendor-confirmed; **[I]** inference by this author from the cited items; **[U]** unknown;
-**[O]** observed by a command actually run here (harness self-tests only).
+**[O]** observed by a command actually run: before 2026-10-06 the macOS harness self-tests only; in §0.1/§0.2, on the native host named there.
+
+### 0.1 First native run (2026-10-06)
+
+Task M00-T04-G03-native-windows. In this subsection **[O]** means observed on the host below by a
+command that ran, with exit codes preserved under `tests/evidence/artifacts/g03/native-win/`. It supersedes
+the "every native G03 probe is blocked" statement above for the P-W rows of the table only.
+
+**Host [O].** The owner's personal PC (authorized for non-destructive testing, not disposable): Windows 11
+Pro build 26300.9550 (26H2, x86-64; the registry `ProductName` still reads "Windows 10 Pro"),
+non-elevated token. Reached by SSH into WSL2 (Ubuntu 24.04.5, WSL 3.0.1.0, kernel 6.18.40.1, networking
+mode `nat`), then WSL interop. PowerShell 7.6.6 (.NET 10.0.12) and Windows PowerShell 5.1.26100.9549.
+Three SSH client builds: in-box `C:\WINDOWS\System32\OpenSSH` OpenSSH_for_Windows 9.5p2 (file version
+9.5.6.3); Win32-OpenSSH GitHub MSI in `C:\Program Files\OpenSSH`, 10.0p2 (10.0.0.0), **first on PATH**,
+and the `ssh-agent` and `sshd` services (both Running, Automatic) run from it; Git for Windows
+2.55.0.windows.3 with bundled MSYS OpenSSH_10.3p1. No `%PROGRAMDATA%\ssh\ssh_config`; no
+`core.sshCommand` in any Git scope; `SSH_AUTH_SOCK` unset in the session. `\\.\pipe\openssh-ssh-agent`
+exists and a 1Password process runs. Which process serves that pipe was not determined, because that
+would mean opening it. Full facts: `native-win/environment/env-facts.txt`.
+
+**Setup.** Self-test first: pass under pwsh 7.6.6 and under 5.1 [O] (`native-win/harness-selftest/`).
+Then `Invoke-G03WindowsProbes.ps1` ran with no gate (no `-IAmOnADisposableHost`,
+`-AllowProviderContact` or `-AllowSystemAgentMutation`). The SSH fixture was a non-root OpenSSH 9.6p1
+`sshd` in WSL scratch, bound to 127.0.0.1 and reached from Windows through NAT localhost forwarding. It
+had its own host key, keys added with `restrict`, and a scratch bare repository. Records come from the
+pwsh 7 run; a full 5.1 run of the same harness gave the same status and criteria for every record. Six
+harness defects were fixed during the run and the affected probes re-run
+(`tests/native/windows/CHANGELOG-native.md`). The most consequential defects: `Set-Acl` needs
+SeSecurityPrivilege on ssh-keygen's protected key DACL, and the P-W12 ssh sub-case never reached the
+private-key load.
+
+**Observations [O]** (criteria and raw rows in the records):
+
+- P-W02: `SSH_AUTH_SOCK` in backslash or forward-slash form selects a fixture pipe on both Win32-OpenSSH
+  builds. A non-existent pipe gives exit 2 with no fallback: the existing default-pipe server was not
+  reached, because a fallback would have listed keys (exit 0/1). A supplementary diagnostic narrowed down
+  the failing pipe name: **any non-ASCII character** in the pipe name makes `SSH_AUTH_SOCK` selection fail
+  on both builds (exit 2, "No such file or directory", no connection at the agent), while spaces work.
+  Cause [U]. Git's MSYS `ssh-add` cannot use Windows named pipes.
+- P-W03: in IdentityAgent (config and `-o`), a single-backslash `\\.\pipe\x` is unescaped to `\.\pipe\x`
+  and reaches nothing. Doubled backslashes, forward slashes (also quoted, also with a space and a
+  non-ASCII character), `$VAR` and `${VAR}` select the target exclusively. `none` disables the agent. The
+  literal `SSH_AUTH_SOCK` uses the environment. Both Win32-OpenSSH builds behave the same; Git's MSYS ssh
+  reaches no pipe in any form.
+- P-W04: `GIT_SSH_COMMAND` beats `core.sshCommand`, and `core.sshCommand` beats `GIT_SSH`; System32
+  ssh via `core.sshCommand` reached the fixture pipe. Git ships its bundled ssh (MSYS), so Git's default
+  ssh is the bundled one [I, passive resolution]. The live default row was not run (owner host).
+- P-W06 (same user): `FILE_FLAG_FIRST_PIPE_INSTANCE` refuses a duplicate server while the no-flag control
+  joins the name. The pipe vanishes when its server dies, and the client then exits 2 without fallback.
+- P-W07: exit 42 preserved, stderr separate, UTF-8 exact, 1 MiB binary round trip exact through the
+  Process API and `cmd.exe` redirection, and also through a pwsh 7 pipeline; `ssh true` took 151–191 ms
+  over loopback in the final pwsh 7 and 5.1 runs.
+- P-W08: `-F` under a spaced, non-ASCII directory works; quoted forward-slash `known_hosts` works. In a
+  directory containing `%`, only the `%%`-escaped notation works (in-box 9.5p2 presumably expands `%` tokens [I]). The
+  Process-API argv was exact for all 17 cases; `cmd.exe` altered the `%` case.
+- P-W09: run non-elevated. The service DACL grants Authenticated Users start (`RP`) but not stop or
+  reconfigure. A scoped owner-only fixture pipe was created and used with no elevation.
+- P-W12: in-box 9.5p2 rejects a private key whose DACL grants Authenticated Users read ("bad
+  permissions"), through both `ssh-keygen -y` and `ssh.exe` identity load, once the control shows the
+  load is reached. Restoring the owner-only DACL restores acceptance. The Administrators step was
+  vacuous: Administrators already held FullControl on the generated key.
+- Windows PowerShell 5.1 (supplementary run): the PowerShell-channel rows of P-W07/P-W08 failed before
+  testing anything. 5.1 legacy native-argument passing broke the quoted `UserKnownHostsFile="…"` option,
+  so ssh stopped at host-key verification. Those 5.1 rows are not byte- or argv-fidelity observations.
+
+**Still blocked:** P-W05 and the P-W06 cross-user rows (second disposable account), P-W10 (disposable
+1Password and owner authorization to contact the system pipe; admin for the service sub-probe), P-W11
+(a disposable host whose agent store may be mutated), the system-pipe decoy (disposable host with the
+name free), P-W04 `default_no_override` (disposable host), P-W07 Ctrl-C/resize (interactive console).
+P-B11 (`G03-wsl-b-other-windows-user`) also stays blocked (second account and a disposable distribution);
+its run output is in `native-win/runs/*/records/` but was not promoted.
+
+### 0.2 First WSL run (2026-10-06)
+
+Task M00-T04-G03-native-wsl. In this subsection **[O]** means observed on the host below by a command
+that ran. Exit codes and redacted transcripts are under `tests/evidence/artifacts/g03/native-wsl/`. For
+the WSL rows of the table only, this subsection supersedes the statement above that every native G03
+probe is blocked. `run_g03_wsl_lifecycle.sh` was **not** run.
+
+**Host [O].** Same owner PC as §0.1. WSL 3.0.1.0, kernel 6.18.40.1. Distribution `Ubuntu` (Ubuntu
+24.04.5, WSL2, systemd PID 1, `XDG_RUNTIME_DIR` present); the other two registered distributions,
+`kali-linux` and `Ubuntu-24.04`, are the owner's and were stopped. `wslinfo --networking-mode` prints
+`nat`. `/etc/wsl.conf` has `[interop] enabled = true` and **`appendWindowsPath = false`**, so no Windows
+directory is on PATH in this distribution and `ssh.exe` is not found by bare name. Linux OpenSSH 9.6p1,
+git 2.43.0, Python 3.12.3. Windows clients exercised: in-box `C:\Windows\System32\OpenSSH\ssh.exe`
+9.5p2 (the harness fallback; probe run r2) and the MSI `C:\Program Files\OpenSSH\ssh.exe` 10.0p2 (put
+first on PATH for supplementary run r3-msi10).
+
+**Setup.** The harness ran from the Mac's SSH session as `wsl.exe -d Ubuntu --exec bash run.sh`, a
+WSL-launched session with `WSL_DISTRO_NAME` and `WSL_INTEROP` set. Linux temp and Windows `TEMP` were
+pinned to the task scratch. The Windows fixture agent was `Invoke-G03WindowsProbes.ps1 -ServeAgentForWsl`
+under pwsh 7.6.6, with a target pipe (key 1 allowed, key 2 filtered) and a decoy pipe. Both pipe names
+were fixture names; the owner's agent pipe was never opened. The SSH fixture was two non-root loopback
+`sshd` 9.6p1 instances in WSL scratch, reached by Windows `ssh.exe` through NAT localhost forwarding:
+a public-key host (manifest key 1 with `restrict`, scratch bare repository) and a certificate-only host
+(per-run disposable user CA, no `authorized_keys`). There were three runs: **r1** (debug), **r2** (all
+14 in-distribution probes, promoted), and **r3-msi10** (Mode A probes with the 10.0p2 client, same
+status and criteria as r2 for all five). Four harness defects were fixed and logged in
+`tests/native/wsl/CHANGELOG-native.md`:
+
+1. Windows tools were not on PATH under `appendWindowsPath=false`.
+2. `XDG_RUNTIME_DIR` endpoint directories were left behind.
+3. Kind-specific redaction tokens were missing.
+4. The full `whoami /groups` output was saved, including a Microsoft-account e-mail address.
+
+r1's certificate rows failed because its first fixture port lay in a Windows TCP excluded port range
+(59758–59857), which NAT localhost forwarding cannot relay. This was a fixture problem: the fixture
+moved to another port and the whole set was re-run as r2. Gate: before the first `ssh.exe` run, `cmd.exe`
+echoed exactly the decoy value through `WSLENV=SSH_AUTH_SOCK/w`; otherwise every Mode A probe would have
+been recorded `blocked`. The decoy agent logged **no connection at all** across r1–r3. Every Windows
+process, pipe, `sshd` and scratch directory of the task was stopped or removed at the end (verified: none
+left).
+
+**Observations [O]** (criteria and raw rows in the records):
+
+- P-A01: `-o IdentityAgent=//./pipe/<fixture>` and a config `IdentityAgent $HEIMDALL_G03_IA` with
+  `WSLENV=SSH_AUTH_SOCK/w:HEIMDALL_G03_IA/w` each selected the target pipe exclusively: one
+  REQUEST_IDENTITIES at the target, none at the decoy, which was the Windows-side `SSH_AUTH_SOCK`. Both
+  builds behaved the same. A Linux variable without a WSLENV entry was not visible to `cmd.exe`; the
+  control with an entry was visible. The unset-variable row was skipped by design because the owner's
+  default pipe exists.
+- P-A02: through interop, exit 42 was preserved, stderr stayed off stdout, UTF-8 bytes and a 1 MiB
+  binary round trip were exact, and stdin EOF propagated. `timeout -s INT` ended the run with exit 124
+  and no `ssh.exe` process was left behind. `ssh.exe true` over loopback took 162–212 ms (9.5p2) and
+  173–177 ms (10.0p2).
+- P-A03: all 17 remote-argument cases were byte-exact through WSL interop's argv conversion. `-F` worked
+  with a Windows spaced/Unicode path, with a `\\wsl.localhost\Ubuntu\…` UNC path, and with a plain Linux
+  path (`/home/…`). A quoted forward-slash `UserKnownHostsFile` with a space worked. The Linux-path row
+  probably worked only because `ssh.exe` inherited a `\\wsl.localhost\Ubuntu\…` working directory, so the
+  root-relative path resolved against that share [I]. Generators should not rely on it.
+- P-A04: from WSL, `git` with `core.sshCommand=<ssh.exe …>` ran ls-remote, clone into Linux and `/mnt/c`
+  spaced/Unicode paths, and push to the disposable repository. The Windows agent saw `ssh.exe`.
+  `GIT_SSH_COMMAND` beat `core.sshCommand`.
+- P-A05: a certificate signed for the permitted principal was accepted. After the file was overwritten
+  with a wrong-principal certificate, the next run was rejected ("Certificate invalid: name is not a
+  listed principal" in the fixture log). After restore it was accepted again: `ssh.exe` rereads the
+  certificate file on every run.
+- P-A06: the interop child's token is not elevated (`IsInRole(Administrator)` = False, Medium Mandatory
+  Level) for a WSL session started from a non-elevated context. The UAC-prompt attestation needs an
+  operator, so the record stays inconclusive.
+- P-B01/P-B02/P-B03/P-B05/P-B06 (proxy mechanics in WSL, fixture upstream): the endpoint was created under
+  `XDG_RUNTIME_DIR` with directory 0700 and socket 0600. Only the allowed key was listed. Signing with the
+  unallowed key was refused. Add, remove-all, lock and a foreign extension were refused and left the
+  upstream unchanged; an oversize frame closed the connection. A deleted socket was recreated with a new
+  inode, or the proxy exited with code 7. A live endpoint was not replaced (exit 3). After SIGKILL the
+  stale socket failed clients cleanly (exit 2) and was replaced only with `--replace-stale`. The old
+  generation did not remove its replacement. The deadline was enforced, and teardown removed only the
+  proxy's own socket.
+- P-B04: the Linux proxy forwarded each connection through a per-connection Windows PowerShell 5.1 relay
+  (`PipeStdioRelay.ps1`) to the fixture pipe. Allowed-key list and sign/verify worked. The filtered key
+  was refused by the proxy: type-5 reply, proxy denial logged, no SIGN_REQUEST for key 2 at the Windows
+  agent. The Windows agent attributed both relay connections to `powershell`, not to the Linux caller.
+  One relay process was live while a client held its connection, and none after all clients
+  disconnected, with the proxy still running. Listing took about 220 ms per request through the relay.
+
+**Not run:** P-B07 host lock (operator at the console); P-B08/P-B09/P-B10 (a disposable second
+distribution, and owner authorization to create it and to `wsl --terminate` it, are both outside this
+task's authorization); P-B11 (second Windows account); the P-B01 other-Linux-user rows (second Linux
+account with `sudo -n`). Their records stay `blocked` or carry null criteria.
+
+**How the named AI coding agents would start ssh inside WSL.** This comes from public documentation and
+source only; nothing was installed or run, so every row is [D], [S], [C] or [I], not [O]. Sources were
+retrieved 2026-10-06. Common ground on this host [O]: inside `Ubuntu` an agent's bare `ssh` resolves to
+Linux `/usr/bin/ssh` 9.6p1, and `ssh.exe` is not on PATH (`appendWindowsPath=false`). With the Windows
+PATH appended, `ssh` (no `.exe`) would still resolve to `/usr/bin/ssh`, because the Linux entries come
+first and Windows binaries need the suffix [I from S15]. So in WSL every agent below reaches **Mode B
+(Linux ssh plus whatever `SSH_AUTH_SOCK` or `IdentityAgent` it inherits)**. It reaches Mode A only if
+the user or Heimdall points it at `ssh.exe` explicitly (`core.sshCommand=ssh.exe` as 1Password documents,
+an alias, or a shim).
+
+| Agent | Inside WSL: shell that runs `ssh` | Environment the command gets | Effect of the agent's own sandbox on ssh | Label, source |
+|---|---|---|---|---|
+| Claude Code | Installed and run inside the distribution (native Linux binary; WSL needs no Git for Windows). The Bash tool runs each command in a separate process; at session start it sources `~/.bashrc`/`~/.zshrc`/`~/.profile` and applies the captured aliases, functions and shell options | inherited from the Claude Code process; `export`s do not persist between commands | Sandbox optional; on WSL2 it is bubblewrap + socat. Network goes only through an HTTP/SOCKS proxy, and the docs say plain `ssh` "can't connect, even to an allowed host". Launching a Windows binary (`ssh.exe`) uses WSL's interop Unix socket, so it follows the sandbox's Unix-socket settings (blocked when the seccomp filter is installed, unless `allowAllUnixSockets`). `sandbox.credentials` can deny `~/.ssh` and unset variables. Native Windows mode instead uses Git Bash, whose bundled MSYS ssh reached no pipe in P-W03 | [D] code.claude.com/docs/en/setup, /sandboxing, /tools-reference |
+| Codex CLI | Linux build inside WSL (WSL2 uses the normal Linux sandbox path). Commands run through a login shell (`bash -lc` or the user's shell with `-lc`), so profile scripts run first | `shell_environment_policy`: by default inherits, minus variables whose names contain `KEY`, `SECRET` or `TOKEN`. `SSH_AUTH_SOCK` matches none of these, so it is inherited [I] | `workspace-write` defaults to `network_access = false`. On Linux/WSL2 bubblewrap adds `--unshare-net` when network is restricted, so TCP ssh fails. In managed-proxy mode seccomp also blocks new `AF_UNIX` sockets, which would block an agent socket and the WSL interop socket [I from S]. Native Windows runs PowerShell in the Windows sandbox, where `ssh` would resolve on the Windows PATH (the MSI 10.0p2 build on this host) [I] | [D] learn.chatgpt.com config-advanced and windows-sandbox (redirected from developers.openai.com); [S] openai/codex `codex-rs/linux-sandbox/README.md` @aa380897f67b; [C] login-shell behavior from openai/codex issues #4210 and #8922 |
+| Pi | Runs natively on Windows or inside WSL [D]. On Linux the bash tool uses `/bin/bash -c` (else `bash` on PATH, else `sh -c`): non-login, no rc file | full `process.env`, with Pi's bin directory prepended to PATH | none: "Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access" | [S] earendil-works/pi `packages/coding-agent/src/utils/shell.ts` @b485fa3128c3; [D] `docs/windows.md` @30a1d1849da2, `README.md` @c71a496ff994 |
+| Cursor | Cursor on Windows connected to WSL runs agent terminal commands in the WSL remote environment [I: VS Code remote model, not confirmed in Cursor docs]; the Cursor CLI can also run inside WSL [I]. The shell used was not found in the docs [U] | inherited from the remote/CLI process [I] | Linux sandbox: Landlock + seccomp with a bubblewrap fallback; network blocked by default except `sandbox.json` allowlists plus defaults (mode "sandbox.json + Defaults"), so ssh to an arbitrary host is blocked unless "Allow All" is set [I]. Requires kernel ≥ 6.2 with Landlock v3 and unprivileged user namespaces [C: documentation text quoted in a forum post] (this host's 6.18 kernel meets the version [I]). "Run in Sandbox" on WSL depends on the new terminal tool [C] | [D] cursor.com/docs/agent/security/run-modes, cursor.com/blog/agent-sandboxing; [C] forum.cursor.com "WSL: Run in Sandbox not available" |
+| OpenCode | Core bash tool: the configured shell, else `/bin/sh -c`. Its shell helper runs `bash`/`zsh` as `-l -c` and sources `~/.bashrc`/`~/.zshrc` before the command; `fish`/`nu` get `-c` | inherited (no environment override in the spawn) [I from S] | none: the tool runs "with the host user's filesystem, process, and network authority"; path scanning is advisory | [S] anomalyco/opencode (redirected from sst/opencode) `packages/core/src/tool/bash.ts` @96d53c6716a1, `packages/core/src/shell.ts` @f2cf60737668 |
+
+Implications [I]:
+
+- A Heimdall WSL binding that agents must use without per-agent setup needs a Linux-side endpoint
+  (Mode B) or a generated `IdentityAgent` in an SSH config that Linux `ssh` reads. Mode A reaches agents
+  only through an explicit `ssh.exe` configuration.
+- Agents that run login shells (Codex; OpenCode with bash/zsh) re-run profile scripts before every
+  command. A profile that starts or exports its own `SSH_AUTH_SOCK` overrides the one Heimdall placed in
+  the agent's environment, whereas a config `IdentityAgent` is not affected.
+- The sandboxes of Claude Code, Codex and Cursor block plain ssh TCP by default. Depending on settings,
+  they also block `AF_UNIX`, which stops both the agent socket and the WSL interop socket that
+  `ssh.exe` needs. Agent-driven SSH therefore needs those commands excluded from the sandbox or the
+  socket allowed. Pi and OpenCode have no sandbox, so any process they start has the binding's full
+  same-user reach (R-SE-03 label).
 
 ## 1. Pinned primary sources
 

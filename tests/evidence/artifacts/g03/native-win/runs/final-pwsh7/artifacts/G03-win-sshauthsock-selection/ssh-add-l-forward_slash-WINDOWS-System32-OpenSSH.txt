@@ -1,0 +1,10 @@
+label: ssh-add-l-forward_slash-WINDOWS-System32-OpenSSH
+file: C:\WINDOWS\System32\OpenSSH\ssh-add.exe
+arguments: -l
+started_utc: 2026-10-06T06:31:13.3988752Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+256 SHA256:xjfU5W36L94OQ3wRzo+wG4Nx39DweAP7Hf0aU7DaF28 heimdall-g03-probe-1 (ECDSA)
+
+--- stderr ---

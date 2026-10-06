@@ -1,0 +1,9 @@
+label: keygen
+file: C:\WINDOWS\System32\OpenSSH\ssh-keygen.exe
+arguments: -q -t ed25519 -N "" -C heimdall-g03-perm -f "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T062104Z-194232\probe dir üø\key perms\id_g03_perm"
+started_utc: 2026-10-06T06:21:07.2601807Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+
+--- stderr ---

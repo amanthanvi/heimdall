@@ -1,0 +1,2 @@
+The Windows endpoint authenticates the relay (powershell.exe running as the Windows user), not the Linux caller; a provider that authorizes per application would attribute every WSL request to the relay.
+Relay processes are counted by Win32_Process command lines containing the relay script name, filtered inside PowerShell (only a count is emitted), started at or after the probe start.

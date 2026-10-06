@@ -1,0 +1,8 @@
+{
+ "binary_roundtrip_exact": true,
+ "no_orphan_windows_ssh_after_interrupt": true,
+ "remote_exit_status_preserved": true,
+ "stderr_not_on_stdout": true,
+ "stdin_eof_propagates": true,
+ "utf8_output_bytes_exact": true
+}

@@ -1,0 +1,9 @@
+label: git-config-core-sshCommand-scopes
+file: C:\Program Files\Git\cmd\git.exe
+arguments: -C "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-9aea63\probe dir üø" config --show-scope --name-only --get-regexp ^core\.sshcommand$
+started_utc: 2026-10-06T06:31:11.1472569Z
+exit_code: 1
+timed_out: False
+--- stdout ---
+
+--- stderr ---

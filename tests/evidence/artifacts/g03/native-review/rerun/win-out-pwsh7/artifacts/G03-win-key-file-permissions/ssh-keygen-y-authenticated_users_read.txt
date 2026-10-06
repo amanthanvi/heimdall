@@ -1,0 +1,17 @@
+label: ssh-keygen-y-authenticated_users_read
+file: C:\WINDOWS\System32\OpenSSH\ssh-keygen.exe
+arguments: -y -f "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-review\tmp\heimdall-g03-20261006T071546Z-f4f8b7\probe dir üø\key perms\id_g03_perm"
+started_utc: 2026-10-06T07:15:48.9589829Z
+exit_code: 255
+timed_out: False
+--- stdout ---
+<binary stdout: 0 bytes, sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855>
+--- stderr ---
+Bad permissions. Try removing permissions for user: NT AUTHORITY\\Authenticated Users (S-1-5-11) on file <winhome>/AppData/Local/hm-m00/M00-T04-G03-native-review/tmp/heimdall-g03-20261006T071546Z-f4f8b7/probe dir \374\370/key perms/id_g03_perm.
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Permissions for '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-review\\tmp\\heimdall-g03-20261006T071546Z-f4f8b7\\probe dir \303\274\303\270\\key perms\\id_g03_perm' are too open.
+It is required that your private key files are NOT accessible by others.
+This private key will be ignored.
+Load key "<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-review\\tmp\\heimdall-g03-20261006T071546Z-f4f8b7\\probe dir \303\274\303\270\\key perms\\id_g03_perm": bad permissions

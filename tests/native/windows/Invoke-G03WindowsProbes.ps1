@@ -194,6 +194,15 @@ function Get-SshAddPaths {
     return $list
 }
 
+function Get-ExeTag {
+    # Unique, readable label per client build (CHANGELOG-native.md fix 5): the parent
+    # directory's leaf alone was "OpenSSH" for both System32\OpenSSH and
+    # Program Files\OpenSSH, so the second build overwrote the first's transcripts and
+    # agent_contact entry. Uses the whole directory path without the drive.
+    param([string]$Exe)
+    return ((Split-Path -Parent $Exe) -replace '^[A-Za-z]:[\\/]+', '' -replace '[\\/ ()]+', '-').Trim('-')
+}
+
 function Invoke-DeadSockClient {
     # Runs `<ssh-add> -l` with SSH_AUTH_SOCK = a pipe with no server and judges whether
     # the client fell back to \\.\pipe\openssh-ssh-agent (an unset SSH_AUTH_SOCK means
@@ -295,7 +304,7 @@ function Invoke-ProbeSshAuthSock {
             forward_slash        = "//./pipe/$($t.PipeName)"
             space_unicode_pipe   = "\\.\pipe\$uniName"
         }
-        $tag = Split-Path -Leaf (Split-Path -Parent $exe)
+        $tag = Get-ExeTag $exe
         foreach ($k in $forms.Keys) {
             $res = Invoke-G03Native -Ctx $ctx -FilePath $exe -ArgList @('-l') -Env @{ SSH_AUTH_SOCK = $forms[$k] } -TimeoutSec 30
             Add-Run $r "ssh-add-l-$k-$tag" $res
@@ -370,7 +379,7 @@ function Invoke-ProbeIdentityAgent {
     }
     $rows = @()
     foreach ($exe in (Get-G03SshCandidates)) {
-        $tag = Split-Path -Leaf (Split-Path -Parent $exe)
+        $tag = Get-ExeTag $exe
         foreach ($channel in @('config', 'cli')) {
             foreach ($k in $forms.Keys) {
                 $row = Invoke-SelectionCase -SshExe $exe -Channel $channel -FormId $k -Template $forms[$k]
@@ -1227,11 +1236,13 @@ function Get-BadPermText { param($Res) return [bool]($Res.StderrText -match 'UNP
 
 function Set-KeyAce {
     param([string]$Path, [string]$Sid, [switch]$Remove)
-    $acl = Get-Acl -LiteralPath $Path
+    # DACL only (CHANGELOG-native.md fix 2): Set-Acl needs SeSecurityPrivilege on the
+    # ssh-keygen key's protected DACL for a non-admin caller.
+    $acl = New-Object System.Security.AccessControl.FileSecurity($Path, [System.Security.AccessControl.AccessControlSections]::Access)
     $id = New-Object System.Security.Principal.SecurityIdentifier($Sid)
     $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($id, [System.Security.AccessControl.FileSystemRights]::Read, [System.Security.AccessControl.AccessControlType]::Allow)
     if ($Remove) { [void]$acl.RemoveAccessRuleAll($rule) } else { $acl.AddAccessRule($rule) }
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    Set-G03FileSystemDacl -Path $Path -Acl $acl
 }
 
 function Invoke-ProbeKeyPerms {
@@ -1267,15 +1278,27 @@ function Invoke-ProbeKeyPerms {
     & $step 'administrators_read'
     Set-KeyAce -Path $key -Sid 'S-1-5-32-544' -Remove
     if ($Fixture) {
-        # Client load path (observation): ssh.exe loads the file identity only during
-        # public-key authentication; the fixture need not accept the key.
+        # Client load path (observation). ssh.exe offers the PUBLIC half first (read from
+        # <key>.pub) and opens the private key, where the ACL check runs, only after the
+        # server accepts that public key. Observed 2026-10-06: with an unauthorized key the
+        # fixture refused the offer and the private-key load was never reached
+        # (CHANGELOG-native.md fix 4). The disposable key is therefore authorized on the
+        # fixture through -AuthorizeKeyScript, and an owner-only control run must succeed
+        # before the open-ACL run counts as having reached the load.
         $cfg = New-FixtureConfig
-        Set-KeyAce -Path $key -Sid 'S-1-5-11'
+        $fixtureAuthorized = $false
+        if ($AuthorizeKeyScript) { & $AuthorizeKeyScript -PublicKeyPath "$key.pub"; $fixtureAuthorized = $true }
         $sshArgs = Get-SshArgs -Config $cfg -Extra @('-o', ('IdentityFile=' + (ConvertTo-G03SshConfigToken ($key -replace '\\', '/'))), '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none') -Without @('IdentityFile', 'IdentitiesOnly')
+        $cres = Invoke-G03Native -Ctx $ctx -FilePath $SysSsh -ArgList $sshArgs -TimeoutSec 45
+        Add-Run $r 'ssh-identityfile-owner-only-control' $cres
+        Set-KeyAce -Path $key -Sid 'S-1-5-11'
         $sres = Invoke-G03Native -Ctx $ctx -FilePath $SysSsh -ArgList $sshArgs -TimeoutSec 45
         Add-Run $r 'ssh-identityfile-open-acl' $sres
         Set-KeyAce -Path $key -Sid 'S-1-5-11' -Remove
-        $r.Observed['ssh_client_open_acl'] = [ordered]@{ exit_code = $sres.ExitCode; bad_permissions_reported = (Get-BadPermText $sres) }
+        $r.Observed['ssh_client_open_acl'] = [ordered]@{ fixture_authorized_disposable_key = $fixtureAuthorized
+            owner_only_control_exit_code = $cres.ExitCode; private_key_load_reached = ($cres.ExitCode -eq 0)
+            exit_code = $sres.ExitCode; bad_permissions_reported = (Get-BadPermText $sres) }
+        if ($cres.ExitCode -ne 0) { [void]$r.Limitations.Add('ssh.exe identity-load sub-case: the owner-only control did not authenticate, so the open-ACL run may not have reached the private-key load; its result is not an observation of the ACL check.') }
     } else { [void]$r.Limitations.Add('ssh.exe identity-load sub-case not run: needs the disposable fixture server (-SshHost/-SshUser/-KnownHostsFile).') }
     Remove-Item -LiteralPath $kdir -Recurse -Force -ErrorAction SilentlyContinue
     $r.Observed['steps'] = $rows
@@ -1289,6 +1312,8 @@ function Invoke-ProbeKeyPerms {
     }
     if (-not $control) { foreach ($k in @($crit.Keys)) { $crit[$k] = $null } }
     $r.Observed['administrators_read_ace_accepted'] = ($rows['administrators_read'].exit_code -eq 0)
+    $r.Observed['administrators_step_changed_dacl'] = ($rows['administrators_read'].file_sddl -ne $rows['restored'].file_sddl)
+    if (-not $r.Observed['administrators_step_changed_dacl']) { [void]$r.Limitations.Add('administrators_read did not change the DACL: Administrators already held FullControl on the generated key, so the added Read ACE merged into it; administrators_read_ace_accepted is vacuous on this host.') }
     [void]$r.Limitations.Add('Administrators and SYSTEM access is accepted by the client rule by design [S]; file ACLs are not a boundary against administrators, and an elevated token is not a key-use approval (spec sec. 8.4).')
     [void]$r.Limitations.Add('ssh-keygen -y exercises the same sshkey_load_private path as ssh/ssh-add on the pinned source [S]; shipped builds may differ, so the result applies to the ssh-keygen.exe in provider_versions.')
     return (Set-Verdict $r $crit)

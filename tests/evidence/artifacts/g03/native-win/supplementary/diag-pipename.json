@@ -1,0 +1,240 @@
+{
+  "started_at": "2026-10-06T06:30:36Z",
+  "powershell": "7.6.6",
+  "rows": [
+    {
+      "name_kind": "ascii_control",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "ascii_control",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "ascii_control",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "ascii_control",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "ascii_control",
+      "agent_contact": {
+        "connections": 4,
+        "request_identities": 4,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [
+          56728,
+          75184,
+          8108,
+          75628
+        ],
+        "client_images": [
+          "ssh-add"
+        ],
+        "client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+          "C:\\Program Files\\OpenSSH\\ssh-add.exe"
+        ],
+        "client_sids": [
+          "S-1-5-21-<redacted>-1001"
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name_kind": "space_only",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "space_only",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "space_only",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "space_only",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 0,
+      "lists_key": true,
+      "stderr_first_line": ""
+    },
+    {
+      "name_kind": "space_only",
+      "agent_contact": {
+        "connections": 4,
+        "request_identities": 4,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [
+          41200,
+          66256,
+          47760,
+          3308
+        ],
+        "client_images": [
+          "ssh-add"
+        ],
+        "client_paths": [
+          "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+          "C:\\Program Files\\OpenSSH\\ssh-add.exe"
+        ],
+        "client_sids": [
+          "S-1-5-21-<redacted>-1001"
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name_kind": "nonascii_only",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "nonascii_only",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "nonascii_only",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "nonascii_only",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "nonascii_only",
+      "agent_contact": {
+        "connections": 0,
+        "request_identities": 0,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [],
+        "client_images": [],
+        "client_paths": [],
+        "client_sids": [],
+        "errors": []
+      }
+    },
+    {
+      "name_kind": "space_nonascii",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "space_nonascii",
+      "client": "C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "space_nonascii",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "backslash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "space_nonascii",
+      "client": "C:\\Program Files\\OpenSSH\\ssh-add.exe",
+      "form": "forward_slash",
+      "exit_code": 2,
+      "lists_key": false,
+      "stderr_first_line": "Error connecting to agent: No such file or directory"
+    },
+    {
+      "name_kind": "space_nonascii",
+      "agent_contact": {
+        "connections": 0,
+        "request_identities": 0,
+        "sign_requests": 0,
+        "signed": 0,
+        "denied": 0,
+        "client_pids": [],
+        "client_images": [],
+        "client_paths": [],
+        "client_sids": [],
+        "errors": []
+      }
+    }
+  ],
+  "stops": [
+    {
+      "kind": "instrumented-agent",
+      "pid": 65996,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 9804,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 40196,
+      "result": "already-exited"
+    },
+    {
+      "kind": "instrumented-agent",
+      "pid": 26380,
+      "result": "already-exited"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+G03-wsl-a-executable-selection verified
+G03-wsl-a-process-io verified
+G03-wsl-a-path-quoting verified
+G03-wsl-a-git verified
+G03-wsl-a-cert-change verified
+[g03 06:56:11] records: <wslhome>/hm-m00/M00-T04-G03-native-wsl/repo/tests/evidence/artifacts/g03/native-wsl/runs/r3-msi10/records

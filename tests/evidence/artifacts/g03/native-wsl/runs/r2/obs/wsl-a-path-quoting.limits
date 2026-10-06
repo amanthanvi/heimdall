@@ -1,0 +1,1 @@
+Linux-path and \\wsl.localhost UNC config rows are observations; WSL interop's argv-to-command-line conversion is undocumented and is what the argv rows measure.

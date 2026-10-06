@@ -1,0 +1,6 @@
+{
+ "old_generation_exit": "6",
+ "second_start_while_live_exit": "3",
+ "sigkill_live_generation": "signalled-KILL",
+ "socket_after_sigkill": "600 1000 socket 970"
+}

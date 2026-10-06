@@ -1,0 +1,5 @@
+{
+ "endpoint_dir_stat": "700 1000 dir 941",
+ "endpoint_socket_stat": "600 1000 socket 942",
+ "endpoint_under_xdg_runtime_dir": true
+}

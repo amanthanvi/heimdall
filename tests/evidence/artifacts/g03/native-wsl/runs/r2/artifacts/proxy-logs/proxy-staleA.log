@@ -1,0 +1,3 @@
+{"allowed": ["SHA256:bF4MPvwQCWtKZaIV5IowbeBsM2orV56XVUmjq0ScnIY"], "event": "listening", "generation": "4068017d75a3", "mode": "600", "path": "/run/user/1000/hg03-42258d/agent.sock", "proxy_pid": 1166230, "ts": "2026-10-06T06:54:42Z"}
+{"conn": 1, "event": "connect", "peer_pid": 1166237, "peer_uid": 1000, "proxy_pid": 1166230, "ts": "2026-10-06T06:54:43Z"}
+{"conn": 1, "event": "disconnect", "proxy_pid": 1166230, "ts": "2026-10-06T06:54:43Z"}

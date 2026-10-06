@@ -1,0 +1,1120 @@
+Server listening on 127.0.0.1 port 55090.
+Connection from 127.0.0.1 port 55410 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55410 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55410 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162196
+Starting session: command for <wsluser> from 127.0.0.1 port 55410 id 0
+Close session: user <wsluser> from 127.0.0.1 port 55410 id 0
+Received disconnect from 127.0.0.1 port 55410:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55410
+Connection from 127.0.0.1 port 55412 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55412 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55412 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162221
+Starting session: command for <wsluser> from 127.0.0.1 port 55412 id 0
+Close session: user <wsluser> from 127.0.0.1 port 55412 id 0
+Received disconnect from 127.0.0.1 port 55412:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55412
+Connection from 127.0.0.1 port 55426 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55426 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55426 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162289
+Starting session: command for <wsluser> from 127.0.0.1 port 55426 id 0
+Received disconnect from 127.0.0.1 port 55426:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55426
+Connection from 127.0.0.1 port 55432 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55432 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55432 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162299
+Starting session: command for <wsluser> from 127.0.0.1 port 55432 id 0
+Received disconnect from 127.0.0.1 port 55432:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55432
+Connection from 127.0.0.1 port 55442 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55442 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55442 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162314
+Starting session: command for <wsluser> from 127.0.0.1 port 55442 id 0
+Close session: user <wsluser> from 127.0.0.1 port 55442 id 0
+Received disconnect from 127.0.0.1 port 55442:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55442
+Connection from 127.0.0.1 port 55454 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55454 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55454 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162330
+Starting session: command for <wsluser> from 127.0.0.1 port 55454 id 0
+Close session: user <wsluser> from 127.0.0.1 port 55454 id 0
+Received disconnect from 127.0.0.1 port 55454:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55454
+Connection from 127.0.0.1 port 55464 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55464 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55464 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162352
+Starting session: command for <wsluser> from 127.0.0.1 port 55464 id 0
+Close session: user <wsluser> from 127.0.0.1 port 55464 id 0
+Received disconnect from 127.0.0.1 port 55464:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55464
+Connection from 127.0.0.1 port 55466 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55466 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55466 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162374
+Starting session: command for <wsluser> from 127.0.0.1 port 55466 id 0
+Close session: user <wsluser> from 127.0.0.1 port 55466 id 0
+Received disconnect from 127.0.0.1 port 55466:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 55466
+Connection from 127.0.0.1 port 55478 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 55478 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 55478 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162393
+Starting session: command for <wsluser> from 127.0.0.1 port 55478 id 0
+Connection closed by 127.0.0.1 port 55478
+Close session: user <wsluser> from 127.0.0.1 port 55478 id 0
+Transferred: sent 2148, received 2272 bytes
+Closing connection to 127.0.0.1 port 55478
+Connection from 127.0.0.1 port 51846 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51846 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51846 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162422
+Starting session: command for <wsluser> from 127.0.0.1 port 51846 id 0
+Received disconnect from 127.0.0.1 port 51846:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51846
+Connection from 127.0.0.1 port 51858 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51858 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51858 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162465
+Starting session: command for <wsluser> from 127.0.0.1 port 51858 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51858 id 0
+Received disconnect from 127.0.0.1 port 51858:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51858
+Connection from 127.0.0.1 port 51874 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51874 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51874 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162474
+Starting session: command for <wsluser> from 127.0.0.1 port 51874 id 0
+Received disconnect from 127.0.0.1 port 51874:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51874
+Connection from 127.0.0.1 port 51876 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51876 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51876 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162510
+Starting session: command for <wsluser> from 127.0.0.1 port 51876 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51876 id 0
+Connection closed by 127.0.0.1 port 51876
+Transferred: sent 2224, received 2292 bytes
+Closing connection to 127.0.0.1 port 51876
+Connection from 127.0.0.1 port 51878 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51878 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51878 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162532
+Starting session: command for <wsluser> from 127.0.0.1 port 51878 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51878 id 0
+Received disconnect from 127.0.0.1 port 51878:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51878
+Connection from 127.0.0.1 port 51886 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51886 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51886 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162547
+Starting session: command for <wsluser> from 127.0.0.1 port 51886 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51886 id 0
+Received disconnect from 127.0.0.1 port 51886:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51886
+Connection from 127.0.0.1 port 51892 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51892 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51892 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162567
+Starting session: command for <wsluser> from 127.0.0.1 port 51892 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51892 id 0
+Received disconnect from 127.0.0.1 port 51892:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51892
+Connection from 127.0.0.1 port 51898 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51898 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51898 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162578
+Starting session: command for <wsluser> from 127.0.0.1 port 51898 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51898 id 0
+Received disconnect from 127.0.0.1 port 51898:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51898
+Connection from 127.0.0.1 port 51904 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51904 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51904 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162583
+Starting session: command for <wsluser> from 127.0.0.1 port 51904 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51904 id 0
+Received disconnect from 127.0.0.1 port 51904:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51904
+Connection from 127.0.0.1 port 51920 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51920 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51920 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162588
+Starting session: command for <wsluser> from 127.0.0.1 port 51920 id 0
+Received disconnect from 127.0.0.1 port 51920:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51920
+Connection from 127.0.0.1 port 51924 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51924 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51924 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162593
+Starting session: command for <wsluser> from 127.0.0.1 port 51924 id 0
+Received disconnect from 127.0.0.1 port 51924:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51924
+Connection from 127.0.0.1 port 51932 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51932 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51932 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162598
+Starting session: command for <wsluser> from 127.0.0.1 port 51932 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51932 id 0
+Received disconnect from 127.0.0.1 port 51932:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51932
+Connection from 127.0.0.1 port 51944 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51944 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51944 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162603
+Starting session: command for <wsluser> from 127.0.0.1 port 51944 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51944 id 0
+Connection closed by 127.0.0.1 port 51944
+Transferred: sent 2260, received 2316 bytes
+Closing connection to 127.0.0.1 port 51944
+Connection from 127.0.0.1 port 51950 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51950 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51950 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162608
+Starting session: command for <wsluser> from 127.0.0.1 port 51950 id 0
+Received disconnect from 127.0.0.1 port 51950:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51950
+Connection from 127.0.0.1 port 51956 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51956 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51956 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162613
+Starting session: command for <wsluser> from 127.0.0.1 port 51956 id 0
+Received disconnect from 127.0.0.1 port 51956:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51956
+Connection from 127.0.0.1 port 51970 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51970 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51970 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162618
+Starting session: command for <wsluser> from 127.0.0.1 port 51970 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51970 id 0
+Received disconnect from 127.0.0.1 port 51970:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51970
+Connection from 127.0.0.1 port 51976 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51976 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51976 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162623
+Starting session: command for <wsluser> from 127.0.0.1 port 51976 id 0
+Received disconnect from 127.0.0.1 port 51976:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51976
+Connection from 127.0.0.1 port 51990 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51990 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51990 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162628
+Starting session: command for <wsluser> from 127.0.0.1 port 51990 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51990 id 0
+Received disconnect from 127.0.0.1 port 51990:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51990
+Connection from 127.0.0.1 port 51992 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51992 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51992 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162633
+Starting session: command for <wsluser> from 127.0.0.1 port 51992 id 0
+Received disconnect from 127.0.0.1 port 51992:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51992
+Connection from 127.0.0.1 port 51996 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 51996 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 51996 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162638
+Starting session: command for <wsluser> from 127.0.0.1 port 51996 id 0
+Close session: user <wsluser> from 127.0.0.1 port 51996 id 0
+Received disconnect from 127.0.0.1 port 51996:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 51996
+Connection from 127.0.0.1 port 52006 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 52006 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 52006 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162643
+Starting session: command for <wsluser> from 127.0.0.1 port 52006 id 0
+Received disconnect from 127.0.0.1 port 52006:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 52006
+Connection from 127.0.0.1 port 52010 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 52010 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 52010 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162648
+Starting session: command for <wsluser> from 127.0.0.1 port 52010 id 0
+Received disconnect from 127.0.0.1 port 52010:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 52010
+Connection from 127.0.0.1 port 52022 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 52022 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 52022 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162653
+Starting session: command for <wsluser> from 127.0.0.1 port 52022 id 0
+Close session: user <wsluser> from 127.0.0.1 port 52022 id 0
+Received disconnect from 127.0.0.1 port 52022:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 52022
+Connection from 127.0.0.1 port 52028 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 52028 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 52028 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162658
+Starting session: command for <wsluser> from 127.0.0.1 port 52028 id 0
+Received disconnect from 127.0.0.1 port 52028:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 52028
+Connection from 127.0.0.1 port 41132 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 41132 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 41132 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162834
+Starting session: command for <wsluser> from 127.0.0.1 port 41132 id 0
+Close session: user <wsluser> from 127.0.0.1 port 41132 id 0
+Connection closed by 127.0.0.1 port 41132
+Transferred: sent 2608, received 2384 bytes
+Closing connection to 127.0.0.1 port 41132
+Connection from 127.0.0.1 port 41142 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 41142 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 41142 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162856
+Starting session: command for <wsluser> from 127.0.0.1 port 41142 id 0
+Received disconnect from 127.0.0.1 port 41142:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 41142
+Connection from 127.0.0.1 port 41154 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 41154 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 41154 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162873
+Starting session: command for <wsluser> from 127.0.0.1 port 41154 id 0
+Close session: user <wsluser> from 127.0.0.1 port 41154 id 0
+Received disconnect from 127.0.0.1 port 41154:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 41154
+Connection from 127.0.0.1 port 41164 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 41164 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 41164 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162934
+Starting session: command for <wsluser> from 127.0.0.1 port 41164 id 0
+Close session: user <wsluser> from 127.0.0.1 port 41164 id 0
+Received disconnect from 127.0.0.1 port 41164:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 41164
+Connection from 127.0.0.1 port 41174 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 41174 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 41174 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1162967
+Starting session: command for <wsluser> from 127.0.0.1 port 41174 id 0
+Close session: user <wsluser> from 127.0.0.1 port 41174 id 0
+Connection closed by 127.0.0.1 port 41174
+Transferred: sent 2524, received 2916 bytes
+Closing connection to 127.0.0.1 port 41174
+Connection from 127.0.0.1 port 44086 on 127.0.0.1 port 55090 rdomain ""
+kex_exchange_identification: Connection closed by remote host
+Connection closed by 127.0.0.1 port 44086
+Connection from 127.0.0.1 port 35236 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35236 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35236 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164778
+Starting session: command for <wsluser> from 127.0.0.1 port 35236 id 0
+Received disconnect from 127.0.0.1 port 35236:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35236
+Connection from 127.0.0.1 port 35252 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35252 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35252 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164803
+Starting session: command for <wsluser> from 127.0.0.1 port 35252 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35252 id 0
+Received disconnect from 127.0.0.1 port 35252:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35252
+Connection from 127.0.0.1 port 35256 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35256 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35256 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164871
+Starting session: command for <wsluser> from 127.0.0.1 port 35256 id 0
+Received disconnect from 127.0.0.1 port 35256:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35256
+Connection from 127.0.0.1 port 35272 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35272 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35272 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164881
+Starting session: command for <wsluser> from 127.0.0.1 port 35272 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35272 id 0
+Received disconnect from 127.0.0.1 port 35272:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35272
+Connection from 127.0.0.1 port 42590 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42590 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42590 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164896
+Starting session: command for <wsluser> from 127.0.0.1 port 42590 id 0
+Close session: user <wsluser> from 127.0.0.1 port 42590 id 0
+Received disconnect from 127.0.0.1 port 42590:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42590
+Connection from 127.0.0.1 port 42606 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42606 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42606 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164912
+Starting session: command for <wsluser> from 127.0.0.1 port 42606 id 0
+Close session: user <wsluser> from 127.0.0.1 port 42606 id 0
+Received disconnect from 127.0.0.1 port 42606:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42606
+Connection from 127.0.0.1 port 42622 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42622 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42622 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164934
+Starting session: command for <wsluser> from 127.0.0.1 port 42622 id 0
+Close session: user <wsluser> from 127.0.0.1 port 42622 id 0
+Received disconnect from 127.0.0.1 port 42622:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42622
+Connection from 127.0.0.1 port 42626 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42626 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42626 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164956
+Starting session: command for <wsluser> from 127.0.0.1 port 42626 id 0
+Received disconnect from 127.0.0.1 port 42626:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42626
+Connection from 127.0.0.1 port 42638 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42638 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42638 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1164975
+Starting session: command for <wsluser> from 127.0.0.1 port 42638 id 0
+Connection closed by 127.0.0.1 port 42638
+Close session: user <wsluser> from 127.0.0.1 port 42638 id 0
+Transferred: sent 2148, received 2272 bytes
+Closing connection to 127.0.0.1 port 42638
+Connection from 127.0.0.1 port 42640 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42640 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42640 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165083
+Starting session: command for <wsluser> from 127.0.0.1 port 42640 id 0
+Close session: user <wsluser> from 127.0.0.1 port 42640 id 0
+Received disconnect from 127.0.0.1 port 42640:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42640
+Connection from 127.0.0.1 port 42644 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42644 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42644 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165092
+Starting session: command for <wsluser> from 127.0.0.1 port 42644 id 0
+Received disconnect from 127.0.0.1 port 42644:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42644
+Connection from 127.0.0.1 port 42648 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 42648 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 42648 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165101
+Starting session: command for <wsluser> from 127.0.0.1 port 42648 id 0
+Received disconnect from 127.0.0.1 port 42648:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 42648
+Connection from 127.0.0.1 port 34950 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 34950 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 34950 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165137
+Starting session: command for <wsluser> from 127.0.0.1 port 34950 id 0
+Close session: user <wsluser> from 127.0.0.1 port 34950 id 0
+Received disconnect from 127.0.0.1 port 34950:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 34950
+Connection from 127.0.0.1 port 34962 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 34962 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 34962 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165159
+Starting session: command for <wsluser> from 127.0.0.1 port 34962 id 0
+Received disconnect from 127.0.0.1 port 34962:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 34962
+Connection from 127.0.0.1 port 34968 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 34968 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 34968 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165174
+Starting session: command for <wsluser> from 127.0.0.1 port 34968 id 0
+Close session: user <wsluser> from 127.0.0.1 port 34968 id 0
+Received disconnect from 127.0.0.1 port 34968:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 34968
+Connection from 127.0.0.1 port 34976 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 34976 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 34976 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165194
+Starting session: command for <wsluser> from 127.0.0.1 port 34976 id 0
+Received disconnect from 127.0.0.1 port 34976:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 34976
+Connection from 127.0.0.1 port 34986 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 34986 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 34986 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165205
+Starting session: command for <wsluser> from 127.0.0.1 port 34986 id 0
+Close session: user <wsluser> from 127.0.0.1 port 34986 id 0
+Received disconnect from 127.0.0.1 port 34986:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 34986
+Connection from 127.0.0.1 port 35002 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35002 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35002 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165210
+Starting session: command for <wsluser> from 127.0.0.1 port 35002 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35002 id 0
+Connection closed by 127.0.0.1 port 35002
+Transferred: sent 2260, received 2316 bytes
+Closing connection to 127.0.0.1 port 35002
+Connection from 127.0.0.1 port 35006 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35006 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35006 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165215
+Starting session: command for <wsluser> from 127.0.0.1 port 35006 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35006 id 0
+Received disconnect from 127.0.0.1 port 35006:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35006
+Connection from 127.0.0.1 port 35010 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35010 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35010 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165220
+Starting session: command for <wsluser> from 127.0.0.1 port 35010 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35010 id 0
+Received disconnect from 127.0.0.1 port 35010:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35010
+Connection from 127.0.0.1 port 35024 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35024 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35024 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165225
+Starting session: command for <wsluser> from 127.0.0.1 port 35024 id 0
+Received disconnect from 127.0.0.1 port 35024:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35024
+Connection from 127.0.0.1 port 35032 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35032 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35032 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165230
+Starting session: command for <wsluser> from 127.0.0.1 port 35032 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35032 id 0
+Received disconnect from 127.0.0.1 port 35032:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35032
+Connection from 127.0.0.1 port 35036 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35036 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35036 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165235
+Starting session: command for <wsluser> from 127.0.0.1 port 35036 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35036 id 0
+Connection closed by 127.0.0.1 port 35036
+Transferred: sent 2268, received 2324 bytes
+Closing connection to 127.0.0.1 port 35036
+Connection from 127.0.0.1 port 35042 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35042 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35042 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165240
+Starting session: command for <wsluser> from 127.0.0.1 port 35042 id 0
+Received disconnect from 127.0.0.1 port 35042:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35042
+Connection from 127.0.0.1 port 35052 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35052 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35052 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165245
+Starting session: command for <wsluser> from 127.0.0.1 port 35052 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35052 id 0
+Connection closed by 127.0.0.1 port 35052
+Transferred: sent 2252, received 2308 bytes
+Closing connection to 127.0.0.1 port 35052
+Connection from 127.0.0.1 port 35060 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35060 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35060 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165250
+Starting session: command for <wsluser> from 127.0.0.1 port 35060 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35060 id 0
+Received disconnect from 127.0.0.1 port 35060:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35060
+Connection from 127.0.0.1 port 35072 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35072 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35072 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165255
+Starting session: command for <wsluser> from 127.0.0.1 port 35072 id 0
+Received disconnect from 127.0.0.1 port 35072:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35072
+Connection from 127.0.0.1 port 35074 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35074 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35074 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165260
+Starting session: command for <wsluser> from 127.0.0.1 port 35074 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35074 id 0
+Received disconnect from 127.0.0.1 port 35074:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35074
+Connection from 127.0.0.1 port 35076 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35076 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35076 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165265
+Starting session: command for <wsluser> from 127.0.0.1 port 35076 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35076 id 0
+Received disconnect from 127.0.0.1 port 35076:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35076
+Connection from 127.0.0.1 port 35090 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35090 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35090 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165270
+Starting session: command for <wsluser> from 127.0.0.1 port 35090 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35090 id 0
+Received disconnect from 127.0.0.1 port 35090:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35090
+Connection from 127.0.0.1 port 35094 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35094 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35094 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165275
+Starting session: command for <wsluser> from 127.0.0.1 port 35094 id 0
+Received disconnect from 127.0.0.1 port 35094:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35094
+Connection from 127.0.0.1 port 35096 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35096 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35096 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165280
+Starting session: command for <wsluser> from 127.0.0.1 port 35096 id 0
+Received disconnect from 127.0.0.1 port 35096:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35096
+Connection from 127.0.0.1 port 35102 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35102 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35102 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165285
+Starting session: command for <wsluser> from 127.0.0.1 port 35102 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35102 id 0
+Received disconnect from 127.0.0.1 port 35102:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35102
+Connection from 127.0.0.1 port 35110 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35110 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35110 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165461
+Starting session: command for <wsluser> from 127.0.0.1 port 35110 id 0
+Received disconnect from 127.0.0.1 port 35110:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35110
+Connection from 127.0.0.1 port 35120 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35120 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35120 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165483
+Starting session: command for <wsluser> from 127.0.0.1 port 35120 id 0
+Received disconnect from 127.0.0.1 port 35120:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35120
+Connection from 127.0.0.1 port 35136 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35136 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35136 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165500
+Starting session: command for <wsluser> from 127.0.0.1 port 35136 id 0
+Received disconnect from 127.0.0.1 port 35136:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35136
+Connection from 127.0.0.1 port 35152 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35152 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35152 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165522
+Starting session: command for <wsluser> from 127.0.0.1 port 35152 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35152 id 0
+Received disconnect from 127.0.0.1 port 35152:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35152
+Connection from 127.0.0.1 port 35154 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 35154 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 35154 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1165547
+Starting session: command for <wsluser> from 127.0.0.1 port 35154 id 0
+Close session: user <wsluser> from 127.0.0.1 port 35154 id 0
+Received disconnect from 127.0.0.1 port 35154:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 35154
+Connection from 127.0.0.1 port 46860 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 46860 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 46860 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167005
+Starting session: command for <wsluser> from 127.0.0.1 port 46860 id 0
+Received disconnect from 127.0.0.1 port 46860:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 46860
+Connection from 127.0.0.1 port 50876 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50876 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50876 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167030
+Starting session: command for <wsluser> from 127.0.0.1 port 50876 id 0
+Close session: user <wsluser> from 127.0.0.1 port 50876 id 0
+Received disconnect from 127.0.0.1 port 50876:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50876
+Connection from 127.0.0.1 port 50882 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50882 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50882 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167099
+Starting session: command for <wsluser> from 127.0.0.1 port 50882 id 0
+Close session: user <wsluser> from 127.0.0.1 port 50882 id 0
+Received disconnect from 127.0.0.1 port 50882:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50882
+Connection from 127.0.0.1 port 50884 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50884 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50884 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167109
+Starting session: command for <wsluser> from 127.0.0.1 port 50884 id 0
+Close session: user <wsluser> from 127.0.0.1 port 50884 id 0
+Received disconnect from 127.0.0.1 port 50884:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50884
+Connection from 127.0.0.1 port 50894 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50894 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50894 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167124
+Starting session: command for <wsluser> from 127.0.0.1 port 50894 id 0
+Close session: user <wsluser> from 127.0.0.1 port 50894 id 0
+Received disconnect from 127.0.0.1 port 50894:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50894
+Connection from 127.0.0.1 port 50906 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50906 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50906 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167140
+Starting session: command for <wsluser> from 127.0.0.1 port 50906 id 0
+Close session: user <wsluser> from 127.0.0.1 port 50906 id 0
+Received disconnect from 127.0.0.1 port 50906:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50906
+Connection from 127.0.0.1 port 50912 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50912 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50912 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167162
+Starting session: command for <wsluser> from 127.0.0.1 port 50912 id 0
+Received disconnect from 127.0.0.1 port 50912:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50912
+Connection from 127.0.0.1 port 50920 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50920 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50920 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167185
+Starting session: command for <wsluser> from 127.0.0.1 port 50920 id 0
+Close session: user <wsluser> from 127.0.0.1 port 50920 id 0
+Received disconnect from 127.0.0.1 port 50920:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 50920
+Connection from 127.0.0.1 port 50936 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 50936 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 50936 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167204
+Starting session: command for <wsluser> from 127.0.0.1 port 50936 id 0
+Connection closed by 127.0.0.1 port 50936
+Close session: user <wsluser> from 127.0.0.1 port 50936 id 0
+Transferred: sent 3384, received 3548 bytes
+Closing connection to 127.0.0.1 port 50936
+Connection from 127.0.0.1 port 45788 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45788 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45788 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167225
+Starting session: command for <wsluser> from 127.0.0.1 port 45788 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45788 id 0
+Received disconnect from 127.0.0.1 port 45788:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45788
+Connection from 127.0.0.1 port 45794 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45794 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45794 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167234
+Starting session: command for <wsluser> from 127.0.0.1 port 45794 id 0
+Received disconnect from 127.0.0.1 port 45794:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45794
+Connection from 127.0.0.1 port 45804 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45804 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45804 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167243
+Starting session: command for <wsluser> from 127.0.0.1 port 45804 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45804 id 0
+Received disconnect from 127.0.0.1 port 45804:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45804
+Connection from 127.0.0.1 port 45820 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45820 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45820 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167279
+Starting session: command for <wsluser> from 127.0.0.1 port 45820 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45820 id 0
+Connection closed by 127.0.0.1 port 45820
+Transferred: sent 3496, received 3568 bytes
+Closing connection to 127.0.0.1 port 45820
+Connection from 127.0.0.1 port 45828 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45828 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45828 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167301
+Starting session: command for <wsluser> from 127.0.0.1 port 45828 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45828 id 0
+Received disconnect from 127.0.0.1 port 45828:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45828
+Connection from 127.0.0.1 port 45834 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45834 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45834 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167316
+Starting session: command for <wsluser> from 127.0.0.1 port 45834 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45834 id 0
+Received disconnect from 127.0.0.1 port 45834:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45834
+Connection from 127.0.0.1 port 45844 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45844 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45844 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167336
+Starting session: command for <wsluser> from 127.0.0.1 port 45844 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45844 id 0
+Received disconnect from 127.0.0.1 port 45844:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45844
+Connection from 127.0.0.1 port 45856 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45856 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45856 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167347
+Starting session: command for <wsluser> from 127.0.0.1 port 45856 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45856 id 0
+Connection closed by 127.0.0.1 port 45856
+Transferred: sent 3488, received 3584 bytes
+Closing connection to 127.0.0.1 port 45856
+Connection from 127.0.0.1 port 45870 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45870 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45870 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167352
+Starting session: command for <wsluser> from 127.0.0.1 port 45870 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45870 id 0
+Connection closed by 127.0.0.1 port 45870
+Transferred: sent 3532, received 3592 bytes
+Closing connection to 127.0.0.1 port 45870
+Connection from 127.0.0.1 port 45872 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45872 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45872 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167357
+Starting session: command for <wsluser> from 127.0.0.1 port 45872 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45872 id 0
+Received disconnect from 127.0.0.1 port 45872:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45872
+Connection from 127.0.0.1 port 45876 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45876 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45876 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167362
+Starting session: command for <wsluser> from 127.0.0.1 port 45876 id 0
+Received disconnect from 127.0.0.1 port 45876:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45876
+Connection from 127.0.0.1 port 45884 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45884 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45884 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167367
+Starting session: command for <wsluser> from 127.0.0.1 port 45884 id 0
+Received disconnect from 127.0.0.1 port 45884:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45884
+Connection from 127.0.0.1 port 45894 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45894 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45894 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167372
+Starting session: command for <wsluser> from 127.0.0.1 port 45894 id 0
+Received disconnect from 127.0.0.1 port 45894:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45894
+Connection from 127.0.0.1 port 45906 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45906 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45906 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167377
+Starting session: command for <wsluser> from 127.0.0.1 port 45906 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45906 id 0
+Received disconnect from 127.0.0.1 port 45906:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45906
+Connection from 127.0.0.1 port 45910 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45910 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45910 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167382
+Starting session: command for <wsluser> from 127.0.0.1 port 45910 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45910 id 0
+Received disconnect from 127.0.0.1 port 45910:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45910
+Connection from 127.0.0.1 port 45912 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45912 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45912 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167387
+Starting session: command for <wsluser> from 127.0.0.1 port 45912 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45912 id 0
+Received disconnect from 127.0.0.1 port 45912:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45912
+Connection from 127.0.0.1 port 45924 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45924 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45924 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167392
+Starting session: command for <wsluser> from 127.0.0.1 port 45924 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45924 id 0
+Received disconnect from 127.0.0.1 port 45924:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45924
+Connection from 127.0.0.1 port 45928 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45928 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45928 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167397
+Starting session: command for <wsluser> from 127.0.0.1 port 45928 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45928 id 0
+Received disconnect from 127.0.0.1 port 45928:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45928
+Connection from 127.0.0.1 port 45944 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45944 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45944 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167402
+Starting session: command for <wsluser> from 127.0.0.1 port 45944 id 0
+Received disconnect from 127.0.0.1 port 45944:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45944
+Connection from 127.0.0.1 port 45952 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45952 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45952 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167407
+Starting session: command for <wsluser> from 127.0.0.1 port 45952 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45952 id 0
+Received disconnect from 127.0.0.1 port 45952:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45952
+Connection from 127.0.0.1 port 45954 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45954 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45954 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167412
+Starting session: command for <wsluser> from 127.0.0.1 port 45954 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45954 id 0
+Received disconnect from 127.0.0.1 port 45954:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45954
+Connection from 127.0.0.1 port 45960 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45960 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45960 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167417
+Starting session: command for <wsluser> from 127.0.0.1 port 45960 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45960 id 0
+Received disconnect from 127.0.0.1 port 45960:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45960
+Connection from 127.0.0.1 port 45972 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45972 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45972 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167422
+Starting session: command for <wsluser> from 127.0.0.1 port 45972 id 0
+Received disconnect from 127.0.0.1 port 45972:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45972
+Connection from 127.0.0.1 port 45982 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45982 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45982 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167427
+Starting session: command for <wsluser> from 127.0.0.1 port 45982 id 0
+Close session: user <wsluser> from 127.0.0.1 port 45982 id 0
+Connection closed by 127.0.0.1 port 45982
+Transferred: sent 3488, received 3584 bytes
+Closing connection to 127.0.0.1 port 45982
+Connection from 127.0.0.1 port 45998 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 45998 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 45998 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167619
+Starting session: command for <wsluser> from 127.0.0.1 port 45998 id 0
+Received disconnect from 127.0.0.1 port 45998:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 45998
+Connection from 127.0.0.1 port 46010 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 46010 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 46010 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167677
+Starting session: command for <wsluser> from 127.0.0.1 port 46010 id 0
+Close session: user <wsluser> from 127.0.0.1 port 46010 id 0
+Connection closed by 127.0.0.1 port 46010
+Transferred: sent 3844, received 3660 bytes
+Closing connection to 127.0.0.1 port 46010
+Connection from 127.0.0.1 port 46024 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 46024 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 46024 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167694
+Starting session: command for <wsluser> from 127.0.0.1 port 46024 id 0
+Close session: user <wsluser> from 127.0.0.1 port 46024 id 0
+Received disconnect from 127.0.0.1 port 46024:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 46024
+Connection from 127.0.0.1 port 46026 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 46026 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 46026 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167719
+Starting session: command for <wsluser> from 127.0.0.1 port 46026 id 0
+Received disconnect from 127.0.0.1 port 46026:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 46026
+Connection from 127.0.0.1 port 57404 on 127.0.0.1 port 55090 rdomain ""
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Postponed publickey for <wsluser> from 127.0.0.1 port 57404 ssh2 [preauth]
+Accepted key ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU found at <wslhome>/hm-m00/M00-T04-G03-native-wsl/fixture/authorized_keys:1
+Accepted publickey for <wsluser> from 127.0.0.1 port 57404 ssh2: ECDSA SHA256:YGmTK6+DOORHXo8YGFaf5gRJAdeoGUIxadY5sBPHmNU
+User child is on pid 1167747
+Starting session: command for <wsluser> from 127.0.0.1 port 57404 id 0
+Close session: user <wsluser> from 127.0.0.1 port 57404 id 0
+Received disconnect from 127.0.0.1 port 57404:11: disconnected by user
+Disconnected from user <wsluser> 127.0.0.1 port 57404

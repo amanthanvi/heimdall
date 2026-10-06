@@ -1,0 +1,9 @@
+label: utf8-output
+file: C:\WINDOWS\System32\OpenSSH\ssh.exe
+arguments: -F "<winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\tmp\heimdall-g03-20261006T063110Z-9aea63\probe dir üø\cfg 172cc4\ssh config" -o BatchMode=yes -o IdentityFile=none -o IdentitiesOnly=no -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=\"<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-windows/tmp/heimdall-g03-20261006T063110Z-9aea63/probe dir üø/known_hosts\"" -o GlobalKnownHostsFile=none -o UpdateHostKeys=no -o ControlMaster=no -o ControlPath=none -o ForwardAgent=no -o ProxyCommand=none -o ConnectTimeout=10 probe-target "printf '\303\274\342\230\203\n'"
+started_utc: 2026-10-06T06:34:18.7135202Z
+exit_code: 0
+timed_out: False
+--- stdout ---
+<binary stdout: 6 bytes, sha256=83716df59e1e2cdec9a29122e6fce81acc51de4ef93af19592b5cabf92e554bb>
+--- stderr ---

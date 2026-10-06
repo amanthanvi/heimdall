@@ -1,0 +1,15 @@
+{
+ "filtered_key": {
+  "proxy_denials": 1,
+  "reply_type_5": true,
+  "windows_sign_requests_for_key2": 0
+ },
+ "relay_list_wall_ms": "264 247 230",
+ "relay_processes": {
+  "after_all_clients_disconnected_proxy_running": "0",
+  "while_connection_held": "1"
+ },
+ "relay_processes_after_proxy_stop": "0",
+ "windows_agent_connects_attributed_to_powershell": 2,
+ "windows_agent_connects_total": 2
+}

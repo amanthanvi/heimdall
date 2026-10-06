@@ -1,0 +1,82 @@
+{
+  "case_id": "G03-wsl-a-git",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-02",
+    "R-SS-03"
+  ],
+  "build_commit": "",
+  "artifact_digest": null,
+  "environment": {
+    "arch": "x86_64",
+    "bash": "5.2.21(1)-release",
+    "distro": "Ubuntu 24.04.5 LTS",
+    "harness_appended_windows_system32_to_PATH": true,
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "91945da532d1ff1ee6a8b8c8c5322139878e43285ab64316a441cf38fada4cdc",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+    "harness_sha256_run_g03_wsl_probes.sh": "b6ed680dbe6934d29fdf84973febf2b79c0eafdc516dc844f8f01059292bf7d8",
+    "is_wsl": true,
+    "kernel": "Linux 6.18.40.1-microsoft-standard-WSL2",
+    "linux_ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024",
+    "python": "Python 3.12.3",
+    "run_id": "20261006T065342Z-939695",
+    "systemd_pid1": true,
+    "wsl_distro_name": "Ubuntu",
+    "wsl_interop_binfmt_present": true,
+    "xdg_runtime_dir_present": true
+  },
+  "provider_versions": [
+    {
+      "name": "linux ssh",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024"
+    },
+    {
+      "name": "windows ssh.exe",
+      "version": "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"
+    }
+  ],
+  "started_at": "2026-10-06T06:53:42Z",
+  "commands_or_harness": [
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home GIT_CONFIG_GLOBAL=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home/empty.gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 git -c core.sshCommand='/mnt/c/Windows/System32/OpenSSH/ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' -o 'IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a' ls-remote ssh://<wsluser>@127.0.0.1:55090/~/hm-m00/M00-T04-G03-native-wsl/fixture/probe.git (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home GIT_CONFIG_GLOBAL=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home/empty.gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='/mnt/c/Windows/System32/OpenSSH/ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' -o 'IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a' git -c core.sshCommand='/mnt/c/Windows/System32/OpenSSH/ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' -o 'IdentityAgent=//./pipe/heimdall-g03-nonexistent-8551d0' ls-remote ssh://<wsluser>@127.0.0.1:55090/~/hm-m00/M00-T04-G03-native-wsl/fixture/probe.git (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home GIT_CONFIG_GLOBAL=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home/empty.gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 git -c core.sshCommand='/mnt/c/Windows/System32/OpenSSH/ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' -o 'IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a' clone -q ssh://<wsluser>@127.0.0.1:55090/~/hm-m00/M00-T04-G03-native-wsl/fixture/probe.git <wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/probe dir üø/clone ü (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home GIT_CONFIG_GLOBAL=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home/empty.gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 git -c core.sshCommand='/mnt/c/Windows/System32/OpenSSH/ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' -o 'IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a' clone -q ssh://<wsluser>@127.0.0.1:55090/~/hm-m00/M00-T04-G03-native-wsl/fixture/probe.git <winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp//hg03-20261006T065342Z-939695/probe dir üø/clone ü (exit 0)",
+    "env SSH_AUTH_SOCK=\\\\.\\pipe\\heimdall-g03-wsldecoy-bf36baca WSLENV=SSH_AUTH_SOCK/w HOME=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home GIT_CONFIG_GLOBAL=<wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/home/empty.gitconfig GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 git -C <wslhome>/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-3LacJA/probe dir üø/clone ü -c core.sshCommand='/mnt/c/Windows/System32/OpenSSH/ssh.exe' '-F' '<winhome>\\AppData\\Local\\hm-m00\\M00-T04-G03-native-wsl\\tmp\\hg03-20261006T065342Z-939695\\plain\\ssh_config' '-o' 'BatchMode=yes' '-o' 'IdentityFile=none' '-o' 'IdentitiesOnly=no' '-o' 'PreferredAuthentications=publickey' '-o' 'PasswordAuthentication=no' '-o' 'KbdInteractiveAuthentication=no' '-o' 'StrictHostKeyChecking=yes' '-o' 'UserKnownHostsFile=<winhome>/AppData/Local/hm-m00/M00-T04-G03-native-wsl/tmp/hg03-20261006T065342Z-939695/plain/known_hosts' '-o' 'GlobalKnownHostsFile=none' '-o' 'UpdateHostKeys=no' '-o' 'ControlMaster=no' '-o' 'ControlPath=none' '-o' 'ForwardAgent=no' '-o' 'ProxyCommand=none' '-o' 'ConnectTimeout=10' -o 'IdentityAgent=//./pipe/heimdall-g03-wsl-a3154a3a' push -q origin HEAD (exit 0)"
+  ],
+  "observed_result": {
+    "core_sshCommand": {
+      "exit": 0,
+      "windows_agent_identity_requests": 5
+    },
+    "criteria": {
+      "GIT_SSH_COMMAND_overrides_core_sshCommand": true,
+      "clone_into_linux_spaced_unicode_path": true,
+      "clone_into_windows_spaced_unicode_path": true,
+      "core_sshCommand_ssh_exe_works": true,
+      "push_works": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/ls-remote-core-sshCommand.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/ls-remote-core-sshCommand.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/env-precedence.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/env-precedence.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-linux-spaced-unicode.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-linux-spaced-unicode.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-windows-spaced-unicode.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/clone-windows-spaced-unicode.stderr",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/push.stdout",
+    "tests/evidence/artifacts/g03/native-wsl/runs/r2/artifacts/G03-wsl-a-git/push.stderr"
+  ],
+  "limitations": [],
+  "blocked_on": null
+}

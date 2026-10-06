@@ -1,0 +1,7 @@
+{
+ "with_recreate": {
+  "after": "600 1000 socket 966",
+  "before": "600 1000 socket 965"
+ },
+ "without_recreate_exit": "7"
+}

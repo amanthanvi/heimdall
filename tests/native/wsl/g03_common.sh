@@ -113,6 +113,12 @@ g03_cleanup() {
   for pid in $(printf '%s' "$G03_OWNED" | awk '{print $1}'); do
     g03_stop_pid "$pid" >/dev/null 2>&1 || true
   done
+  local d
+  if [ -n "${G03_SCRATCH:-}" ] && [ -f "$G03_SCRATCH/epdirs.list" ]; then
+    while IFS= read -r d; do
+      case "$d" in */hg03-??????) [ -d "$d" ] && rm -rf "$d" ;; esac
+    done < "$G03_SCRATCH/epdirs.list"
+  fi
   if [ -n "${G03_SCRATCH:-}" ] && [ -d "$G03_SCRATCH" ]; then
     rm -rf "$G03_SCRATCH"
   fi
@@ -125,6 +131,17 @@ g03_init() {  # g03_init [OUT_DIR]
   unset SSH_AUTH_SOCK SSH_AGENT_PID GIT_SSH GIT_SSH_COMMAND GIT_SSH_VARIANT
   # Harness Python modules must not leave __pycache__ in the repository.
   export PYTHONDONTWRITEBYTECODE=1
+  # Windows tools are called by bare name (cmd.exe, powershell.exe, wsl.exe, ...). With
+  # [interop] appendWindowsPath=false, or in an sshd session, they are not on PATH: append
+  # only the System32 and Windows PowerShell directories (not OpenSSH) and record it.
+  G03_SESSION_PATH="$PATH"
+  G03_PATH_EXTENDED=false
+  if g03_is_wsl && [ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && ! command -v cmd.exe >/dev/null 2>&1 \
+     && [ -x /mnt/c/Windows/System32/cmd.exe ]; then
+    PATH="$PATH:/mnt/c/Windows/System32:/mnt/c/Windows/System32/WindowsPowerShell/v1.0"
+    export PATH
+    G03_PATH_EXTENDED=true
+  fi
   G03_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(g03_hex 3)"
   G03_OUT="${1:-$G03_REPO/tests/evidence/artifacts/g03/runs/$G03_RUN_ID}"
   mkdir -p "$G03_OUT/records" "$G03_OUT/artifacts" "$G03_OUT/obs"
@@ -154,6 +171,7 @@ g03_write_env() {
   fi
   "$PY" "$G03_HERE/evidence.py" obs-set "$envf" wsl_distro_name --str "${WSL_DISTRO_NAME:-<not WSL>}"
   "$PY" "$G03_HERE/evidence.py" obs-set "$envf" is_wsl --json "$(g03_is_wsl && echo true || echo false)"
+  "$PY" "$G03_HERE/evidence.py" obs-set "$envf" harness_appended_windows_system32_to_PATH --json "$G03_PATH_EXTENDED"
   "$PY" "$G03_HERE/evidence.py" obs-set "$envf" wsl_interop_binfmt_present --json "$([ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && echo true || echo false)"
   "$PY" "$G03_HERE/evidence.py" obs-set "$envf" linux_ssh --str "$("$LINUX_SSH" -V 2>&1 | head -1)"
   "$PY" "$G03_HERE/evidence.py" obs-set "$envf" python --str "$("$PY" --version 2>&1)"
@@ -290,6 +308,9 @@ g03_b_epdir() {  # private endpoint directory (prefers XDG_RUNTIME_DIR)
   local d
   d="$base/hg03-$(g03_hex 3)"
   mkdir -p "$d" && chmod 700 "$d"
+  # Endpoint directories outside the scratch (XDG_RUNTIME_DIR) are removed by g03_cleanup.
+  # (g03_b_epdir runs in a command substitution, so the list is kept in a scratch file.)
+  [ "$base" = "$G03_SCRATCH" ] || printf '%s\n' "$d" >> "$G03_SCRATCH/epdirs.list"
   printf '%s' "$d"
 }
 
@@ -344,6 +365,8 @@ g03_win_init() {  # requires interop; sets G03_WIN_SCRATCH_U/_W and plain dir fo
   G03_WIN_PLAIN_W="$(wslpath -w "$G03_WIN_SCRATCH_U/plain")"
   export HEIMDALL_G03_WIN_USER
   HEIMDALL_G03_WIN_USER="$(g03_win cmd.exe /d /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r')"
+  export HEIMDALL_G03_WIN_HOST
+  HEIMDALL_G03_WIN_HOST="$(g03_win cmd.exe /d /c 'echo %COMPUTERNAME%' 2>/dev/null | tr -d '\r')"
   return 0
 }
 

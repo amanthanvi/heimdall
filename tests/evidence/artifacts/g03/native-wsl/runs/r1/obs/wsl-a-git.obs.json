@@ -1,0 +1,6 @@
+{
+ "core_sshCommand": {
+  "exit": 0,
+  "windows_agent_identity_requests": 5
+ }
+}

@@ -1,0 +1,2 @@
+env WSL_UTF8=1 sh -c cd /mnt/c && wsl.exe --version (exit 0)
+env WSL_UTF8=1 sh -c cd /mnt/c && wsl.exe -l -v (exit 0)

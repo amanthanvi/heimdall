@@ -1,0 +1,2 @@
+sh -c cd /mnt/c && powershell.exe -NoProfile -NonInteractive -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)" (exit 0)
+sh -c cd /mnt/c && whoami.exe /groups /fo csv (exit 0)

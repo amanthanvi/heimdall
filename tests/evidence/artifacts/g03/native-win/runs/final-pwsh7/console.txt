@@ -1,0 +1,15 @@
+G03-win-env-inventory                      verified
+G03-win-sshauthsock-selection              verified
+G03-win-identityagent-forms                verified
+G03-win-git-ssh-selection                  verified
+G03-win-pipe-acl-other-user                blocked
+G03-win-stale-squat-pipe                   verified
+G03-win-process-io                         verified
+G03-win-path-quoting                       verified
+G03-win-service-elevation                  verified
+G03-win-1password-coexistence              blocked
+G03-win-agent-constraints                  blocked
+G03-wsl-b-other-windows-user               blocked
+G03-win-key-file-permissions               verified
+Records: <winhome>\AppData\Local\hm-m00\M00-T04-G03-native-windows\runs\final-pwsh7\records
+exit 0
