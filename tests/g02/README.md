@@ -4,7 +4,7 @@ One harness judges all three G02 prototypes (Go + Bubble Tea, Rust + Ratatui, Ty
 identically against the frozen slice contract `docs/g02/slice-contract.md`, **including §9 "Clarifications"
 K1-K12, K3a, §9.1 round-2 rulings K6a, K10 (confirmation), K13-K16, §9.2 K6b, K6c and §9.3 round-3 rulings K6d, K6e,
 K17, K18, K10 exit form and the start-up window, and the §9.4 round-3c rulings (K6e child-initiated stop, K12 closed
-stdout)** (harness version 2.4.1), and emits a plan.md §6.6 evidence record
+stdout, and the Q17 ruling that error results are gated too)** (harness version 2.4.2), and emits a plan.md §6.6 evidence record
 per candidate and platform. K13: a candidate passes the common slice only if the full harness passes on
 darwin-arm64 **and** linux-arm64; the Linux record comes from `linux/run.sh` (below). It also contains the
 instrumented fake SSH agent reused by later gates.
@@ -30,7 +30,8 @@ validated against `reference_impl.py` / `reference_tui.py` and their injectable 
 | `reference_impl.py`, `reference_tui.py` | reference implementation of the clarified contract + injectable defects (`REF_MUTATE`), harness validation only |
 | `selftest.py` / `SELFTEST.md` | proves the baseline passes (plus `--repeat-baseline N` flake runs), every reference mutation is caught (by the check(s) written for it where listed in `INTENDED`; with the right first failing assertion where listed in `INTENDED_FIRST_ASSERTION`; in the record's observation for non-gating ones, `OBSERVED`; race mutations the harness cannot force, `RACE`, are run and reported but not required), every conforming variant (`CONFORMING`, behaviour a §9 ruling allows) passes, every canary harness mutation trips the canary self-check, and every injected harness/environment fault (`HARNESS_EXPECT`) gives the required check outcome (a failed precondition is `error`, never `fail`); `--linux` runs the same self-test inside the Linux runner container and merges it (platform-gated K3a mutation proven there) |
 | `requirements.txt` | pinned, hashed `pyte==0.8.2`, `wcwidth==0.9.1` (TUI checks only) |
-| `selftest-results/2026-10-05-r7/` | machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.4.1), the informational runs of the changed checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the timing experiments behind the `run_mirror_nograce` race classification (`nograce-experiments/`), plus the sha256 prefixes of the tested files |
+| `selftest-results/2026-10-05-r8/` | harness 2.4.2: console logs, machine-readable results and sha256 prefixes of the scoped self-test run for the Q17 change (darwin host and Linux container; see the 2.4.2 section of `SELFTEST.md` for exactly what ran) |
+| `selftest-results/2026-10-05-r7/` | machine-readable results and console logs of the full self-test runs on harness 2.4.1 (darwin host and Linux container; the last run of the full mutation set, and the content of the r7 part of `SELFTEST.md`), the informational runs of the changed checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the timing experiments behind the `run_mirror_nograce` race classification (`nograce-experiments/`), plus the sha256 prefixes of the tested files |
 | `selftest-results/2026-10-04-r6/` | harness 2.4.0 (kept for history): machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.4.0), the informational runs of the two §9.4 checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the K6e stress runs behind the reference's stop-mirroring grace (`stress-*.json`), the console logs and the flaking result of the aborted first self-test (`run1-aborted-*`), the console logs of the aborted second one (`run2-aborted-*`: Linux `run_text_mode` exit -9, then the tool's 2 h limit), plus the sha256 prefixes of the tested files (`2026-10-04-r5/`, `2026-10-04-r4/`, `2026-10-03-r3/` and `2026-10-03-r2/`: earlier rounds, kept for history) |
 | `../fixtures/fake-agent/fake_agent.py` | instrumented fake SSH agent (stdlib only) |
 
@@ -362,9 +363,9 @@ self-test.
   * `json_error_epipe_exit1` (review `rv_k12_json_error_epipe`, the Go prototype's shape): `--json` failure results
     exit 1 on EPIPE, while plain mode writes nothing to stdout and exits 2/5. `k12.closed_stdout_exit_parity` now also
     runs four error results on a closed stdout: profile show of a missing file and of a schema-invalid file, agent
-    list on a missing socket, and a usage error. Whether §9.4 covers error results is escalated as **Q17**, so these
-    cases are a non-gating observation (`observations.k12_closed_stdout_errors`; one switch,
-    `K12_ERROR_RESULTS_GATING`, gates them once Q17 is answered yes). The mutation is OBSERVED (`all_equal` false).
+    list on a missing socket, and a usage error. Whether §9.4 covers error results was escalated as **Q17**; in 2.4.1
+    these cases were a non-gating observation (`observations.k12_closed_stdout_errors`) and the mutation was OBSERVED.
+    The owner answered Q17 yes, so since 2.4.2 they are gating and the mutation is INTENDED (guarantee (j)).
     Informational 2026-10-05: the Go prototype dies of SIGPIPE with `--json` and exits 2/5 without it, on darwin and
     on Linux (`info-go-*.json`). Rust's error results are equal.
   * Conforming variants `run_mirror_sigstop_always` (review control `ctl_mirror_sigstop_always`) and
@@ -391,6 +392,27 @@ self-test.
   * Self-test mechanics: `OBSERVED` entries may carry a summariser for the report. `RACE` mutations are reported in
     `SELFTEST.md` and excluded from the caught count. The baseline summary also lists the K12 error-result statuses
     and the K6a self-stop layouts.
+
+* **(j) Q17 ruling: K12 closed-stdout parity covers error results (M00-T05-harness-q17, harness 2.4.2).** The owner
+  ruled (contract §9.4, Q17) that the closed-stdout parity applies to error results too: a `--json` error result
+  that dies of SIGPIPE or EPIPE while the plain run exits 2 or 5 fails. Nothing else changed.
+  * `conformance.py`: `K12_ERROR_RESULTS_GATING = True`. The four error-result cases (profile show of a missing file,
+    profile show of a schema-invalid file, agent list on a missing socket, a usage error) are now gating
+    assertions of the existing check `k12.closed_stdout_exit_parity` (no separate check id). They run after the three
+    success-result cases, so the check's first failing assertion for an error-result defect is
+    `[profile-missing] error result, stdout closed by its reader ...`. `observations.k12_closed_stdout_errors` is still
+    recorded (now with `gating: true`). A run-local error, such as a timeout (no wait status), also fails the case.
+  * `reference_impl.py` / `selftest.py`: `json_error_epipe_exit1` moved from OBSERVED to INTENDED
+    (`k12.closed_stdout_exit_parity`, first failing assertion required). New mutation `json_error_sigpipe` reproduces
+    the review's `rv_k12_json_error_epipe` exactly as the Go prototype behaves: a `--json` failure result dies of
+    SIGPIPE (default disposition restored before the write) while plain mode exits 2/5; INTENDED likewise. Both are
+    REQUIRED caught on macOS and in the Linux container.
+  * The conforming variant `closed_stdout_sigpipe_both` now applies the SIGPIPE default to success results only. With
+    Q17 a failure result that died of SIGPIPE in `--json` mode while the plain one (which never writes a failure to
+    stdout) exits 2/5 is no longer allowed; the variant's remaining behaviour (success results die of SIGPIPE in both
+    modes) is still allowed and must pass.
+  * Validation: see the 2.4.2 section of `SELFTEST.md` and `selftest-results/2026-10-05-r8/`. The full mutation set
+    was last run on 2.4.1 (r7); 2.4.2 ran a scoped self-test plus full-catalogue baselines.
 
 ## Instrumented fake agent
 
@@ -574,7 +596,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | `common.exit_codes_without_json` | §1/K12 | without --json the exit codes equal the --json ones (output not judged) |
 | `common.no_helper_processes` | §1/K16 | apart from the run child, heimdall-proto never executes another program: tripwire tmux/tput/infocmp/stty/sh/bash/ssh/git on PATH (prepended; for run after the child's own directory) under four environments (TMUX/TERM_PROGRAM/COLORTERM with TERM=xterm-256color and TERM=tmux-256color; TERM=screen-256color with STY; TERM=screen), for version, profile show (ok, invalid), a usage error, agent list, tui and run (needs pyte) |
 | `common.no_stray_writes` | §1/K11 | no new files in HOME, TMPDIR or the working directory after any invocation; fixtures unchanged |
-| `k12.closed_stdout_exit_parity` | §1/K12 | closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded the same way as a NON-GATING observation pending Q17 (observations.k12_closed_stdout_errors) |
+| `k12.closed_stdout_exit_parity` | §1/K12 | closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are judged the same way and are GATING too (Q17, section 9.4: a --json error result that dies of SIGPIPE or EPIPE while the plain run exits 2 or 5 fails; wait statuses in observations.k12_closed_stdout_errors) |
 | `canary.no_canary_anywhere` | §1 | no HEIMDALL_CANARY_ in any captured stdout/stderr/meta/pty stream |
 
 ### §9 clarification coverage
@@ -594,7 +616,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | K10 | TUI SIGTERM -> 143, SIGHUP/hangup -> 129, panic -> 1, never stdout; terminal restored | `tui.sigterm_restores_terminal`, `tui.sighup_exit_129`, `tui.hangup_exit_129` (shell-like and bare hangup; each also accepts the re-raised-signal death per K10 exit form); panic path not testable black-box |
 | K11 | no runtime writes outside paths named on the command line (sidecar/extraction rules) | per-invocation assertion (HOME, TMPDIR, cwd and the `--meta-file` directory) in every check that runs the binary + aggregate `common.no_stray_writes` (lists every stray path with check id and invocation); sidecar/manifest rules not covered |
 | K12 | output without `--json` not judged; exit codes equal | `common.exit_codes_without_json`; `usage.*_plain` keep judging §1 usage errors |
-| K12 closed stdout (§9.4) | exit codes equal also when stdout is a pipe whose reader has closed; "exit status" includes death by signal | `k12.closed_stdout_exit_parity` (version, profile show, agent list; read end closed before the start; `observations.k12_closed_stdout`); error results (profile missing / schema-invalid, agent unavailable, usage error) recorded non-gating pending Q17 (`observations.k12_closed_stdout_errors`) |
+| K12 closed stdout (§9.4) | exit codes equal also when stdout is a pipe whose reader has closed; "exit status" includes death by signal | `k12.closed_stdout_exit_parity` (version, profile show, agent list; read end closed before the start; `observations.k12_closed_stdout`); error results (profile missing / schema-invalid, agent unavailable, usage error) gated in the same check since 2.4.2 (Q17 answered yes; wait statuses in `observations.k12_closed_stdout_errors`) |
 | K6a | `run` never takes the terminal foreground from another process, never stops a member of its own job; inherited SIG_IGN stays ignored in the child and is not forwarded | `run.k6a_pipeline_peer_not_stopped` (`run -- child \| peer` as a `bash -i` pipeline job, peer reads `/dev/tty`: no `Stopped`, statuses `0 0`, peer read succeeds, job pgrp keeps the foreground), `run.k6a_background_script_tty` (non-job-control script runs `run -- sleep 1 &` with SIGINT/SIGQUIT ignored, stdin tty or /dev/null, then reads the tty with SIGTTIN ignored: no EIO, foreground group unchanged before/during/after), `run.k6a_inherited_ignore` (gated per K6c: SIGHUP ignored (nohup) and SIGINT ignored (non-interactive & job, started with SIGINT+SIGQUIT ignored): child disposition SIG_IGN via `signal.getsignal` and on Linux `/proc` SigIgn, child survives the signal without a handler, and with a handler sees no forwarded delivery; heimdall-proto survives), `run.k6a_child_self_stop_not_spread` (a child that stops itself with SIGTSTP while heimdall-proto is the first or last member of a `bash -i` pipeline or runs under a non-job-control `sh -c` script: the other member is never stopped within 4 s; direct-exec control as a precondition; `observations.k6a_child_self_stop`) |
 | K6b | precedence K6a > K6 (explicit signal exactly once) > §4 (terminal SIGINT not twice); own foreground group only when alone in the process group; terminal/killpg duplicates recorded, not gated | K6a and K6 checks gate as above; `run.explicit_signal_with_tty` (heimdall-proto alone as the foreground job: giving the child its own group is not penalised) versus `run.k6a_pipeline_peer_not_stopped` / `run.k6a_background_script_tty` (not alone: penalised); terminal Ctrl-C and `killpg` delivery counts stay non-gating observations (`run.explicit_signal_with_tty`, `run.sigint_process_group`) |
 | K6c | inherited-ignore gate covers SIGHUP and SIGINT only; other inherited ignores and the blocked mask are a recorded stack limitation | `run.k6a_inherited_ignore`: SIGQUIT in the `async-job` variant and the `other-ignores-K6c` variant (CPython child: SIGQUIT, SIGTERM, SIGWINCH ignored, SIGUSR2 blocked) and the SIGPIPE ignore observed with a non-Python child (`yes` into a closed pipe; Linux also `/bin/cat /proc/self/status`) are non-gating observations, collected in `observations.k6c_other_inherited_signal_state` |
@@ -645,7 +667,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | §5 terminal restoration and exit code on every exit path | assert_restored in tui.select_down_enter, tui.quit_q, tui.ctrl_c, tui.ctrl_c_in_filter_mode, tui.sigterm_restores_terminal, tui.sighup_exit_129, tui.start_tiny_no_crash; tui.hangup_exit_129 (exit code only) |
 | §5 no agent contact / file writes; 100-destination fixture | tui.no_agent_contact, common.no_stray_writes (+ per-session K11), tui.large_100_filter_latency (K17: p95 <= 100 ms over 30 edits, gating) |
 | §6 version | version.valid |
-| §1/K12 exit codes without `--json`, also on a closed stdout (§9.4; error results there non-gating, Q17) | common.exit_codes_without_json, k12.closed_stdout_exit_parity |
+| §1/K12 exit codes without `--json`, also on a closed stdout (§9.4; error results there gating since 2.4.2, Q17) | common.exit_codes_without_json, k12.closed_stdout_exit_parity |
 | §7 distributable build (clean machine, no toolchain on PATH, K11 sidecars) | NOT covered by this harness; the record stores the tested binary's sha256 so a build-evidence record can reference it |
 | Windows named pipe, CommandLineToArgvW quoting, console Ctrl-C | NOT covered (blocked_on: native Windows host) |
 
@@ -688,8 +710,8 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   stopped until `fg` is recorded (`resumed_before_fg`), not gated (Q16).
 * K12 closed stdout covers version, profile show (valid) and agent list (normal) with SIGPIPE at its default
   disposition and the read end closed before the start. Error results on a closed stdout (profile show of a missing
-  and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded but not gated until Q17
-  is answered. An inherited SIGPIPE ignore, a reader that closes after part of the output and a closed stderr are not
+  and of a schema-invalid file, agent list on a missing socket, a usage error) are gated too since 2.4.2 (Q17
+  answered yes, §9.4). An inherited SIGPIPE ignore, a reader that closes after part of the output and a closed stderr are not
   covered.
 * K17 includes pty and emulator overhead (2 ms polling) and is wall-clock on a possibly loaded machine; the record
   stores the load average.
@@ -736,14 +758,6 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop
   (`resumed_before_fg`, non-gating), not gated. Gate it (exec semantics) or not? Since harness 2.4.1 the self-test
   requires that observation to show the review's `rv_cont_child_first` shape (mutation `run_cont_child_first`).
-* Q17 (round 7) K12 closed stdout and error results (§9.4): the base K12 rule ("exit codes are the same as with
-  `--json`") covers error results, and `common.exit_codes_without_json` gates their exit 2/5 with an open stdout.
-  §9.4 extends the rule to a closed stdout without naming a scope. On a closed stdout a `--json` error result meets
-  EPIPE/SIGPIPE, while the plain one writes nothing to stdout and exits 2/5. The harness records profile missing,
-  profile schema-invalid, agent unavailable and a usage error as a non-gating observation
-  (`observations.k12_closed_stdout_errors`). The Go prototype dies of SIGPIPE with `--json` and exits 2/5 without it
-  (review `rv_k12_json_error_epipe`; informational runs `info-go-*.json`). Does §9.4 cover error results? If yes, set
-  `K12_ERROR_RESULTS_GATING = True` in `conformance.py`.
 * Q18 (round 7; a harness limitation rather than a contract question) K6e "never re-stopped right after `fg`": a
   launcher that mirrors a child stop report at once, without a grace for a report made stale by the shell's group
   continue, re-stopped the job in experiments only rarely (guarantee (i)). The harness cannot force that scheduling
@@ -756,7 +770,10 @@ Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K
 -> K12. Resolved by §9.3: Q8 -> K10 exit form (exit 143/129 or death by the re-raised signal), Q9 -> K18 (offending
 values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating). §9.4 settles the round-3b review findings:
 K6e covers child-initiated stops (gated: SIGTSTP under bash, `run.k6e_child_self_stop`) and K12 parity covers a closed
-stdout (`k12.closed_stdout_exit_parity`; error results there pending Q17).
+stdout (`k12.closed_stdout_exit_parity`). **Q17 answered (owner ruling, §9.4, harness 2.4.2):** the closed-stdout
+parity covers error results too, so the error-result cases (profile missing / schema-invalid, agent unavailable, usage
+error) are gating in that check (`K12_ERROR_RESULTS_GATING = True`); a `--json` error result that dies of SIGPIPE/EPIPE
+while the plain run exits 2/5 fails (the Go prototype's shape, review `rv_k12_json_error_epipe`).
 
 ## Maintaining the harness
 

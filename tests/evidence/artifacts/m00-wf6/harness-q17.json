@@ -1,0 +1,54 @@
+{
+  "task_id": "M00-T05-harness-q17",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/g02/conformance.py (c67bdce, reviewed, unchanged by me)",
+    "<repo>/tests/g02/reference_impl.py (c67bdce, reviewed, unchanged by me)",
+    "<repo>/tests/g02/selftest.py (uncommitted, reviewed, unchanged by me)",
+    "<repo>/tests/g02/README.md (uncommitted, reviewed, unchanged by me)",
+    "<repo>/tests/g02/SELFTEST.md (added 2.4.2 addendum section)",
+    "<repo>/tests/g02/selftest-results/2026-10-05-r8/ (added selftest-scoped.console.log, SELFTEST-scoped.md, selftest-darwin.json, selftest-linux.json, SELFTEST-linux.md; appended finish time to run-times-utc.txt; tested-file-sha256-prefixes.txt from the earlier attempt, unchanged)"
+  ],
+  "commands_run": [
+    {
+      "command": "git show c67bdce -- tests/g02; git diff tests/g02",
+      "exit_code": 0,
+      "observed": "Reviewed the previous attempt. conformance.py: HARNESS_VERSION 2.4.2, K12_ERROR_RESULTS_GATING = True, the four error-result cases (profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag) are gating assertions inside the existing check k12.closed_stdout_exit_parity, after the three success cases. reference_impl.py: new mutation json_error_sigpipe (a --json failure result dies of SIGPIPE, plain exits 2/5, the Go prototype's shape); variant closed_stdout_sigpipe_both now applies to success results only. selftest.py: json_error_epipe_exit1 moved from OBSERVED to INTENDED; both mutations are INTENDED with the first failing assertion required ([profile-missing] ...). README: Q17 answered, catalogue and coverage rows, guarantee (j), open-question text. I found nothing to change."
+    },
+    {
+      "command": "kill -0 11191 (polled, up to 60 s in my session)",
+      "exit_code": 0,
+      "observed": "PID 11191 was alive at the start of my session. It exited about 1 minute later. I did not kill it."
+    },
+    {
+      "command": "sha256 prefix comparison of the 12 files in selftest-results/2026-10-05-r8/tested-file-sha256-prefixes.txt against the current tree (before the orphan finished and again at the end)",
+      "exit_code": 0,
+      "observed": "All 12 files match (conformance.py, harness_lib.py, minischema.py, pty_shim.py, reference_impl.py, reference_tui.py, rss_wrap.py, selftest.py, linux/Dockerfile, linux/Dockerfile.dockerignore, linux/run.sh, fake_agent.py). The orphan's run started with the same file contents."
+    },
+    {
+      "command": "orphan scoped self-test (PID 11191), console log /tmp/M00-T05-harness-q17/selftest.console.log",
+      "exit_code": 0,
+      "observed": "Final line 'SELFTEST PASS'. Darwin: baseline of the unmutated reference, full catalogue, exit 0 (139 pass, 0 fail, 0 error, 0 skipped, 279.8 s). Candidate-mismatch check exit 1 (version.valid). Linux (tests/g02/linux/run.sh --selftest, image heimdall-g02-harness:d0c8e448a3a7): baseline exit 0 (139/139 pass, 268.4 s); 'linux self-test exit=0 in 310s'. Scoped mutations, all 6 caught on both platforms: json_error_epipe_exit1 and json_error_sigpipe by k12.closed_stdout_exit_parity (the generated report shows the required first failing assertion [profile-missing] ...), plain_epipe_exit1 and plain_epipe_sigpipe by k12.closed_stdout_exit_parity, plain_exit_wrong by common.exit_codes_without_json, wrong_exit_schema by profile.* checks. Conforming variant closed_stdout_sigpipe_both accepted on both."
+    },
+    {
+      "command": "cp scoped-run artifacts into selftest-results/2026-10-05-r8/; grep for HEIMDALL_CANARY_ values in that directory",
+      "exit_code": 1,
+      "observed": "Copied the console log, SELFTEST-scoped.md, and the darwin and linux JSON/MD reports. grep exit 1 means no full canary value in any file."
+    },
+    {
+      "command": "python3 -m py_compile conformance.py selftest.py reference_impl.py",
+      "exit_code": 0,
+      "observed": "All three compile."
+    }
+  ],
+  "escalations": [],
+  "limitations": [
+    "I reused the orphan's run (PID 11191) and did not re-run. Reason: it passed, and the sha256 prefixes of all 12 tested files match the current files. The earlier run did not exercise the SELFTEST.md addendum or the r8 copies, which are not tested files.",
+    "This is a scoped self-test, not the full mutation set. Run on both platforms: the full-catalogue baseline of the unmutated reference, the candidate-mismatch check, 6 mutations (json_error_epipe_exit1, json_error_sigpipe, plain_epipe_exit1, plain_epipe_sigpipe, plain_exit_wrong, wrong_exit_schema) and 1 conforming variant (closed_stdout_sigpipe_both). Not re-run on 2.4.2: the other 130 reference mutations, harness/environment faults, canary harness mutations, repeat baselines (--repeat-baseline) and the other 5 conforming variants. The full mutation set was last run on 2.4.1 (r7).",
+    "The scoped run used one baseline per platform. Flake detection (3 baselines) was not repeated.",
+    "SELFTEST.md is normally generated by selftest.py. I added a hand-written 2.4.2 addendum above the r7 content, so the next full self-test run will regenerate the file and overwrite it unless the generator is updated.",
+    "Informational runs against the Go and Rust prototype builds were not re-done for 2.4.2.",
+    "Subagents do not commit. The edits from the previous attempt in conformance.py and reference_impl.py were already swept into c67bdce, and the other edits are uncommitted. The orchestrator must commit tests/g02 (README.md, SELFTEST.md, selftest.py, selftest-results/2026-10-05-r8/)."
+  ],
+  "summary": "Q17 applied as harness 2.4.2. I reviewed the previous attempt and found nothing to change. The closed-stdout error-result cases (profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag) are now gating assertions of the existing check k12.closed_stdout_exit_parity (K12_ERROR_RESULTS_GATING = True, no new check id). The review's rv_k12_json_error_epipe shape is covered by the new INTENDED mutation json_error_sigpipe, and json_error_epipe_exit1 moved from OBSERVED to INTENDED. Both require the first failing assertion to be [profile-missing]. I did not re-run: the orphan scoped self-test (PID 11191) finished by itself with 'SELFTEST PASS' and its tested-file hashes match the current tree. Results on darwin and in the Linux container (run.sh): the full-catalogue baseline of the unmutated reference passed 139/139 on each, 6/6 scoped mutations were caught on each, and the conforming variant was accepted on each. I saved the logs, JSON and reports in selftest-results/2026-10-05-r8/ and added a 2.4.2 addendum to SELFTEST.md. It says the full mutation set was last run on 2.4.1 and lists what changed and what did not re-run.\""
+}

@@ -1,0 +1,26 @@
+[Darwin] baseline (unmutated reference, all checks) ...
+  exit=0 summary={'pass': 139, 'fail': 0, 'error': 0, 'skipped': 0, 'total': 139, 'duration_s': 279.8} failed=[]
+  candidate-mismatch exit=1 failed=['version.valid']
+json_error_epipe_exit1             exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+json_error_sigpipe                 exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+plain_epipe_exit1                  exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+plain_epipe_sigpipe                exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+plain_exit_wrong                   exit=1 caught=True by ['common.exit_codes_without_json']
+wrong_exit_schema                  exit=1 caught=True by ['profile.invalid_forbidden_key', 'profile.invalid_unknown_dest_key', 'profile.invalid_malformed', 'profile.invalid_schema_version']
+variant:closed_stdout_sigpipe_both exit=0 accepted=True failed=[] k10=None
+linux self-test: <repo>/tests/g02/linux/run.sh --selftest /tmp/M00-T05-harness-q17/work/linux -- --only json_error_epipe_exit1,json_error_sigpipe,plain_epipe_exit1,plain_epipe_sigpipe,plain_exit_wrong,wrong_exit_schema,closed_stdout_sigpipe_both
+[Linux] baseline (unmutated reference, all checks) ...
+  exit=0 summary={'pass': 139, 'fail': 0, 'error': 0, 'skipped': 0, 'total': 139, 'duration_s': 268.4} failed=[]
+  candidate-mismatch exit=1 failed=['version.valid']
+json_error_epipe_exit1             exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+json_error_sigpipe                 exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+plain_epipe_exit1                  exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+plain_epipe_sigpipe                exit=1 caught=True by ['k12.closed_stdout_exit_parity']
+plain_exit_wrong                   exit=1 caught=True by ['common.exit_codes_without_json']
+wrong_exit_schema                  exit=1 caught=True by ['profile.invalid_forbidden_key', 'profile.invalid_unknown_dest_key', 'profile.invalid_malformed', 'profile.invalid_schema_version']
+variant:closed_stdout_sigpipe_both exit=0 accepted=True failed=[] k10=None
+
+SELFTEST PASS -> /out/SELFTEST-linux.md (workdir /out/work)
+linux self-test exit=0 in 310s
+
+SELFTEST PASS -> /tmp/M00-T05-harness-q17/SELFTEST-scoped.md (workdir /tmp/M00-T05-harness-q17/work)

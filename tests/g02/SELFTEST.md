@@ -6,6 +6,39 @@ Subject: `tests/g02/reference_impl.py` (a minimal Python implementation of contr
 
 Every exit code below is the real exit status of the command that was run in this pass.
 
+## Harness 2.4.2 addendum (M00-T05-harness-q17, 2026-10-05; hand-written, scoped run)
+
+The full content below (verdict, platforms, 136 mutations, variants, baselines x3) is the **harness 2.4.1** full
+self-test run (r7, `selftest-results/2026-10-05-r7/`). **The full mutation set was last run on 2.4.1.** Harness 2.4.2
+changes only what the owner's Q17 ruling (contract section 9.4) requires:
+
+- `conformance.py`: `HARNESS_VERSION` 2.4.2; `K12_ERROR_RESULTS_GATING = True`, so the four error-result cases of
+  `k12.closed_stdout_exit_parity` (profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag)
+  are gating assertions of the existing check (after the three success-result cases).
+- `reference_impl.py` / `selftest.py`: `json_error_epipe_exit1` moved from OBSERVED to INTENDED (first failing
+  assertion required); new INTENDED mutation `json_error_sigpipe` (the Go prototype's shape, review
+  `rv_k12_json_error_epipe`); conforming variant `closed_stdout_sigpipe_both` restricted to success results.
+- Consequently, in the r7 tables below `json_error_epipe_exit1` is shown with its 2.4.1 classification (observed, not
+  gated); under 2.4.2 it is required to fail `k12.closed_stdout_exit_parity` at `[profile-missing] error result ...`.
+
+What ran for 2.4.2 (one pass, no repeat baselines; console log, JSON and the generated report of that run, and the
+sha256 prefixes of the tested files, are in `selftest-results/2026-10-05-r8/`; PID 11191 started 2026-10-06T00:41:31Z
+and finished about 00:52Z; the tested-file hashes were re-checked against the files in the tree after it finished and
+match):
+
+- Host (Darwin 27.0.0, arm64): minischema unit self-test exit 0; baseline of the unmutated reference, FULL catalogue,
+  exit 0 (139 pass, 0 fail, 0 error, 0 skipped); wrong `--candidate` check exit 1 (`version.valid`); 6 of 6 scoped
+  mutations caught (`json_error_epipe_exit1`, `json_error_sigpipe` both by `k12.closed_stdout_exit_parity` with the
+  required first failing assertion; `plain_epipe_exit1`, `plain_epipe_sigpipe` by the same check; `plain_exit_wrong` by
+  `common.exit_codes_without_json`; `wrong_exit_schema`); conforming variant `closed_stdout_sigpipe_both` accepted.
+- Linux container (`tests/g02/linux/run.sh --selftest`, linux-arm64, same image `heimdall-g02-harness:d0c8e448a3a7`):
+  the same set with the same outcome (baseline 139/139 pass, exit 0; 6 of 6 mutations caught; variant accepted).
+- Not re-run on 2.4.2: the other 130 reference mutations, the harness/environment fault set, the canary harness
+  mutations, repeat baselines, and the other 5 conforming variants. No code outside the Q17 paths changed; the full
+  catalogue baselines above (unmutated reference, both platforms) show no regression of any other check.
+
+---
+
 ## Verdict: **PASS**
 
 ## Platforms

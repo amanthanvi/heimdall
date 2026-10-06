@@ -27,9 +27,11 @@ K12 closed stdout).
    the run must PASS (exit 0, every check in scope passes): the harness must not reject allowed behaviour.
 9. Blame (INTENDED_FIRST_ASSERTION): for some mutations the intended check must fail with a specific FIRST
    failing assertion, so the defect is attributed to the right step (K6e late re-stop after `fg`; K6e child
-   self-stop not reported versus `fg` not resuming the child).
-10. Observation mutations (OBSERVED): defects in non-gating observations (K6c, Q16, the section 9.4 SIGSTOP form,
-   K12 error results pending Q17) - the run may pass, but the record's observation must show the defect and the
+   self-stop not reported versus `fg` not resuming the child; K12 closed-stdout error results: the first
+   failing assertion must be the first error-result case, not a success-result case).
+10. Observation mutations (OBSERVED): defects in non-gating observations (K6c, Q16, the section 9.4 SIGSTOP form;
+   K12 error results were observed here until harness 2.4.2 and are gated since the Q17 ruling) - the run may
+   pass, but the record's observation must show the defect and the
    baseline's must not.
 12. Race mutations (RACE): a defect that shows only through a scheduling race the harness cannot force (harness
    2.4.1: run_mirror_nograce, the round-4 review's rv_nograce).  It is run and its result is reported, but it is
@@ -79,8 +81,9 @@ SCOPE_OVERRIDE = {
     # K12 closed stdout (section 9.4): the defect is in the shared output path of version/profile/agent
     "plain_epipe_exit1": "version.*,common.*,k12.*,canary.*",
     "plain_epipe_sigpipe": "version.*,common.*,k12.*,canary.*",
-    # round 7 (M00-T05-harness-r4-fix): K12 error results on a closed stdout (non-gating pending Q17)
+    # round 7 (M00-T05-harness-r4-fix) / 2.4.2: K12 error results on a closed stdout (gating since Q17)
     "json_error_epipe_exit1": "k12.*,common.*,canary.*",
+    "json_error_sigpipe": "k12.*,common.*,canary.*",
     # a race the harness cannot force: only the K6e Ctrl-Z/fg check can show it (RACE below)
     "run_mirror_nograce": "run.k6e_job_control",
 }
@@ -154,6 +157,9 @@ INTENDED = {
     "plain_epipe_sigpipe": "k12.closed_stdout_exit_parity",
     # round 7 (M00-T05-harness-r4-fix): the round-4 harness review's missed mutations
     "run_mirror_killpg": "run.k6a_child_self_stop_not_spread",
+    # harness 2.4.2 (M00-T05-harness-q17): the Q17 ruling makes K12 closed-stdout error results gating
+    "json_error_epipe_exit1": "k12.closed_stdout_exit_parity",
+    "json_error_sigpipe": "k12.closed_stdout_exit_parity",
 }
 
 # mutation -> (check id, text of the assertion that must be the FIRST failing gating assertion of that check):
@@ -166,6 +172,14 @@ INTENDED_FIRST_ASSERTION = {
                                                          "prompts again, with no user action"),
     # ... or it is reported, but `fg` never resumes the child
     "run_child_stop_no_continue": ("run.k6e_child_self_stop", "stop 1: `fg` resumes the child"),
+    # K12 closed stdout, error results (Q17): the three success-result cases pass, so the first failing assertion is
+    # the first error-result case (profile show of a missing file)
+    "json_error_epipe_exit1": ("k12.closed_stdout_exit_parity",
+                               "[profile-missing] error result, stdout closed by its reader: the wait status "
+                               "without --json equals the one with --json"),
+    "json_error_sigpipe": ("k12.closed_stdout_exit_parity",
+                           "[profile-missing] error result, stdout closed by its reader: the wait status "
+                           "without --json equals the one with --json"),
 }
 
 # mutations of non-gating observations (K6c): the run need not fail, but the record's observation must show the
@@ -179,11 +193,6 @@ def _k6es_resumed_flags(v):
     return [st.get("resumed_before_fg") for job in v.get("jobs") or [] for st in job.get("stops") or []]
 
 
-def _k12_err_cases(v):
-    return {k: [(c.get("json") or {}).get("wait_status"), (c.get("plain") or {}).get("wait_status")]
-            for k, c in (v.get("cases") or {}).items()}
-
-
 OBSERVED = {
     "run_child_sigpipe_ignored": (
         "observations.k6c_other_inherited_signal_state['sigpipe-non-python'].classification == 'child_always_ignores' "
@@ -191,8 +200,8 @@ OBSERVED = {
         lambda obs: ((obs.get("k6c_other_inherited_signal_state") or {}).get("sigpipe-non-python") or {}),
         lambda v: v.get("classification") == "child_always_ignores" and v.get("inherited_sigpipe_ignore_kept") is False,
         lambda v: {k: v.get(k) for k in ("classification", "inherited_sigpipe_ignore_kept")}),
-    # round 7 (M00-T05-harness-r4-fix): the round-4 harness review's missed mutations whose defect section 9.4 / Q16 /
-    # Q17 leave non-gating
+    # round 7 (M00-T05-harness-r4-fix): the round-4 harness review's missed mutations whose defect section 9.4 / Q16
+    # leave non-gating
     "run_cont_child_first": (
         "observations.k6e_child_self_stop['bash-SIGTSTP'] shows resumed_before_fg true for a self-stop (Q16, recorded "
         "not gated; harness 2.4.0 recorded it but the self-test did not require it)",
@@ -207,13 +216,6 @@ OBSERVED = {
         and "the shell reports the job stopped" in str((v.get("first_failed_step") or {}).get("desc") or ""),
         lambda v: {"ok": v.get("ok"), "not_run": v.get("not_run"),
                    "first_failed_step": str((v.get("first_failed_step") or {}).get("desc") or "")[:110]}),
-    "json_error_epipe_exit1": (
-        "observations.k12_closed_stdout_errors.all_equal is false (an error result's wait status with --json differs "
-        "from the one without on a closed stdout; non-gating pending Q17)",
-        lambda obs: obs.get("k12_closed_stdout_errors") or {},
-        lambda v: v.get("all_equal") is False and bool(v.get("cases"))
-        and all((c.get("json") or {}).get("rc") is not None for c in v["cases"].values()),
-        lambda v: {"all_equal": v.get("all_equal"), "json/plain": _k12_err_cases(v)}),
 }
 
 # race mutations: run and reported, NOT required to be caught (see the module docstring, item 12, and the README)
@@ -606,7 +608,7 @@ def md_platform_summary(L, name, P):
         k, (v.get("json") or {}).get("wait_status"), (v.get("plain") or {}).get("wait_status"))
         for k, v in k12c.items()) or "none"))
     k12e = (b.get("observations") or {}).get("k12_closed_stdout_errors") or {}
-    L.append("- baseline K12 closed-stdout wait statuses of error results (non-gating pending Q17): %s" % (
+    L.append("- baseline K12 closed-stdout wait statuses of error results (gating since harness 2.4.2, Q17): %s" % (
         ", ".join("`%s` json `%s` / plain `%s`" % (k, (v.get("json") or {}).get("wait_status"),
                                                    (v.get("plain") or {}).get("wait_status"))
                   for k, v in (k12e.get("cases") or {}).items()) or "none"))

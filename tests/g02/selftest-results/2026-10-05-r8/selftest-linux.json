@@ -1,0 +1,2976 @@
+{
+ "platform": "Linux",
+ "release": "7.0.14-linuxkit",
+ "machine": "aarch64",
+ "python": "3.13.16",
+ "environment": {
+  "os": "Linux",
+  "os_release": "7.0.14-linuxkit",
+  "machine": "aarch64",
+  "platform": "linux-arm64",
+  "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+  "python": "3.13.16",
+  "pyte": "available",
+  "harness_version": "2.4.2",
+  "binary": "/repo/tests/g02/reference_impl.py",
+  "candidate": "go",
+  "pty_size_default": "80x24",
+  "sandbox": "private dir under /tmp, deleted after run",
+  "cpu_count": 10,
+  "loadavg_start": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "loadavg_end": [
+   0.14,
+   0.05,
+   0.01
+  ],
+  "container": {
+   "runner": "tests/g02/linux/run.sh --selftest",
+   "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+   "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+   "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+   "image_packages": [
+    "locales=2.36-9+deb12u14",
+    "openssh-client=1:9.2p1-2+deb12u10",
+    "zsh=5.9-4+b15"
+   ],
+   "docker_server": "29.8.1 linux/arm64",
+   "network": "none",
+   "user": "10001:10001"
+  }
+ },
+ "unit_rc": 0,
+ "baseline": {
+  "label": "baseline",
+  "mutate": null,
+  "harness_mutate": null,
+  "only": null,
+  "exit": 0,
+  "seconds": 268.6,
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 268.4
+  },
+  "failed": [],
+  "status": "verified",
+  "verdict": "pass",
+  "failed_all": {},
+  "errors": {},
+  "stderr_tail": "",
+  "observations": {
+   "k3a_reset_delivery": {
+    "reset_before_reply": "ECONNRESET",
+    "reset_after_byte": "ECONNRESET"
+   },
+   "harness_os_probe_back_to_back_signal_merge": {
+    "what": "harness self-probe of the OS, NOT a heimdall-proto measurement: a Python wrapper written by the harness sends each signal twice back to back with kill() to the harness's signal-counting child (heimdall-proto is not involved); deliveries_per_trial counts what that child saw, i.e. whether this kernel merges two identical pending standard signals. It bounds what the run.forward_* / run.explicit_signal_with_tty exactly-once assertions can observe. heimdall-proto's own delivery counts are in the run.* checks and observations.k6d_*",
+    "measures_heimdall_proto": false,
+    "deliveries_per_trial": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "trials_with_duplicate": "0/10",
+    "duplicates_observable": false,
+    "always_observable": false,
+    "os": "Linux"
+   },
+   "k15_profile_show": {
+    "inline_tables_depth_8000": {
+     "bytes": 48138,
+     "exit": 2,
+     "wall_ms": 19.8,
+     "maxrss_mib": 18.6
+    },
+    "inline_tables_depth_174738": {
+     "bytes": 1048566,
+     "exit": 2,
+     "wall_ms": 21.3,
+     "maxrss_mib": 21.6
+    },
+    "arrays_depth_8000": {
+     "bytes": 16138,
+     "exit": 2,
+     "wall_ms": 20.2,
+     "maxrss_mib": 18.5
+    },
+    "arrays_depth_524214": {
+     "bytes": 1048566,
+     "exit": 2,
+     "wall_ms": 21.1,
+     "maxrss_mib": 21.4
+    },
+    "arrays_of_inline_tables_depth_8000": {
+     "bytes": 64138,
+     "exit": 2,
+     "wall_ms": 20.3,
+     "maxrss_mib": 18.6
+    },
+    "arrays_of_inline_tables_depth_131053": {
+     "bytes": 1048562,
+     "exit": 2,
+     "wall_ms": 21.1,
+     "maxrss_mib": 21.5
+    },
+    "inline_tables_of_arrays_depth_8000": {
+     "bytes": 64138,
+     "exit": 2,
+     "wall_ms": 20.5,
+     "maxrss_mib": 18.6
+    },
+    "dotted_key_8000_segments": {
+     "bytes": 16136,
+     "exit": 2,
+     "wall_ms": 20.4,
+     "maxrss_mib": 18.1
+    },
+    "dotted_key_524214_segments": {
+     "bytes": 1048564,
+     "exit": 2,
+     "wall_ms": 21.4,
+     "maxrss_mib": 21.1
+    },
+    "table_header_8000_segments": {
+     "bytes": 16145,
+     "exit": 2,
+     "wall_ms": 20.7,
+     "maxrss_mib": 18.1
+    },
+    "flat_inline_table_60000_keys": {
+     "bytes": 937917,
+     "exit": 0,
+     "wall_ms": 98.7,
+     "maxrss_mib": 27.3
+    },
+    "array_of_81199_inline_tables": {
+     "bytes": 1044614,
+     "exit": 0,
+     "wall_ms": 147.1,
+     "maxrss_mib": 39.2
+    },
+    "meta_table_69895_keys": {
+     "bytes": 1026337,
+     "exit": 0,
+     "wall_ms": 128.5,
+     "maxrss_mib": 28.3
+    }
+   },
+   "agent_sigint_exit_latency_ms": [
+    5.3,
+    12.7,
+    4.3
+   ],
+   "k6a_child_self_stop": {
+    "pipeline-first-ctl": {
+     "member": "pipeline peer (after it)",
+     "peer_stopped_after_s": null,
+     "samples": 39,
+     "child_state": "T",
+     "heimdall_proto_state": null,
+     "shell_reported_stop": false
+    },
+    "pipeline-first-hp": {
+     "member": "pipeline peer (after it)",
+     "peer_stopped_after_s": null,
+     "samples": 39,
+     "child_state": "T",
+     "heimdall_proto_state": "T",
+     "shell_reported_stop": false
+    },
+    "pipeline-last-ctl": {
+     "member": "pipeline peer (before it)",
+     "peer_stopped_after_s": null,
+     "samples": 39,
+     "child_state": "T",
+     "heimdall_proto_state": null,
+     "shell_reported_stop": false
+    },
+    "pipeline-last-hp": {
+     "member": "pipeline peer (before it)",
+     "peer_stopped_after_s": null,
+     "samples": 39,
+     "child_state": "T",
+     "heimdall_proto_state": "T",
+     "shell_reported_stop": false
+    },
+    "script-ctl": {
+     "member": "the non-job-control `sh -c` script that started it",
+     "peer_stopped_after_s": null,
+     "samples": 39,
+     "child_state": "T",
+     "heimdall_proto_state": null,
+     "shell_reported_stop": false
+    },
+    "script-hp": {
+     "member": "the non-job-control `sh -c` script that started it",
+     "peer_stopped_after_s": null,
+     "samples": 39,
+     "child_state": "T",
+     "heimdall_proto_state": "T",
+     "shell_reported_stop": false
+    }
+   },
+   "k6c_other_inherited_signal_state": {
+    "async-job": {
+     "dispositions": {
+      "SIGQUIT": "SIG_IGN"
+     },
+     "inherited_blocked": [],
+     "still_blocked": [],
+     "proto_exit": 0
+    },
+    "other-ignores-K6c": {
+     "dispositions": {
+      "SIGQUIT": "SIG_IGN",
+      "SIGTERM": "SIG_IGN",
+      "SIGWINCH": "SIG_IGN"
+     },
+     "inherited_blocked": [
+      "SIGUSR2"
+     ],
+     "still_blocked": [
+      "SIGUSR2"
+     ],
+     "proto_exit": 0
+    },
+    "sigpipe-non-python": {
+     "probe": "yes writing into a pipe whose reader closes",
+     "yes": "/usr/bin/yes",
+     "direct": {
+      "default": -13,
+      "ignore": 1
+     },
+     "via_heimdall_proto": {
+      "default": {
+       "proto_rc": 141,
+       "child_exit_code": null,
+       "child_signal": 13
+      },
+      "ignore": {
+       "proto_rc": 141,
+       "child_exit_code": null,
+       "child_signal": 13
+      }
+     },
+     "classification": "child_always_default",
+     "classification_meaning": "the inherited SIGPIPE ignore is reset: the child dies of SIGPIPE in both variants",
+     "inherited_sigpipe_ignore_kept": false,
+     "linux_proc_sigign_sigpipe_in_child": false,
+     "linux_proc_sigign_sigpipe_in_child_default": false
+    }
+   },
+   "k6d_shared_mode_deliveries": {
+    "sh-c": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    },
+    "pipeline-first": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    },
+    "pipeline-last": {
+     "SIGINT": 1,
+     "SIGTERM": 1,
+     "SIGHUP": 1,
+     "SIGQUIT": 1,
+     "SIGWINCH": 1
+    }
+   },
+   "k6d_shared_setups": {
+    "sh-c/SIGINT": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "sh-c/SIGTERM": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "sh-c/SIGHUP": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "sh-c/SIGQUIT": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "sh-c/SIGWINCH": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-first/SIGINT": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-first/SIGTERM": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-first/SIGHUP": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-first/SIGQUIT": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-first/SIGWINCH": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-last/SIGINT": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-last/SIGTERM": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-last/SIGHUP": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-last/SIGQUIT": {
+     "env_foreground": true,
+     "shared": true
+    },
+    "pipeline-last/SIGWINCH": {
+     "env_foreground": true,
+     "shared": true
+    }
+   },
+   "k6e_job_control": {
+    "simple": {
+     "shell": "bash",
+     "gating": true,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "list": {
+     "shell": "bash",
+     "gating": true,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "zsh-simple": {
+     "shell": "zsh",
+     "gating": false,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    },
+    "zsh-list": {
+     "shell": "zsh",
+     "gating": false,
+     "iterations": 5,
+     "lines_delivered": 10,
+     "ok": true,
+     "first_failed_step": null
+    }
+   },
+   "k6e_child_self_stop": {
+    "bash-SIGTSTP": {
+     "shell": "bash",
+     "signal": "SIGTSTP",
+     "gating": true,
+     "proto_jobs": 5,
+     "stops_per_job": 2,
+     "ok": true,
+     "first_failed_step": null,
+     "control": {
+      "tag": "ctl",
+      "via": "direct exec (control)",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.013,
+        "shell_status_of_stopped_job": 148,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.005,
+        "shell_status_of_stopped_job": 148,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.26
+     },
+     "jobs": [
+      {
+       "tag": "hp1",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.209,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.208,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.71
+      },
+      {
+       "tag": "hp2",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.214,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.221,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.72
+      },
+      {
+       "tag": "hp3",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.214,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.218,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.72
+      },
+      {
+       "tag": "hp4",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.214,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.219,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.7
+      },
+      {
+       "tag": "hp5",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.209,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.209,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.69
+      }
+     ],
+     "notice_and_status_same_as_control": true,
+     "notice_and_status": {
+      "control": [
+       [
+        "Stopped",
+        148
+       ]
+      ],
+      "heimdall_proto": [
+       [
+        "Stopped",
+        148
+       ]
+      ]
+     }
+    },
+    "bash-SIGSTOP": {
+     "shell": "bash",
+     "signal": "SIGSTOP",
+     "gating": false,
+     "proto_jobs": 2,
+     "stops_per_job": 2,
+     "ok": true,
+     "first_failed_step": null,
+     "control": {
+      "tag": "ctl",
+      "via": "direct exec (control)",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.026,
+        "shell_status_of_stopped_job": 147,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "Stopped",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.01,
+        "shell_status_of_stopped_job": 147,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.3
+     },
+     "jobs": [
+      {
+       "tag": "hp1",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.209,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.204,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.69
+      },
+      {
+       "tag": "hp2",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.212,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "Stopped",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.228,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.71
+      }
+     ],
+     "notice_and_status_same_as_control": true,
+     "notice_and_status": {
+      "control": [
+       [
+        "Stopped",
+        147
+       ]
+      ],
+      "heimdall_proto": [
+       [
+        "Stopped",
+        147
+       ]
+      ]
+     }
+    },
+    "zsh-SIGTSTP": {
+     "shell": "zsh",
+     "signal": "SIGTSTP",
+     "gating": false,
+     "proto_jobs": 2,
+     "stops_per_job": 2,
+     "ok": true,
+     "first_failed_step": null,
+     "control": {
+      "tag": "ctl",
+      "via": "direct exec (control)",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "suspended",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.002,
+        "shell_status_of_stopped_job": 148,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "suspended",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.026,
+        "shell_status_of_stopped_job": 148,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.28
+     },
+     "jobs": [
+      {
+       "tag": "hp1",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "suspended",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.209,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "suspended",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.214,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.7
+      },
+      {
+       "tag": "hp2",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "suspended",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.216,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "suspended",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.215,
+         "shell_status_of_stopped_job": 148,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.71
+      }
+     ],
+     "notice_and_status_same_as_control": true,
+     "notice_and_status": {
+      "control": [
+       [
+        "suspended",
+        148
+       ]
+      ],
+      "heimdall_proto": [
+       [
+        "suspended",
+        148
+       ]
+      ]
+     }
+    },
+    "zsh-SIGSTOP": {
+     "shell": "zsh",
+     "signal": "SIGSTOP",
+     "gating": false,
+     "proto_jobs": 2,
+     "stops_per_job": 2,
+     "ok": true,
+     "first_failed_step": null,
+     "control": {
+      "tag": "ctl",
+      "via": "direct exec (control)",
+      "stops": [
+       {
+        "stop": 1,
+        "shell_reported_stop": true,
+        "notice": "suspended (signal)",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.016,
+        "shell_status_of_stopped_job": 147,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       },
+       {
+        "stop": 2,
+        "shell_reported_stop": true,
+        "notice": "suspended (signal)",
+        "states_at_notice": {
+         "child": "T",
+         "parent": "shell"
+        },
+        "notice_after_go_s": 0.014,
+        "shell_status_of_stopped_job": 147,
+        "resumed_before_fg": false,
+        "resumed_after_fg": true
+       }
+      ],
+      "pids_reported": true,
+      "final": [
+       true,
+       [
+        42,
+        0
+       ]
+      ],
+      "ok": true,
+      "seconds": 3.27
+     },
+     "jobs": [
+      {
+       "tag": "hp1",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "suspended (signal)",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.203,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "suspended (signal)",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.228,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.73
+      },
+      {
+       "tag": "hp2",
+       "via": "heimdall-proto run",
+       "stops": [
+        {
+         "stop": 1,
+         "shell_reported_stop": true,
+         "notice": "suspended (signal)",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.203,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        },
+        {
+         "stop": 2,
+         "shell_reported_stop": true,
+         "notice": "suspended (signal)",
+         "states_at_notice": {
+          "child": "T",
+          "parent": "T"
+         },
+         "notice_after_go_s": 0.225,
+         "shell_status_of_stopped_job": 147,
+         "resumed_before_fg": false,
+         "resumed_after_fg": true
+        }
+       ],
+       "pids_reported": true,
+       "final": [
+        true,
+        [
+         42,
+         0
+        ]
+       ],
+       "ok": true,
+       "seconds": 3.71
+      }
+     ],
+     "notice_and_status_same_as_control": true,
+     "notice_and_status": {
+      "control": [
+       [
+        "suspended (signal)",
+        147
+       ]
+      ],
+      "heimdall_proto": [
+       [
+        "suspended (signal)",
+        147
+       ]
+      ]
+     }
+    }
+   },
+   "first_frame_latency_ms": 38.9,
+   "k10_exit_form": {
+    "sigterm": "exit 143",
+    "sighup": "exit 129",
+    "hangup-shell-like": "exit 129",
+    "hangup-bare": "exit 129"
+   },
+   "resize_relayout_ms": [
+    8.4,
+    7.6,
+    13.1,
+    12.3,
+    4.3,
+    6.9,
+    11.1,
+    10.6,
+    19.6,
+    13.6
+   ],
+   "large100_keystroke_to_update_ms": {
+    "filter": [
+     3.9,
+     2.9,
+     1.5,
+     1.4,
+     2.4,
+     2.6,
+     4.0,
+     2.8,
+     1.9,
+     1.6,
+     2.5,
+     2.6,
+     4.5,
+     2.9,
+     1.7,
+     1.6,
+     2.7,
+     2.7,
+     4.4,
+     3.0,
+     1.6,
+     1.6,
+     2.6,
+     2.7,
+     4.3,
+     3.0,
+     1.8,
+     1.6,
+     2.5,
+     2.6
+    ],
+    "down": [
+     2.4,
+     1.9,
+     1.7,
+     1.4,
+     1.3,
+     1.7,
+     1.5,
+     1.3,
+     1.4,
+     1.4,
+     1.3,
+     1.1,
+     1.1,
+     1.1,
+     1.2,
+     1.2,
+     1.1,
+     1.1,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.1,
+     1.0,
+     1.0,
+     0.9,
+     1.0,
+     1.0,
+     0.9,
+     1.0
+    ],
+    "filter_p95": 4.4,
+    "k17_bound_ms": 100,
+    "sessions": [
+     [
+      3.9,
+      2.9,
+      1.5,
+      1.4,
+      2.4,
+      2.6
+     ],
+     [
+      4.0,
+      2.8,
+      1.9,
+      1.6,
+      2.5,
+      2.6
+     ],
+     [
+      4.5,
+      2.9,
+      1.7,
+      1.6,
+      2.7,
+      2.7
+     ],
+     [
+      4.4,
+      3.0,
+      1.6,
+      1.6,
+      2.6,
+      2.7
+     ],
+     [
+      4.3,
+      3.0,
+      1.8,
+      1.6,
+      2.5,
+      2.6
+     ]
+    ],
+    "first_keystroke_per_session": [
+     3.9,
+     4.0,
+     4.5,
+     4.4,
+     4.3
+    ],
+    "update_predicate": "status N/100 and list rows"
+   },
+   "k15_tui": {
+    "inline_tables_depth_174738": {
+     "exit": 2,
+     "first_frame_s": null,
+     "wall_ms": 23.2,
+     "maxrss_mib": 22.5
+    },
+    "arrays_depth_524214": {
+     "exit": 2,
+     "first_frame_s": null,
+     "wall_ms": 29.0,
+     "maxrss_mib": 22.4
+    }
+   },
+   "k16_tripwire_hits": [],
+   "k12_closed_stdout": {
+    "version": {
+     "json": {
+      "wait_status": "exit 0",
+      "rc": 0
+     },
+     "plain": {
+      "wait_status": "exit 0",
+      "rc": 0
+     }
+    },
+    "profile-show-homelab": {
+     "json": {
+      "wait_status": "exit 0",
+      "rc": 0
+     },
+     "plain": {
+      "wait_status": "exit 0",
+      "rc": 0
+     }
+    },
+    "agent-list-normal": {
+     "json": {
+      "wait_status": "exit 0",
+      "rc": 0
+     },
+     "plain": {
+      "wait_status": "exit 0",
+      "rc": 0
+     }
+    }
+   },
+   "k12_closed_stdout_errors": {
+    "gating": true,
+    "question": "Q17",
+    "cases": {
+     "profile-missing": {
+      "json": {
+       "wait_status": "exit 2",
+       "rc": 2
+      },
+      "plain": {
+       "wait_status": "exit 2",
+       "rc": 2
+      },
+      "equal": true,
+      "exit_code_with_open_stdout": 2
+     },
+     "profile-schema-invalid": {
+      "json": {
+       "wait_status": "exit 2",
+       "rc": 2
+      },
+      "plain": {
+       "wait_status": "exit 2",
+       "rc": 2
+      },
+      "equal": true,
+      "exit_code_with_open_stdout": 2
+     },
+     "agent-unavailable": {
+      "json": {
+       "wait_status": "exit 5",
+       "rc": 5
+      },
+      "plain": {
+       "wait_status": "exit 5",
+       "rc": 5
+      },
+      "equal": true,
+      "exit_code_with_open_stdout": 5
+     },
+     "usage-unknown-flag": {
+      "json": {
+       "wait_status": "exit 2",
+       "rc": 2
+      },
+      "plain": {
+       "wait_status": "exit 2",
+       "rc": 2
+      },
+      "equal": true,
+      "exit_code_with_open_stdout": 2
+     }
+    },
+    "all_equal": true
+   },
+   "canary_selfcheck": {
+    "registered_canaries": [
+     "fixture invalid-forbidden-key.toml key private_key",
+     "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+     "per-run canary in the HM_G02_SECRET_ENV environment variable",
+     "per-run canary inside [meta] of a generated profile",
+     "per-run canary on the malformed line of a generated profile"
+    ],
+    "pattern": "the canary prefix followed by [A-Za-z0-9]",
+    "artifact_files_scanned": 673,
+    "record_hits": [],
+    "artifact_hits": [],
+    "result": "clean"
+   }
+  },
+  "environment": {
+   "os": "Linux",
+   "os_release": "7.0.14-linuxkit",
+   "machine": "aarch64",
+   "platform": "linux-arm64",
+   "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+   "python": "3.13.16",
+   "pyte": "available",
+   "harness_version": "2.4.2",
+   "binary": "/repo/tests/g02/reference_impl.py",
+   "candidate": "go",
+   "pty_size_default": "80x24",
+   "sandbox": "private dir under /tmp, deleted after run",
+   "cpu_count": 10,
+   "loadavg_start": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "loadavg_end": [
+    0.14,
+    0.05,
+    0.01
+   ],
+   "container": {
+    "runner": "tests/g02/linux/run.sh --selftest",
+    "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+    "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+    "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+    "image_packages": [
+     "locales=2.36-9+deb12u14",
+     "openssh-client=1:9.2p1-2+deb12u10",
+     "zsh=5.9-4+b15"
+    ],
+    "docker_server": "29.8.1 linux/arm64",
+    "network": "none",
+    "user": "10001:10001"
+   }
+  },
+  "record_path": "/out/work/baseline.json",
+  "artifacts_path": "/out/work/baseline-artifacts"
+ },
+ "repeats": [],
+ "flaky": [],
+ "mismatch": {
+  "label": "candidate-mismatch",
+  "mutate": null,
+  "harness_mutate": null,
+  "only": "version.valid",
+  "exit": 1,
+  "seconds": 0.1,
+  "summary": {
+   "pass": 0,
+   "fail": 1,
+   "error": 0,
+   "skipped": 0,
+   "total": 1,
+   "duration_s": 0.0
+  },
+  "failed": [
+   [
+    "version.valid",
+    "fail",
+    "candidate equals --candidate"
+   ]
+  ],
+  "status": "in_progress",
+  "verdict": "fail",
+  "failed_all": {
+   "version.valid": [
+    "candidate equals --candidate"
+   ]
+  },
+  "errors": {
+   "version.valid": null
+  },
+  "stderr_tail": "",
+  "observations": {
+   "canary_selfcheck": {
+    "registered_canaries": [
+     "fixture invalid-forbidden-key.toml key private_key",
+     "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+     "per-run canary in the HM_G02_SECRET_ENV environment variable",
+     "per-run canary inside [meta] of a generated profile",
+     "per-run canary on the malformed line of a generated profile"
+    ],
+    "pattern": "the canary prefix followed by [A-Za-z0-9]",
+    "artifact_files_scanned": 2,
+    "record_hits": [],
+    "artifact_hits": [],
+    "result": "clean"
+   }
+  },
+  "environment": {
+   "os": "Linux",
+   "os_release": "7.0.14-linuxkit",
+   "machine": "aarch64",
+   "platform": "linux-arm64",
+   "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+   "python": "3.13.16",
+   "pyte": "available",
+   "harness_version": "2.4.2",
+   "binary": "/repo/tests/g02/reference_impl.py",
+   "candidate": "rust",
+   "pty_size_default": "80x24",
+   "sandbox": "private dir under /tmp, deleted after run",
+   "cpu_count": 10,
+   "loadavg_start": [
+    0.14,
+    0.05,
+    0.01
+   ],
+   "loadavg_end": [
+    0.14,
+    0.05,
+    0.01
+   ],
+   "container": {
+    "runner": "tests/g02/linux/run.sh --selftest",
+    "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+    "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+    "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+    "image_packages": [
+     "locales=2.36-9+deb12u14",
+     "openssh-client=1:9.2p1-2+deb12u10",
+     "zsh=5.9-4+b15"
+    ],
+    "docker_server": "29.8.1 linux/arm64",
+    "network": "none",
+    "user": "10001:10001"
+   }
+  },
+  "record_path": "/out/work/candidate-mismatch.json",
+  "artifacts_path": "/out/work/candidate-mismatch-artifacts"
+ },
+ "mutations": [
+  {
+   "label": "mut-json_error_epipe_exit1",
+   "mutate": "json_error_epipe_exit1",
+   "harness_mutate": null,
+   "only": "k12.*,common.*,canary.*",
+   "exit": 1,
+   "seconds": 4.9,
+   "summary": {
+    "pass": 4,
+    "fail": 1,
+    "error": 0,
+    "skipped": 0,
+    "total": 5,
+    "duration_s": 4.8
+   },
+   "failed": [
+    [
+     "k12.closed_stdout_exit_parity",
+     "fail",
+     "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   ],
+   "status": "in_progress",
+   "verdict": "fail",
+   "failed_all": {
+    "k12.closed_stdout_exit_parity": [
+     "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-schema-invalid] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[agent-unavailable] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[usage-unknown-flag] error result, stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   },
+   "errors": {
+    "k12.closed_stdout_exit_parity": null
+   },
+   "stderr_tail": "",
+   "observations": {
+    "k16_tripwire_hits": [],
+    "k12_closed_stdout": {
+     "version": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 0",
+       "rc": 0
+      }
+     },
+     "profile-show-homelab": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 0",
+       "rc": 0
+      }
+     },
+     "agent-list-normal": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 0",
+       "rc": 0
+      }
+     }
+    },
+    "k12_closed_stdout_errors": {
+     "gating": true,
+     "question": "Q17",
+     "cases": {
+      "profile-missing": {
+       "json": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "profile-schema-invalid": {
+       "json": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "agent-unavailable": {
+       "json": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "plain": {
+        "wait_status": "exit 5",
+        "rc": 5
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 5
+      },
+      "usage-unknown-flag": {
+       "json": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      }
+     },
+     "all_equal": false
+    },
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 104,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.21,
+     0.07,
+     0.01
+    ],
+    "loadavg_end": [
+     0.21,
+     0.07,
+     0.01
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/mut-json_error_epipe_exit1.json",
+   "artifacts_path": "/out/work/mut-json_error_epipe_exit1-artifacts",
+   "intended": [
+    "k12.closed_stdout_exit_parity",
+    "first failing assertion of k12.closed_stdout_exit_parity: '[profile-missing] error result, stdout closed by its reader: ...'"
+   ],
+   "caught": true,
+   "first_assertion": "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+   "observable": true,
+   "race": false
+  },
+  {
+   "label": "mut-json_error_sigpipe",
+   "mutate": "json_error_sigpipe",
+   "harness_mutate": null,
+   "only": "k12.*,common.*,canary.*",
+   "exit": 1,
+   "seconds": 5.0,
+   "summary": {
+    "pass": 4,
+    "fail": 1,
+    "error": 0,
+    "skipped": 0,
+    "total": 5,
+    "duration_s": 4.9
+   },
+   "failed": [
+    [
+     "k12.closed_stdout_exit_parity",
+     "fail",
+     "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   ],
+   "status": "in_progress",
+   "verdict": "fail",
+   "failed_all": {
+    "k12.closed_stdout_exit_parity": [
+     "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-schema-invalid] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[agent-unavailable] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[usage-unknown-flag] error result, stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   },
+   "errors": {
+    "k12.closed_stdout_exit_parity": null
+   },
+   "stderr_tail": "",
+   "observations": {
+    "k16_tripwire_hits": [],
+    "k12_closed_stdout": {
+     "version": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 0",
+       "rc": 0
+      }
+     },
+     "profile-show-homelab": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 0",
+       "rc": 0
+      }
+     },
+     "agent-list-normal": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 0",
+       "rc": 0
+      }
+     }
+    },
+    "k12_closed_stdout_errors": {
+     "gating": true,
+     "question": "Q17",
+     "cases": {
+      "profile-missing": {
+       "json": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "profile-schema-invalid": {
+       "json": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "agent-unavailable": {
+       "json": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "plain": {
+        "wait_status": "exit 5",
+        "rc": 5
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 5
+      },
+      "usage-unknown-flag": {
+       "json": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      }
+     },
+     "all_equal": false
+    },
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 104,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.21,
+     0.07,
+     0.01
+    ],
+    "loadavg_end": [
+     0.27,
+     0.08,
+     0.02
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/mut-json_error_sigpipe.json",
+   "artifacts_path": "/out/work/mut-json_error_sigpipe-artifacts",
+   "intended": [
+    "k12.closed_stdout_exit_parity",
+    "first failing assertion of k12.closed_stdout_exit_parity: '[profile-missing] error result, stdout closed by its reader: ...'"
+   ],
+   "caught": true,
+   "first_assertion": "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+   "observable": true,
+   "race": false
+  },
+  {
+   "label": "mut-plain_epipe_exit1",
+   "mutate": "plain_epipe_exit1",
+   "harness_mutate": null,
+   "only": "version.*,common.*,k12.*,canary.*",
+   "exit": 1,
+   "seconds": 4.9,
+   "summary": {
+    "pass": 5,
+    "fail": 1,
+    "error": 0,
+    "skipped": 0,
+    "total": 6,
+    "duration_s": 4.8
+   },
+   "failed": [
+    [
+     "k12.closed_stdout_exit_parity",
+     "fail",
+     "[version] stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   ],
+   "status": "in_progress",
+   "verdict": "fail",
+   "failed_all": {
+    "k12.closed_stdout_exit_parity": [
+     "[version] stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-show-homelab] stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[agent-list-normal] stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-schema-invalid] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[agent-unavailable] error result, stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   },
+   "errors": {
+    "k12.closed_stdout_exit_parity": null
+   },
+   "stderr_tail": "",
+   "observations": {
+    "k16_tripwire_hits": [],
+    "k12_closed_stdout": {
+     "version": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 1",
+       "rc": 1
+      }
+     },
+     "profile-show-homelab": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 1",
+       "rc": 1
+      }
+     },
+     "agent-list-normal": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "exit 1",
+       "rc": 1
+      }
+     }
+    },
+    "k12_closed_stdout_errors": {
+     "gating": true,
+     "question": "Q17",
+     "cases": {
+      "profile-missing": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "profile-schema-invalid": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "agent-unavailable": {
+       "json": {
+        "wait_status": "exit 5",
+        "rc": 5
+       },
+       "plain": {
+        "wait_status": "exit 1",
+        "rc": 1
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 5
+      },
+      "usage-unknown-flag": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": true,
+       "exit_code_with_open_stdout": 2
+      }
+     },
+     "all_equal": false
+    },
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 106,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.27,
+     0.08,
+     0.02
+    ],
+    "loadavg_end": [
+     0.41,
+     0.12,
+     0.03
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/mut-plain_epipe_exit1.json",
+   "artifacts_path": "/out/work/mut-plain_epipe_exit1-artifacts",
+   "intended": [
+    "k12.closed_stdout_exit_parity"
+   ],
+   "caught": true,
+   "observable": true,
+   "race": false
+  },
+  {
+   "label": "mut-plain_epipe_sigpipe",
+   "mutate": "plain_epipe_sigpipe",
+   "harness_mutate": null,
+   "only": "version.*,common.*,k12.*,canary.*",
+   "exit": 1,
+   "seconds": 4.9,
+   "summary": {
+    "pass": 5,
+    "fail": 1,
+    "error": 0,
+    "skipped": 0,
+    "total": 6,
+    "duration_s": 4.8
+   },
+   "failed": [
+    [
+     "k12.closed_stdout_exit_parity",
+     "fail",
+     "[version] stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   ],
+   "status": "in_progress",
+   "verdict": "fail",
+   "failed_all": {
+    "k12.closed_stdout_exit_parity": [
+     "[version] stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-show-homelab] stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[agent-list-normal] stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-missing] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[profile-schema-invalid] error result, stdout closed by its reader: the wait status without --json equals the one with --json",
+     "[agent-unavailable] error result, stdout closed by its reader: the wait status without --json equals the one with --json"
+    ]
+   },
+   "errors": {
+    "k12.closed_stdout_exit_parity": null
+   },
+   "stderr_tail": "",
+   "observations": {
+    "k16_tripwire_hits": [],
+    "k12_closed_stdout": {
+     "version": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      }
+     },
+     "profile-show-homelab": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      }
+     },
+     "agent-list-normal": {
+      "json": {
+       "wait_status": "exit 0",
+       "rc": 0
+      },
+      "plain": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      }
+     }
+    },
+    "k12_closed_stdout_errors": {
+     "gating": true,
+     "question": "Q17",
+     "cases": {
+      "profile-missing": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "profile-schema-invalid": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 2
+      },
+      "agent-unavailable": {
+       "json": {
+        "wait_status": "exit 5",
+        "rc": 5
+       },
+       "plain": {
+        "wait_status": "signal SIGPIPE",
+        "rc": -13
+       },
+       "equal": false,
+       "exit_code_with_open_stdout": 5
+      },
+      "usage-unknown-flag": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": true,
+       "exit_code_with_open_stdout": 2
+      }
+     },
+     "all_equal": false
+    },
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 106,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.41,
+     0.12,
+     0.03
+    ],
+    "loadavg_end": [
+     0.46,
+     0.13,
+     0.04
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/mut-plain_epipe_sigpipe.json",
+   "artifacts_path": "/out/work/mut-plain_epipe_sigpipe-artifacts",
+   "intended": [
+    "k12.closed_stdout_exit_parity"
+   ],
+   "caught": true,
+   "observable": true,
+   "race": false
+  },
+  {
+   "label": "mut-plain_exit_wrong",
+   "mutate": "plain_exit_wrong",
+   "harness_mutate": null,
+   "only": "usage.*,profile.*,version.*,common.*,canary.*",
+   "exit": 1,
+   "seconds": 7.1,
+   "summary": {
+    "pass": 32,
+    "fail": 1,
+    "error": 0,
+    "skipped": 0,
+    "total": 33,
+    "duration_s": 7.0
+   },
+   "failed": [
+    [
+     "common.exit_codes_without_json",
+     "fail",
+     "[profile-schema-invalid] exit code without --json"
+    ]
+   ],
+   "status": "in_progress",
+   "verdict": "fail",
+   "failed_all": {
+    "common.exit_codes_without_json": [
+     "[profile-schema-invalid] exit code without --json",
+     "[profile-malformed] exit code without --json"
+    ]
+   },
+   "errors": {
+    "common.exit_codes_without_json": null
+   },
+   "stderr_tail": "",
+   "observations": {
+    "k15_profile_show": {
+     "inline_tables_depth_8000": {
+      "bytes": 48138,
+      "exit": 2,
+      "wall_ms": 19.8,
+      "maxrss_mib": 18.6
+     },
+     "inline_tables_depth_174738": {
+      "bytes": 1048566,
+      "exit": 2,
+      "wall_ms": 21.5,
+      "maxrss_mib": 21.6
+     },
+     "arrays_depth_8000": {
+      "bytes": 16138,
+      "exit": 2,
+      "wall_ms": 20.3,
+      "maxrss_mib": 18.5
+     },
+     "arrays_depth_524214": {
+      "bytes": 1048566,
+      "exit": 2,
+      "wall_ms": 20.8,
+      "maxrss_mib": 21.4
+     },
+     "arrays_of_inline_tables_depth_8000": {
+      "bytes": 64138,
+      "exit": 2,
+      "wall_ms": 20.4,
+      "maxrss_mib": 18.6
+     },
+     "arrays_of_inline_tables_depth_131053": {
+      "bytes": 1048562,
+      "exit": 2,
+      "wall_ms": 21.2,
+      "maxrss_mib": 21.5
+     },
+     "inline_tables_of_arrays_depth_8000": {
+      "bytes": 64138,
+      "exit": 2,
+      "wall_ms": 20.4,
+      "maxrss_mib": 18.6
+     },
+     "dotted_key_8000_segments": {
+      "bytes": 16136,
+      "exit": 2,
+      "wall_ms": 20.3,
+      "maxrss_mib": 18.1
+     },
+     "dotted_key_524214_segments": {
+      "bytes": 1048564,
+      "exit": 2,
+      "wall_ms": 21.5,
+      "maxrss_mib": 21.1
+     },
+     "table_header_8000_segments": {
+      "bytes": 16145,
+      "exit": 2,
+      "wall_ms": 20.7,
+      "maxrss_mib": 18.1
+     },
+     "flat_inline_table_60000_keys": {
+      "bytes": 937917,
+      "exit": 0,
+      "wall_ms": 92.4,
+      "maxrss_mib": 27.3
+     },
+     "array_of_81199_inline_tables": {
+      "bytes": 1044614,
+      "exit": 0,
+      "wall_ms": 146.0,
+      "maxrss_mib": 39.2
+     },
+     "meta_table_69895_keys": {
+      "bytes": 1026337,
+      "exit": 0,
+      "wall_ms": 127.5,
+      "maxrss_mib": 28.3
+     }
+    },
+    "k16_tripwire_hits": [],
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 266,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.46,
+     0.13,
+     0.04
+    ],
+    "loadavg_end": [
+     0.54,
+     0.16,
+     0.05
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/mut-plain_exit_wrong.json",
+   "artifacts_path": "/out/work/mut-plain_exit_wrong-artifacts",
+   "intended": [
+    "common.exit_codes_without_json"
+   ],
+   "caught": true,
+   "observable": true,
+   "race": false
+  },
+  {
+   "label": "mut-wrong_exit_schema",
+   "mutate": "wrong_exit_schema",
+   "harness_mutate": null,
+   "only": "usage.*,profile.*,version.*,common.*,canary.*",
+   "exit": 1,
+   "seconds": 7.5,
+   "summary": {
+    "pass": 21,
+    "fail": 12,
+    "error": 0,
+    "skipped": 0,
+    "total": 33,
+    "duration_s": 7.4
+   },
+   "failed": [
+    [
+     "profile.invalid_forbidden_key",
+     "fail",
+     "[invalid-forbidden-key.toml] exit code"
+    ],
+    [
+     "profile.invalid_unknown_dest_key",
+     "fail",
+     "[invalid-unknown-dest-key.toml] exit code"
+    ],
+    [
+     "profile.invalid_malformed",
+     "fail",
+     "[invalid-malformed.toml] exit code"
+    ],
+    [
+     "profile.invalid_schema_version",
+     "fail",
+     "[invalid-schema-version.toml] exit code"
+    ],
+    [
+     "profile.invalid_duplicate_alias",
+     "fail",
+     "[invalid-duplicate-alias.toml] exit code"
+    ],
+    [
+     "profile.invalid_port",
+     "fail",
+     "[invalid-port.toml] exit code"
+    ],
+    [
+     "profile.generated_invalid_matrix",
+     "fail",
+     "[missing_name] exit code"
+    ],
+    [
+     "profile.error_value_not_echoed",
+     "fail",
+     "[port_70123] exit code"
+    ],
+    [
+     "profile.control_chars_rejected",
+     "fail",
+     "[alias_esc] exit code"
+    ],
+    [
+     "profile.parser_resource_bound",
+     "fail",
+     "[k15-inline_tables_depth_8000] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)"
+    ],
+    [
+     "common.exit_codes_without_json",
+     "fail",
+     "[profile-schema-invalid] exit code without --json"
+    ],
+    [
+     "common.no_helper_processes",
+     "fail",
+     "[k16-tmux-env-profile-invalid] exit code"
+    ]
+   ],
+   "status": "in_progress",
+   "verdict": "fail",
+   "failed_all": {
+    "profile.invalid_forbidden_key": [
+     "[invalid-forbidden-key.toml] exit code"
+    ],
+    "profile.invalid_unknown_dest_key": [
+     "[invalid-unknown-dest-key.toml] exit code"
+    ],
+    "profile.invalid_malformed": [
+     "[invalid-malformed.toml] exit code"
+    ],
+    "profile.invalid_schema_version": [
+     "[invalid-schema-version.toml] exit code"
+    ],
+    "profile.invalid_duplicate_alias": [
+     "[invalid-duplicate-alias.toml] exit code"
+    ],
+    "profile.invalid_port": [
+     "[invalid-port.toml] exit code"
+    ],
+    "profile.generated_invalid_matrix": [
+     "[missing_name] exit code",
+     "[missing_revision] exit code",
+     "[missing_schema_version] exit code",
+     "[revision_zero] exit code",
+     "[revision_float] exit code",
+     "[revision_string] exit code",
+     "[revision_bool] exit code",
+     "[schema_version_bool] exit code",
+     "[port_bool] exit code",
+     "[schema_version_string] exit code",
+     "[schema_version_float] exit code",
+     "[unknown_top_key] exit code",
+     "[dest_missing_id] exit code",
+     "[dest_missing_alias] exit code",
+     "[dest_missing_host] exit code",
+     "[dest_missing_account] exit code",
+     "[port_zero] exit code",
+     "[port_negative] exit code",
+     "[port_string] exit code",
+     "[port_65536] exit code",
+     "[duplicate_id] exit code",
+     "[duplicate_alias] exit code",
+     "[unknown_key_outside_meta_table] exit code",
+     "[empty_file_garbage_bytes] exit code"
+    ],
+    "profile.error_value_not_echoed": [
+     "[port_70123] exit code",
+     "[port_negative] exit code",
+     "[port_string] exit code",
+     "[revision_negative] exit code",
+     "[revision_string] exit code",
+     "[revision_float] exit code",
+     "[duplicate_alias] exit code",
+     "[duplicate_id] exit code",
+     "[unknown_top_key] exit code",
+     "[unknown_dest_key] exit code",
+     "[schema_version_other_keys] exit code",
+     "[malformed_secret_line] exit code",
+     "[malformed_secret_unterminated] exit code",
+     "[malformed_secret_bad_escape] exit code"
+    ],
+    "profile.control_chars_rejected": [
+     "[alias_esc] exit code",
+     "[host_tab] exit code",
+     "[account_del] exit code",
+     "[label_c1] exit code",
+     "[alias_c1_nel] exit code",
+     "[id_newline] exit code",
+     "[host_bel] exit code",
+     "[name_esc] exit code"
+    ],
+    "profile.parser_resource_bound": [
+     "[k15-inline_tables_depth_8000] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-inline_tables_depth_174738] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-arrays_depth_8000] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-arrays_depth_524214] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-arrays_of_inline_tables_depth_8000] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-arrays_of_inline_tables_depth_131053] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-inline_tables_of_arrays_depth_8000] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-dotted_key_8000_segments] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-dotted_key_524214_segments] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)",
+     "[k15-table_header_8000_segments] exit 0 (PROFILE_OK) or 2 (SCHEMA_INVALID)"
+    ],
+    "common.exit_codes_without_json": [
+     "[profile-schema-invalid] exit code without --json",
+     "[profile-malformed] exit code without --json"
+    ],
+    "common.no_helper_processes": [
+     "[k16-tmux-env-profile-invalid] exit code",
+     "[k16-tmux-term-profile-invalid] exit code",
+     "[k16-screen-term-profile-invalid] exit code",
+     "[k16-screen-plain-profile-invalid] exit code"
+    ]
+   },
+   "errors": {
+    "profile.invalid_forbidden_key": null,
+    "profile.invalid_unknown_dest_key": null,
+    "profile.invalid_malformed": null,
+    "profile.invalid_schema_version": null,
+    "profile.invalid_duplicate_alias": null,
+    "profile.invalid_port": null,
+    "profile.generated_invalid_matrix": null,
+    "profile.error_value_not_echoed": null,
+    "profile.control_chars_rejected": null,
+    "profile.parser_resource_bound": null,
+    "common.exit_codes_without_json": null,
+    "common.no_helper_processes": null
+   },
+   "stderr_tail": "",
+   "observations": {
+    "k15_profile_show": {
+     "inline_tables_depth_8000": {
+      "bytes": 48138,
+      "exit": 1,
+      "wall_ms": 21.1,
+      "maxrss_mib": 18.6
+     },
+     "inline_tables_depth_174738": {
+      "bytes": 1048566,
+      "exit": 1,
+      "wall_ms": 22.0,
+      "maxrss_mib": 21.6
+     },
+     "arrays_depth_8000": {
+      "bytes": 16138,
+      "exit": 1,
+      "wall_ms": 21.2,
+      "maxrss_mib": 18.5
+     },
+     "arrays_depth_524214": {
+      "bytes": 1048566,
+      "exit": 1,
+      "wall_ms": 21.2,
+      "maxrss_mib": 21.4
+     },
+     "arrays_of_inline_tables_depth_8000": {
+      "bytes": 64138,
+      "exit": 1,
+      "wall_ms": 20.7,
+      "maxrss_mib": 18.6
+     },
+     "arrays_of_inline_tables_depth_131053": {
+      "bytes": 1048562,
+      "exit": 1,
+      "wall_ms": 24.2,
+      "maxrss_mib": 21.5
+     },
+     "inline_tables_of_arrays_depth_8000": {
+      "bytes": 64138,
+      "exit": 1,
+      "wall_ms": 20.5,
+      "maxrss_mib": 18.6
+     },
+     "dotted_key_8000_segments": {
+      "bytes": 16136,
+      "exit": 1,
+      "wall_ms": 19.8,
+      "maxrss_mib": 18.1
+     },
+     "dotted_key_524214_segments": {
+      "bytes": 1048564,
+      "exit": 1,
+      "wall_ms": 21.7,
+      "maxrss_mib": 21.1
+     },
+     "table_header_8000_segments": {
+      "bytes": 16145,
+      "exit": 1,
+      "wall_ms": 20.9,
+      "maxrss_mib": 18.1
+     },
+     "flat_inline_table_60000_keys": {
+      "bytes": 937917,
+      "exit": 0,
+      "wall_ms": 92.6,
+      "maxrss_mib": 27.4
+     },
+     "array_of_81199_inline_tables": {
+      "bytes": 1044614,
+      "exit": 0,
+      "wall_ms": 144.3,
+      "maxrss_mib": 39.2
+     },
+     "meta_table_69895_keys": {
+      "bytes": 1026337,
+      "exit": 0,
+      "wall_ms": 146.6,
+      "maxrss_mib": 28.4
+     }
+    },
+    "k16_tripwire_hits": [],
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 266,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.54,
+     0.16,
+     0.05
+    ],
+    "loadavg_end": [
+     0.58,
+     0.18,
+     0.05
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/mut-wrong_exit_schema.json",
+   "artifacts_path": "/out/work/mut-wrong_exit_schema-artifacts",
+   "intended": [],
+   "caught": true,
+   "observable": true,
+   "race": false
+  }
+ ],
+ "harness_mutations": [],
+ "harness_expect": [],
+ "variants": [
+  {
+   "label": "var-closed_stdout_sigpipe_both",
+   "mutate": "closed_stdout_sigpipe_both",
+   "harness_mutate": null,
+   "only": "version.*,common.*,k12.*,canary.*",
+   "exit": 0,
+   "seconds": 4.9,
+   "summary": {
+    "pass": 6,
+    "fail": 0,
+    "error": 0,
+    "skipped": 0,
+    "total": 6,
+    "duration_s": 4.8
+   },
+   "failed": [],
+   "status": "in_progress",
+   "verdict": "inconclusive",
+   "failed_all": {},
+   "errors": {},
+   "stderr_tail": "",
+   "observations": {
+    "k16_tripwire_hits": [],
+    "k12_closed_stdout": {
+     "version": {
+      "json": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      },
+      "plain": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      }
+     },
+     "profile-show-homelab": {
+      "json": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      },
+      "plain": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      }
+     },
+     "agent-list-normal": {
+      "json": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      },
+      "plain": {
+       "wait_status": "signal SIGPIPE",
+       "rc": -13
+      }
+     }
+    },
+    "k12_closed_stdout_errors": {
+     "gating": true,
+     "question": "Q17",
+     "cases": {
+      "profile-missing": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": true,
+       "exit_code_with_open_stdout": 2
+      },
+      "profile-schema-invalid": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": true,
+       "exit_code_with_open_stdout": 2
+      },
+      "agent-unavailable": {
+       "json": {
+        "wait_status": "exit 5",
+        "rc": 5
+       },
+       "plain": {
+        "wait_status": "exit 5",
+        "rc": 5
+       },
+       "equal": true,
+       "exit_code_with_open_stdout": 5
+      },
+      "usage-unknown-flag": {
+       "json": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "plain": {
+        "wait_status": "exit 2",
+        "rc": 2
+       },
+       "equal": true,
+       "exit_code_with_open_stdout": 2
+      }
+     },
+     "all_equal": true
+    },
+    "canary_selfcheck": {
+     "registered_canaries": [
+      "fixture invalid-forbidden-key.toml key private_key",
+      "fixture invalid-unknown-dest-key.toml key destinations[0].identity_file",
+      "per-run canary in the HM_G02_SECRET_ENV environment variable",
+      "per-run canary inside [meta] of a generated profile",
+      "per-run canary on the malformed line of a generated profile"
+     ],
+     "pattern": "the canary prefix followed by [A-Za-z0-9]",
+     "artifact_files_scanned": 106,
+     "record_hits": [],
+     "artifact_hits": [],
+     "result": "clean"
+    }
+   },
+   "environment": {
+    "os": "Linux",
+    "os_release": "7.0.14-linuxkit",
+    "machine": "aarch64",
+    "platform": "linux-arm64",
+    "platform_detail": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+    "python": "3.13.16",
+    "pyte": "available",
+    "harness_version": "2.4.2",
+    "binary": "/repo/tests/g02/reference_impl.py",
+    "candidate": "go",
+    "pty_size_default": "80x24",
+    "sandbox": "private dir under /tmp, deleted after run",
+    "cpu_count": 10,
+    "loadavg_start": [
+     0.58,
+     0.18,
+     0.05
+    ],
+    "loadavg_end": [
+     0.61,
+     0.19,
+     0.06
+    ],
+    "container": {
+     "runner": "tests/g02/linux/run.sh --selftest",
+     "image_ref": "heimdall-g02-harness:d0c8e448a3a7",
+     "image_id": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92",
+     "base_image": "python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed",
+     "image_packages": [
+      "locales=2.36-9+deb12u14",
+      "openssh-client=1:9.2p1-2+deb12u10",
+      "zsh=5.9-4+b15"
+     ],
+     "docker_server": "29.8.1 linux/arm64",
+     "network": "none",
+     "user": "10001:10001"
+    }
+   },
+   "record_path": "/out/work/var-closed_stdout_sigpipe_both.json",
+   "artifacts_path": "/out/work/var-closed_stdout_sigpipe_both-artifacts",
+   "accepted": true
+  }
+ ],
+ "canary_leak_files": [],
+ "base_ok": true,
+ "repeats_ok": true,
+ "mismatch_ok": true,
+ "observable_caught": true,
+ "unobservable": [],
+ "race_results": {},
+ "harness_caught": true,
+ "variants_accepted": true,
+ "ok": true,
+ "verdict_ok": true,
+ "reasons": []
+}
