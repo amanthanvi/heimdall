@@ -1,0 +1,1 @@
+{"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:54676","b_bound":"127.0.0.1:60120"}

@@ -1,0 +1,34 @@
+# run C: D-Bus session bus up but no provider started; gnome-keyring is bus-activated with no initialised keyring (negative case), seccomp=unconfined
+2026-10-06T05:53:06Z
+uid=1000 kernel=7.0.14-linuxkit arch=aarch64
+LDD go-spike: 	not a dynamic executable
+LDD rust-gnu: 	linux-vdso.so.1 (0x0000ffffa340c000)
+LDD rust-musl: 	not a dynamic executable
+LDD rust-keyring-gnu: 	linux-vdso.so.1 (0x0000ffff98706000)
+LDD rust-keyring-musl: 	not a dynamic executable
+dbus-daemon[8]: [session uid=1000 pid=8] Activating service name='org.freedesktop.secrets' requested by ':1.0' (uid=1000 pid=55 comm="/spikes/go-spike secret-service")
+GNOME_KEYRING_CONTROL=/home/x4/.cache/keyring-8IPSW3
+dbus-daemon[8]: [session uid=1000 pid=8] Successfully activated service 'org.freedesktop.secrets'
+RUN go-spike secret-service exit=1
+  stdout: {"backend":"secret-service","lang":"go","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"failed to unlock correct collection '/org/freedesktop/secrets/aliases/default'"}
+RUN go-spike keyctl exit=0
+  stdout: {"backend":"keyctl-session","lang":"go","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN go-spike keyctl-user exit=0
+  stdout: {"backend":"keyctl-user","lang":"go","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-gnu secret-service exit=1
+  stdout: {"backend":"secret-service","lang":"rust","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"SS error: result not returned from SS API"}
+RUN rust-gnu keyctl exit=0
+  stdout: {"backend":"keyctl-session","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-gnu keyctl-user exit=0
+  stdout: {"backend":"keyctl-user","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-musl secret-service exit=1
+  stdout: {"backend":"secret-service","lang":"rust","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"SS error: result not returned from SS API"}
+RUN rust-musl keyctl exit=0
+  stdout: {"backend":"keyctl-session","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-musl keyctl-user exit=0
+  stdout: {"backend":"keyctl-user","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-keyring-gnu none exit=1
+  stdout: {"backend":"secret-service(keyring-facade)","lang":"rust","err":"Couldn't access platform storage: SS error: result not returned from SS API"}
+RUN rust-keyring-musl none exit=1
+  stdout: {"backend":"secret-service(keyring-facade)","lang":"rust","err":"Couldn't access platform storage: SS error: result not returned from SS API"}
+docker_exit=0

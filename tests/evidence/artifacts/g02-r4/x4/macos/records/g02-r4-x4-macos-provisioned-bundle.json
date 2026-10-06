@@ -1,0 +1,26 @@
+{
+  "case_id": "G02-r4-X4-macos-provisioned-bundle",
+  "status": "blocked",
+  "blocked_on": "Apple Developer Program membership, team ID, registered App ID, Developer ID Application certificate and a provisioning profile authorizing keychain-access-groups (owner decision G04 D3: yes, later); plus a disposable macOS user or VM so data-protection keychain writes do not touch the owner's keychain",
+  "requirement_ids": [],
+  "design_ref": "docs/g02/round4-plan.md X4; docs/research/g04-managed-credentials.md D3, P6",
+  "build_commit": "772a6b1f54a979cd87950834c625deba101ee3b8",
+  "artifact_digest": null,
+  "environment": {
+    "host": "macOS 27.0 (26A428), arm64, Apple M5 Max, Secure Enclave present",
+    "toolchains": "go1.27.1 darwin/arm64; rustc/cargo 1.99.0; Apple clang 21.0.0; macOS SDK 27.0",
+    "containers": "Docker Engine 29.8.1 linux/arm64; debian:bookworm-slim 813cd0370d82; rust:1.98.1-bookworm 690e6fc7bbfd"
+  },
+  "provider_versions": [],
+  "started_at": null,
+  "commands_or_harness": "not executed: provisioned signing of the bundles in bundle/ with entitlements-keychain-group.plist and Contents/embedded.provisionprofile; then dpprobe and a permanent Secure Enclave key in the data-protection keychain",
+  "observed_result": null,
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/MANIFEST.tsv"
+  ],
+  "limitations": [
+    "What a profile adds is taken from Apple TN3125, TN3137 and 'Signing a daemon with a restricted entitlement' (sources/), not observed",
+    "Whether Developer ID profiles can authorize keychain-access-groups is not established here (TN3125 points to a table that was not retrieved)"
+  ]
+}

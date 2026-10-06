@@ -1,0 +1,41 @@
+{
+  "fair": true,
+  "issues": [
+    {
+      "severity": "major",
+      "task": "all (T4 most)",
+      "description": "The baseline changed during the review. Another task (the X1b Windows fix round) edited prototypes/{go,rust} in the working tree and rebuilt dist/ at about 08:02 UTC. Contract section 9.6 was also committed after the pack was built. verify-matrix.sh and the evaluator protocol read $HM_REPO/prototypes/*/dist and do not check digests, so they silently test non-frozen binaries. Observed: my round 3 baseline rows ran on go bdfd64a2/18d96a07 and rust f9a3ec8b/85e038b4, not on the frozen 31c3ee17/d55b4ffe/496684ed/47160fdd. One round 2 run (linux T1 rust) crashed when /artifact/heimdall-proto disappeared mid-run. Needed: pin one base for both languages, either frozen or post-X1b, and add digest checks to verify-matrix and the evaluator. If X2 uses the post-X1b base, regenerate the T4 seeds on it and re-verify RED/GREEN. Incidental finding: the X1b builds gave the same per-check statuses as the frozen builds on T1-T4, on both platforms."
+    },
+    {
+      "severity": "major",
+      "task": "T4 (also T1-T3)",
+      "description": "Implementers are not isolated from the hidden material. The specs tell implementers to run tests/g02 from the repository, so they will have repo access. The repo holds the unseeded frozen prototypes/go and prototypes/rust, so `diff -r` against the seeded tree shows the seed in one step in either language. The hidden directory <home>/.local/share/heimdall-m00/r4-hidden is readable by the same user, and hidden_test_cmd gives its path. This affects both languages equally, but it can wipe out the T4 diagnosis signal and leak the hidden tests. Mitigation: give implementers a workspace with only docs, schemas, tests/g02 and fixtures (no frozen prototypes, no hidden directory). Never pass hidden_test_cmd to them. Have evaluators grep transcripts for r4-hidden and for reads of prototypes/."
+    },
+    {
+      "severity": "major",
+      "task": "T1",
+      "description": "The two baselines start from different deficits. Go fails S2-SIGSTOP and S5 on both platforms, plus S4 on darwin: 6/14 pass on darwin, 8/14 on linux. Rust fails S1, S3 and S4: 8/14 on both. I observed this the same way in 3 of 3 runs. From the failure details, I infer each has about two root causes. Go: decoding of the darwin SIGSTOP wait status (the launcher exits 255, and the outer shell died in S4), and mirroring the stop as SIGTSTP. Rust: mirroring a stop with no tty (S1 hangs), and no SIGCONT forwarding to the child (S3 and S4). The behaviour targets are neutral, but raw pass rates are not comparable. Score T1 per language by baseline-failing checks fixed and baseline-passing checks regressed, or as all-14-pass yes/no, not by raw pass count."
+    },
+    {
+      "severity": "minor",
+      "task": "T1",
+      "description": "No Go or Rust build passes T1.nested_shell_{bash,zsh} on darwin; only the Python positive control does. Feasibility under the Go runtime and Rust std constraints with K16 is unproven, so a both-fail outcome on that cell does not discriminate."
+    },
+    {
+      "severity": "minor",
+      "task": "all (evidence hygiene)",
+      "description": "hm.scrub misses home paths that a terminal wrap splits. In the darwin T1-base-go records, transcript_tail contains the start of the home path, a wrap, then the rest of the path. I reproduced this in all 3 rounds, and the author's results/2026-10-06-matrix and results/2026-10-06-repeat-t1 darwin T1-base-go.json contain it too. That contradicts the README's statement that a grep of results/ for the home path found nothing. Fix the scrub (match ignoring whitespace, or run a copy of the pack from /tmp) before evaluator JSON is copied into tests/evidence."
+    },
+    {
+      "severity": "minor",
+      "task": "T2",
+      "description": "The spec's ASCII-only case folding is never tested. The fixtures deliberately avoid non-ASCII case pairs, so an implementation that folds Unicode (for example with Go strings.ToLower or EqualFold) passes. This is neutral and the README says so, but the independent code reviewer has to check it by reading the code."
+    },
+    {
+      "severity": "minor",
+      "task": "all (pack wiring)",
+      "description": "hidden_test_cmd uses one {bin} placeholder for both platforms; on linux the artifact directory is dirname {bin}. It also embeds absolute home paths. The evaluator must substitute the darwin-arm64 or linux-arm64 binary per platform, and must not copy the command string into evidence. The T2 darwin command omits HM_G02_VENV, which is fine because T2 does not need pyte."
+    }
+  ],
+  "summary": "Fair to both languages, with three major issues to fix before implementers launch.\n\nI re-ran the hidden matrix three times on darwin and three times on linux. Every run used digest-verified frozen baselines (go 38b6b72, rust d8f0cbe), the T4 seeded builds and the positive controls. Every run had the expected real exit status: baselines exit 1 on T1-T3, frozen T4 exits 0, seeded T4 exits 1, positive controls exit 0. Per-check statuses were identical across all three runs and identical to the author's recorded results. No check ever reported `error`, and no check flipped between runs. Observed counts: T1 Go 6/14 on darwin and 8/14 on linux, Rust 8/14 on both; T2 1/11 for both baselines; T3 3/17; T4 frozen 6/6 and seeded 1/6. Positive controls passed 14/14, 11/11 and 17/17. The K17 positive control had p95 of 5.5-6 ms against the 100 ms bound, with host load average around 20.\n\nThe X1b Windows fix round rebuilt dist/ during my round 2. I discarded those runs and re-ran the affected rows on frozen copies: round2b and round3b.\n\nLanguage neutrality:\n- The specs never mention a language.\n- The T2 expected JSON matches the pack's reference model and my own reading of the spec. Both baselines accept all T2 fixtures.\n- The T3 tests accept any standard underline encoding and work around Bubble Tea's private-CSI quirk. Both prototypes have a K9 unit test to update.\n- The T4 seeds are symmetric. Each is a misleading symlink comment plus a unit test changed to assert the bug, and each fix is a one-step revert. I reproduced the seeded trees exactly from the frozen trees plus the patches. On darwin, the Go and Rust seeded builds produce byte-identical stdout and stderr through a symlink.\n\nWrong or correct implementations: I found no test that a correct implementation would fail. The only gap where a wrong implementation passes is that T2's ASCII-only case folding is never tested.\n\nSecrets: the specs and the pack contain no canary value and no secret.\n\nMajor issues:\n1. The baseline drifted. The X1b round modified prototypes/ and dist/ in the repository, and contract section 9.6 was added. verify-matrix.sh has no digest pin. Pin one base for both languages.\n2. Implementers are not isolated. Repo access to the unseeded frozen trees makes T4 solvable with `diff -r`, and the hidden directory is readable by the same user.\n3. T1 baseline deficits differ between Go and Rust. Score T1 by checks fixed and checks regressed, not by raw pass rate.\n\nMinor issues: darwin nested-shell feasibility is shown only in Python; the pack's scrub leaks a home path split by a terminal wrap (already present in the author's results/); and hidden_test_cmd needs care with its placeholder and its absolute paths.\n\nArtifacts (paths sanitized, no transcripts): <repo>/tests/evidence/artifacts/g02-r4/x2/taskpack-review/, containing review.json, per-check-summary-frozen-3x.json, per-check-summary-x1b-modified-1x.json, exit-codes/*.tsv, binary-digests-per-run.txt and scripts/. Scratch: /tmp/hm-r4/M00-T05-r4-taskpack-review/."
+}

@@ -1,0 +1,2 @@
+      Loaded 1290 security advisories (from /tmp/hm-r4/tools/x3/advisory-db)
+warning: <scratch>/rust-a/prototypes/rust/dist/darwin-arm64/heimdall-proto was not built with 'cargo auditable', the report will be incomplete (25 dependencies recovered)

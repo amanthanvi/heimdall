@@ -1,0 +1,3 @@
+TITLE: dataRepresentation
+A data representation of the private key.
+

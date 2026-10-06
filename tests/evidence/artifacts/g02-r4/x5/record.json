@@ -1,0 +1,76 @@
+{
+  "case_id": "G02-r4-x5-iroh-integration-paths",
+  "status": "verified",
+  "requirement_ids": [
+    "R-SS-07"
+  ],
+  "build_commit": "772a6b1 (x5 files uncommitted); prototypes frozen go 38b6b72 / rust d8f0cbe",
+  "artifact_digest": "sha256 per binary in results/rust-build-matrix.tsv, results/go-build.tsv, results/proto-plus/sizes.tsv",
+  "environment": {
+    "host": "darwin-arm64 (macOS 27.0)",
+    "linux": "docker 29.8.1, alpine:3.22 arm64 native, --network none; amd64 via Rosetta emulation",
+    "windows": "not available"
+  },
+  "provider_versions": [
+    "iroh 1.3.0",
+    "tokio 1.53.2",
+    "ring 0.17.14",
+    "aws-lc-sys 0.45.0",
+    "rustc 1.99.0",
+    "cargo-zigbuild 0.23.4",
+    "zig 0.16.0",
+    "go 1.27.1",
+    "lsof 4.91"
+  ],
+  "started_at": "2026-10-06T05:46:55Z",
+  "commands_or_harness": [
+    "rust-embed/build.sh",
+    "go-helper/build.sh",
+    "scripts/run-gosup-inspect.sh",
+    "scripts/orphan-check.sh",
+    "scripts/in-container.sh (docker run --network none)",
+    "scripts/dep-census.sh",
+    "scripts/native-census.sh",
+    "scripts/pe_imports.py"
+  ],
+  "observed_result": {
+    "rust_builds": "16/16 exit 0 (4 variants x darwin-arm64 native, x86_64/aarch64 linux-musl and x86_64 windows-gnu via cargo-zigbuild); ring and aws-lc-sys compiled under zig",
+    "darwin_selftest": "exit 0 for iroh-default, ring-min, awslc-min; lsof on exact PID: only UDP 127.0.0.1 sockets",
+    "darwin_go_supervisor": "exit 0 (iroh-default and ring-min helpers); helpers: 1 UDP 127.0.0.1 socket + 1 PF_ROUTE each; supervisor no inet sockets",
+    "linux_arm64_container_network_none": "selftest exit 0, go supervisor exit 0, /proc/net/udp only 127.0.0.1",
+    "linux_amd64_emulated": "selftest exit 0, go supervisor exit 0 (Rosetta, not native)",
+    "supervisor_sigkill": "helpers exited on stdin EOF within 1.5 s",
+    "sizes_prototype_vs_plus_iroh_bytes": {
+      "darwin-arm64": [
+        722144,
+        4504064
+      ],
+      "linux-x64": [
+        879464,
+        6836288
+      ],
+      "linux-arm64": [
+        816528,
+        5761880
+      ],
+      "windows-x64": [
+        844288,
+        5451776
+      ]
+    },
+    "pure_go": "github.com/tmc/go-iroh v0.3.0 exists (pure Go, forks crypto/tls + quic-go, unaffiliated, pre-v1, first tag 2026-08-15); not adopted, interop not verified"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-r4/x5/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x5/results/"
+  ],
+  "limitations": [
+    "Windows binaries built but not executed (blocked: no native Windows x64 host)",
+    "linux-x64 executed only under Rosetta emulation",
+    "loopback only; relays, discovery, holepunching, IPv6, restart not exercised (G06)",
+    "no packet capture; loopback-only rests on lsof, /proc/net and --network none",
+    "build times are single cold runs on a shared host",
+    "third-party pure-Go/FFI claims read from sources/docs only"
+  ],
+  "blocked_on": null
+}

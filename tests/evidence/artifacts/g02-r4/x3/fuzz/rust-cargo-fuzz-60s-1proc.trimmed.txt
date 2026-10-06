@@ -1,0 +1,142 @@
+# TRIMMED for size by M00-T05-r4-x3: full sanitized log had 9046 lines, sha256 babef9e5e9542b7ab5cafd704c5f73cd47598f8a5eeb8056d7308959ccbce475 (kept only in scratch). Showing first 60 and last 80 lines.
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+     Running `fuzz/target/aarch64-apple-darwin/release/profile_parse -artifact_prefix=/private<scratch>/rust/prototypes/rust/fuzz/artifacts/profile_parse/ -max_total_time=60 /private<scratch>/rust/prototypes/rust/fuzz/corpus/profile_parse`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3090604721
+INFO: Loaded 1 modules   (40522 inline 8-bit counters): 40522 [0x103330e00, 0x10333ac4a), 
+INFO: Loaded 1 PC tables (40522 PCs): 40522 [0x10333ac50,0x1033d90f0), 
+INFO:        6 files found in /private<scratch>/rust/prototypes/rust/fuzz/corpus/profile_parse
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 13334 bytes
+INFO: seed corpus: files: 6 min: 49b max: 13334b total: 14357b rss: 38Mb
+#7	INITED cov: 1299 ft: 3594 corp: 6/14357b exec/s: 0 rss: 42Mb
+#8	NEW    cov: 1303 ft: 3611 corp: 7/14408b lim: 13334 exec/s: 0 rss: 43Mb L: 51/13334 MS: 1 InsertByte-
+	NEW_FUNC[1/1]: 0x000103124450 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar18decode_zero_prefix+0x0 (profile_parse:arm64+0x10015c450)
+#9	NEW    cov: 1310 ft: 3629 corp: 8/14458b lim: 13334 exec/s: 4 rss: 44Mb L: 50/13334 MS: 1 ChangeASCIIInt-
+#10	NEW    cov: 1310 ft: 3634 corp: 9/14605b lim: 13334 exec/s: 5 rss: 44Mb L: 147/13334 MS: 1 ShuffleBytes-
+#11	NEW    cov: 1310 ft: 3642 corp: 10/27Kb lim: 13334 exec/s: 5 rss: 46Mb L: 13334/13334 MS: 1 ShuffleBytes-
+	NEW_FUNC[1/3]: 0x000103241590 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document17ignore_to_newline+0x0 (profile_parse:arm64+0x100279590)
+	NEW_FUNC[2/3]: 0x000103137b34 in _RNvXs2_NtNtCs8JBW3T048O8_11toml_parser6parser5eventNtB5_18ValidateWhitespaceNtB5_13EventReceiver5error+0x0 (profile_parse:arm64+0x10016fb34)
+#12	NEW    cov: 1336 ft: 3880 corp: 11/34Kb lim: 13334 exec/s: 6 rss: 46Mb L: 7194/13334 MS: 1 EraseBytes-
+#13	NEW    cov: 1345 ft: 3987 corp: 12/46Kb lim: 13334 exec/s: 6 rss: 47Mb L: 12263/13334 MS: 1 EraseBytes-
+#14	NEW    cov: 1345 ft: 3988 corp: 13/53Kb lim: 13334 exec/s: 7 rss: 47Mb L: 7194/13334 MS: 1 ChangeBit-
+#15	NEW    cov: 1359 ft: 4065 corp: 14/53Kb lim: 13334 exec/s: 7 rss: 47Mb L: 223/13334 MS: 1 CopyPart-
+#16	pulse  cov: 1359 ft: 4214 corp: 14/53Kb lim: 13334 exec/s: 8 rss: 47Mb
+#16	NEW    cov: 1360 ft: 4214 corp: 15/53Kb lim: 13334 exec/s: 8 rss: 47Mb L: 49/13334 MS: 1 CopyPart-
+#17	NEW    cov: 1361 ft: 4326 corp: 16/53Kb lim: 13334 exec/s: 8 rss: 48Mb L: 49/13334 MS: 1 CopyPart-
+	NEW_FUNC[1/1]: 0x000103121fc4 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar14decode_invalid+0x0 (profile_parse:arm64+0x100159fc4)
+#18	NEW    cov: 1377 ft: 4358 corp: 17/53Kb lim: 13334 exec/s: 9 rss: 48Mb L: 148/13334 MS: 1 InsertByte-
+#19	NEW    cov: 1377 ft: 4368 corp: 18/53Kb lim: 13334 exec/s: 9 rss: 48Mb L: 196/13334 MS: 1 CrossOver-
+#20	NEW    cov: 1394 ft: 4386 corp: 19/54Kb lim: 13334 exec/s: 10 rss: 48Mb L: 147/13334 MS: 1 ChangeBit-
+#21	NEW    cov: 1397 ft: 4397 corp: 20/54Kb lim: 13334 exec/s: 10 rss: 48Mb L: 115/13334 MS: 1 InsertRepeatedBytes-
+#22	NEW    cov: 1398 ft: 4398 corp: 21/61Kb lim: 13334 exec/s: 11 rss: 48Mb L: 7194/13334 MS: 1 ChangeBinInt-
+	NEW_FUNC[1/3]: 0x00010310a9dc in _RNvMs1_NtCs9gUwrQBb75J_5alloc6borrowINtB5_3CoweE6to_mutCs8JBW3T048O8_11toml_parser+0x0 (profile_parse:arm64+0x1001429dc)
+	NEW_FUNC[2/3]: 0x000103240918 in _RNvMs7_NtCs9gUwrQBb75J_5alloc7raw_vecINtB5_6RawVecNtNtNtCs8JBW3T048O8_11toml_parser6parser5event5EventE8grow_oneBS_+0x0 (profile_parse:arm64+0x100278918)
+#23	NEW    cov: 1455 ft: 4599 corp: 22/61Kb lim: 13334 exec/s: 11 rss: 48Mb L: 554/13334 MS: 1 ChangeBit-
+#24	NEW    cov: 1455 ft: 4600 corp: 23/61Kb lim: 13334 exec/s: 12 rss: 48Mb L: 147/13334 MS: 1 ChangeASCIIInt-
+#25	NEW    cov: 1455 ft: 4601 corp: 24/61Kb lim: 13334 exec/s: 12 rss: 48Mb L: 50/13334 MS: 1 InsertByte-
+	NEW_FUNC[1/5]: 0x00010310e20c in _RNvMs_NtCs8JBW3T048O8_11toml_parser6sourceNtB4_3Raw14decode_comment+0x0 (profile_parse:arm64+0x10014620c)
+	NEW_FUNC[2/5]: 0x00010310fe18 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document10on_comment+0x0 (profile_parse:arm64+0x100147e18)
+#26	NEW    cov: 1500 ft: 4663 corp: 25/62Kb lim: 13334 exec/s: 13 rss: 48Mb L: 554/13334 MS: 1 ChangeBit-
+#27	NEW    cov: 1502 ft: 4666 corp: 26/62Kb lim: 13334 exec/s: 13 rss: 48Mb L: 115/13334 MS: 1 ChangeBinInt-
+#30	NEW    cov: 1502 ft: 4667 corp: 27/62Kb lim: 13334 exec/s: 15 rss: 48Mb L: 301/13334 MS: 3 InsertRepeatedBytes-CMP-ChangeBinInt- DE: "[\000\000\000\000\000\000\000"-
+#31	NEW    cov: 1507 ft: 4686 corp: 28/63Kb lim: 13334 exec/s: 15 rss: 48Mb L: 562/13334 MS: 1 CrossOver-
+#32	pulse  cov: 1507 ft: 4693 corp: 28/63Kb lim: 13334 exec/s: 16 rss: 48Mb
+#32	NEW    cov: 1507 ft: 4693 corp: 29/63Kb lim: 13334 exec/s: 16 rss: 48Mb L: 123/13334 MS: 1 PersAutoDict- DE: "[\000\000\000\000\000\000\000"-
+#33	NEW    cov: 1510 ft: 4903 corp: 30/63Kb lim: 13334 exec/s: 16 rss: 48Mb L: 147/13334 MS: 1 ShuffleBytes-
+#34	NEW    cov: 1515 ft: 4923 corp: 31/63Kb lim: 13334 exec/s: 17 rss: 48Mb L: 223/13334 MS: 1 CMP- DE: "\004\000\000\000\000\000\000\000"-
+#35	NEW    cov: 1518 ft: 4940 corp: 32/76Kb lim: 13334 exec/s: 17 rss: 49Mb L: 13334/13334 MS: 1 ChangeByte-
+	NEW_FUNC[1/3]: 0x00010323f598 in _RNvMs7_NtCs9gUwrQBb75J_5alloc7raw_vecINtB5_6RawVecINtNtCsfWoMYAU34QX_13serde_spanned7spanned7SpannedINtNtB7_6borrow3CoweEEE8grow_oneCs78Ua2pyRmYn_4toml+0x0 (profile_parse:arm64+0x100277598)
+	NEW_FUNC[2/3]: 0x000103138358 in _RNvXs2_NtNtCs8JBW3T048O8_11toml_parser6parser5eventNtB5_18ValidateWhitespaceNtB5_13EventReceiver7key_sep+0x0 (profile_parse:arm64+0x100170358)
+#37	NEW    cov: 1545 ft: 5012 corp: 33/77Kb lim: 13334 exec/s: 18 rss: 49Mb L: 92/13334 MS: 2 ChangeByte-EraseBytes-
+#38	NEW    cov: 1546 ft: 5032 corp: 34/77Kb lim: 13334 exec/s: 19 rss: 49Mb L: 297/13334 MS: 1 EraseBytes-
+#39	NEW    cov: 1547 ft: 5035 corp: 35/90Kb lim: 13334 exec/s: 19 rss: 50Mb L: 13334/13334 MS: 1 CrossOver-
+#41	NEW    cov: 1547 ft: 5043 corp: 36/90Kb lim: 13334 exec/s: 20 rss: 50Mb L: 115/13334 MS: 2 PersAutoDict-CMP- DE: "\004\000\000\000\000\000\000\000"-"\001\000\000\000\000\000\000\000"-
+#44	NEW    cov: 1548 ft: 5212 corp: 37/90Kb lim: 13334 exec/s: 22 rss: 50Mb L: 35/13334 MS: 3 ChangeBinInt-CopyPart-EraseBytes-
+#45	NEW    cov: 1548 ft: 5214 corp: 38/90Kb lim: 13334 exec/s: 22 rss: 50Mb L: 86/13334 MS: 1 EraseBytes-
+#46	NEW    cov: 1548 ft: 5434 corp: 39/93Kb lim: 13334 exec/s: 23 rss: 50Mb L: 3417/13334 MS: 1 CrossOver-
+#47	NEW    cov: 1550 ft: 5438 corp: 40/94Kb lim: 13334 exec/s: 23 rss: 50Mb L: 297/13334 MS: 1 ChangeByte-
+#48	NEW    cov: 1550 ft: 5439 corp: 41/94Kb lim: 13334 exec/s: 24 rss: 50Mb L: 148/13334 MS: 1 InsertByte-
+#49	NEW    cov: 1550 ft: 5461 corp: 42/94Kb lim: 13334 exec/s: 24 rss: 50Mb L: 57/13334 MS: 1 CopyPart-
+#52	NEW    cov: 1550 ft: 5462 corp: 43/104Kb lim: 13334 exec/s: 26 rss: 51Mb L: 10045/13334 MS: 3 CrossOver-CrossOver-InsertByte-
+# ... [8906 lines of libFuzzer NEW/REDUCE/pulse progress omitted] ...
+".\000\000\000\000\000\000\000" # Uses: 86
+"\270\377\377\377" # Uses: 100
+"\031\000\000\000\000\000\000\000" # Uses: 81
+"\377\377\377\"" # Uses: 81
+"\377\377\377\377\377\377\377[" # Uses: 93
+"\021\000\000\000\000\000\000\000" # Uses: 94
+"4\000\000\000\000\000\000\000" # Uses: 102
+"8\000\000\000\000\000\000\000" # Uses: 92
+"6\000\000\000" # Uses: 103
+"\377\377\377\377\377\377\000?" # Uses: 103
+"^\000\000\000\000\000\000\000" # Uses: 69
+"\001\177" # Uses: 91
+"\251\252\252\252\252\252\252\002" # Uses: 67
+"\000\000\000\000\000\000\000;" # Uses: 96
+" \000\000\000\000\000\000\000" # Uses: 80
+"5\004\000\000\000\000\000\000" # Uses: 73
+"E\000\000\000" # Uses: 88
+"5\000\000\000" # Uses: 84
+"\015\000\000\000\000\000\000\000" # Uses: 86
+"\000x" # Uses: 81
+"E\000" # Uses: 78
+"\377\377\377\377\377\377\000j" # Uses: 70
+"&\000\000\000" # Uses: 75
+"\003\000\000\000\000\000\000\000" # Uses: 70
+"\200\000\000\000\000\000\000\002" # Uses: 76
+"\177\377\377\377\377\377\377\370" # Uses: 57
+"\001\000\000\000\000\000\000\027" # Uses: 74
+"\377\377\377\306" # Uses: 82
+"\370\377\377\377\377\377\377\177" # Uses: 74
+"\000\000\000\300" # Uses: 51
+"\001|" # Uses: 62
+"x\000" # Uses: 60
+"\376\377\377\261" # Uses: 60
+"!\000\000\000" # Uses: 58
+"\001'" # Uses: 54
+"=\000\000\000\000\000\000\000" # Uses: 50
+"\377\377\377\377\377\377\002\203" # Uses: 68
+"\001\000\000\012" # Uses: 52
+" \000\000\000" # Uses: 50
+"\177\000\000\000\000\000\000\005" # Uses: 49
+"1\000\000\000\000\000\000\000" # Uses: 41
+"\354\377\377\377" # Uses: 37
+"\024\000\000\000\000\000\000\000" # Uses: 51
+"\001\000\000#" # Uses: 49
+"\377\377\377\277" # Uses: 50
+"\034\004\000\000\000\000\000\000" # Uses: 40
+"r\000\000\000" # Uses: 35
+"\237\000\000\000\000\000\000\000" # Uses: 38
+"+\003\000\000\000\000\000\000" # Uses: 38
+"\000\000\000\000\000\000\007\007" # Uses: 39
+"\001\000\000\000\000\000\000%" # Uses: 43
+"\030\000\000\000\000\000\000\000" # Uses: 34
+"\001\000\000\000\000\000\000&" # Uses: 43
+"\376\377\377\254" # Uses: 41
+"\001\000\000\000\000\000\012c" # Uses: 42
+"\255\377\377\377" # Uses: 32
+"\013\000" # Uses: 50
+"\001\000\000O" # Uses: 29
+"\256\377\377\377" # Uses: 32
+"\037\000\000\000\000\000\000\000" # Uses: 30
+"\000\000" # Uses: 25
+"\001\000\000\000\000\000\010z" # Uses: 25
+"\001\000\000:" # Uses: 30
+"\001\000\0009" # Uses: 22
+"\000\000\000\000\000\000\000\\" # Uses: 21
+";\000\000\000\000\000\000\000" # Uses: 19
+"\3448\216\3438\216\343\000" # Uses: 8
+"\377\027" # Uses: 22
+"\377\377\377\377\377\377\377\037" # Uses: 18
+"\377\377\377\253" # Uses: 8
+"\000\000\000\000\000\000\010\363" # Uses: 10
+"D3\000\000\000\000\000\000" # Uses: 6
+"\017\000\000\000\000\000\000\000" # Uses: 2
+")\003\000\000\000\000\000\000" # Uses: 1
+"\000\000\000\000\000\000\000\"" # Uses: 1
+"\001\000\000." # Uses: 4
+"\001\000\000/" # Uses: 1
+###### End of recommended dictionary. ######
+Done 424519 runs in 61 second(s)
+cargo fuzz run (1 process, ASan) rc=0 wall=62s

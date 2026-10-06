@@ -1,0 +1,8 @@
+id	url	http	bytes	sha256	fetched_utc
+apple-tn3137	https://developer.apple.com/tutorials/data/documentation/technotes/tn3137-on-mac-keychains.json	200	35748	f24b334e0f661fe7790517f0b32c64ba24c6e748260e1a6afb3738c9c255ccc0	2026-10-06T06:00:52Z
+apple-tn3125	https://developer.apple.com/tutorials/data/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles.json	200	37899	76fee52f361c1cb30fde669e05a58c029c4a4ed0dd99896f01c63f64838f3baa	2026-10-06T06:00:52Z
+apple-signing-daemon-restricted-entitlement	https://developer.apple.com/tutorials/data/documentation/xcode/signing-a-daemon-with-a-restricted-entitlement.json	200	23031	471ae17f0645f8c50d9e9cea618864075913c21aaab123f1ec4f42b7e9e4e41f	2026-10-06T06:00:52Z
+apple-protecting-keys-with-the-secure-enclave	https://developer.apple.com/tutorials/data/documentation/security/protecting-keys-with-the-secure-enclave.json	200	32468	8efad0f1483bc271b85dbfdfb1a359a5f8fd5c149e18501b9211326ad410cce8	2026-10-06T06:00:52Z
+apple-cryptokit-se-p256-signing-privatekey-datarepresentation	https://developer.apple.com/tutorials/data/documentation/cryptokit/secureenclave/p256/signing/privatekey/datarepresentation.json	200	7453	111bab6250a84ef6bd233f01b8020a7a40886875eb032e7ac0faf328f1e13178	2026-10-06T06:00:52Z
+apple-entitlement-keychain-access-groups	https://developer.apple.com/tutorials/data/documentation/bundleresources/entitlements/keychain-access-groups.json	200	7338	9868dd3c17b470fd9f94be42e6c759630fd548c6c8d8216b536da7a4925090d3	2026-10-06T06:00:52Z
+apple-ksecusedataprotectionkeychain	https://developer.apple.com/tutorials/data/documentation/security/ksecusedataprotectionkeychain.json	200	13947	cd4de8c3cc3c4f9e5e8880fea46f042f1e2a26de4d84a933357bb784bac89ed4	2026-10-06T06:00:53Z

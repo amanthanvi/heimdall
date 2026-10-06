@@ -1,0 +1,3 @@
+go-licenses check (ignore self) linux:arm64 rc=0
+go-licenses check (ignore self) windows:amd64 rc=0
+go-licenses check (ignore self) darwin:arm64 rc=0

@@ -1,0 +1,576 @@
+[
+ {
+  "platform": "darwin",
+  "task": "T1",
+  "subject": "base-go",
+  "total": 14,
+  "pass_per_round": [
+   6,
+   6,
+   6
+  ],
+  "author_pass": 6,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T1.nested_shell_bash",
+   "T1.nested_shell_zsh",
+   "T1.pty_stop_cont_bash_SIGSTOP",
+   "T1.pty_stop_cont_zsh_SIGSTOP",
+   "T1.sigstop_meta_bash_ext",
+   "T1.sigstop_meta_bash_read",
+   "T1.sigstop_meta_zsh_ext",
+   "T1.sigstop_meta_zsh_read"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T1",
+  "subject": "base-rust",
+  "total": 14,
+  "pass_per_round": [
+   8,
+   8,
+   8
+  ],
+  "author_pass": 8,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T1.cont_launcher_only_bash",
+   "T1.cont_launcher_only_zsh",
+   "T1.nested_shell_bash",
+   "T1.nested_shell_zsh",
+   "T1.nonint_stop_cont_SIGSTOP",
+   "T1.nonint_stop_cont_SIGTSTP"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T1",
+  "subject": "pc",
+  "total": 14,
+  "pass_per_round": [
+   14,
+   14,
+   14
+  ],
+  "author_pass": 14,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "darwin",
+  "task": "T2",
+  "subject": "base-go",
+  "total": 11,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T2.all_rules_exact",
+   "T2.clean_empty",
+   "T2.clean_homelab",
+   "T2.clean_near_miss",
+   "T2.flag_order",
+   "T2.invalid_same_as_show",
+   "T2.no_writes",
+   "T2.plain_exit_codes",
+   "T2.single_rules",
+   "T2.spaced_unicode_path"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T2",
+  "subject": "base-rust",
+  "total": 11,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T2.all_rules_exact",
+   "T2.clean_empty",
+   "T2.clean_homelab",
+   "T2.clean_near_miss",
+   "T2.flag_order",
+   "T2.invalid_same_as_show",
+   "T2.no_writes",
+   "T2.plain_exit_codes",
+   "T2.single_rules",
+   "T2.spaced_unicode_path"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T2",
+  "subject": "pc",
+  "total": 11,
+  "pass_per_round": [
+   11,
+   11,
+   11
+  ],
+  "author_pass": 11,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "darwin",
+  "task": "T3",
+  "subject": "base-go",
+  "total": 17,
+  "pass_per_round": [
+   3,
+   3,
+   3
+  ],
+  "author_pass": 3,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T3.help_ctrl_c",
+   "T3.help_esc_keeps_filter",
+   "T3.help_ignores_other_keys",
+   "T3.help_toggle",
+   "T3.highlight_after_enter_and_esc",
+   "T3.highlight_case_insensitive",
+   "T3.highlight_narrow",
+   "T3.highlight_no_color",
+   "T3.highlight_single_char",
+   "T3.highlight_wide_chars",
+   "T3.k17_filter_latency",
+   "T3.selection_falls_back_to_first",
+   "T3.selection_kept_large",
+   "T3.selection_kept_when_visible"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T3",
+  "subject": "base-rust",
+  "total": 17,
+  "pass_per_round": [
+   3,
+   3,
+   3
+  ],
+  "author_pass": 3,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T3.help_ctrl_c",
+   "T3.help_esc_keeps_filter",
+   "T3.help_ignores_other_keys",
+   "T3.help_toggle",
+   "T3.highlight_after_enter_and_esc",
+   "T3.highlight_case_insensitive",
+   "T3.highlight_narrow",
+   "T3.highlight_no_color",
+   "T3.highlight_single_char",
+   "T3.highlight_wide_chars",
+   "T3.k17_filter_latency",
+   "T3.selection_falls_back_to_first",
+   "T3.selection_kept_large",
+   "T3.selection_kept_when_visible"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T3",
+  "subject": "pc",
+  "total": 17,
+  "pass_per_round": [
+   17,
+   17,
+   17
+  ],
+  "author_pass": 17,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "darwin",
+  "task": "T4",
+  "subject": "base-go",
+  "total": 6,
+  "pass_per_round": [
+   6,
+   6,
+   6
+  ],
+  "author_pass": 6,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "darwin",
+  "task": "T4",
+  "subject": "base-rust",
+  "total": 6,
+  "pass_per_round": [
+   6,
+   6,
+   6
+  ],
+  "author_pass": 6,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "darwin",
+  "task": "T4",
+  "subject": "seeded-go",
+  "total": 6,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T4.plain_mode_exit",
+   "T4.relative_and_chained",
+   "T4.repro_absolute_symlink",
+   "T4.symlink_bounds_and_errors",
+   "T4.tui_via_symlink"
+  ]
+ },
+ {
+  "platform": "darwin",
+  "task": "T4",
+  "subject": "seeded-rust",
+  "total": 6,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T4.plain_mode_exit",
+   "T4.relative_and_chained",
+   "T4.repro_absolute_symlink",
+   "T4.symlink_bounds_and_errors",
+   "T4.tui_via_symlink"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T1",
+  "subject": "base-go",
+  "total": 14,
+  "pass_per_round": [
+   8,
+   8,
+   8
+  ],
+  "author_pass": 8,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T1.pty_stop_cont_bash_SIGSTOP",
+   "T1.pty_stop_cont_zsh_SIGSTOP",
+   "T1.sigstop_meta_bash_ext",
+   "T1.sigstop_meta_bash_read",
+   "T1.sigstop_meta_zsh_ext",
+   "T1.sigstop_meta_zsh_read"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T1",
+  "subject": "base-rust",
+  "total": 14,
+  "pass_per_round": [
+   8,
+   8,
+   8
+  ],
+  "author_pass": 8,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T1.cont_launcher_only_bash",
+   "T1.cont_launcher_only_zsh",
+   "T1.nested_shell_bash",
+   "T1.nested_shell_zsh",
+   "T1.nonint_stop_cont_SIGSTOP",
+   "T1.nonint_stop_cont_SIGTSTP"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T1",
+  "subject": "pc",
+  "total": 14,
+  "pass_per_round": [
+   14,
+   14,
+   14
+  ],
+  "author_pass": 14,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "linux",
+  "task": "T2",
+  "subject": "base-go",
+  "total": 11,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T2.all_rules_exact",
+   "T2.clean_empty",
+   "T2.clean_homelab",
+   "T2.clean_near_miss",
+   "T2.flag_order",
+   "T2.invalid_same_as_show",
+   "T2.no_writes",
+   "T2.plain_exit_codes",
+   "T2.single_rules",
+   "T2.spaced_unicode_path"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T2",
+  "subject": "base-rust",
+  "total": 11,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T2.all_rules_exact",
+   "T2.clean_empty",
+   "T2.clean_homelab",
+   "T2.clean_near_miss",
+   "T2.flag_order",
+   "T2.invalid_same_as_show",
+   "T2.no_writes",
+   "T2.plain_exit_codes",
+   "T2.single_rules",
+   "T2.spaced_unicode_path"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T2",
+  "subject": "pc",
+  "total": 11,
+  "pass_per_round": [
+   11,
+   11,
+   11
+  ],
+  "author_pass": 11,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "linux",
+  "task": "T3",
+  "subject": "base-go",
+  "total": 17,
+  "pass_per_round": [
+   3,
+   3,
+   3
+  ],
+  "author_pass": 3,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T3.help_ctrl_c",
+   "T3.help_esc_keeps_filter",
+   "T3.help_ignores_other_keys",
+   "T3.help_toggle",
+   "T3.highlight_after_enter_and_esc",
+   "T3.highlight_case_insensitive",
+   "T3.highlight_narrow",
+   "T3.highlight_no_color",
+   "T3.highlight_single_char",
+   "T3.highlight_wide_chars",
+   "T3.k17_filter_latency",
+   "T3.selection_falls_back_to_first",
+   "T3.selection_kept_large",
+   "T3.selection_kept_when_visible"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T3",
+  "subject": "base-rust",
+  "total": 17,
+  "pass_per_round": [
+   3,
+   3,
+   3
+  ],
+  "author_pass": 3,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T3.help_ctrl_c",
+   "T3.help_esc_keeps_filter",
+   "T3.help_ignores_other_keys",
+   "T3.help_toggle",
+   "T3.highlight_after_enter_and_esc",
+   "T3.highlight_case_insensitive",
+   "T3.highlight_narrow",
+   "T3.highlight_no_color",
+   "T3.highlight_single_char",
+   "T3.highlight_wide_chars",
+   "T3.k17_filter_latency",
+   "T3.selection_falls_back_to_first",
+   "T3.selection_kept_large",
+   "T3.selection_kept_when_visible"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T3",
+  "subject": "pc",
+  "total": 17,
+  "pass_per_round": [
+   17,
+   17,
+   17
+  ],
+  "author_pass": 17,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "linux",
+  "task": "T4",
+  "subject": "base-go",
+  "total": 6,
+  "pass_per_round": [
+   6,
+   6,
+   6
+  ],
+  "author_pass": 6,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "linux",
+  "task": "T4",
+  "subject": "base-rust",
+  "total": 6,
+  "pass_per_round": [
+   6,
+   6,
+   6
+  ],
+  "author_pass": 6,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": []
+ },
+ {
+  "platform": "linux",
+  "task": "T4",
+  "subject": "seeded-go",
+  "total": 6,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T4.plain_mode_exit",
+   "T4.relative_and_chained",
+   "T4.repro_absolute_symlink",
+   "T4.symlink_bounds_and_errors",
+   "T4.tui_via_symlink"
+  ]
+ },
+ {
+  "platform": "linux",
+  "task": "T4",
+  "subject": "seeded-rust",
+  "total": 6,
+  "pass_per_round": [
+   1,
+   1,
+   1
+  ],
+  "author_pass": 1,
+  "flaky_checks": [],
+  "differs_from_author": [],
+  "error_checks": [],
+  "non_pass_checks": [
+   "T4.plain_mode_exit",
+   "T4.relative_and_chained",
+   "T4.repro_absolute_symlink",
+   "T4.symlink_bounds_and_errors",
+   "T4.tui_via_symlink"
+  ]
+ }
+]

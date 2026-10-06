@@ -1,0 +1,8 @@
+Go cross-host check: golang@sha256:6e725de5c0593b829d80b04f169d4fe119b32c612744c79e3311acf14b738e7f (linux/arm64 container) running build.sh from git archive 38b6b72
+ container darwin-arm64 5242306 713170235770f599701ac8d18296c271d33fb3a15f19006aa03157d8e4db112f
+ container linux-x64 5451936 429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a
+ container linux-arm64 5177504 d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9
+ container windows-x64 5100032 ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed
+ note: container darwin-arm64 is linker-signed only (no macOS codesign in container)
+ container darwin-arm64 built with same flags, copied to macOS host as heimdall-proto, codesign --force --options runtime --sign - => 31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6
+ macOS host build.sh (repro/go-sha256-compare.txt): darwin 31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6 linux-x64 429063bf... linux-arm64 d55b4ffe... windows-x64 ca5145d1...

@@ -1,0 +1,53 @@
+{
+ "case_id": "M00-T05-r4-taskpack-review",
+ "status": "verified",
+ "requirement_ids": [],
+ "build_commit": "go 38b6b72 / rust d8f0cbe (frozen baselines); T4 seeded trees = frozen + seed patches",
+ "artifact_digest": {
+  "go_darwin_arm64": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6",
+  "go_linux_arm64": "d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9",
+  "rust_darwin_arm64": "496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b",
+  "rust_linux_arm64": "47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0",
+  "seeded_go_darwin_arm64": "813ebd8a45caec5df89e4c872e08194a12d1374e2b7b2cf6dde9f703271b5126",
+  "seeded_go_linux_arm64": "f9aa4c3d67b7b920515833a7a53dee2f8b4d29d57c423cae6f31f6c9493d2653",
+  "seeded_rust_darwin_arm64": "4fa59c1b1a4561608bae91266719b266fd172d7ff6d142c352b3446070c49874",
+  "seeded_rust_linux_arm64": "2efb332b2d61af009172b4c42ddf4cb9fbb94ff9df31eb7dd4e384189ba1baf1"
+ },
+ "environment": {
+  "darwin": "darwin-arm64 host, Darwin 27.0.0, bash 3.2.57, zsh 5.9, Python 3.14.8, pyte from <repo>/tests/g02/.venv; SSH_AUTH_SOCK unset; host load average 19-27 on 18 CPUs during the runs (other round-4 tasks running)",
+  "linux": "heimdall-g02-harness:d0c8e448a3a7 via the pack's docker-run.sh (linux/arm64, --network none), Docker 29.8.1 arm64"
+ },
+ "provider_versions": [],
+ "started_at": "2026-10-06T07:19:54Z",
+ "finished_at": "2026-10-06T08:58:38Z",
+ "commands_or_harness": [
+  "HM_REPO=<repo> sh <home>/.local/share/heimdall-m00/r4-hidden/verify-matrix.sh <scratch>/seedbin <scratch>/roundN both   (N=1,2,3; scripts/rounds.sh)",
+  "scripts/frozen-rounds.sh: baseline rows re-run against digest-verified copies of the frozen builds (round2b, round3b)",
+  "python3 -I scripts/summarize.py ... (per-check comparison across rounds and against the author's results/)",
+  "git archive {38b6b72,d8f0cbe} prototypes/{go,rust} + patch -p1 seed/*.patch; diff -r against /tmp/hm-r4/seeded/{go,rust}",
+  "python3 -I t2/lint_ref.py on the 4 T2 fixtures, compared with t2/expected/*.json",
+  "seeded go/rust darwin builds: profile show via symlink, with and without --json; cmp of stdout and stderr"
+ ],
+ "observed_result": {
+  "red_green_3x": "Three digest-verified runs of every subject on darwin and linux (round1, round2 + round2b, round3b + round3 pc/seeded rows). Every run had the expected exit status (baselines T1-T3 exit 1, T4 frozen exit 0, T4 seeded exit 1, positive controls exit 0). Per-check statuses were identical in all three runs and identical to the author's recorded results; no check ever reported error. Counts: T1 go darwin 6/14, go linux 8/14, rust 8/14 both; T2 1/11 all; T3 3/17 all; T4 frozen 6/6, seeded 1/6; positive controls 14/14, 11/11, 17/17.",
+  "interference": "During round 2 another task (X1b Windows fix round) modified prototypes/{go,rust} in the working tree and rebuilt dist/ at about 08:02 UTC. Round2 linux T1 base-rust crashed when /artifact/heimdall-proto vanished mid-run (not a test defect; discarded). Round2 linux T4 base rows and all round3 baseline rows ran on the rebuilt binaries (go bdfd64a2/18d96a07, rust f9a3ec8b/85e038b4); they were re-run on frozen copies (round2b, round3b). The X1b-modified builds gave per-check statuses identical to the frozen builds on T1-T4 (per-check-summary-x1b-modified-1x.json).",
+  "seed_trees": "frozen tree + patch reproduces /tmp/hm-r4/seeded/{go,rust} exactly (patch exit 0, diff -r exit 0 for both).",
+  "t4_symptom": "seeded go and seeded rust darwin builds: profile show via an absolute symlink exits 2 with byte-identical stdout and stderr, with and without --json.",
+  "t2_expected": "lint_ref.py output equals expected data for all 4 fixtures; my own reading of the spec against all-rules.toml gives the same 13 findings in the same order; both frozen baselines accept all 4 fixtures with profile show (PROFILE_OK).",
+  "k17_margin": "positive-control p95 5.5 ms (darwin) and 6.0 ms (linux) against the 100 ms bound under load average about 20."
+ },
+ "findings": "see the structured verdict returned to the orchestrator; summarised in limitations below",
+ "evidence_paths": [
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-review/exit-codes/",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-review/per-check-summary-frozen-3x.json",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-review/per-check-summary-x1b-modified-1x.json",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-review/binary-digests-per-run.txt",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-review/scripts/"
+ ],
+ "limitations": [
+  "Per-run JSON records with transcripts are not copied here: the darwin T1-base-go records contain a home-path fragment that the pack's scrub misses (wrapped terminal echo). They stay in scratch.",
+  "Feasibility of every check in Go or Rust specifically is not shown: positive controls are Python. T1 nested_shell on darwin is passed by no Go or Rust build.",
+  "Isolation of implementers from the hidden directory and from the frozen unseeded trees was not tested; it depends on how the orchestrator launches implementers.",
+  "No implementation was attempted; difficulty equivalence of the T4 seeds is judged by reading the patches, not measured."
+ ]
+}

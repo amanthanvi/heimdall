@@ -1,0 +1,18 @@
+== run 1
+cacc1634e46e9aa576e13d744aa3624b126896117fd19ef44f72ee0d38e89c64  heimdall-proto_0.0.0-SNAPSHOT-none_darwin_arm64.tar.gz
+6c819703d10e0958dfa98d8c3d89fc21e7ddcd8607ec0d29c5a1409e4d2c36c4  heimdall-proto_0.0.0-SNAPSHOT-none_darwin_arm64.tar.gz.sbom.json
+347a5bea539318597eb42e9dc4be7cfdee2b635995550b91085ff0d0faf15a1d  heimdall-proto_0.0.0-SNAPSHOT-none_linux_amd64.tar.gz
+6dac5ceea6f5679272965717b9609c525e9ec72a25d4eed066d6cc18a1c7f702  heimdall-proto_0.0.0-SNAPSHOT-none_linux_amd64.tar.gz.sbom.json
+d5c76632efe1957690909c42bb73b6288dc62993d0cc0d8ec308e83824060eee  heimdall-proto_0.0.0-SNAPSHOT-none_linux_arm64.tar.gz
+9951c7424daea8207c02860b7630b8cc5842347747d7b4a1c2d8a8600feee915  heimdall-proto_0.0.0-SNAPSHOT-none_linux_arm64.tar.gz.sbom.json
+8f8efc2ba3aa3cc7bde3699a7ca4a8b3a478ca46cd5b98ca3860cecbd29605b4  heimdall-proto_0.0.0-SNAPSHOT-none_windows_amd64.zip
+03fb00b76736c9647bcf42ba444b8a11a28a7438432959d775f1a4b2dbea5a37  heimdall-proto_0.0.0-SNAPSHOT-none_windows_amd64.zip.sbom.json
+== run 2 (fresh GOCACHE)
+6d7c5a951cdb618f0147a4667015a10c12a0d7d4c6a066ee6bff1be3bcaefd48  heimdall-proto_0.0.0-SNAPSHOT-none_darwin_arm64.tar.gz
+c95d30f2015781fa84a64c3ba23baf9ad6f4fee95d525bc996423bf936c092b3  heimdall-proto_0.0.0-SNAPSHOT-none_darwin_arm64.tar.gz.sbom.json
+e3d1e3b4f42585aaf10307e7a920372faac9745b4836624b330d86cea85cac4e  heimdall-proto_0.0.0-SNAPSHOT-none_linux_amd64.tar.gz
+1749e9e8f484b31071fe77ba4b9689b650684c31e998655eaa66714231ca30fb  heimdall-proto_0.0.0-SNAPSHOT-none_linux_amd64.tar.gz.sbom.json
+54bb4e26d09452e56c0edf65dbceebce492ff21ebe903f24f228d30023506ae6  heimdall-proto_0.0.0-SNAPSHOT-none_linux_arm64.tar.gz
+bcc50a8b3f8c410e1d1d91eb01489b0ee151e6d6dbc41d11b2504c9bfeff5665  heimdall-proto_0.0.0-SNAPSHOT-none_linux_arm64.tar.gz.sbom.json
+5d5790b4b8d640be16e3143fff78206969cf03fc1659bf3302f8752817fb4f11  heimdall-proto_0.0.0-SNAPSHOT-none_windows_amd64.zip
+4c9477b649c6221f31d28f61d8d559548987adb6ff7a95a87eb7add455d6777d  heimdall-proto_0.0.0-SNAPSHOT-none_windows_amd64.zip.sbom.json

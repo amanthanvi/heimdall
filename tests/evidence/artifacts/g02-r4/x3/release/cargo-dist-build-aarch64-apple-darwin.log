@@ -1,0 +1,95 @@
+building artifacts:
+  heimdall-proto-aarch64-apple-darwin.tar.xz
+  heimdall-proto-aarch64-apple-darwin.tar.xz.sha256
+
+building aarch64-apple-darwin target, using cargo profile dist --workspace)
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling libc v0.2.190
+   Compiling equivalent v1.0.2
+   Compiling foldhash v0.2.0
+   Compiling allocator-api2 v0.2.21
+   Compiling cfg-if v1.0.5
+   Compiling rustversion v1.0.23
+   Compiling bitflags v2.13.2
+   Compiling thiserror v2.0.21
+   Compiling strsim v0.11.1
+   Compiling ident_case v1.0.1
+   Compiling itoa v1.0.18
+   Compiling parking_lot_core v0.9.12
+   Compiling serde_core v1.0.229
+   Compiling unicode-segmentation v1.13.3
+   Compiling heck v0.5.0
+   Compiling signal-hook v0.3.18
+   Compiling either v1.18.0
+   Compiling smallvec v1.16.2
+   Compiling typenum v1.20.1
+   Compiling scopeguard v1.2.0
+   Compiling log v0.4.34
+   Compiling ryu v1.0.23
+   Compiling itertools v0.14.0
+   Compiling unicode-width v0.2.2
+   Compiling rustix v1.1.5
+   Compiling static_assertions v1.1.0
+   Compiling convert_case v0.10.0
+   Compiling lock_api v0.4.14
+   Compiling litrs v1.0.0
+   Compiling indoc v2.0.7
+   Compiling hashbrown v0.17.1
+   Compiling hashbrown v0.16.1
+   Compiling zmij v1.0.23
+   Compiling cfg_aliases v0.2.2
+   Compiling line-clipping v0.3.8
+   Compiling nix v0.31.3
+   Compiling signal-hook v0.4.4
+   Compiling winnow v1.0.4
+   Compiling serde_json v1.0.151
+   Compiling heimdall-proto v0.0.0-g02 (<scratch>/dist-rust/prototypes/rust)
+   Compiling memchr v2.8.3
+   Compiling base64 v0.23.1
+   Compiling document-features v0.2.12
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling castaway v0.2.4
+   Compiling compact_str v0.9.1
+   Compiling lru v0.18.5
+   Compiling indexmap v2.14.2
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling hybrid-array v0.4.15
+   Compiling errno v0.3.14
+   Compiling mio v1.2.3
+   Compiling cpufeatures v0.3.1
+   Compiling block-buffer v0.12.1
+   Compiling crypto-common v0.2.2
+   Compiling signal-hook-registry v1.4.8
+   Compiling parking_lot v0.12.5
+   Compiling unicode-truncate v2.0.1
+   Compiling signal-hook-mio v0.2.5
+   Compiling digest v0.11.3
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling sha2 v0.11.0
+   Compiling strum_macros v0.28.0
+   Compiling derive_more-impl v2.1.1
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling derive_more v2.1.1
+   Compiling crossterm v0.29.0
+   Compiling darling_core v0.24.1
+   Compiling strum v0.28.0
+   Compiling thiserror-impl v2.0.21
+   Compiling kasuari v0.4.12
+   Compiling ratatui-core v0.1.2
+   Compiling darling_macro v0.24.1
+   Compiling darling v0.24.1
+   Compiling instability v0.3.14
+   Compiling ratatui-widgets v0.3.2
+   Compiling ratatui-crossterm v0.1.2
+   Compiling ratatui v0.30.2
+    Finished `dist` profile [optimized] target(s) in 4.98s
+announcing v0.0.0-g02
+  heimdall-proto 0.0.0-g02
+    <scratch>/dist-rust/prototypes/rust/target/distrib/heimdall-proto-aarch64-apple-darwin.tar.xz
+      [bin] heimdall-proto
+      [misc] LICENSES.md
+      [checksum] <scratch>/dist-rust/prototypes/rust/target/distrib/heimdall-proto-aarch64-apple-darwin.tar.xz.sha256

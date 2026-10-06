@@ -1,0 +1,4 @@
+<scratch>/dist-rust/prototypes/rust/target/distrib/heimdall-proto-aarch64-unknown-linux-musl/heimdall-proto bytes=938992 builder_home_path_lines=26 cargo_registry_lines=23
+<scratch>/dist-rust/prototypes/rust/target/distrib/heimdall-proto-aarch64-apple-darwin/heimdall-proto bytes=965584 builder_home_path_lines=7 cargo_registry_lines=7
+<scratch>/repro/rust-a/prototypes/rust/dist/linux-arm64/heimdall-proto bytes=813480 builder_home_path_lines=0 cargo_registry_lines=0
+<scratch>/repro/go-a/prototypes/go/dist/linux-arm64/heimdall-proto bytes=5177504 builder_home_path_lines=0 cargo_registry_lines=0

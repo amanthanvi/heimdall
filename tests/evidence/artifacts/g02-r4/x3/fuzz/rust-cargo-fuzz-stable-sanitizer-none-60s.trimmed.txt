@@ -1,0 +1,142 @@
+# TRIMMED for size by M00-T05-r4-x3: full sanitized log had 19862 lines, sha256 f8bb7e3f8aaf7c10d4846f9dfa24e6d708ae5d825d736ef4aa60fb57d9b93ad4 (kept only in scratch). Showing first 60 and last 80 lines.
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+     Running `<scratch>/fuzz-stable-target/aarch64-apple-darwin/release/profile_parse -artifact_prefix=/private<scratch>/rust/prototypes/rust/fuzz/artifacts/profile_parse/ -max_total_time=60 <scratch>/rcorpus-stable`
+WARNING: Failed to find function "__sanitizer_acquire_crash_state". Reason dlsym(RTLD_DEFAULT, __sanitizer_acquire_crash_state): symbol not found.
+WARNING: Failed to find function "__sanitizer_print_stack_trace". Reason dlsym(RTLD_DEFAULT, __sanitizer_print_stack_trace): symbol not found.
+WARNING: Failed to find function "__sanitizer_set_death_callback". Reason dlsym(RTLD_DEFAULT, __sanitizer_set_death_callback): symbol not found.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3264454607
+INFO: Loaded 1 modules   (18067 inline 8-bit counters): 18067 [0x1007fc858, 0x100800eeb), 
+INFO: Loaded 1 PC tables (18067 PCs): 18067 [0x100800ef0,0x100847820), 
+INFO:        6 files found in <scratch>/rcorpus-stable
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 13334 bytes
+INFO: seed corpus: files: 6 min: 49b max: 13334b total: 14357b rss: 26Mb
+#7	INITED cov: 767 ft: 2018 corp: 6/14357b exec/s: 0 rss: 27Mb
+	NEW_FUNC[1/6]: 0x1006d1a04
+	NEW_FUNC[2/6]: 0x1006d250c
+#8	NEW    cov: 794 ft: 2086 corp: 7/14407b lim: 13334 exec/s: 0 rss: 27Mb L: 50/13334 MS: 1 ChangeByte-
+#9	NEW    cov: 795 ft: 2087 corp: 8/14961b lim: 13334 exec/s: 0 rss: 27Mb L: 554/13334 MS: 1 ChangeByte-
+#10	NEW    cov: 795 ft: 2088 corp: 9/27Kb lim: 13334 exec/s: 0 rss: 27Mb L: 13334/13334 MS: 1 ChangeBinInt-
+	NEW_FUNC[1/1]: 0x1006cfd50
+#11	NEW    cov: 814 ft: 2151 corp: 10/27Kb lim: 13334 exec/s: 0 rss: 27Mb L: 147/13334 MS: 1 CMP- DE: "\000\000\000\000\000\000\000\000"-
+	NEW_FUNC[1/3]: 0x1006d97c8
+	NEW_FUNC[2/3]: 0x1006e3808
+#13	NEW    cov: 842 ft: 2202 corp: 11/27Kb lim: 13334 exec/s: 0 rss: 27Mb L: 223/13334 MS: 2 ChangeBit-CrossOver-
+#17	NEW    cov: 862 ft: 2261 corp: 12/28Kb lim: 13334 exec/s: 0 rss: 28Mb L: 554/13334 MS: 4 ChangeASCIIInt-PersAutoDict-ChangeBit-CopyPart- DE: "\000\000\000\000\000\000\000\000"-
+	NEW_FUNC[1/1]: 0x1006d932c
+#18	NEW    cov: 886 ft: 2345 corp: 13/41Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 CrossOver-
+#20	REDUCE cov: 886 ft: 2345 corp: 13/41Kb lim: 13334 exec/s: 0 rss: 28Mb L: 414/13334 MS: 2 ChangeByte-EraseBytes-
+	NEW_FUNC[1/1]: 0x100790960
+#26	NEW    cov: 895 ft: 2469 corp: 14/54Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 PersAutoDict- DE: "\000\000\000\000\000\000\000\000"-
+#33	REDUCE cov: 897 ft: 2472 corp: 15/54Kb lim: 13334 exec/s: 0 rss: 28Mb L: 422/13334 MS: 2 PersAutoDict-ChangeBinInt- DE: "\000\000\000\000\000\000\000\000"-
+#39	NEW    cov: 898 ft: 2477 corp: 16/67Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 PersAutoDict- DE: "\000\000\000\000\000\000\000\000"-
+#40	NEW    cov: 898 ft: 2479 corp: 17/80Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 ChangeBit-
+	NEW_FUNC[1/3]: 0x100790108
+	NEW_FUNC[2/3]: 0x1006e3af4
+#42	NEW    cov: 923 ft: 2504 corp: 18/93Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 2 ShuffleBytes-ChangeByte-
+#43	NEW    cov: 923 ft: 2593 corp: 19/93Kb lim: 13334 exec/s: 0 rss: 28Mb L: 28/13334 MS: 1 EraseBytes-
+#44	NEW    cov: 923 ft: 2596 corp: 20/106Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 ShuffleBytes-
+#55	NEW    cov: 924 ft: 2602 corp: 21/119Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 ChangeBit-
+#56	NEW    cov: 926 ft: 2692 corp: 22/133Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 CrossOver-
+#57	NEW    cov: 927 ft: 2703 corp: 23/133Kb lim: 13334 exec/s: 0 rss: 28Mb L: 152/13334 MS: 1 InsertRepeatedBytes-
+#58	NEW    cov: 930 ft: 2739 corp: 24/133Kb lim: 13334 exec/s: 0 rss: 28Mb L: 223/13334 MS: 1 PersAutoDict- DE: "\000\000\000\000\000\000\000\000"-
+#60	REDUCE cov: 930 ft: 2790 corp: 25/133Kb lim: 13334 exec/s: 0 rss: 28Mb L: 233/13334 MS: 2 ChangeBit-EraseBytes-
+#61	NEW    cov: 930 ft: 2793 corp: 26/133Kb lim: 13334 exec/s: 0 rss: 28Mb L: 224/13334 MS: 1 InsertByte-
+#62	NEW    cov: 930 ft: 2796 corp: 27/146Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 ChangeByte-
+#68	NEW    cov: 934 ft: 2808 corp: 28/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 236/13334 MS: 1 InsertRepeatedBytes-
+#69	NEW    cov: 935 ft: 2825 corp: 29/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 50/13334 MS: 1 ChangeBinInt-
+#70	NEW    cov: 937 ft: 2846 corp: 30/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 223/13334 MS: 1 CMP- DE: "\000\000\000\000\000\000\000\014"-
+#71	NEW    cov: 938 ft: 2861 corp: 31/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 373/13334 MS: 1 CopyPart-
+#72	NEW    cov: 942 ft: 2889 corp: 32/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 28/13334 MS: 1 PersAutoDict- DE: "\000\000\000\000\000\000\000\000"-
+#73	NEW    cov: 942 ft: 2890 corp: 33/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 50/13334 MS: 1 ChangeBinInt-
+#74	NEW    cov: 942 ft: 2891 corp: 34/147Kb lim: 13334 exec/s: 0 rss: 28Mb L: 50/13334 MS: 1 ChangeByte-
+#75	NEW    cov: 949 ft: 2910 corp: 35/148Kb lim: 13334 exec/s: 0 rss: 28Mb L: 223/13334 MS: 1 CopyPart-
+#76	REDUCE cov: 949 ft: 2910 corp: 35/148Kb lim: 13334 exec/s: 0 rss: 28Mb L: 213/13334 MS: 1 EraseBytes-
+#77	NEW    cov: 949 ft: 2911 corp: 36/161Kb lim: 13334 exec/s: 0 rss: 28Mb L: 13334/13334 MS: 1 ChangeByte-
+#78	NEW    cov: 950 ft: 2916 corp: 37/161Kb lim: 13334 exec/s: 0 rss: 28Mb L: 171/13334 MS: 1 EraseBytes-
+#85	NEW    cov: 950 ft: 2919 corp: 38/161Kb lim: 13334 exec/s: 0 rss: 28Mb L: 266/13334 MS: 2 InsertRepeatedBytes-CopyPart-
+#91	NEW    cov: 950 ft: 2921 corp: 39/162Kb lim: 13334 exec/s: 0 rss: 28Mb L: 554/13334 MS: 1 CrossOver-
+	NEW_FUNC[1/3]: 0x1006d8a08
+	NEW_FUNC[2/3]: 0x1006d9d80
+# ... [19722 lines of libFuzzer NEW/REDUCE/pulse progress omitted] ...
+"\000\000\000i" # Uses: 139
+"\377\377\377." # Uses: 121
+"\000\000\000\000\000\000\004\200" # Uses: 120
+"\377\377\377\377\377\377\377\005" # Uses: 126
+"\001\000\000\000\000\000\003\272" # Uses: 137
+"U\000\000\000" # Uses: 113
+"\357\377\377\377" # Uses: 117
+"\377\377\377\377\377\377\000P" # Uses: 103
+"\000\000\000\000\000\000\000p" # Uses: 128
+"y\000" # Uses: 107
+"\035\000\000\000" # Uses: 99
+"5\000" # Uses: 102
+"&\000\000\000" # Uses: 113
+"\000\000\000\000\000\000\031/" # Uses: 99
+"Y\000" # Uses: 99
+"K\002\000\000\000\000\000\000" # Uses: 98
+"V\002\000\000\000\000\000\000" # Uses: 93
+"\000\000\000\265" # Uses: 94
+"\006UUUUUUU" # Uses: 101
+"h\000\000\000" # Uses: 90
+"\034\001\000\000\000\000\000\000" # Uses: 94
+"\001\000\000\000\000\000\001X" # Uses: 87
+"\376\377\377\266" # Uses: 87
+"\377\377\3770" # Uses: 94
+"\001#" # Uses: 59
+"\000\000\000\000\000\000\000\012" # Uses: 83
+"\012\000\000\000" # Uses: 65
+"6\000" # Uses: 61
+"\0023333334" # Uses: 74
+")\001\000\000\000\000\000\000" # Uses: 63
+"\001\000\000v" # Uses: 67
+"\015\000\000\000\000\000\000\000" # Uses: 80
+"^\000\000\000" # Uses: 62
+"\003\000" # Uses: 65
+"\001\000\000\000\000\000\000<" # Uses: 70
+"\261\377\377\377" # Uses: 52
+"=\000\000\000" # Uses: 72
+"5\000\000\000" # Uses: 79
+"\365\000\000\000\000\000\000\000" # Uses: 58
+"\000#" # Uses: 50
+"\000\037" # Uses: 75
+"\377\377\377\377\377\377\377=" # Uses: 61
+"\000\000\000\177" # Uses: 69
+"n\000\000\000" # Uses: 51
+"\3438\216\3438\216\343\000" # Uses: 43
+"D\000\000\000\000\000\000\000" # Uses: 39
+"\000\000\0002" # Uses: 40
+"P\000\000\000" # Uses: 51
+"\377\377\377xqD\305\223" # Uses: 41
+"\000\000\000\354" # Uses: 49
+"\377\377\377\377\377\377\377(" # Uses: 42
+"\201\000\000\000\000\000\000\005" # Uses: 38
+"H#\000\000\000\000\000\000" # Uses: 34
+"\001\000\000\000\000\000\000T" # Uses: 32
+"\001\000\000\000\000\000\0008" # Uses: 22
+"\000\000\000\000\000\000\000\004" # Uses: 35
+";\000\000\000\000\000\000\000" # Uses: 44
+"I\005\000\000\000\000\000\000" # Uses: 26
+"\377\377\377k" # Uses: 19
+"f\000\000\000" # Uses: 29
+"\376\377\377\354" # Uses: 21
+"\001\000\000\000\000\000\011\000" # Uses: 28
+"\000`" # Uses: 16
+"\265\377\377\377" # Uses: 21
+"\001-" # Uses: 11
+"\001\000\000h" # Uses: 13
+"\001\000\000R" # Uses: 15
+"Z\000\000\000\000\000\000\000" # Uses: 10
+"\001\000\000\000\000\000\000\036" # Uses: 6
+"s\001\000\000\000\000\000\000" # Uses: 11
+"\006\000" # Uses: 11
+"\000\000\000," # Uses: 6
+"R\000\000\000" # Uses: 2
+"\001\000\000\000\000\000\013\302" # Uses: 5
+"\000\002" # Uses: 4
+"T\000\000\000\000\000\000\000" # Uses: 4
+"\031\000\000\000" # Uses: 0
+###### End of recommended dictionary. ######
+Done 1403817 runs in 61 second(s)
+stable 1.99 cargo fuzz run -s none (1 process) rc=0 wall=61s

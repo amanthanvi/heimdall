@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Restricted entitlements: valid only when authorized by a provisioning profile.
+     XXXXXXXXXX is a placeholder team ID (no Apple Developer membership exists for this spike). -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.application-identifier</key>
+	<string>XXXXXXXXXX.dev.heimdall.x4</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>XXXXXXXXXX</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>XXXXXXXXXX.dev.heimdall.x4</string>
+	</array>
+</dict>
+</plist>

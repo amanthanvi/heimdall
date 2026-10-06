@@ -1,0 +1,78 @@
+{
+  "task_id": "M00-T05-r4-x4-windows",
+  "status": "implemented_unverified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-r4/x4/windows/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x4/windows/build.sh",
+    "tests/evidence/artifacts/g02-r4/x4/windows/build.log",
+    "tests/evidence/artifacts/g02-r4/x4/windows/run-x4-windows.ps1",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/go.mod",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/go.sum",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/main_windows.go",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/dpapi_windows.go",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/cng_windows.go",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/pipe_windows.go",
+    "tests/evidence/artifacts/g02-r4/x4/windows/go/other.go",
+    "tests/evidence/artifacts/g02-r4/x4/windows/rust/Cargo.toml",
+    "tests/evidence/artifacts/g02-r4/x4/windows/rust/Cargo.lock",
+    "tests/evidence/artifacts/g02-r4/x4/windows/rust/src/main.rs",
+    "tests/evidence/artifacts/g02-r4/x4/windows/rust/src/dpapi.rs",
+    "tests/evidence/artifacts/g02-r4/x4/windows/rust/src/cng.rs",
+    "tests/evidence/artifacts/g02-r4/x4/windows/rust/src/pipe.rs"
+  ],
+  "commands_run": [
+    {
+      "command": "GOOS=windows GOARCH=amd64 GOPROXY=off go vet ./... (in go/)",
+      "exit_code": 0,
+      "observed": "no output; vet clean"
+    },
+    {
+      "command": "GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off go build -trimpath -buildvcs=false -ldflags='-s -w'",
+      "exit_code": 0,
+      "observed": "x4-go.exe PE32+ x86-64, 3,279,360 B, sha256 d058981a8cebe848..."
+    },
+    {
+      "command": "cargo clippy --locked --target x86_64-pc-windows-gnu -- -D warnings (in rust/)",
+      "exit_code": 0,
+      "observed": "Finished, no warnings"
+    },
+    {
+      "command": "cargo zigbuild --release --locked --target x86_64-pc-windows-gnu (cargo-zigbuild 0.23.4 from the prototype tools dir, zig 0.16.0), via build.sh",
+      "exit_code": 0,
+      "observed": "x4-rust.exe PE32+ x86-64, 361,984 B, sha256 ad77730697ed2040..., no warnings, 7.82 s"
+    },
+    {
+      "command": "build.sh re-run into a second output dir (reproducibility)",
+      "exit_code": 0,
+      "observed": "both sha256 values identical to the first build"
+    },
+    {
+      "command": "cargo build --release --locked --target x86_64-pc-windows-gnu (plain, no zig)",
+      "exit_code": null,
+      "observed": "failed: error calling dlltool 'x86_64-w64-mingw32-dlltool': No such file or directory (exit code not captured)"
+    },
+    {
+      "command": "pwsh -NoProfile parser check of run-x4-windows.ps1 (parse only, script not run)",
+      "exit_code": 0,
+      "observed": "parse_errors=0, 7 functions"
+    },
+    {
+      "command": "go list -deps/-m, go version -m, cargo tree, debug/pe import dump, grep/awk LOC and unsafe counts",
+      "exit_code": 0,
+      "observed": "Go: no cgo, deps go-winio v0.6.2 + x/sys v0.46.0, imports kernel32 only; Rust: windows-sys 0.61.2 -> windows-link 0.2.1, imports advapi32/crypt32/ncrypt/ntdll/kernel32 + UCRT api sets; LOC Go 504 vs Rust 698; unsafe sites Go 30 vs Rust 20"
+    }
+  ],
+  "escalations": [],
+  "limitations": [
+    "No Windows host was available, so nothing was executed. Every runtime claim (DPAPI, CNG persisted key and sign, Platform Crypto Provider/TPM, DACL, impersonation and client-SID check, SECURITY_IDENTIFICATION level observed, first-instance exclusivity, reject-remote) is blocked until X1 on native Windows 11 x64.",
+    "The cross-user DACL check needs a second disposable local non-admin account and the remote-client rejection needs a second Windows machine; both are listed as blocked in the run script and RESULTS.md.",
+    "The run script was only syntax-parsed by pwsh on darwin, never run.",
+    "Builds ran offline from warm caches, so network fetch and cold-cache build times were not measured. Go build time was not measured.",
+    "Only the Rust x86_64-pc-windows-gnu target (zig linker) and Go windows/amd64 were built; the MSVC target and arm64 Windows were not tried. Plain cargo build for windows-gnu fails here without mingw dlltool (the exit code was not captured).",
+    "LOC and unsafe counts are mechanical (awk/grep) and are not directly comparable across rustfmt and gofmt styles. Rust LOC includes a hand-written JSON builder, and Rust signs a fixed digest where Go hashes with sha256.",
+    "The Rust named-pipe server is blocking with no read deadlines, so a production version would need extra work not counted in LOC. The Go server uses go-winio deadlines.",
+    "go-winio behaviours (exclusive first instance via FILE_CREATE, reject-remote, DialPipeAccessImpLevel) were read from v0.6.2 source, not observed at runtime. The first Go draft's ptr() helper was replaced before the build because it would have been a stack-move hazard that go vet does not flag.",
+    "The prototypes were not edited. cargo-zigbuild was executed from prototypes/rust/target/tools/bin, read-only. Scratch outputs are under /tmp/hm-r4/M00-T05-r4-x4-windows/."
+  ],
+  "summary": "I wrote Go and Rust spikes for DPAPI, a CNG persisted P-256 key (software KSP, with a TPM Platform Provider option), a current-user-only named-pipe server with a client-SID check, and a SECURITY_IDENTIFICATION client. Both cross-compile cleanly for x86_64 Windows, but nothing has been run on Windows, so every runtime claim is blocked until X1. Go builds with CGO_ENABLED=0 on its own, while Rust needs zig plus cargo-zigbuild.\\n\\n| | Go | Rust |\\n|---|---|---|\\n| Libraries | x/sys v0.46.0, go-winio v0.6.2 | windows-sys 0.61.2 only |\\n| cgo | not required | no C code |\\n| Unsafe sites | 30 | 20 |\\n| LOC | 504 | 698 |\\n| Binary | 3,279,360 B | 361,984 B |\\n| Warnings | 0 (`go vet`) | 0 (clippy `-D warnings`) |\\n| Cross-build toolchain | none | zig + cargo-zigbuild |\\n\\n- **Build details:** the Rust build fails with plain cargo here because mingw dlltool is missing. Rebuilding both into a second directory gave identical SHA-256 hashes.\\n- **LOC and size caveats:** the Rust LOC includes a hand-written JSON builder. The size gap is not like-for-like because the profiles differ.\\n- **What the Go side costs:** x/sys and go-winio have no NCrypt bindings, so ten calls are hand-bound with untyped uintptr arguments. A wrong argument there compiles and only shows up at run time. Rust's windows-sys has typed signatures.\\n- **Rust client:** it is a std-only SECURITY_IDENTIFICATION client with no unsafe.\\n- **Rust server:** it is blocking with no read deadlines, which would need extra work for production. Go gets deadlines from go-winio.\\n- **Native runner:** `run-x4-windows.ps1` covers 15 check ids per language, including the optional TPM, cross-user DACL (needs a second local account) and remote-client checks. It was only syntax-parsed with pwsh (0 errors), not run.\\n\\nFiles are in `<repo>/tests/evidence/artifacts/g02-r4/x4/windows/`:\\n- `RESULTS.md`\\n- `run-x4-windows.ps1`\\n- `build.sh`\\n- `build.log`\\n- `go/`\\n- `rust/`\""
+}

@@ -1,0 +1,2 @@
+      Loaded 1290 security advisories (from /tmp/hm-r4/tools/x3/advisory-db)
+       Found 'cargo auditable' data in <scratch>/target-auditable/release/heimdall-proto (103 dependencies)

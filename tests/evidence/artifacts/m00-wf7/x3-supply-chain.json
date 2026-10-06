@@ -1,0 +1,135 @@
+{
+  "task_id": "M00-T05-r4-x3",
+  "status": "verified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-r4/x3/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x3/deps/**",
+    "tests/evidence/artifacts/g02-r4/x3/unsafe/**",
+    "tests/evidence/artifacts/g02-r4/x3/vuln/**",
+    "tests/evidence/artifacts/g02-r4/x3/license/**",
+    "tests/evidence/artifacts/g02-r4/x3/sbom/**",
+    "tests/evidence/artifacts/g02-r4/x3/repro/**",
+    "tests/evidence/artifacts/g02-r4/x3/fuzz/**",
+    "tests/evidence/artifacts/g02-r4/x3/release/**",
+    "tests/evidence/artifacts/g02-r4/x3/hardening/**",
+    "tests/evidence/artifacts/g02-r4/x3/tools/**"
+  ],
+  "commands_run": [
+    {
+      "command": "go list -m all; go list -deps per GOOS/GOARCH (CGO_ENABLED=0) on git archive 38b6b72",
+      "exit_code": 0,
+      "observed": "26 modules in build list; 17 third-party modules linked per target (7 direct requires)"
+    },
+    {
+      "command": "cargo metadata --locked; cargo tree -e normal[,build] --target <4 targets> on git archive d8f0cbe",
+      "exit_code": 0,
+      "observed": "116 packages in lock; 77-82 crates linked per target (84/85/79 with build deps); 10 direct deps"
+    },
+    {
+      "command": "go_unsafe.sh (go list GoFiles/SFiles/CgoFiles + grep unsafe.) / rust_unsafe.py (regex over crate sources)",
+      "exit_code": 0,
+      "observed": "Go linux: 2 of 26 pkgs import unsafe (x/sys/unix 624 tokens, x/ansi 5), 0 cgo, own code 0; Rust linux-arm64: 55 of 86 crates contain unsafe (14117 tokens, upper bound), own code 2 blocks in sigdisp.rs"
+    },
+    {
+      "command": "cargo geiger --locked --output-format Ascii",
+      "exit_code": 1,
+      "observed": "report produced (82 crates, 42 with unsafe used, 13477/25908 exprs); exit 1 from 'Found 10 warnings' about unscanned files"
+    },
+    {
+      "command": "govulncheck v1.8.0 -show verbose ./... (4 targets) and -mode binary",
+      "exit_code": 0,
+      "observed": "No vulnerabilities found; positive control x/text v0.3.7: source rc=0 (not called), -scan module rc=3"
+    },
+    {
+      "command": "cargo audit (RustSec db ef6173cb) / cargo deny --locked check advisories bans licenses sources",
+      "exit_code": 0,
+      "observed": "0 vulns, 0 warnings over 117 lock entries; deny all ok (3 duplicate warnings); positive control smallvec 1.6.0 rc=1 RUSTSEC-2021-0003"
+    },
+    {
+      "command": "cargo audit bin on build.sh artifact / on cargo auditable build",
+      "exit_code": 0,
+      "observed": "plain artifact: incomplete (25 deps recovered, not auditable); auditable build: 103 deps found"
+    },
+    {
+      "command": "go-licenses check --ignore self (3 targets); cargo about generate --format json",
+      "exit_code": 0,
+      "observed": "Go 15 MIT + 2 BSD-3; Rust 95 crates, 12 distinct license expressions, all allowed"
+    },
+    {
+      "command": "cyclonedx-gomod app (non-git copy)",
+      "exit_code": 1,
+      "observed": "failed: no git repository found; rc=0 after git-initialising scratch copy (17 modules)"
+    },
+    {
+      "command": "cargo cyclonedx --target aarch64-unknown-linux-musl; syft scan on artifacts",
+      "exit_code": 0,
+      "observed": "Rust SBOM 103 components incl. 18 not in target build tree; syft: Go artifact 20 pkgs, Rust plain artifact 1 pkg, Rust auditable 81 pkgs"
+    },
+    {
+      "command": "build.sh x2 in different paths with fresh caches (Go and Rust)",
+      "exit_code": 0,
+      "observed": "both bit-identical across the two runs for all 4 targets"
+    },
+    {
+      "command": "build.sh in linux/arm64 containers (golang:1.27.1 / rust:1.99.0 pinned digests)",
+      "exit_code": 0,
+      "observed": "Go linux/windows identical to macOS build, darwin identical after same codesign; Rust all 3 targets differ from macOS builds (container run1==run2); Homebrew vs official zig also changes output"
+    },
+    {
+      "command": "cargo build --profile with trim-paths on stable 1.99",
+      "exit_code": 101,
+      "observed": "feature trim-paths is required (unstable)"
+    },
+    {
+      "command": "go test -fuzz FuzzParse -fuzztime 60s (-parallel 8 / 1 / 1+minimize 2s)",
+      "exit_code": 0,
+      "observed": "6,854,181 execs (8 workers); 1 worker stalled at 8,317 execs; 427,131 with -fuzzminimizetime 2s; no failures"
+    },
+    {
+      "command": "cargo fuzz run profile_parse (nightly-2026-10-05 ASan; 1 proc / -fork=8) and stable -s none",
+      "exit_code": 0,
+      "observed": "424,519 runs (1 proc), 3,085,322 (fork 8), 1,403,817 stable no-sanitizer; 0 crashes"
+    },
+    {
+      "command": "goreleaser check; goreleaser release --snapshot --clean --skip=publish,sign (x4 runs)",
+      "exit_code": 0,
+      "observed": "4 targets built, binaries identical to build.sh; archives differ run-to-run (binary tar mtime = run time in snapshot)"
+    },
+    {
+      "command": "dist init --yes (cargo-dist 0.32.0)",
+      "exit_code": 255,
+      "observed": "nothing to release (publish=false); after dist=true + repository: generate/plan rc=0"
+    },
+    {
+      "command": "dist build --artifacts=local --target x86_64-pc-windows-gnu",
+      "exit_code": 255,
+      "observed": "requires cargo-xwin (not installed); darwin/linux-arm64/linux-x64 dist builds rc=0 but embed builder home path (26/7 lines)"
+    },
+    {
+      "command": "docker run debian@sha256:7c7b2c96... inspect.sh (checksec 2.6.0, readelf, objdump) on 12+4 linux artifacts",
+      "exit_code": 0,
+      "observed": "Go/Rust defaults: static non-PIE, NX; Go -buildmode=pie -bindnow: PIE + full RELRO; Rust stable flags never yield PIE on aarch64 musl; nightly stack-protector gives 358 __stack_chk_fail sites; build-std BTI/PAC instructions present but no GNU property note"
+    },
+    {
+      "command": "nightly -Zbranch-protection without build-std",
+      "exit_code": 101,
+      "observed": "ABI mismatch error with core"
+    }
+  ],
+  "escalations": [
+    "No tests/evidence/*.json evidence record was written because that path is outside this task's write ownership. The orchestrator should create the record from RESULTS.md.",
+    "Owner-visible side effect, reversed: running cargo fuzz with RUSTUP_TOOLCHAIN=1.99.0 made rustup auto-install a toolchain named 1.99.0-aarch64-apple-darwin into the user's default ~/.rustup. It was uninstalled twice: once, then again after a later command with the same env var reinstalled it. The final `rustup toolchain list` matches the original set: stable, 1.88, 1.92.0, 1.93.0, 1.98.1.",
+    "Prototype builds reused the existing user crate and module caches (~/.cargo/registry, ~/go/pkg/mod). Tool installs, the nightly toolchain and the cargo-fuzz deps went to /tmp/hm-r4/tools/x3/."
+  ],
+  "limitations": [
+    "The cause of Rust's cross-host non-reproducibility is not diagnosed. The host-dependent cargo metadata hash is an inference only.",
+    "Release tooling was tested locally only. Not run: goreleaser tag-release, signing and notarisation; cargo-dist windows (needs cargo-xwin) and its generated CI. Supply-chain feature rows marked 'docs' come from documentation.",
+    "checksec 'partial RELRO' on static non-PIE binaries mostly reflects the missing BIND_NOW. Whether GNU_RELRO is enforced at runtime was not tested. Canary detection needed unstripped builds. 'No GNU property note means BTI is not enforced' is an inference.",
+    "Unsafe counting is asymmetric: Go counts are cfg-filtered by the toolchain, Rust grep counts are an upper bound across all crate files. cargo-geiger exited 1 on warnings but still printed its report. No Go geiger equivalent was run.",
+    "Go -buildmode=pie output has a glibc interpreter. Running it on musl-only systems was not tested.",
+    "Fuzz exec counts are not directly comparable (different engines; Rust ran with ASan). Two large libFuzzer logs were trimmed, with the line count and sha256 recorded.",
+    "syft 1.42.1 is the pre-existing Homebrew install and was not pinned by this task.",
+    "No native Windows or WSL hosts were used. Windows PE checks were static header parsing only."
+  ],
+  "summary": "X3 is done, and the deliverable is <repo>/tests/evidence/artifacts/g02-r4/x3/RESULTS.md, with raw outputs in its subdirectories. Each dimension has a go | rust | method | evidence table and a short neutral assessment. The frozen prototypes (Go 38b6b72, Rust d8f0cbe) were only git-archived into /tmp/hm-r4/M00-T05-r4-x3/ and were not edited.\n\n**Dependencies.** Go has 7 direct requires and links 17 third-party modules per target. Rust has 10 direct deps and links 77 to 82 crates per target, from 116 in Cargo.lock, with 3 duplicate-version pairs.\n\n**unsafe / cgo / C / asm.**\n- Go: the prototype's own code has no unsafe. Third-party unsafe on unix is x/sys/unix plus 5 tokens in x/ansi; on Windows it also includes go-winio and x/windows. There is no cgo and no C runtime in the artifacts.\n- Rust: the prototype's own code has 2 unsafe blocks, behind deny/forbid(unsafe_code). 55 of 86 crates contain unsafe; cargo-geiger counts 42 crates with unsafe actually used. musl and the mingw CRT are linked into the Linux and Windows artifacts. No C is compiled from dependencies.\n\n**Vulnerability scanning.** All scans are clean.\n- govulncheck covers 4 targets and the binary mode. It filters by reachability: a positive control that is not called exits 0, while `-scan module` exits 3.\n- cargo-audit and cargo-deny are clean with no warnings; their positive control is detected.\n- Scanning Rust binaries needs `cargo auditable`; Go binaries can be scanned without extra build steps.\n\n**License scanning.** Both pass with allow-lists. Go has 2 license types; Rust has 12 license expressions.\n\n**SBOM.**\n- cyclonedx-gomod needs a git repo (rc=1 without one) and otherwise produces an accurate SBOM.\n- cargo-cyclonedx lists 18 crates that are not built for the target.\n- Artifact SBOMs work for Go without extra steps, and for Rust only after an auditable build.\n\n**Reproducible builds.**\n- Same host: both are bit-for-bit reproducible with their build.sh. Go needs 2 flags; Rust needs remap, oso_prefix and /Brepro flags.\n- Cross-host (Linux container): Go matches on all targets, darwin after the same codesign. Rust differs on every target, and the zig distribution also changes the output.\n- cargo `trim-paths` is unstable on 1.99.\n- cargo-dist's default build embeds the builder's home path.\n\n**Fuzzing (60 s smoke on the profile parser).** No failures in either language.\n- Go `go test -fuzz` is zero-setup. With 1 worker its default minimisation stalls the run.\n- Rust cargo-fuzz needs nightly for ASan and a C++ libFuzzer build. A stable no-sanitizer mode works.\n\n**Release tooling.**\n- GoReleaser snapshot: rc=0, binaries identical to build.sh, but archives differ between runs.\n- cargo-dist: needed config fixes, could not build windows-gnu without cargo-xwin, and generates a CI workflow with tag-pinned actions and a curl|sh installer.\n\n**Hardening (checksec in a linux/arm64 container).**\n- Both defaults are static non-PIE executables with NX.\n- Go reaches PIE plus full RELRO with `-buildmode=pie -ldflags=-bindnow`.\n- Rust stable flags never produced PIE on aarch64 musl.\n- Rust's stack protector, BTI/PAC and CFI options are nightly-only. The BTI build emitted the instructions but no ELF property note.\n- Windows PE: both have ASLR and NX, and neither has CFG.\n\n**Incident.** A rustup auto-installed toolchain landed in the user's rustup home. I removed it and confirmed the toolchain list is back to the original."
+}

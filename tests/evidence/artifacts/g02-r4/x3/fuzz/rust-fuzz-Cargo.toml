@@ -1,0 +1,21 @@
+[package]
+name = "heimdall-proto-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+
+[dependencies.heimdall-proto]
+path = ".."
+
+[[bin]]
+name = "profile_parse"
+path = "fuzz_targets/profile_parse.rs"
+test = false
+doc = false
+bench = false

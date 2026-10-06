@@ -1,0 +1,78 @@
+{
+  "task_id": "M00-T05-r4-x4-linux",
+  "status": "verified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-r4/x4/linux/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x4/linux/Dockerfile.run",
+    "tests/evidence/artifacts/g02-r4/x4/linux/run-in-container.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/inner.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/run-matrix.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/build-rust.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/build-go.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/metrics-go.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/metrics-rust.sh",
+    "tests/evidence/artifacts/g02-r4/x4/linux/metrics-go.txt",
+    "tests/evidence/artifacts/g02-r4/x4/linux/metrics-rust.txt",
+    "tests/evidence/artifacts/g02-r4/x4/linux/run-A-default-seccomp.txt",
+    "tests/evidence/artifacts/g02-r4/x4/linux/run-B-seccomp-unconfined.txt",
+    "tests/evidence/artifacts/g02-r4/x4/linux/run-C-no-provider.txt",
+    "tests/evidence/artifacts/g02-r4/x4/linux/run-D-no-bus.txt",
+    "tests/evidence/artifacts/g02-r4/x4/linux/go/main.go",
+    "tests/evidence/artifacts/g02-r4/x4/linux/go/backends_real.go",
+    "tests/evidence/artifacts/g02-r4/x4/linux/go/backends_stub.go",
+    "tests/evidence/artifacts/g02-r4/x4/linux/go/go.mod",
+    "tests/evidence/artifacts/g02-r4/x4/linux/go/go.sum",
+    "tests/evidence/artifacts/g02-r4/x4/linux/rust/Cargo.toml",
+    "tests/evidence/artifacts/g02-r4/x4/linux/rust/Cargo.lock",
+    "tests/evidence/artifacts/g02-r4/x4/linux/rust/src/main.rs",
+    "tests/evidence/artifacts/g02-r4/x4/linux/rust/src/backends.rs",
+    "tests/evidence/artifacts/g02-r4/x4/linux/rust/src/main_keyring.rs"
+  ],
+  "commands_run": [
+    {
+      "command": "docker build -f Dockerfile.run -t hm-x4-run:bookworm-arm64 (debian bookworm-slim by digest, dbus + gnome-keyring)",
+      "exit_code": 0,
+      "observed": "Image built (network allowed only at build time)."
+    },
+    {
+      "command": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' (spike and -tags nobackends baseline)",
+      "exit_code": 0,
+      "observed": "go-spike 3,735,712 B; baseline 2,687,136 B."
+    },
+    {
+      "command": "docker run rust:1.98.1-bookworm bash build-rust.sh (cargo build --locked --release for aarch64 gnu and musl; spike, baseline, facade)",
+      "exit_code": 0,
+      "observed": "All builds exit=0. gnu spike 1,513,552 B / baseline 332,496 B; musl spike 1,578,520 B / baseline 397,456 B; one dead-store warning in main.rs."
+    },
+    {
+      "command": "docker run golang:1.27.1-bookworm bash build-go.sh (default CGO vs CGO_ENABLED=0 vs netgo,osusergo)",
+      "exit_code": 0,
+      "observed": "Default build is dynamic (ldd shows linux-vdso); CGO_ENABLED=0 and netgo,osusergo builds report 'not a dynamic executable'."
+    },
+    {
+      "command": "run-matrix.sh: docker run --network none --cap-drop ALL --security-opt no-new-privileges, runs A (default seccomp), B (seccomp=unconfined), C (bus up, no initialised keyring), D (no bus)",
+      "exit_code": 0,
+      "observed": "Run A: Secret Service exit 0 for go, rust-gnu, rust-musl and keyring facade (gnu, musl); keyctl-session and keyctl-user exit 1 (EPERM-class) for both languages. Run B: every Secret Service and keyctl run exits 0 with match=true and gone=true. Runs C and D: Secret Service exit 1 for both languages with distinct error messages; keyctl exit 0. The wrapper docker exit is 0 because inner.sh always exits 0; per-run exit codes are in the files."
+    },
+    {
+      "command": "bash metrics-go.sh; bash metrics-rust.sh (unsafe/cgo census, crate counts)",
+      "exit_code": 0,
+      "observed": "Go: 0 cgo files in non-std deps, std net/os/user have cgo variants; x/sys/unix 543 unsafe lines, godbus 2. Rust: 80 linked crates, 10,833 crude unsafe lines (cfg not applied), linux-keyutils 10, no cc/-sys crates."
+    }
+  ],
+  "escalations": [
+    "Decision input: Docker's default seccomp profile blocks add_key, so the kernel keyring is unusable in default containers for both languages; keyctl needs seccomp=unconfined or a custom profile.",
+    "Decision input: zalando/go-keyring opens a 'plain' (unencrypted) Secret Service session, while Rust secret-service uses a DH session. Matching that in Go needs custom godbus handshake code.",
+    "Decision input: once godbus is linked, a default Go build on Linux with gcc is dynamically linked (net and os/user cgo variants). Releases must pin CGO_ENABLED=0 or netgo,osusergo."
+  ],
+  "limitations": [
+    "linux-arm64 only, inside Docker Desktop's linuxkit VM (kernel 7.0.14). linux-x64 was not run.",
+    "gnome-keyring was the only Secret Service provider tested; no KWallet or KeePassXC.",
+    "Cross-building Rust from macOS to Linux was not tried; Rust was built inside a Linux container. musl linking used the container's gcc as the linker driver.",
+    "The unsafe counts are textual and not comparable across languages (Go counts compiled files only; Rust counts all cfgs). cargo geiger was not installed.",
+    "A first keyctl version that stored into the bare user keyring failed at read in both languages (permission denied). Its output was not kept. Likewise the first run with an empty gnome-keyring password failed; that output was overwritten and is described from observation only.",
+    "The keyring 4.x facade was tested for Secret Service only; its kernel-keyring path (keyring-core plus linux-keyutils-keyring-store) was not built.",
+    "No reproducibility or vuln-scan comparison (X3). Docker image hm-x4-run:bookworm-arm64 and scratch under /tmp/hm-r4/M00-T05-r4-x4-linux/ were left in place. No git commits were made."
+  ],
+  "summary": "Built equivalent Go and Rust spikes that store, read, compare, delete and verify-gone a random fixture secret through Secret Service (gnome-keyring) and the kernel keyring, run in a disposable debian arm64 container with --network none. Secret Service passes in both languages (exit 0), including Rust gnu, musl and the keyring 4.x facade. The kernel keyring fails under Docker's default seccomp in both languages and passes in both with seccomp=unconfined, in session and user-keyring scopes. Neither language needs cgo or C in its own code, and neither has unsafe in our source. Go's default Linux build becomes dynamic once godbus pulls in net and os/user, so it needs CGO_ENABLED=0; Rust's musl build is static. The backends add about 1.05 MB (Go) vs 1.18 MB (Rust) to the binary; absolute sizes are 3.74 MB (Go) vs 1.51 to 1.58 MB (Rust). Cold build time is about 1.7 s (Go) vs 21 s (Rust). go-keyring uses a plain Secret Service session while the Rust secret-service crate uses DH. The table and sources are in RESULTS.md."
+}

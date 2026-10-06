@@ -1,0 +1,3 @@
+x86_64-unknown-linux-musl: {'static-position-independent-executables': True, 'position-independent-executables': True, 'relro-level': 'full', 'crt-static-default': True, 'supported-sanitizers': ['address', 'leak', 'memory', 'thread', 'cfi']}
+aarch64-unknown-linux-musl: {'static-position-independent-executables': None, 'position-independent-executables': True, 'relro-level': 'full', 'crt-static-default': True, 'supported-sanitizers': ['address', 'leak', 'memory', 'thread', 'cfi']}
+aarch64-unknown-linux-gnu: {'static-position-independent-executables': True, 'position-independent-executables': True, 'relro-level': 'full', 'crt-static-default': None, 'supported-sanitizers': ['address', 'leak', 'memory', 'thread', 'hwaddress', 'cfi', 'memtag', 'kcfi', 'realtime']}

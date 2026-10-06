@@ -1,0 +1,5 @@
+goreleaser snapshot archive reproducibility diagnosis (observed 2026-10-06):
+- binaries inside archives: sha256 identical to build.sh outputs and across runs (linux-arm64 d55b4ffe..., linux-x64 429063bf..., windows-x64 ca5145d1...)
+- archives differ across two snapshot runs even with builds_info.mtime={{ .CommitDate }}: the tar header mtime of the binary member equals the run time in snapshot mode (two runs 11 s apart differed by 11 s); LICENSES.md member mtime was stable
+- tar headers carry the local uid (501) and owner/group names by default (configurable via builds_info owner/group); not reproduced here
+- tag-based (non-snapshot) release path not exercised (no tag, no publishing)

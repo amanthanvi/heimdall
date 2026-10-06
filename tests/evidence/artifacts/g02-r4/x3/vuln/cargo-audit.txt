@@ -1,0 +1,8 @@
+    Fetching advisory database from `https://github.com/RustSec/advisory-db.git`
+      Loaded 1290 security advisories (from /tmp/hm-r4/tools/x3/advisory-db)
+    Updating crates.io index
+    Scanning Cargo.lock for vulnerabilities (117 crate dependencies)
+advisory-db commit ef6173cbc5c50ec8166f9a5b28f07834144373ee 2026-10-03T10:14:03+02:00
+vulns found: False count 0
+warnings: {}
+lockfile deps: 117

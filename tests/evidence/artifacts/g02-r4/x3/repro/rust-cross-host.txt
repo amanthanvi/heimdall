@@ -1,0 +1,10 @@
+Rust cross-host check (observed 2026-10-06)
+container: rust@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 (linux/arm64), zig 0.16.0 official tarball, cargo-zigbuild 0.23.4, build.sh from git archive d8f0cbe (two runs)
+target | macOS host + Homebrew zig 0.16.0 (2 runs, identical) | macOS host + official zig 0.16.0 | linux container run1 | linux container run2
+linux-x64 | 961e3fb9f02e916a | 6ff5d2853e229213 | 0a2c404073412a68 | 0a2c404073412a68
+linux-arm64 | 47160fdd0ee850db | 8aae3dc39122908f | 5864cce157f4f7d7 | 5864cce157f4f7d7
+windows-x64 | dde9662f0630bf55 | dde9662f0630bf55 | 8abd9ecc231f3b09 | 8abd9ecc231f3b09
+embedded toolchain strings, linux-arm64: Homebrew-zig build contains 'Homebrew clang version 21.1.8' and 'Homebrew LLD 21.1.8'; official-zig macOS build and container build contain 'clang version 21.1.0' and 'LLD 21.1.0'
+official-zig macOS vs container linux-arm64: same toolchain strings, still different bytes (sorted strings diff shows different .rodata string merging/order)
+windows-x64: official-zig macOS == Homebrew-zig macOS (dde9662f...), container differs (8abd9ecc...); cmp reports 640029 differing bytes
+INFERENCE (not verified): remaining difference is host-dependent rustc/cargo inputs (e.g. host triple in rustc -vV feeding cargo metadata hashes, which change symbol names and section layout)

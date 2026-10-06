@@ -1,0 +1,39 @@
+## go tool link -help (hardening-relevant flags), go1.27.1
+    	enable ASLR for buildmode=c-shared on windows (default true)
+  -bindnow
+  -buildmode mode
+    	archive program for buildmode=c-archive
+  -extld linker
+  -extldflags flags
+  -linkmode mode
+## go help buildmode (pie lines)
+	-buildmode=pie
+		Build the listed main packages and everything they import into
+		position independent executables (PIE). Packages not named
+		main are ignored.
+## rustc -C help (hardening-relevant, stable 1.99.0)
+    -C        control-flow-guard=val -- use Windows Control Flow Guard (default: no)
+    -C      force-frame-pointers=val -- force use of the frame pointers
+    -C       instrument-coverage=val -- instrument the generated code to support LLVM source-based code coverage reports (note, the compiler build config must include `profiler = true`); implies `-C symbol-mangling-version=v0`
+    -C       link-self-contained=val -- control whether to link Rust provided C objects/libraries or rely on a C toolchain or linker installed in the system
+    -C            no-stack-check=val -- this option has been removed
+    -C          profile-generate=val -- compile the program with profiling instrumentation
+    -C          relocation-model=val -- control generation of position-independent code (PIC) (`rustc --print relocation-models` for details)
+    -C               relro-level=val -- choose which RELRO level to use
+## rustc -Z help (nightly-2026-10-05; hardening-relevant)
+    -Z                             branch-protection=val -- set options for branch target identification and pointer authentication on AArch64
+    -Z                                 cf-protection=val -- instrument control-flow architecture protection
+    -Z                                  ehcont-guard=val -- generate Windows EHCont Guard tables
+    -Z                                     sanitizer=val -- use a sanitizer
+    -Z                          sanitizer-ignorelist=val -- list of files providing ignorelists for sanitizers
+    -Z           sanitizer-cfi-canonical-jump-tables=val -- enable canonical jump tables (default: yes)
+    -Z             sanitizer-cfi-generalize-pointers=val -- enable generalizing pointer types (default: no)
+    -Z              sanitizer-cfi-normalize-integers=val -- enable normalizing integer types (default: no)
+    -Z                            sanitizer-cfi-diag=val -- enable CFI diagnostics (default: no)
+    -Z                         sanitizer-cfi-recover=val -- enable CFI recovery (default: no)
+    -Z                 sanitizer-cfi-minimal-runtime=val -- enable minimal UBSan runtime for CFI (default: no)
+    -Z                    sanitizer-dataflow-abilist=val -- additional ABI list files that control how shadow parameters are passed (comma separated)
+    -Z                          sanitizer-kcfi-arity=val -- enable KCFI arity indicator (default: no)
+    -Z                sanitizer-memory-track-origins=val -- enable origins tracking in MemorySanitizer
+    -Z                             sanitizer-recover=val -- enable recovery for selected sanitizers
+    -Z                               stack-protector=val -- control stack smash protection strategy (`rustc --print stack-protector-strategies` for details)

@@ -1,0 +1,8 @@
+error: failed to parse manifest at `<scratch>/trimpaths/prototypes/rust/Cargo.toml`
+
+Caused by:
+  feature `trim-paths` is required
+
+  The package requires the Cargo feature called `trim-paths`, but that feature is not stabilized in this version of Cargo (1.99.0 (5f94df478 2026-08-27)).
+  Consider trying a newer version of Cargo (this may require the nightly release).
+  See https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#profile-trim-paths-option for more information about the status of this feature.

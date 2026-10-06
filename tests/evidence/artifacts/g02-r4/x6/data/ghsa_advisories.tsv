@@ -1,0 +1,51 @@
+go_filippo.io_age	2024-12-18	medium	GHSA-32gq-x56h-299c	-	age vulnerable to malicious plugin names, recipients, or identities causing arbitrary binary execution
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-x527-x647-q7gg	CVE-2026-46595	golang.org/x/crypto: Invoking VerifiedPublicKeyCallback permissions skip enforcement
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-5cgq-3rg8-m6cv	CVE-2026-42508	golang.org/x/crypto vulnerable to auth bypass via unenforced @revoked status
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-rm3j-f69w-wqmq	CVE-2026-39834	golang.org/x/crypto vulnerable to infinite loop on large channel writes
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-89gr-r52h-f8rx	CVE-2026-39831	golang.org/x/crypto: FIDO/U2F security key physical presence check can be bypassed
+go_golang.org_x_crypto	2026-06-25	high	GHSA-w879-237q-wc7r	CVE-2026-39829	golang.org/x/crypto: Invoking pathological RSA/DSA parameters may cause DoS
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-vgwf-h737-ff37	CVE-2026-39830	golang.org/x/crypto: Invoking client can cause server deadlock on unexpected responses
+go_golang.org_x_crypto	2026-06-25	medium	GHSA-qpw4-5x99-6vjp	CVE-2026-39827	golang.org/x/crypto: Invoking memory leak when rejecting channels can lead to DoS
+go_golang.org_x_crypto	2026-06-25	medium	GHSA-78mq-xcr3-xm33	CVE-2026-39835	golang.org/x/crypto is vulnerable to invoking server panic during CheckHostKey/Authenticate flow
+go_golang.org_x_crypto	2026-06-25	medium	GHSA-45gg-vh54-h5m9	CVE-2026-39828	golang.org/x/crypto vulnerable to invoking bypass of certificate restrictions
+go_golang.org_x_crypto	2026-06-25	high	GHSA-q4h4-gmj2-qvw2	CVE-2026-46597	golang.org/x/crypto: Invoking byte arithmetic causes underflow and panic
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-f5wc-c3c7-36mc	CVE-2026-39832	golang.org/x/crypto doesn't drop invoking agent constraints when forwarding keys
+go_golang.org_x_crypto	2026-06-25	critical	GHSA-jppx-rxg9-jmrx	CVE-2026-39833	golang.org/x/crypto doesn't enforce invoking key constraints
+go_golang.org_x_crypto	2026-06-25	medium	GHSA-9m57-25v3-79x9	CVE-2026-46598	golang.org/x/crypto: Invoking pathological inputs can lead to client panic
+go_golang.org_x_crypto	2025-11-19	medium	GHSA-f6x5-jh6r-wrfv	CVE-2025-47914	golang.org/x/crypto/ssh/agent vulnerable to panic if message is malformed due to out of bounds read
+go_golang.org_x_crypto	2025-11-19	medium	GHSA-j5w8-q4qc-rx2x	CVE-2025-58181	golang.org/x/crypto/ssh allows an attacker to cause unbounded memory consumption
+go_golang.org_x_crypto	2025-04-12	high	GHSA-hcg3-q754-cr77	CVE-2025-22869	golang.org/x/crypto Vulnerable to Denial of Service (DoS) via Slow or Incomplete Key Exchange
+go_golang.org_x_crypto	2024-12-11	critical	GHSA-v778-237x-gjrc	CVE-2024-45337	Misuse of ServerConfig.PublicKeyCallback may cause authorization bypass in golang.org/x/crypto
+go_golang.org_x_crypto	2023-12-18	medium	GHSA-45x7-px36-x8w8	CVE-2023-48795	Prefix Truncation Attack against ChaCha20-Poly1305 and Encrypt-then-MAC aka Terrapin
+go_golang.org_x_crypto	2023-02-07	high	GHSA-xhjq-w7xm-p8qj	CVE-2017-3204	golang.org/x/crypto/ssh Man-in-the-Middle attack
+go_golang.org_x_crypto	2022-09-07	high	GHSA-gwc9-m7rh-j2ww	CVE-2021-43565	x/crypto/ssh vulnerable to panic via malformed packets
+go_golang.org_x_crypto	2022-05-24	high	GHSA-3vm4-22fp-5rfm	CVE-2020-29652	golang.org/x/crypto/ssh NULL Pointer Dereference vulnerability
+go_golang.org_x_crypto	2022-05-24	medium	GHSA-x3jr-pf6g-c48f	CVE-2019-11841	Golang/x/crypto message forgery vulnerability
+go_golang.org_x_crypto	2022-05-24	medium	GHSA-r5c5-pr8j-pfp7	CVE-2019-11840	golang.org/x/crypto/salsa20/salsa uses insufficiently random values
+go_golang.org_x_crypto	2022-03-19	high	GHSA-8c26-wmh5-6g9v	CVE-2022-27191	golang.org/x/crypto/ssh Denial of service via crafted Signer
+go_golang.org_x_crypto	2021-06-23	high	GHSA-cjjc-xp8v-855w	CVE-2020-7919	Helm uses crypto package vulnerable to panic from malformed X.509 certificate
+go_golang.org_x_crypto	2021-05-18	high	GHSA-ffhg-7mh4-33c4	CVE-2020-9283	Improper Verification of Cryptographic Signature in golang.org/x/crypto
+rust_age	2024-12-18	medium	GHSA-4fg7-vxc8-qx5w	-	rage vulnerable to malicious plugin names, recipients, or identities causing arbitrary binary execution
+rust_russh	2026-09-30	medium	GHSA-35g8-35p8-c8fw	CVE-2026-102821	Russh: Unbounded memory exhaustion via CHANNEL_OPEN flood during a client-stalled rekey
+rust_russh	2026-09-30	low	GHSA-p8qx-h547-fjw9	CVE-2026-102822	russh: negotiating a MAC-requiring block cipher (CTR/CBC) with mac=none causes a slice-index-out-of-range panic
+rust_russh	2026-09-30	high	GHSA-47hw-gvq5-r2gm	CVE-2026-102823	russh: Client-side channel-scoped Handler callbacks fire for channel IDs the client never opened
+rust_russh	2026-09-30	medium	GHSA-w3jg-pjxf-73p4	CVE-2026-102824	Russh: Missing X25519 zero-point validation in hybrid ML-KEM key exchange
+rust_russh	2026-09-30	low	GHSA-g6xm-f9xp-qq35	CVE-2026-102825	Russh: Configured server auth-attempt cap is not enforced in the USERAUTH_REQUEST runtime path
+rust_russh	2026-08-03	medium	GHSA-m65r-rprj-r5rg	CVE-2026-68930	Russh: Channel-scoped server callbacks can be reached without an open channel
+rust_russh	2026-07-24	medium	GHSA-g9hv-x236-4qp3	CVE-2026-73429	Russh: client wrong-length X25519 `clone_from_slice` panic (pre-auth DoS)
+rust_russh	2026-07-24	medium	GHSA-cqjc-rmpq-xprq	CVE-2026-73489	Russh: Post-auth remote panic via pty-req with more than 130 terminal-mode records
+rust_russh	2026-07-24	medium	GHSA-5xvq-cp9x-6p6r	CVE-2026-73430	Russh: Pre-auth remote panic via all-zero Curve25519 peer public value (encode_mpint OOB)
+rust_russh	2026-06-11	high	GHSA-4r3c-5hpg-58qr	CVE-2026-48110	Russh SSH message fields were decoded through allocation-first parsers before field-specific bounds
+rust_russh	2026-06-11	medium	GHSA-76r6-x97p-67vr	CVE-2026-48108	Russh: SSH identification parsing accepted non-canonical client banners and did not bound pre-banner input
+rust_russh	2026-06-11	medium	GHSA-g9g7-5cgw-6v28	CVE-2026-48107	Russh: Unchecked keyboard-interactive prompt count in client auth path
+rust_russh	2026-05-29	medium	GHSA-hpv4-5h6f-wqr3	CVE-2026-46705	russh server userauth state is not reset when authentication principal changes
+rust_russh	2026-05-29	high	GHSA-wwx6-x28x-8259	CVE-2026-46702	russh: Post-decompression SSH packet size was not bounded, allowing remote oversized compressed packets
+rust_russh	2026-05-21	high	GHSA-g9f8-wqj9-fjw5	CVE-2026-46673	Russh: Unchecked CryptoVec allocation and growth handling is reachable
+rust_russh	2026-04-24	high	GHSA-f5v4-2wr6-hqmg	CVE-2026-42189	russh has pre-auth DoS via unbounded allocation in its keyboard-interactive auth handler
+rust_russh	2025-08-04	medium	GHSA-h5rc-j5f5-3gcm	CVE-2025-54804	russh is missing overflow checks during channel windows adjust
+rust_russh	2024-08-14	high	GHSA-vgvv-x7xg-6cqg	CVE-2024-43410	Russh has an OOM Denial of Service due to allocation of untrusted amount
+rust_russh	2023-12-18	medium	GHSA-45x7-px36-x8w8	CVE-2023-48795	Prefix Truncation Attack against ChaCha20-Poly1305 and Encrypt-then-MAC aka Terrapin
+rust_russh	2023-03-17	medium	GHSA-cqvm-j2r2-hwpg	CVE-2023-28113	russh may use insecure Diffie-Hellman keys
+rust_rustls	2026-10-05	medium	GHSA-2mjx-qc3c-rqvc	-	Rustls: TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries
+rust_rustls	2024-11-25	medium	GHSA-qg5g-gv98-5ffh	-	rustls network-reachable panic in `Acceptor::accept`
+rust_rustls	2024-04-19	high	GHSA-6g7w-8wpp-frhj	CVE-2024-32650	Denial of Service Vulnerability in Rustls Library

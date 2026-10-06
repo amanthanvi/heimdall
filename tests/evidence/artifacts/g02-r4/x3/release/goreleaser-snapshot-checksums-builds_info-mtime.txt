@@ -1,0 +1,10 @@
+== run 1
+b4f762e3324fed7191ecbdd250dcdd3f5b6a00d8575a74b05ab0a27b0cf44a3c  heimdall-proto_0.0.0-SNAPSHOT-none_darwin_arm64.tar.gz
+af0e9598ace23f636243b5fe13b448ca4b933b60e7a2e1de59831d4d00be9a6f  heimdall-proto_0.0.0-SNAPSHOT-none_linux_amd64.tar.gz
+61884c97a3d9ad48d579b94626b59540f2a85f5b413db0de611cf74fd97166b6  heimdall-proto_0.0.0-SNAPSHOT-none_linux_arm64.tar.gz
+ddf51e41bc7d43a44868f470c013d90dea534d07643259cdb484f0f2eb44edde  heimdall-proto_0.0.0-SNAPSHOT-none_windows_amd64.zip
+== run 2
+7f9688b644b07c7850f19375dfe8eddf100b5ece29a968a03787e54c785f562f  heimdall-proto_0.0.0-SNAPSHOT-none_darwin_arm64.tar.gz
+1a1ff07d5674da1ed289125f8e48021c7a0342a9b4cdbb847efea15897e9ba33  heimdall-proto_0.0.0-SNAPSHOT-none_linux_amd64.tar.gz
+e5bfeb92aa38c62b0de8a8554e62f8fbad0b2f5282b89115a2aff501e258fe39  heimdall-proto_0.0.0-SNAPSHOT-none_linux_arm64.tar.gz
+b3e11cdb8fb9efcfa625332242b206a71b04e535e9a5532351e179c5b256451a  heimdall-proto_0.0.0-SNAPSHOT-none_windows_amd64.zip

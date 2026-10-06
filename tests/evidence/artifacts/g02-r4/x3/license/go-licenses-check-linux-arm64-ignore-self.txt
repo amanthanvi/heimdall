@@ -1,0 +1,2 @@
+W1006 01:54:27.198042   69401 library.go:141] "golang.org/x/sys/unix" contains non-Go code that can't be inspected for further dependencies:
+<home>/go/pkg/mod/golang.org/x/sys@v0.46.0/unix/asm_linux_arm64.s

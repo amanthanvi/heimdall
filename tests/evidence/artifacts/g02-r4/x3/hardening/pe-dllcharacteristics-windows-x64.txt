@@ -1,0 +1,2 @@
+go-windows-x64: magic=0x20b TimeDateStamp=0x00000000 RELOCS_STRIPPED=no reloc_dir_size=45756 load_config_size=320 DllCharacteristics=0x8160 [HIGH_ENTROPY_VA, DYNAMIC_BASE, NX_COMPAT, TERMINAL_SERVER_AWARE]
+rust-windows-x64: magic=0x20b TimeDateStamp=0xc61489ae RELOCS_STRIPPED=no reloc_dir_size=2092 load_config_size=0 DllCharacteristics=0x8160 [HIGH_ENTROPY_VA, DYNAMIC_BASE, NX_COMPAT, TERMINAL_SERVER_AWARE]

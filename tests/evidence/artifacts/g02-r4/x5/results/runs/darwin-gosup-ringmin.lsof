@@ -1,0 +1,23 @@
+launched_pid=69673 reported_pids=69673 69687 69688
+== pid 69673: pid=69673 ppid=69672 exe=x5-gosup
+-- internet sockets (lsof -i):
+-- non-regular fds by TYPE:
+   1   KQUEUE
+   4   PIPE
+== pid 69687: pid=69687 ppid=69673 exe=x5-iroh
+-- internet sockets (lsof -i):
+  IPv4 UDP 127.0.0.1:64100 
+-- non-regular fds by TYPE:
+   1   IPv4
+   3   KQUEUE
+   2   PIPE
+   1   rte
+== pid 69688: pid=69688 ppid=69673 exe=x5-iroh
+-- internet sockets (lsof -i):
+  IPv4 UDP 127.0.0.1:64282 
+-- non-regular fds by TYPE:
+   1   IPv4
+   3   KQUEUE
+   2   PIPE
+   1   rte
+gosup_exit=0

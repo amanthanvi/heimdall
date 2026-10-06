@@ -1,0 +1,12 @@
+# Disposable runtime for X4 (Linux arm64). Network is needed only at image build
+# time (apt); every spike run uses --network none.
+FROM debian:bookworm-slim@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417
+LABEL heimdall.x4="linux-secret-service-spike"
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      dbus dbus-user-session gnome-keyring ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd -m -u 1000 x4
+COPY run-in-container.sh inner.sh /opt/x4/
+USER 1000:1000
+ENTRYPOINT ["/bin/bash", "/opt/x4/run-in-container.sh"]

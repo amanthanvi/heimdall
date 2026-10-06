@@ -1,0 +1,37 @@
+Fetching vulnerabilities from the database...
+
+Checking the code against the vulnerabilities...
+
+The package pattern matched the following root package:
+  posctl
+Govulncheck scanned the following 2 modules and the go1.27.1 standard library:
+  posctl
+  golang.org/x/text@v0.3.7
+
+=== Symbol Results ===
+
+No vulnerabilities found.
+
+=== Package Results ===
+
+Vulnerability #1: GO-2022-1059
+    Denial of service via crafted Accept-Language header in
+    golang.org/x/text/language
+  More info: https://pkg.go.dev/vuln/GO-2022-1059
+  Module: golang.org/x/text
+    Found in: golang.org/x/text@v0.3.7
+    Fixed in: golang.org/x/text@v0.3.8
+
+=== Module Results ===
+
+Vulnerability #1: GO-2026-5970
+    Infinite loop on invalid input in golang.org/x/text
+  More info: https://pkg.go.dev/vuln/GO-2026-5970
+  Module: golang.org/x/text
+    Found in: golang.org/x/text@v0.3.7
+    Fixed in: golang.org/x/text@v0.39.0
+
+Your code is affected by 0 vulnerabilities.
+This scan also found 1 vulnerability in packages you import and 1 vulnerability
+in modules you require, but your code doesn't appear to call these
+vulnerabilities.

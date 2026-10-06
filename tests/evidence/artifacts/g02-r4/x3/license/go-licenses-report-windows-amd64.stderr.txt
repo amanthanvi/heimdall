@@ -1,0 +1,5 @@
+E1006 01:54:17.452893   68728 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/cmd/heimdall-proto": no license found
+E1006 01:54:17.453000   68728 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/internal/agent": no license found
+E1006 01:54:17.453008   68728 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/internal/profile": no license found
+E1006 01:54:17.453013   68728 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/internal/result": no license found
+E1006 01:54:17.453017   68728 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/internal/run": no license found

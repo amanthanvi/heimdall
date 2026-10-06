@@ -1,0 +1,81 @@
+{
+  "task_id": "M00-T05-r4-x4-macos",
+  "status": "verified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x4/macos/run.sh",
+    "tests/evidence/artifacts/g02-r4/x4/macos/transcript.log",
+    "tests/evidence/artifacts/g02-r4/x4/macos/cross-linux.sh",
+    "tests/evidence/artifacts/g02-r4/x4/macos/cross-linux.log",
+    "tests/evidence/artifacts/g02-r4/x4/macos/library-survey.sh",
+    "tests/evidence/artifacts/g02-r4/x4/macos/library-survey.log",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go/go.mod",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go/main.go",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go/native_darwin.go",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go/baseline-hello/main.go",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go-purego/go.mod",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go-purego/go.sum",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go-purego/main.go",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/Cargo.toml",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/Cargo.lock",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/src/main.rs",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/baseline-hello/Cargo.toml",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/baseline-hello/Cargo.lock",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/baseline-hello/src/main.rs",
+    "tests/evidence/artifacts/g02-r4/x4/macos/bundle/Info.plist.in",
+    "tests/evidence/artifacts/g02-r4/x4/macos/bundle/entitlements-none.plist",
+    "tests/evidence/artifacts/g02-r4/x4/macos/bundle/entitlements-keychain-group.plist",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/MANIFEST.tsv",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-tn3137.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-tn3125.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-signing-daemon-restricted-entitlement.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-protecting-keys-with-the-secure-enclave.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-cryptokit-se-p256-signing-privatekey-datarepresentation.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-entitlement-keychain-access-groups.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/apple-ksecusedataprotectionkeychain.extracted.txt",
+    "tests/evidence/artifacts/g02-r4/x4/macos/records/g02-r4-x4-macos-native-integration.json",
+    "tests/evidence/artifacts/g02-r4/x4/macos/records/g02-r4-x4-macos-provisioned-bundle.json"
+  ],
+  "commands_run": [
+    {
+      "command": "bash run.sh | sed (redact) > transcript.log  [final run 2026-10-06T06:02:09Z-06:02:19Z]",
+      "exit_code": 0,
+      "observed": "All builds exit 0 (go cgo, go purego CGO_ENABLED=0, cargo build --locked, clippy -D warnings, fmt). File-keychain round trip exit 0 for go, go-purego and rust, both as raw CLIs and inside the ad-hoc bundle: open/add/read 0, delete 0, read_after_delete -25300; the independent `security find-generic-password` then exits 44. Ephemeral SE P-256 se exit 0 for all three: token=SE, private key not exportable, pub 65 B, verify true, tampered false. dpprobe exits 1 by design: -25300 without an access group, -34018 with an unentitled group. Binary with signature removed: exit 137 for all. Bundle with no entitlements: codesign 0, verify 0, spctl 3, runs. Bundle with restricted entitlements: exec exit 137, amfid -424. Host cross-builds: go cgo amd64 0; go cgo spike CGO_ENABLED=0 exit 1; purego amd64 0. Sizes and LOC are recorded. Search list and default keychain unchanged; 0 keychain dirs left."
+    },
+    {
+      "command": "bash cross-linux.sh | sed (redact) > cross-linux.log  [2026-10-06T05:58:45Z-05:59:13Z]",
+      "exit_code": 0,
+      "observed": "Linux container with no macOS SDK, building for darwin/arm64. Go hello CGO=0: exit 0. Go cgo spike: CGO=0 exit 1, CGO=1 with zig cc exit 1 (CoreFoundation.h not found). Go purego spike CGO=0: exit 0, and the Linux-built binary ran `se` on the Mac with exit 0 (linker ad-hoc signed, not re-signed). Rust: hello with cc 101, with cargo-zigbuild 0; spike with cc 101, with zigbuild 101 (unable to find framework Security/CoreFoundation)."
+    },
+    {
+      "command": "bash library-survey.sh | sed (redact) > library-survey.log",
+      "exit_code": 0,
+      "observed": "keybase/go-keychain has a single published version, v0.0.1. A grep for file-keychain and SecKey APIs exits 1 (no match). purego latest is v0.11.1. security-framework 3.7.0 carries the badge maintenance=looking-for-maintainer, and SecKeychainItem::delete discards its OSStatus. 3.7.0 and core-foundation 0.10.1 are the newest crate versions."
+    },
+    {
+      "command": "bash fetch-sources (scratch script) -> sources/*.extracted.txt + MANIFEST.tsv",
+      "exit_code": 0,
+      "observed": "7 Apple JSON docs fetched, all HTTP 200. The TN3137 sha256 matches the G04 copy retained on 2026-10-03."
+    },
+    {
+      "command": "curl + shasum -c for go1.27.1.linux-arm64.tar.gz and zig-aarch64-linux-0.16.0.tar.xz (into /tmp/hm-r4/M00-T05-r4-x4-macos/tools)",
+      "exit_code": 0,
+      "observed": "Both checksums OK."
+    }
+  ],
+  "escalations": [
+    "The `records/*.json` files are record-shaped (every required key in record.schema.json is present; checked by key presence only, since jsonschema is not installed). My write ownership excludes tests/evidence/, so the orchestrator needs to place them there and fill in requirement_ids if wanted. I left them empty because I can't infer requirement IDs without guessing.",
+    "Blocked item, needs the owner (G04 D3): a provisioning-profile-signed bundle (Apple Developer membership, team ID, App ID, Developer ID certificate, a profile authorizing keychain-access-groups) and a disposable macOS user or VM. Without them, data-protection keychain writes and persistent Secure Enclave keys can't be tested without touching the owner's real keychain.",
+    "For G04 reviewers: TN3137 says Secure Enclave protection requires the data-protection keychain, but I observed an ephemeral (non-permanent) SE key create and sign from a plain linker-ad-hoc-signed CLI with no entitlements. My inference is that the requirement applies to persistent keys. The G04 table row 'Secure Enclave key via SecItem / Unsigned CLI? No' should be read as covering persistent keys only."
+  ],
+  "limitations": [
+    "Single host (macOS 27.0, Apple M5 Max). run.sh ran three times during development with the same results; the final transcript is from the third run.",
+    "No independent review of these spikes or of RESULTS.md was obtained; this is the implementer's self-check only.",
+    "Persistent SE keys and data-protection keychain writes were not attempted, for boundary reasons. What a provisioning profile adds comes from Apple docs (TN3125, TN3137, the daemon-wrapping article), not from observation.",
+    "Not tested: CryptoKit dataRepresentation persistence; a Rust dlopen (libloading) variant that would avoid linking frameworks; Rust x86_64-apple-darwin cross build (target not installed, and installing writes ~/.rustup); Linux builds with a supplied MacOSX.sdk and the SDK licence terms; Linux-side signing (rcodesign); whether Developer ID profiles allow keychain-access-groups; lock, sleep and logout behaviour; wall-clock times.",
+    "Size deltas include each spike's own extras (Go crypto/rand+hex, Rust SecRandom). LOC uses a simple non-blank, non-comment-line count.",
+    "The unified-log excerpt timestamps are local time (UTC-0400). The rest of the evidence uses UTC from date -u.",
+    "The Linux container used rust:1.98.1, while the host uses 1.99.0."
+  ],
+  "summary": "I did X4 on macOS three ways: Go with cgo, Go with purego (no cgo, built with CGO_ENABLED=0), and Rust with security-framework 3.7.0. Results and costs are in tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md.\n\n**Functionally, all three behave the same.** Each one stores, reads and deletes a generic password in a throwaway file keychain made with `security create-keychain` and deleted afterwards (exit 0; an independent `security` lookup afterwards finds nothing, exit 44).\n\nEach also creates a temporary Secure Enclave P-256 key, signs and verifies with it, and rejects a tampered message (exit 0). The private key cannot be exported. This works from a plain CLI binary and from an ad-hoc-signed .app bundle with no entitlements. On Apple silicon, \"unsigned\" really means the build already carries an automatic ad-hoc signature; a binary with the signature fully removed is killed on launch (exit 137).\n\n**Signing without a provisioning profile has hard limits:**\n- With the keychain-access-groups entitlement (needed for the newer data-protection keychain), an ad-hoc bundle signs and verifies but is killed on launch (exit 137); the system log gives the reason as \"adhoc signed but contains restricted entitlements\".\n- Gatekeeper rejects every ad-hoc bundle (`spctl` exit 3).\n- A read-only query of the data-protection keychain returns -34018 (missing entitlement) when it names an access group.\n\nPer Apple's notes TN3125 and TN3137, a provisioning profile embedded at `Contents/embedded.provisionprofile` is what authorizes those entitlements. With it, the bundle could use the data-protection keychain and store Secure Enclave keys permanently.\n\n**Cost per language:**\n\n| | Go (cgo) | Go (purego) | Rust |\n|---|---|---|---|\n| Lines of code | 208, of which 97 are C | 228 | 134 |\n| Unsafe code | 9 `unsafe.Pointer`; needs clang and the macOS SDK | 22 hand-written function bindings plus 21 symbols | 2 small `unsafe` blocks |\n| Size added (default / stripped) | +506 KB / +243 KB | +695 KB / +475 KB | +77 KB / +51 KB |\n\n**Building for macOS from a Linux machine with no macOS SDK:**\n- **Go with cgo** fails, with or without cgo enabled.\n- **Go with purego** builds, and the Linux-built binary ran the Secure Enclave probe on the Mac without re-signing (exit 0).\n- **Rust** compiles but fails to link, even with cargo-zigbuild, because the Security and CoreFoundation frameworks aren't available. Hello-world links fine with zigbuild.\n\n**Library notes:**\n- `keybase/go-keychain` v0.0.1 can't target a file keychain and has no key APIs, so Go has no usable high-level library here.\n- The Rust crate is flagged \"looking-for-maintainer\", and one of its delete functions silently drops the error status.\n\n**Blocked:** the profile-signed bundle, writes to the data-protection keychain, and permanently stored Secure Enclave keys. These need the owner's Apple Developer membership and a test macOS user or VM, so nothing touches the owner's real keychain."
+}

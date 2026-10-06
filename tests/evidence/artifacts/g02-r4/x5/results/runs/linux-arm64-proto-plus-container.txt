@@ -1,0 +1,4 @@
+{"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:56172","b_bound":"127.0.0.1:60769"}
+selftest_exit=0
+heimdall-proto 0.0.0-g02 (rust; rustc 1.99.0 (b940084d7 2026-09-28); ratatui 0.30.2; crossterm 0.29.0)
+version_exit=0

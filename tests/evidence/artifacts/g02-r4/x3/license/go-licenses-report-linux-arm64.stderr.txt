@@ -1,0 +1,5 @@
+W1006 01:54:16.227136   68675 library.go:141] "golang.org/x/sys/unix" contains non-Go code that can't be inspected for further dependencies:
+<home>/go/pkg/mod/golang.org/x/sys@v0.46.0/unix/asm_linux_arm64.s
+E1006 01:54:17.096593   68675 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/cmd/heimdall-proto": no license found
+E1006 01:54:17.096607   68675 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/internal/agent": no license found
+E1006 01:54:17.096616   68675 report.go:148] Error identifying license for "github.com/heimdall-g02/proto-go/internal/profile": no license found

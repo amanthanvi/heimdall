@@ -1,0 +1,486 @@
+== 0. environment
+2026-10-06T06:02:09Z macOS 27.0 (26A428) arch=arm64 cpu=Apple M5 Max
+2026-10-06T06:02:09Z go version go1.27.1 darwin/arm64 | rustc 1.99.0 (b940084d7 2026-09-28) | cargo 1.99.0 (5f94df478 2026-08-27) | SDK 27.0 | Apple clang version 21.0.0 (clang-2100.3.34.2)
+2026-10-06T06:02:09Z user keychain search list digest=89a3a221ca8d6558 default keychain digest=ada2e7572d698435 (contents not printed)
+== 1. builds
+2026-10-06T06:02:09Z $ go build (cgo, default flags)
+2026-10-06T06:02:10Z [go build (cgo, default flags)] exit=0
+2026-10-06T06:02:10Z $ go build (cgo, -ldflags=-s -w)
+2026-10-06T06:02:10Z [go build (cgo, -ldflags=-s -w)] exit=0
+2026-10-06T06:02:10Z $ go build baseline hello
+2026-10-06T06:02:11Z [go build baseline hello] exit=0
+2026-10-06T06:02:11Z $ go build baseline hello (-s -w)
+2026-10-06T06:02:11Z [go build baseline hello (-s -w)] exit=0
+2026-10-06T06:02:11Z $ go vet
+2026-10-06T06:02:11Z [go vet] exit=0
+2026-10-06T06:02:11Z $ gofmt -l (empty = formatted)
+2026-10-06T06:02:11Z [gofmt -l (empty = formatted)] exit=0
+2026-10-06T06:02:11Z $ go list cgo files
+    hm-x4-go CgoFiles=[native_darwin.go]
+    hm-x4-go/baseline-hello CgoFiles=[]
+2026-10-06T06:02:12Z [go list cgo files] exit=0
+2026-10-06T06:02:12Z $ go version -m (build settings)
+    	build	-trimpath=true
+    	build	CGO_ENABLED=1
+    	build	GOARCH=arm64
+    	build	GOOS=darwin
+2026-10-06T06:02:12Z [go version -m (build settings)] exit=0
+2026-10-06T06:02:12Z $ go-purego build (CGO_ENABLED=0, default flags)
+2026-10-06T06:02:12Z [go-purego build (CGO_ENABLED=0, default flags)] exit=0
+2026-10-06T06:02:12Z $ go-purego build (CGO_ENABLED=0, -ldflags=-s -w)
+2026-10-06T06:02:13Z [go-purego build (CGO_ENABLED=0, -ldflags=-s -w)] exit=0
+2026-10-06T06:02:13Z $ go-purego vet (CGO_ENABLED=0)
+2026-10-06T06:02:13Z [go-purego vet (CGO_ENABLED=0)] exit=0
+2026-10-06T06:02:13Z $ go-purego gofmt -l
+2026-10-06T06:02:13Z [go-purego gofmt -l] exit=0
+2026-10-06T06:02:13Z $ go-purego go version -m
+    	dep	github.com/ebitengine/purego	v0.11.1	h1:2zpWRSQNVKN4eKsKO9eM1ILDgWfYMY9GwqRmK6XeQ/0=
+    	build	CGO_ENABLED=0
+    	build	GOARCH=arm64
+    	build	GOOS=darwin
+2026-10-06T06:02:13Z [go-purego go version -m] exit=0
+2026-10-06T06:02:13Z $ cargo build --release --locked
+        Finished `release` profile [optimized] target(s) in 0.04s
+2026-10-06T06:02:13Z [cargo build --release --locked] exit=0
+2026-10-06T06:02:13Z $ cargo build --release --locked (strip=symbols)
+        Finished `release` profile [optimized] target(s) in 0.01s
+2026-10-06T06:02:13Z [cargo build --release --locked (strip=symbols)] exit=0
+2026-10-06T06:02:13Z $ cargo clippy --release --locked -D warnings
+        Finished `release` profile [optimized] target(s) in 0.09s
+2026-10-06T06:02:13Z [cargo clippy --release --locked -D warnings] exit=0
+2026-10-06T06:02:13Z $ cargo fmt --check
+2026-10-06T06:02:13Z [cargo fmt --check] exit=0
+2026-10-06T06:02:13Z $ cargo tree
+    hm-x4-rust v0.0.0 (<home>/GitRepos/heimdall/tests/evidence/artifacts/g02-r4/x4/macos/rust)
+    ├── core-foundation v0.10.1
+    │   ├── core-foundation-sys v0.8.7
+    │   └── libc v0.2.190
+    ├── security-framework v3.7.0
+    │   ├── bitflags v2.13.2
+    │   ├── core-foundation v0.10.1 (*)
+    │   ├── core-foundation-sys v0.8.7
+    │   ├── libc v0.2.190
+    │   └── security-framework-sys v2.17.0
+    │       ├── core-foundation-sys v0.8.7
+    │       └── libc v0.2.190
+    └── security-framework-sys v2.17.0 (*)
+2026-10-06T06:02:13Z [cargo tree] exit=0
+2026-10-06T06:02:13Z $ cargo build baseline hello
+        Finished `release` profile [optimized] target(s) in 0.00s
+2026-10-06T06:02:13Z [cargo build baseline hello] exit=0
+2026-10-06T06:02:13Z $ cargo build baseline hello (strip=symbols)
+        Finished `release` profile [optimized] target(s) in 0.00s
+2026-10-06T06:02:13Z [cargo build baseline hello (strip=symbols)] exit=0
+2026-10-06T06:02:13Z size hm-x4-go bytes=2902402
+2026-10-06T06:02:13Z size hm-x4-go.stripped bytes=1813874
+2026-10-06T06:02:13Z size hm-x4-go-purego bytes=3091698
+2026-10-06T06:02:13Z size hm-x4-go-purego.stripped bytes=2045762
+2026-10-06T06:02:13Z size hello-go bytes=2396642
+2026-10-06T06:02:13Z size hello-go.stripped bytes=1571202
+2026-10-06T06:02:13Z size hm-x4-rust bytes=511664
+2026-10-06T06:02:13Z size hm-x4-rust.stripped bytes=393792
+2026-10-06T06:02:13Z size hello-rust bytes=435088
+2026-10-06T06:02:13Z size hello-rust.stripped bytes=342720
+2026-10-06T06:02:13Z $ otool -L hm-x4-go
+    	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation
+    	/System/Library/Frameworks/Security.framework/Versions/A/Security
+    	/usr/lib/libresolv.9.dylib
+    	/usr/lib/libSystem.B.dylib
+2026-10-06T06:02:13Z [otool -L hm-x4-go] exit=0
+2026-10-06T06:02:13Z $ codesign -dv hm-x4-go (signature as built)
+    CodeDirectory v=20400 size=22622 flags=0x20002(adhoc,linker-signed) hashes=704+0 location=embedded
+    Signature=adhoc
+    TeamIdentifier=not set
+2026-10-06T06:02:13Z [codesign -dv hm-x4-go (signature as built)] exit=0
+2026-10-06T06:02:13Z $ otool -L hm-x4-go-purego
+    	/usr/lib/libSystem.B.dylib
+    	/usr/lib/libresolv.9.dylib
+2026-10-06T06:02:13Z [otool -L hm-x4-go-purego] exit=0
+2026-10-06T06:02:13Z $ codesign -dv hm-x4-go-purego (signature as built)
+    CodeDirectory v=20400 size=24062 flags=0x20002(adhoc,linker-signed) hashes=749+0 location=embedded
+    Signature=adhoc
+    TeamIdentifier=not set
+2026-10-06T06:02:13Z [codesign -dv hm-x4-go-purego (signature as built)] exit=0
+2026-10-06T06:02:13Z $ otool -L hello-go
+    	/usr/lib/libSystem.B.dylib
+    	/usr/lib/libresolv.9.dylib
+2026-10-06T06:02:13Z [otool -L hello-go] exit=0
+2026-10-06T06:02:13Z $ codesign -dv hello-go (signature as built)
+    CodeDirectory v=20400 size=18686 flags=0x20002(adhoc,linker-signed) hashes=581+0 location=embedded
+    Signature=adhoc
+    TeamIdentifier=not set
+2026-10-06T06:02:13Z [codesign -dv hello-go (signature as built)] exit=0
+2026-10-06T06:02:13Z $ otool -L hm-x4-rust
+    	/System/Library/Frameworks/Security.framework/Versions/A/Security
+    	/usr/lib/libiconv.2.dylib
+    	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation
+    	/usr/lib/libSystem.B.dylib
+2026-10-06T06:02:13Z [otool -L hm-x4-rust] exit=0
+2026-10-06T06:02:13Z $ codesign -dv hm-x4-rust (signature as built)
+    CodeDirectory v=20400 size=4088 flags=0x20002(adhoc,linker-signed) hashes=124+0 location=embedded
+    Signature=adhoc
+    TeamIdentifier=not set
+2026-10-06T06:02:13Z [codesign -dv hm-x4-rust (signature as built)] exit=0
+2026-10-06T06:02:13Z $ otool -L hello-rust
+    	/usr/lib/libSystem.B.dylib
+2026-10-06T06:02:13Z [otool -L hello-rust] exit=0
+2026-10-06T06:02:13Z $ codesign -dv hello-rust (signature as built)
+    CodeDirectory v=20400 size=3528 flags=0x20002(adhoc,linker-signed) hashes=106+0 location=embedded
+    Signature=adhoc
+    TeamIdentifier=not set
+2026-10-06T06:02:13Z [codesign -dv hello-rust (signature as built)] exit=0
+== 2. file keychain round trip (disposable keychain per run)
+2026-10-06T06:02:14Z [go-raw] create-keychain (security -i, password via stdin) exit=0 file_exists=yes
+2026-10-06T06:02:14Z [go-raw] set-keychain-settings (no auto-lock) exit=0
+2026-10-06T06:02:14Z [go-raw] keychain in user search list=0
+2026-10-06T06:02:14Z $ go-raw keychain <disposable>
+    keychain open osstatus=0
+    keychain add osstatus=0
+    keychain read osstatus=0
+    keychain delete osstatus=0
+    keychain read_after_delete osstatus=-25300
+2026-10-06T06:02:14Z [go-raw keychain <disposable>] exit=0
+2026-10-06T06:02:14Z [go-raw] independent check: security find-generic-password after spike exit=44 (44 = not found)
+2026-10-06T06:02:14Z [go-raw] delete-keychain exit=0
+2026-10-06T06:02:14Z [go-raw] keychain dir removed=yes
+2026-10-06T06:02:14Z [go-purego-raw] create-keychain (security -i, password via stdin) exit=0 file_exists=yes
+2026-10-06T06:02:14Z [go-purego-raw] set-keychain-settings (no auto-lock) exit=0
+2026-10-06T06:02:14Z [go-purego-raw] keychain in user search list=0
+2026-10-06T06:02:14Z $ go-purego-raw keychain <disposable>
+    keychain open osstatus=0
+    keychain add osstatus=0
+    keychain read osstatus=0
+    keychain read_mismatch osstatus=0
+    keychain delete osstatus=0
+    keychain read_after_delete osstatus=-25300
+2026-10-06T06:02:14Z [go-purego-raw keychain <disposable>] exit=0
+2026-10-06T06:02:14Z [go-purego-raw] independent check: security find-generic-password after spike exit=44 (44 = not found)
+2026-10-06T06:02:14Z [go-purego-raw] delete-keychain exit=0
+2026-10-06T06:02:14Z [go-purego-raw] keychain dir removed=yes
+2026-10-06T06:02:14Z [rust-raw] create-keychain (security -i, password via stdin) exit=0 file_exists=yes
+2026-10-06T06:02:14Z [rust-raw] set-keychain-settings (no auto-lock) exit=0
+2026-10-06T06:02:14Z [rust-raw] keychain in user search list=0
+2026-10-06T06:02:14Z $ rust-raw keychain <disposable>
+    keychain open osstatus=0
+    keychain add osstatus=0
+    keychain read osstatus=0
+    keychain read_mismatch osstatus=0
+    keychain delete osstatus=0
+    keychain read_after_delete osstatus=-25300
+2026-10-06T06:02:14Z [rust-raw keychain <disposable>] exit=0
+2026-10-06T06:02:14Z [rust-raw] independent check: security find-generic-password after spike exit=44 (44 = not found)
+2026-10-06T06:02:14Z [rust-raw] delete-keychain exit=0
+2026-10-06T06:02:14Z [rust-raw] keychain dir removed=yes
+== 3. Secure Enclave ephemeral P-256 + data-protection probe (linker ad-hoc signed CLI)
+2026-10-06T06:02:14Z $ go-raw se
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=71 verify=true verify_tampered=false
+2026-10-06T06:02:14Z [go-raw se] exit=0
+2026-10-06T06:02:14Z $ go-raw dpprobe (read-only)
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T06:02:14Z [go-raw dpprobe (read-only)] exit=1
+2026-10-06T06:02:14Z $ go-purego-raw se
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=71 verify=true verify_tampered=false
+2026-10-06T06:02:14Z [go-purego-raw se] exit=0
+2026-10-06T06:02:14Z $ go-purego-raw dpprobe (read-only)
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T06:02:14Z [go-purego-raw dpprobe (read-only)] exit=1
+2026-10-06T06:02:14Z $ rust-raw se
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=71 verify=true verify_tampered=false
+2026-10-06T06:02:14Z [rust-raw se] exit=0
+2026-10-06T06:02:14Z $ rust-raw dpprobe (read-only)
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T06:02:14Z [rust-raw dpprobe (read-only)] exit=1
+== 4. signature removed entirely
+2026-10-06T06:02:14Z $ codesign --remove-signature go
+2026-10-06T06:02:14Z [codesign --remove-signature go] exit=0
+2026-10-06T06:02:14Z $ codesign -dv go.unsigned
+    <scratch>/out/hm-x4-go.unsigned: code object is not signed at all
+2026-10-06T06:02:14Z [codesign -dv go.unsigned] exit=1
+2026-10-06T06:02:14Z $ go-unsigned se
+    run.sh: line 25: 32069 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:14Z [go-unsigned se] exit=137
+2026-10-06T06:02:14Z $ codesign --remove-signature go-purego
+2026-10-06T06:02:14Z [codesign --remove-signature go-purego] exit=0
+2026-10-06T06:02:14Z $ codesign -dv go-purego.unsigned
+    <scratch>/out/hm-x4-go-purego.unsigned: code object is not signed at all
+2026-10-06T06:02:14Z [codesign -dv go-purego.unsigned] exit=1
+2026-10-06T06:02:14Z $ go-purego-unsigned se
+    run.sh: line 25: 32093 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:14Z [go-purego-unsigned se] exit=137
+2026-10-06T06:02:14Z $ codesign --remove-signature rust
+2026-10-06T06:02:14Z [codesign --remove-signature rust] exit=0
+2026-10-06T06:02:14Z $ codesign -dv rust.unsigned
+    <scratch>/out/hm-x4-rust.unsigned: code object is not signed at all
+2026-10-06T06:02:14Z [codesign -dv rust.unsigned] exit=1
+2026-10-06T06:02:14Z $ rust-unsigned se
+    run.sh: line 25: 32117 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:14Z [rust-unsigned se] exit=137
+== 5. app-like bundle, ad-hoc signed (hardened runtime)
+2026-10-06T06:02:14Z $ codesign ad-hoc go entitlements=none
+    <scratch>/out/bundles/none/HeimdallX4Go.app: replacing existing signature
+2026-10-06T06:02:14Z [codesign ad-hoc go entitlements=none] exit=0
+2026-10-06T06:02:14Z $ codesign --verify --strict --deep go/none
+    <scratch>/out/bundles/none/HeimdallX4Go.app: valid on disk
+    <scratch>/out/bundles/none/HeimdallX4Go.app: satisfies its Designated Requirement
+2026-10-06T06:02:14Z [codesign --verify --strict --deep go/none] exit=0
+2026-10-06T06:02:14Z $ codesign -dv go/none
+    Identifier=dev.heimdall.x4.go
+    Format=app bundle with Mach-O thin (arm64)
+    CodeDirectory v=20500 size=5971 flags=0x10002(adhoc,runtime) hashes=176+7 location=embedded
+    Signature=adhoc
+    Info.plist entries=9
+    TeamIdentifier=not set
+    Runtime Version=27.0.0
+2026-10-06T06:02:14Z [codesign -dv go/none] exit=0
+2026-10-06T06:02:14Z $ codesign -d --entitlements go/none
+    {}
+2026-10-06T06:02:14Z [codesign -d --entitlements go/none] exit=0
+2026-10-06T06:02:14Z $ spctl --assess --type execute go/none
+    <scratch>/out/bundles/none/HeimdallX4Go.app: rejected
+2026-10-06T06:02:14Z [spctl --assess --type execute go/none] exit=3
+2026-10-06T06:02:14Z $ bundle[none] go se
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=70 verify=true verify_tampered=false
+2026-10-06T06:02:14Z [bundle[none] go se] exit=0
+2026-10-06T06:02:14Z $ bundle[none] go dpprobe (read-only)
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T06:02:14Z [bundle[none] go dpprobe (read-only)] exit=1
+2026-10-06T06:02:14Z [bundle[none]-go] create-keychain (security -i, password via stdin) exit=0 file_exists=yes
+2026-10-06T06:02:14Z [bundle[none]-go] set-keychain-settings (no auto-lock) exit=0
+2026-10-06T06:02:14Z [bundle[none]-go] keychain in user search list=0
+2026-10-06T06:02:14Z $ bundle[none]-go keychain <disposable>
+    keychain open osstatus=0
+    keychain add osstatus=0
+    keychain read osstatus=0
+    keychain delete osstatus=0
+    keychain read_after_delete osstatus=-25300
+2026-10-06T06:02:14Z [bundle[none]-go keychain <disposable>] exit=0
+2026-10-06T06:02:14Z [bundle[none]-go] independent check: security find-generic-password after spike exit=44 (44 = not found)
+2026-10-06T06:02:14Z [bundle[none]-go] delete-keychain exit=0
+2026-10-06T06:02:14Z [bundle[none]-go] keychain dir removed=yes
+2026-10-06T06:02:15Z $ codesign ad-hoc go-purego entitlements=none
+    <scratch>/out/bundles/none/HeimdallX4GoPurego.app: replacing existing signature
+2026-10-06T06:02:15Z [codesign ad-hoc go-purego entitlements=none] exit=0
+2026-10-06T06:02:15Z $ codesign --verify --strict --deep go-purego/none
+    <scratch>/out/bundles/none/HeimdallX4GoPurego.app: valid on disk
+    <scratch>/out/bundles/none/HeimdallX4GoPurego.app: satisfies its Designated Requirement
+2026-10-06T06:02:15Z [codesign --verify --strict --deep go-purego/none] exit=0
+2026-10-06T06:02:15Z $ codesign -dv go-purego/none
+    Identifier=dev.heimdall.x4.go-purego
+    Format=app bundle with Mach-O thin (arm64)
+    CodeDirectory v=20500 size=6362 flags=0x10002(adhoc,runtime) hashes=188+7 location=embedded
+    Signature=adhoc
+    Info.plist entries=9
+    TeamIdentifier=not set
+    Runtime Version=26.2.0
+2026-10-06T06:02:15Z [codesign -dv go-purego/none] exit=0
+2026-10-06T06:02:15Z $ codesign -d --entitlements go-purego/none
+    {}
+2026-10-06T06:02:15Z [codesign -d --entitlements go-purego/none] exit=0
+2026-10-06T06:02:15Z $ spctl --assess --type execute go-purego/none
+    <scratch>/out/bundles/none/HeimdallX4GoPurego.app: rejected
+2026-10-06T06:02:15Z [spctl --assess --type execute go-purego/none] exit=3
+2026-10-06T06:02:15Z $ bundle[none] go-purego se
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=71 verify=true verify_tampered=false
+2026-10-06T06:02:15Z [bundle[none] go-purego se] exit=0
+2026-10-06T06:02:15Z $ bundle[none] go-purego dpprobe (read-only)
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T06:02:15Z [bundle[none] go-purego dpprobe (read-only)] exit=1
+2026-10-06T06:02:15Z [bundle[none]-go-purego] create-keychain (security -i, password via stdin) exit=0 file_exists=yes
+2026-10-06T06:02:15Z [bundle[none]-go-purego] set-keychain-settings (no auto-lock) exit=0
+2026-10-06T06:02:15Z [bundle[none]-go-purego] keychain in user search list=0
+2026-10-06T06:02:15Z $ bundle[none]-go-purego keychain <disposable>
+    keychain open osstatus=0
+    keychain add osstatus=0
+    keychain read osstatus=0
+    keychain read_mismatch osstatus=0
+    keychain delete osstatus=0
+    keychain read_after_delete osstatus=-25300
+2026-10-06T06:02:15Z [bundle[none]-go-purego keychain <disposable>] exit=0
+2026-10-06T06:02:15Z [bundle[none]-go-purego] independent check: security find-generic-password after spike exit=44 (44 = not found)
+2026-10-06T06:02:15Z [bundle[none]-go-purego] delete-keychain exit=0
+2026-10-06T06:02:15Z [bundle[none]-go-purego] keychain dir removed=yes
+2026-10-06T06:02:15Z $ codesign ad-hoc rust entitlements=none
+    <scratch>/out/bundles/none/HeimdallX4Rust.app: replacing existing signature
+2026-10-06T06:02:15Z [codesign ad-hoc rust entitlements=none] exit=0
+2026-10-06T06:02:15Z $ codesign --verify --strict --deep rust/none
+    <scratch>/out/bundles/none/HeimdallX4Rust.app: valid on disk
+    <scratch>/out/bundles/none/HeimdallX4Rust.app: satisfies its Designated Requirement
+2026-10-06T06:02:15Z [codesign --verify --strict --deep rust/none] exit=0
+2026-10-06T06:02:15Z $ codesign -dv rust/none
+    Identifier=dev.heimdall.x4.rust
+    Format=app bundle with Mach-O thin (arm64)
+    CodeDirectory v=20500 size=1333 flags=0x10002(adhoc,runtime) hashes=31+7 location=embedded
+    Signature=adhoc
+    Info.plist entries=9
+    TeamIdentifier=not set
+    Runtime Version=27.0.0
+2026-10-06T06:02:15Z [codesign -dv rust/none] exit=0
+2026-10-06T06:02:15Z $ codesign -d --entitlements rust/none
+    {}
+2026-10-06T06:02:15Z [codesign -d --entitlements rust/none] exit=0
+2026-10-06T06:02:15Z $ spctl --assess --type execute rust/none
+    <scratch>/out/bundles/none/HeimdallX4Rust.app: rejected
+2026-10-06T06:02:15Z [spctl --assess --type execute rust/none] exit=3
+2026-10-06T06:02:15Z $ bundle[none] rust se
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=72 verify=true verify_tampered=false
+2026-10-06T06:02:15Z [bundle[none] rust se] exit=0
+2026-10-06T06:02:15Z $ bundle[none] rust dpprobe (read-only)
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T06:02:15Z [bundle[none] rust dpprobe (read-only)] exit=1
+2026-10-06T06:02:15Z [bundle[none]-rust] create-keychain (security -i, password via stdin) exit=0 file_exists=yes
+2026-10-06T06:02:15Z [bundle[none]-rust] set-keychain-settings (no auto-lock) exit=0
+2026-10-06T06:02:15Z [bundle[none]-rust] keychain in user search list=0
+2026-10-06T06:02:15Z $ bundle[none]-rust keychain <disposable>
+    keychain open osstatus=0
+    keychain add osstatus=0
+    keychain read osstatus=0
+    keychain read_mismatch osstatus=0
+    keychain delete osstatus=0
+    keychain read_after_delete osstatus=-25300
+2026-10-06T06:02:15Z [bundle[none]-rust keychain <disposable>] exit=0
+2026-10-06T06:02:15Z [bundle[none]-rust] independent check: security find-generic-password after spike exit=44 (44 = not found)
+2026-10-06T06:02:15Z [bundle[none]-rust] delete-keychain exit=0
+2026-10-06T06:02:15Z [bundle[none]-rust] keychain dir removed=yes
+2026-10-06T06:02:15Z $ codesign ad-hoc go entitlements=keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4Go.app: replacing existing signature
+2026-10-06T06:02:15Z [codesign ad-hoc go entitlements=keychain-group] exit=0
+2026-10-06T06:02:15Z $ codesign --verify --strict --deep go/keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4Go.app: valid on disk
+    <scratch>/out/bundles/keychain-group/HeimdallX4Go.app: satisfies its Designated Requirement
+2026-10-06T06:02:15Z [codesign --verify --strict --deep go/keychain-group] exit=0
+2026-10-06T06:02:15Z $ codesign -dv go/keychain-group
+    Identifier=dev.heimdall.x4.go
+    Format=app bundle with Mach-O thin (arm64)
+    CodeDirectory v=20500 size=5971 flags=0x10002(adhoc,runtime) hashes=176+7 location=embedded
+    Signature=adhoc
+    Info.plist entries=9
+    TeamIdentifier=not set
+    Runtime Version=27.0.0
+2026-10-06T06:02:15Z [codesign -dv go/keychain-group] exit=0
+2026-10-06T06:02:15Z $ codesign -d --entitlements go/keychain-group
+    {"com.apple.developer.team-identifier":"XXXXXXXXXX","com.apple.application-identifier":"XXXXXXXXXX.dev.heimdall.x4","keychain-access-groups":["XXXXXXXXXX.dev.heimdall.x4"]}
+2026-10-06T06:02:15Z [codesign -d --entitlements go/keychain-group] exit=0
+2026-10-06T06:02:15Z $ spctl --assess --type execute go/keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4Go.app: rejected
+2026-10-06T06:02:15Z [spctl --assess --type execute go/keychain-group] exit=3
+2026-10-06T06:02:15Z $ bundle[keychain-group] go se
+    run.sh: line 25: 32498 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:15Z [bundle[keychain-group] go se] exit=137
+2026-10-06T06:02:15Z $ bundle[keychain-group] go dpprobe (read-only)
+    run.sh: line 25: 32505 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:15Z [bundle[keychain-group] go dpprobe (read-only)] exit=137
+2026-10-06T06:02:15Z $ codesign ad-hoc go-purego entitlements=keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app: replacing existing signature
+2026-10-06T06:02:15Z [codesign ad-hoc go-purego entitlements=keychain-group] exit=0
+2026-10-06T06:02:15Z $ codesign --verify --strict --deep go-purego/keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app: valid on disk
+    <scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app: satisfies its Designated Requirement
+2026-10-06T06:02:15Z [codesign --verify --strict --deep go-purego/keychain-group] exit=0
+2026-10-06T06:02:15Z $ codesign -dv go-purego/keychain-group
+    Identifier=dev.heimdall.x4.go-purego
+    Format=app bundle with Mach-O thin (arm64)
+    CodeDirectory v=20500 size=6362 flags=0x10002(adhoc,runtime) hashes=188+7 location=embedded
+    Signature=adhoc
+    Info.plist entries=9
+    TeamIdentifier=not set
+    Runtime Version=26.2.0
+2026-10-06T06:02:15Z [codesign -dv go-purego/keychain-group] exit=0
+2026-10-06T06:02:15Z $ codesign -d --entitlements go-purego/keychain-group
+    {"com.apple.developer.team-identifier":"XXXXXXXXXX","com.apple.application-identifier":"XXXXXXXXXX.dev.heimdall.x4","keychain-access-groups":["XXXXXXXXXX.dev.heimdall.x4"]}
+2026-10-06T06:02:15Z [codesign -d --entitlements go-purego/keychain-group] exit=0
+2026-10-06T06:02:15Z $ spctl --assess --type execute go-purego/keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app: rejected
+2026-10-06T06:02:16Z [spctl --assess --type execute go-purego/keychain-group] exit=3
+2026-10-06T06:02:16Z $ bundle[keychain-group] go-purego se
+    run.sh: line 25: 32550 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:16Z [bundle[keychain-group] go-purego se] exit=137
+2026-10-06T06:02:16Z $ bundle[keychain-group] go-purego dpprobe (read-only)
+    run.sh: line 25: 32557 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:16Z [bundle[keychain-group] go-purego dpprobe (read-only)] exit=137
+2026-10-06T06:02:16Z $ codesign ad-hoc rust entitlements=keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4Rust.app: replacing existing signature
+2026-10-06T06:02:16Z [codesign ad-hoc rust entitlements=keychain-group] exit=0
+2026-10-06T06:02:16Z $ codesign --verify --strict --deep rust/keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4Rust.app: valid on disk
+    <scratch>/out/bundles/keychain-group/HeimdallX4Rust.app: satisfies its Designated Requirement
+2026-10-06T06:02:16Z [codesign --verify --strict --deep rust/keychain-group] exit=0
+2026-10-06T06:02:16Z $ codesign -dv rust/keychain-group
+    Identifier=dev.heimdall.x4.rust
+    Format=app bundle with Mach-O thin (arm64)
+    CodeDirectory v=20500 size=1333 flags=0x10002(adhoc,runtime) hashes=31+7 location=embedded
+    Signature=adhoc
+    Info.plist entries=9
+    TeamIdentifier=not set
+    Runtime Version=27.0.0
+2026-10-06T06:02:16Z [codesign -dv rust/keychain-group] exit=0
+2026-10-06T06:02:16Z $ codesign -d --entitlements rust/keychain-group
+    {"com.apple.developer.team-identifier":"XXXXXXXXXX","com.apple.application-identifier":"XXXXXXXXXX.dev.heimdall.x4","keychain-access-groups":["XXXXXXXXXX.dev.heimdall.x4"]}
+2026-10-06T06:02:16Z [codesign -d --entitlements rust/keychain-group] exit=0
+2026-10-06T06:02:16Z $ spctl --assess --type execute rust/keychain-group
+    <scratch>/out/bundles/keychain-group/HeimdallX4Rust.app: rejected
+2026-10-06T06:02:16Z [spctl --assess --type execute rust/keychain-group] exit=3
+2026-10-06T06:02:16Z $ bundle[keychain-group] rust se
+    run.sh: line 25: 32605 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:16Z [bundle[keychain-group] rust se] exit=137
+2026-10-06T06:02:16Z $ bundle[keychain-group] rust dpprobe (read-only)
+    run.sh: line 25: 32612 Killed: 9               perl -e '$t = shift; alarm $t; exec @ARGV or die "exec: $!"' 60 "$@"
+2026-10-06T06:02:16Z [bundle[keychain-group] rust dpprobe (read-only)] exit=137
+2026-10-06T06:02:16Z unified log since section 5 start (log timestamps are local time, UTC-0400): amfid lines naming the spike (max 9, truncated):
+    2026-10-06 02:02:14.813 Df amfid[355:1e33a03] /private<scratch>/out/bundles/none/HeimdallX4Go.app/Contents/MacOS/hm-x4-go not valid: Error Domain=AppleMobileFileIntegrityError Code=-423 "The file is adhoc signed or signed by an unknown certificate chain" UserInfo={NSURL=file:///
+    2026-10-06 02:02:15.151 Df amfid[355:1e203e3] /private<scratch>/out/bundles/none/HeimdallX4GoPurego.app/Contents/MacOS/hm-x4-go-purego not valid: Error Domain=AppleMobileFileIntegrityError Code=-423 "The file is adhoc signed or signed by an unknown certificate chain" UserInfo={N
+    2026-10-06 02:02:15.518 Df amfid[355:1e33a03] /private<scratch>/out/bundles/none/HeimdallX4Rust.app/Contents/MacOS/hm-x4-rust not valid: Error Domain=AppleMobileFileIntegrityError Code=-423 "The file is adhoc signed or signed by an unknown certificate chain" UserInfo={NSURL=file
+    2026-10-06 02:02:15.863 Df amfid[355:1e33a03] /private<scratch>/out/bundles/keychain-group/HeimdallX4Go.app/Contents/MacOS/hm-x4-go not valid: Error Domain=AppleMobileFileIntegrityError Code=-424 "The file is adhoc signed but contains restricted entitlements" UserInfo={NSURL=fil
+    2026-10-06 02:02:15.875 Df amfid[355:1e33a03] /private<scratch>/out/bundles/keychain-group/HeimdallX4Go.app/Contents/MacOS/hm-x4-go not valid: Error Domain=AppleMobileFileIntegrityError Code=-424 "The file is adhoc signed but contains restricted entitlements" UserInfo={NSURL=fil
+    2026-10-06 02:02:16.038 Df amfid[355:1e33a03] /private<scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app/Contents/MacOS/hm-x4-go-purego not valid: Error Domain=AppleMobileFileIntegrityError Code=-424 "The file is adhoc signed but contains restricted entitlements" UserIn
+    2026-10-06 02:02:16.051 Df amfid[355:1e33a03] /private<scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app/Contents/MacOS/hm-x4-go-purego not valid: Error Domain=AppleMobileFileIntegrityError Code=-424 "The file is adhoc signed but contains restricted entitlements" UserIn
+    2026-10-06 02:02:16.051 Df kernel[0:1e34053] mac_vnode_check_signature: /private<scratch>/out/bundles/keychain-group/HeimdallX4GoPurego.app/Contents/MacOS/hm-x4-go-purego: code signature validation failed fatally: When validating /private<scratch>/out/bundle
+      Code has restricted entitlements, but the validation of its code signature failed.
+== 6. cross-compilation on this host
+2026-10-06T06:02:17Z $ go spike GOARCH=amd64 CGO_ENABLED=1 (Apple clang)
+2026-10-06T06:02:17Z [go spike GOARCH=amd64 CGO_ENABLED=1 (Apple clang)] exit=0
+2026-10-06T06:02:17Z Mach-O 64-bit executable x86_64
+2026-10-06T06:02:17Z $ go spike CGO_ENABLED=0 GOOS=darwin
+    # hm-x4-go
+    ./main.go:39:9: undefined: kcRoundTrip
+    ./main.go:51:8: undefined: seRun
+    ./main.go:62:8: undefined: dpProbe
+    ./main.go:63:8: undefined: dpProbe
+2026-10-06T06:02:18Z [go spike CGO_ENABLED=0 GOOS=darwin] exit=1
+2026-10-06T06:02:18Z $ go baseline hello CGO_ENABLED=0 GOOS=darwin GOARCH=amd64
+2026-10-06T06:02:18Z [go baseline hello CGO_ENABLED=0 GOOS=darwin GOARCH=amd64] exit=0
+2026-10-06T06:02:18Z $ go spike GOOS=linux
+    # hm-x4-go
+    ./main.go:39:9: undefined: kcRoundTrip
+    ./main.go:51:8: undefined: seRun
+    ./main.go:62:8: undefined: dpProbe
+    ./main.go:63:8: undefined: dpProbe
+2026-10-06T06:02:19Z [go spike GOOS=linux] exit=1
+2026-10-06T06:02:19Z $ go-purego CGO_ENABLED=0 GOOS=darwin GOARCH=amd64
+2026-10-06T06:02:19Z [go-purego CGO_ENABLED=0 GOOS=darwin GOARCH=amd64] exit=0
+2026-10-06T06:02:19Z Mach-O 64-bit executable x86_64
+2026-10-06T06:02:19Z rust installed targets: aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-macabi aarch64-apple-ios-sim aarch64-linux-android aarch64-unknown-linux-musl i686-unknown-linux-musl wasm32-unknown-unknown x86_64-apple-ios-macabi x86_64-pc-windows-gnu x86_64-unknown-linux-musl 
+== 7. lines of code (non-blank, non-comment-only lines) and unsafe/FFI surface
+2026-10-06T06:02:19Z loc go/main.go=57 total_lines=72
+2026-10-06T06:02:19Z loc go/native_darwin.go=151 total_lines=174
+2026-10-06T06:02:19Z loc go-purego/main.go=228 total_lines=254
+2026-10-06T06:02:19Z loc rust/src/main.rs=134 total_lines=155
+2026-10-06T06:02:19Z go native_darwin.go embedded C (cgo preamble) loc=97
+2026-10-06T06:02:19Z go: unsafe.Pointer uses=9 C.* references=28
+2026-10-06T06:02:19Z go-purego: unsafe.Pointer uses=4 unsafe.* uses=5
+2026-10-06T06:02:19Z rust: unsafe blocks=2
+== 8. cleanup check
+2026-10-06T06:02:19Z leftover disposable keychain dirs=0
+2026-10-06T06:02:19Z user search list unchanged=yes default keychain unchanged=yes
+2026-10-06T06:02:19Z done

@@ -1,0 +1,54 @@
+apt rc=0
+checksec: 2.6.0-2 binutils: 2.40-2 file: 1:5.44-3
+=================== go-default-unstripped
+ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=44rQfSrS68n7wM6QU7xI/w9M40qadJaCfbPbaZAgA/7cPMtftTHAopTng0gzB1/xZPjvLzK9D1eBjRA8pjC, BuildID[sha1]=62553c8a70f08d9b5d5cf56c97b31f21702171c3, with debug_info, not stripped
+{ "/a/go-default-unstripped": { "relro":"no","canary":"no","nx":"yes","pie":"no","rpath":"no","runpath":"no","symbols":"yes","fortify_source":"no","fortified":"0","fortify-able":"0" } }
+-- ELF type: EXEC (Executable file)
+-- program headers (RELRO/STACK/INTERP/LOAD flags):
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x8
+-- dynamic BIND_NOW/FLAGS:
+(no dynamic section)
+-- notes (AArch64 BTI/PAC property):
+(none)
+-- insn counts: paciasp=0 autiasp=0 bti=0 total_lines=523611
+=================== go-pie-bindnow
+ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, Go BuildID=c7AvGJvWy7manTJl2emA/Tl9gNl29eHG0aC4r2Lp8/Kq6Vtl_0XcgKsDr5zrVI/Fu4rsCEOGH3_gL6ycag7, BuildID[sha1]=c558254566531f2769cb44f0fbe47c9d544805e5, stripped
+{ "/a/go-pie-bindnow": { "relro":"full","canary":"no","nx":"yes","pie":"yes","rpath":"no","runpath":"no","symbols":"no","fortify_source":"no","fortified":"0","fortify-able":"0" } }
+-- ELF type: DYN (Position-Independent Executable file)
+-- program headers (RELRO/STACK/INTERP/LOAD flags):
+  INTERP         0x000fe5 0x0000000000010fe5 0x0000000000010fe5 0x00001b 0x00001b R   0x1
+  GNU_RELRO      0x460000 0x0000000000470000 0x0000000000470000 0x0816f0 0x0816f0 R   0x10000
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x8
+-- dynamic BIND_NOW/FLAGS:
+ 0x000000000000001e (FLAGS)              BIND_NOW
+ 0x000000006ffffffb (FLAGS_1)            Flags: NOW PIE
+-- notes (AArch64 BTI/PAC property):
+(none)
+-- insn counts: paciasp=0 autiasp=0 bti=0 total_lines=513194
+=================== rust-nightly-unstripped-sp-none
+ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, with debug_info, not stripped
+{ "/a/rust-nightly-unstripped-sp-none": { "relro":"partial","canary":"no","nx":"yes","pie":"no","rpath":"no","runpath":"no","symbols":"yes","fortify_source":"no","fortified":"0","fortify-able":"0" } }
+-- ELF type: EXEC (Executable file)
+-- program headers (RELRO/STACK/INTERP/LOAD flags):
+  GNU_RELRO      0x0cbf28 0x00000000002ebf28 0x00000000002ebf28 0x004ef0 0x0050d8 R   0x1
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0
+-- dynamic BIND_NOW/FLAGS:
+(no dynamic section)
+-- notes (AArch64 BTI/PAC property):
+(none)
+-- insn counts: paciasp=0 autiasp=0 bti=0 total_lines=153729
+=================== rust-nightly-unstripped-sp-strong
+ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, with debug_info, not stripped
+{ "/a/rust-nightly-unstripped-sp-strong": { "relro":"partial","canary":"yes","nx":"yes","pie":"no","rpath":"no","runpath":"no","symbols":"yes","fortify_source":"no","fortified":"0","fortify-able":"0" } }
+-- ELF type: EXEC (Executable file)
+-- program headers (RELRO/STACK/INTERP/LOAD flags):
+  GNU_RELRO      0x0cf108 0x00000000002ef108 0x00000000002ef108 0x004ef8 0x004ef8 R   0x1
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0
+-- dynamic BIND_NOW/FLAGS:
+(no dynamic section)
+-- notes (AArch64 BTI/PAC property):
+(none)
+-- insn counts: paciasp=0 autiasp=0 bti=0 total_lines=156511
+-- go-default-unstripped: __stack_chk_fail symbol refs: 0 ; bl __stack_chk_fail call sites: 0
+-- rust-nightly-unstripped-sp-none: __stack_chk_fail symbol refs: 0 ; bl __stack_chk_fail call sites: 0
+-- rust-nightly-unstripped-sp-strong: __stack_chk_fail symbol refs: 2 ; bl __stack_chk_fail call sites: 358

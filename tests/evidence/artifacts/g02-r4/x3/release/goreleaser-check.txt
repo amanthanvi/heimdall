@@ -1,0 +1,4 @@
+  • checking                                  path=.goreleaser.yaml
+  • pipe skipped or partially skipped                reason=release is disabled
+  • 1 configuration file(s) validated
+  • thanks for using GoReleaser!

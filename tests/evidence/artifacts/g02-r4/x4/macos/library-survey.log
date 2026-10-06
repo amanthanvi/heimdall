@@ -1,0 +1,41 @@
+# X4 macOS library survey (2026-10-06T06:01:41Z)
+$ curl https://proxy.golang.org/github.com/keybase/go-keychain/@v/list
+v0.0.1
+[exit=0]
+$ curl https://proxy.golang.org/github.com/keybase/go-keychain/@latest
+{"Version":"v0.0.1","Time":"2025-02-27T17:52:03Z","Origin":{"VCS":"git","URL":"https://github.com/keybase/go-keychain","Hash":"dd79abb5f55f5239037126b5943c0b1335a84abc","Ref":"refs/tags/v0.0.1"}}
+$ ls go-keychain@v0.0.1
+LICENSE README.md bind bindtest corefoundation.go datetime.go datetime_test.go go.mod go.sum ios ios.go keychain.go macos.go macos_test.go secretservice util.go 
+$ grep -rn -i -E 'UseKeychain|MatchSearchList|SecKeychainOpen|SecKeychainCreate|UseDataProtectionKeychain|SecKeyCreate|TokenID' go-keychain@v0.0.1/*.go
+[grep exit=1 (1 = no match)]
+$ head -11 go-keychain@v0.0.1/macos.go
+//go:build darwin && !ios
+// +build darwin,!ios
+
+package keychain
+
+/*
+#cgo LDFLAGS: -framework CoreFoundation -framework Security
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+*/
+import "C"
+$ curl https://proxy.golang.org/github.com/ebitengine/purego/@latest
+{"Version":"v0.11.1","Time":"2026-09-18T20:30:34Z","Origin":{"VCS":"git","URL":"https://github.com/ebitengine/purego","Hash":"15800b5b0a4f3febc099cf663d75ab558a6db8f2","Ref":"refs/tags/v0.11.1"}}
+$ security-framework 3.7.0 Cargo.toml [badges.maintenance]
+[badges.maintenance]
+status = "looking-for-maintainer"
+$ security-framework 3.7.0 src/os/macos/passwords.rs:78-85 (SecKeychainItem::delete)
+
+    /// Delete this item from its keychain
+    #[inline]
+    pub fn delete(self) {
+        unsafe {
+            SecKeychainItemDelete(self.as_concrete_TypeRef());
+        }
+    }
+$ security-framework 3.7.0 src/key.rs (GenerateKeyOptions permanence)
+417:        let is_permanent = CFBoolean::from(self.location.is_some());
+$ crates.io index: newest published versions
+security-framework 3.7.0 not-yanked
+core-foundation 0.10.1 not-yanked

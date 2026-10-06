@@ -1,0 +1,6 @@
+crates: 95
+license texts: 53
+MIT 94
+Apache-2.0 1
+Unicode-3.0 1
+Zlib 1

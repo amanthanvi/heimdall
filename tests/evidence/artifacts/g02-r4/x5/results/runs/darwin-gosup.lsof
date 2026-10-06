@@ -1,0 +1,23 @@
+launched_pid=73641 reported_pids=73641 73643 73644
+== pid 73641: pid=73641 ppid=73640 exe=x5-gosup
+-- internet sockets (lsof -i):
+-- non-regular fds by TYPE:
+   1   KQUEUE
+   4   PIPE
+== pid 73643: pid=73643 ppid=73641 exe=x5-iroh
+-- internet sockets (lsof -i):
+  IPv4 UDP 127.0.0.1:55365 
+-- non-regular fds by TYPE:
+   1   IPv4
+   3   KQUEUE
+   2   PIPE
+   1   rte
+== pid 73644: pid=73644 ppid=73641 exe=x5-iroh
+-- internet sockets (lsof -i):
+  IPv4 UDP 127.0.0.1:59503 
+-- non-regular fds by TYPE:
+   1   IPv4
+   3   KQUEUE
+   2   PIPE
+   1   rte
+gosup_exit=0

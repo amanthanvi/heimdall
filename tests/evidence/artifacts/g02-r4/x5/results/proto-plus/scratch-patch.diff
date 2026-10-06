@@ -1,0 +1,131 @@
+--- proto-base/prototypes/rust/Cargo.toml
++++ proto-plus/prototypes/rust/Cargo.toml
+@@ -23,6 +23,9 @@
+ sha2 = { version = "=0.11.0", default-features = false }
+ base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+ 
++iroh = { version = "=1.3.0" }
++tokio = { version = "=1.53.2", default-features = false, features = ["rt", "macros", "time"] }
++
+ [target.'cfg(unix)'.dependencies]
+ signal-hook = { version = "=0.4.4", default-features = false, features = ["iterator"] }
+ rustix = { version = "=1.1.5", default-features = false, features = ["std", "process", "termios", "event"] }
+--- proto-base/prototypes/rust/src/main.rs
++++ proto-plus/prototypes/rust/src/main.rs
+@@ -4,6 +4,7 @@
+ 
+ mod cli;
+ mod tui;
++mod x5;
+ 
+ use std::ffi::OsString;
+ use std::io::Write;
+@@ -45,6 +46,9 @@
+     #[cfg(unix)]
+     heimdall_proto::sigdisp::block_early();
+     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
++    if args.first().map(|a| a == "__x5-iroh-selftest") == Some(true) {
++        exit(x5::run());
++    }
+     let json = cli::wants_json(&args);
+     let code = match std::panic::catch_unwind(|| dispatch(args)) {
+         Ok(c) => c,
+--- /dev/null
++++ proto-plus/prototypes/rust/src/x5.rs
+@@ -0,0 +1,96 @@
++//! X5 scratch: iroh selftest embedded into a copy of the frozen prototype (size probe only).
++use iroh::endpoint::{PortmapperConfig, presets};
++use iroh::{Endpoint, EndpointAddr, EndpointId, NetReportConfig, RelayMode};
++use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
++pub const ALPN: &[u8] = b"heimdall/x5/0";
++
++pub async fn make_endpoint() -> Result<Endpoint, String> {
++    let ep = Endpoint::builder(presets::Minimal)
++        .relay_mode(RelayMode::Disabled)
++        .clear_address_lookup()
++        .clear_ip_transports()
++        .bind_addr(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
++        .map_err(|e| format!("bind_addr: {e}"))?
++        .portmapper_config(PortmapperConfig::Disabled)
++        .net_report_config(NetReportConfig::minimal())
++        .alpns(vec![ALPN.to_vec()])
++        .bind()
++        .await
++        .map_err(|e| format!("bind: {e}"))?;
++    let socks = ep.bound_sockets();
++    if socks.is_empty() || socks.iter().any(|s| !s.ip().is_loopback()) {
++        ep.close().await;
++        return Err(format!("non-loopback or no bound socket: {socks:?}"));
++    }
++    Ok(ep)
++}
++
++pub fn loopback_addr(ep: &Endpoint) -> SocketAddr {
++    ep.bound_sockets()[0]
++}
++
++/// Dial `peer`, send `msg` on a uni stream, wait until the peer closes the connection.
++pub async fn send_one(ep: &Endpoint, peer: EndpointId, at: SocketAddr, msg: &[u8]) -> Result<usize, String> {
++    if !at.ip().is_loopback() {
++        return Err("refusing non-loopback peer address".into());
++    }
++    let addr = EndpointAddr::new(peer).with_ip_addr(at);
++    let conn = ep.connect(addr, ALPN).await.map_err(|e| format!("connect: {e}"))?;
++    let mut s = conn.open_uni().await.map_err(|e| format!("open_uni: {e}"))?;
++    s.write_all(msg).await.map_err(|e| format!("write: {e}"))?;
++    s.finish().map_err(|e| format!("finish: {e}"))?;
++    // The receiver closes the connection after reading the whole stream.
++    let _ = conn.closed().await;
++    Ok(msg.len())
++}
++
++/// Accept one connection, read one uni stream to the end, close the connection.
++pub async fn recv_one(ep: &Endpoint) -> Result<(EndpointId, Vec<u8>), String> {
++    let inc = ep.accept().await.ok_or("endpoint closed")?;
++    let conn = inc.await.map_err(|e| format!("accept: {e}"))?;
++    if conn.alpn() != ALPN {
++        return Err("unexpected alpn".into());
++    }
++    let from = conn.remote_id();
++    let mut r = conn.accept_uni().await.map_err(|e| format!("accept_uni: {e}"))?;
++    let data = r.read_to_end(4096).await.map_err(|e| format!("read: {e}"))?;
++    conn.close(0u32.into(), b"done");
++    Ok((from, data))
++}
++
++pub async fn selftest(hold_ms: u64) -> Result<String, String> {
++    let a = make_endpoint().await?;
++    let b = make_endpoint().await?;
++    let msg = b"heimdall x5 selftest message";
++    let a_id = a.id();
++    let a_at = loopback_addr(&a);
++    let recv = tokio::spawn({
++        let a = a.clone();
++        async move { recv_one(&a).await }
++    });
++    let sent = send_one(&b, a_id, a_at, msg).await?;
++    let (from, data) = recv.await.map_err(|e| format!("join: {e}"))??;
++    let ok = data == msg && from == b.id();
++    let line = format!(
++        "{{\"mode\":\"selftest\",\"ok\":{ok},\"bytes_sent\":{sent},\"bytes_recv\":{},\"from_matches_dialer\":{},\"a_bound\":\"{}\",\"b_bound\":\"{}\"}}",
++        data.len(),
++        from == b.id(),
++        a_at,
++        loopback_addr(&b)
++    );
++    if hold_ms > 0 {
++        eprintln!("x5-iroh: holding {hold_ms} ms for socket inspection (pid {})", std::process::id());
++        tokio::time::sleep(std::time::Duration::from_millis(hold_ms)).await;
++    }
++    b.close().await;
++    a.close().await;
++    if ok { Ok(line) } else { Err(line) }
++}
++
++pub fn run() -> i32 {
++    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("rt");
++    match rt.block_on(selftest(0)) {
++        Ok(l) => { println!("{l}"); 0 }
++        Err(e) => { eprintln!("x5: {e}"); 1 }
++    }
++}

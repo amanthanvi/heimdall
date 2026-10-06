@@ -1,0 +1,25 @@
+# X3 scratch config (not part of the frozen prototype). Snapshot only, never published.
+version: 2
+project_name: heimdall-proto
+builds:
+  - id: heimdall-proto
+    main: ./cmd/heimdall-proto
+    binary: heimdall-proto
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath, -buildvcs=false]
+    ldflags: ["-s -w"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    targets: [darwin_arm64, linux_amd64, linux_arm64, windows_amd64]
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+checksum:
+  name_template: checksums.txt
+sboms:
+  - artifacts: archive
+release:
+  disable: true
+changelog:
+  disable: true

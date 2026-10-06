@@ -1,0 +1,60 @@
+## iroh-default aarch64-apple-darwin
+packages=245
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-default x86_64-unknown-linux-musl
+packages=243
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-default aarch64-unknown-linux-musl
+packages=242
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-default x86_64-pc-windows-gnu
+packages=250
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-ring-min aarch64-apple-darwin
+packages=236
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-ring-min x86_64-unknown-linux-musl
+packages=233
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-ring-min aarch64-unknown-linux-musl
+packages=232
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-ring-min x86_64-pc-windows-gnu
+packages=243
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+  ring 0.17.14 build-deps=cc native-src-files=107
+## iroh-awslc-min aarch64-apple-darwin
+packages=241
+  aws-lc-sys 0.45.0 build-deps=cc+cmake native-src-files=1548
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+## iroh-awslc-min x86_64-unknown-linux-musl
+packages=238
+  aws-lc-sys 0.45.0 build-deps=cc+cmake native-src-files=1548
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+## iroh-awslc-min aarch64-unknown-linux-musl
+packages=237
+  aws-lc-sys 0.45.0 build-deps=cc+cmake native-src-files=1548
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1
+## iroh-awslc-min x86_64-pc-windows-gnu
+packages=248
+  aws-lc-sys 0.45.0 build-deps=cc+cmake native-src-files=1548
+  blake3 1.8.7 build-deps=cc native-src-files=24
+  cc 1.6.0 build-deps=- native-src-files=1

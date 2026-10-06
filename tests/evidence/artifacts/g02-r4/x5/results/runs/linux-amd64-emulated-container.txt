@@ -1,0 +1,35 @@
+## interfaces in this network namespace:
+bonding_masters
+erspan0
+gre0
+gretap0
+ip6_vti0
+ip6gre0
+ip6tnl0
+ip_vti0
+lo
+sit0
+tunl0
+## uname -m: x86_64
+## selftest
+selftest sockets (pid 9, /proc/9/net/udp local_address:port, hex):
+  0100007F:C040 st=07
+  0100007F:824D st=07
+  udp6:
+  tcp:
+  socket fds: 4
+selftest_exit=0
+{"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:49216","b_bound":"127.0.0.1:33357"}
+x5-iroh: holding 2500 ms for socket inspection (pid <pid>)
+## go supervisor
+pid 20 exe=rosetta ppid=1 socket_fds=0
+pid 27 exe=rosetta ppid=20 socket_fds=2
+pid 28 exe=rosetta ppid=20 socket_fds=2
+UDP sockets in namespace (local_address:port hex; 0100007F = 127.0.0.1):
+  0100007F:A616
+  0100007F:9677
+UDP6:
+gosup_exit=0
+{"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:38519","b_addr":"127.0.0.1:42518","exit_a":0,"exit_b":0,"elapsed_ms":2798}
+x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+x5-gosup: holding 2.5s for socket inspection

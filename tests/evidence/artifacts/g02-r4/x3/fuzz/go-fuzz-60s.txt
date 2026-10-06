@@ -1,0 +1,26 @@
+fuzz: elapsed: 0s, gathering baseline coverage: 0/6 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 6/6 completed, now fuzzing with 8 workers
+fuzz: elapsed: 3s, execs: 203829 (67933/sec), new interesting: 133 (total: 139)
+fuzz: elapsed: 6s, execs: 203829 (0/sec), new interesting: 133 (total: 139)
+fuzz: elapsed: 9s, execs: 515748 (103954/sec), new interesting: 138 (total: 144)
+fuzz: elapsed: 12s, execs: 515748 (0/sec), new interesting: 138 (total: 144)
+fuzz: elapsed: 15s, execs: 515748 (0/sec), new interesting: 138 (total: 144)
+fuzz: elapsed: 18s, execs: 515748 (0/sec), new interesting: 138 (total: 144)
+fuzz: elapsed: 21s, execs: 1345284 (276548/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 24s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 27s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 30s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 33s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 36s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 39s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 42s, execs: 1345284 (0/sec), new interesting: 147 (total: 153)
+fuzz: elapsed: 45s, execs: 2802590 (485637/sec), new interesting: 168 (total: 174)
+fuzz: elapsed: 48s, execs: 2944890 (47433/sec), new interesting: 179 (total: 185)
+fuzz: elapsed: 51s, execs: 4551238 (535450/sec), new interesting: 229 (total: 235)
+fuzz: elapsed: 54s, execs: 6451935 (633565/sec), new interesting: 245 (total: 251)
+fuzz: elapsed: 57s, execs: 6649414 (65831/sec), new interesting: 277 (total: 283)
+fuzz: elapsed: 1m0s, execs: 6854181 (68256/sec), new interesting: 340 (total: 346)
+fuzz: elapsed: 1m1s, execs: 6854181 (0/sec), new interesting: 340 (total: 346)
+PASS
+ok  	github.com/heimdall-g02/proto-go/internal/profile	61.017s
+go test -fuzz rc=0 wall=64s

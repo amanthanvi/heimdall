@@ -1,0 +1,99 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+     Running `fuzz/target/aarch64-apple-darwin/release/profile_parse -artifact_prefix=/private<scratch>/rust/prototypes/rust/fuzz/artifacts/profile_parse/ -fork=8 -max_total_time=60 <scratch>/rcorpus8`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3159195433
+INFO: Loaded 1 modules   (40522 inline 8-bit counters): 40522 [0x104a6ce00, 0x104a76c4a), 
+INFO: Loaded 1 PC tables (40522 PCs): 40522 [0x104a76c50,0x104b150f0), 
+INFO: -fork=8: fuzzing in separate process(s)
+INFO: -fork=8: 6 seed inputs, starting to fuzz in /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T//libFuzzerTemp.FuzzWithFork30092.dir
+#5944: cov: 1313 ft: 3603 corp: 6 exec/s: 2972 oom/timeout/crash: 0/0/0 time: 2s job: 1 dft_time: 0
+  NEW_FUNC: 0x0001047092fc in _RINvMNtCs1Jp27Crtyle_14heimdall_proto7profileNtB3_12ProfileError6schemaReB17_EB5_+0x0 (profile_parse:arm64+0x1000052fc)
+  NEW_FUNC: 0x00010476888c in _RNvNtCs1Jp27Crtyle_14heimdall_proto4text11key_segment+0x0 (profile_parse:arm64+0x10006488c)
+  NEW_FUNC: 0x00010478e514 in _RNvXsq_NtCs9gUwrQBb75J_5alloc6stringNtB5_6StringNtNtCsaQIEjUUvjPb_4core3fmt7Display3fmt+0x0 (profile_parse:arm64+0x10008a514)
+  NEW_FUNC: 0x000104812160 in _RNCINvMs6_NtCsaXk8YrA8E0P_9hashbrown3rawINtB8_8RawTablejE25find_or_find_insert_indexNCINvNtCs5dgHUsYB8dc_8indexmap5inner5equalINtNtCsfWoMYAU34QX_13serde_spanned7spanned7SpannedINtNtCs9gUwrQBb75J_5alloc6borrow3CoweEEIB21_NtNtNtNtCs78Ua2pyRmYn_4toml2de6parser7devalue7DeValueEE0NCINvB1p_8get_hashB20_B3r_E0E0B3E_+0x0 (profile_parse:arm64+0x10010e160)
+  NEW_FUNC: 0x0001048125c4 in _RNCINvMs6_NtCsaXk8YrA8E0P_9hashbrown3rawINtB8_8RawTablejE25find_or_find_insert_indexNCINvNtCs5dgHUsYB8dc_8indexmap5inner5equalNtNtCs9gUwrQBb75J_5alloc6string6StringNtNtCs78Ua2pyRmYn_4toml5value5ValueE0NCINvB1p_8get_hashB20_B2C_E0E0B2G_+0x0 (profile_parse:arm64+0x10010e5c4)
+  NEW_FUNC: 0x000104821828 in _RNvMs6_NtCsaXk8YrA8E0P_9hashbrown3rawINtB5_8RawTablejE13remove_taggedCs78Ua2pyRmYn_4toml+0x0 (profile_parse:arm64+0x10011d828)
+  NEW_FUNC: 0x00010497b598 in _RNvMs7_NtCs9gUwrQBb75J_5alloc7raw_vecINtB5_6RawVecINtNtCsfWoMYAU34QX_13serde_spanned7spanned7SpannedINtNtB7_6borrow3CoweEEE8grow_oneCs78Ua2pyRmYn_4toml+0x0 (profile_parse:arm64+0x100277598)
+  NEW_FUNC: 0x00010483d78c in _RNvXsZ_NtCs9gUwrQBb75J_5alloc6stringNtB5_6StringNtNtCsaQIEjUUvjPb_4core3fmt5Write9write_str+0x0 (profile_parse:arm64+0x10013978c)
+  NEW_FUNC: 0x0001048469dc in _RNvMs1_NtCs9gUwrQBb75J_5alloc6borrowINtB5_3CoweE6to_mutCs8JBW3T048O8_11toml_parser+0x0 (profile_parse:arm64+0x1001429dc)
+  NEW_FUNC: 0x00010497c918 in _RNvMs7_NtCs9gUwrQBb75J_5alloc7raw_vecINtB5_6RawVecNtNtNtCs8JBW3T048O8_11toml_parser6parser5event5EventE8grow_oneBS_+0x0 (profile_parse:arm64+0x100278918)
+  NEW_FUNC: 0x00010484a20c in _RNvMs_NtCs8JBW3T048O8_11toml_parser6sourceNtB4_3Raw14decode_comment+0x0 (profile_parse:arm64+0x10014620c)
+  NEW_FUNC: 0x00010484be18 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document10on_comment+0x0 (profile_parse:arm64+0x100147e18)
+  NEW_FUNC: 0x00010497d590 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document17ignore_to_newline+0x0 (profile_parse:arm64+0x100279590)
+  NEW_FUNC: 0x00010497dce4 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document20on_missing_std_table+0x0 (profile_parse:arm64+0x100279ce4)
+  NEW_FUNC: 0x00010497dfc4 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document21ignore_to_value_close+0x0 (profile_parse:arm64+0x100279fc4)
+  NEW_FUNC: 0x00010497ec14 in _RNvNtNtCs8JBW3T048O8_11toml_parser6parser8document25on_missing_expression_key+0x0 (profile_parse:arm64+0x10027ac14)
+  NEW_FUNC: 0x00010485bfb4 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar12ensure_float+0x0 (profile_parse:arm64+0x100157fb4)
+  NEW_FUNC: 0x00010485d4c4 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar13decode_symbol+0x0 (profile_parse:arm64+0x1001594c4)
+  NEW_FUNC: 0x00010485dfc4 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar14decode_invalid+0x0 (profile_parse:arm64+0x100159fc4)
+  NEW_FUNC: 0x00010485f008 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar15ensure_dec_uint+0x0 (profile_parse:arm64+0x10015b008)
+  NEW_FUNC: 0x000104860450 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar18decode_zero_prefix+0x0 (profile_parse:arm64+0x10015c450)
+  NEW_FUNC: 0x000104866dcc in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6string13mlb_unescaped+0x0 (profile_parse:arm64+0x100162dcc)
+  NEW_FUNC: 0x000104869ac0 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6string21decode_literal_string+0x0 (profile_parse:arm64+0x100165ac0)
+  NEW_FUNC: 0x00010486a3d8 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6string22decode_ml_basic_string+0x0 (profile_parse:arm64+0x1001663d8)
+  NEW_FUNC: 0x00010486f234 in _RNvXNtCs8JBW3T048O8_11toml_parser5errorNCNvMs_NtB4_6sourceNtBI_3Raw10decode_key0NtB2_9ErrorSink12report_errorB4_+0x0 (profile_parse:arm64+0x10016b234)
+  NEW_FUNC: 0x000104873b34 in _RNvXs2_NtNtCs8JBW3T048O8_11toml_parser6parser5eventNtB5_18ValidateWhitespaceNtB5_13EventReceiver5error+0x0 (profile_parse:arm64+0x10016fb34)
+  NEW_FUNC: 0x000104873dcc in _RNvXs2_NtNtCs8JBW3T048O8_11toml_parser6parser5eventNtB5_18ValidateWhitespaceNtB5_13EventReceiver7comment+0x0 (profile_parse:arm64+0x10016fdcc)
+  NEW_FUNC: 0x000104874358 in _RNvXs2_NtNtCs8JBW3T048O8_11toml_parser6parser5eventNtB5_18ValidateWhitespaceNtB5_13EventReceiver7key_sep+0x0 (profile_parse:arm64+0x100170358)
+  NEW_FUNC: 0x000104874d80 in _RNvXs3_NtNtCsaQIEjUUvjPb_4core3str4iterNtB5_11CharIndicesNtNtNtNtB9_4iter6traits8iterator8Iterator4next+0x0 (profile_parse:arm64+0x100170d80)
+  NEW_FUNC: 0x00010487619c in _RNvXs4_NtNtCs8JBW3T048O8_11toml_parser6parser5eventNtB5_14RecursionGuardNtB5_13EventReceiver7comment+0x0 (profile_parse:arm64+0x10017219c)
+  NEW_FUNC: 0x00010487f04c in _RNvXs_NtNtCs8JBW3T048O8_11toml_parser6parser5eventINtNtCs9gUwrQBb75J_5alloc3vec3VecNtB4_5EventENtB4_13EventReceiver5error+0x0 (profile_parse:arm64+0x10017b04c)
+  NEW_FUNC: 0x00010487f658 in _RNvXs_NtNtCs8JBW3T048O8_11toml_parser6parser5eventINtNtCs9gUwrQBb75J_5alloc3vec3VecNtB4_5EventENtB4_13EventReceiver7comment+0x0 (profile_parse:arm64+0x10017b658)
+  NEW_FUNC: 0x00010487f958 in _RNvXs_NtNtCs8JBW3T048O8_11toml_parser6parser5eventINtNtCs9gUwrQBb75J_5alloc3vec3VecNtB4_5EventENtB4_13EventReceiver7key_sep+0x0 (profile_parse:arm64+0x10017b958)
+  NEW_FUNC: 0x000104880d14 in _RNvNtCs6BHNvPGwKap_6winnow6stream8memmem2_+0x0 (profile_parse:arm64+0x10017cd14)
+  NEW_FUNC: 0x00010488654c in _RNvXs1i_NtCsaQIEjUUvjPb_4core3fmtReNtB6_7Display3fmtCsiHFNRWTxafU_13toml_datetime+0x0 (profile_parse:arm64+0x10018254c)
+  NEW_FUNC: 0x00010488871c in _RNvXs7_NtCsiHFNRWTxafU_13toml_datetime8datetimeNtB5_8DatetimeNtNtNtCsaQIEjUUvjPb_4core3str6traits7FromStr8from_str+0x0 (profile_parse:arm64+0x10018471c)
+  NEW_FUNC: 0x00010488f834 in _RNvXsa_NtCsiHFNRWTxafU_13toml_datetime8datetimeNtB5_5LexerNtNtNtNtCsaQIEjUUvjPb_4core4iter6traits8iterator8Iterator4next+0x0 (profile_parse:arm64+0x10018b834)
+  NEW_FUNC: 0x0001048900a4 in _RNvXsc_NtCsiHFNRWTxafU_13toml_datetime8datetimeNtB5_18DatetimeParseErrorNtNtCsaQIEjUUvjPb_4core3fmt7Display3fmt+0x0 (profile_parse:arm64+0x10018c0a4)
+#65663: cov: 2088 ft: 8396 corp: 302 exec/s: 19906 oom/timeout/crash: 0/0/0 time: 3s job: 2 dft_time: 0
+  NEW_FUNC: 0x000104863458 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6scalar20ensure_radixed_value+0x0 (profile_parse:arm64+0x10015f458)
+  NEW_FUNC: 0x000104867a94 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6string15escape_seq_char+0x0 (profile_parse:arm64+0x100163a94)
+  NEW_FUNC: 0x00010486d484 in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6string24decode_ml_literal_string+0x0 (profile_parse:arm64+0x100169484)
+  NEW_FUNC: 0x000104871754 in _RNvXs1_NtCs8JBW3T048O8_11toml_parser7decoderINtNtCs9gUwrQBb75J_5alloc6borrow3CoweENtB5_13StringBuilder9push_char+0x0 (profile_parse:arm64+0x10016d754)
+  NEW_FUNC: 0x0001048808d4 in _RNvYNCNvMs_NtNtCs8JBW3T048O8_11toml_parser7decoder6scalarNtB9_12IntegerRadix9validators0_0INtNtNtCsaQIEjUUvjPb_4core3ops8function6FnOnceTcEE9call_onceBd_+0x0 (profile_parse:arm64+0x10017c8d4)
+  NEW_FUNC: 0x000104880aac in _RNvNtCs6BHNvPGwKap_6winnow6stream7memmem_+0x0 (profile_parse:arm64+0x10017caac)
+#79069: cov: 2590 ft: 11425 corp: 902 exec/s: 3351 oom/timeout/crash: 0/0/0 time: 4s job: 3 dft_time: 0
+  NEW_FUNC: 0x00010486e5bc in _RNvNtNtCs8JBW3T048O8_11toml_parser7decoder6string9hexescape+0x0 (profile_parse:arm64+0x10016a5bc)
+#96234: cov: 2618 ft: 11791 corp: 958 exec/s: 3433 oom/timeout/crash: 0/0/0 time: 5s job: 4 dft_time: 0
+  NEW_FUNC: 0x000104885588 in _RNvMsx_NtCsaQIEjUUvjPb_4core3numh27from_ascii_bytes_radix_impl+0x0 (profile_parse:arm64+0x100181588)
+#283204: cov: 2642 ft: 12167 corp: 1027 exec/s: 31161 oom/timeout/crash: 0/0/0 time: 6s job: 5 dft_time: 0
+  NEW_FUNC: 0x00010470941c in _RINvMNtCs1Jp27Crtyle_14heimdall_proto7profileNtB3_12ProfileError6schemaReNtNtCs9gUwrQBb75J_5alloc6string6StringEB5_+0x0 (profile_parse:arm64+0x10000541c)
+  NEW_FUNC: 0x0001047860a0 in _RNvNtCs1Jp27Crtyle_14heimdall_proto7profile9type_name+0x0 (profile_parse:arm64+0x1000820a0)
+  NEW_FUNC: 0x0001047f9edc in _RINvMNtNtCs78Ua2pyRmYn_4toml2de5errorNtB3_5Error6customReEB7_+0x0 (profile_parse:arm64+0x1000f5edc)
+  NEW_FUNC: 0x0001047feee0 in _RINvNtCsaQIEjUUvjPb_4core3ptr9drop_glueINtNtCs78Ua2pyRmYn_4toml3map3MapNtNtCs9gUwrQBb75J_5alloc6string6StringNtNtBG_5value5ValueEEBG_+0x0 (profile_parse:arm64+0x1000faee0)
+  NEW_FUNC: 0x0001047ff134 in _RINvNtCsaQIEjUUvjPb_4core3ptr9drop_glueINtNtCs9gUwrQBb75J_5alloc3vec3VecINtCs5dgHUsYB8dc_8indexmap6BucketNtNtBG_6string6StringNtNtCs78Ua2pyRmYn_4toml5value5ValueEEEB24_+0x0 (profile_parse:arm64+0x1000fb134)
+  NEW_FUNC: 0x000104808cd0 in _RINvNtCsaQIEjUUvjPb_4core3ptr9drop_glueNtNtNtNtCs78Ua2pyRmYn_4toml2de6parser7devalue9DeIntegerEBJ_+0x0 (profile_parse:arm64+0x100104cd0)
+  NEW_FUNC: 0x0001048150fc in _RNvMNtNtCs78Ua2pyRmYn_4toml2de5errorNtB2_5Error9set_input+0x0 (profile_parse:arm64+0x1001110fc)
+  NEW_FUNC: 0x000104819a28 in _RNvMNtNtNtCs78Ua2pyRmYn_4toml2de6parser7devalueNtB2_9DeInteger6to_u64+0x0 (profile_parse:arm64+0x100115a28)
+  NEW_FUNC: 0x00010481a350 in _RNvMNtNtNtCs78Ua2pyRmYn_4toml2de6parser7devalueNtB2_9DeInteger7to_i128+0x0 (profile_parse:arm64+0x100116350)
+  NEW_FUNC: 0x00010481b2b8 in _RNvMNtNtNtCs78Ua2pyRmYn_4toml2de6parser7devalueNtB2_9DeInteger7to_u128+0x0 (profile_parse:arm64+0x1001172b8)
+  NEW_FUNC: 0x000104880894 in _RNvYNCNvMs_NtNtCs8JBW3T048O8_11toml_parser7decoder6scalarNtB9_12IntegerRadix9validator0INtNtNtCsaQIEjUUvjPb_4core3ops8function6FnOnceTcEE9call_onceBd_+0x0 (profile_parse:arm64+0x10017c894)
+#484746: cov: 2929 ft: 13517 corp: 1439 exec/s: 28791 oom/timeout/crash: 0/0/0 time: 7s job: 6 dft_time: 0
+  NEW_FUNC: 0x000104880914 in _RNvYNCNvMs_NtNtCs8JBW3T048O8_11toml_parser7decoder6scalarNtB9_12IntegerRadix9validators1_0INtNtNtCsaQIEjUUvjPb_4core3ops8function6FnOnceTcEE9call_onceBd_+0x0 (profile_parse:arm64+0x10017c914)
+#504296: cov: 3001 ft: 14076 corp: 1684 exec/s: 2443 oom/timeout/crash: 0/0/0 time: 8s job: 7 dft_time: 0
+#552306: cov: 3001 ft: 14152 corp: 1699 exec/s: 5334 oom/timeout/crash: 0/0/0 time: 9s job: 8 dft_time: 0
+  NEW_FUNC: 0x00010481d7cc in _RNvMs0_NtCsaXk8YrA8E0P_9hashbrown3rawNtB5_8ProbeSeq9move_next+0x0 (profile_parse:arm64+0x1001197cc)
+#583637: cov: 3014 ft: 14618 corp: 1780 exec/s: 3133 oom/timeout/crash: 0/0/0 time: 12s job: 9 dft_time: 0
+#654669: cov: 3017 ft: 14739 corp: 1815 exec/s: 6457 oom/timeout/crash: 0/0/0 time: 14s job: 10 dft_time: 0
+#762581: cov: 3025 ft: 15117 corp: 1931 exec/s: 8992 oom/timeout/crash: 0/0/0 time: 16s job: 11 dft_time: 0
+#862916: cov: 3046 ft: 15774 corp: 2125 exec/s: 7718 oom/timeout/crash: 0/0/0 time: 18s job: 12 dft_time: 0
+  NEW_FUNC: 0x000104880954 in _RNvYNCNvMs_NtNtCs8JBW3T048O8_11toml_parser7decoder6scalarNtB9_12IntegerRadix9validators_0INtNtNtCsaQIEjUUvjPb_4core3ops8function6FnOnceTcEE9call_onceBd_+0x0 (profile_parse:arm64+0x10017c954)
+#1031443: cov: 3063 ft: 16193 corp: 2246 exec/s: 12037 oom/timeout/crash: 0/0/0 time: 20s job: 13 dft_time: 0
+#1197933: cov: 3086 ft: 16526 corp: 2381 exec/s: 11099 oom/timeout/crash: 0/0/0 time: 22s job: 14 dft_time: 0
+#1445976: cov: 3113 ft: 16963 corp: 2566 exec/s: 15502 oom/timeout/crash: 0/0/0 time: 24s job: 15 dft_time: 0
+#1576764: cov: 3126 ft: 17256 corp: 2672 exec/s: 7693 oom/timeout/crash: 0/0/0 time: 26s job: 16 dft_time: 0
+#1732089: cov: 3127 ft: 17334 corp: 2715 exec/s: 8629 oom/timeout/crash: 0/0/0 time: 31s job: 17 dft_time: 0
+#1889047: cov: 3130 ft: 17426 corp: 2763 exec/s: 8260 oom/timeout/crash: 0/0/0 time: 34s job: 18 dft_time: 0
+#2026002: cov: 3137 ft: 17566 corp: 2831 exec/s: 6847 oom/timeout/crash: 0/0/0 time: 37s job: 19 dft_time: 0
+#2156851: cov: 3141 ft: 17687 corp: 2881 exec/s: 6230 oom/timeout/crash: 0/0/0 time: 39s job: 20 dft_time: 0
+  NEW_FUNC: 0x00010481e158 in _RNvMs1_NtNtNtCs78Ua2pyRmYn_4toml2de6parser7devalueNtB5_7DeFloat6to_f64+0x0 (profile_parse:arm64+0x10011a158)
+#2277932: cov: 3156 ft: 17760 corp: 2916 exec/s: 5503 oom/timeout/crash: 0/0/0 time: 42s job: 21 dft_time: 0
+#2426297: cov: 3163 ft: 17822 corp: 2948 exec/s: 6450 oom/timeout/crash: 0/0/0 time: 46s job: 22 dft_time: 0
+#2560089: cov: 3168 ft: 18036 corp: 3018 exec/s: 5574 oom/timeout/crash: 0/0/0 time: 48s job: 23 dft_time: 0
+#2722710: cov: 3176 ft: 18134 corp: 3058 exec/s: 6504 oom/timeout/crash: 0/0/0 time: 51s job: 24 dft_time: 0
+#2910151: cov: 3181 ft: 18234 corp: 3106 exec/s: 7209 oom/timeout/crash: 0/0/0 time: 57s job: 25 dft_time: 0
+#3085322: cov: 3182 ft: 18365 corp: 3151 exec/s: 6487 oom/timeout/crash: 0/0/0 time: 61s job: 26 dft_time: 0
+INFO: fuzzed for 61 seconds, wrapping up soon
+INFO: exiting: 0 time: 63s
+cargo fuzz run (-fork=8, ASan) rc=0 wall=64s

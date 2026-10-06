@@ -1,0 +1,111 @@
+{
+  "task_id": "M00-T05-r4-x5",
+  "status": "verified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-r4/x5/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x5/record.json",
+    "tests/evidence/artifacts/g02-r4/x5/rust-embed/Cargo.toml",
+    "tests/evidence/artifacts/g02-r4/x5/rust-embed/Cargo.lock",
+    "tests/evidence/artifacts/g02-r4/x5/rust-embed/src/main.rs",
+    "tests/evidence/artifacts/g02-r4/x5/rust-embed/build.sh",
+    "tests/evidence/artifacts/g02-r4/x5/go-helper/go.mod",
+    "tests/evidence/artifacts/g02-r4/x5/go-helper/main.go",
+    "tests/evidence/artifacts/g02-r4/x5/go-helper/build.sh",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/run-gosup-inspect.sh",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/orphan-check.sh",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/in-container.sh",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/dep-census.sh",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/native-census.sh",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/native_crates.py",
+    "tests/evidence/artifacts/g02-r4/x5/scripts/pe_imports.py",
+    "tests/evidence/artifacts/g02-r4/x5/results/rust-build-matrix.tsv",
+    "tests/evidence/artifacts/g02-r4/x5/results/go-build.tsv",
+    "tests/evidence/artifacts/g02-r4/x5/results/dep-census.tsv",
+    "tests/evidence/artifacts/g02-r4/x5/results/native-code-crates.txt",
+    "tests/evidence/artifacts/g02-r4/x5/results/logs/rust-matrix/*.log (16, sanitized)",
+    "tests/evidence/artifacts/g02-r4/x5/results/runs/* (sanitized run outputs)",
+    "tests/evidence/artifacts/g02-r4/x5/results/proto-plus/{sizes.tsv,scratch-patch.diff,*.log}"
+  ],
+  "commands_run": [
+    {
+      "command": "cargo install --locked cargo-zigbuild --version 0.23.4 --root /tmp/hm-r4/tools/cargo-zigbuild-0.23.4",
+      "exit_code": 0,
+      "observed": "installed in 7 s"
+    },
+    {
+      "command": "cargo check --locked (each of the 4 feature variants)",
+      "exit_code": 0,
+      "observed": "iroh 1.3.0 API compiled for every variant"
+    },
+    {
+      "command": "rust-embed/build.sh /tmp/hm-r4/M00-T05-r4-x5/out (4 variants x 4 targets; darwin native, the other targets via cargo-zigbuild + zig 0.16.0)",
+      "exit_code": 0,
+      "observed": "16/16 builds exited 0 with 0 warnings; ring 0.17.14 and aws-lc-sys 0.45.0 compiled under zig for x86_64/aarch64 linux-musl and x86_64 windows-gnu. Sizes in bytes: iroh-default 4,186,096 / 6,400,880 / 5,367,144 / 5,044,736; no-iroh baseline about 0.30-0.33 MB. Build time 39-84 s per target. Matrix wall time 10m15s."
+    },
+    {
+      "command": "go-helper/build.sh /tmp/hm-r4/M00-T05-r4-x5/go-out (CGO_ENABLED=0, 4 targets)",
+      "exit_code": 0,
+      "observed": "4/4 built, 0-1 s each, 3.25-3.51 MB, stdlib only"
+    },
+    {
+      "command": "x5-iroh selftest --hold-ms 4000 (darwin, iroh-default) + lsof -nP -a -p <exact pid> -i",
+      "exit_code": 0,
+      "observed": "ok=true, 28 bytes over ALPN heimdall/x5/0; lsof showed only 2x IPv4 UDP 127.0.0.1:<port>"
+    },
+    {
+      "command": "x5-iroh selftest (darwin ring-min, awslc-min)",
+      "exit_code": 0,
+      "observed": "ok=true for both"
+    },
+    {
+      "command": "scripts/run-gosup-inspect.sh go-out/darwin-arm64/x5-gosup out/bin/{iroh-default,iroh-ring-min}/aarch64-apple-darwin/x5-iroh",
+      "exit_code": 0,
+      "observed": "Go supervisor -> helper B -> iroh loopback -> helper A -> Go; message and sender ID matched; both helpers exited 0. lsof on exact PIDs: each helper had 1 UDP 127.0.0.1 socket and 1 PF_ROUTE (rte) socket; the supervisor had no inet sockets."
+    },
+    {
+      "command": "scripts/orphan-check.sh (kill -KILL of the exact supervisor PID)",
+      "exit_code": 0,
+      "observed": "supervisor wait status 137; both helper PIDs gone within 1.5 s (exit on stdin EOF)"
+    },
+    {
+      "command": "docker run --rm --network none --platform linux/arm64 --read-only --cap-drop ALL alpine:3.22 /x5/in-container.sh",
+      "exit_code": 0,
+      "observed": "selftest_exit=0, gosup_exit=0; /proc/net/udp had only 0100007F (127.0.0.1) entries; udp6 and tcp were empty"
+    },
+    {
+      "command": "docker run ... --platform linux/amd64 hp-g02-alpine-amd64:3.22 (Rosetta emulation)",
+      "exit_code": 0,
+      "observed": "selftest_exit=0, gosup_exit=0 (emulated, not native)"
+    },
+    {
+      "command": "scratch copy of git archive d8f0cbe prototypes/rust plus iroh 1.3.0: cargo build / cargo-zigbuild for 4 targets, with and without iroh",
+      "exit_code": 0,
+      "observed": "Sizes in bytes, prototype -> prototype+iroh: darwin 722,144 -> 4,504,064; linux-x64 879,464 -> 6,836,288; linux-arm64 816,528 -> 5,761,880; win-x64 844,288 -> 5,451,776. The lock gained 296 packages and no existing pin changed. In a linux-arm64 --network none container the iroh selftest and version both exited 0."
+    },
+    {
+      "command": "scripts/dep-census.sh; scripts/native-census.sh",
+      "exit_code": 0,
+      "observed": "242-250 packages per target (iroh-default), 232-243 (ring-min). Crates with native code: ring 0.17.14 (107 C/asm files) and blake3 1.8.7 (24); aws-lc-sys 0.45.0 (1,548 files) appears only in the aws-lc variant."
+    },
+    {
+      "command": "curl proxy.golang.org (go-iroh, xk6-iroh, iroh-ffi, quic-go metadata; go-iroh v0.3.0 zip) + reading the sources",
+      "exit_code": 0,
+      "observed": "github.com/tmc/go-iroh v0.3.0 (2026-10-01, first tag 2026-08-15) is a pure-Go clean-room port. It vendors a patched crypto/tls (RFC 7250) and a quic-go v0.59.1 fork (multipath/QAD/QNT), about 51k lines of forks. It is unaffiliated and pre-v1, and its interop matrix is self-reported."
+    }
+  ],
+  "escalations": [
+    "ADR-0002 §8 can now say the ring/zig cross-compile risk is closed for building: all three cross targets plus darwin built with ring or aws-lc. The orchestrator should update the ADR text and the §7 rows (release simplicity, cross-platform). This subagent does not own the ADR.",
+    "No pure-Go iroh path is adoptable now. github.com/tmc/go-iroh v0.3.0 exists but is experimental and carries security-critical crypto/tls and quic-go forks. If a Go stack is chosen, G06 could run a live interop test against the x5-iroh helper. Not done here, by task scope."
+  ],
+  "limitations": [
+    "Windows binaries (x5-iroh in 4 variants, x5-gosup, and the prototype with and without iroh) were built and their PE imports listed, but none was executed: blocked on a native Windows x64 host.",
+    "linux-x64 binaries were run only under Rosetta emulation; there was no native x86_64 Linux run.",
+    "Loopback only: relays, discovery, holepunching, IPv6, helper restart and real network paths were not exercised (G06 scope). Net-report probes and portmapper were disabled by configuration.",
+    "No packet capture (no sudo). Loopback-only status rests on lsof of exact PIDs (darwin), /proc/net tables and --network none (Linux). A short-lived socket between inspections would not be seen. The second Linux socket fd per helper was not identified (inferred: netlink).",
+    "Build times are single cold runs on a shared host and are noisy.",
+    "The prototype+iroh scratch builds omit build.sh's remap, codesign and /Brepro flags; the baselines were rebuilt under the same conditions.",
+    "cargo-zigbuild writes compiler wrappers to <home>/Library/Caches/cargo-zigbuild/0.23.4 (tool behaviour, outside the task scratch).",
+    "Claims about go-iroh, iroh-go and iroh-ffi come from their sources and docs only; none was built or run."
+  ],
+  "summary": "I tested the two Iroh paths that ADR-0002 §8 had only inferred, using iroh 1.3.0 (pinned).\n\n**Rust embed.** A probe under tests/evidence/artifacts/g02-r4/x5/rust-embed/ creates two endpoints with relays, address lookup, portmapper and net-report probes off, bound only to 127.0.0.1:0. They exchange one message on ALPN heimdall/x5/0.\n- All 16 builds exited 0 (4 variants × darwin-arm64 native plus x86_64/aarch64 linux-musl and x86_64 windows-gnu via cargo-zigbuild 0.23.4 and zig 0.16.0).\n- ring 0.17.14 and aws-lc-sys 0.45.0 compiled under zig on every cross target. On windows-x64 both link prebuilt NASM objects shipped inside the crates.\n- The darwin selftest exited 0. lsof on the exact PID showed only UDP sockets on 127.0.0.1.\n- The linux-arm64 build ran in a --network none container and exited 0; /proc/net/udp had only 127.0.0.1 entries. linux-x64 also passed, but only under Rosetta emulation.\n- Sizes: the frame-code baseline without iroh is about 0.30 MB. With iroh it is 3.6–6.4 MB depending on variant and target.\n- Embedding iroh in a scratch copy of the frozen prototype grew it 722,144 → 4,504,064 bytes on darwin (×6.2); the other targets grew ×6.5–7.8.\n- Resolved packages per target: 242–250 (iroh-default) or 232–243 (ring-min). Native-code crates: ring, blake3, and aws-lc-sys in the aws-lc variant.\n\n**Go path.** A stdlib-only, CGO-free Go supervisor in go-helper/ starts two Rust helpers. It sends one message across the loopback iroh link through length-prefixed stdio frames, then shuts both down cleanly (all exit 0).\n- It passed on darwin, in the linux-arm64 network-none container, and on linux-amd64 under emulation.\n- Each helper held one 127.0.0.1 UDP socket plus one route socket. The supervisor held no inet sockets.\n- When I SIGKILLed the supervisor, both helpers exited within 1.5 s.\n- A Go product would ship two binaries built with two toolchains (Go 1.27.1, plus Rust 1.99.0 with zig and cargo-zigbuild for the helper). That is 8.8–11.1 MB per target, against 4.5–6.8 MB for a single Rust binary.\n\n**Pure Go.** github.com/tmc/go-iroh v0.3.0 is a pure-Go port. It is young (first tag 2026-08-15), unaffiliated with n0 and pre-v1. It relies on a patched crypto/tls and a forked quic-go. I read its sources and did not adopt it. The other Go option, iroh-go, needs cgo and runs only on linux-musl.\n\n**Not covered.** The Windows binaries were not run (blocked: no native Windows host).\n\nDeliverable: <repo>/tests/evidence/artifacts/g02-r4/x5/RESULTS.md. Evidence record: <repo>/tests/evidence/artifacts/g02-r4/x5/record.json."
+}

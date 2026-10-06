@@ -1,0 +1,28 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index f7fb4e0..3178c97 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -4,6 +4,7 @@ version = "0.0.0-g02"
+ edition = "2024"
+ rust-version = "1.88"
+ publish = false
++repository = "https://github.com/example-invalid/heimdall-proto"
+ license = "UNLICENSED"
+ description = "Disposable G02 gate prototype (Rust + Ratatui). Not production code."
+ 
+@@ -44,7 +45,15 @@ codegen-units = 1
+ strip = true
+ panic = "unwind"
+ 
++# The profile that 'dist' will build with
++[profile.dist]
++inherits = "release"
++lto = "thin"
++
+ [features]
+ # Test-only: makes '!' panic inside the TUI so the panic-restore path can be
+ # exercised in a pty. Never enabled in build.sh distributables.
+ test-panic = []
++
++[package.metadata.dist]
++dist = true

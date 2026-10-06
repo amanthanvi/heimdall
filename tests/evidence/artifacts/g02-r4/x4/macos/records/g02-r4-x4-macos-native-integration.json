@@ -1,0 +1,80 @@
+{
+  "case_id": "G02-r4-X4-macos-native-integration",
+  "status": "verified",
+  "status_reason": "all three spikes (Go cgo, Go purego cgo-free, Rust security-framework) ran the file-keychain round trip, the ephemeral Secure Enclave sign/verify and the ad-hoc bundle packaging with the recorded exit codes",
+  "requirement_ids": [],
+  "design_ref": "docs/g02/round4-plan.md X4; docs/research/g04-managed-credentials.md (D3)",
+  "build_commit": "772a6b1f54a979cd87950834c625deba101ee3b8",
+  "artifact_digest": "sha256: run.sh e5777c9cbf65cca80d10afe926d533278d8675af9aaf610e56301d7d156f2fec; cross-linux.sh 64d513f399cfeef8b0da7a082adc4402d833b53d190453a08573eed424079a76; go/main.go a1beeba4e24d8d72a63e626a3440e480bc30aa49359312470c67e39a6e2644ed; go/native_darwin.go b80e442dd7f9fc2f68eabce9709605d7862ff03b0151d33c2b57c0487951fcf3; go-purego/main.go fbdf2df0c7e2675f1348fb57cd5db3c58461d32dcba20c30d483c87452bb8584; rust/src/main.rs 884672c01f6aac5e863a019e9e9fc63babab9de7a8efbce850785686e0e4549c; transcript.log ec75babc5fa512d18d0981df0ac659e4fa9bd7964fbe0ae2fd20ccc23bb52bc5; cross-linux.log d9154df64cdcaa42ed61f734f9d516fb195ab4a0d54aa54928dd536c7a5711ad (sources uncommitted on top of build_commit)",
+  "environment": {
+    "host": "macOS 27.0 (26A428), arm64, Apple M5 Max, Secure Enclave present",
+    "toolchains": "go1.27.1 darwin/arm64; rustc/cargo 1.99.0; Apple clang 21.0.0; macOS SDK 27.0",
+    "containers": "Docker Engine 29.8.1 linux/arm64; debian:bookworm-slim 813cd0370d82; rust:1.98.1-bookworm 690e6fc7bbfd"
+  },
+  "provider_versions": [
+    {
+      "name": "github.com/ebitengine/purego",
+      "version": "v0.11.1"
+    },
+    {
+      "name": "security-framework (crate)",
+      "version": "3.7.0"
+    },
+    {
+      "name": "security-framework-sys (crate)",
+      "version": "2.17.0"
+    },
+    {
+      "name": "core-foundation (crate)",
+      "version": "0.10.1"
+    },
+    {
+      "name": "go (linux-arm64, container)",
+      "version": "go1.27.1 sha256 3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec"
+    },
+    {
+      "name": "zig (aarch64-linux, container)",
+      "version": "0.16.0 sha256 ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17"
+    },
+    {
+      "name": "cargo-zigbuild (container)",
+      "version": "0.23.4"
+    }
+  ],
+  "started_at": "2026-10-06T06:02:09+00:00",
+  "commands_or_harness": [
+    "bash run.sh (final run 2026-10-06T06:02:09Z..06:02:19Z) -> transcript.log",
+    "bash cross-linux.sh (2026-10-06T05:58:45Z..05:59:13Z) -> cross-linux.log",
+    "bash library-survey.sh -> library-survey.log"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "file_keychain_round_trip": "go, go-purego, rust: open/add/read 0, delete 0, read_after_delete -25300, spike exit 0, independent security find-generic-password exit 44, raw CLI and ad-hoc bundle",
+    "secure_enclave_ephemeral_p256": "go, go-purego, rust: create ok, token = Secure Enclave, private key not exportable, public key 65 bytes, sign ok, verify true, tampered verify false, exit 0 (linker ad-hoc signed CLI and ad-hoc bundle without entitlements); signature removed -> exit 137 for all three",
+    "data_protection_keychain_read_probe": "no access group -25300; explicit unentitled group -34018 (errSecMissingEntitlement); exit 1 by design",
+    "adhoc_bundle": "no entitlements: codesign 0, verify 0, spctl 3 (rejected), runs; restricted entitlements (keychain-access-groups, application-identifier, team-identifier): codesign 0, verify 0, spctl 3, exec killed exit 137, amfid -424 'adhoc signed but contains restricted entitlements'",
+    "cross_compile": "linux container without SDK -> darwin/arm64: go hello CGO=0 0; go cgo spike CGO=0 1, CGO=1 (zig cc) 1; go purego spike CGO=0 0 and the Linux-built binary ran se exit 0 on the Mac; rust hello cc 101, zigbuild 0; rust spike cc 101, zigbuild 101 (framework Security/CoreFoundation not found)"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x4/macos/transcript.log",
+    "tests/evidence/artifacts/g02-r4/x4/macos/cross-linux.log",
+    "tests/evidence/artifacts/g02-r4/x4/macos/library-survey.log",
+    "tests/evidence/artifacts/g02-r4/x4/macos/run.sh",
+    "tests/evidence/artifacts/g02-r4/x4/macos/cross-linux.sh",
+    "tests/evidence/artifacts/g02-r4/x4/macos/library-survey.sh",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go/",
+    "tests/evidence/artifacts/g02-r4/x4/macos/go-purego/",
+    "tests/evidence/artifacts/g02-r4/x4/macos/rust/",
+    "tests/evidence/artifacts/g02-r4/x4/macos/bundle/",
+    "tests/evidence/artifacts/g02-r4/x4/macos/sources/MANIFEST.tsv"
+  ],
+  "limitations": [
+    "Single host (macOS 27.0, M5 Max); one final run plus two earlier identical-result runs of run.sh during development",
+    "Persistent (kSecAttrIsPermanent) Secure Enclave keys and data-protection keychain writes not attempted: they need a provisioning profile and would write into the owner's real data-protection keychain (boundary); see the blocked record",
+    "Rust darwin x86_64 cross-build on this host not tested (target not installed; installing writes outside the granted paths)",
+    "Rust dlopen-style (no link-time framework) variant not built; Linux build with a supplied MacOSX.sdk not tested",
+    "Binary-size deltas include each spike's own extras (crypto/rand+hex in Go, SecRandom in Rust); wall times not measured",
+    "Lock/sleep/logout behaviour of the file keychain and SE keys not exercised (G04 P-probes)"
+  ]
+}

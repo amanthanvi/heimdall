@@ -1,0 +1,10 @@
+== go darwin-arm64
+DYLDLINK PIE 
+CodeDirectory v=20500 size=10392 flags=0x10002(adhoc,runtime) hashes=318+2 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+== rust darwin-arm64
+NOUNDEFS DYLDLINK TWOLEVEL PIE MH_HAS_TLV_DESCRIPTORS 
+CodeDirectory v=20500 size=1624 flags=0x10002(adhoc,runtime) hashes=44+2 location=embedded
+Signature=adhoc
+TeamIdentifier=not set

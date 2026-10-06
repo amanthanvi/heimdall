@@ -1,0 +1,34 @@
+[package]
+name = "x5-iroh"
+version = "0.0.0-x5"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+license = "UNLICENSED"
+description = "Disposable M00 G02 round-4 X5 probe: iroh over loopback with relays, address lookup, portmapper and net-report probes disabled. Not production code."
+
+# Exact pins; Cargo.lock sits beside this file and builds use --locked.
+[dependencies]
+iroh = { version = "=1.3.0", default-features = false, optional = true }
+tokio = { version = "=1.53.2", default-features = false, features = ["rt", "macros", "time"], optional = true }
+
+[features]
+default = ["iroh-default"]
+# Internal: anything that links iroh.
+net = ["dep:iroh", "dep:tokio"]
+# iroh's own default feature set (metrics, fast-apple-datapath, portmapper, tls-ring).
+iroh-default = ["net", "iroh/default"]
+# Smallest ring build: no metrics, no portmapper, no fast-apple-datapath.
+iroh-ring-min = ["net", "iroh/tls-ring"]
+# Same, with aws-lc-rs instead of ring (exercises aws-lc-sys under zig).
+iroh-awslc-min = ["net", "iroh/tls-aws-lc-rs"]
+# No feature at all (--no-default-features): the same stdio frame code without iroh/tokio,
+# the size baseline.
+
+[profile.release]
+# Same release profile as prototypes/rust (frozen d8f0cbe) so sizes are comparable.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"

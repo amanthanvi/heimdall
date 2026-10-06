@@ -1,0 +1,114 @@
+{
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Exec-equivalent job control for `heimdall-proto run` (S1-S5: third-party stop/continue of the child non-interactive and interactive, SIGCONT to the launcher only after a reported child self-stop, nested interactive shell suspend/fg, SIGSTOP of the child with --meta-file)",
+      "spec_path": "tests/evidence/artifacts/g02-r4/x2/specs/T1.md",
+      "hidden_test_cmd": "if [ {platform} = linux ]; then HM_REPO=$PWD sh <home>/.local/share/heimdall-m00/r4-hidden/docker-run.sh --task T1 --artifact-dir \"$(dirname {bin})\" --out-dir /tmp/hm-r4/x2-eval/T1-linux; else HM_G02_VENV=tests/g02/.venv python3 -I <home>/.local/share/heimdall-m00/r4-hidden/run.py --task T1 --bin {bin} --platform darwin --out /tmp/hm-r4/x2-eval/T1-darwin.json; fi",
+      "red_on_baseline": {
+        "go": "RED on both platforms; run twice on each, failing the same checks both times. darwin: 6/14 pass, exit 1. Fails S2 SIGSTOP (bash, zsh): the launcher exits 255 and the child is lost. Fails S4 nested shell (bash, zsh) and S5 (all 4). linux: 8/14 pass, exit 1. Fails S2 SIGSTOP (bash, zsh) and S5 (all 4): $? is 148 where the control gives 147, because the stop is mirrored as SIGTSTP.",
+        "rust": "RED on both platforms; run twice on each, failing the same checks both times. darwin and linux: 8/14 pass, exit 1. Fails S1 (SIGSTOP and SIGTSTP: the launcher hangs), S3 (bash, zsh: the child is not resumed and on zsh, and on linux bash, the job is shown as running) and S4 (bash, zsh: the nested shell stays T after fg)."
+      },
+      "seed": {}
+    },
+    {
+      "id": "T2",
+      "title": "New subcommand `heimdall-proto profile lint --file <path> [--json]`. Five rules (duplicate-endpoint, privileged-port, root-account, duplicate-label, label-case-variant), exact findings JSON, LINT_CLEAN exit 0 / LINT_FINDINGS exit 3, profile values never echoed, errors identical to `profile show`.",
+      "spec_path": "tests/evidence/artifacts/g02-r4/x2/specs/T2.md",
+      "hidden_test_cmd": "if [ {platform} = linux ]; then HM_REPO=$PWD sh <home>/.local/share/heimdall-m00/r4-hidden/docker-run.sh --task T2 --artifact-dir \"$(dirname {bin})\" --out-dir /tmp/hm-r4/x2-eval/T2-linux; else python3 -I <home>/.local/share/heimdall-m00/r4-hidden/run.py --task T2 --bin {bin} --platform darwin --out /tmp/hm-r4/x2-eval/T2-darwin.json; fi",
+      "red_on_baseline": {
+        "go": "RED: darwin 1/11 pass, exit 1; linux 1/11 pass, exit 1. `profile lint` is a USAGE_ERROR. Only T2.usage_errors passes, as a regression guard.",
+        "rust": "RED: darwin 1/11 pass, exit 1; linux 1/11 pass, exit 1. Same pattern as Go."
+      },
+      "seed": {}
+    },
+    {
+      "id": "T3",
+      "title": "TUI: underline the matched substring (first match in alias, and in host when shown), '?' help overlay (9 exact lines, closed by '?' or Esc, other keys ignored, Ctrl-C exits 130), and the selected destination kept across filter edits while still shown (replaces contract K9)",
+      "spec_path": "tests/evidence/artifacts/g02-r4/x2/specs/T3.md",
+      "hidden_test_cmd": "if [ {platform} = linux ]; then HM_REPO=$PWD sh <home>/.local/share/heimdall-m00/r4-hidden/docker-run.sh --task T3 --artifact-dir \"$(dirname {bin})\" --out-dir /tmp/hm-r4/x2-eval/T3-linux; else HM_G02_VENV=tests/g02/.venv python3 -I <home>/.local/share/heimdall-m00/r4-hidden/run.py --task T3 --bin {bin} --platform darwin --out /tmp/hm-r4/x2-eval/T3-darwin.json; fi",
+      "red_on_baseline": {
+        "go": "RED: darwin 3/17 pass, exit 1; linux 3/17 pass, exit 1. Every highlight, help and selection check fails, as does T3.k17_filter_latency. Passing: no_highlight_without_filter, question_mark_in_filter_mode, help_tiny_terminal.",
+        "rust": "RED: darwin 3/17 pass, exit 1; linux 3/17 pass, exit 1. The same checks pass and fail as for Go."
+      },
+      "seed": {}
+    },
+    {
+      "id": "T4",
+      "title": "Seeded bug: a --file that is a symlink to a regular profile is refused with exit 2 USAGE_ERROR 'profile path is not a regular file' (profile show with and without --json, and tui). The symptom bytes are identical in both languages.",
+      "spec_path": "tests/evidence/artifacts/g02-r4/x2/specs/T4.md",
+      "hidden_test_cmd": "if [ {platform} = linux ]; then HM_REPO=$PWD sh <home>/.local/share/heimdall-m00/r4-hidden/docker-run.sh --task T4 --artifact-dir \"$(dirname {bin})\" --out-dir /tmp/hm-r4/x2-eval/T4-linux; else HM_G02_VENV=tests/g02/.venv python3 -I <home>/.local/share/heimdall-m00/r4-hidden/run.py --task T4 --bin {bin} --platform darwin --out /tmp/hm-r4/x2-eval/T4-darwin.json; fi",
+      "red_on_baseline": {
+        "go": "RED on the seeded build: darwin 1/6 pass, linux 1/6 pass, exit 1 on both (only still_rejected_nonregular passes). The frozen 38b6b72 build is GREEN 6/6 on both platforms. Full harness 2.4.2 on the seeded build: 139/139 on darwin and linux, exit 0. No related harness check exists, because the harness has no symlink case. Seeded `go test ./...` exits 0 (its unit test now asserts the bug).",
+        "rust": "RED on the seeded build: darwin 1/6 pass, linux 1/6 pass, exit 1 on both. The frozen d8f0cbe build is GREEN 6/6 on both platforms. Full harness 2.4.2 on the seeded build: 139/139 on darwin and linux, exit 0. No related harness check. Seeded `cargo test --locked` exits 0 (its unit test now asserts the bug)."
+      },
+      "seed": {
+        "go": "/tmp/hm-r4/seeded/go",
+        "rust": "/tmp/hm-r4/seeded/rust"
+      }
+    }
+  ],
+  "summary": "X2 task pack is built. The pack itself is `implemented_unverified` until the independent language-neutrality review runs. The RED/GREEN results below are `verified` observations from 2026-10-06, taken on darwin-arm64 (host) and linux-arm64 (`heimdall-g02-harness:d0c8e448a3a7`, `--network none`).\n\n**What was produced**\n- Specs (the only thing implementers see): `tests/evidence/artifacts/g02-r4/x2/specs/T1.md` to `T4.md`. Each states acceptance in observable terms and requires the full 2.4.2 harness to pass, with the T3 exception below.\n- Hidden material (chmod 700): `<home>/.local/share/heimdall-m00/r4-hidden/`, indexed by `README.md`. It contains:\n  - `run.py`, which takes `--task T1..T4 --bin --platform darwin|linux` and exits 0 on pass, 1 on fail, 2 on setup error;\n  - `docker-run.sh`, which runs the tests in the Linux runner with run.sh's exact RUN_FLAGS, `--network none`, the hidden dir mounted read-only at `/hidden` and the artifact dir read-only at `/artifact`;\n  - `verify-matrix.sh`; the per-task tests (T1 14 checks, T2 11, T3 17, T4 6);\n  - the seed patches with `SEED.md`; positive controls; `results/`.\n- Seeded trees: `/tmp/hm-r4/seeded/{go,rust}` (frozen commit plus patch, no `.git` or `dist`). Re-applying each patch to a fresh frozen tree reproduces the seeded tree exactly.\n\n**Verification**\n- On both platforms:\n  - T1, T2 and T3 are RED on both frozen baselines and GREEN on a positive control.\n  - T4 is RED on both seeded builds and GREEN on both frozen builds.\n  - No check errored, meaning every plain-exec control held.\n  - T1 was repeated once and failed the same checks each time.\n- Baseline digests match the manifests.\n- T1 baseline failures reproduce `RESULTS.md`.\n- The seeded builds pass the full 2.4.2 harness, 139/139, on darwin and linux (four runs, all exit 0). No harness check covers symlinks, so the seed shows up in no public check.\n- T2's hand-written expected JSON matches a reference model of the spec on all 4 fixtures.\n- Positive controls:\n  - T1 (`pc_t1.py`) passes 14/14 on both platforms and all 31 `run.*` harness checks on both platforms. It is `reference_impl.py` with the conforming `run_job_control_own_group` variant plus four small fixes.\n  - T2 (`pc_t2.py`) passes 11/11.\n  - T3 (`pc_t3.py`) passes 17/17.\n\n**Decisions for the orchestrator**\n1. **T3 conflicts with three harness checks, not one.** Keeping the selection when it is still visible (your wording) replaces K9. `tui.filter_edit_resets_selection` tests K9 directly. Two more checks assume K9 incidentally: `tui.no_color` (its Esc step) and `tui.large_100_filter_latency` (its update predicate expects the list to start at the first match). The T3 positive control fails exactly these three on both platforms and passes the other 24 `tui.*` checks.\n   - The spec exempts these three. Their non-K9 parts move into hidden tests: no colour SGR, the `> ` prefix, and a hidden K17 check (`T3.k17_filter_latency`, p95 ≤ 100 ms).\n   - Alternative: keep the selection only when characters are appended. Then only `tui.filter_edit_resets_selection` conflicts, but the feature is narrower than you described.\n2. **T1 S2 has a stated permitted deviation:** the job may stay stopped until the user's `fg`. Exact plain-exec parity there needs something to wake the stopped launcher. K16 forbids helper processes and Go cannot fork without exec. With the gated K6e self-stop rule, I infer (not proven by experiment) that parity is unreachable for SIGTSTP.\n   - Feasibility of every T1 check is shown by the Python positive control.\n   - The nested-shell case (S4) is passed by neither baseline on darwin.\n3. **T4 seed:** a misleading-comment \"hardening\" in each language, and each tree's unit suite was edited to assert the bug (Go's tree already had a test accepting symlinks).\n   - Go: `Stat` → `Lstat`.\n   - Rust: a new `symlink_metadata` pre-check.\n\n**Other notes**\n- I found and fixed a test-harness hazard: pyte applies Bubble Tea's XTMODKEYS `CSI > 4;2 m` as underline. The T3 tests now strip private-prefix `m` sequences and normalise underline written with colon sub-parameters.\n- Seeded trees lack `tests/fixtures`. Implementers running unit tests need `HEIMDALL_G02_FIXTURES=<repo>/tests/fixtures/g02/profiles`; the T4 spec says so.\n- Residual neutrality risks are listed in the hidden `README.md`: the seed diff sizes differ, Go must style spans by embedding SGR, and the T1 baseline gaps differ by language.\n\nNothing was committed or pushed, the frozen prototypes are unchanged, and the scratch builds and harness records are in `/tmp/hm-r4/M00-T05-r4-taskpack`.",
+  "commands_run": [
+    {
+      "command": "git archive 38b6b72 prototypes/go / d8f0cbe prototypes/rust into /tmp/hm-r4/seeded/{go,rust} + seed edits; diff -ruN -> seed/*.patch; re-extract + patch -p1 + diff -r",
+      "exit_code": 0,
+      "observed": "go patch rc=0, tree diff rc=0; rust patch rc=0, tree diff rc=0 (patches reproduce the seeded trees exactly)"
+    },
+    {
+      "command": "go build (darwin-arm64, linux-arm64, CGO_ENABLED=0 -trimpath -ldflags '-s -w') + codesign; cargo build --release --locked (aarch64-apple-darwin) + cargo-zigbuild (aarch64-unknown-linux-musl) on scratch copies of the seeded trees",
+      "exit_code": 0,
+      "observed": "all four seeded binaries built; sha256 go darwin 813ebd8a…, go linux f9aa4c3d…, rust darwin 4fa59c1b…, rust linux 2efb332b…"
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin <seeded-{go,rust}>/darwin-arm64/heimdall-proto (full catalogue)",
+      "exit_code": 0,
+      "observed": "go 139/139 exit 0; rust 139/139 exit 0"
+    },
+    {
+      "command": "sh tests/g02/linux/run.sh --artifact-dir <seeded-{go,rust}>/linux-arm64 (full catalogue)",
+      "exit_code": 0,
+      "observed": "go 139/139 exit 0; rust 139/139 exit 0"
+    },
+    {
+      "command": "HEIMDALL_G02_FIXTURES=... go test -count=1 ./... (seeded go); cargo test --locked (seeded rust)",
+      "exit_code": 0,
+      "observed": "go: all packages ok (rc 0; an earlier run without HEIMDALL_G02_FIXTURES exited 1 because the fixtures were not found). rust: 49+4+28 tests ok (rc 0)"
+    },
+    {
+      "command": "conformance.py --selftest --only 'run.*' --bin positive-controls/pc_t1.py (darwin) and run.sh --only 'run.*' (linux)",
+      "exit_code": 0,
+      "observed": "31/31 pass on both platforms (verdict inconclusive by design: partial run)"
+    },
+    {
+      "command": "conformance.py --selftest --only 'tui.*' --bin positive-controls/pc_t3.py (darwin) and run.sh --only 'tui.*' (linux)",
+      "exit_code": 1,
+      "observed": "24/27 on both; failing exactly tui.filter_edit_resets_selection, tui.no_color, tui.large_100_filter_latency (T3/K9 conflict, exempted in the spec)"
+    },
+    {
+      "command": "HM_REPO=<repo> sh r4-hidden/verify-matrix.sh /tmp/hm-r4/M00-T05-r4-taskpack/bin results/2026-10-06-matrix both",
+      "exit_code": 0,
+      "observed": "26 runs, every one as expected: baselines T1/T2/T3 exit 1 (RED), positive controls exit 0 (GREEN), T4 seeded exit 1 (RED), T4 frozen exit 0 (GREEN), on darwin and linux; 0 errored checks"
+    },
+    {
+      "command": "TASKS=T3 sh r4-hidden/verify-matrix.sh ... results/2026-10-06-matrix-t3v2 both (after adding T3.k17_filter_latency)",
+      "exit_code": 0,
+      "observed": "go/rust baselines 3/17 pass exit 1 on both platforms; pc_t3 17/17 exit 0 on both"
+    },
+    {
+      "command": "TASKS=T1 sh r4-hidden/verify-matrix.sh ... results/2026-10-06-repeat-t1 both",
+      "exit_code": 0,
+      "observed": "failing-check sets identical to the first run for all 6 platform/subject pairs (go darwin 8 fails, rust darwin 6, go linux 6, rust linux 6, pc 0/0)"
+    },
+    {
+      "command": "seeded go/rust darwin: heimdall-proto profile show --file <symlink> --json; tui --file <symlink>",
+      "exit_code": 2,
+      "observed": "byte-identical stdout JSON USAGE_ERROR 'profile path is not a regular file' and stderr line from both languages; exit 2 for --json, plain and tui"
+    },
+    {
+      "command": "grep results/ for home path and HEIMDALL_CANARY_; git diff 38b6b72/d8f0cbe -- prototypes",
+      "exit_code": 0,
+      "observed": "no home paths and no canary values in results; frozen prototypes unchanged"
+    }
+  ]
+}

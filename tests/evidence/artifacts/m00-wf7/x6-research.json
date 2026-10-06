@@ -1,0 +1,83 @@
+{
+  "task_id": "M00-T05-r4-x6",
+  "status": "verified",
+  "files_changed": [
+    "tests/evidence/artifacts/g02-r4/x6/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x6/data/gh_meta.tsv",
+    "tests/evidence/artifacts/g02-r4/x6/data/registry_meta.tsv",
+    "tests/evidence/artifacts/g02-r4/x6/data/ghsa_advisories.tsv",
+    "tests/evidence/artifacts/g02-r4/x6/data/osv_query.tsv",
+    "tests/evidence/artifacts/g02-r4/x6/data/crates_reverse_deps.tsv",
+    "tests/evidence/artifacts/g02-r4/x6/data/source-digests.txt",
+    "tests/evidence/artifacts/g02-r4/x6/scripts/repo_meta.sh",
+    "tests/evidence/artifacts/g02-r4/x6/scripts/registry_meta.sh",
+    "tests/evidence/artifacts/g02-r4/x6/scripts/advisories.sh"
+  ],
+  "commands_run": [
+    {
+      "command": "curl -sSfL https://arxiv.org/pdf/<id> + pdftotext -layout (2606.12344v2, 2608.09802v1, 2504.02605v1, 2208.08227v4, 2509.16941, 2411.13990, 2308.05177, 2601.12146, 2604.27001, 2607.13921, 2602.22764, 2512.18131, 2604.06742, 2605.02195, 2204.00764, 2003.03296, songlh go-study/rust-study)",
+      "exit_code": 0,
+      "observed": "All downloads exit 0 and all text extracted. sha256 digests are in data/source-digests.txt. Per-language tables were read directly (Claw-SWE-Bench Table F.2, ProMax Table 3, Multi-SWE-bench Table 4)."
+    },
+    {
+      "command": "sh scripts/repo_meta.sh raw/gh <37 repos> > raw/gh_meta.tsv",
+      "exit_code": 0,
+      "observed": "GitHub metadata snapshot at 2026-10-06T05:54Z. Stale: gliderlabs/ssh (0 commits in 52 weeks, last commit 2025-01-27) and yubikey-agent (last commit 2022-12-31). crossterm has had 31 commits in 52 weeks and no release since 0.29.0 (2025-04-05)."
+    },
+    {
+      "command": "sh scripts/registry_meta.sh raw/reg > raw/registry_meta.tsv",
+      "exit_code": 0,
+      "observed": "crates.io and proxy.golang.org latest versions. russh 0.64.1 (2026-10-05); ssh-agent-lib 0.6.0; x/crypto v0.57.0 (2026-09-08); x/vuln v1.8.0."
+    },
+    {
+      "command": "first advisory loop using `set -- $spec` under zsh",
+      "exit_code": null,
+      "observed": "Hung because zsh did not word-split the variable. The background task was stopped by its own task ID (b4s29hwlz) and the loop rerun as scripts/advisories.sh."
+    },
+    {
+      "command": "sh scripts/advisories.sh raw/adv go:golang.org/x/crypto rust:russh ...",
+      "exit_code": 0,
+      "observed": "GHSA has 26 advisories for x/crypto, including a batch of 13 published 2026-06-25 (agent constraints not enforced or dropped on forwarding, CVE-2026-39833 and -39832), and 20 for russh. It has none for ssh-key, ssh-agent-lib or gliderlabs/ssh."
+    },
+    {
+      "command": "curl POST https://api.osv.dev/v1/query (crates.io russh; Go golang.org/x/crypto)",
+      "exit_code": 0,
+      "observed": "russh: 20 GHSA records and 1 RUSTSEC (RUSTSEC-2026-0154). x/crypto: 32 GO-* records, 21 touching x/crypto/ssh and 5 touching ssh/agent. The Go database published the 2026 CVEs on 2026-05-22, before GHSA."
+    },
+    {
+      "command": "gh api raw golang/go src/syscall/syscall_bsd.go (master 77fb1abefe3a) and apple-oss-distributions/xnu bsd/sys/wait.h",
+      "exit_code": 0,
+      "observed": "Go BSD Stopped() excludes SIGSTOP (17 on darwin), while XNU WIFSTOPPED excludes 0x13 (SIGCONT=19). The Go prototype calls ws.Stopped() after Wait4 WUNTRACED (run_unix.go 246-258)."
+    },
+    {
+      "command": "gh search issues --repo golang/go (3 queries on WaitStatus/SIGSTOP)",
+      "exit_code": 0,
+      "observed": "No results returned."
+    },
+    {
+      "command": "curl -sSfL https://rust-lang.github.io/rust-clippy/stable/lints.json",
+      "exit_code": 56,
+      "observed": "HTTP 404. Lints were counted from the stable index.html instead: 847 articles, 17 deprecated, 67 correctness."
+    },
+    {
+      "command": "grep (read-only) of prototypes/go and prototypes/rust for unsafe, wait handling and build flags",
+      "exit_code": 0,
+      "observed": "Go has no unsafe import outside tests. Rust has forbid(unsafe_code) in main.rs, deny in lib.rs and one allowed sigaction. Rust waits with rustix waitid (siginfo-based). Go builds with CGO_ENABLED=0 -trimpath; Rust uses manual --remap-path-prefix."
+    }
+  ],
+  "escalations": [
+    "ADR-0002 §6 could use one new fact. The Go prototype's darwin SIGSTOP failure is traced to the Go standard library: syscall_bsd.go WaitStatus.Stopped() excludes SIGSTOP, whereas darwin's WIFSTOPPED excludes 0x13 (SIGCONT). This is inferred from reading the source, not re-run. Three searches of golang/go issues found no upstream issue. The orchestrator should decide whether to record it.",
+    "X3 should check a tooling gap with real tool runs. RustSec, which cargo-audit and cargo-deny read, lists 1 of 20 GHSA advisories for russh at this snapshot. A Rust SSH product relying only on cargo-audit would miss most of them, so supply-chain scanning would also need OSV/GHSA."
+  ],
+  "limitations": [
+    "No benchmark controls the tasks across Go and Rust. Per-language samples in recent benchmarks are 22-43 tasks, and Claw-SWE-Bench re-uses the SWE-bench Multilingual task set, so its 11-model Rust lead is not independent replication.",
+    "Some figures came through an LLM-based web fetch rather than direct text extraction: aider pages, SWE-bench Multilingual page, the Google Android blog, go.dev and doc.rust-lang pages, Stack Overflow 2025, and the pkg.go.dev importer count. The arXiv and PLDI/ASPLOS PDFs were read directly with pdftotext.",
+    "GitHub contributor and commit counts are an approximate snapshot (Link-header pagination; default-branch participation stats). GitHub releases are not authoritative for crates or Go modules.",
+    "The Stack Overflow 2026 survey page returned 404, so 2025 data is the latest used. The live Multi-SWE-bench leaderboard data was stale (2024) and was not used.",
+    "The Rust must_use-on-Result claim and the gofmt/rustfmt row were not re-fetched.",
+    "No cargo-audit or govulncheck runs were done here; database coverage was compared only.",
+    "The paper model versions (Claude 3.7, Sonnet 4.6, Opus 4.7, GPT-5.x) differ from X2's models.",
+    "This record has not had independent review."
+  ],
+  "summary": "I wrote the X6 desk research to tests/evidence/artifacts/g02-r4/x6/RESULTS.md, with a 47-source table and raw data in data/. It covers 2025-2026 per-language results, compiler guarantees, tooling, the SSH ecosystem, and signal/terminal pitfalls.\n\n1. **Benchmarks: slight lean to Rust, low confidence.**\n   - SWE-bench Multilingual (Claude 3.7 Sonnet): Go 30.95%, Rust 58.14%.\n   - Claw-SWE-Bench (same task set): Rust beats Go for all 11 models, by 17.1-31.1 pp.\n   - Multi-SWE-bench 2025: Rust ahead in 16 of 27 rows, all under 16%. 397 of the 428 Go tasks come from cli/cli.\n   - ProMax: Rust ahead in 10 of 12 rows, but Kimi and Qwen do better on Go.\n   - Against Rust: SWE-bench Pro puts Go among the highest resolve rates (no Rust), and a CLI-from-scratch study finds Go the bottleneck, mostly at build steps (no Rust).\n   - Nothing is controlled for language. X2 should decide.\n2. **Compiler guarantees.**\n   - Safe Rust rules out data races and, outside unsafe code, memory-safety bugs. Rust requires exhaustive match. In Go, races are possible and can corrupt memory, and the race detector only finds races that actually run (Uber found over 2,000).\n   - Against Rust: agent and LLM Rust failures are mostly compile errors (92.3% of failed translations), and agents average about 3 per task. These are mostly name, path and trait errors; no borrow-checker error code appears in the top-10 or top-13 lists.\n   - Compiled LLM crypto Rust was still vulnerable in 57% of samples. Deadlocks happen in safe Rust.\n   - The 2026 SSH CVEs in both languages are logic, resource and panic bugs that neither compiler prevents.\n3. **Tooling: Go is stronger out of the box.**\n   - Go has native fuzzing, govulncheck reachability, a curated vulnerability database and reproducible toolchains.\n   - Rust's cargo-fuzz needs nightly; Cargo's trim-paths is unstable; SIGPIPE control is nightly-only. cargo-audit checks the lockfile only. RustSec lists 1 of 20 russh GHSA advisories.\n4. **SSH ecosystem.**\n   - Go: x/crypto/ssh/agent is first-party, provides client and server, and has 3,597 known importers. It had 2026 CVEs where agent key constraints were not enforced or were dropped when forwarding.\n   - Rust: the agent crates are community-run. ssh-agent-lib has 15 contributors and supports Windows named pipes. russh and ssh-key are active.\n   - Contributor pools are similar: Stack Overflow 2025 usage is Go 16.4%, Rust 14.8%.\n5. **Pitfalls.**\n   - The Go prototype's darwin SIGSTOP failure traces to the Go standard library: its BSD Stopped() excludes SIGSTOP, while darwin's WIFSTOPPED excludes SIGCONT.\n   - Rust's SIGPIPE behaviour can only be changed on nightly, and pre_exec is unsafe.\n   - Both TUI stacks needed workarounds for hangs and terminal hazards.\n\nSuggested reading for the 15% row: a tie, or at most one point either way (my inference). Everything stayed inside the granted paths. No prototype edits, no commits, no home paths or canaries in the evidence."
+}

@@ -1,0 +1,42 @@
+{
+ "candidate": "rust",
+ "rustc": "1.99.0",
+ "targets": [
+  {
+   "target": "darwin-arm64",
+   "path": "darwin-arm64/heimdall-proto",
+   "bytes": null,
+   "sha256": null,
+   "built": false,
+   "error": "exit host-not-macos-arm64: darwin-arm64 requires a macOS arm64 host (Apple SDK)",
+   "build_seconds": 0
+  },
+  {
+   "target": "linux-x64",
+   "path": "linux-x64/heimdall-proto",
+   "bytes": 876944,
+   "sha256": "0a2c404073412a68e5d8a30cc8016899d673ae8e88c255bf2e2607ce362e6c34",
+   "built": true,
+   "error": null,
+   "build_seconds": 10
+  },
+  {
+   "target": "linux-arm64",
+   "path": "linux-arm64/heimdall-proto",
+   "bytes": 813600,
+   "sha256": "5864cce157f4f7d7df78cbe3c18f44a527c674f034523e5777c36b49bd71257b",
+   "built": true,
+   "error": null,
+   "build_seconds": 8
+  },
+  {
+   "target": "windows-x64",
+   "path": "windows-x64/heimdall-proto.exe",
+   "bytes": 841728,
+   "sha256": "8abd9ecc231f3b09862aa874871e44a18a568c40077dda60b7f001d257a82b22",
+   "built": true,
+   "error": null,
+   "build_seconds": 11
+  }
+ ]
+}

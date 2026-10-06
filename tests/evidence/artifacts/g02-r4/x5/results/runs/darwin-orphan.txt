@@ -1,0 +1,6 @@
+supervisor_pid=73738 helper_pids=73740 73741
+before: pid 73740 alive=yes
+before: pid 73741 alive=yes
+supervisor_wait_status=137
+after 1.5s: pid 73740 alive=no
+after 1.5s: pid 73741 alive=no

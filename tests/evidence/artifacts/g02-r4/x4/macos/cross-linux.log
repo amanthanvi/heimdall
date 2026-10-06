@@ -1,0 +1,108 @@
+2026-10-06T05:58:45Z docker 29.8.1 linux/arm64
+== Go (debian:bookworm-slim + go1.27.1 linux-arm64 + zig 0.16.0)
+go version go1.27.1 linux/arm64
+0.16.0
+$ hello: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
+[exit=0]
+    hello-go-darwin magic=cffaedfe (cffaedfe = Mach-O 64-bit LE)
+$ spike: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
+    # hm-x4-go
+    ./main.go:39:9: undefined: kcRoundTrip
+    ./main.go:51:8: undefined: seRun
+    ./main.go:62:8: undefined: dpProbe
+    ./main.go:63:8: undefined: dpProbe
+[exit=1]
+$ spike: GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 CC=zig cc -target aarch64-macos (no SDK)
+    # hm-x4-go
+    ./native_darwin.go:8:10: fatal error: 'CoreFoundation/CoreFoundation.h' file not found
+        8 | #include <CoreFoundation/CoreFoundation.h>
+          |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    1 error generated.
+[exit=1]
+$ purego spike: GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
+[exit=0]
+    hm-x4-go-purego-darwin magic=cffaedfe sha256=886de1ed617a24b2
+2026-10-06T05:58:54Z [go container] exit=0
+== Rust (rust:1.98.1-bookworm + zig 0.16.0 + cargo-zigbuild 0.23.4)
+rustc 1.98.1 (48a229cea 2026-09-01)
+cargo 1.98.1 (797e8a9bc 2026-08-05)
+0.16.0
+$ rustup target add aarch64-apple-darwin
+    info: downloading component rust-std
+[exit=0]
+$ hello: cargo build --target aarch64-apple-darwin (system cc linker)
+    warning: invoking `"xcrun" "--sdk" "macosx" "--show-sdk-path"` to find MacOSX.sdk failed: No such file or directory (os error 2)
+      |
+      = note: the SDK is needed by the linker to know where to find symbols in system libraries and for embedding the SDK version in the final object file
+      = help: pass the path of an Xcode installation via the DEVELOPER_DIR environment variable, or an SDK with the SDKROOT environment variable
+    
+    error: linking with `cc` failed: exit status: 1
+      |
+      = note:  "cc" "/work/t-hello-cc/aarch64-apple-darwin/release/deps/rustck0eYBz/symbols.o" "<2 object files omitted>" "<sysroot>/lib/rustlib/aarch64-apple-darwin/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-lSystem" "-lc" "-lm" "-arch" "arm64" "-mmacosx-version-min=11.0.0" "-o" "/work/t-hello-cc/aarch64-apple-darwin/release/deps/hm_x4_rust_hello-2733e981ff1be1c6" "-Wl,-dead_strip" "-nodefaultlibs"
+      = note: some arguments are omitted. use `--verbose` to show all linker arguments
+      = note: cc: error: unrecognized command-line option '-arch'; did you mean '-march='?
+              cc: error: unrecognized command-line option '-mmacosx-version-min=11.0.0'
+              
+    
+    warning: `hm-x4-rust-hello` (bin "hm-x4-rust-hello") generated 1 warning
+    error: could not compile `hm-x4-rust-hello` (bin "hm-x4-rust-hello") due to 1 previous error; 1 warning emitted
+[exit=101]
+$ spike: cargo build --target aarch64-apple-darwin (system cc linker)
+    warning: invoking `"xcrun" "--sdk" "macosx" "--show-sdk-path"` to find MacOSX.sdk failed: No such file or directory (os error 2)
+      |
+      = note: the SDK is needed by the linker to know where to find symbols in system libraries and for embedding the SDK version in the final object file
+      = help: pass the path of an Xcode installation via the DEVELOPER_DIR environment variable, or an SDK with the SDKROOT environment variable
+    
+    error: linking with `cc` failed: exit status: 1
+      |
+      = note:  "cc" "/work/t-spike-cc/aarch64-apple-darwin/release/deps/rustcFufkh1/symbols.o" "<3 object files omitted>" "/work/t-spike-cc/aarch64-apple-darwin/release/deps/{libsecurity_framework-5ed111472aee761b,libbitflags-2151c4fdf5474b76,libsecurity_framework_sys-4786981fa2a842e7,libcore_foundation-49fb2f7590fe5151,liblibc-7ad28ddbb11b6713,libcore_foundation_sys-36b8a2d8d2e8a7a4}.rlib" "<sysroot>/lib/rustlib/aarch64-apple-darwin/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-framework" "Security" "-liconv" "-framework" "CoreFoundation" "-lSystem" "-lc" "-lm" "-arch" "arm64" "-mmacosx-version-min=11.0.0" "-o" "/work/t-spike-cc/aarch64-apple-darwin/release/deps/hm_x4_rust-2952bf5cb12093ea" "-Wl,-dead_strip" "-nodefaultlibs"
+      = note: some arguments are omitted. use `--verbose` to show all linker arguments
+      = note: cc: error: unrecognized command-line option '-framework'
+              cc: error: unrecognized command-line option '-framework'
+              cc: error: unrecognized command-line option '-arch'; did you mean '-march='?
+              cc: error: unrecognized command-line option '-mmacosx-version-min=11.0.0'
+              
+    
+    warning: `hm-x4-rust` (bin "hm-x4-rust") generated 1 warning
+    error: could not compile `hm-x4-rust` (bin "hm-x4-rust") due to 1 previous error; 1 warning emitted
+[exit=101]
+$ cargo install cargo-zigbuild 0.23.4 --locked
+[exit=0]
+$ hello: cargo zigbuild --target aarch64-apple-darwin
+    warning: invoking `"xcrun" "--sdk" "macosx" "--show-sdk-path"` to find MacOSX.sdk failed: No such file or directory (os error 2)
+      |
+      = note: the SDK is needed by the linker to know where to find symbols in system libraries and for embedding the SDK version in the final object file
+      = help: pass the path of an Xcode installation via the DEVELOPER_DIR environment variable, or an SDK with the SDKROOT environment variable
+    
+    warning: `hm-x4-rust-hello` (bin "hm-x4-rust-hello") generated 1 warning
+        Finished `release` profile [optimized] target(s) in 4.72s
+[exit=0]
+    hello-rust-darwin magic=cffaedfe
+$ spike: cargo zigbuild --target aarch64-apple-darwin
+    warning: invoking `"xcrun" "--sdk" "macosx" "--show-sdk-path"` to find MacOSX.sdk failed: No such file or directory (os error 2)
+      |
+      = note: the SDK is needed by the linker to know where to find symbols in system libraries and for embedding the SDK version in the final object file
+      = help: pass the path of an Xcode installation via the DEVELOPER_DIR environment variable, or an SDK with the SDKROOT environment variable
+    
+    error: linking with `/work/.cache/cargo-zigbuild/0.23.4/wrappers/db50/zigcc-aarch64-apple-darwin-aeba.sh` failed: exit status: 1
+      |
+      = note:  "/work/.cache/cargo-zigbuild/0.23.4/wrappers/db50/zigcc-aarch64-apple-darwin-aeba.sh" "/work/t-spike-zig/aarch64-apple-darwin/release/deps/rustctivcex/symbols.o" "<3 object files omitted>" "/work/t-spike-zig/aarch64-apple-darwin/release/deps/{libsecurity_framework-5ed111472aee761b,libbitflags-2151c4fdf5474b76,libsecurity_framework_sys-4786981fa2a842e7,libcore_foundation-49fb2f7590fe5151,liblibc-7ad28ddbb11b6713,libcore_foundation_sys-36b8a2d8d2e8a7a4}.rlib" "<sysroot>/lib/rustlib/aarch64-apple-darwin/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-framework" "Security" "-liconv" "-framework" "CoreFoundation" "-lSystem" "-lc" "-lm" "-arch" "arm64" "-mmacosx-version-min=11.0.0" "-o" "/work/t-spike-zig/aarch64-apple-darwin/release/deps/hm_x4_rust-2952bf5cb12093ea" "-Wl,-dead_strip" "-nodefaultlibs"
+      = note: some arguments are omitted. use `--verbose` to show all linker arguments
+      = note: error: unable to find framework 'Security'. searched paths:  none
+              error: unable to find framework 'CoreFoundation'. searched paths:  none
+              
+    
+    warning: `hm-x4-rust` (bin "hm-x4-rust") generated 1 warning
+    error: could not compile `hm-x4-rust` (bin "hm-x4-rust") due to 1 previous error; 1 warning emitted
+[exit=101]
+2026-10-06T05:59:12Z [rust container] exit=0
+== Run the Linux-built cgo-free purego binary on this Mac (no re-signing)
+    CodeDirectory v=20400 size=24062 flags=0x20002(adhoc,linker-signed) hashes=749+0 location=embedded
+    Signature=adhoc
+    se create_cferror=0 is_secure_enclave_token=true private_exportable=false public_len=65
+    se sign_cferror=0 sig_der_len=70 verify=true verify_tampered=false
+2026-10-06T05:59:13Z [linux-built purego se] exit=0
+    dpprobe no_access_group osstatus=-25300
+    dpprobe access_group=XXXXXXXXXX.dev.heimdall.x4 osstatus=-34018
+2026-10-06T05:59:13Z [linux-built purego dpprobe] exit=1
+2026-10-06T05:59:13Z done

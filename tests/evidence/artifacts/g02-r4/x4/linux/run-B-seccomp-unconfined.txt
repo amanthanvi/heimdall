@@ -1,0 +1,32 @@
+# run B: seccomp=unconfined (keyctl family reachable); otherwise identical to run A
+2026-10-06T05:53:05Z
+uid=1000 kernel=7.0.14-linuxkit arch=aarch64
+LDD go-spike: 	not a dynamic executable
+LDD rust-gnu: 	linux-vdso.so.1 (0x0000ffff923ed000)
+LDD rust-musl: 	not a dynamic executable
+LDD rust-keyring-gnu: 	linux-vdso.so.1 (0x0000ffff94f8b000)
+LDD rust-keyring-musl: 	not a dynamic executable
+--- start gnome-keyring (secrets component, fixture password, never a real secret) ---
+RUN go-spike secret-service exit=0
+  stdout: {"backend":"secret-service","lang":"go","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN go-spike keyctl exit=0
+  stdout: {"backend":"keyctl-session","lang":"go","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN go-spike keyctl-user exit=0
+  stdout: {"backend":"keyctl-user","lang":"go","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-gnu secret-service exit=0
+  stdout: {"backend":"secret-service","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-gnu keyctl exit=0
+  stdout: {"backend":"keyctl-session","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-gnu keyctl-user exit=0
+  stdout: {"backend":"keyctl-user","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-musl secret-service exit=0
+  stdout: {"backend":"secret-service","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-musl keyctl exit=0
+  stdout: {"backend":"keyctl-session","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-musl keyctl-user exit=0
+  stdout: {"backend":"keyctl-user","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-keyring-gnu none exit=0
+  stdout: {"backend":"secret-service(keyring-facade)","lang":"rust","match":true,"gone":true}
+RUN rust-keyring-musl none exit=0
+  stdout: {"backend":"secret-service(keyring-facade)","lang":"rust","match":true,"gone":true}
+docker_exit=0

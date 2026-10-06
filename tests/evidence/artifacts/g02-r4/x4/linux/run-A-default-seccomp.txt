@@ -1,0 +1,32 @@
+# run A: Docker default seccomp profile; --network none --cap-drop ALL --security-opt no-new-privileges
+2026-10-06T05:53:04Z
+uid=1000 kernel=7.0.14-linuxkit arch=aarch64
+LDD go-spike: 	not a dynamic executable
+LDD rust-gnu: 	linux-vdso.so.1 (0x0000ffff96d9b000)
+LDD rust-musl: 	not a dynamic executable
+LDD rust-keyring-gnu: 	linux-vdso.so.1 (0x0000ffffa3ef9000)
+LDD rust-keyring-musl: 	not a dynamic executable
+--- start gnome-keyring (secrets component, fixture password, never a real secret) ---
+RUN go-spike secret-service exit=0
+  stdout: {"backend":"secret-service","lang":"go","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN go-spike keyctl exit=1
+  stdout: {"backend":"keyctl-session","lang":"go","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"operation not permitted"}
+RUN go-spike keyctl-user exit=1
+  stdout: {"backend":"keyctl-user","lang":"go","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"operation not permitted"}
+RUN rust-gnu secret-service exit=0
+  stdout: {"backend":"secret-service","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-gnu keyctl exit=1
+  stdout: {"backend":"keyctl-session","lang":"rust","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"PermissionDenied"}
+RUN rust-gnu keyctl-user exit=1
+  stdout: {"backend":"keyctl-user","lang":"rust","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"PermissionDenied"}
+RUN rust-musl secret-service exit=0
+  stdout: {"backend":"secret-service","lang":"rust","store":"ok","read":"ok","match":true,"delete":"ok","gone":true}
+RUN rust-musl keyctl exit=1
+  stdout: {"backend":"keyctl-session","lang":"rust","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"PermissionDenied"}
+RUN rust-musl keyctl-user exit=1
+  stdout: {"backend":"keyctl-user","lang":"rust","store":"fail","read":"skip","match":false,"delete":"skip","gone":false,"err":"PermissionDenied"}
+RUN rust-keyring-gnu none exit=0
+  stdout: {"backend":"secret-service(keyring-facade)","lang":"rust","match":true,"gone":true}
+RUN rust-keyring-musl none exit=0
+  stdout: {"backend":"secret-service(keyring-facade)","lang":"rust","match":true,"gone":true}
+docker_exit=0

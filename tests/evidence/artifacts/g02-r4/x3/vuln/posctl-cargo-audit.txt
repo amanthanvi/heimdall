@@ -1,0 +1,12 @@
+      Loaded 1290 security advisories (from /tmp/hm-r4/tools/x3/advisory-db)
+    Scanning Cargo.lock for vulnerabilities (2 crate dependencies)
+Crate:     smallvec
+Version:   1.6.0
+Title:     Buffer overflow in SmallVec::insert_many
+Date:      2021-01-08
+ID:        RUSTSEC-2021-0003
+URL:       https://rustsec.org/advisories/RUSTSEC-2021-0003
+Severity:  9.8 (critical)
+Solution:  Upgrade to >=0.6.14, <1.0.0 OR >=1.6.1
+
+error: 1 vulnerability found!
