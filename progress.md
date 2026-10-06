@@ -10,7 +10,7 @@
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
 | M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Two review rounds resolved. Every native record is blocked (no Windows 11/WSL2 host) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
-| M00-T05 G02 language/TUI + ADR | in_progress | Round 3b: Go and Rust both 136/136 on darwin+linux (harness 2.3.0); TS frozen at 127–128/136. Round 3c running (wf_a7ee1c85-12f): K6e child self-stop, K12 closed-stdout parity, re-measure. ADR rewrite pending |
+| M00-T05 G02 language/TUI + ADR | in_progress | Rounds closed. Go and Rust 139/139 on darwin+linux (harness 2.4.2); TS 129–130/139 (frozen). ADR-0002 rewritten; independent re-review running; then owner decision D1 |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 
 ## Decisions recorded by the orchestrator
@@ -26,28 +26,18 @@
 
 ## Resume notes
 
-- Workflow results are in `tests/evidence/artifacts/m00-wf{1,...,5}/`. `m00-wf5/` holds round 3 and round 3b.
-- Round 3b is done and committed: Go 6a579a9, Rust 94f701f. Both pass 136/136 on darwin and linux under harness 2.3.0, and neither review3 could refute its verdict.
-- review3-rust found a major: a child stop (OpenSSH `~^Z`) is not propagated. Contract §9.4 (efbabc0) applies the existing K6e and K12 rules to that case and to closed stdout.
-- Round 3c workflow: `wf_a7ee1c85-12f`, script `<session>/workflows/scripts/heimdall-m00-g02-round3c.js`. Stages:
-  1. harness 2.4.0;
-  2. independent mutation review, plus a fix if needed;
-  3. conformance for go/rust/ts;
-  4. one fix round, a re-run and a targeted review per failing candidate;
-  5. re-measure go and rust.
-- Status 2026-10-05 20:45:
-  - Harness 2.4.0 committed (b224801).
-  - The independent review of 2.4.0 caught 15/22 mutations and found 1 major (K12 error results).
-  - harness-r4-fix produced 2.4.1. Its full self-test PASSed on both OSes, but the agent was killed by host sleep before it could report. The orchestrator archived the results (`selftest-results/2026-10-05-r7/NOTE.md`) and committed them (76325e4).
-  - Contract rulings: Q17 gated, Q18 recorded.
-  - The script now replaces harness-r4-fix with a static object and adds harness-q17 (2.4.2: gate K12 error results), followed by conformance, fixes and measurement. Resumed 20:44.
-  - A T3 server update at about 20:44 killed harness-q17. Its orphaned scoped self-test (PID 11191) kept running. Resumed 20:52 with a note telling the agent to wait for that run and verify it.
-  - c67bdce (a progress commit made with `-a`) swept in the q17 agent's unfinished conformance.py and reference_impl.py edits. The q17 agent reviews them, and the harness-2.4.2 commit supersedes them.
-- To resume: `Workflow({scriptPath, resumeFromRunId: "wf_a7ee1c85-12f"})`. Resume can re-run completed agents (seen once). If one re-runs, stop the run and replace that agent with a static object pointing at its saved result.
-- `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them at cleanup.
+- Workflow results are in `tests/evidence/artifacts/m00-wf{1,...,6}/`. `m00-wf6/` holds round 3c.
+- G02 prototype rounds are closed (contract §9.5, 6de1d95).
+- Final commits:
+  - harness 2.4.2: c07f702
+  - TS verdict: 767aeac
+  - Go: 38b6b72, 139/139 darwin+linux
+  - Rust: d8f0cbe, 139/139 darwin+linux
+  - measurements: 97417f7
+- ADR-0002 rewritten (19ed9ba). Independent re-review (background agent) writes `tests/evidence/artifacts/review-adr-0002/review-2.md`. If that file is missing after a restart, re-launch the review with the same brief.
+- `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them at cleanup with the /tmp residue: `/tmp/hpa*` (~930 dirs), `/tmp/M00-T05-*`, `/tmp/r4fix`, `/tmp/hp-*`, `/tmp/bun-src`, `/tmp/ts-research`.
 
 ## Next actions
 
-1. Wait for round 3c. Then persist results to `tests/evidence/artifacts/m00-wf6/` and commit the harness, each candidate and the measurements separately.
-2. Rewrite ADR-0002 against `tests/evidence/artifacts/review-adr-0002/review.md` (M1–M6, m1–m14) and the round-3/3b/3c results. Get an independent re-review.
-3. Present the decision package. Do not start M01 before the owner records D1.
+1. When review-2 lands, fix the ADR for each finding and commit.
+2. Present the decision package (D1, D2, D3 rulings) together with the other batched owner questions. Do not start M01 before the owner records D1.
