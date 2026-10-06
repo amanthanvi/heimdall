@@ -29,7 +29,10 @@ PROTO = REPO / "prototypes"
 FIX = REPO / "tests" / "fixtures" / "g02" / "profiles"
 FAKE_AGENT = REPO / "tests" / "fixtures" / "fake-agent" / "fake_agent.py"
 ART = REPO / "tests" / "evidence" / "artifacts" / "g02-measure"
-CANDIDATES = ["go", "rust", "ts"]
+ALL_CANDIDATES = ["go", "rust", "ts"]
+# Round 3: HM_G02_CANDS=go,rust restricts every script that iterates CANDIDATES (same variable clean_env.py uses).
+CANDIDATES = [c for c in os.environ.get("HM_G02_CANDS", ",".join(ALL_CANDIDATES)).split(",") if c]
+assert CANDIDATES and all(c in ALL_CANDIDATES for c in CANDIDATES), CANDIDATES
 TARGETS = ["darwin-arm64", "linux-arm64", "linux-x64", "windows-x64"]
 TIME_BIN = "/usr/bin/time"
 

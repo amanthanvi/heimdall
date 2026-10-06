@@ -1,0 +1,295 @@
+{
+  "meta": {
+    "started_at": "2026-10-06T03:36:43Z",
+    "params": {
+      "idle_s": 300.0,
+      "short_s": 2.0,
+      "reps": 3,
+      "out_dir": "tests/evidence/artifacts/g02-measure/round3"
+    },
+    "target": "darwin-arm64",
+    "hardware": {
+      "hw.model": "Mac17,6",
+      "hw.memsize": "68719476736",
+      "machdep.cpu.brand_string": "Apple M5 Max",
+      "kern.osversion": "26A428",
+      "hw.ncpu": "18",
+      "hw.physicalcpu": "18",
+      "hw.perflevel0.logicalcpu": "6",
+      "hw.perflevel1.logicalcpu": "12",
+      "kern.boottime": "{ sec = 1790460720, usec = 450493 } Sat Sep 26 18:12:00 2026",
+      "sw_vers": {
+        "ProductName": "macOS",
+        "ProductVersion": "27.0",
+        "BuildVersion": "26A428"
+      },
+      "uname": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64"
+    },
+    "artifact_sha256_start": {
+      "go": {
+        "heimdall-proto": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6"
+      },
+      "rust": {
+        "heimdall-proto": "496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b"
+      }
+    },
+    "load": [
+      {
+        "label": "start",
+        "at": "2026-10-06T03:36:43Z",
+        "uptime": "23:36  up 9 days,  5:25, 2 users, load averages: 4.18 4.23 3.59",
+        "loadavg": [
+          4.1787109375,
+          4.2275390625,
+          3.587890625
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 5.14% user, 3.14% sys, 91.71% idle "
+      },
+      {
+        "label": "rep1-end",
+        "at": "2026-10-06T03:46:49Z",
+        "uptime": "23:46  up 9 days,  5:35, 2 users, load averages: 4.59 4.87 4.12",
+        "loadavg": [
+          4.5927734375,
+          4.86767578125,
+          4.12060546875
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 6.47% user, 5.98% sys, 87.54% idle "
+      },
+      {
+        "label": "rep2-end",
+        "at": "2026-10-06T03:56:55Z",
+        "uptime": "23:56  up 9 days,  5:45, 2 users, load averages: 1.54 2.73 3.27",
+        "loadavg": [
+          1.5419921875,
+          2.73291015625,
+          3.27197265625
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 3.26% user, 3.31% sys, 93.41% idle "
+      },
+      {
+        "label": "rep3-end",
+        "at": "2026-10-06T04:07:01Z",
+        "uptime": "0:07  up 9 days,  5:55, 2 users, load averages: 3.34 2.67 2.91",
+        "loadavg": [
+          3.337890625,
+          2.67041015625,
+          2.91455078125
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 3.41% user, 3.27% sys, 93.31% idle "
+      },
+      {
+        "label": "end",
+        "at": "2026-10-06T04:07:02Z",
+        "uptime": "0:07  up 9 days,  5:55, 2 users, load averages: 3.34 2.67 2.91",
+        "loadavg": [
+          3.337890625,
+          2.67041015625,
+          2.91455078125
+        ],
+        "pmset_batt_first_line": "Now drawing from 'AC Power'",
+        "low_power_mode": null,
+        "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+        "top_cpu_usage_sample2": "CPU usage: 3.50% user, 3.40% sys, 93.9% idle "
+      }
+    ],
+    "order": [
+      [
+        "go",
+        "rust"
+      ],
+      [
+        "rust",
+        "go"
+      ],
+      [
+        "go",
+        "rust"
+      ]
+    ],
+    "artifact_sha256_unchanged": true,
+    "finished_at": "2026-10-06T04:07:06Z"
+  },
+  "runs": {
+    "go": {
+      "idle": [
+        {
+          "real_s": 300.03,
+          "user_s": 0.57,
+          "sys_s": 0.49,
+          "max_rss_bytes": 12451840,
+          "peak_footprint_bytes": 9060976,
+          "ok": true,
+          "held_s": 300.00503970799036,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-06T03:41:44Z"
+        },
+        {
+          "real_s": 300.04,
+          "user_s": 0.51,
+          "sys_s": 0.55,
+          "max_rss_bytes": 12566528,
+          "peak_footprint_bytes": 9175664,
+          "ok": true,
+          "held_s": 300.00160212500487,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-06T03:56:52Z"
+        },
+        {
+          "real_s": 300.03,
+          "user_s": 0.5,
+          "sys_s": 0.54,
+          "max_rss_bytes": 12533760,
+          "peak_footprint_bytes": 9159280,
+          "ok": true,
+          "held_s": 300.0017407500418,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-06T04:01:56Z"
+        }
+      ],
+      "control_short": [
+        {
+          "real_s": 2.03,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 9977856,
+          "peak_footprint_bytes": 6668888,
+          "ok": true,
+          "held_s": 2.00503762497101,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-06T03:41:47Z"
+        },
+        {
+          "real_s": 2.03,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 9732096,
+          "peak_footprint_bytes": 6455896,
+          "ok": true,
+          "held_s": 2.0038741669850424,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-06T03:56:55Z"
+        },
+        {
+          "real_s": 2.04,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 10059776,
+          "peak_footprint_bytes": 6750832,
+          "ok": true,
+          "held_s": 2.0050712920492515,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-06T04:01:58Z"
+        }
+      ]
+    },
+    "rust": {
+      "idle": [
+        {
+          "real_s": 300.01,
+          "user_s": 0.01,
+          "sys_s": 0.08,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2523568,
+          "ok": true,
+          "held_s": 300.00241929199547,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-06T03:46:47Z"
+        },
+        {
+          "real_s": 300.01,
+          "user_s": 0.01,
+          "sys_s": 0.08,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2523568,
+          "ok": true,
+          "held_s": 300.0043923750054,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-06T03:51:50Z"
+        },
+        {
+          "real_s": 300.02,
+          "user_s": 0.01,
+          "sys_s": 0.09,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2523568,
+          "ok": true,
+          "held_s": 300.00347766606137,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-06T04:06:59Z"
+        }
+      ],
+      "control_short": [
+        {
+          "real_s": 2.02,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 3424256,
+          "peak_footprint_bytes": 2507184,
+          "ok": true,
+          "held_s": 2.004341624910012,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 1,
+          "at": "2026-10-06T03:46:49Z"
+        },
+        {
+          "real_s": 2.01,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2523568,
+          "ok": true,
+          "held_s": 2.003264333936386,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 2,
+          "at": "2026-10-06T03:51:52Z"
+        },
+        {
+          "real_s": 2.01,
+          "user_s": 0.0,
+          "sys_s": 0.0,
+          "max_rss_bytes": 3440640,
+          "peak_footprint_bytes": 2523568,
+          "ok": true,
+          "held_s": 2.001958583947271,
+          "exit_code": 0,
+          "forced_kill": false,
+          "rep": 3,
+          "at": "2026-10-06T04:07:01Z"
+        }
+      ]
+    }
+  }
+}

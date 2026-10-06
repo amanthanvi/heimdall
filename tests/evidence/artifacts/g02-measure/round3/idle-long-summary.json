@@ -1,0 +1,117 @@
+{
+  "meta": {
+    "started_at": "2026-10-06T03:36:43Z",
+    "finished_at": "2026-10-06T04:07:06Z",
+    "params": {
+      "idle_s": 300.0,
+      "short_s": 2.0,
+      "reps": 3,
+      "out_dir": "tests/evidence/artifacts/g02-measure/round3"
+    },
+    "order": [
+      [
+        "go",
+        "rust"
+      ],
+      [
+        "rust",
+        "go"
+      ],
+      [
+        "go",
+        "rust"
+      ]
+    ],
+    "artifact_sha256_unchanged": true
+  },
+  "summary": {
+    "go": {
+      "idle_runs": 3,
+      "idle_ok": 3,
+      "short_ok": 3,
+      "idle_cpu_s": [
+        1.06,
+        1.06,
+        1.04
+      ],
+      "idle_real_s": [
+        300.03,
+        300.04,
+        300.03
+      ],
+      "short_cpu_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "short_real_s": [
+        2.03,
+        2.03,
+        2.04
+      ],
+      "idle_max_rss_bytes": [
+        12451840,
+        12566528,
+        12533760
+      ],
+      "gross_pct_of_one_core_per_run": [
+        0.3533,
+        0.3533,
+        0.3466
+      ],
+      "net_pct_of_one_core_per_run": [
+        0.3557,
+        0.3557,
+        0.349
+      ],
+      "gross_pct_mean": 0.3511,
+      "net_pct_mean": 0.3535,
+      "net_pct_max": 0.3557,
+      "pooled_net_pct": 0.3535
+    },
+    "rust": {
+      "idle_runs": 3,
+      "idle_ok": 3,
+      "short_ok": 3,
+      "idle_cpu_s": [
+        0.09,
+        0.09,
+        0.1
+      ],
+      "idle_real_s": [
+        300.01,
+        300.01,
+        300.02
+      ],
+      "short_cpu_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "short_real_s": [
+        2.02,
+        2.01,
+        2.01
+      ],
+      "idle_max_rss_bytes": [
+        3440640,
+        3440640,
+        3440640
+      ],
+      "gross_pct_of_one_core_per_run": [
+        0.03,
+        0.03,
+        0.0333
+      ],
+      "net_pct_of_one_core_per_run": [
+        0.0302,
+        0.0302,
+        0.0336
+      ],
+      "gross_pct_mean": 0.0311,
+      "net_pct_mean": 0.0313,
+      "net_pct_max": 0.0336,
+      "pooled_net_pct": 0.0313
+    }
+  }
+}

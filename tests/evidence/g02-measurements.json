@@ -1906,5 +1906,1440 @@
     "ts clean-environment runs (darwin, linux-arm64, linux-x64, musl probe) are reused from round 1, not re-run: the ts artifacts have identical sha256 to round 1 (artifact_sha256_same_as_round1). The ts timing rows were re-measured in round 2. The fake-agent contact counts for the round-2 darwin/linux clean runs cover go and rust only (4 connections each); the darwin note text inside clean-darwin.json still says 6 because it is a fixed string in clean_env.py.",
     "Conformance status is not judged here. The task packet states round-2 conformance: go 133p/0f/0e darwin and linux, rust 133p/0f/0e darwin and linux, ts darwin 126p/7f/0e and linux 127p/6f/0e; this record does not re-verify those counts, and ts timing rows were measured on a candidate that fails some conformance checks.",
     "Prototype REPORT.md numbers were not reused; all numbers here were measured fresh, from prototypes/*/dist as found (never rebuilt by this task)."
-  ]
+  ],
+  "round3": {
+    "round": 3,
+    "scope": "go and rust darwin-arm64 only, re-measured with the round-2 scripts and arguments after rounds 3b/3c changed their run/TUI code. ts is frozen and was not re-measured: its rows stay in the round-2 content of this file. Artifacts are prototypes/{go,rust}/dist as found (not rebuilt), sha256 verified against dist/manifest.json before the run (artifact_inventory_pre) and unchanged after it. The only script change: g02bench.CANDIDATES honours HM_G02_CANDS (candidate subset); no method change. Because the subset has 2 candidates + control instead of 3 + control, the round-robin neighbours differ from round 2.",
+    "build_commit": "0aaee7480b75860dcf6e11b657e19fa281b7e1ce+dirty",
+    "started_at": "2026-10-06T03:29:13Z",
+    "finished_at": "2026-10-06T03:36:37Z",
+    "commands": [
+      "tools/benchmarks/g02/run_round3.sh (HM_G02_CANDS=go,rust; measure.py --idle-s 30 --idle-reps 2 --out-dir .../round3; idle_long.py --idle-s 300 --reps 3 --out-dir .../round3)",
+      "HM_G02_CANDS=go,rust tests/g02/.venv/bin/python tools/benchmarks/g02/assemble_round3.py"
+    ],
+    "params": {
+      "passes": 2,
+      "warmup": 10,
+      "n": 100,
+      "rss_n": 15,
+      "tui_n": 30,
+      "key_sessions": 30,
+      "idle_s": 30.0,
+      "idle_reps": 2,
+      "cold_n": 5,
+      "smoke": false,
+      "out_dir": "tests/evidence/artifacts/g02-measure/round3"
+    },
+    "environment": {
+      "host": {
+        "hw.model": "Mac17,6",
+        "hw.memsize": "68719476736",
+        "machdep.cpu.brand_string": "Apple M5 Max",
+        "kern.osversion": "26A428",
+        "hw.ncpu": "18",
+        "uname": "Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:06:40 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6050 arm64",
+        "sw_vers": {
+          "ProductName": "macOS",
+          "ProductVersion": "27.0",
+          "BuildVersion": "26A428"
+        }
+      },
+      "load_before_run_snapshot": "2026-10-06T03:29:13Z\n23:29  up 9 days,  5:17, 2 users, load averages: 2.94 3.00 2.83\n60324 27.2 T3CodeDev\n55598 22.4 whisper-cli\n56484 6.2 Google\n408 3.2 WindowServer\n36786 3.1 iOS\n12692 2.3 Mole\n",
+      "load_in_run": [
+        {
+          "label": "start",
+          "at": "2026-10-06T03:29:16Z",
+          "uptime": "23:29  up 9 days,  5:17, 2 users, load averages: 3.18 3.05 2.85",
+          "loadavg": [
+            3.18408203125,
+            3.046875,
+            2.8505859375
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 5.96% user, 3.81% sys, 90.21% idle "
+        },
+        {
+          "label": "end",
+          "at": "2026-10-06T03:36:32Z",
+          "uptime": "23:36  up 9 days,  5:25, 2 users, load averages: 4.66 4.32 3.61",
+          "loadavg": [
+            4.662109375,
+            4.32080078125,
+            3.61328125
+          ],
+          "pmset_batt_first_line": "Now drawing from 'AC Power'",
+          "low_power_mode": null,
+          "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+          "top_cpu_usage_sample2": "CPU usage: 5.7% user, 3.6% sys, 91.85% idle "
+        }
+      ],
+      "load_per_pass": {
+        "pass1": [
+          {
+            "label": "pass1-start",
+            "at": "2026-10-06T03:29:18Z",
+            "uptime": "23:29  up 9 days,  5:17, 2 users, load averages: 3.18 3.05 2.85",
+            "loadavg": [
+              3.18408203125,
+              3.046875,
+              2.8505859375
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 6.43% user, 3.50% sys, 90.5% idle "
+          },
+          {
+            "label": "pass1-after-startup",
+            "at": "2026-10-06T03:29:22Z",
+            "uptime": "23:29  up 9 days,  5:17, 2 users, load averages: 2.93 3.00 2.83",
+            "loadavg": [
+              2.9287109375,
+              2.99609375,
+              2.83349609375
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 6.81% user, 3.76% sys, 89.42% idle "
+          },
+          {
+            "label": "pass1-after-first-frame",
+            "at": "2026-10-06T03:29:35Z",
+            "uptime": "23:29  up 9 days,  5:18, 2 users, load averages: 3.64 3.16 2.89",
+            "loadavg": [
+              3.6396484375,
+              3.1572265625,
+              2.8935546875
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 5.35% user, 3.34% sys, 91.29% idle "
+          },
+          {
+            "label": "pass1-end",
+            "at": "2026-10-06T03:32:52Z",
+            "uptime": "23:32  up 9 days,  5:21, 2 users, load averages: 4.52 4.26 3.45",
+            "loadavg": [
+              4.5224609375,
+              4.2587890625,
+              3.44580078125
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 5.96% user, 3.36% sys, 90.67% idle "
+          }
+        ],
+        "pass2": [
+          {
+            "label": "pass2-start",
+            "at": "2026-10-06T03:32:55Z",
+            "uptime": "23:32  up 9 days,  5:21, 2 users, load averages: 4.32 4.22 3.44",
+            "loadavg": [
+              4.3203125,
+              4.22119140625,
+              3.43701171875
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 6.55% user, 4.40% sys, 89.4% idle "
+          },
+          {
+            "label": "pass2-after-startup",
+            "at": "2026-10-06T03:32:59Z",
+            "uptime": "23:32  up 9 days,  5:21, 2 users, load averages: 4.32 4.22 3.44",
+            "loadavg": [
+              4.3203125,
+              4.22119140625,
+              3.43701171875
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 5.50% user, 3.42% sys, 91.6% idle "
+          },
+          {
+            "label": "pass2-after-first-frame",
+            "at": "2026-10-06T03:33:12Z",
+            "uptime": "23:33  up 9 days,  5:21, 2 users, load averages: 3.50 4.05 3.39",
+            "loadavg": [
+              3.498046875,
+              4.0458984375,
+              3.3876953125
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 10.37% user, 6.53% sys, 83.9% idle "
+          },
+          {
+            "label": "pass2-end",
+            "at": "2026-10-06T03:36:29Z",
+            "uptime": "23:36  up 9 days,  5:24, 2 users, load averages: 5.07 4.39 3.63",
+            "loadavg": [
+              5.068359375,
+              4.39404296875,
+              3.634765625
+            ],
+            "pmset_batt_first_line": "Now drawing from 'AC Power'",
+            "low_power_mode": null,
+            "pmset_therm": "Note: No thermal warning level has been recorded | Note: No performance warning level has been recorded | Note: No CPU power status has been recorded",
+            "top_cpu_usage_sample2": "CPU usage: 6.95% user, 4.0% sys, 89.4% idle "
+          }
+        ]
+      },
+      "power": "Now drawing from 'AC Power'",
+      "python": "3.14.8",
+      "run_env": {
+        "PATH": "/usr/bin:/bin",
+        "TERM": "xterm-256color",
+        "LANG": "en_US.UTF-8",
+        "HOME": "private sandbox",
+        "TMPDIR": "private sandbox",
+        "cwd": "private sandbox"
+      }
+    },
+    "artifact_sha256_unchanged_during_run": true,
+    "artifact_inventory_pre": "tests/evidence/artifacts/g02-measure/round3/artifact-inventory-pre.json (manifest_matches_disk true for all 8 go/rust targets)",
+    "tables": {
+      "startup_version_json_ms": {
+        "go": {
+          "n": 200,
+          "min": 3.185,
+          "p50": 3.627,
+          "p95": 4.134,
+          "max": 4.474,
+          "p50_ci95": [
+            3.606,
+            3.665
+          ],
+          "p95_ci95": [
+            3.999,
+            4.252
+          ]
+        },
+        "rust": {
+          "n": 200,
+          "min": 2.346,
+          "p50": 2.783,
+          "p95": 3.185,
+          "max": 3.402,
+          "p50_ci95": [
+            2.742,
+            2.807
+          ],
+          "p95_ci95": [
+            3.102,
+            3.255
+          ]
+        },
+        "control": {
+          "n": 200,
+          "min": 1.725,
+          "p50": 2.097,
+          "p95": 2.503,
+          "max": 2.985,
+          "p50_ci95": [
+            2.075,
+            2.132
+          ],
+          "p95_ci95": [
+            2.391,
+            2.588
+          ]
+        }
+      },
+      "startup_profile_show_large100_ms": {
+        "go": {
+          "n": 200,
+          "min": 3.575,
+          "p50": 4.104,
+          "p95": 4.444,
+          "max": 5.238,
+          "p50_ci95": [
+            4.071,
+            4.156
+          ],
+          "p95_ci95": [
+            4.393,
+            4.662
+          ]
+        },
+        "rust": {
+          "n": 200,
+          "min": 2.926,
+          "p50": 3.393,
+          "p95": 3.763,
+          "max": 4.447,
+          "p50_ci95": [
+            3.347,
+            3.422
+          ],
+          "p95_ci95": [
+            3.683,
+            3.85
+          ]
+        },
+        "control": {
+          "n": 200,
+          "min": 1.73,
+          "p50": 2.125,
+          "p95": 2.451,
+          "max": 3.112,
+          "p50_ci95": [
+            2.099,
+            2.163
+          ],
+          "p95_ci95": [
+            2.358,
+            2.536
+          ]
+        }
+      },
+      "tui_first_frame_ms_homelab_3_dest": {
+        "go": {
+          "n": 60,
+          "min": 21.726,
+          "p50": 23.972,
+          "p95": 27.655,
+          "max": 28.49,
+          "p50_ci95": [
+            23.615,
+            24.783
+          ],
+          "p95_ci95": [
+            27.061,
+            27.878
+          ],
+          "failed": 0,
+          "first_byte_p50": 23.583
+        },
+        "rust": {
+          "n": 60,
+          "min": 3.514,
+          "p50": 7.122,
+          "p95": 8.052,
+          "max": 8.65,
+          "p50_ci95": [
+            6.23,
+            7.314
+          ],
+          "p95_ci95": [
+            7.836,
+            8.183
+          ],
+          "failed": 0,
+          "first_byte_p50": 6.676
+        },
+        "control": {
+          "n": 60,
+          "min": 3.229,
+          "p50": 6.254,
+          "p95": 7.079,
+          "max": 7.444,
+          "p50_ci95": [
+            6.098,
+            6.467
+          ],
+          "p95_ci95": [
+            6.839,
+            7.332
+          ],
+          "failed": 0,
+          "first_byte_p50": 6.254
+        }
+      },
+      "tui_first_frame_ms_large100": {
+        "go": {
+          "n": 60,
+          "min": 24.937,
+          "p50": 28.416,
+          "p95": 33.808,
+          "max": 34.209,
+          "p50_ci95": [
+            27.884,
+            29.043
+          ],
+          "p95_ci95": [
+            32.245,
+            34.15
+          ],
+          "failed": 0,
+          "first_byte_p50": 24.421
+        },
+        "rust": {
+          "n": 60,
+          "min": 6.386,
+          "p50": 10.369,
+          "p95": 13.0,
+          "max": 13.345,
+          "p50_ci95": [
+            9.333,
+            10.776
+          ],
+          "p95_ci95": [
+            11.816,
+            13.315
+          ],
+          "failed": 0,
+          "first_byte_p50": 6.536
+        },
+        "control": {
+          "n": 60,
+          "min": 2.995,
+          "p50": 5.744,
+          "p95": 6.618,
+          "max": 7.185,
+          "p50_ci95": [
+            5.017,
+            5.971
+          ],
+          "p95_ci95": [
+            6.335,
+            6.919
+          ],
+          "failed": 0,
+          "first_byte_p50": 5.744
+        }
+      },
+      "tui_keystroke_to_update_ms_large100_all_keys": {
+        "go": {
+          "n": 1680,
+          "min": 0.509,
+          "p50": 3.897,
+          "p95": 15.892,
+          "max": 72.079,
+          "p50_ci95": [
+            3.867,
+            3.943
+          ],
+          "p95_ci95": [
+            10.485,
+            16.978
+          ],
+          "sessions": 60,
+          "failed_sessions": 0,
+          "j_move_p50_p95": [
+            3.842,
+            6.123
+          ],
+          "filter_type_p50_p95": [
+            4.025,
+            16.198
+          ],
+          "filter_type_n": 420,
+          "filter_type_p95_ci95": [
+            15.419,
+            16.849
+          ],
+          "to_first_output_byte_p50_p95": [
+            3.875,
+            6.32
+          ]
+        },
+        "rust": {
+          "n": 1680,
+          "min": 0.178,
+          "p50": 0.584,
+          "p95": 2.646,
+          "max": 34.63,
+          "p50_ci95": [
+            0.561,
+            0.611
+          ],
+          "p95_ci95": [
+            1.459,
+            3.053
+          ],
+          "sessions": 60,
+          "failed_sessions": 0,
+          "j_move_p50_p95": [
+            0.559,
+            0.96
+          ],
+          "filter_type_p50_p95": [
+            0.597,
+            2.674
+          ],
+          "filter_type_n": 420,
+          "filter_type_p95_ci95": [
+            1.967,
+            2.851
+          ],
+          "to_first_output_byte_p50_p95": [
+            0.552,
+            0.949
+          ]
+        }
+      },
+      "peak_rss_bytes_time_l": {
+        "version": {
+          "go": {
+            "p50": 7536640.0,
+            "max": 7749632.0,
+            "n": 30,
+            "peak_footprint_max": 4571736.0
+          },
+          "rust": {
+            "p50": 2310144.0,
+            "max": 2310144.0,
+            "n": 30,
+            "peak_footprint_max": 1507736.0
+          },
+          "control": {
+            "p50": 1261568.0,
+            "max": 1261568.0,
+            "n": 30,
+            "peak_footprint_max": 1310960.0
+          }
+        },
+        "profile_large100": {
+          "go": {
+            "p50": 8282112.0,
+            "max": 8536064.0,
+            "n": 30,
+            "peak_footprint_max": 5309016.0
+          },
+          "rust": {
+            "p50": 3489792.0,
+            "max": 3522560.0,
+            "n": 30,
+            "peak_footprint_max": 2671024.0
+          },
+          "control": {
+            "p50": 1261568.0,
+            "max": 1261568.0,
+            "n": 30,
+            "peak_footprint_max": 1310960.0
+          }
+        },
+        "tui_workload": {
+          "go": {
+            "p50": 10690560.0,
+            "max": 10928128.0,
+            "n": 30,
+            "peak_footprint_max": 7586392.0
+          },
+          "rust": {
+            "p50": 3686400.0,
+            "max": 3735552.0,
+            "n": 30,
+            "peak_footprint_max": 2818480.0
+          }
+        }
+      }
+    },
+    "harness_floors_control_rows": {
+      "startup_version_json_ms_control_usr_bin_true": {
+        "n": 200,
+        "min": 1.725,
+        "p50": 2.097,
+        "p95": 2.503,
+        "max": 2.985,
+        "p50_ci95": [
+          2.075,
+          2.132
+        ],
+        "p95_ci95": [
+          2.391,
+          2.588
+        ]
+      },
+      "startup_profile_ms_control_usr_bin_true": {
+        "n": 200,
+        "min": 1.73,
+        "p50": 2.125,
+        "p95": 2.451,
+        "max": 3.112,
+        "p50_ci95": [
+          2.099,
+          2.163
+        ],
+        "p95_ci95": [
+          2.358,
+          2.536
+        ]
+      },
+      "tui_first_frame_ms_homelab_control_printf_via_pty": {
+        "n": 60,
+        "min": 3.229,
+        "p50": 6.254,
+        "p95": 7.079,
+        "max": 7.444,
+        "p50_ci95": [
+          6.098,
+          6.467
+        ],
+        "p95_ci95": [
+          6.839,
+          7.332
+        ]
+      },
+      "tui_first_frame_ms_large100_control_printf_via_pty": {
+        "n": 60,
+        "min": 2.995,
+        "p50": 5.744,
+        "p95": 6.618,
+        "max": 7.185,
+        "p50_ci95": [
+          5.017,
+          5.971
+        ],
+        "p95_ci95": [
+          6.335,
+          6.919
+        ]
+      },
+      "rss_version_control_bytes": {
+        "p50": 1261568.0,
+        "max": 1261568.0,
+        "n": 30,
+        "peak_footprint_max": 1310960.0
+      },
+      "rss_profile_control_bytes": {
+        "p50": 1261568.0,
+        "max": 1261568.0,
+        "n": 30,
+        "peak_footprint_max": 1310960.0
+      },
+      "note": "keystroke latency has no control row in measure.py (round 2 and 3 alike); the pty-path floor is the control first-frame row (control printf through the same pty path)"
+    },
+    "comparison_round2_vs_round3": {
+      "startup_version_json_ms": {
+        "go": {
+          "round2_p50_p95": [
+            3.635,
+            4.212
+          ],
+          "round3_p50_p95": [
+            3.627,
+            4.134
+          ],
+          "p50_change_pct": -0.2,
+          "p95_change_pct": -1.9
+        },
+        "rust": {
+          "round2_p50_p95": [
+            2.67,
+            3.24
+          ],
+          "round3_p50_p95": [
+            2.783,
+            3.185
+          ],
+          "p50_change_pct": 4.2,
+          "p95_change_pct": -1.7
+        },
+        "control_floor_round2_round3_p50": [
+          2.26,
+          2.097
+        ],
+        "ts_round2_frozen_p50_p95": [
+          17.427,
+          19.117
+        ],
+        "p50_minus_control_p50_ms": {
+          "go": {
+            "round2": 1.375,
+            "round3": 1.53
+          },
+          "rust": {
+            "round2": 0.41,
+            "round3": 0.686
+          }
+        }
+      },
+      "startup_profile_show_large100_ms": {
+        "go": {
+          "round2_p50_p95": [
+            4.061,
+            4.663
+          ],
+          "round3_p50_p95": [
+            4.104,
+            4.444
+          ],
+          "p50_change_pct": 1.1,
+          "p95_change_pct": -4.7
+        },
+        "rust": {
+          "round2_p50_p95": [
+            3.258,
+            3.686
+          ],
+          "round3_p50_p95": [
+            3.393,
+            3.763
+          ],
+          "p50_change_pct": 4.1,
+          "p95_change_pct": 2.1
+        },
+        "control_floor_round2_round3_p50": [
+          2.309,
+          2.125
+        ],
+        "ts_round2_frozen_p50_p95": [
+          19.162,
+          20.682
+        ],
+        "p50_minus_control_p50_ms": {
+          "go": {
+            "round2": 1.752,
+            "round3": 1.979
+          },
+          "rust": {
+            "round2": 0.949,
+            "round3": 1.268
+          }
+        }
+      },
+      "tui_first_frame_ms_homelab_3_dest": {
+        "go": {
+          "round2_p50_p95": [
+            25.653,
+            27.936
+          ],
+          "round3_p50_p95": [
+            23.972,
+            27.655
+          ],
+          "p50_change_pct": -6.6,
+          "p95_change_pct": -1.0
+        },
+        "rust": {
+          "round2_p50_p95": [
+            5.738,
+            8.941
+          ],
+          "round3_p50_p95": [
+            7.122,
+            8.052
+          ],
+          "p50_change_pct": 24.1,
+          "p95_change_pct": -9.9
+        },
+        "control_floor_round2_round3_p50": [
+          4.316,
+          6.254
+        ],
+        "ts_round2_frozen_p50_p95": [
+          52.603,
+          63.035
+        ],
+        "p50_minus_control_p50_ms": {
+          "go": {
+            "round2": 21.337,
+            "round3": 17.718
+          },
+          "rust": {
+            "round2": 1.422,
+            "round3": 0.868
+          }
+        }
+      },
+      "tui_first_frame_ms_large100": {
+        "go": {
+          "round2_p50_p95": [
+            29.341,
+            31.573
+          ],
+          "round3_p50_p95": [
+            28.416,
+            33.808
+          ],
+          "p50_change_pct": -3.2,
+          "p95_change_pct": 7.1
+        },
+        "rust": {
+          "round2_p50_p95": [
+            9.558,
+            10.933
+          ],
+          "round3_p50_p95": [
+            10.369,
+            13.0
+          ],
+          "p50_change_pct": 8.5,
+          "p95_change_pct": 18.9
+        },
+        "control_floor_round2_round3_p50": [
+          4.037,
+          5.744
+        ],
+        "ts_round2_frozen_p50_p95": [
+          54.314,
+          60.036
+        ],
+        "p50_minus_control_p50_ms": {
+          "go": {
+            "round2": 25.304,
+            "round3": 22.672
+          },
+          "rust": {
+            "round2": 5.521,
+            "round3": 4.625
+          }
+        }
+      },
+      "tui_keystroke_to_update_ms_large100_all_keys": {
+        "go": {
+          "round2_p50_p95": [
+            3.886,
+            15.994
+          ],
+          "round3_p50_p95": [
+            3.897,
+            15.892
+          ],
+          "p50_change_pct": 0.3,
+          "p95_change_pct": -0.6
+        },
+        "rust": {
+          "round2_p50_p95": [
+            0.728,
+            2.678
+          ],
+          "round3_p50_p95": [
+            0.584,
+            2.646
+          ],
+          "p50_change_pct": -19.8,
+          "p95_change_pct": -1.2
+        },
+        "control_floor_round2_round3_p50": null,
+        "ts_round2_frozen_p50_p95": [
+          3.726,
+          7.379
+        ]
+      },
+      "tui_filter_typing_p50_p95": {
+        "go": {
+          "round2": [
+            3.983,
+            16.307
+          ],
+          "round3": [
+            4.025,
+            16.198
+          ]
+        },
+        "rust": {
+          "round2": [
+            0.749,
+            2.699
+          ],
+          "round3": [
+            0.597,
+            2.674
+          ]
+        },
+        "ts_round2_frozen": [
+          3.319,
+          6.882
+        ]
+      },
+      "peak_rss_bytes_p50_max": {
+        "version": {
+          "go": {
+            "round2_p50_max": [
+              7331840.0,
+              7536640.0
+            ],
+            "round3_p50_max": [
+              7536640.0,
+              7749632.0
+            ],
+            "p50_change_pct": 2.8
+          },
+          "rust": {
+            "round2_p50_max": [
+              2244608.0,
+              2244608.0
+            ],
+            "round3_p50_max": [
+              2310144.0,
+              2310144.0
+            ],
+            "p50_change_pct": 2.9
+          }
+        },
+        "profile_large100": {
+          "go": {
+            "round2_p50_max": [
+              7929856.0,
+              8110080.0
+            ],
+            "round3_p50_max": [
+              8282112.0,
+              8536064.0
+            ],
+            "p50_change_pct": 4.4
+          },
+          "rust": {
+            "round2_p50_max": [
+              3522560.0,
+              3555328.0
+            ],
+            "round3_p50_max": [
+              3489792.0,
+              3522560.0
+            ],
+            "p50_change_pct": -0.9
+          }
+        },
+        "tui_workload": {
+          "go": {
+            "round2_p50_max": [
+              11051008.0,
+              12451840.0
+            ],
+            "round3_p50_max": [
+              10690560.0,
+              10928128.0
+            ],
+            "p50_change_pct": -3.3
+          },
+          "rust": {
+            "round2_p50_max": [
+              3653632.0,
+              3719168.0
+            ],
+            "round3_p50_max": [
+              3686400.0,
+              3735552.0
+            ],
+            "p50_change_pct": 0.9
+          }
+        }
+      },
+      "artifact_exe_bytes_and_sha256_by_target": {
+        "go": {
+          "darwin-arm64": {
+            "round2_bytes": 5212000,
+            "round3_bytes": 5212000,
+            "bytes_change_pct": 0.0,
+            "round2_tar_gz9": 1993287,
+            "round3_tar_gz9": 1993990,
+            "sha256_same_as_round2": false
+          },
+          "linux-arm64": {
+            "round2_bytes": 5177504,
+            "round3_bytes": 5177504,
+            "bytes_change_pct": 0.0,
+            "round2_tar_gz9": 1958320,
+            "round3_tar_gz9": 1958296,
+            "sha256_same_as_round2": false
+          },
+          "linux-x64": {
+            "round2_bytes": 5451936,
+            "round3_bytes": 5451936,
+            "bytes_change_pct": 0.0,
+            "round2_tar_gz9": 2171474,
+            "round3_tar_gz9": 2171676,
+            "sha256_same_as_round2": false
+          },
+          "windows-x64": {
+            "round2_bytes": 5099008,
+            "round3_bytes": 5100032,
+            "bytes_change_pct": 0.0,
+            "round2_tar_gz9": 2006640,
+            "round3_tar_gz9": 2006640,
+            "sha256_same_as_round2": false
+          }
+        },
+        "rust": {
+          "darwin-arm64": {
+            "round2_bytes": 717904,
+            "round3_bytes": 718080,
+            "bytes_change_pct": 0.0,
+            "round2_tar_gz9": 370384,
+            "round3_tar_gz9": 373642,
+            "sha256_same_as_round2": false
+          },
+          "linux-arm64": {
+            "round2_bytes": 806528,
+            "round3_bytes": 813480,
+            "bytes_change_pct": 0.9,
+            "round2_tar_gz9": 440656,
+            "round3_tar_gz9": 444420,
+            "sha256_same_as_round2": false
+          },
+          "linux-x64": {
+            "round2_bytes": 869648,
+            "round3_bytes": 876464,
+            "bytes_change_pct": 0.8,
+            "round2_tar_gz9": 444457,
+            "round3_tar_gz9": 448197,
+            "sha256_same_as_round2": false
+          },
+          "windows-x64": {
+            "round2_bytes": 841728,
+            "round3_bytes": 841728,
+            "bytes_change_pct": 0.0,
+            "round2_tar_gz9": 425041,
+            "round3_tar_gz9": 425304,
+            "sha256_same_as_round2": false
+          }
+        }
+      },
+      "idle_cpu_300s_net_pct_of_one_core": {
+        "go": {
+          "round2_mean_max": [
+            0.3367,
+            0.3478
+          ],
+          "round3_mean_max": [
+            0.3535,
+            0.3557
+          ]
+        },
+        "rust": {
+          "round2_mean_max": [
+            0.0358,
+            0.0369
+          ],
+          "round3_mean_max": [
+            0.0313,
+            0.0336
+          ]
+        },
+        "ts_round2_frozen_mean_max": [
+          0.0638,
+          0.0682
+        ]
+      }
+    },
+    "idle_long_hold_300s": {
+      "method": "idle_long.py unchanged from round 2 (HM_G02_CANDS=go,rust): 3 reps x 2 candidates, round-robin, start member rotated per rep; per visit one 300 s idle hold after the first large-100 frame and one 2 s short hold under /usr/bin/time -l; gross = idle cpu / idle real; net = (idle cpu - mean short cpu) / (idle real - mean short real)",
+      "params": {
+        "idle_s": 300.0,
+        "short_s": 2.0,
+        "reps": 3,
+        "out_dir": "tests/evidence/artifacts/g02-measure/round3"
+      },
+      "order": [
+        [
+          "go",
+          "rust"
+        ],
+        [
+          "rust",
+          "go"
+        ],
+        [
+          "go",
+          "rust"
+        ]
+      ],
+      "started_at": "2026-10-06T03:36:43Z",
+      "finished_at": "2026-10-06T04:07:06Z",
+      "artifact_sha256_unchanged": true,
+      "load": [
+        {
+          "label": "start",
+          "at": "2026-10-06T03:36:43Z",
+          "loadavg": [
+            4.1787109375,
+            4.2275390625,
+            3.587890625
+          ],
+          "top_cpu_usage_sample2": "CPU usage: 5.14% user, 3.14% sys, 91.71% idle "
+        },
+        {
+          "label": "rep1-end",
+          "at": "2026-10-06T03:46:49Z",
+          "loadavg": [
+            4.5927734375,
+            4.86767578125,
+            4.12060546875
+          ],
+          "top_cpu_usage_sample2": "CPU usage: 6.47% user, 5.98% sys, 87.54% idle "
+        },
+        {
+          "label": "rep2-end",
+          "at": "2026-10-06T03:56:55Z",
+          "loadavg": [
+            1.5419921875,
+            2.73291015625,
+            3.27197265625
+          ],
+          "top_cpu_usage_sample2": "CPU usage: 3.26% user, 3.31% sys, 93.41% idle "
+        },
+        {
+          "label": "rep3-end",
+          "at": "2026-10-06T04:07:01Z",
+          "loadavg": [
+            3.337890625,
+            2.67041015625,
+            2.91455078125
+          ],
+          "top_cpu_usage_sample2": "CPU usage: 3.41% user, 3.27% sys, 93.31% idle "
+        },
+        {
+          "label": "end",
+          "at": "2026-10-06T04:07:02Z",
+          "loadavg": [
+            3.337890625,
+            2.67041015625,
+            2.91455078125
+          ],
+          "top_cpu_usage_sample2": "CPU usage: 3.50% user, 3.40% sys, 93.9% idle "
+        }
+      ],
+      "per_candidate": {
+        "go": {
+          "idle_runs": 3,
+          "idle_ok": 3,
+          "short_ok": 3,
+          "idle_cpu_s": [
+            1.06,
+            1.06,
+            1.04
+          ],
+          "idle_real_s": [
+            300.03,
+            300.04,
+            300.03
+          ],
+          "short_cpu_s": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "short_real_s": [
+            2.03,
+            2.03,
+            2.04
+          ],
+          "idle_max_rss_bytes": [
+            12451840,
+            12566528,
+            12533760
+          ],
+          "gross_pct_of_one_core_per_run": [
+            0.3533,
+            0.3533,
+            0.3466
+          ],
+          "net_pct_of_one_core_per_run": [
+            0.3557,
+            0.3557,
+            0.349
+          ],
+          "gross_pct_mean": 0.3511,
+          "net_pct_mean": 0.3535,
+          "net_pct_max": 0.3557,
+          "pooled_net_pct": 0.3535
+        },
+        "rust": {
+          "idle_runs": 3,
+          "idle_ok": 3,
+          "short_ok": 3,
+          "idle_cpu_s": [
+            0.09,
+            0.09,
+            0.1
+          ],
+          "idle_real_s": [
+            300.01,
+            300.01,
+            300.02
+          ],
+          "short_cpu_s": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "short_real_s": [
+            2.02,
+            2.01,
+            2.01
+          ],
+          "idle_max_rss_bytes": [
+            3440640,
+            3440640,
+            3440640
+          ],
+          "gross_pct_of_one_core_per_run": [
+            0.03,
+            0.03,
+            0.0333
+          ],
+          "net_pct_of_one_core_per_run": [
+            0.0302,
+            0.0302,
+            0.0336
+          ],
+          "gross_pct_mean": 0.0311,
+          "net_pct_mean": 0.0313,
+          "net_pct_max": 0.0336,
+          "pooled_net_pct": 0.0313
+        }
+      },
+      "spec_target_pct_of_one_core": 0.5
+    },
+    "per_pass_drift": {
+      "pass1": {
+        "wall_s": 213.7,
+        "startup_version_p50_ms": {
+          "go": 3.624,
+          "rust": 2.762,
+          "control": 2.098
+        },
+        "startup_profile_p50_ms": {
+          "go": 4.104,
+          "rust": 3.363,
+          "control": 2.126
+        },
+        "tui_first_frame_large_p50_ms": {
+          "go": 28.428,
+          "rust": 10.429,
+          "control": 5.809
+        },
+        "tui_keystroke_all_p50_ms": {
+          "go": 3.875,
+          "rust": 0.637
+        },
+        "tui_keystroke_filter_p95_ms": {
+          "go": 16.276,
+          "rust": 2.77
+        },
+        "tui_idle_extra_cpu_percent_of_one_core_est_30s": {
+          "go": 0.339,
+          "rust": 0.018
+        },
+        "cold_first_exec_p50_ms": {
+          "go": {
+            "first_ms": 6.342,
+            "second_ms": 3.907,
+            "third_ms": 3.729
+          },
+          "rust": {
+            "first_ms": 3.687,
+            "second_ms": 2.815,
+            "third_ms": 2.914
+          }
+        }
+      },
+      "pass2": {
+        "wall_s": 213.7,
+        "startup_version_p50_ms": {
+          "go": 3.633,
+          "rust": 2.815,
+          "control": 2.095
+        },
+        "startup_profile_p50_ms": {
+          "go": 4.102,
+          "rust": 3.426,
+          "control": 2.122
+        },
+        "tui_first_frame_large_p50_ms": {
+          "go": 28.328,
+          "rust": 10.204,
+          "control": 5.607
+        },
+        "tui_keystroke_all_p50_ms": {
+          "go": 3.93,
+          "rust": 0.546
+        },
+        "tui_keystroke_filter_p95_ms": {
+          "go": 16.086,
+          "rust": 2.391
+        },
+        "tui_idle_extra_cpu_percent_of_one_core_est_30s": {
+          "go": 0.393,
+          "rust": 0.018
+        },
+        "cold_first_exec_p50_ms": {
+          "go": {
+            "first_ms": 6.7,
+            "second_ms": 4.478,
+            "third_ms": 4.149
+          },
+          "rust": {
+            "first_ms": 3.95,
+            "second_ms": 3.306,
+            "third_ms": 3.254
+          }
+        }
+      }
+    },
+    "artifact_bytes_and_sha256": {
+      "go": {
+        "darwin-arm64": {
+          "exe_bytes": 5212000,
+          "sidecar_bytes": 0,
+          "total_bytes": 5212000,
+          "gzip9_exe_bytes": 1993768,
+          "tar_gz9_bytes": 1993990,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 5212000,
+              "sha256": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6",
+              "gzip9_bytes": 1993768
+            }
+          ]
+        },
+        "linux-arm64": {
+          "exe_bytes": 5177504,
+          "sidecar_bytes": 0,
+          "total_bytes": 5177504,
+          "gzip9_exe_bytes": 1958190,
+          "tar_gz9_bytes": 1958296,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 5177504,
+              "sha256": "d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9",
+              "gzip9_bytes": 1958190
+            }
+          ]
+        },
+        "linux-x64": {
+          "exe_bytes": 5451936,
+          "sidecar_bytes": 0,
+          "total_bytes": 5451936,
+          "gzip9_exe_bytes": 2171473,
+          "tar_gz9_bytes": 2171676,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 5451936,
+              "sha256": "429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a",
+              "gzip9_bytes": 2171473
+            }
+          ]
+        },
+        "windows-x64": {
+          "exe_bytes": 5100032,
+          "sidecar_bytes": 0,
+          "total_bytes": 5100032,
+          "gzip9_exe_bytes": 2006407,
+          "tar_gz9_bytes": 2006640,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto.exe",
+              "bytes": 5100032,
+              "sha256": "ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed",
+              "gzip9_bytes": 2006407
+            }
+          ]
+        }
+      },
+      "rust": {
+        "darwin-arm64": {
+          "exe_bytes": 718080,
+          "sidecar_bytes": 0,
+          "total_bytes": 718080,
+          "gzip9_exe_bytes": 373433,
+          "tar_gz9_bytes": 373642,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 718080,
+              "sha256": "496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b",
+              "gzip9_bytes": 373433
+            }
+          ]
+        },
+        "linux-arm64": {
+          "exe_bytes": 813480,
+          "sidecar_bytes": 0,
+          "total_bytes": 813480,
+          "gzip9_exe_bytes": 444211,
+          "tar_gz9_bytes": 444420,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 813480,
+              "sha256": "47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0",
+              "gzip9_bytes": 444211
+            }
+          ]
+        },
+        "linux-x64": {
+          "exe_bytes": 876464,
+          "sidecar_bytes": 0,
+          "total_bytes": 876464,
+          "gzip9_exe_bytes": 448023,
+          "tar_gz9_bytes": 448197,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto",
+              "bytes": 876464,
+              "sha256": "961e3fb9f02e916ae25e2c4ac8e882dcd074301f90b9f7c1640249eec909ef72",
+              "gzip9_bytes": 448023
+            }
+          ]
+        },
+        "windows-x64": {
+          "exe_bytes": 841728,
+          "sidecar_bytes": 0,
+          "total_bytes": 841728,
+          "gzip9_exe_bytes": 425082,
+          "tar_gz9_bytes": 425304,
+          "manifest_matches_disk": true,
+          "files": [
+            {
+              "path": "heimdall-proto.exe",
+              "bytes": 841728,
+              "sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+              "gzip9_bytes": 425082
+            }
+          ]
+        }
+      }
+    },
+    "evidence_paths": [
+      "tests/evidence/artifacts/g02-measure/round3/host-raw.json",
+      "tests/evidence/artifacts/g02-measure/round3/host-summary.json",
+      "tests/evidence/artifacts/g02-measure/round3/idle-long-raw.json",
+      "tests/evidence/artifacts/g02-measure/round3/idle-long-summary.json",
+      "tests/evidence/artifacts/g02-measure/round3/artifact-inventory-pre.json",
+      "tests/evidence/artifacts/g02-measure/round3/measure-run.log",
+      "tests/evidence/artifacts/g02-measure/round3/idle-long-run.log",
+      "tests/evidence/artifacts/g02-measure/round3/run_round3.log",
+      "tests/evidence/artifacts/g02-measure/round3/load-before.txt",
+      "tools/benchmarks/g02/run_round3.sh",
+      "tools/benchmarks/g02/assemble_round3.py",
+      "tools/benchmarks/g02/g02bench.py"
+    ],
+    "load_summary": {
+      "one_minute_loadavg_min_max_over_all_captures": [
+        2.9287109375,
+        5.068359375
+      ],
+      "idle_hold_one_minute_loadavg_min_max": [
+        1.5419921875,
+        4.5927734375
+      ],
+      "cores": "18"
+    },
+    "limitations": [
+      "Single machine (Apple M5 Max, 18 cores) shared with other workloads; no isolation was attempted. At the start the 1-minute load average was about 3.0-3.3 (background: a dev app near 25% of one core and a speech-to-text process near 22% of one core, which was still running at the start; nothing build- or test-heavy was running, so the run was not delayed). Load stayed about 1.5-5.1 through the run (load_summary, environment.load_per_pass). Round 2 ran at about 1.5-7. Numbers are comparable between candidates in this run; round-to-round differences of a few percent are within what this noise can produce.",
+      "The pty control floor moved between rounds: control first-frame p50 was 4.3 / 4.0 ms (homelab / large-100) in round 2 and 6.3 / 5.7 ms in round 3, and the /usr/bin/true spawn floor was 2.26 ms in round 2 and 2.10 ms in round 3. The rust first-frame rise (+24% / +8.5% raw p50) is of the same size as the pty floor shift; the p50_minus_control_p50_ms rows show rust at 0.9 / 4.6 ms above the floor in round 3 versus 1.4 / 5.5 ms in round 2. Whether the pty floor shift is machine state or a measurement artifact of the 2-candidate rotation was not isolated.",
+      "Because the candidate set is go, rust and control (3 members) instead of go, rust, ts and control (4 members), the round-robin neighbours and cache pressure differ from round 2; the method is otherwise unchanged (same scripts, same arguments, g02bench.CANDIDATES now honours HM_G02_CANDS).",
+      "Latencies come from Python spawn plus a pyte terminal emulator, not a real terminal; the control rows show the spawn and pty floors. Keystroke latency has no control row. The go filter-typing p95 (about 16 ms) matches a 60 fps renderer tick; that explanation is an inference from round 2 and was not isolated. K17 (filter p95 <= 100 ms) is read here as the filter_type_ms p95 of this method (420 filter keystrokes per candidate: 60 sessions x 7 characters); this record is not a gate verdict.",
+      "RSS is /usr/bin/time -l maximum resident set size (macOS bytes); not comparable to Windows working set or Linux RSS. The 300 s idle hold report max RSS of a process that also ran first frame.",
+      "Idle CPU is a 300 s hold, 3 reps per candidate, via /usr/bin/time -l (10 ms CPU resolution), large-100 viewer only, darwin-arm64; it is not a product TUI with live connections. The 30 s per-pass estimate in per_pass_drift is coarse and kept for comparability only.",
+      "go idle CPU (0.35% of one core, 1.04-1.06 s CPU per 300 s, roughly half user and half sys) is nonzero and not 0.0x%; round 2 gave 0.34%. Spec 15.1 target is < 0.5%: go sits at about 70% of that margin. The cause (a periodic tick versus other work) was not investigated here.",
+      "Cold-first-exec rows compare the first execution of a freshly copied file with later ones (per_pass_drift); not a reboot-cold measurement.",
+      "Only darwin-arm64 binaries were executed. linux and windows artifacts were hashed and sized only (sha256 verified against dist/manifest.json); no clean-environment, conformance, or Windows/Linux timing runs were part of this task. Windows artifacts were never run (blocked: no Windows host).",
+      "Artifact sizes: exe bytes are raw; gzip9_exe_bytes is `gzip -9 -n` of the file; tar_gz9_bytes is the round-2 method (tar of the artifact directory, gzip level 9, mtime 0). All eight go/rust artifact sha256 differ from round 2 (rebuilt after rounds 3b/3c); sizes changed by 0-0.9%.",
+      "Conformance status is not judged here; ts rows remain the frozen round-2 ones in the round-2 content of this file."
+    ]
+  }
 }

@@ -1,0 +1,40 @@
+{
+  "task_id": "M00-T05-measure-r3",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/evidence/g02-measurements.json",
+    "<repo>/tests/evidence/artifacts/g02-measure/round3/ (host-raw.json, host-summary.json, idle-long-raw.json, idle-long-summary.json, artifact-inventory-pre.json, measure-run.log, idle-long-run.log, run_round3.log, load-before.txt)",
+    "<repo>/tools/benchmarks/g02/g02bench.py (CANDIDATES honours HM_G02_CANDS; no method change)",
+    "<repo>/tools/benchmarks/g02/run_round3.sh (new)",
+    "<repo>/tools/benchmarks/g02/assemble_round3.py (new; adds the round3 key only)"
+  ],
+  "commands_run": [
+    {
+      "command": "sha256 + size check of all go/rust dist targets against dist/manifest.json (g02bench.artifact_inventory, HM_G02_CANDS=go,rust)",
+      "exit_code": 0,
+      "observed": "manifest_matches_disk true for all 8 targets (go and rust x darwin-arm64, linux-arm64, linux-x64, windows-x64) before the run; sha256 also unchanged after the measure run and after the idle run (artifact_sha256_unchanged_during_run true for both)."
+    },
+    {
+      "command": "tools/benchmarks/g02/run_round3.sh (HM_G02_CANDS=go,rust; measure.py --idle-s 30 --idle-reps 2; idle_long.py --idle-s 300 --reps 3; --out-dir round3)",
+      "exit_code": 0,
+      "observed": "measure rc=0 (2026-10-06T03:29:13Z to 03:36:40Z; 2 passes, warmup 10, n 100, rss-n 15, tui-n 30, key-sessions 30, cold-n 5); idle_long rc=0 (to 04:07:07Z). 0 failed samples, 0 failed TUI sessions, no forced kills."
+    },
+    {
+      "command": "HM_G02_CANDS=go,rust tests/g02/.venv/bin/python tools/benchmarks/g02/assemble_round3.py",
+      "exit_code": 0,
+      "observed": "round3 key written into g02-measurements.json; JSON parses; the rest of the file (round-2 content incl. ts rows) is byte-equal to the pre-edit copy (compared in Python before the later text-only reassembly). grep for HEIMDALL_CANARY in round3/ and the JSON: no matches (grep rc 1)."
+    }
+  ],
+  "escalations": [],
+  "limitations": [
+    "Load before the run: 1-min load average 2.94-3.3 on 18 cores. A dev app (about 25% of one core) and a speech-to-text process (about 22% of one core) were running; nothing build- or test-heavy, so no wait was needed. Load stayed 2.9-5.1 during the measure passes and 1.5-4.6 during the idle holds; round 2 was 1.5-7. Machine not isolated.",
+    "The pty control floor moved: control first-frame p50 was 4.3/4.0 ms (homelab/large-100) in round 2 and 6.3/5.7 ms in round 3; the /usr/bin/true floor was 2.26 ms (round 2) and 2.10 ms (round 3). Rust first-frame raw p50 rose 24% (homelab) and 8.5% (large-100), the same size as the pty-floor shift; above the control floor rust is 0.87/4.63 ms in round 3 against 1.42/5.52 ms in round 2. Cause of the floor shift not isolated.",
+    "Candidate subset (go, rust, control) changes round-robin neighbours compared with round 2 (go, rust, ts, control); the method is otherwise identical. TS was not re-measured; its round-2 rows are kept and shown only as a frozen reference.",
+    "Latencies come from Python spawn plus a pyte emulator, with a floor included. Keystroke latency has no control row. The go filter p95 of about 16 ms being a 60 fps tick is an inference from round 2, not isolated.",
+    "go idle CPU is 0.35% of one core (1.04-1.06 s CPU per 300 s, about half user and half sys) against the spec 15.1 target of < 0.5%; cause not investigated. rust is 0.031%.",
+    "Only darwin-arm64 binaries were executed. Linux and windows artifacts were only hashed and sized; no clean-environment, conformance or Windows runs were part of this task. The Windows host is unavailable. Conformance is not judged.",
+    "All 8 go/rust artifact sha256 differ from round 2 (rebuilt); exe sizes changed 0 to 0.9%.",
+    "Records are measurements, not gate verdicts. K17 (filter p95 <= 100 ms) is represented by filter_type_ms p95 (420 keystrokes per candidate) and is far below 100 ms for both."
+  ],
+  "summary": "Re-measured go and rust darwin-arm64 (prototypes/*/dist, sha256 verified against manifests before and after; not rebuilt) with the unchanged round-2 method; ts untouched. All numbers are in the new `round3` key of tests/evidence/g02-measurements.json (tables, harness_floors_control_rows, comparison_round2_vs_round3, idle_long_hold_300s, per_pass_drift, artifact_bytes_and_sha256, load, limitations); raw data is in tests/evidence/artifacts/g02-measure/round3/. Round-2 data is unchanged. Pooled over 2 passes (go / rust / control floor), p50 / p95 in ms: startup `version --json` 3.63/4.13 / 2.78/3.19 / 2.10/2.50 (n=200); `profile show` large-100 4.10/4.44 / 3.39/3.76 / 2.13/2.45; TUI first frame homelab 23.97/27.66 / 7.12/8.05 / 6.25/7.08 (n=60); TUI first frame large-100 28.42/33.81 / 10.37/13.00 / 5.74/6.62; keystroke (all keys, n=1680) 3.90/15.89 / 0.58/2.65; j moves 3.84/6.12 / 0.56/0.96; filter typing, the K17 method (n=420) 4.03/16.20 / 0.60/2.67 (go filter p95 95% CI 15.4-16.8, rust 2.0-2.9); no failed sessions. Peak RSS p50/max (time -l, bytes): version go 7.54/7.75 MB, rust 2.31/2.31 MB, control 1.26 MB; profile large-100 go 8.28/8.54 MB, rust 3.49/3.52 MB; TUI workload go 10.69/10.93 MB, rust 3.69/3.74 MB. Idle CPU 300 s x 3, net percent of one core: go 0.3535 (max 0.3557), rust 0.0313 (max 0.0336). Round 2 to round 3 changes are small for go (p50 within -7% to +1% for everything but RSS and floors; idle 0.337 to 0.354) and rust (startup +4%, keystroke p50 -20%, idle 0.036 to 0.031), apart from rust first frame, which rose with the pty floor (see limitations). Artifacts (raw bytes / gzip -9 of exe / tar.gz-9, sha256 in the JSON): go darwin-arm64 5212000 / 1993768 / 1993990, linux-arm64 5177504 / 1958190, linux-x64 5451936 / 2171473, windows-x64 5100032 / 2006407; rust darwin-arm64 718080 / 373433 / 373642, linux-arm64 813480 / 444211, linux-x64 876464 / 448023, windows-x64 841728 / 425082. Script changes limited to a candidate-subset env var in g02bench.py plus new run_round3.sh and assemble_round3.py; no method change. Nothing committed.\""
+}

@@ -1,0 +1,18 @@
+inventory done
+pass 1 startup_version
+pass 1 startup_profile
+pass 1 rss_cli
+pass 1 tui_first_frame
+pass 1 tui_keystroke
+pass 1 rss_tui
+pass 1 tui_idle
+pass 1 cold
+pass 2 startup_version
+pass 2 startup_profile
+pass 2 rss_cli
+pass 2 tui_first_frame
+pass 2 tui_keystroke
+pass 2 rss_tui
+pass 2 tui_idle
+pass 2 cold
+wrote tests/evidence/artifacts/g02-measure/round3/host-raw.json

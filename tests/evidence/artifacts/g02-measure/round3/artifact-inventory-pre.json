@@ -1,0 +1,205 @@
+{
+  "at": "2026-10-06T03:28:48Z",
+  "inventory": {
+    "go": {
+      "darwin-arm64": {
+        "manifest_entry": {
+          "target": "darwin-arm64",
+          "path": "darwin-arm64/heimdall-proto",
+          "bytes": 5212000,
+          "sha256": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6",
+          "built": true,
+          "error": null
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto",
+            "bytes": 5212000,
+            "sha256": "31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6"
+          }
+        ],
+        "total_bytes_on_disk": 5212000,
+        "exe_bytes": 5212000,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 1993990
+      },
+      "linux-arm64": {
+        "manifest_entry": {
+          "target": "linux-arm64",
+          "path": "linux-arm64/heimdall-proto",
+          "bytes": 5177504,
+          "sha256": "d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9",
+          "built": true,
+          "error": null
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto",
+            "bytes": 5177504,
+            "sha256": "d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9"
+          }
+        ],
+        "total_bytes_on_disk": 5177504,
+        "exe_bytes": 5177504,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 1958296
+      },
+      "linux-x64": {
+        "manifest_entry": {
+          "target": "linux-x64",
+          "path": "linux-x64/heimdall-proto",
+          "bytes": 5451936,
+          "sha256": "429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a",
+          "built": true,
+          "error": null
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto",
+            "bytes": 5451936,
+            "sha256": "429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a"
+          }
+        ],
+        "total_bytes_on_disk": 5451936,
+        "exe_bytes": 5451936,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 2171676
+      },
+      "windows-x64": {
+        "manifest_entry": {
+          "target": "windows-x64",
+          "path": "windows-x64/heimdall-proto.exe",
+          "bytes": 5100032,
+          "sha256": "ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed",
+          "built": true,
+          "error": null
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto.exe",
+            "bytes": 5100032,
+            "sha256": "ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed"
+          }
+        ],
+        "total_bytes_on_disk": 5100032,
+        "exe_bytes": 5100032,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 2006640
+      }
+    },
+    "rust": {
+      "darwin-arm64": {
+        "manifest_entry": {
+          "target": "darwin-arm64",
+          "path": "darwin-arm64/heimdall-proto",
+          "bytes": 718080,
+          "sha256": "496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b",
+          "built": true,
+          "error": null,
+          "build_seconds": 0
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto",
+            "bytes": 718080,
+            "sha256": "496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b"
+          }
+        ],
+        "total_bytes_on_disk": 718080,
+        "exe_bytes": 718080,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 373642
+      },
+      "linux-arm64": {
+        "manifest_entry": {
+          "target": "linux-arm64",
+          "path": "linux-arm64/heimdall-proto",
+          "bytes": 813480,
+          "sha256": "47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0",
+          "built": true,
+          "error": null,
+          "build_seconds": 0
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto",
+            "bytes": 813480,
+            "sha256": "47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0"
+          }
+        ],
+        "total_bytes_on_disk": 813480,
+        "exe_bytes": 813480,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 444420
+      },
+      "linux-x64": {
+        "manifest_entry": {
+          "target": "linux-x64",
+          "path": "linux-x64/heimdall-proto",
+          "bytes": 876464,
+          "sha256": "961e3fb9f02e916ae25e2c4ac8e882dcd074301f90b9f7c1640249eec909ef72",
+          "built": true,
+          "error": null,
+          "build_seconds": 1
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto",
+            "bytes": 876464,
+            "sha256": "961e3fb9f02e916ae25e2c4ac8e882dcd074301f90b9f7c1640249eec909ef72"
+          }
+        ],
+        "total_bytes_on_disk": 876464,
+        "exe_bytes": 876464,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 448197
+      },
+      "windows-x64": {
+        "manifest_entry": {
+          "target": "windows-x64",
+          "path": "windows-x64/heimdall-proto.exe",
+          "bytes": 841728,
+          "sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+          "built": true,
+          "error": null,
+          "build_seconds": 0
+        },
+        "present": true,
+        "files": [
+          {
+            "path": "heimdall-proto.exe",
+            "bytes": 841728,
+            "sha256": "dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd"
+          }
+        ],
+        "total_bytes_on_disk": 841728,
+        "exe_bytes": 841728,
+        "sidecar_bytes": 0,
+        "sidecar_paths": [],
+        "manifest_matches_disk": true,
+        "tar_gz9_bytes": 425304
+      }
+    }
+  }
+}
