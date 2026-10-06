@@ -1,0 +1,35 @@
+Source: https://raw.githubusercontent.com/PowerShell/openssh-portable/latestw_all/contrib/win32/win32compat/ssh-agent/agent.c
+Fetched 2026-10-06; branch head e581929d3d0c (2026-09-25); last commit touching agent.c e0ae79ff3c70 (2025-04-08); file sha256 bf7fb1bc45b87509a8e0d2d5ffd0aa9696ff28ef3a90af8479cb004b072f3e59
+Excerpt (get_con_client_info), verbatim:
+static int
+get_con_client_info(struct agent_connection* con)
+{
+	int r = -1;
+	char sid[SECURITY_MAX_SID_SIZE];
+	ULONG client_pid;
+	DWORD reg_dom_len = 0, info_len = 0, sid_size;
+	DWORD sshd_sid_len = 0;
+	PSID sshd_sid = NULL;
+	HANDLE client_primary_token = NULL, client_impersonation_token = NULL, client_process_handle = NULL;
+	TOKEN_USER* info = NULL;
+	BOOL isMember = FALSE;
+
+	if (GetNamedPipeClientProcessId(con->pipe_handle, &client_pid) == FALSE ||
+		(client_process_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_DUP_HANDLE, FALSE, client_pid)) == NULL ||
+		OpenProcessToken(client_process_handle, TOKEN_QUERY | TOKEN_DUPLICATE, &client_primary_token) == FALSE ||
+		DuplicateToken(client_primary_token, SecurityImpersonation, &client_impersonation_token) == FALSE) {
+		error("cannot retrieve client impersonation token");
+		goto done;
+
+Installed binary on the host (read-only file read via WSL; the agent service and its pipe were NOT contacted):
+command: strings -a /mnt/c/Windows/System32/OpenSSH/ssh-agent.exe | grep -c -x <API name> ; version string via strings
+exit: 1 (the last grep found no match for the p-suffixed form; the earlier commands printed the lines below)
+present
+GetNamedPipeClientProcessId=1
+ImpersonateNamedPipeClient=0
+OpenProcessToken=1
+OpenThreadToken=0
+DuplicateToken=1
+OpenSSH_9.5p2 for Windows
+
+go-winio v0.6.2 (module cache on the Mac) pipe.go: DialPipeAccess -> DialPipeAccessImpLevel(..., PipeImpLevelAnonymous); tryDialPipe passes FILE_FLAG_OVERLAPPED|SECURITY_SQOS_PRESENT|FileSQSFlag(impLevel)

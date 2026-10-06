@@ -1,0 +1,1 @@
+{"op":"pipe-client","level":"impersonation","verdict":"ok","echo":"echo:hello","ok":true}

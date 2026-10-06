@@ -1,0 +1,108 @@
+{
+  "task_id": "M00-T04-G03-native-wsl",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/native/wsl/g03_common.sh",
+    "<repo>/tests/native/wsl/run_g03_wsl_probes.sh",
+    "<repo>/tests/native/wsl/evidence.py",
+    "<repo>/tests/native/wsl/README.md",
+    "<repo>/tests/native/wsl/CHANGELOG-native.md (new)",
+    "<repo>/tests/evidence/g03-wsl-env-inventory.json",
+    "<repo>/tests/evidence/g03-wsl-a-executable-selection.json",
+    "<repo>/tests/evidence/g03-wsl-a-process-io.json",
+    "<repo>/tests/evidence/g03-wsl-a-path-quoting.json",
+    "<repo>/tests/evidence/g03-wsl-a-git.json",
+    "<repo>/tests/evidence/g03-wsl-a-cert-change.json",
+    "<repo>/tests/evidence/g03-wsl-a-elevation.json",
+    "<repo>/tests/evidence/g03-wsl-b-endpoint-perms.json",
+    "<repo>/tests/evidence/g03-wsl-b-unauthorized-key.json",
+    "<repo>/tests/evidence/g03-wsl-b-relay-attribution.json",
+    "<repo>/tests/evidence/g03-wsl-b-socket-deletion.json",
+    "<repo>/tests/evidence/g03-wsl-b-stale-socket.json",
+    "<repo>/tests/evidence/g03-wsl-b-teardown-deadline.json",
+    "<repo>/tests/evidence/g03-wsl-b-host-lock.json",
+    "<repo>/tests/evidence/g03-wsl-b-multi-distro-exposure.json",
+    "<repo>/tests/evidence/g03-wsl-b-distro-restart.json",
+    "<repo>/tests/evidence/g03-wsl-b-idle-timeout.json",
+    "<repo>/tests/evidence/artifacts/g03/native-wsl/ (new tree, 563 files, 1.8 MB: runs/r2 [promoted source], runs/r3-msi10 [supplementary run, Mode A with C:\\Program Files\\OpenSSH\\ssh.exe 10.0p2], runs/r1 [debug run before fix 4; whoami artifact trimmed to the Mandatory Label row], windows-serve/ [manifest, target and decoy agent logs, public probe keys, serve console], fixture/ [sshd configs, redacted sshd logs, known_hosts, disposable CA public key, scratch helper scripts], console/ [r1-r3 console logs])",
+    "<repo>/docs/research/g03-windows-wsl.md (only the §0 WSL rows, now 5 rows split executed/inconclusive/blocked, and the new §0.2 'First WSL run (2026-10-06)' with the AI-agent subsection)"
+  ],
+  "commands_run": [
+    {
+      "command": "ssh <winhost>: setup.sh + fixture-up.sh (copy the harness to WSL and Windows task scratch; two loopback non-root sshd 9.6p1: A public-key + bare repo, B certificate-only with a per-run disposable user CA)",
+      "exit_code": 0,
+      "observed": "Both sshd instances listening on 127.0.0.1 (A 55090, B 59849); disposable CA and host key generated in scratch."
+    },
+    {
+      "command": "ssh <winhost>: serve-up.sh 3000 serve1 (pwsh 7.6.6 launch.ps1 -> Invoke-G03WindowsProbes.ps1 -ServeAgentForWsl -ServeSeconds 3000, TEMP pinned to Windows scratch)",
+      "exit_code": 0,
+      "observed": "Manifest written: target pipe heimdall-g03-wsl-a3154a3a (key 1 allowed, key 2 filtered), decoy heimdall-g03-wsldecoy-bf36baca. Manifest key 1 authorized on sshd A with restrict. psfind showed 3 pwsh.exe processes for this task (serve + 2 agents). No Windows harness change was needed."
+    },
+    {
+      "command": "wsl.exe -d Ubuntu --exec bash run.sh r1 (run_g03_wsl_probes.sh, all 14 probes)",
+      "exit_code": 0,
+      "observed": "12 records verified/in_progress plus b-host-lock blocked. a-cert-change verdict fail: 'banner exchange: Connection to UNKNOWN port -1: Connection refused'. Diagnosed: Windows TcpClient to 59849 actively refused; netsh excludedportrange shows 59758-59857, so NAT localhost forwarding cannot relay that port (fixture problem). The whoami /groups artifact also contained a MicrosoftAccount e-mail address, which led to fix 4."
+    },
+    {
+      "command": "fixB-restart.sh (stop sshd B by exact PID after a cmdline check; restart on a port checked against Windows excluded ranges)",
+      "exit_code": 0,
+      "observed": "sshd B moved to 40127; Windows connect ok."
+    },
+    {
+      "command": "wsl.exe -d Ubuntu --exec bash run.sh r2 (final harness, all 14 probes)",
+      "exit_code": 0,
+      "observed": "verified/pass: env-inventory, a-executable-selection, a-process-io, a-path-quoting, a-git, a-cert-change, b-unauthorized-key, b-relay-attribution, b-socket-deletion, b-stale-socket, b-teardown-deadline. in_progress/inconclusive: a-elevation (no_uac_prompt_observed null, needs an operator attestation; interop_child_not_elevated true), b-endpoint-perms (other-Linux-user row null). blocked: b-host-lock (operator). Canary scan clean (exit 0)."
+    },
+    {
+      "command": "wsl.exe -d Ubuntu --exec bash run-msi.sh r3-msi10 --probes a-exec,a-io,a-quoting,a-git,a-cert (C:\\Program Files\\OpenSSH first on PATH)",
+      "exit_code": 0,
+      "observed": "All 5 verified/pass with OpenSSH_for_Windows_10.0p2; same criteria as r2."
+    },
+    {
+      "command": "collect.sh (copy agent logs, manifest, fixture logs; evidence.py redact-tree), then a remote grep for the WSL user, Windows user, computer name, hostname, $HOME, @gmail, the HEIMDALL_CANARY_ prefix and raw S-1-5-21 SIDs",
+      "exit_code": 0,
+      "observed": "0 files matched any pattern. Decoy agent log: only the 'listening' event, no connection across r1-r3. Target log: 120 connects from ssh, 12 from powershell (relay)."
+    },
+    {
+      "command": "psstop.ps1 -TargetPid 15020 (exact PID + start time + task marker), then psfind",
+      "exit_code": 0,
+      "observed": "'stopped'. The serve process then stopped the decoy, removed its scratch and exited. psfind afterwards: no processes."
+    },
+    {
+      "command": "stop sshd A/B by exact PID with cmdline check; rm -rf of the exact WSL and Windows task scratch paths; leftover checks",
+      "exit_code": 0,
+      "observed": "Both sshd stopped. Afterwards: 0 task processes in WSL, 0 Windows processes with the task marker, 0 PipeStdioRelay processes, 0 heimdall-g03 pipes, 0 /run/user/<uid>/hg03-* dirs."
+    },
+    {
+      "command": "promote.py / lifecycle.py (local, outside the repo) + stdlib schema check of 51 records",
+      "exit_code": 0,
+      "observed": "14 r2 records promoted, with provenance, the r3 cross-check and limitations added. 3 lifecycle records written as blocked, not run. 51 records checked, 0 schema problems, 0 evidence_paths missing. r2 and r3 harness_sha256 match the committed WSL harness files."
+    },
+    {
+      "command": "bash -n / python ast / shellcheck -x -S warning (from tests/native/wsl)",
+      "exit_code": 0,
+      "observed": "Syntax ok; shellcheck rc 0 for both the current files and HEAD."
+    },
+    {
+      "command": "WebFetch/WebSearch/gh api on the agent docs and source (code.claude.com setup/sandboxing/tools-reference; learn.chatgpt.com config-advanced/windows-sandbox; openai/codex linux-sandbox README @aa380897f67b; earendil-works/pi shell.ts @b485fa3128c3, docs/windows.md @30a1d1849da2, README @c71a496ff994; anomalyco/opencode core shell.ts @f2cf60737668, tool/bash.ts @96d53c6716a1; cursor.com run-modes/blog/forum)",
+      "exit_code": 0,
+      "observed": "Findings are in doc §0.2, each labeled [D]/[S]/[C]/[I]; nothing was installed or run."
+    }
+  ],
+  "escalations": [
+    "Transcript exposure, not in the repo: while diagnosing the redaction gap, two of my diagnostic outputs printed the owner's Microsoft-account e-mail address (whoami /groups) and, separately, the WSL user name inside a home path into this session's tool output. No repository file contains them; the remote scan found 0 matches and the local grep was clean. The owner may want to know the session transcript contains them.",
+    "To unblock the remaining WSL rows, the owner needs to decide: (1) whether to allow creating a disposable second WSL distribution (wsl --import) and running wsl --terminate on it, for P-B08 multi-distribution, P-B09 restart and P-B10 idle; (2) whether someone will be at the console for P-B07 host lock and for the P-A06 'no UAC prompt' attestation; (3) whether a second Linux account with non-interactive sudo may be created, for the P-B01 other-user rows; (4) whether a second Windows account may be created, for P-B11."
+  ],
+  "limitations": [
+    "No independent adversarial review: this subagent had no delegation tool for it; all checks are self-checks.",
+    "Two records are in_progress/inconclusive by design and need operator or system-change inputs: G03-wsl-a-elevation (UAC attestation) and G03-wsl-b-endpoint-perms (second Linux account). Five are blocked: b-host-lock, b-multi-distro-exposure, b-distro-restart, b-idle-timeout, and b-other-windows-user (unchanged from the Windows task). run_g03_wsl_lifecycle.sh never ran, as instructed.",
+    "The P-A01 unset-IdentityAgent-variable row was skipped by the harness because the owner's \\\\.\\pipe\\openssh-ssh-agent exists, so whether ssh.exe falls back to it from WSL remains unknown.",
+    "The certificate probe used a per-run disposable user CA, not the M00-T03 ca-host1 CA. The SSH fixture ran in the same WSL distribution, reached by Windows ssh.exe through NAT localhost forwarding, not a separate host.",
+    "Mode A defaulted to the in-box ssh.exe 9.5p2 because this distribution has appendWindowsPath=false, so ssh.exe is not on PATH. The MSI 10.0p2 client was covered only by the supplementary r3 run.",
+    "The P-A03 Linux-path -F success is probably an artifact of ssh.exe inheriting a \\\\wsl.localhost UNC working directory (inference, not tested separately).",
+    "The AI-agent subsection is from docs and source only; nothing was observed. The Cursor WSL-remote behavior and shell are inference or unknown, and Codex's login-shell behavior comes from community issues.",
+    "build_commit is null in the promoted records: the harness ran from a copy of the working tree (HEAD 404cc1e plus uncommitted harness changes). The exact files are identified by environment.harness_sha256_*.",
+    "A concurrent task (M00-T05-x1-g02-native) was using the same host. Its scratch under ~/hm-m00 was gone by the end of my run; I removed only my exact task paths. Its ssh.exe processes could in principle have affected the 'no orphan ssh.exe' count, but the observed count was 0, the passing value."
+  ],
+  "summary": "I ran the G03 WSL harness for the first time in the owner's WSL2 Ubuntu 24.04.5 (WSL 3.0.1, networking mode nat, appendWindowsPath=false). It ran in a wsl.exe-launched session, with the Windows fixture agent from Invoke-G03WindowsProbes.ps1 -ServeAgentForWsl (pwsh 7.6.6, fixture and decoy pipe names only). The WSLENV SSH_AUTH_SOCK/w echo gate passed before any ssh.exe run, and the decoy saw no connection in any of the three runs.\n\nDefinitive run r2, promoted into tests/evidence/g03-wsl-*.json:\n- verified/pass (11): env-inventory, a-executable-selection, a-process-io, a-path-quoting, a-git, a-cert-change, b-unauthorized-key, b-relay-attribution, b-socket-deletion, b-stale-socket, b-teardown-deadline.\n- in_progress/inconclusive (2): a-elevation (child observed not elevated; the UAC attestation needs an operator) and b-endpoint-perms (the other-Linux-user row needs a second account).\n- blocked (4): b-host-lock (operator) and the lifecycle probes multi, restart and idle. Those need a disposable second distribution and wsl --terminate, which were not authorized; they were not run.\n\nSupplementary run r3 repeated the Mode A probes with the MSI ssh.exe 10.0p2, with identical results. Debug run r1 failed only the certificate rows, because the fixture port fell in a Windows excluded port range (fixture problem, then fixed).\n\nFour harness defects were fixed with minimal changes, logged in tests/native/wsl/CHANGELOG-native.md; no criterion was weakened:\n1. Windows tools were not on PATH.\n2. Endpoint directories under XDG_RUNTIME_DIR were left behind.\n3. Redaction lacked the <wsluser>/<winuser>/<winhost>/<wslhome>/<winhome> tokens.\n4. whoami /groups leaked a Microsoft-account e-mail address; only the label row is kept now, plus e-mail redaction.\n\nDoc changes: the §0 WSL rows are updated, and the new §0.2 covers the run plus how Claude Code, Codex, Pi, Cursor and OpenCode would start ssh inside WSL. All of them would use Linux /usr/bin/ssh with an inherited environment; Codex and OpenCode use login shells; the Claude Code, Codex and Cursor sandboxes block plain ssh TCP and possibly AF_UNIX; Pi and OpenCode have no sandbox.\n\nAll host processes, pipes, sshd fixtures and scratch were removed (verified). No commit was made."
+}

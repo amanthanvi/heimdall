@@ -1,0 +1,5 @@
+# harness bundle copied to WSL (git archive of 772a6b1; excludes tests/g02/selftest-results)
+37a6a46f9fbe6507a9b39c460fd1aa5f9f98234ae9910c3309b3091cc3f483ef  harness.tar
+# artifacts (verified on the Mac against dist/manifest.json and again on the host with sha256sum)
+429063bf670415ace591759bbfde5187946b2c9e0d2025686ed0698ef3053a5a  prototypes/go/dist/linux-x64/heimdall-proto
+961e3fb9f02e916ae25e2c4ac8e882dcd074301f90b9f7c1640249eec909ef72  prototypes/rust/dist/linux-x64/heimdall-proto

@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"succeeded","code":"AGENT_OK","data":{"identities":[{"key_type":"ecdsa-sha2-nistp256","fingerprint":"SHA256:bfW/h76k78qmDR01tXC1p2zXQLolSq3ebCUQFjpIIa8","comment":"heimdall-g03-probe-1"},{"key_type":"ecdsa-sha2-nistp256","fingerprint":"SHA256:rOeT6XcM5P2M1V+HSYOCFVaV+SJ1HKeGNkDHYJjh1io","comment":"heimdall-g03-probe-2"}]},"warnings":[],"next":null}

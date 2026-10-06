@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T06:50:44.1541338Z","agent_pid":77704,"event":"listening","keys":["SHA256:wYUKTBut0oQdaN3U5wzeCRAfazURhtuQ/HgI7mIJay0","SHA256:SNaTGH4eXb/YBpSyjli/t2Nl1D11soAn2p6xCLYHa5A"],"pipe":"hm-x1-agent-rust-fc3f3a91","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-fc3f3a91"}
+{"client_pid":37176,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T06:50:44.4187137Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T06:50:44.4319764Z","event":"request","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T06:50:44.4324895Z","event":"response","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-fc3f3a91","agent_pid":77704,"event":"disconnect","ts":"2026-10-06T06:50:44.4398276Z"}
+{"method":"disconnect","ts":"2026-10-06T06:50:44.4413566Z","event":"rearm","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","conn":1}
+{"client_pid":74208,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T06:50:44.7899862Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T06:50:44.7930063Z","event":"request","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T06:50:44.7945354Z","event":"response","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-fc3f3a91","agent_pid":77704,"event":"disconnect","ts":"2026-10-06T06:50:44.7955824Z"}
+{"method":"disconnect","ts":"2026-10-06T06:50:44.7955824Z","event":"rearm","agent_pid":77704,"pipe":"hm-x1-agent-rust-fc3f3a91","conn":2}

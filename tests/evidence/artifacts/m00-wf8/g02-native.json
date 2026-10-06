@@ -1,0 +1,109 @@
+{
+  "task_id": "M00-T05-x1-g02-native",
+  "status": "verified",
+  "files_changed": [
+    "tests/native/windows-g02/Invoke-G02WindowsX1.ps1",
+    "tests/native/windows-g02/G02X1Native.cs",
+    "tests/native/windows-g02/Send-ConsoleCtrl.ps1",
+    "tests/native/windows-g02/StallPipe.ps1",
+    "tests/native/windows-g02/expected-homelab.json",
+    "tests/native/windows-g02/argvdump/main.go",
+    "tests/native/windows-g02/argvdump/go.mod",
+    "tests/evidence/g02-go-conformance-linux-x64.json",
+    "tests/evidence/g02-rust-conformance-linux-x64.json",
+    "tests/evidence/g02-go-x1-windows.json",
+    "tests/evidence/g02-rust-x1-windows.json",
+    "tests/evidence/artifacts/g02-r4/x1/RESULTS.md",
+    "tests/evidence/artifacts/g02-r4/x1/linux-x64/ (run-linux.sh, notoolchain.sh, notoolchain.txt, run-linux.log, console-{go,rust}.log, arts-{go,rust}/, compare-platforms.txt, compare-structural.txt, inputs.sha256)",
+    "tests/evidence/artifacts/g02-r4/x1/windows/ (final-ps51-a/, final-ps7-a/, final-ps51-b/ with results.json + rows/, *.console.txt, staged-root.sha256, argvdump-build.txt, winrun.sh, used-g03-module/G03Common.psm1)",
+    "tests/evidence/artifacts/g02-r4/x1/x4-windows-run/ (RESULTS.md, run-x4-pipe-subset.ps1, out-ps51/, build-x4.log, hashes.txt)"
+  ],
+  "commands_run": [
+    {
+      "command": "shasum -a 256 prototypes/{go,rust}/dist/{linux-x64/heimdall-proto,windows-x64/heimdall-proto.exe} vs dist/manifest.json (Mac), sha256sum on WSL host, integrity row on Windows",
+      "exit_code": 0,
+      "observed": "All four artifacts match their manifests (go linux 429063bf..., go win ca5145d1..., rust linux 961e3fb9..., rust win dde9662f...). They also matched on the host."
+    },
+    {
+      "command": "WSL: python -m venv + pip install --require-hashes -r tests/g02/requirements.txt",
+      "exit_code": 0,
+      "observed": "Installed pyte 0.8.2 and wcwidth 0.9.1 into the WSL scratch venv."
+    },
+    {
+      "command": "WSL: run-linux.sh -> tests/g02/conformance.py --bin art/go/heimdall-proto --candidate go --case-id G02-go-conformance-linux-x64 ...",
+      "exit_code": 0,
+      "observed": "verified/pass, 139/139, 184.2 s."
+    },
+    {
+      "command": "WSL: run-linux.sh -> tests/g02/conformance.py ... --candidate rust --case-id G02-rust-conformance-linux-x64",
+      "exit_code": 0,
+      "observed": "verified/pass, 139/139, 184.2 s."
+    },
+    {
+      "command": "WSL: notoolchain.sh (env -i PATH=/usr/bin:/bin and an empty PATH dir)",
+      "exit_code": 0,
+      "observed": "Both artifacts are static (ldd: not a dynamic executable). version, profile show, run and agent list behave the same under both PATHs, except `run -- true`: 127 with the empty PATH, 0 with /usr/bin:/bin. Caveat: /usr/bin holds go, gcc and node on this host."
+    },
+    {
+      "command": "GOOS=windows GOARCH=amd64 go vet + go build tests/native/windows-g02/argvdump",
+      "exit_code": 0,
+      "observed": "argvdump.exe sha256 678efbbc..."
+    },
+    {
+      "command": "powershell.exe -File Invoke-G02WindowsX1.ps1 -Root <scratch> -OutDir out\\final-ps51-a",
+      "exit_code": 1,
+      "observed": "167 rows. go: 63/63 gating rows pass. rust: 60/63; fails profile.named_pipe_as_file, agent.regular_file_not_modified and tui.named_pipe_as_file. Host controls all pass."
+    },
+    {
+      "command": "pwsh.exe (7.6.6) -File Invoke-G02WindowsX1.ps1 ... -OutDir out\\final-ps7-a",
+      "exit_code": 1,
+      "observed": "Same verdicts as final-ps51-a for every row."
+    },
+    {
+      "command": "powershell.exe -File Invoke-G02WindowsX1.ps1 ... -OutDir out\\final-ps51-b",
+      "exit_code": 1,
+      "observed": "Same verdicts as the other two runs for every row (167/167)."
+    },
+    {
+      "command": "sh tests/evidence/artifacts/g02-r4/x4/windows/build.sh <mac scratch> (GOPROXY=off, CARGO_NET_OFFLINE=true)",
+      "exit_code": 0,
+      "observed": "x4-go.exe d058981a... and x4-rust.exe ad777306... are identical to the SHA-256s in the spike's RESULTS.md. The spike tree's file hashes did not change."
+    },
+    {
+      "command": "powershell.exe -File run-x4-pipe-subset.ps1 -BinDir x4bin -OutDir out-ps51",
+      "exit_code": 0,
+      "observed": "pass=10 fail=0 blocked=18. The 5 named-pipe checks pass for both languages. DPAPI, CNG and TPM were not run (blocked); other-user and remote checks are blocked as designed."
+    },
+    {
+      "command": "python3 tests/g02/minischema.validate(record.schema.json, each of the 4 new records)",
+      "exit_code": 0,
+      "observed": "No errors for any of the 4 records."
+    },
+    {
+      "command": "grep scans for user/host names, home paths, full SIDs and HEIMDALL_CANARY_ values over all outputs",
+      "exit_code": 1,
+      "observed": "No matches after redaction (grep exit 1 means no match). The Windows harness.canary_scan row counted 0 hits before redaction."
+    },
+    {
+      "command": "cleanup: rm -rf WSL ~/hm-m00/M00-T05-x1-g02-native, Windows %LOCALAPPDATA%\\hm-m00\\M00-T05-x1-g02-native, /tmp/M00-T05-x1-g02-native",
+      "exit_code": 0,
+      "observed": "All three scratch directories are gone. The parent hm-m00 directories hold another task's entry and were kept. No process from scratch was running."
+    }
+  ],
+  "escalations": [
+    "K14 scope on Windows: does K14 ('a FIFO, socket, device or directory') cover a Windows named pipe given as --file? X1 gates it as the FIFO analog. Rust blocks (no exit in 10 s; the harness killed it) in both `profile show` and `tui`. Go exits 2 in under 60 ms. A contract ruling is needed before this counts toward the verdict.",
+    "Rust overwrites a regular file given as `agent list --socket`: its first 5 bytes become 00 00 00 01 0b and the mtime changes. The task criterion says the file must not be modified. Contract §1 forbids writes only outside paths named on the command line, so this is not a literal §1 violation, but it is a user-data loss path. The orchestrator should decide how to weigh it.",
+    "X4 DPAPI, CNG and TPM were not run on the owner's personal PC. run-x4-windows.ps1 always creates and deletes persisted keys in the user's key store and on the TPM, and uses the DPAPI master key. That is outside the scratch-only scope and next to the 'never touch keychains' rule. Running them needs either owner authorization or a disposable Windows account or host.",
+    "Deviation from item 3: the spike directory contains no built binaries. I rebuilt them with the spike's own build.sh (byte-identical to the recorded SHA-256s) and ran a mechanically derived pipe-only runner (x1/x4-windows-run/run-x4-pipe-subset.ps1) instead of the spike runner as is. The spike was not modified. The orchestrator should accept or reject this.",
+    "Concurrent edit: another task has uncommitted changes in tests/native/windows/ (G03Common.psm1 and others). My Windows runs used that working-tree G03Common.psm1 (e0bf3cc4..., not HEAD 57d295c1...). A copy is preserved in x1/windows/used-g03-module/. No row depends on the changed functions. I did not touch those files."
+  ],
+  "limitations": [
+    "One host: the owner's Windows 11 Pro 26300 x64 PC, as the non-elevated user, plus its WSL2 Ubuntu 24.04.5. Not covered: a second Windows account (other-user pipe DACL), an SMB peer, ARM64 Windows, and interop with the real Win32-OpenSSH agent (never contacted; the fixture agent stood in).",
+    "Windows console rows ran only under pseudoconsoles (CreatePseudoConsole via P/Invoke) and were judged on a small VT screen model (unit-tested by harness.screen_model_unit). A classic conhost window, Windows Terminal and the legacy console were not exercised. CTRL_CLOSE, LOGOFF and SHUTDOWN events were not tested. CTRL_BREAK was recorded only.",
+    "linux-x64 ran natively in WSL2 without the pinned container (no --network none, no cap drop). It is X1 cross-platform evidence, not a K13 verdict platform. zsh is not installed, so the non-gating zsh K6e observations were not run. /usr/bin holds go, gcc and node, so the toolchain-free claim rests on the empty-PATH run.",
+    "Non-gating Windows observations that matter for the ADR:\n- Go's agent pipe client connects at SecurityAnonymous (fixture agent: OpenThreadToken error 1347), so a client-checking server such as Win32-OpenSSH ssh-agent could not identify it. That this comes from go-winio's DialPipeContext default is an inference.\n- Go `run` of a .cmd whose path contains a space let `a&echo INJECTED_X1` run a second command.\n- From stderr line counts (inference), Go's .cmd launches appear to run the user's cmd AutoRun; Rust's do not.\n- Rust resolves `run -- name` from heimdall-proto's own directory and from System32 before PATH; Go uses PATH and refuses current-directory matches (ErrDot).\n- A TUI that receives a CTRL_C_EVENT from another process: Go exits 1 with the terminal restored; Rust is killed (0xC000013A) and leaves the alternate screen active.",
+    "Not tested: long paths over MAX_PATH, UNC working directories, other code pages, SmartScreen and Mark-of-the-Web (files came through WSL without a Zone.Identifier), Defender, and launching the .exe from WSL through interop.",
+    "The Windows script was written and debugged in this task. Its controls pass (screen model, a Ctrl-C delivery control, argv quoting control, canary scan), and the three final runs agree row for row. It has had no independent or adversarial review. Several harness bugs were found and fixed during development, including a PowerShell case-insensitive variable clash that had silently disabled the canary self-check in earlier, discarded runs. Only the three final runs are evidence."
+  ],
+  "summary": "I ran the frozen Go 38b6b72 and Rust d8f0cbe artifacts natively on the owner's Windows 11 PC and in its WSL2 Ubuntu. I checked every artifact's SHA-256 against its manifest before copying and again on the host, and nothing was rebuilt.\n\n**linux-x64 (WSL2, native x86_64).** Harness 2.4.2 passes 139/139 for both candidates (records `tests/evidence/g02-{go,rust}-conformance-linux-x64.json`, verified/pass). Every check has the same outcome as on darwin-arm64 and linux-arm64. The only structural differences are that the zsh rows were not run (zsh is not installed) and that the harness's own OS signal-merge probe saw 1 duplicate in 10 trials. Both binaries are static and also run with an empty PATH.\n\n**windows-x64.** I wrote `tests/native/windows-g02/Invoke-G02WindowsX1.ps1`, which uses P/Invoke for the pseudoconsole and console Ctrl-C, a VT screen model, a fixture agent and a stall pipe, and a cross-compiled Go `argvdump` child. It ran three times (Windows PowerShell 5.1 twice, PowerShell 7.6.6 once) and every row got the same verdict each time.\n- Go passes all 63 gating rows (`g02-go-x1-windows.json`: verified/pass).\n- Rust passes 60 of 63 (`g02-rust-x1-windows.json`: verified/fail). The three failures:\n  - a named pipe given as `profile show --file` blocks (killed at 10 s);\n  - a named pipe given as `tui --file` blocks the same way;\n  - a regular file given as `agent list --socket` gets its first 5 bytes overwritten with the request frame.\n- Both candidates pass the rest:\n  - exact argv quoting for all quoting cases;\n  - exit codes, launch failures and binary stdin/stdout;\n  - Ctrl-C forwarding in `run`, and `agent list` cancel (exit 130 within 18 ms);\n  - the full TUI flow under ConPTY: filtering, Unicode, resize, NO_COLOR, large-100.\n- Notable non-gating differences:\n  - Go's agent pipe client connects at Anonymous impersonation level, so a server cannot identify it.\n  - Go lets a metacharacter argument run a second command when the `.cmd` path contains a space.\n  - The candidates search for executables in different orders.\n  - On a CTRL_C_EVENT from another process, the Rust TUI is killed and leaves the alternate screen active.\n\n**X4.** The spike shipped no binaries. I rebuilt them byte-identical to the recorded hashes and ran only its named-pipe checks, which pass 5/5 for both languages. DPAPI, CNG and TPM are blocked pending owner authorization because the spike runner writes to the user's key store and TPM.\n\nAll scratch directories (WSL, Windows, Mac) are removed. The outputs are redacted, and the scan found no names, home paths, full SIDs or canary values. Paths:\n- <repo>/tests/evidence/artifacts/g02-r4/x1/RESULTS.md\n- <repo>/tests/evidence/g02-{go,rust}-x1-windows.json\n- <repo>/tests/evidence/g02-{go,rust}-conformance-linux-x64.json\n- <repo>/tests/native/windows-g02/"
+}

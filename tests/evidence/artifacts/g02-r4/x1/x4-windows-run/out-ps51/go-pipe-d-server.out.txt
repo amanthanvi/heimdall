@@ -1,0 +1,2 @@
+{"dacl":"D:P(A;;GA;;;\u003ccurrent-user\u003e)","event":"listening","first_instance_exclusive":true,"reject_remote":true}
+{"client_pid_is_nonzero":true,"client_sid":"S-1-5-21-\u003credacted\u003e-1001","decision":"accept","event":"conn","impersonation_level":2,"pid_sid_matches_expected":true}

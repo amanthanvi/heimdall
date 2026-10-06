@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-06T06:18:12.375Z", "mono_ms": 0.241, "event": "listen", "socket": "/tmp/hmg02-togxcqp5/027-agent-empty/empty.sock", "mode": "empty", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T06:18:12.381Z", "mono_ms": 5.768, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T06:18:12.381Z", "mono_ms": 6.203, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "empty", "sent_bytes": 9}
+{"seq": 4, "ts": "2026-10-06T06:18:12.381Z", "mono_ms": 6.329, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 9, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T06:18:12.482Z", "mono_ms": 107.239, "event": "shutdown"}

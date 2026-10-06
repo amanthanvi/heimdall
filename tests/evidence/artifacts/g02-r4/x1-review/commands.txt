@@ -1,0 +1,12 @@
+M00-T05-x1-g02-native-review: commands run by the independent reviewer (2026-10-06 UTC). Real exit codes.
+Mac:
+  shasum -a 256 prototypes/{go,rust}/dist/{linux-x64/heimdall-proto,windows-x64/heimdall-proto.exe} vs dist/manifest.json  exit 0  all 4 equal; also equal to committed review3c manifests
+  GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off go vet + go build -trimpath -buildvcs=false -ldflags='-s -w' (argvdump)  exit 0  sha256 678efbbc... (byte-identical to X1)
+  staged layout (24 files) sha256 vs x1/windows/staged-root.sha256  identical (host-runs/staged-root.sha256); host copy identical
+  minischema.validate(record.schema.json, 4 new records)  []
+  git diff --stat 772a6b1 HEAD -- tests/g02 tests/fixtures/g02 tests/fixtures/fake-agent schemas/g02 tests/evidence/record.schema.json  empty
+Host (scratch %LOCALAPPDATA%\hm-m00\M00-T05-x1-g02-native-review, removed afterwards):
+  probes/rvrun.sh ps51 probes rv-ps51-a      exit=0  15 rows; review.error in the timeout.exe step (probe bug: array flattening), fixed
+  probes/rvrun.sh ps51 probes rv-ps51-b -Sections ctrlc,resolution  exit=0  13 rows
+  probes/rvrun.sh ps51 x1 rerun-ps51 (unmodified Invoke-G02WindowsX1.ps1)  exit=1  167 rows, verdicts identical to final-ps51-a for all 167
+  strings -a /mnt/c/Windows/System32/OpenSSH/ssh-agent.exe (read-only)  exit 1 (last grep no match)  see source-checks/

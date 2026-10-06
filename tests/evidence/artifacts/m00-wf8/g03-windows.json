@@ -1,0 +1,109 @@
+{
+  "task_id": "M00-T04-G03-native-windows",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/tests/native/windows/G03Common.psm1",
+    "<repo>/tests/native/windows/Invoke-G03WindowsProbes.ps1",
+    "<repo>/tests/native/windows/README.md",
+    "<repo>/tests/native/windows/CHANGELOG-native.md",
+    "<repo>/tests/evidence/g03-win-env-inventory.json",
+    "<repo>/tests/evidence/g03-win-sshauthsock-selection.json",
+    "<repo>/tests/evidence/g03-win-identityagent-forms.json",
+    "<repo>/tests/evidence/g03-win-git-ssh-selection.json",
+    "<repo>/tests/evidence/g03-win-stale-squat-pipe.json",
+    "<repo>/tests/evidence/g03-win-process-io.json",
+    "<repo>/tests/evidence/g03-win-path-quoting.json",
+    "<repo>/tests/evidence/g03-win-service-elevation.json",
+    "<repo>/tests/evidence/g03-win-key-file-permissions.json",
+    "<repo>/tests/evidence/g03-win-pipe-acl-other-user.json",
+    "<repo>/tests/evidence/g03-win-1password-coexistence.json",
+    "<repo>/tests/evidence/g03-win-agent-constraints.json",
+    "<repo>/tests/evidence/artifacts/g03/native-win/ (new tree, 409 files: runs/final-pwsh7 [promoted source], runs/final-ps51 [supplementary], harness-selftest/{powershell7-windows,powershell51-windows}, debug-runs/ [pre-fix runs showing each defect], supplementary/diag-pipename.{json,ps1}, environment/env-facts.txt, fixture/ [sshd_config, redacted sshd.log, scratch helper scripts])",
+    "<repo>/docs/research/g03-windows-wsl.md (§0 Windows rows split into executed/blocked; new §0.1 'First native run (2026-10-06)')"
+  ],
+  "commands_run": [
+    {
+      "command": "ssh <winhost>: pwsh.exe 7.6.6 -File launch.ps1 -Target repo/tests/native/windows/Test-G03HarnessSelf.ps1 (first attempt)",
+      "exit_code": null,
+      "observed": "My scratch launcher had an infinite loop when given no extra args (about 240 MB of errors). I stopped the background task; psfind then showed no leftover Windows process. Launcher fixed. No harness involvement."
+    },
+    {
+      "command": "Test-G03HarnessSelf.ps1 under pwsh 7.6.6 and Windows PowerShell 5.1.26100.9549 (pre-fix and final harness)",
+      "exit_code": 0,
+      "observed": "All 17 checks true and verdict pass in all four runs. Real named pipes via CreateNamedPipeW; the embedded C# compiled under both versions."
+    },
+    {
+      "command": "Invoke-G03WindowsProbes.ps1 -Probes env,service,keyperms (run r1, pwsh 7)",
+      "exit_code": 0,
+      "observed": "env and service verified. keyperms gave a harness-error record: Set-Acl PrivilegeNotHeldException (SeSecurityPrivilege)."
+    },
+    {
+      "command": "acltest/acltest2.ps1 diagnostics (pwsh 7 + 5.1)",
+      "exit_code": 0,
+      "observed": "Get-Acl/Set-Acl works on an ordinary file but fails on the ssh-keygen key (protected DACL D:P, user ACE 0x1301bf) under both versions. SetAccessControl with an Access-only FileSecurity works."
+    },
+    {
+      "command": "Invoke ... -Probes keyperms (runs r2, r3, r4)",
+      "exit_code": 0,
+      "observed": "r2: harness error, empty byte[] rejected by Get-G03Sha256Hex. r3: verified, but the ssh sub-case never reached the private-key load (fixture log: Failed publickey). r4 (after fix): owner-only control exit 0; AU-read ACE run exit 255 with the bad-permissions message."
+    },
+    {
+      "command": "Invoke ... -Probes sshauthsock,stalepipe (r5)",
+      "exit_code": 0,
+      "observed": "Both pass. Found an exe-tag collision: System32\\OpenSSH and Program Files\\OpenSSH were both tagged 'OpenSSH', so transcripts and agent_contact were overwritten. Fixed and re-run in r6."
+    },
+    {
+      "command": "Invoke ... -Probes sshauthsock,identityagent (r6) and git,processio,quoting (r7)",
+      "exit_code": 0,
+      "observed": "All verified, verdict pass. Three distinct per-build tags confirmed."
+    },
+    {
+      "command": "diag-pipename.ps1 (supplementary scratch diagnostic, pwsh 7)",
+      "exit_code": 128,
+      "observed": "The script completed. Exit 128 is my launcher propagating $LASTEXITCODE from the module's git rev-parse in the non-repo scratch. Result: with SSH_AUTH_SOCK, ASCII and space-containing pipe names work (exit 0) on both Win32-OpenSSH builds; any non-ASCII name fails (exit 2, 'No such file or directory', 0 connections)."
+    },
+    {
+      "command": "Invoke-G03WindowsProbes.ps1 -Probes all (final-pwsh7, promoted) with fixture args, no gates",
+      "exit_code": 0,
+      "observed": "9 g03-win records verified with verdict pass and no failed or unobserved criteria. pipe-acl-other-user, 1password-coexistence, agent-constraints and wsl-b-other-windows-user blocked. canary_leaks=[]. 149 owned processes: 148 already-exited, 1 stopped."
+    },
+    {
+      "command": "Invoke-G03WindowsProbes.ps1 -Probes all under Windows PowerShell 5.1 (final-ps51, supplementary)",
+      "exit_code": 0,
+      "observed": "Same status and criteria for every record. PowerShell-channel observation rows failed at host-key verification because of 5.1 legacy argument passing (not a criterion)."
+    },
+    {
+      "command": "envfacts.ps1 + wslinfo/sshd -V (passive)",
+      "exit_code": 0,
+      "observed": "Build 26300.9550 26H2. In-box OpenSSH 9.5p2 (9.5.6.3). GitHub MSI 10.0p2 in Program Files, first on PATH; ssh-agent and sshd services run from it. Git 2.55.0.windows.3 with MSYS OpenSSH 10.3p1. WSL 3.0.1.0, networking nat. WSL sshd OpenSSH_9.6p1."
+    },
+    {
+      "command": "fixture cleanup: kill exact PID 1153433 after verifying comm/start time/config path/uid; rm -rf Windows and WSL task scratch",
+      "exit_code": 0,
+      "observed": "sshd stopped, port free. psfind found no hm-m00 processes and no heimdall pipes. Both task scratch dirs removed. The hm-m00 parents kept because they hold one other entry each."
+    },
+    {
+      "command": "python record check (schema required keys/enum/patterns/blocked_on/paths) over 49 records; canary and identity scans; pwsh parse check; macOS self-test to /tmp",
+      "exit_code": 0,
+      "observed": "0 bad records, 0 canary hits, 0 identity hits, 0 parse errors. macOS self-test verdict pass. PSScriptAnalyzer not installed (not run)."
+    }
+  ],
+  "escalations": [
+    "Status-scope convention, needs confirming. In P-W06 (cross-user pre-squat), P-W04 (live default_no_override) and P-W07 (Ctrl-C/resize) some rows did not run. I kept those records verified/pass for the rows that ran and listed the unrun rows as blocked in observed_result.sub_probe_status, each with its own blocked_on. I did not lower the top-level status to blocked. Please confirm or override.",
+    "Outside my write grant, now stale: docs/research/g03-windows-wsl.md §0 intro ('Every native G03 probe is blocked') and the label legend ('[O] ... harness self-tests only'). §0.1 says it supersedes the intro for P-W rows only. The orchestrator should reword both.",
+    "Residual from the authorized default mode. The P-W02/P-W06 dead-pipe rows ran ssh-add with a non-existent sentinel SSH_AUTH_SOCK while the owner's agent served \\\\.\\pipe\\openssh-ssh-agent. Had a client fallen back, it would have reached that agent; its stdout would not have been saved. All three clients exited 2, so no fallback occurred and the owner's agent was not contacted.",
+    "Promoted records have build_commit null. The harness ran from a scratch copy outside Git, and the files are HEAD 404cc1e plus uncommitted fixes. environment.harness_provenance and harness_sha256 identify the exact files. The integrating commit should include tests/native/windows/** unchanged so the hashes match (Invoke a7504574..., G03Common e0bf3cc4...).",
+    "G03-wsl-b-other-windows-user (P-B11) also produced a blocked run record. It was not promoted because tests/evidence/g03-wsl-* is outside my grant. It is still blocked on a second account and a disposable distribution."
+  ],
+  "limitations": [
+    "Blocked: P-W05 and the P-W06 cross-user rows (no second disposable non-admin Windows account). P-W10 (needs a disposable 1Password account, owner authorization to contact the system pipe, and admin for the service sub-probe). P-W11 (needs a disposable host whose agent store may be mutated). The system-pipe decoy (needs a disposable host with the name free). P-W04 default_no_override (owner host, not declared disposable). P-W07 Ctrl-C/resize (needs an interactive console operator).",
+    "Which process serves \\\\.\\pipe\\openssh-ssh-agent (ssh-agent service vs 1Password) was not determined, because that needs opening the pipe, which is forbidden.",
+    "Root cause of the non-ASCII SSH_AUTH_SOCK pipe-name failure is unknown. The same kind of name worked through ssh.exe IdentityAgent. Whether ssh.exe (not ssh-add) fails with a non-ASCII SSH_AUTH_SOCK was not tested.",
+    "In the supplementary Windows PowerShell 5.1 run, powershell_pipeline_byte_exact=false and the PowerShell-channel argv rows are not fidelity observations: ssh failed host-key verification because 5.1 mangled the quoted UserKnownHostsFile option. The harness does not record that row's exit code next to the flag; this is documented in records and §0.1, not fixed.",
+    "The fixture was a non-root WSL sshd logging in as the WSL user (bound to loopback, keys restricted), not an M00-T03 container: the Docker daemon was not running and starting it would be a service change.",
+    "Not executed on Windows: the other-user staging code (Set-Acl on fresh security objects, Start-Process -Credential) and its C# helper. Fix 2 suggests Set-Acl may need the same treatment there.",
+    "PSScriptAnalyzer was not run (not installed; not installed by me). Parse checks and the macOS self-test passed.",
+    "No independent review of this run or of the harness fixes was performed."
+  ],
+  "summary": "I ran the G03 native Windows harness for the first time, on the owner's Windows 11 Pro (build 26300.9550) PC, non-elevated and with no gates enabled.\n\n**Self-test:** passed under PowerShell 7.6.6 (used for the main run) and under Windows PowerShell 5.1.26100.\n\n**Fixture:** a disposable loopback-only sshd in WSL scratch (OpenSSH 9.6p1, its own host key, keys restricted).\n\n**Results:** 9 of 12 native Windows probes are verified, verdict pass, with no failed or unobserved criteria: P-W01, 02, 03, 04, 06 (same-user rows), 07, 08, 09 and 12. A supplementary full 5.1 run gave the same status and criteria for every record. P-W05, P-W10 and P-W11 are blocked: no second account, no disposable 1Password, and the system agent and system pipe on this host are forbidden. Sub-rows that did not run are marked blocked in `sub_probe_status`.\n\n**Harness fixes:** six defects found on the first run were fixed, and every affected probe was re-run. Details and before/after behaviour are in `tests/native/windows/CHANGELOG-native.md`:\n1. Redaction now uses the `<winhome>`/`<winuser>`/`<winhost>` tokens.\n2. `Set-Acl` failed with PrivilegeNotHeld on ssh-keygen's protected key DACL; it now writes the DACL only.\n3. Empty stdout broke `Get-G03Sha256Hex`.\n4. The P-W12 ssh sub-case never reached the private-key load; the disposable key is now authorized on the fixture and a control run is required.\n5. The executable tag was `OpenSSH` for two different builds, so transcripts were overwritten.\n6. The Administrators step in P-W12 was a no-op; this is now flagged.\n\n**Main observations:**\n- In-box OpenSSH 9.5p2 and the GitHub 10.0p2 build both select a fixture pipe from `SSH_AUTH_SOCK` (backslash and forward slash). A dead pipe gives exit 2 with no fallback to the default pipe. Any non-ASCII character in the pipe name breaks `SSH_AUTH_SOCK` selection; spaces are fine.\n- `IdentityAgent` with single backslashes reaches nothing. Doubled backslashes, forward slashes, `$VAR` and `${VAR}` select the target exclusively. Git's bundled MSYS ssh and ssh-add cannot use named pipes.\n- Git precedence: `GIT_SSH_COMMAND` beats `core.sshCommand`, which beats `GIT_SSH`.\n- ssh preserves exit status, stream separation and binary data.\n- The in-box client rejects a private key whose file grants Authenticated Users read access.\n- The `ssh-agent` service runs from the Program Files 10.0p2 install, and that install is first on PATH.\n\n**Other outputs:** environment facts are in the records and in §0.1 of the research doc. Raw redacted artifacts are under `tests/evidence/artifacts/g03/native-win/`. Scratch on both sides was removed, and the fixture sshd was stopped by its verified PID. Nothing was committed."
+}

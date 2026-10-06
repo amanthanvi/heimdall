@@ -1,0 +1,18 @@
+== go vet (windows/amd64)
+go_vet_exit=0
+== go build
+go_build_exit=0
+== cargo clippy (-D warnings)
+    Checking windows-link v0.2.1
+    Checking windows-sys v0.61.2
+    Checking x4-windows-rust v0.0.0 (<home>/GitRepos/heimdall/tests/evidence/artifacts/g02-r4/x4/windows/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.13s
+clippy_exit=0
+== cargo zigbuild --release
+   Compiling windows-link v0.2.1
+   Compiling windows-sys v0.61.2
+   Compiling x4-windows-rust v0.0.0 (<home>/GitRepos/heimdall/tests/evidence/artifacts/g02-r4/x4/windows/rust)
+    Finished `release` profile [optimized] target(s) in 5.47s
+rust_build_exit=0
+-rwxr-xr-x  1 <user> <grp>  3279360 Oct  6 02:37 <macscratch>/x4build/out/x4-go.exe
+-rwxr-xr-x  1 <user> <grp>   361984 Oct  6 02:38 <macscratch>/x4build/out/x4-rust.exe

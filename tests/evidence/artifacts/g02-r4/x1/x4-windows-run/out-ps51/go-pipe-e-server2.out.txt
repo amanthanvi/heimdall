@@ -1,0 +1,1 @@
+{"error":"open \\\\.\\pipe\\heimdall-x4-go-e93ea512-e: Access is denied.","event":"error"}

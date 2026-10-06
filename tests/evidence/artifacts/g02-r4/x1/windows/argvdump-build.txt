@@ -1,0 +1,4 @@
+argvdump.exe: cross-compiled on the Mac from tests/native/windows-g02/argvdump (std library only)
+go version: go version go1.27.1 darwin/arm64
+command: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' (go vet windows/amd64: exit 0)
+sha256: 678efbbc7856adcd3623fac6f39fd2505d4c72ae65c4381b4e181a4a8a870f2c

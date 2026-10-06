@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"failed","code":"AGENT_PROTOCOL_ERROR","data":{"error":{"key_path":null,"message":"truncated frame (connection reset by peer)"}},"warnings":[],"next":null}

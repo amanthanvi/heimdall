@@ -1,0 +1,128 @@
+{
+  "subject": "Independent adversarial review of M00-T05-x1-g02-native: native linux-x64 and windows-x64 G02 runs of the frozen Go (38b6b72) and Rust (d8f0cbe) artifacts",
+  "reexecuted_commands": [
+    {
+      "command": "Mac: shasum -a 256 prototypes/{go,rust}/dist/{linux-x64/heimdall-proto,windows-x64/heimdall-proto.exe}, compared with each dist/manifest.json",
+      "exit_code": 0,
+      "observed": "All 4 match: go linux 429063bf…, go win ca5145d1…, rust linux 961e3fb9…, rust win dde9662f…. dist/ is gitignored. The same digests appear in committed review3c build manifests, so they are anchored outside the untracked manifest."
+    },
+    {
+      "command": "Mac: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off go vet && go build -trimpath -buildvcs=false -ldflags='-s -w' tests/native/windows-g02/argvdump",
+      "exit_code": 0,
+      "observed": "argvdump.exe is byte-identical to X1 (sha256 678efbbc…). I rebuilt the 24-file staged layout: it matches x1/windows/staged-root.sha256 exactly, and the copy on the host matched too."
+    },
+    {
+      "command": "python3 -I: minischema.validate(record.schema.json, <each of the 4 new records>)",
+      "exit_code": 0,
+      "observed": "[] (no errors) for all four records."
+    },
+    {
+      "command": "git diff --stat 772a6b1 HEAD -- tests/g02 tests/fixtures/g02 tests/fixtures/fake-agent schemas/g02 tests/evidence/record.schema.json",
+      "exit_code": 0,
+      "observed": "Empty: the harness the linux-x64 runs used has not changed since then."
+    },
+    {
+      "command": "host: rvrun.sh ps51 x1 rerun-ps51 (unmodified Invoke-G02WindowsX1.ps1, both candidates, Windows PowerShell 5.1.26100.9549)",
+      "exit_code": 1,
+      "observed": "167 rows. All 167 verdicts and gating flags are identical to final-ps51-a. go 63/63 gating rows pass. rust 60/63: fails profile.named_pipe_as_file (killed at 10015 ms), agent.regular_file_not_modified (first bytes became 000000010b) and tui.named_pipe_as_file. Host controls pass; harness.canary_scan hits=0."
+    },
+    {
+      "command": "host: rvrun.sh ps51 probes rv-ps51-a (Invoke-X1ReviewProbes.ps1: identity, argv, ctrlc, resolution)",
+      "exit_code": 0,
+      "observed": "15 rows. The ctrlc timeout.exe step hit review.error from a bug in my own probe (PowerShell array flattening); I fixed it and re-ran that section in rv-ps51-b. Identity results (server side, my own pipe: current-user-only DACL, rejects remote clients, one instance): Go agent list gives openthreadtoken error 1347 before and after the read (Anonymous level); Rust gives Identification, same user. The Win32-OpenSSH method (GetNamedPipeClientProcessId + OpenProcess + OpenProcessToken + DuplicateToken + TokenUser) gives pid_is_heimdall;same_user for BOTH candidates. profile show --file <pipe>: both candidates connect (the client PID is heimdall-proto); impersonating before any data gives 1368 for both; Go exits 2 USAGE_ERROR in 17 ms; Rust was killed at about 7 s. argv: quote/backslash runs, a 16,000-character argument, 300 arguments, and an argv0 path with a space and non-ASCII all arrive exactly, for both candidates and in the direct control."
+    },
+    {
+      "command": "host: rvrun.sh ps51 probes rv-ps51-b -Sections ctrlc,resolution",
+      "exit_code": 0,
+      "observed": "Two ^C keystrokes 200 ms apart: for both candidates the child counts 2 interrupts, the launcher is alive after each, and it exits 42. ^C to timeout.exe /nobreak: exit 1 directly, through go, and through rust (parity). Resolution: .\\name and .\\name.exe run the copy in the current directory for both. hmx1probe.exe and HMX1PROBE, with copies in both the current directory and PATH: Go refuses (127, ErrDot); Rust runs the PATH copy."
+    },
+    {
+      "command": "host (read-only file read, agent not contacted): strings -a /mnt/c/Windows/System32/OpenSSH/ssh-agent.exe | grep -c -x <API>; version string",
+      "exit_code": 1,
+      "observed": "Version OpenSSH_9.5p2 for Windows. Imports: GetNamedPipeClientProcessId=1, OpenProcessToken=1, DuplicateToken=1, ImpersonateNamedPipeClient=0, OpenThreadToken=0. Exit 1 comes only from the final grep for the p-suffixed version form, which found nothing."
+    },
+    {
+      "command": "curl PowerShell/openssh-portable latestw_all contrib/win32/win32compat/ssh-agent/agent.c; grep for the identity APIs",
+      "exit_code": 0,
+      "observed": "get_con_client_info uses GetNamedPipeClientProcessId → OpenProcess → OpenProcessToken → DuplicateToken(SecurityImpersonation) on the client's process token. It never calls ImpersonateNamedPipeClient (excerpt and provenance in source-checks/)."
+    },
+    {
+      "command": "Redaction scan (counts only; values never printed) over all new X1 files (1680) and the review directory, for the WSL user, WSL hostname, Windows user, computer name and profile path, plus the canary regex HEIMDALL_CANARY_[A-Za-z0-9], S-1-5-21-<digits>, C:\\Users, /Users/, /home/",
+      "exit_code": 0,
+      "observed": "0 hits in every category, in both sets."
+    },
+    {
+      "command": "host cleanup: count processes whose image path is under the review scratch; rm -rf both review scratch directories",
+      "exit_code": 0,
+      "observed": "procs_from_review_scratch=0. Both scratch directories were removed. The parent hm-m00 directories already existed before the task and were left in place. Mac scratch /tmp/x1rev was removed."
+    }
+  ],
+  "confirmed_claims": [
+    "All four artifact SHA-256s equal their dist manifests and the committed review3c build manifests. The staged Windows layout, including argvdump.exe, reproduces byte-for-byte from the repository on the Mac.",
+    "The Windows script applies every check identically to both candidates: no candidate-specific branches, same inputs, same thresholds.",
+    "An independent full re-run of the unmodified Invoke-G02WindowsX1.ps1 (PS 5.1) reproduced all 167 verdicts. go passed 63/63 gating rows. rust passed 60/63, failing profile.named_pipe_as_file, agent.regular_file_not_modified and tui.named_pipe_as_file.",
+    "Rust blocks when a named pipe is given as --file. By code, it opens with a plain read on Windows and has no pre-open type check. By observation, it connects and hangs until killed (7–10 s).",
+    "Rust overwrites a regular file given as --socket with the 5-byte request frame 000000010b and returns AGENT_PROTOCOL_ERROR, because it opens the path read/write. Go refuses any path without the \\\\.\\pipe\\ prefix (dial_windows.go) and leaves the file unchanged.",
+    "Go's agent client connects at SecurityAnonymous: go-winio v0.6.2 DialPipeContext defaults to PipeImpLevelAnonymous, and from the server side the pipe impersonation token cannot be opened (error 1347). Rust connects at SecurityIdentification and is seen as the same user.",
+    "run argv fidelity on Windows: exact for both candidates, including review extras (a 16,000-character argument, 300 arguments, backslash/quote runs, argv0 path with a space and non-ASCII), each with a direct-launch control.",
+    "Console Ctrl-C to run: the child sees each ^C (1 or 2), the launcher waits and exits with the child's code, for both candidates. Exit-code parity holds for a child killed by Ctrl-C (timeout.exe).",
+    "The resolution-order observations reproduce. Rust searches the application directory and System32 before PATH and skips the current directory. Go refuses any name that also resolves in the current directory (ErrDot), including explicit-extension and upper-case names.",
+    "Redaction: no host or user names, profile paths, SIDs or full canary values in any new X1 file or review artifact.",
+    "All four new records validate against record.schema.json. The linux-x64 harness inputs did not change between 772a6b1 and HEAD."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "RESULTS.md (client-identity row) and the criterion of agent.client_identifiable_by_server in both Windows records say that, because Go connects at SecurityAnonymous, 'a server that checks its client (as Win32-OpenSSH's ssh-agent does) cannot identify the Go client'.",
+      "evidence": "Win32-OpenSSH's ssh-agent does not check the client through pipe impersonation. Upstream agent.c get_con_client_info (latestw_all, last change e0ae79ff, 2025-04-08) uses GetNamedPipeClientProcessId + OpenProcess + OpenProcessToken + DuplicateToken on the client's process token. The installed OpenSSH_9.5p2 ssh-agent.exe on the host imports GetNamedPipeClientProcessId, OpenProcessToken and DuplicateToken, and contains neither ImpersonateNamedPipeClient nor OpenThreadToken. My server-side probe used that same process-token method and identified the Go client as the same user (pid_is_heimdall;same_user). The Anonymous impersonation level is real (error 1347 confirmed). But the conclusion that Win32-OpenSSH-agent interop fails for Go is not supported, and the evidence points the other way. Whether it actually interoperates is still untested, because contacting the owner's agent is forbidden."
+    },
+    {
+      "claim": "RESULTS.md item 1b: under env -i with no toolchain on PATH, 'all commands behaved as with a full PATH'.",
+      "evidence": "The table that follows, and notoolchain.txt, show `run -- true` returning 127 with an empty PATH and 0 with PATH=/usr/bin:/bin, for both candidates. That difference is expected PATH semantics and not a defect, but the summary sentence is literally false."
+    },
+    {
+      "claim": "The criterion of harness.canary_scan: no canary 'appeared in any captured output or row before redaction'.",
+      "evidence": "CanaryHits is incremented only inside Protect-X1, which runs only on text that is about to be written (row observations and saved artifacts). Most captured stdout/stderr, such as Test-ResultDoc inputs and unsaved stderr, never pass through it. Invalid-fixture rows do check stdout/stderr directly, so the fixture canary is covered. The per-run environment canary is checked only in what gets written. Also, the final Protect-X1 pass over the whole JSON rewrites this row's own criterion to 'no [REDACTED_CANARY] value'."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "Wrong interop inference: the evidence says Go's Anonymous-level pipe connection prevents Win32-OpenSSH's ssh-agent from identifying the client. The agent identifies clients by process token (source and installed binary), and my probe identified the Go client by that method. If left as written, this is a false negative input against Go for G03 and ADR-0002. The finding to keep is narrower: go-winio's default SecurityAnonymous makes the client unidentifiable only to servers that use ImpersonateNamedPipeClient. Fix the criterion text in both records and RESULTS.md, and record the process-token method as the actual Win32-OpenSSH behavior.",
+      "location": "tests/evidence/artifacts/g02-r4/x1/RESULTS.md (client identity row); tests/evidence/g02-go-x1-windows.json and g02-rust-x1-windows.json, criterion of agent.client_identifiable_by_server; Invoke-G02WindowsX1.ps1 line 483"
+    },
+    {
+      "severity": "minor",
+      "description": "The Rust 'fail' verdict (60/63) rests entirely on rows that are not literal contract clauses. Two are K14 Windows-analog interpretations (a named pipe treated as a FIFO); one is an X1 task criterion (a regular file given as --socket must not be modified, which contract section 1 does not forbid). The record's interpretations field and RESULTS.md disclose this and escalate it. Still, the headline 'verified / fail, 60/63' should not be quoted in the G02 decision package without that qualifier. Suggest reporting contract-literal rows and analog/task rows as separate counts.",
+      "location": "tests/evidence/g02-rust-x1-windows.json observed_result.summary; RESULTS.md summary table item 2"
+    },
+    {
+      "severity": "minor",
+      "description": "pipe_connects is racy. It is read immediately after the process exits, while StallPipe appends its marker asynchronously. Go's profile.named_pipe_as_file showed 0, 0, 1 and 1 connects across the four runs, but my server-side probe shows Go always connects: os.Stat opens the pipe, and the server sees the heimdall-proto PID. Go never blocks, so the verdict is unaffected. The counts should not be read as 'Go does not touch the pipe'. Neither candidate is impersonatable on this path (1368 before any data).",
+      "location": "Invoke-G02WindowsX1.ps1 lines 422-425 (Get-StallConnects right after Invoke-X1); final-ps51-a / final-ps7-a go profile.named_pipe_as_file pipe_connects=0"
+    },
+    {
+      "severity": "minor",
+      "description": "The harness.canary_scan criterion overclaims its scope (see refuted claims), and the final Protect-X1 pass rewrites the criterion text itself.",
+      "location": "Invoke-G02WindowsX1.ps1 lines 103-105, 833, 844"
+    },
+    {
+      "severity": "minor",
+      "description": "Coverage gaps in the Windows result checks. There is no schema validation against schemas/g02/result.schema.json. warnings_is_array checks only that the field exists, not its type, and does not feed the verdict. K18 value non-echo is checked only for invalid-port (70000); the offending values in other invalid fixtures are not searched for. These are applied equally to both candidates, and the Unix harness covers them on the other platforms.",
+      "location": "Invoke-G02WindowsX1.ps1 Test-ResultDoc (lines 340-351) and invalid fixture loop (lines 390-411)"
+    },
+    {
+      "severity": "minor",
+      "description": "RESULTS.md item 1b says the no-toolchain runs behaved the same as with a full PATH, but `run -- true` differs (127 vs 0), as its own table shows.",
+      "location": "tests/evidence/artifacts/g02-r4/x1/RESULTS.md section 1, 'No toolchain'"
+    }
+  ],
+  "unverifiable_here": [
+    "Real interop with the owner's Win32-OpenSSH ssh-agent for either candidate: contacting \\\\.\\pipe\\openssh-ssh-agent is forbidden. The evidence (source, binary imports, process-token probe) supports Go being identifiable, but this was not observed against the real agent.",
+    "Pipe DACL behavior against another Windows user, and remote/SMB pipe clients: needs a second account or host. I also did not test Rust accepting UNC \\\\server\\pipe\\ paths (a network path) to avoid SMB traffic from the owner's PC; Go rejects any path that is not \\\\.\\pipe\\, by code.",
+    "PowerShell 7 re-run by the reviewer: I re-ran PS 5.1 only. The original ps7 run's verdicts match its ps51 runs.",
+    "linux-x64 conformance re-run: I did not repeat the 2×184 s WSL harness runs. I verified the inputs (artifact digests, unchanged harness tree, schema validity) and read the runner and no-toolchain scripts.",
+    "Classic conhost window, Windows Terminal, CTRL_CLOSE/LOGOFF/SHUTDOWN, long paths, Mark-of-the-Web/SmartScreen: not exercised, as in X1.",
+    "Whether K14 covers Windows named pipes, and whether gating the regular-file-as-socket criterion is appropriate: these are contract-authority decisions, already escalated by X1."
+  ],
+  "summary": "Most of X1 holds up. Artifact digests check out. The Windows script applies identical checks to both candidates, its controls are sound, and an independent full re-run on the host reproduced all 167 verdicts (go 63/63 gating rows pass; rust 60/63, failing the two named-pipe-as-file rows and the regular-file-as-socket row). Extra probes (long and many argv, argv0 with spaces and non-ASCII, double ^C, Ctrl-C exit-code parity, more resolution-order cases) found no new deviation for either candidate beyond the known resolution differences. Redaction is clean.\n\nOne major error: the evidence infers that Win32-OpenSSH's ssh-agent cannot identify the Go client because Go connects at SecurityAnonymous. The agent identifies clients by process token, not pipe impersonation (upstream source and the installed binary's imports), and my server-side probe identified Go's client that way. The Anonymous level is real but matters only to servers that use ImpersonateNamedPipeClient. Fix this before it reaches G03 or ADR-0002.\n\nMinor issues:\n- The rust 'fail' rests on K14-analog and task-criterion rows, which are disclosed and escalated.\n- The pipe_connects counter is racy; Go does open pipes given as --file.\n- The canary-scan criterion overclaims its scope.\n- The Windows result checks have no schema or K18 coverage beyond the port case.\n- One RESULTS sentence about the no-toolchain runs is inaccurate.\n\nReview artifacts are in <repo>/tests/evidence/artifacts/g02-r4/x1-review/: probes/Invoke-X1ReviewProbes.ps1, probes/rvrun.sh, host-runs/ (rerun-ps51 with results.json and rows, rv-ps51-a, rv-ps51-b, console, staged-root.sha256), source-checks/win32-openssh-agent-client-identity.txt and commands.txt. The host scratch directories were removed. Nothing was committed."
+}

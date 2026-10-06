@@ -1,0 +1,4 @@
+[?2004hHMPS1$ "$Y" "$D/s.py" "$D" pipeline-first-ctl | "$Y" "$D/p.py" "$D" pipeline-first-ctl
+[?2004l[?2004hHMPS1$ exit
+[?2004lexit
+exit

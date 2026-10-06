@@ -1,0 +1,398 @@
+﻿{
+    "generated_utc":  "2026-10-06T06:38:42Z",
+    "host":  {
+                 "ps":  "5.1.26100.9549",
+                 "build":  "26300",
+                 "ssh_auth_sock_set":  false,
+                 "elevated":  false,
+                 "arch":  "AMD64",
+                 "tpm":  {
+                             "present":  null,
+                             "ready":  null
+                         },
+                 "os":  "Microsoft Windows 11 Pro"
+             },
+    "binaries":  {
+                     "x4-go.exe":  {
+                                       "sha256":  "d058981a8cebe848a36cd1e39c7258fddec4c62efad19196c709634b0a079442",
+                                       "size":  3279360
+                                   },
+                     "x4-rust.exe":  {
+                                         "sha256":  "ad77730697ed2040790f063d7ca6ce76dd5f96e0e2e78879168193d165a6ddf7",
+                                         "size":  361984
+                                     }
+                 },
+    "checks":  [
+                   {
+                       "lang":  "go",
+                       "id":  "dpapi.roundtrip",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to use the owner\u0027s DPAPI user master key on the personal PC (credential store; X1 scope is scratch-only), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.probe",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.create",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.create.duplicate_fails",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sign.new_process",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.delete",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.platform_tpm",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a TPM-backed key (Platform Crypto Provider) on the owner\u0027s TPM, or a disposable host"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.accept_same_user",
+                       "expect":  "client exit 0 echo:hello; server decision accept, impersonation_level 1 (Identification), pid cross-check true",
+                       "result":  "pass",
+                       "observed":  {
+                                        "client":  {
+                                                       "echo":  "echo:hello",
+                                                       "level":  "identification",
+                                                       "ok":  true,
+                                                       "op":  "pipe-client",
+                                                       "verdict":  "ok"
+                                                   },
+                                        "server":  {
+                                                       "client_pid_is_nonzero":  true,
+                                                       "client_sid":  "S-1-5-21-\u003credacted\u003e-1001",
+                                                       "decision":  "accept",
+                                                       "event":  "conn",
+                                                       "impersonation_level":  1,
+                                                       "pid_sid_matches_expected":  true
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.refuse_foreign_sid",
+                       "expect":  "client exit 1 verdict denied; server decision refuse",
+                       "result":  "pass",
+                       "observed":  {
+                                        "client":  {
+                                                       "level":  "identification",
+                                                       "ok":  false,
+                                                       "op":  "pipe-client",
+                                                       "verdict":  "denied"
+                                                   },
+                                        "server":  {
+                                                       "client_pid_is_nonzero":  true,
+                                                       "client_sid":  "S-1-5-21-\u003credacted\u003e-1001",
+                                                       "decision":  "refuse",
+                                                       "event":  "conn",
+                                                       "impersonation_level":  1,
+                                                       "pid_sid_matches_expected":  false
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.refuse_anonymous_level",
+                       "expect":  "client exit 1; server decision refuse (impersonation error or anonymous SID)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "client":  {
+                                                       "level":  "anonymous",
+                                                       "ok":  false,
+                                                       "op":  "pipe-client",
+                                                       "verdict":  "denied"
+                                                   },
+                                        "server":  {
+                                                       "client_pid_is_nonzero":  true,
+                                                       "decision":  "refuse",
+                                                       "event":  "conn",
+                                                       "impersonation_error":  "OpenThreadToken: winapi error #1347",
+                                                       "pid_sid_matches_expected":  true
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.control_impersonation_level",
+                       "expect":  "info: accepted, level 2 (Impersonation) observed",
+                       "result":  "pass",
+                       "observed":  {
+                                        "server":  {
+                                                       "client_pid_is_nonzero":  true,
+                                                       "client_sid":  "S-1-5-21-\u003credacted\u003e-1001",
+                                                       "decision":  "accept",
+                                                       "event":  "conn",
+                                                       "impersonation_level":  2,
+                                                       "pid_sid_matches_expected":  true
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.first_instance_exclusive",
+                       "expect":  "second server on same name exits non-zero without listening",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "error":  "open \\\\.\\pipe\\heimdall-x4-go-e93ea512-e: Access is denied.",
+                                                     "event":  "error"
+                                                 },
+                                        "second_server_exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.dacl_refuses_other_user",
+                       "expect":  "other-user client denied by DACL",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "second local non-admin account (-OtherUserCredential / -OtherUserBinDir)"
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "pipe.reject_remote_clients",
+                       "expect":  "remote (SMB) client rejected",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "second Windows machine on the network; flag presence only checked by code review"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "dpapi.roundtrip",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to use the owner\u0027s DPAPI user master key on the personal PC (credential store; X1 scope is scratch-only), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.probe",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.create",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.create.duplicate_fails",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sign.new_process",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.delete",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a persisted key in the owner\u0027s user key store (Software KSP, outside the scratch directories; keychain boundary), or a disposable Windows account/host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.platform_tpm",
+                       "expect":  "not run",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "owner authorization to create/delete a TPM-backed key (Platform Crypto Provider) on the owner\u0027s TPM, or a disposable host"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.accept_same_user",
+                       "expect":  "client exit 0 echo:hello; server decision accept, impersonation_level 1 (Identification), pid cross-check true",
+                       "result":  "pass",
+                       "observed":  {
+                                        "client":  {
+                                                       "op":  "pipe-client",
+                                                       "level":  "identification",
+                                                       "verdict":  "ok",
+                                                       "echo":  "echo:hello",
+                                                       "ok":  true
+                                                   },
+                                        "server":  {
+                                                       "event":  "conn",
+                                                       "client_sid":  "S-1-5-21-\u003credacted\u003e-1001",
+                                                       "impersonation_level":  1,
+                                                       "pid_sid_matches_expected":  true,
+                                                       "decision":  "accept"
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.refuse_foreign_sid",
+                       "expect":  "client exit 1 verdict denied; server decision refuse",
+                       "result":  "pass",
+                       "observed":  {
+                                        "client":  {
+                                                       "op":  "pipe-client",
+                                                       "level":  "identification",
+                                                       "verdict":  "denied",
+                                                       "ok":  false
+                                                   },
+                                        "server":  {
+                                                       "event":  "conn",
+                                                       "client_sid":  "S-1-5-21-\u003credacted\u003e-1001",
+                                                       "impersonation_level":  1,
+                                                       "pid_sid_matches_expected":  false,
+                                                       "decision":  "refuse"
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.refuse_anonymous_level",
+                       "expect":  "client exit 1; server decision refuse (impersonation error or anonymous SID)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "client":  {
+                                                       "op":  "pipe-client",
+                                                       "level":  "anonymous",
+                                                       "verdict":  "denied",
+                                                       "ok":  false
+                                                   },
+                                        "server":  {
+                                                       "event":  "conn",
+                                                       "impersonation_error":  "OpenThreadToken: 1347",
+                                                       "pid_sid_matches_expected":  true,
+                                                       "decision":  "refuse"
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.control_impersonation_level",
+                       "expect":  "info: accepted, level 2 (Impersonation) observed",
+                       "result":  "pass",
+                       "observed":  {
+                                        "server":  {
+                                                       "event":  "conn",
+                                                       "client_sid":  "S-1-5-21-\u003credacted\u003e-1001",
+                                                       "impersonation_level":  2,
+                                                       "pid_sid_matches_expected":  true,
+                                                       "decision":  "accept"
+                                                   },
+                                        "server_exit":  0,
+                                        "client_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.first_instance_exclusive",
+                       "expect":  "second server on same name exits non-zero without listening",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "event":  "error",
+                                                     "error":  "CreateNamedPipeW",
+                                                     "win32_error":  5
+                                                 },
+                                        "second_server_exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.dacl_refuses_other_user",
+                       "expect":  "other-user client denied by DACL",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "second local non-admin account (-OtherUserCredential / -OtherUserBinDir)"
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "pipe.reject_remote_clients",
+                       "expect":  "remote (SMB) client rejected",
+                       "result":  "blocked",
+                       "observed":  {
+                                        "missing":  "second Windows machine on the network; flag presence only checked by code review"
+                                    }
+                   }
+               ],
+    "counts":  {
+                   "info":  0,
+                   "pass":  10,
+                   "fail":  0,
+                   "blocked":  18
+               }
+}

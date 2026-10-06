@@ -1,0 +1,145 @@
+{
+    "script":  "tests/evidence/artifacts/g02-r4/x1-review/Invoke-X1ReviewProbes.ps1",
+    "powershell":  "5.1.26100.9549",
+    "started_at":  "2026-10-06T07:18:25.1849089Z",
+    "rows":  [
+                 {
+                     "candidate":  "go",
+                     "id":  "ctrlc.run_two_keystrokes",
+                     "observed":  {
+                                      "child_ready":  true,
+                                      "heimdall_alive_after_first":  true,
+                                      "heimdall_alive_after_second":  true,
+                                      "child_interrupts":  2,
+                                      "heimdall_exit":  42,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "ctrlc.run_two_keystrokes",
+                     "observed":  {
+                                      "child_ready":  true,
+                                      "heimdall_alive_after_first":  true,
+                                      "heimdall_alive_after_second":  true,
+                                      "child_interrupts":  2,
+                                      "heimdall_exit":  42,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "direct",
+                     "id":  "ctrlc.timeout_exe_keystroke",
+                     "observed":  {
+                                      "alive_before":  true,
+                                      "exit":  1,
+                                      "exit_hex":  "0x00000001",
+                                      "exit_ms_after_keystroke":  4,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "ctrlc.timeout_exe_keystroke",
+                     "observed":  {
+                                      "alive_before":  true,
+                                      "exit":  1,
+                                      "exit_hex":  "0x00000001",
+                                      "exit_ms_after_keystroke":  3,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "ctrlc.timeout_exe_keystroke",
+                     "observed":  {
+                                      "alive_before":  true,
+                                      "exit":  1,
+                                      "exit_hex":  "0x00000001",
+                                      "exit_ms_after_keystroke":  3,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "resolution.._hmx1probe",
+                     "observed":  {
+                                      "name":  ".\\hmx1probe",
+                                      "ran":  "cwd_dir",
+                                      "exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "resolution.hmx1probe.exe",
+                     "observed":  {
+                                      "name":  "hmx1probe.exe",
+                                      "ran":  "none",
+                                      "exit":  127,
+                                      "stderr":  "heimdall-proto: run: command resolved to the current directory via PATH; refused (use ./name)\n"
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "resolution.HMX1PROBE",
+                     "observed":  {
+                                      "name":  "HMX1PROBE",
+                                      "ran":  "none",
+                                      "exit":  127,
+                                      "stderr":  "heimdall-proto: run: command resolved to the current directory via PATH; refused (use ./name)\n"
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "resolution.._hmx1probe.exe",
+                     "observed":  {
+                                      "name":  ".\\hmx1probe.exe",
+                                      "ran":  "cwd_dir",
+                                      "exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "resolution.._hmx1probe",
+                     "observed":  {
+                                      "name":  ".\\hmx1probe",
+                                      "ran":  "cwd_dir",
+                                      "exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "resolution.hmx1probe.exe",
+                     "observed":  {
+                                      "name":  "hmx1probe.exe",
+                                      "ran":  "path_dir",
+                                      "exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "resolution.HMX1PROBE",
+                     "observed":  {
+                                      "name":  "HMX1PROBE",
+                                      "ran":  "path_dir",
+                                      "exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "resolution.._hmx1probe.exe",
+                     "observed":  {
+                                      "name":  ".\\hmx1probe.exe",
+                                      "ran":  "cwd_dir",
+                                      "exit":  0,
+                                      "stderr":  ""
+                                  }
+                 }
+             ],
+    "finished_at":  "2026-10-06T07:18:34.7226758Z"
+}

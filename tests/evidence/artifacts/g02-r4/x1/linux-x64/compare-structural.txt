@@ -1,0 +1,44 @@
+== go: structural (non-timing) observation differences, linux-x64 vs linux-arm64
+  harness_os_probe_back_to_back_signal_merge: keys only arm64=[] only x64=[]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable
+      arm64=false
+      x64  =true
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+      arm64="0/10"
+      x64  ="1/10"
+  k6e_child_self_stop: keys only arm64=[] only x64=[]
+    k6e_child_self_stop.zsh-SIGSTOP
+      arm64={"shell": "zsh", "signal": "SIGSTOP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": true, "first_failed_step": null, "control": {"tag": "ctl", "via": "direct exec (control)", "stops": [{"stop": 1, "shell_reported_stop": true, "notice": "suspended (signal)", "states_at_notice": {"child"
+      x64  ={"shell": "zsh", "signal": "SIGSTOP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": null, "first_failed_step": null, "control": null, "jobs": [], "not_run": "/bin/zsh not executable"}
+    k6e_child_self_stop.zsh-SIGTSTP
+      arm64={"shell": "zsh", "signal": "SIGTSTP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": true, "first_failed_step": null, "control": {"tag": "ctl", "via": "direct exec (control)", "stops": [{"stop": 1, "shell_reported_stop": true, "notice": "suspended", "states_at_notice": {"child": "T", "p
+      x64  ={"shell": "zsh", "signal": "SIGTSTP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": null, "first_failed_step": null, "control": null, "jobs": [], "not_run": "/bin/zsh not executable"}
+  k6e_job_control: keys only arm64=[] only x64=[]
+    k6e_job_control.zsh-list
+      arm64={"shell": "zsh", "gating": false, "iterations": 5, "lines_delivered": 10, "ok": true, "first_failed_step": null}
+      x64  ={"shell": "zsh", "ok": null, "not_run": "/bin/zsh not executable"}
+    k6e_job_control.zsh-simple
+      arm64={"shell": "zsh", "gating": false, "iterations": 5, "lines_delivered": 10, "ok": true, "first_failed_step": null}
+      x64  ={"shell": "zsh", "ok": null, "not_run": "/bin/zsh not executable"}
+== rust: structural (non-timing) observation differences, linux-x64 vs linux-arm64
+  harness_os_probe_back_to_back_signal_merge: keys only arm64=[] only x64=[]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable
+      arm64=false
+      x64  =true
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+      arm64="0/10"
+      x64  ="1/10"
+  k6e_child_self_stop: keys only arm64=[] only x64=[]
+    k6e_child_self_stop.zsh-SIGSTOP
+      arm64={"shell": "zsh", "signal": "SIGSTOP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": true, "first_failed_step": null, "control": {"tag": "ctl", "via": "direct exec (control)", "stops": [{"stop": 1, "shell_reported_stop": true, "notice": "suspended (signal)", "states_at_notice": {"child"
+      x64  ={"shell": "zsh", "signal": "SIGSTOP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": null, "first_failed_step": null, "control": null, "jobs": [], "not_run": "/bin/zsh not executable"}
+    k6e_child_self_stop.zsh-SIGTSTP
+      arm64={"shell": "zsh", "signal": "SIGTSTP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": true, "first_failed_step": null, "control": {"tag": "ctl", "via": "direct exec (control)", "stops": [{"stop": 1, "shell_reported_stop": true, "notice": "suspended", "states_at_notice": {"child": "T", "p
+      x64  ={"shell": "zsh", "signal": "SIGTSTP", "gating": false, "proto_jobs": 2, "stops_per_job": 2, "ok": null, "first_failed_step": null, "control": null, "jobs": [], "not_run": "/bin/zsh not executable"}
+  k6e_job_control: keys only arm64=[] only x64=[]
+    k6e_job_control.zsh-list
+      arm64={"shell": "zsh", "gating": false, "iterations": 5, "lines_delivered": 10, "ok": true, "first_failed_step": null}
+      x64  ={"shell": "zsh", "ok": null, "not_run": "/bin/zsh not executable"}
+    k6e_job_control.zsh-simple
+      arm64={"shell": "zsh", "gating": false, "iterations": 5, "lines_delivered": 10, "ok": true, "first_failed_step": null}
+      x64  ={"shell": "zsh", "ok": null, "not_run": "/bin/zsh not executable"}

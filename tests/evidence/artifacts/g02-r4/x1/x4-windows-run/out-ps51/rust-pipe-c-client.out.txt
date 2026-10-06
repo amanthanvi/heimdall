@@ -1,0 +1,1 @@
+{"op":"pipe-client","level":"anonymous","verdict":"denied","ok":false}

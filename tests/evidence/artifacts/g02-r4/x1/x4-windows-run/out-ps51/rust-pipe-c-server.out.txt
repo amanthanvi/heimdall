@@ -1,0 +1,2 @@
+{"event":"listening","dacl":"D:P(A;;GA;;;<current-user>)","first_instance_exclusive":true,"reject_remote":true}
+{"event":"conn","impersonation_error":"OpenThreadToken: 1347","pid_sid_matches_expected":true,"decision":"refuse"}

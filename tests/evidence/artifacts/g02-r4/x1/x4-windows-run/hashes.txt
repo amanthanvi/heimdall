@@ -1,0 +1,6 @@
+# reproducible rebuild with the spike's build.sh (GOPROXY=off, CARGO_NET_OFFLINE=true, CARGO_ZIGBUILD from prototypes/rust/target/tools/bin); exit 0
+d058981a8cebe848a36cd1e39c7258fddec4c62efad19196c709634b0a079442  x4-go.exe   (RESULTS.md of the spike: d058981a8cebe848a36cd1e39c7258fddec4c62efad19196c709634b0a079442)
+ad77730697ed2040790f063d7ca6ce76dd5f96e0e2e78879168193d165a6ddf7  x4-rust.exe (RESULTS.md of the spike: ad77730697ed2040790f063d7ca6ce76dd5f96e0e2e78879168193d165a6ddf7)
+# hashes re-checked on the host with sha256sum before the run: identical
+dfbf15d93b8749cd09c1b290da91334a868f0620c72db5cdb38a5f55adbde313  run-x4-windows.ps1 (spike runner, unmodified; the subset runner is derived from it)
+79516f89c4598f0b749af03c34e5e1f9e123352766db205a77d5afbb0a1989f1  run-x4-pipe-subset.ps1

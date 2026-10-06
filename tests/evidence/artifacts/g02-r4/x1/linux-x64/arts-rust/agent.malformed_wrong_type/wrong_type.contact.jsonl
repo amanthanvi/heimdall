@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-06T06:18:13.750Z", "mono_ms": 0.201, "event": "listen", "socket": "/tmp/hmg02-togxcqp5/034-agent-wrong_type/wrong_type.sock", "mode": "wrong_type", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T06:18:13.752Z", "mono_ms": 1.851, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T06:18:13.752Z", "mono_ms": 2.278, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "wrong_type", "sent_bytes": 5}
+{"seq": 4, "ts": "2026-10-06T06:18:13.752Z", "mono_ms": 2.417, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 5, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T06:18:13.853Z", "mono_ms": 103.178, "event": "shutdown"}

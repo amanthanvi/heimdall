@@ -1,0 +1,4 @@
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" pipeline-first-hp | "$Y" "$D/p.py" "$D" pipeline-first-hp
+[?2004l[?2004hHMPS1$ exit
+[?2004lexit
+exit

@@ -1,0 +1,206 @@
+{
+    "script":  "tests/evidence/artifacts/g02-r4/x1-review/Invoke-X1ReviewProbes.ps1",
+    "powershell":  "5.1.26100.9549",
+    "started_at":  "2026-10-06T07:17:51.3418015Z",
+    "rows":  [
+                 {
+                     "candidate":  "go",
+                     "id":  "identity.agent_list",
+                     "observed":  {
+                                      "mode":  "agent_list",
+                                      "connected":  true,
+                                      "openssh_process_token_method_before_read":  "pid_is_heimdall;same_user",
+                                      "impersonation_before_read":  "error:openthreadtoken:1347",
+                                      "bytes_read_within_3s":  5,
+                                      "request_hex":  "000000010b",
+                                      "impersonation_after_read":  "error:openthreadtoken:1347",
+                                      "openssh_process_token_method_after_read":  "pid_is_heimdall;same_user",
+                                      "heimdall_exited":  true,
+                                      "heimdall_exit":  0,
+                                      "ms":  35,
+                                      "stdout":  "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[]},\"warnings\":[],\"next\":null}\n",
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "identity.profile_file",
+                     "observed":  {
+                                      "mode":  "profile_file",
+                                      "connected":  true,
+                                      "openssh_process_token_method_before_read":  "pid_is_heimdall;same_user",
+                                      "impersonation_before_read":  "error:impersonate:1368",
+                                      "bytes_read_within_3s":  0,
+                                      "heimdall_exited":  true,
+                                      "heimdall_exit":  2,
+                                      "ms":  17,
+                                      "stdout":  "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile file cannot be opened\"}},\"warnings\":[],\"next\":null}\n",
+                                      "stderr":  "heimdall-proto: USAGE_ERROR: profile file cannot be opened\n"
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "identity.agent_list",
+                     "observed":  {
+                                      "mode":  "agent_list",
+                                      "connected":  true,
+                                      "openssh_process_token_method_before_read":  "pid_is_heimdall;same_user",
+                                      "impersonation_before_read":  "Identification;same_user",
+                                      "bytes_read_within_3s":  5,
+                                      "request_hex":  "000000010b",
+                                      "impersonation_after_read":  "Identification;same_user",
+                                      "openssh_process_token_method_after_read":  "pid_is_heimdall;same_user",
+                                      "heimdall_exited":  true,
+                                      "heimdall_exit":  0,
+                                      "ms":  19,
+                                      "stdout":  "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"AGENT_OK\",\"data\":{\"identities\":[]},\"warnings\":[],\"next\":null}\n",
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "identity.profile_file",
+                     "observed":  {
+                                      "mode":  "profile_file",
+                                      "connected":  true,
+                                      "openssh_process_token_method_before_read":  "pid_is_heimdall;same_user",
+                                      "impersonation_before_read":  "error:impersonate:1368",
+                                      "bytes_read_within_3s":  -1,
+                                      "heimdall_exited":  false,
+                                      "heimdall_exit":  null,
+                                      "ms":  7027,
+                                      "stdout":  "",
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "argv.quote_backslash_runs",
+                     "observed":  {
+                                      "values":  13,
+                                      "control_direct":  "exact",
+                                      "via_run":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stdout_bytes":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "argv.long_16000_chars",
+                     "observed":  {
+                                      "values":  1,
+                                      "control_direct":  "exact",
+                                      "via_run":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stdout_bytes":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "argv.many_300_args",
+                     "observed":  {
+                                      "values":  300,
+                                      "control_direct":  "exact",
+                                      "via_run":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stdout_bytes":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "argv.argv0_space_nonascii_path",
+                     "observed":  {
+                                      "ran":  true,
+                                      "argv0_equals_given_path":  true,
+                                      "exe_is_that_file":  true,
+                                      "argv1":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "argv.quote_backslash_runs",
+                     "observed":  {
+                                      "values":  13,
+                                      "control_direct":  "exact",
+                                      "via_run":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stdout_bytes":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "argv.long_16000_chars",
+                     "observed":  {
+                                      "values":  1,
+                                      "control_direct":  "exact",
+                                      "via_run":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stdout_bytes":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "argv.many_300_args",
+                     "observed":  {
+                                      "values":  300,
+                                      "control_direct":  "exact",
+                                      "via_run":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stdout_bytes":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "argv.argv0_space_nonascii_path",
+                     "observed":  {
+                                      "ran":  true,
+                                      "argv0_equals_given_path":  true,
+                                      "exe_is_that_file":  true,
+                                      "argv1":  "exact",
+                                      "heimdall_exit":  0,
+                                      "stderr":  ""
+                                  }
+                 },
+                 {
+                     "candidate":  "go",
+                     "id":  "ctrlc.run_two_keystrokes",
+                     "observed":  {
+                                      "child_ready":  true,
+                                      "heimdall_alive_after_first":  true,
+                                      "heimdall_alive_after_second":  true,
+                                      "child_interrupts":  2,
+                                      "heimdall_exit":  42,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "rust",
+                     "id":  "ctrlc.run_two_keystrokes",
+                     "observed":  {
+                                      "child_ready":  true,
+                                      "heimdall_alive_after_first":  true,
+                                      "heimdall_alive_after_second":  true,
+                                      "child_interrupts":  2,
+                                      "heimdall_exit":  42,
+                                      "killed_by_review":  false
+                                  }
+                 },
+                 {
+                     "candidate":  "host",
+                     "id":  "review.error",
+                     "observed":  {
+                                      "error":  "Exception calling \"Start\" with \"6\" argument(s): \"CreateProcessW failed: win32 2 (The system cannot find the file specified)\"",
+                                      "at":  "At \u003cscratch\u003e\\probes\\Invoke-X1ReviewProbes.ps1:228 char:9\r\n+         $pty = [X1Pty]::Start((Join-G03WinArgs ([string[]]$v[1])), $S ...\r\n+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+                                  }
+                 }
+             ],
+    "finished_at":  "2026-10-06T07:18:03.6262341Z"
+}

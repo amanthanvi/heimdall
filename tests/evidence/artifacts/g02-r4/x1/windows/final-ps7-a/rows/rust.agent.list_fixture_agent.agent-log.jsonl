@@ -1,0 +1,11 @@
+{"agent_pid":61184,"pipe":"hm-x1-agent-rust-9242e827","event":"listening","keys":["SHA256:XmFe2WsB+0h5WMs0oi/e4Wz6nUkaZZKXuvsGgiyI6Bw","SHA256:6OrzQ9zoQsCjnuWbx31hBSn/OWImUoYefXGjNToKAb0"],"endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-9242e827","access":"OwnerOnly","ts":"2026-10-06T06:51:57.0191627Z"}
+{"client_image":"heimdall-proto","agent_pid":61184,"pipe":"hm-x1-agent-rust-9242e827","conn":1,"event":"connect","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","client_sid":"S-1-5-21-<redacted>-1001","client_pid":75056,"ts":"2026-10-06T06:51:57.2347424Z"}
+{"length":1,"agent_pid":61184,"msg_type":11,"pipe":"hm-x1-agent-rust-9242e827","conn":1,"event":"request","msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T06:51:57.2486276Z"}
+{"agent_pid":61184,"msg_type":11,"conn":1,"event":"response","pipe":"hm-x1-agent-rust-9242e827","result":"identities:2","ts":"2026-10-06T06:51:57.2491731Z"}
+{"pipe":"hm-x1-agent-rust-9242e827","event":"disconnect","ts":"2026-10-06T06:51:57.2717575Z","conn":1,"agent_pid":61184}
+{"agent_pid":61184,"method":"disconnect","conn":1,"event":"rearm","pipe":"hm-x1-agent-rust-9242e827","ts":"2026-10-06T06:51:57.2737162Z"}
+{"client_image":"heimdall-proto","agent_pid":61184,"pipe":"hm-x1-agent-rust-9242e827","conn":2,"event":"connect","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","client_sid":"S-1-5-21-<redacted>-1001","client_pid":56340,"ts":"2026-10-06T06:51:57.5883386Z"}
+{"length":1,"agent_pid":61184,"msg_type":11,"pipe":"hm-x1-agent-rust-9242e827","conn":2,"event":"request","msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T06:51:57.5903563Z"}
+{"agent_pid":61184,"msg_type":11,"conn":2,"event":"response","pipe":"hm-x1-agent-rust-9242e827","result":"identities:2","ts":"2026-10-06T06:51:57.5909325Z"}
+{"pipe":"hm-x1-agent-rust-9242e827","event":"disconnect","ts":"2026-10-06T06:51:57.5922547Z","conn":2,"agent_pid":61184}
+{"agent_pid":61184,"method":"disconnect","conn":2,"event":"rearm","pipe":"hm-x1-agent-rust-9242e827","ts":"2026-10-06T06:51:57.5928843Z"}

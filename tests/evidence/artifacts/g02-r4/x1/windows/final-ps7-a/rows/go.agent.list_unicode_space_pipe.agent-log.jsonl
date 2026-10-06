@@ -1,0 +1,11 @@
+{"endpoint":"\\\\.\\pipe\\heimdall g03 ü-x1-go-9242e827","keys":["SHA256:qWQWmYGnOEp0Pn2fxow+EGRMkqXdAiKvSqT7a4iwX+0","SHA256:bkTPv/W5dVqz5XhV/3DaqaCMLoCS7mvKIL6blz4aLF4"],"ts":"2026-10-06T06:51:23.4728118Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"listening","access":"OwnerOnly"}
+{"client_image":"heimdall-proto","client_sid":"error:openthreadtoken:1347","agent_pid":68300,"ts":"2026-10-06T06:51:23.6406002Z","client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","pipe":"heimdall g03 ü-x1-go-9242e827","client_pid":27116,"event":"connect","conn":1}
+{"conn":1,"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","msg_type":11,"length":1,"ts":"2026-10-06T06:51:23.6544747Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"request"}
+{"conn":1,"msg_type":11,"result":"identities:2","ts":"2026-10-06T06:51:23.6558315Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"response"}
+{"agent_pid":68300,"conn":1,"ts":"2026-10-06T06:51:23.6836362Z","event":"disconnect","pipe":"heimdall g03 ü-x1-go-9242e827"}
+{"conn":1,"ts":"2026-10-06T06:51:23.6856913Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"rearm","method":"disconnect"}
+{"client_image":"heimdall-proto","client_sid":"error:openthreadtoken:1347","agent_pid":68300,"ts":"2026-10-06T06:51:23.9970895Z","client_path":"<scratch>\\bin\\go\\heimdall-proto.exe","pipe":"heimdall g03 ü-x1-go-9242e827","client_pid":37248,"event":"connect","conn":2}
+{"conn":2,"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","msg_type":11,"length":1,"ts":"2026-10-06T06:51:23.9984368Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"request"}
+{"conn":2,"msg_type":11,"result":"identities:2","ts":"2026-10-06T06:51:23.9992593Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"response"}
+{"agent_pid":68300,"conn":2,"ts":"2026-10-06T06:51:24.0004964Z","event":"disconnect","pipe":"heimdall g03 ü-x1-go-9242e827"}
+{"conn":2,"ts":"2026-10-06T06:51:24.0010847Z","agent_pid":68300,"pipe":"heimdall g03 ü-x1-go-9242e827","event":"rearm","method":"disconnect"}

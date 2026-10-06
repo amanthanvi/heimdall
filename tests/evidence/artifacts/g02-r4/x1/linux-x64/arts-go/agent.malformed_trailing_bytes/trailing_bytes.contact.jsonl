@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-06T06:15:08.585Z", "mono_ms": 0.191, "event": "listen", "socket": "/tmp/hmg02-_60wlq47/033-agent-trailing_bytes/trailing_bytes.sock", "mode": "trailing_bytes", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T06:15:08.593Z", "mono_ms": 8.1, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T06:15:08.594Z", "mono_ms": 8.582, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "trailing_bytes", "sent_bytes": 500}
+{"seq": 4, "ts": "2026-10-06T06:15:08.594Z", "mono_ms": 8.734, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 500, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T06:15:08.694Z", "mono_ms": 109.004, "event": "shutdown"}

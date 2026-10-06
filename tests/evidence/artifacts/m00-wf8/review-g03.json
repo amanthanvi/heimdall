@@ -1,0 +1,126 @@
+{
+  "subject": "M00-T04-G03 first native run review (Windows and WSL reports): harness changes, record promotion, verdicts against research doc §4–§5, blocked reasons, redaction, owner-state safety, sample re-runs on the owner's PC",
+  "reexecuted_commands": [
+    {
+      "command": "ssh -F <hosts>/<winhost>/ssh_config <winhost> '<residue check: ~/hm-m00 listing, /run/user/<uid>/hg03-* count, marker-process count, interop binfmt>'",
+      "exit_code": 0,
+      "observed": "No ~/hm-m00 task directories. 0 hg03-* endpoint directories. 0 marker processes apart from the probe's own shell. WSL interop binfmt is present. WSL_DISTRO_NAME and WSL_INTEROP are unset in the sshd session."
+    },
+    {
+      "command": "ssh ... 'cd /mnt/c && powershell.exe -Command <inline owner-state query>' (first attempt)",
+      "exit_code": 0,
+      "observed": "Windows scratch root %LOCALAPPDATA%\\hm-m00 exists and is empty. 0 Windows marker processes. ssh-agent service Running/Automatic. The inline Get-CimInstance filter failed with 'Invalid query' because of my own quoting, and my inline pipe-path literal was wrong, so its 'default pipe present: False' line is invalid. I discarded this attempt and repeated it below from a script file."
+    },
+    {
+      "command": "scp bundle.tgz/evidence.tgz + review scripts to WSL ~/hm-m00/M00-T04-G03-native-review; bash host-setup.sh",
+      "exit_code": 0,
+      "observed": "setup-ok. Before copying, the working-tree harness SHA-256 values matched the hashes recorded in every promoted record and in both CHANGELOGs."
+    },
+    {
+      "command": "ssh ... 'bash redaction-scan.sh' (counts only; scans the 1023-file evidence copy for this host's actual Windows user, computer name, WSL user, hostname, WSL home and the three profile-path forms)",
+      "exit_code": 0,
+      "observed": "Every identifier had 0 matching files. Full HEIMDALL_CANARY_ values: 0. E-mail-shaped strings other than @openssh.com: 0."
+    },
+    {
+      "command": "ssh ... 'powershell.exe -File owner-state.ps1' (pre-run, read-only; enumerates pipe names, never opens the agent pipe)",
+      "exit_code": 0,
+      "observed": "ssh-agent service Running/Automatic. ssh-agent.exe pid 5968, start_utc 2026-09-30T08:31:05Z, which is before the 2026-10-06 runs, so the service process was not restarted. The openssh-ssh-agent pipe name is present. 0 heimdall* pipes. 0 %PUBLIC%\\heimdall-g03* directories. Session SSH_AUTH_SOCK unset. Token not elevated."
+    },
+    {
+      "command": "ssh ... '<pwsh 7.6.6 via cmd /c where pwsh> -File launch-review.ps1 -Probes env,service,keyperms -OutName out-pwsh7' (no gates, no fixture; TEMP pinned to review scratch)",
+      "exit_code": 0,
+      "observed": "G03-win-env-inventory, G03-win-service-elevation and G03-win-key-file-permissions are all verified/pass. Criteria are identical to the promoted records. Key perms: as_generated exit 0; Authenticated Users read exit 255 with 'Bad permissions' / UNPROTECTED PRIVATE KEY; restored exit 0. administrators_step_changed_dacl=false, so the vacuous-step limitation is reproduced. Fixes 2 and 3 (DACL-only write, empty-stdout hash) ran with no harness error. The ssh sub-case was not run (no fixture), as expected."
+    },
+    {
+      "command": "ssh ... 'cd /mnt/c && wsl.exe -d Ubuntu --exec bash wsl-run.sh rv1 env,a-elevation,b-unauthorized'",
+      "exit_code": 0,
+      "observed": "G03-wsl-env-inventory verified/pass. G03-wsl-a-elevation in_progress/inconclusive (interop_child_not_elevated true; no_uac_prompt_observed null). G03-wsl-b-unauthorized-key verified/pass, all 8 criteria true. Criteria are identical to the promoted records. The only observed difference is run_wsl_entries, 9 vs 8. The whoami artifact kept only the Mandatory Label row. 0 hg03-* directories left. The proxy log again shows extension \"<email>\" for the query@openssh.com request."
+    },
+    {
+      "command": "ssh ... 'review redaction of collected outputs on host (python3 -I); residual counts; tar' + scp back",
+      "exit_code": 0,
+      "observed": "2 files changed: the two console logs. The harness records and artifacts needed no review redaction. Residual identifier hits: 0. Canary values: 0. Outputs are stored under tests/evidence/artifacts/g03/native-review/rerun/."
+    },
+    {
+      "command": "ssh ... '<remove ~/hm-m00/M00-T04-G03-native-review and %LOCALAPPDATA%\\hm-m00\\M00-T04-G03-native-review; post-cleanup owner-state>'",
+      "exit_code": 0,
+      "observed": "Both scratch directories were removed (path-pattern guarded). 0 Linux marker processes. 0 hg03 directories. ssh-agent service is the same pid 5968 with the same start time, still Running/Automatic. 0 heimdall pipes. The temporary owner-state copy was deleted, leaving 0 entries in the Windows hm-m00 root and the WSL ~/hm-m00."
+    },
+    {
+      "command": "local: python3 -I diff of tests/evidence/g03-{win,wsl}-*.json against native-win/runs/final-pwsh7/records and native-wsl/runs/r2/records; final-ps51 vs final-pwsh7; r3-msi10 vs r2",
+      "exit_code": 0,
+      "observed": "No promoted status, verdict or criteria differs from its source run. Promotion only added environment fields, limitations, longer blocked_on text and new observed_result.sub_probe_status maps (git, process-io, sshauthsock, stale-squat), and changed build_commit from '' to null. ps51 and msi10 runs give the same status, verdict and criteria for every record."
+    },
+    {
+      "command": "local: /usr/bin/grep scans of fixture sshd logs (114 distinct key fingerprints) for rejected/accepted keys",
+      "exit_code": 0,
+      "observed": "Every Accepted key was 'found at' the fixture authorized_keys, which only authorize.ps1 populates with format-checked heimdall-g03-* keys. Every Failed publickey fingerprint (106 Windows-fixture, 2 cert-host) occurs exactly once. If an owner agent had been contacted by any of the hundreds of ssh.exe runs, its keys would repeat across runs."
+    }
+  ],
+  "confirmed_claims": [
+    "Both CHANGELOG-native.md files match the working-tree diffs. No §4 pass criterion was removed or relaxed. Windows fix 4 adds a control gate (owner-only control must exit 0) and fix 6 adds a limitation. WSL fix 1 changes only how the windows_path_appended observation is measured.",
+    "The harness SHA-256 values in the CHANGELOGs, in environment.harness_sha256 of every promoted record, and in the working tree all match.",
+    "Promoted records equal their source run records in status, verdict and criteria (Windows final-pwsh7, WSL r2). The supplementary runs agree in status, verdict and criteria: Windows final-ps51 for all 13 records, WSL r3-msi10 for all 5 Mode A records.",
+    "Debug runs show the claimed defects: r1 Set-Acl SeSecurityPrivilege error, r2 empty-stdout harness error, r3 ssh load not reached, r5 exe-tag collision. WSL r1 cert rows failed (Connection refused), consistent with the excluded-port explanation.",
+    "P-W12 sequence reproduced live: as-generated accepted, Authenticated Users read ACE rejected with 'Bad permissions', restored accepted, Administrators step vacuous. In the promoted run the owner-only control exited 0 before the open-ACL ssh.exe run (255, bad permissions).",
+    "P-W02 transcripts match the record cases (System32 and MSI backslash/forward-slash exit 0 listing the probe key; non-ASCII pipe exit 2; MSYS ssh-add exit 2). The sentinel and after-kill rows exited 2 with 0 stdout lines on all three ssh-add builds.",
+    "The WSL decoy pipe agent log contains only a 'listening' event (no connect). The target agent saw 120 ssh and 12 powershell (relay) client connections.",
+    "Records for P-W05, P-W10, P-W11, P-B08, P-B09 and P-B10 are blocked for the stated reasons: no second Windows account, no disposable 1Password, owner agent store not mutable, no disposable distribution and wsl --terminate/--import forbidden. P-B07 needs a console operator. P-A06 and P-B01 are correctly in_progress/inconclusive with null criteria.",
+    "All promoted Windows records have all gates off (allow_provider_contact, allow_system_agent_mutation and disposable_host_declared false; no owner note). No default-pipe, sc-start or sc-stop artifact exists. The gated P-W10/P-W11 code paths did not run.",
+    "The owner's ssh-agent service process (pid 5968) started 2026-09-30 and was unchanged before and after the review. The service is Running/Automatic, as recorded in env-facts. No %PUBLIC% staging directories or heimdall pipes remain.",
+    "Fixture sshd instances bound 127.0.0.1 with scratch host keys and AuthorizedKeysFile/TrustedUserCAKeys in scratch, never ~/.ssh. Git probes use GIT_CONFIG_GLOBAL=<scratch>/empty.gitconfig, GIT_CONFIG_NOSYSTEM=1 and HOME=scratch. ssh.exe gets -F <fixture config> with IdentityFile=none.",
+    "Redaction: the in-repo evidence (native-win, native-wsl, promoted records, research doc, harness) contains none of this host's actual user, host or home identifiers (counted on the host without printing them), no full canary values, no private keys (the 'PRIVATE KEY' hits are the ssh warning banner), and no non-OpenSSH e-mail addresses. The r1 whoami artifact is trimmed to the Mandatory Label row. Committed .pub files carry only heimdall/hm-g03 comments.",
+    "The re-run harness reproduced the run's scratch hygiene: no leftover /run/user hg03-* directories (WSL fix 2) and no leftover Windows processes."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "P-W06 (tests/evidence/g03-win-stale-squat-pipe.json) is 'verified, verdict pass' under the gate-probe convention (research doc §0 table, Windows report).",
+      "evidence": "The §4.1 P-W06 pass criteria end with 'owner start fails on the pre-squatted name while the no-flag control joins it (else inconclusive)'. §4 says any unobservable criterion gives in_progress/inconclusive. tests/evidence/README.md says the top-level status of a multi-row record is the lowest per-row status. The record omits that criterion entirely, because the harness only adds owner_detects_presquatted_name when -OtherUserCredential is set (Invoke-G03WindowsProbes.ps1 ~l.880-904). Its own promoted sub_probe_status marks cross_user_presquat 'blocked'. So the security-relevant cross-user part is unobserved, yet the record reads verified/pass."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "P-W06 overclaims. The record is verified/pass while one of the §4.1 pass criteria (cross-user pre-squat detection) was never observed. The harness drops the criterion instead of setting it to null, and the promotion keeps verified/pass with a blocked sub-row. §5 says 'P-W05/P-W06 fail → N2 may not ship until both pass', so a reader could treat P-W06 as passed. Fix: set owner_detects_presquatted_name to null when there is no -OtherUserCredential (giving in_progress/inconclusive), or split the cross-user part into its own blocked record and narrow the criterion text accordingly; then update the §0 table.",
+      "location": "tests/evidence/g03-win-stale-squat-pipe.json; tests/native/windows/Invoke-G03WindowsProbes.ps1 (Invoke-ProbeStalePipe, ~l.880-904); docs/research/g03-windows-wsl.md §0 row 1"
+    },
+    {
+      "severity": "minor",
+      "description": "The promotion added a new observed_result.sub_probe_status map and a limitation saying 'Top-level status and verdict cover only the rows that ran', while some sub-rows are blocked: git default_no_override_live, process-io ctrl_c_and_console_resize, stale-squat cross_user_presquat. This conflicts with the README multi-row rule (top-level = lowest per-row status among covered rows). For git and process-io the blocked rows are observations or manual steps, not §4 criteria, so the verdicts stand. The convention should still be reconciled, either by an orchestrator decision or by not listing those rows as covered.",
+      "location": "tests/evidence/g03-win-{git-ssh-selection,process-io,stale-squat-pipe,sshauthsock-selection}.json; tests/evidence/README.md (multi-row rule)"
+    },
+    {
+      "severity": "minor",
+      "description": "The e-mail redaction added by WSL fix 4 (defense in depth) also rewrites OpenSSH extension names. The harness's query@openssh.com request (payload hex in run_g03_wsl_probes.sh:455) is logged as extension \"<email>\" in the P-B02 proxy logs, and 120 extension entries in the Windows serve agent log were rewritten the same way. I reproduced this in the review re-run. The artifacts backing non_session_bind_extension_refused and the session-bind forwarding no longer name the extension. CHANGELOG fix 4 does not disclose this side effect. Fix: exempt @openssh.com (or OpenSSH '<name>@<domain>' tokens in agent/proxy logs), or scope e-mail redaction to the whoami artifact.",
+      "location": "tests/native/wsl/evidence.py (redact); tests/evidence/artifacts/g03/native-wsl/runs/{r1,r2}/artifacts/G03-wsl-b-unauthorized-key/proxy-log.jsonl, runs/*/artifacts/proxy-logs/proxy-unauth.log, windows-serve/agent-wsl-cec92b/agent-log.jsonl"
+    },
+    {
+      "severity": "minor",
+      "description": "P-A05 harness control gap, exposed by r1 and not logged. swapped_cert_file_takes_effect_and_is_rejected is true for any non-zero exit. It is not gated on the permitted-cert control and does not check the rejection reason. In r1, 'Connection refused' (fixture port in a Windows excluded range) made it true, and the record came out verified/fail. §4 requires in_progress/inconclusive for an environment problem and a null criterion when its control failed. r2 is unaffected (the control held; the doc cites the fixture-log principal error). The r1 record still sits in the tree as verified/fail.",
+      "location": "tests/native/wsl/run_g03_wsl_probes.sh:366-372; tests/evidence/artifacts/g03/native-wsl/runs/r1/records/g03-wsl-a-cert-change.json"
+    },
+    {
+      "severity": "minor",
+      "description": "The P-B11 blocked reasons are inconsistent. The promoted record (unchanged in this run) still lists the generic precondition 'native Windows 11 x86-64 host … in-box Win32-OpenSSH (version unknown until P-W01 runs)', which this host now meets. The unpromoted Windows-run record names only '-WslDistro' and omits the second account. §0 states 'second Windows account + disposable distribution'. Refresh the promoted blocked_on.",
+      "location": "tests/evidence/g03-wsl-b-other-windows-user.json; tests/evidence/artifacts/g03/native-win/runs/final-pwsh7/records/g03-wsl-b-other-windows-user.json"
+    },
+    {
+      "severity": "minor",
+      "description": "The research doc §0 lead paragraph still says no Windows host or WSL is available and every native probe is blocked. The label legend still defines [O] as 'harness self-tests only'. §0.1 and §0.2 override this only locally, so the §0 table now contradicts the text directly above it.",
+      "location": "docs/research/g03-windows-wsl.md lines 11-15 and 32"
+    },
+    {
+      "severity": "minor",
+      "description": "Residual owner-agent exposure. The default-mode dead-pipe rows (P-W02 sentinel, P-W06 after-kill) ran on the owner PC while the owner's agent served \\\\.\\pipe\\openssh-ssh-agent. Had any client fallen back, it would have connected to the owner's agent, which the task constraints forbid. The design accepts this (harness header 'Residual') but the owner did not. The observed exit was 2 with 0 stdout lines on all three ssh-add builds, and no repeated foreign keys appear at the fixtures, so no contact was observed. For future runs on non-disposable hosts, consider skipping these rows unless an explicit flag is set.",
+      "location": "tests/native/windows/Invoke-G03WindowsProbes.ps1 (Invoke-DeadSockClient, header .DESCRIPTION 'Residual')"
+    }
+  ],
+  "unverifiable_here": [
+    "Whether the owner's ~/.ssh (Windows or WSL) or Git/SSH global config was modified. I did not inspect them, by constraint. Only harness code review and run configuration support that they were untouched.",
+    "Whether the owner's agent or 1Password received any request during the original runs. There is no agent-side log. The negative is inferred from ssh-add exit codes (2, no stdout) and from the fixture sshd logs (every rejected key fingerprint occurs once, every accepted key is a fixture-authorized heimdall key).",
+    "Probes needing a second Windows or Linux account, a disposable distribution, wsl --terminate, a console operator (P-B07 lock, P-A06 UAC attestation, P-W07 Ctrl-C/resize), a disposable 1Password, or a system-pipe decoy. They remain blocked or inconclusive and were not re-run.",
+    "Fixture-dependent probes (P-W02/03/04/07/08, P-A01–A05, P-B04). I did not re-run them because they need the fixture sshd and agent-serving setup. I checked them against raw transcripts and agent and sshd logs instead.",
+    "The original native-win console logs. Unlike native-wsl/console/ they are not in the tree. On a live run the harness prints the unredacted Windows profile path in its 'Records:' line (observed in my re-run console before review redaction), so the original consoles must have been redacted or omitted; the redaction scan of the committed tree found 0 hits."
+  ],
+  "summary": "Overall the first native G03 run holds up. I found one major problem and six minor ones.\n\nThe harness changes in both CHANGELOG-native.md files match the diffs and relax no pass criterion. The promoted records match their source runs in status, verdict and criteria. The supplementary runs agree with them (Windows PowerShell 5.1 for all 13 records, the 10.0p2 client for the 5 WSL Mode A records). Blocked rows are blocked for the stated authorization or capability reasons.\n\n**Redaction:** no identifying value appears in the committed evidence. I counted this host's actual names, homes and profile paths on the host itself without printing them: 0 hits, and no canary values or private keys.\n\n**Owner state:** nothing indicates the owner's agent, service or config was touched. The ssh-agent service process (pid 5968, started 2026-09-30) was unchanged before and after my work. No default-pipe or service artifacts exist, all gates were off, the decoy pipe saw no connections, and the fixture sshd logs show only fixture keys.\n\n**Re-runs:** I re-ran Windows env, service and keyperms (pwsh 7.6.6) and WSL env, a-elevation and b-unauthorized (via `wsl.exe -d Ubuntu --exec`). Statuses, verdicts and criteria are identical to the promoted records.\n\n**Major:** g03-win-stale-squat-pipe.json is verified/pass even though one §4.1 pass criterion, cross-user pre-squat detection, was never observed. The harness omits that criterion instead of setting it to null. Under the §4 convention the record should be in_progress/inconclusive or split. §5 makes P-W06 a ship gate for N2.\n\n**Minor:**\n- The new sub_probe_status maps conflict with the README multi-row rule.\n- The WSL e-mail redaction rewrites OpenSSH extension names such as `query@openssh.com` to `<email>` in proxy and agent logs. Reproduced in the re-run.\n- The P-A05 rejection criterion is not gated on its control. Debug run r1 is recorded as verified/fail for what was a fixture problem.\n- The P-B11 blocked_on text is stale and inconsistent.\n- The research doc §0 lead paragraph and [O] legend are outdated.\n- The dead-pipe rows carry a design-accepted residual risk of contacting the owner's agent; none was observed.\n\nArtifacts are in <repo>/tests/evidence/artifacts/g03/native-review/:\n- scripts/ (owner-state.ps1, launch-review.ps1, host-setup.sh, redaction-scan.sh, wsl-run.sh, diff_records.py)\n- rerun/ (win-out-pwsh7, wsl-out-rv1 and the redacted consoles)\n- host-pre-run.txt and host-post-cleanup.txt\n\nBoth scratch directories on the host were removed and no processes were left running. Nothing was committed."
+}

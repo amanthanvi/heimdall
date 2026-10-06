@@ -1,0 +1,1 @@
+heimdall-proto: cannot launch command: PermissionDenied

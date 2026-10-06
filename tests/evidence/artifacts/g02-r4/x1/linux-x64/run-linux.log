@@ -1,0 +1,5 @@
+== go start 2026-10-06T06:14:53Z loadavg 0.51 0.25 0.15
+== go exit 0 2026-10-06T06:17:57Z loadavg 0.89 0.55 0.29
+== rust start 2026-10-06T06:17:57Z loadavg 0.89 0.55 0.29
+== rust exit 0 2026-10-06T06:21:02Z loadavg 0.08 0.34 0.25
+DONE

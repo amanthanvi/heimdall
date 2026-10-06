@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T06:53:10.5898203Z","agent_pid":53136,"event":"listening","keys":["SHA256:2jD0zPbfBdLaoH8ZCM4YgO/vke29A2418nYSj3f+Qo8","SHA256:vFUL6XN3bKEZYqeniGSnLN5oBmtWw8qPm/tIXnlFGZY"],"pipe":"hm-x1-agent-rust-115a9123","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-115a9123"}
+{"client_pid":21088,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T06:53:10.8358909Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T06:53:10.8522968Z","event":"request","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T06:53:10.8522968Z","event":"response","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-115a9123","agent_pid":53136,"event":"disconnect","ts":"2026-10-06T06:53:10.8630908Z"}
+{"method":"disconnect","ts":"2026-10-06T06:53:10.8646150Z","event":"rearm","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","conn":1}
+{"client_pid":32516,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T06:53:11.2076749Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T06:53:11.2112333Z","event":"request","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T06:53:11.2112333Z","event":"response","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-115a9123","agent_pid":53136,"event":"disconnect","ts":"2026-10-06T06:53:11.2127731Z"}
+{"method":"disconnect","ts":"2026-10-06T06:53:11.2127731Z","event":"rearm","agent_pid":53136,"pipe":"hm-x1-agent-rust-115a9123","conn":2}
