@@ -57,7 +57,7 @@
 
 ## Blockers
 
-- Windows 11 / WSL2 host: available (owner PC). Access is waiting on the owner installing the dedicated test key. Probes that need a second Windows account or admin rights are still blocked until authorized.
+- Windows 11 / WSL2 host: available (owner PC). Access works with a dedicated test key (`from=`-restricted) since 2026-10-06. Probes that need a second Windows account or admin rights are still blocked until authorized.
 - Owner-driven macOS screen lock, logout and reboot cycles block the G04 lock probes.
 - An owner pain-point list blocks the ADR-0001 baseline-friction worksheet.
 
@@ -81,6 +81,6 @@
    - Hidden X2 tests are at `~/.local/share/heimdall-m00/r4-hidden/`, outside the repo. Copy them into the evidence after evaluation.
    - Scratch is `/tmp/hm-r4/`.
    - After the run, compute tokens and tool calls per X2 cell from the agent transcripts, then persist the results to `m00-wf7/`.
-2. X1 / G03 on the owner's Windows PC, once the owner installs the dedicated test key: `~/.local/share/heimdall-m00/hosts/amangamingpc/` (host key ED25519 SHA256:Rx0DJ3QQhXEEWuN5gTqjo/o1o41OnysT6LZ7O/IinTI, pinned via `known_hosts.scan`).
+2. X1 / G03 on the owner's Windows PC: access works (2026-10-06). WSL sshd is on port 2222 (user `athanvi`); Windows is reached through interop as the non-admin user. The host's port 22 is Win32-OpenSSH 10.0, and the owner's ssh-agent service is running and must not be touched. Workflow `wf_9d2e0ca8-091` (script `heimdall-m00-x1-windows-wsl-wf_d9d6a1f0-db9.js`). Key material: `~/.local/share/heimdall-m00/hosts/amangamingpc/` (WSL sshd host key ED25519 SHA256:cenubO/Hpmmtc+ZUZrw4DOHIhArZiB4UofXIdhHZatI pinned in `known_hosts`; isolated `ssh_config`).
 3. Re-score ADR-0002 §7 and get an independent review. The decision waits for X1 (owner D4).
 4. G04 follow-ups unblocked by the owner's decisions: P5, using the real token store, is now authorized.
