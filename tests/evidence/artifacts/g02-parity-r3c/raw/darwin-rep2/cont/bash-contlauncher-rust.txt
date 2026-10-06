@@ -1,0 +1,27 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '<BIN> run -- python3 <probes>/child.py <tmp>/pf\n'>><BIN> run -- python3  <probes>/child.py <scratch>/t/pr3c-n n5mp5x5/pf
+READY-1
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 <BIN> run -- python3 <probes>/child.py <tmp>/pf
+@P@ <<SEND 'jobs; echo JE-$((40+2))\n'>>jobs; echo JE-$((40+2))
+[1]+  Stopped                 <BIN> run -- python3 <probes>/child.py <tmp>/pf
+JE-42
+@P@ <<SEND 'jobs; echo JE-$((40+2))\n'>>jobs; echo JE-$((40+2))
+[1]+  Stopped                 <BIN> run -- python3 <probes>/child.py <tmp>/pf
+JE-42
+@P@ <<SEND 'fg\n'>><<SEND 'probe42\n'>>BACK-tstp-1
+READY-2
+fg
+<BIN> run -- python3 <probes>/child.py <tmp>/pf
+probe42
+GOT-probe42
+READY-3
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?\n'>>echo RC=$?
+RC=5
+@P@ 

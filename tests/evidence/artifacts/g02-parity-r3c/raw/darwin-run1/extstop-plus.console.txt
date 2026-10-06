@@ -1,0 +1,147 @@
+{
+ "platform": "darwin",
+ "runs": [
+  {
+   "via": "plain",
+   "signal": "SIGSTOP",
+   "my_pid_is_1": false,
+   "child_ppid_at_start": 7205,
+   "launcher_is_child_parent": null,
+   "states_after_stop": {
+    "child": "T",
+    "launcher": null
+   },
+   "launcher_exited_before_cont": false,
+   "states_after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "result": "exit 7",
+   "result_after_s": 1.04,
+   "child_after_launcher_end_3s": [
+    "gone(ppid=None)"
+   ],
+   "child_completed": true,
+   "child_left_alive_at_end": false
+  },
+  {
+   "via": "plain",
+   "signal": "SIGTSTP",
+   "my_pid_is_1": false,
+   "child_ppid_at_start": 7205,
+   "launcher_is_child_parent": null,
+   "states_after_stop": {
+    "child": "S",
+    "launcher": null
+   },
+   "launcher_exited_before_cont": false,
+   "states_after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "result": "exit 7",
+   "result_after_s": 1.05,
+   "child_after_launcher_end_3s": [
+    "gone(ppid=None)"
+   ],
+   "child_completed": true,
+   "child_left_alive_at_end": false
+  },
+  {
+   "via": "go",
+   "signal": "SIGSTOP",
+   "my_pid_is_1": false,
+   "child_ppid_at_start": 7414,
+   "launcher_is_child_parent": true,
+   "states_after_stop": {
+    "child": "T",
+    "launcher": "S"
+   },
+   "launcher_exited_before_cont": false,
+   "states_after_cont": {
+    "child": "S",
+    "launcher": "S"
+   },
+   "result": "exit 7",
+   "result_after_s": 1.06,
+   "child_after_launcher_end_3s": [
+    "gone(ppid=None)"
+   ],
+   "child_completed": true,
+   "child_left_alive_at_end": false
+  },
+  {
+   "via": "go",
+   "signal": "SIGTSTP",
+   "my_pid_is_1": false,
+   "child_ppid_at_start": 7723,
+   "launcher_is_child_parent": true,
+   "states_after_stop": {
+    "child": "T",
+    "launcher": "S"
+   },
+   "launcher_exited_before_cont": false,
+   "states_after_cont": {
+    "child": "S",
+    "launcher": "S"
+   },
+   "result": "exit 7",
+   "result_after_s": 1.04,
+   "child_after_launcher_end_3s": [
+    "gone(ppid=None)"
+   ],
+   "child_completed": true,
+   "child_left_alive_at_end": false
+  },
+  {
+   "via": "rust",
+   "signal": "SIGSTOP",
+   "my_pid_is_1": false,
+   "child_ppid_at_start": 7768,
+   "launcher_is_child_parent": true,
+   "states_after_stop": {
+    "child": "T",
+    "launcher": "T"
+   },
+   "launcher_exited_before_cont": false,
+   "states_after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "result": "hung",
+   "states_when_hung": {
+    "child": "Z",
+    "launcher": "T"
+   },
+   "after_manual_cont_of_launcher": "exit 7",
+   "child_after_launcher_end_3s": [
+    "gone(ppid=None)"
+   ],
+   "child_completed": true,
+   "child_left_alive_at_end": false
+  },
+  {
+   "via": "rust",
+   "signal": "SIGTSTP",
+   "my_pid_is_1": false,
+   "child_ppid_at_start": 7938,
+   "launcher_is_child_parent": true,
+   "states_after_stop": {
+    "child": "S",
+    "launcher": "S"
+   },
+   "launcher_exited_before_cont": false,
+   "states_after_cont": {
+    "child": "S",
+    "launcher": "S"
+   },
+   "result": "exit 7",
+   "result_after_s": 1.06,
+   "child_after_launcher_end_3s": [
+    "gone(ppid=None)"
+   ],
+   "child_completed": true,
+   "child_left_alive_at_end": false
+  }
+ ]
+}

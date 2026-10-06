@@ -1,0 +1,198 @@
+{
+ "shell": "zsh",
+ "platform": "darwin",
+ "runs": [
+  {
+   "shell": "zsh",
+   "via": "plain",
+   "signal": "SIGSTOP",
+   "launcher_is_child_parent": null,
+   "after_stop": {
+    "child": "T",
+    "launcher": null,
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "after_6s": {
+    "child": "gone(ppid=None)",
+    "launcher": null,
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "echo x > \"$1.done\"; exit 7' sh <tmp>/pf  zsh: suspended (signal)  sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh                                                                                     @P@ [1]  + exit 7     sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh   "
+   },
+   "rc_after": 145,
+   "jobs_text": "",
+   "jobs_says_stopped": false,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "gone(ppid=None)",
+    "launcher": null
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "zsh",
+   "via": "plain",
+   "signal": "SIGTSTP",
+   "launcher_is_child_parent": null,
+   "after_stop": {
+    "child": "T",
+    "launcher": null,
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "after_6s": {
+    "child": "gone(ppid=None)",
+    "launcher": null,
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "eep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf    zsh: suspended  sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh                                                                                     @P@ [1]  + exit 7     sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh   "
+   },
+   "rc_after": 146,
+   "jobs_text": "",
+   "jobs_says_stopped": false,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "gone(ppid=None)",
+    "launcher": null
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "zsh",
+   "via": "go",
+   "signal": "SIGSTOP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "gone",
+    "launcher": "gone",
+    "shell_stop_notice": false,
+    "shell_prompt": true
+   },
+   "exception": "ProcessLookupError(3, 'No such process')",
+   "leftover_killed": 0
+  },
+  {
+   "shell": "zsh",
+   "via": "go",
+   "signal": "SIGTSTP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "T",
+    "launcher": "T",
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "after_6s": {
+    "child": "Z(ppid=9938)",
+    "launcher": "T",
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "3c/bin/go/darwin-arm64/heimdall-proto run -- sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf    zsh: suspended  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- sh -c  sh                                                                                     @P@ "
+   },
+   "rc_after": 146,
+   "jobs_text": "[1]  + suspended  sh -c  sh",
+   "jobs_says_stopped": true,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "Z(ppid=9938)",
+    "launcher": "T"
+   },
+   "user_fg": {
+    "prompt_returned": true,
+    "rc": 7,
+    "child": "gone(ppid=None)",
+    "launcher": "gone"
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "zsh",
+   "via": "rust",
+   "signal": "SIGSTOP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "T",
+    "launcher": "T",
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "after_6s": {
+    "child": "Z(ppid=10083)",
+    "launcher": "T",
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "t/darwin-arm64/heimdall-proto run -- sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf  zsh: suspended (signal)  <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- sh -c  sh                                                                                    @P@ "
+   },
+   "rc_after": 145,
+   "jobs_text": "[1]  + suspended (signal)  sh -c  sh",
+   "jobs_says_stopped": true,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "Z(ppid=10083)",
+    "launcher": "T"
+   },
+   "user_fg": {
+    "prompt_returned": true,
+    "rc": 7,
+    "child": "gone(ppid=None)",
+    "launcher": "gone"
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "zsh",
+   "via": "rust",
+   "signal": "SIGTSTP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "T",
+    "launcher": "T",
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "after_6s": {
+    "child": "Z(ppid=10145)",
+    "launcher": "T",
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "bin/rust/darwin-arm64/heimdall-proto run -- sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf    zsh: suspended  <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- sh -c  sh                                                                                    @P@ "
+   },
+   "rc_after": 146,
+   "jobs_text": "[1]  + suspended  sh -c  sh",
+   "jobs_says_stopped": true,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "Z(ppid=10145)",
+    "launcher": "T"
+   },
+   "user_fg": {
+    "prompt_returned": true,
+    "rc": 7,
+    "child": "gone(ppid=None)",
+    "launcher": "gone"
+   },
+   "leftover_killed": 0
+  }
+ ]
+}

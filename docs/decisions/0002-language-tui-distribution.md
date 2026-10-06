@@ -250,10 +250,9 @@ same rows are given for every candidate.
 The round-3/3c reviews found the following outside the harness. All are
 recorded for M01 (`slice-contract.md` §9.4, §9.5).
 
-Most probes were run against only one prototype. A parity run of the same
-probes against both builds is in
-`tests/evidence/artifacts/g02-parity-r3c/RESULTS.md`; its results are
-summarised in §6.1.
+The reviewers ran most of these probes against only one prototype. §6.1
+gives the parity run of the same probes against both builds
+(`tests/evidence/artifacts/g02-parity-r3c/RESULTS.md`).
 
 **Found in both:** an explicit SIGTSTP or SIGSTOP sent to the launcher's PID
 stops only the launcher, while the child keeps running.
@@ -279,9 +278,10 @@ stops only the launcher, while the child keeps running.
   - What happens: another process stops the child and then continues only
     the child's PID. The launcher has already stopped itself to mirror the
     stop, nothing continues it, and the child is never reaped.
-  - Remedy suggested by the reviewer: mirror only in a job-control context.
-    That is how Go already behaves. Whether the fix stays as local as Go's is
-    *inferred* from the code, not demonstrated.
+  - Remedy suggested by the reviewer: mirror stops only in a job-control
+    context, which is what Go does. The parity probes (§6.1) show this avoids
+    the non-interactive hang but not the interactive one: there, Go ends in
+    the same stuck state.
 - After a mirrored stop, a SIGCONT sent only to the launcher leaves the child
   stopped while the shell shows the job as running.
 - If the child is itself an interactive job-control shell, `fg` leaves that
@@ -298,7 +298,31 @@ cases.
 
 ### 6.1 Parity probes
 
-_Pending: filled in from `tests/evidence/artifacts/g02-parity-r3c/RESULTS.md`._
+Each probe ran against both final builds and a plain-exec control, on
+darwin-arm64 and linux-arm64. The binaries were the unmodified ones, with
+digests checked. Probes 2 and 3 were run 3 times per platform; probes 1 and 4
+once per platform. The probe-harness bugs hit along the way are recorded in
+`RESULTS.md`.
+
+| Probe | Go | Rust |
+|---|---|---|
+| 1a. Non-interactive parent; a third party stops the child, then continues only the child's PID | **matches the control** on both OSes, for both signals | **hangs.** The launcher stays stopped and the child becomes an unreaped zombie. This happens for SIGSTOP on both OSes, and for SIGTSTP when the process group is not orphaned |
+| 1b. Same, in `bash -i` or `zsh` with the job in the foreground | **does not match.** The launcher stays stopped, the child becomes a zombie, and the job waits for `fg` (SIGTSTP on both OSes; SIGSTOP on Linux). darwin SIGSTOP: the launcher exits 255 and the child is killed | **does not match.** Launcher stopped, child a zombie, the job waits for `fg` (both OSes, both signals) |
+| 2. The child stops itself, then SIGCONT goes only to the launcher | **matches the control** (both OSes and shells, 3/3) | **does not match.** The child stays stopped while zsh, and bash 5.2 on Linux, show the job as running, which breaches the K6e clause through an explicit signal (3/3) |
+| 3. Nested `bash -i` as the child, `suspend`, then `fg` | Linux **matches**. **darwin (3/3): the launcher exits 255 and the user's outer interactive shell exits too**, ending the terminal session. The cause was not isolated | **does not match** on either OS. The nested shell stays stopped after `fg`; the outer shell survives |
+| 4. SIGSTOP stops the child in exclusive mode | darwin: **exit 255, both processes gone, meta `exit_code -1`**, reproducing the Go reviewer's finding. Linux works but reports 148 where the control gives 147 | **matches the control** on both OSes |
+
+**What parity shows:**
+- Neither prototype handles stops that another process sends to the child.
+  In an interactive session, both end in the same stuck state (probe 1b).
+- Go avoids the hang only when it is not mirroring stops (probe 1a).
+- Rust's distinct failures are the non-interactive hang and the launcher-only
+  SIGCONT case.
+- Go's distinct failures are the darwin SIGSTOP cases. In the worst of them,
+  a nested job-control shell, the user's terminal session ends.
+
+These findings are of comparable weight and have different shapes. They
+leave §7 unchanged and strengthen the M01 job-control requirement.
 
 ## 7. Comparison criteria (plan §3 G02 weights)
 
@@ -391,6 +415,9 @@ after the same four fix rounds, ties on the scored comparison, has the most
 capable TUI library, and behaves better on macOS terminal signals. It is not
 recommended only because of the structural points above: a second language
 for Iroh, and more of its limits sitting in the runtime or standard library.
+Its sharpest open defect is darwin-only: a SIGSTOP of the child makes the
+launcher exit, and with a nested job-control shell it also ends your outer
+shell session (§6.1). The fix is local: decode the raw wait status.
 **Choose Go if** you rate its ergonomics higher, if macOS terminal-signal
 behaviour matters most to you, or if a Go codebase plus a separately built
 Rust Iroh helper (or deferring Iroh) is acceptable.

@@ -1,0 +1,33 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '/w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py /tmp/r3c-ijpjivct/pid-1791263006580033418\n'>>/w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py /tmp/r3c-ijpjivct/pid-1791263006580033418
+READY-1
+
+zsh: suspended  /w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py 
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+ping
+GOT-fg
+READY-2
+zsh: command not found: ping
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+ping
+[1]  + continued  /w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py 
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended  /w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py 
+                                                                                @P@ <<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+[1]  + running    /w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py 
+JOBS-END2
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+BACK-tstp-3
+READY-4
+[1]  + continued  /w/bin/rust/linux-arm64/heimdall-proto run -- python3 /w/probes/child.py 
+ping
+GOT-ping
+READY-5
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+                                                                                @P@ 

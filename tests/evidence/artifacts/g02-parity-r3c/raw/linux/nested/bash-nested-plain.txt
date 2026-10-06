@@ -1,0 +1,17 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND 'bash --norc --noprofile -i\n'>><<SEND "PS1='@N@ '; W=nested\n">>bash --norc --noprofile -i
+[?2004h@P@ PS1='@N@ '; W=nested
+[?2004l[?2004h@N@ <<SEND 'echo NPID=$$\n'>>echo NPID=$$
+[?2004lNPID=461
+[?2004h@N@ <<SEND 'suspend\n'>>suspend
+[?2004l
+[1]+  Stopped                 bash --norc --noprofile -i
+@P@ <<SEND 'fg\n'>>fg
+bash --norc --noprofile -i
+[?2004h@N@ <<SEND 'echo ALIVE-$W-$((40+2))\n'>>echo ALIVE-$W-$((40+2))
+[?2004lALIVE-nested-42
+[?2004h@N@ <<SEND 'exit 3\n'>>exit 3
+[?2004lexit
+@P@ <<SEND 'echo RC=$?\n'>>echo RC=$?
+RC=3
+@P@ 

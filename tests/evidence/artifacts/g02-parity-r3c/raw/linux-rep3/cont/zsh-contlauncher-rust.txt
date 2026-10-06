@@ -1,0 +1,23 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '<BIN> run -- python3 <probes>/child.py <tmp>/pf\n'>><BIN> run -- python3 <probes>/child.py <tmp>/pf
+READY-1
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended  <BIN> run -- python3 <probes>/child.py 
+                                                                                @P@ <<SEND 'jobs; echo JE-$((40+2))\n'>>jobs; echo JE-$((40+2))
+[1]  + running    <BIN> run -- python3 <probes>/child.py 
+JE-42
+                                                                                @P@ <<SEND 'jobs; echo JE-$((40+2))\n'>>jobs; echo JE-$((40+2))
+[1]  + running    <BIN> run -- python3 <probes>/child.py 
+JE-42
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'probe42\n'>>fg
+BACK-tstp-1
+READY-2
+[1]  + continued  <BIN> run -- python3 <probes>/child.py 
+probe42
+GOT-probe42
+READY-3
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo RC=$?\n'>>echo RC=$?
+RC=5
+                                                                                @P@ 

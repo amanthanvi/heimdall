@@ -1,0 +1,14 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '/w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i\n'>><<SEND "PS1='@N@ '\n">>/w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i
+[?2004h@P@ PS1='@N@ '
+[?2004l[?2004h@N@ <<SEND 'echo NPID=$$\n'>>echo NPID=$$
+[?2004lNPID=284
+[?2004h@N@ <<SEND 'suspend\n'>>suspend
+[?2004l
+zsh: suspended  /w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'echo NESTED-ALIVE-$((40+2))\n'>>fg
+[1]  + continued  /w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i
+[?2004h@N@ echo NESTED-ALIVE-$((40+2))
+[?2004lNESTED-ALIVE-42
+[?2004h@N@ zsh: killed     /w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i
+                                                                                @P@ 

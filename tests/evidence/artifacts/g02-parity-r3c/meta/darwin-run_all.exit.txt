@@ -1,0 +1,3 @@
+run_all exit=0
+run_extra exit=143
+run_extra exit=0

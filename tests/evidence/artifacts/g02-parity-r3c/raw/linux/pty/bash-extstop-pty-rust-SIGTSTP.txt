@@ -1,0 +1,13 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND '/w/bin/rust/linux-arm64/heimdall-proto run -- sh -c \'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7\' sh <tmp>/pf\n'>>/w/bin/rust/linux-arm64/heimdall-proto run -- sh -c 'echo $$ > "$1"; sleep 1;; echo x > "$1.done"; exit 7' sh <tmp>/pf
+
+[1]+  Stopped                 /w/bin/rust/linux-arm64/heimdall-proto run -- sh -c 'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7' sh <tmp>/pf
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=148
+[1]+  Stopped                 /w/bin/rust/linux-arm64/heimdall-proto run -- sh -c 'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7' sh <tmp>/pf
+JOBS-END
+@P@ <<SEND 'fg\n'>>fg
+/w/bin/rust/linux-arm64/heimdall-proto run -- sh -c 'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7' sh <tmp>/pf
+@P@ <<SEND 'echo RC2=$?\n'>>echo RC2=$?
+RC2=7
+@P@ 

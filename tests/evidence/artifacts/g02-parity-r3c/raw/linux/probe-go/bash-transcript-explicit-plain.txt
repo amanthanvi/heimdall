@@ -1,0 +1,33 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND 'python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626\n'>>python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+READY-1
+
+[1]+  Stopped                 python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+GOT-ping
+READY-2
+
+[1]+  Stopped                 python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+@P@ <<SEND 'jobs; echo JOBS-END2\n'>>BACK-tstp-3
+READY-4
+jobs; echo JOBS-END2
+[1]+  Stopped                 python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+JOBS-END2
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+python3 /w/probes/child.py /tmp/r3c-n7c45y4l/pid-1791262945206554626
+ping
+GOT-ping
+READY-5
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

@@ -1,0 +1,39 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '<scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000\n'>><scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3  <scratch>/probes/child.py <scratch>/t/r3c-o1 oghnow/pid-1791261475679504000
+READY-1
+
+[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+<scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+ping
+GOT-ping
+READY-2
+
+[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+<scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+ping
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+@P@ <<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+JOBS-END2
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>BACK-tstp-3
+fREADY-4
+g
+<scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-o1oghnow/pid-1791261475679504000
+ping
+GOT-ping
+READY-5
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

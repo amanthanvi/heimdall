@@ -1,0 +1,283 @@
+{
+ "shell": "zsh",
+ "platform": "darwin",
+ "runs": [
+  {
+   "shell": "zsh",
+   "via": "plain",
+   "nested_prompt": true,
+   "before_suspend": {
+    "nested": {
+     "state": "S",
+     "ppid": 55638,
+     "pgid": 55639,
+     "tpgid": 55639
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55638,
+     "tpgid": 55639
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "stop_notice": true,
+   "outer_prompt": true,
+   "after_suspend": {
+    "nested": {
+     "state": "T",
+     "ppid": 55638,
+     "pgid": 55639,
+     "tpgid": 55638
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55638,
+     "tpgid": 55638
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "shell_text_after_suspend": "suspend\nzsh: suspended (signal)  bash --norc --noprofile -i\n                                                                                @P@",
+   "after_fg": {
+    "nested": {
+     "state": "S",
+     "ppid": 55638,
+     "pgid": 55639,
+     "tpgid": 55639
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55638,
+     "tpgid": 55639
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_fg_answer": "nested answered",
+   "shell_text_after_fg": "fg\n[1]  + continued  bash --norc --noprofile -i\n@N@ echo ALIVE-$W-$((40+2))\nALIVE-nested-42\n@N@",
+   "outer_rc_after_nested_exit_3": 3,
+   "final": {
+    "nested": {
+     "state": "gone"
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55638,
+     "tpgid": 55638
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "leftover_killed": 0,
+   "outer_exit_at_close": "signal 9",
+   "outer_killed_by_probe_at_close": true
+  },
+  {
+   "shell": "zsh",
+   "via": "go",
+   "nested_prompt": true,
+   "before_suspend": {
+    "nested": {
+     "state": "S",
+     "ppid": 55652,
+     "pgid": 55653,
+     "tpgid": 55653
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 55651,
+     "pgid": 55652,
+     "tpgid": 55653
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55651,
+     "tpgid": 55653
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "stop_notice": false,
+   "outer_prompt": true,
+   "after_suspend": {
+    "nested": {
+     "state": "gone"
+    },
+    "launcher": {
+     "state": "gone"
+    },
+    "outer": {
+     "state": "Z",
+     "ppid": 55637,
+     "pgid": 55651,
+     "tpgid": 100000
+    },
+    "outer_alive": false,
+    "outer_exit": "exit 255",
+    "pty_eof": true
+   },
+   "shell_text_after_suspend": "suspend\n                                                                                @P@",
+   "final": {
+    "nested": {
+     "state": "gone"
+    },
+    "launcher": {
+     "state": "gone"
+    },
+    "outer": {
+     "state": "gone"
+    },
+    "outer_alive": false,
+    "outer_exit": "exit 255",
+    "pty_eof": true
+   },
+   "leftover_killed": 0,
+   "outer_exit_at_close": "exit 255",
+   "outer_killed_by_probe_at_close": false
+  },
+  {
+   "shell": "zsh",
+   "via": "rust",
+   "nested_prompt": true,
+   "before_suspend": {
+    "nested": {
+     "state": "S",
+     "ppid": 55673,
+     "pgid": 55684,
+     "tpgid": 55684
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 55672,
+     "pgid": 55673,
+     "tpgid": 55684
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55672,
+     "tpgid": 55684
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "stop_notice": true,
+   "outer_prompt": true,
+   "after_suspend": {
+    "nested": {
+     "state": "T",
+     "ppid": 55673,
+     "pgid": 55684,
+     "tpgid": 55672
+    },
+    "launcher": {
+     "state": "T",
+     "ppid": 55672,
+     "pgid": 55673,
+     "tpgid": 55672
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55672,
+     "tpgid": 55672
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "shell_text_after_suspend": "suspend\nzsh: suspended (signal)  <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- bash   -i\n                                                                                @P@",
+   "after_fg": {
+    "nested": {
+     "state": "T",
+     "ppid": 55673,
+     "pgid": 55684,
+     "tpgid": 55673
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 55672,
+     "pgid": 55673,
+     "tpgid": 55673
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55672,
+     "tpgid": 55673
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_fg_answer": "no answer",
+   "shell_text_after_fg": "fg\n[1]  + continued  <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- bash   -i\necho ALIVE-$W-$((40+2))",
+   "after_manual_cont_of_nested": {
+    "nested": {
+     "state": "S",
+     "ppid": 55673,
+     "pgid": 55684,
+     "tpgid": 55684
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 55672,
+     "pgid": 55673,
+     "tpgid": 55684
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55672,
+     "tpgid": 55684
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_manual_cont_answer": "nested answered",
+   "final": {
+    "nested": {
+     "state": "S",
+     "ppid": 55673,
+     "pgid": 55684,
+     "tpgid": 55684
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 55672,
+     "pgid": 55673,
+     "tpgid": 55684
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 55637,
+     "pgid": 55672,
+     "tpgid": 55684
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "leftover_killed": 1,
+   "outer_exit_at_close": "signal 9",
+   "outer_killed_by_probe_at_close": true
+  }
+ ]
+}

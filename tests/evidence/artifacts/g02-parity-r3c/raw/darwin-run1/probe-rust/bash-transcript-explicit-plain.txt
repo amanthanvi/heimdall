@@ -1,0 +1,39 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND 'python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000\n'>>python3 <scratch>/probes/child.py /tmp/M00-T05-parity- r3c/t/r3c-3f2h452a/pid-1791261481585033000
+READY-1
+
+[1]+  Stopped                 python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+ping
+GOT-ping
+READY-2
+
+[1]+  Stopped                 python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+ping
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+@P@ <<SEND 'jobs; echo JOBS-END2\n'>>BACK-tstp-3
+READY-4
+jobs; echo JOBS-END2
+[1]+  Stopped                 python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+JOBS-END2
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+python3 <scratch>/probes/child.py <scratch>/t/r3c-3f2h452a/pid-1791261481585033000
+ping
+GOT-ping
+READY-5
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

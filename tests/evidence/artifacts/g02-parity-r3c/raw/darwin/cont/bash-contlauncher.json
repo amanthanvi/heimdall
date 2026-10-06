@@ -1,0 +1,123 @@
+{
+ "shell": "bash",
+ "platform": "darwin",
+ "runs": [
+  {
+   "shell": "bash",
+   "via": "plain",
+   "ready": true,
+   "stop_notice": true,
+   "prompt_after_stop": true,
+   "states_stopped": {
+    "child": "T",
+    "launcher": null
+   },
+   "shell_notice_after_cont": "BACK-tstp-1\nREADY-2",
+   "states_after_cont": {
+    "child": "T",
+    "launcher": null
+   },
+   "jobs": {
+    "text": "[1]+  Stopped                 python3 <scratch>/probes/child.py <scratch>/t/pr3c-4uqmtn1l/pf",
+    "running": false,
+    "stopped": true
+   },
+   "after_2s": {
+    "child": "T",
+    "launcher": null,
+    "launcher_cpu": [
+     null,
+     null
+    ],
+    "child_printed_BACK": true
+   },
+   "jobs_after_2s": {
+    "text": "[1]+  Stopped                 python3 <scratch>/probes/child.py <scratch>/t/pr3c-4uqmtn1l/pf",
+    "running": false,
+    "stopped": true
+   },
+   "shell_believes_running_while_child_stopped": false,
+   "child_reads_after_recovery": true,
+   "rc": 5,
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "go",
+   "ready": true,
+   "stop_notice": true,
+   "prompt_after_stop": true,
+   "states_stopped": {
+    "child": "T",
+    "launcher": "T"
+   },
+   "shell_notice_after_cont": "BACK-tstp-1\nREADY-2",
+   "states_after_cont": {
+    "child": "T",
+    "launcher": "T"
+   },
+   "jobs": {
+    "text": "[1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/pr3c-hzlp8_5r/pf",
+    "running": false,
+    "stopped": true
+   },
+   "after_2s": {
+    "child": "T",
+    "launcher": "T",
+    "launcher_cpu": [
+     "0:00.01",
+     "0:00.01"
+    ],
+    "child_printed_BACK": true
+   },
+   "jobs_after_2s": {
+    "text": "[1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/pr3c-hzlp8_5r/pf",
+    "running": false,
+    "stopped": true
+   },
+   "shell_believes_running_while_child_stopped": false,
+   "child_reads_after_recovery": true,
+   "rc": 5,
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "rust",
+   "ready": true,
+   "stop_notice": true,
+   "prompt_after_stop": true,
+   "states_stopped": {
+    "child": "T",
+    "launcher": "T"
+   },
+   "shell_notice_after_cont": "",
+   "states_after_cont": {
+    "child": "T",
+    "launcher": "S"
+   },
+   "jobs": {
+    "text": "[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/pr3c-6ntfmncx/pf",
+    "running": false,
+    "stopped": true
+   },
+   "after_2s": {
+    "child": "T",
+    "launcher": "S",
+    "launcher_cpu": [
+     "0:00.00",
+     "0:00.00"
+    ],
+    "child_printed_BACK": false
+   },
+   "jobs_after_2s": {
+    "text": "[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/pr3c-6ntfmncx/pf",
+    "running": false,
+    "stopped": true
+   },
+   "shell_believes_running_while_child_stopped": false,
+   "child_reads_after_recovery": true,
+   "rc": 5,
+   "leftover_killed": 0
+  }
+ ]
+}

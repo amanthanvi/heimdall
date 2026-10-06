@@ -1,0 +1,58 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '<scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000\n'>><scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 /p rivate<scratch>/probes/child.py <scratch>/t/r3c-aymy zkn_/pid-1791261401411404000
+READY-1
+
+[1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+<scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+
+[1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+@P@ ping
+usage: ping [-AaDdfnoQqRrv] [-c count] [-G sweepmaxsize]
+            [-g sweepminsize] [-h sweepincrsize] [-i wait]
+            [-l preload] [-M mask | time] [-m ttl] [-p pattern]
+            [-S src_addr] [-s packetsize] [-t timeout][-W waittime]
+            [-z tos] host
+       ping [-AaDdfLnoQqRrv] [-c count] [-I iface] [-i wait]
+            [-l preload] [-M mask | time] [-m ttl] [-p pattern] [-S src_addr]
+            [-s packetsize] [-T ttl] [-t timeout] [-W waittime]
+            [-z tos] mcast-group
+Apple specific options (to be specified before mcast-group or host like all options)
+            -b boundif           # bind the socket to the interface
+            -k traffic_class     # set traffic class socket option
+            -K net_service_type  # set traffic class socket options
+            --apple-connect      # call connect(2) in the socket
+            --apple-time         # display current time
+            --apple-print-id     # display echo ID
+            --apple-print-req    # display echo request
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+<scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+<<SEND 'tstp\n'>>ping
+tstp
+<<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+<<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+GOT-ping
+READY-2
+ping
+
+[1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+@P@ jobs; echo JOBS-END2
+[1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+JOBS-END2
+@P@ fg
+<scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-aymyzkn_/pid-1791261401411404000
+BACK-tstp-2
+READY-3
+ping
+GOT-ping
+READY-4
+<<SEND 'exit 5\n'>><<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>exit 5
+echo RC=$?; jobs; echo JOBS-END
+@P@ echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

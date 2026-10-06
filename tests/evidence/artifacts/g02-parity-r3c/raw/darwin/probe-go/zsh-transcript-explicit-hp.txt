@@ -1,0 +1,49 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '<scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-xl8vwceb/pid-1791261827089183000\n'>><scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3 <scratch>/probes/child.py <scratch>/t/r3c-xl8vwceb/pid-1791261827089183000
+READY-1
+
+zsh: suspended  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+ping
+[1]  + continued  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+zsh: suspended (signal)  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+                                                                                @P@ usage: ping [-AaDdfnoQqRrv] [-c count] [-G sweepmaxsize]
+            [-g sweepminsize] [-h sweepincrsize] [-i wait]
+            [-l preload] [-M mask | time] [-m ttl] [-p pattern]
+            [-S src_addr] [-s packetsize] [-t timeout][-W waittime]
+            [-z tos] host
+       ping [-AaDdfLnoQqRrv] [-c count] [-I iface] [-i wait]
+            [-l preload] [-M mask | time] [-m ttl] [-p pattern] [-S src_addr]
+            [-s packetsize] [-T ttl] [-t timeout] [-W waittime]
+            [-z tos] mcast-group
+Apple specific options (to be specified before mcast-group or host like all options)
+            -b boundif           # bind the socket to the interface
+            -k traffic_class     # set traffic class socket option
+            -K net_service_type  # set traffic class socket options
+            --apple-connect      # call connect(2) in the socket
+            --apple-time         # display current time
+            --apple-print-id     # display echo ID
+            --apple-print-req    # display echo request
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+ping
+[1]  + continued  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+<<SEND 'tstp\n'>>tstp
+<<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+<<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+GOT-ping
+READY-2
+
+zsh: suspended  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+                                                                                @P@ [1]  + suspended  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+JOBS-END2
+                                                                                @P@ [1]  + continued  <scratch>/bin/go/darwin-arm64/heimdall-proto run -- python3  
+BACK-tstp-2
+READY-3
+ping
+GOT-ping
+READY-4
+<<SEND 'exit 5\n'>><<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>exit 5
+echo RC=$?; jobs; echo JOBS-END
+                                                                                @P@ RC=5
+JOBS-END
+                                                                                @P@ 

@@ -1,0 +1,57 @@
+{
+ "platform": "linux",
+ "runs": [
+  {
+   "via": "plain",
+   "signal": "SIGSTOP",
+   "states_after_stop": {
+    "child": "T",
+    "launcher": null
+   },
+   "states_after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "result": "exit 7"
+  },
+  {
+   "via": "plain",
+   "signal": "SIGTSTP",
+   "states_after_stop": {
+    "child": "S",
+    "launcher": null
+   },
+   "states_after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "result": "exit 7"
+  },
+  {
+   "via": "hp",
+   "signal": "SIGSTOP",
+   "states_after_stop": {
+    "child": "T",
+    "launcher": "S"
+   },
+   "states_after_cont": {
+    "child": "S",
+    "launcher": "S"
+   },
+   "result": "exit 7"
+  },
+  {
+   "via": "hp",
+   "signal": "SIGTSTP",
+   "states_after_stop": {
+    "child": "T",
+    "launcher": "S"
+   },
+   "states_after_cont": {
+    "child": "S",
+    "launcher": "S"
+   },
+   "result": "exit 7"
+  }
+ ]
+}

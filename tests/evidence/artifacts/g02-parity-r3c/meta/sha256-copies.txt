@@ -1,0 +1,4 @@
+31c3ee17cc256129eb2c5b1cb12e83486fe9e2cb51d6dd12642d9642697a6ea6  <scratch>/bin/go/darwin-arm64/heimdall-proto
+d55b4ffe4bffec7aef6c6b1577d9f0dc0ac885e9326038f59a8caaa6611803a9  <scratch>/bin/go/linux-arm64/heimdall-proto
+496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b  <scratch>/bin/rust/darwin-arm64/heimdall-proto
+47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0  <scratch>/bin/rust/linux-arm64/heimdall-proto

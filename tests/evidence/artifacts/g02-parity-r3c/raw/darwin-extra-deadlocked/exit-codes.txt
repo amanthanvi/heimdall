@@ -1,0 +1,1 @@
+contlauncher.py bash exit=0 ; nested.py bash: stopped by orchestrating agent (probe deadlock in Shell.close, exact PIDs sh+python SIGTERM/SIGKILL)

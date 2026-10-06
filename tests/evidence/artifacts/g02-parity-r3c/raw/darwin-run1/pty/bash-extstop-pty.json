@@ -1,0 +1,198 @@
+{
+ "shell": "bash",
+ "platform": "darwin",
+ "runs": [
+  {
+   "shell": "bash",
+   "via": "plain",
+   "signal": "SIGSTOP",
+   "launcher_is_child_parent": null,
+   "after_stop": {
+    "child": "T",
+    "launcher": null,
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "after_6s": {
+    "child": "gone(ppid=None)",
+    "launcher": null,
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "'  @P@ sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh /tmp/M00-T05-  parity-r3c/t/pr3c-pty-5xb77zq5/pf    [1]+  Stopped                 sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf  @P@ "
+   },
+   "rc_after": 145,
+   "jobs_text": "[1]+  Exit 7                  sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf",
+   "jobs_says_stopped": false,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "gone(ppid=None)",
+    "launcher": null
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "plain",
+   "signal": "SIGTSTP",
+   "launcher_is_child_parent": null,
+   "after_stop": {
+    "child": "T",
+    "launcher": null,
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": null
+   },
+   "after_6s": {
+    "child": "gone(ppid=None)",
+    "launcher": null,
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "'  @P@ sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh /tmp/M00-T05-  parity-r3c/t/pr3c-pty-mt9uvaya/pf    [1]+  Stopped                 sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf  @P@ "
+   },
+   "rc_after": 146,
+   "jobs_text": "[1]+  Exit 7                  sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf",
+   "jobs_says_stopped": false,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "gone(ppid=None)",
+    "launcher": null
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "go",
+   "signal": "SIGSTOP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "gone",
+    "launcher": "gone",
+    "shell_stop_notice": false,
+    "shell_prompt": true
+   },
+   "exception": "ProcessLookupError(3, 'No such process')",
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "go",
+   "signal": "SIGTSTP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "T",
+    "launcher": "T",
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "after_6s": {
+    "child": "Z(ppid=8476)",
+    "launcher": "T",
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": "to run -- sh -c 'ech  o $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <scratch>/t/p  r3c-pty-arudrny3/pf    [1]+  Stopped                 <scratch>/bin/go/darwin-arm64/heimdall-proto run -- sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf  @P@ "
+   },
+   "rc_after": 146,
+   "jobs_text": "[1]+  Stopped                 sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf",
+   "jobs_says_stopped": true,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "Z(ppid=8476)",
+    "launcher": "T"
+   },
+   "user_fg": {
+    "prompt_returned": true,
+    "rc": 7,
+    "child": "gone(ppid=None)",
+    "launcher": "gone"
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "rust",
+   "signal": "SIGSTOP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "T",
+    "launcher": "T",
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "after_6s": {
+    "child": "Z(ppid=8616)",
+    "launcher": "T",
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": " run -- sh -c 'e  cho $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <scratch>/t  /pr3c-pty-u5b4lam9/pf    [1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf  @P@ "
+   },
+   "rc_after": 145,
+   "jobs_text": "[1]+  Stopped                 sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf",
+   "jobs_says_stopped": true,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "Z(ppid=8616)",
+    "launcher": "T"
+   },
+   "user_fg": {
+    "prompt_returned": true,
+    "rc": 7,
+    "child": "gone(ppid=None)",
+    "launcher": "gone"
+   },
+   "leftover_killed": 0
+  },
+  {
+   "shell": "bash",
+   "via": "rust",
+   "signal": "SIGTSTP",
+   "launcher_is_child_parent": true,
+   "after_stop": {
+    "child": "T",
+    "launcher": "T",
+    "shell_stop_notice": true,
+    "shell_prompt": true
+   },
+   "after_cont": {
+    "child": "S",
+    "launcher": "T"
+   },
+   "after_6s": {
+    "child": "Z(ppid=9435)",
+    "launcher": "T",
+    "child_completed": true,
+    "shell_prompt": true,
+    "shell_text": " run -- sh -c 'e  cho $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <scratch>/t  /pr3c-pty-elkr99rx/pf    [1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf  @P@ "
+   },
+   "rc_after": 146,
+   "jobs_text": "[1]+  Stopped                 sh -c 'echo $$ > \"$1\"; sleep 1; echo x > \"$1.done\"; exit 7' sh <tmp>/pf",
+   "jobs_says_stopped": true,
+   "jobs_says_running": false,
+   "states_at_jobs": {
+    "child": "Z(ppid=9435)",
+    "launcher": "T"
+   },
+   "user_fg": {
+    "prompt_returned": true,
+    "rc": 7,
+    "child": "gone(ppid=None)",
+    "launcher": "gone"
+   },
+   "leftover_killed": 0
+  }
+ ]
+}

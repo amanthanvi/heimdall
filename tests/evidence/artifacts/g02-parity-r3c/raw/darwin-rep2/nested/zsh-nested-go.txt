@@ -1,0 +1,11 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '<BIN> run -- bash --norc --noprofile -i\n'>><<SEND "PS1='@N@ '; W=nested\n">><BIN> run -- bash --norc --noprofile -i
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ PS1='@N@ '; W=nested
+@N@ <<SEND 'echo NPID=$$\n'>>echo NPID=$$
+NPID=75958
+@N@ <<SEND 'suspend\n'>>suspend
+                                                                                @P@ <<PTY EOF>>

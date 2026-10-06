@@ -1,0 +1,8 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND 'sh -c \'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7\' sh <tmp>/pf\n'>>sh -c 'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7' sh <tmp>/pf
+zsh: suspended (signal)  sh -c 'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7' sh 
+                                                                                @P@ [1]  + exit 7     sh -c 'echo $$ > "$1"; sleep 1; echo x > "$1.done"; exit 7' sh 
+<<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=147
+JOBS-END
+                                                                                @P@ 

@@ -1,0 +1,4 @@
+contlauncher.py bash exit=0
+nested.py bash exit=0
+contlauncher.py zsh exit=0
+nested.py zsh exit=0

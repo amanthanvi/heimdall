@@ -1,0 +1,23 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '<scratch>/bin/rust/darwin-arm64/heimdall-proto run -- bash --norc --noprofile -i\n'>><<SEND "PS1='@N@ '\n">><scratch>/bin/rust/darwin-arm64/heimdall-proto run -- bash --n orc --noprofile -i
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ PS1='@N@ '
+@N@ <<SEND 'echo NPID=$$\n'>>echo NPID=$$
+NPID=25858
+@N@ <<SEND 'suspend\n'>>suspend
+
+[1]+  Stopped                 <scratch>/bin/rust/darwin-arm64/heimdall-proto run -- bash --norc --noprofile -i
+@P@ <<SEND 'fg\n'>><<SEND 'echo NESTED-ALIVE-$((40+2))\n'>>fg
+<scratch>/bin/rust/darwin-arm64/heimdall-proto run -- bash --norc --noprofile -i
+echo NESTED-ALIVE-$((40+2))
+Killed: 9
+@P@ echo NESTED-ALIVE-$((40+2))
+NESTED-ALIVE-42
+@P@ 

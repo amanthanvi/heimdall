@@ -1,0 +1,16 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '<BIN> run -- bash --norc --noprofile -i\n'>><<SEND "PS1='@N@ '; W=nested\n">><BIN> run -- bash --nor c --noprofile -i
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ PS1='@N@ '; W=nested
+@N@ <<SEND 'echo NPID=$$\n'>>echo NPID=$$
+NPID=30367
+@N@ <<SEND 'suspend\n'>>suspend
+@P@ exit
+<<PTY EOF>>

@@ -1,0 +1,318 @@
+{
+ "shell": "bash",
+ "platform": "linux",
+ "runs": [
+  {
+   "shell": "bash",
+   "via": "plain",
+   "nested_prompt": true,
+   "before_suspend": {
+    "nested": {
+     "state": "S",
+     "ppid": 31,
+     "pgid": 32,
+     "tpgid": 32
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 31,
+     "tpgid": 32
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "stop_notice": true,
+   "outer_prompt": true,
+   "after_suspend": {
+    "nested": {
+     "state": "T",
+     "ppid": 31,
+     "pgid": 32,
+     "tpgid": 31
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 31,
+     "tpgid": 31
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "shell_text_after_suspend": "suspend\n\n[1]+  Stopped                 bash --norc --noprofile -i\n@P@",
+   "after_fg": {
+    "nested": {
+     "state": "S",
+     "ppid": 31,
+     "pgid": 32,
+     "tpgid": 32
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 31,
+     "tpgid": 32
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_fg_answer": "nested answered",
+   "shell_text_after_fg": "fg\nbash --norc --noprofile -i\n@N@ echo ALIVE-$W-$((40+2))\nALIVE-nested-42\n@N@",
+   "outer_rc_after_nested_exit_3": 3,
+   "final": {
+    "nested": {
+     "state": "gone"
+    },
+    "launcher": null,
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 31,
+     "tpgid": 31
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "leftover_killed": 0,
+   "outer_exit_at_close": "signal 9",
+   "outer_killed_by_probe_at_close": true
+  },
+  {
+   "shell": "bash",
+   "via": "go",
+   "nested_prompt": true,
+   "before_suspend": {
+    "nested": {
+     "state": "S",
+     "ppid": 34,
+     "pgid": 42,
+     "tpgid": 42
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 33,
+     "pgid": 34,
+     "tpgid": 42
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 33,
+     "tpgid": 42
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "stop_notice": true,
+   "outer_prompt": true,
+   "after_suspend": {
+    "nested": {
+     "state": "T",
+     "ppid": 34,
+     "pgid": 42,
+     "tpgid": 33
+    },
+    "launcher": {
+     "state": "T",
+     "ppid": 33,
+     "pgid": 34,
+     "tpgid": 33
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 33,
+     "tpgid": 33
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "shell_text_after_suspend": "suspend\n\n[1]+  Stopped                 /w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i\n@P@",
+   "after_fg": {
+    "nested": {
+     "state": "S",
+     "ppid": 34,
+     "pgid": 42,
+     "tpgid": 42
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 33,
+     "pgid": 34,
+     "tpgid": 42
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 33,
+     "tpgid": 42
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_fg_answer": "nested answered",
+   "shell_text_after_fg": "fg\n/w/bin/go/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i\n@N@ echo ALIVE-$W-$((40+2))\nALIVE-nested-42\n@N@",
+   "outer_rc_after_nested_exit_3": 3,
+   "final": {
+    "nested": {
+     "state": "gone"
+    },
+    "launcher": {
+     "state": "gone"
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 33,
+     "tpgid": 33
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "leftover_killed": 0,
+   "outer_exit_at_close": "signal 9",
+   "outer_killed_by_probe_at_close": true
+  },
+  {
+   "shell": "bash",
+   "via": "rust",
+   "nested_prompt": true,
+   "before_suspend": {
+    "nested": {
+     "state": "S",
+     "ppid": 45,
+     "pgid": 47,
+     "tpgid": 47
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 44,
+     "pgid": 45,
+     "tpgid": 47
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 44,
+     "tpgid": 47
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "stop_notice": true,
+   "outer_prompt": true,
+   "after_suspend": {
+    "nested": {
+     "state": "T",
+     "ppid": 45,
+     "pgid": 47,
+     "tpgid": 44
+    },
+    "launcher": {
+     "state": "T",
+     "ppid": 44,
+     "pgid": 45,
+     "tpgid": 44
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 44,
+     "tpgid": 44
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "shell_text_after_suspend": "suspend\n\n[1]+  Stopped                 /w/bin/rust/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i\n@P@",
+   "after_fg": {
+    "nested": {
+     "state": "T",
+     "ppid": 45,
+     "pgid": 47,
+     "tpgid": 45
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 44,
+     "pgid": 45,
+     "tpgid": 45
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 44,
+     "tpgid": 45
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_fg_answer": "no answer",
+   "shell_text_after_fg": "fg\n/w/bin/rust/linux-arm64/heimdall-proto run -- bash --norc --noprofile -i\necho ALIVE-$W-$((40+2))",
+   "after_manual_cont_of_nested": {
+    "nested": {
+     "state": "S",
+     "ppid": 45,
+     "pgid": 47,
+     "tpgid": 47
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 44,
+     "pgid": 45,
+     "tpgid": 47
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 44,
+     "tpgid": 47
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "after_manual_cont_answer": "nested answered",
+   "final": {
+    "nested": {
+     "state": "S",
+     "ppid": 45,
+     "pgid": 47,
+     "tpgid": 47
+    },
+    "launcher": {
+     "state": "S",
+     "ppid": 44,
+     "pgid": 45,
+     "tpgid": 47
+    },
+    "outer": {
+     "state": "S",
+     "ppid": 30,
+     "pgid": 44,
+     "tpgid": 47
+    },
+    "outer_alive": true,
+    "outer_exit": null,
+    "pty_eof": false
+   },
+   "leftover_killed": 2,
+   "outer_exit_at_close": "signal 9",
+   "outer_killed_by_probe_at_close": true
+  }
+ ]
+}
