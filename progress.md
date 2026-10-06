@@ -79,11 +79,12 @@
 1. G02 round 4:
    - X3–X6 studies are done and committed. The X2 fairness review found 3 majors (baseline drift, implementer isolation, T1 scoring).
    - The task-pack fix died on a 429 rate limit partway through; its partial work is in `~/.local/share/heimdall-m00/r4-hidden/`, pinned to post-X1b base 84c7665/001a791.
-   - Continuation workflow `wf_55ae5a9c-4b4` (script `heimdall-m00-g02-round4-x2-wf_55ae5a9c-4b4.js`):
-     - finishes the fix, then an independent recheck;
-     - builds 24 isolated workspaces in `/tmp/x2ws-*`;
-     - runs 3 sequential batches of 8 cells, each cell implemented, evaluated and reviewed;
-     - retries once on null.
+   - Workflow `wf_55ae5a9c-4b4` finished the pack fix, but its recheck found a new major: the transcript audit missed relative/cd/glob access and commands run from the repo root. The run correctly stopped before any implementation.
+   - The host disk was full (8.5 GB free). The orchestrator moved the seeded trees into `r4-hidden/seeded-trees/` and deleted `/tmp/hm-r4` (25 GB). About 33 GB is now free.
+   - Second attempt: workflow `wf_21d21205-c96` (script `heimdall-m00-g02-round4-x2b.js`).
+     - fix2, then recheck2, then workspaces, then 3 batches.
+     - Reviewers delete each cell workspace once its evidence is copied (isolation and disk).
+     - Decision: T2.ascii_fold_only counts toward all_pass.
    - Afterwards: audit the implementer transcripts with `audit-transcript.py`, compute tokens and tool calls per cell, and commit the specs, runs and the hidden pack copy.
 2. X1 is done:
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
