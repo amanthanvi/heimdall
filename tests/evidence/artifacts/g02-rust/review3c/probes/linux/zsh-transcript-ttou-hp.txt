@@ -1,0 +1,11 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND 'stty tostop\n'>><<SEND "/w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &\n">>stty tostop
+/w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &
+                                                                                @P@ [1] 106
+                                                                                @P@ [1]  + suspended (tty output)  /w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))'
+<<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))'
+TTOU-OUT-42
+                                                                                @P@ <<SEND 'echo RC=$?; stty -tostop\n'>>echo RC=$?; stty -tostop
+RC=0
+                                                                                @P@ 

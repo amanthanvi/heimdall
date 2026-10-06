@@ -1,0 +1,18 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-ghnjfoh6/pid-1791253241291294000 &\n'>>/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall- proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/fold ers/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-ghnjfoh6/pid-1791253241291294000 &
+[1] 22397
+@P@ READY-1
+<<SEND 'fg\n'>><<SEND 'hello\n'>>fg
+/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-ghnjfoh6/pid-1791253241291294000
+hello
+GOT-hello
+READY-2
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

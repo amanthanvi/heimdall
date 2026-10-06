@@ -1,0 +1,21 @@
+aarch64
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-16df67353d49c928
+
+running 1 test
+deep-array-open: 1048565 bytes exit 2 "SCHEMA_INVALID" rss 52 MiB 16.236583ms
+deep-array-closed: 1048565 bytes exit 2 "SCHEMA_INVALID" rss 50 MiB 16.456291ms
+deep-inline-open: 1048564 bytes exit 2 "SCHEMA_INVALID" rss 52 MiB 15.7975ms
+deep-inline-closed: 1048564 bytes exit 2 "SCHEMA_INVALID" rss 50 MiB 15.583709ms
+deep-dotted-key: 1048564 bytes exit 2 "SCHEMA_INVALID" rss 70 MiB 23.478458ms
+deep-table-header: 1048560 bytes exit 2 "SCHEMA_INVALID" rss 70 MiB 22.886958ms
+wide-array: 1048567 bytes exit 0 "PROFILE_OK" rss 97 MiB 50.341125ms
+wide-empty-arrays: 1048566 bytes exit 0 "PROFILE_OK" rss 82 MiB 36.6425ms
+wide-empty-tables: 1048566 bytes exit 0 "PROFILE_OK" rss 82 MiB 41.193041ms
+wide-strings: 1048566 bytes exit 0 "PROFILE_OK" rss 66 MiB 35.994125ms
+array-of-tables: 1048552 bytes exit 0 "PROFILE_OK" rss 44 MiB 25.125459ms
+nested-2-arrays: 1048533 bytes exit 0 "PROFILE_OK" rss 116 MiB 77.629958ms
+K15 worst case: peak RSS 116 MiB, 77.629958ms
+test k15_parser_resource_bound ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.46s
+

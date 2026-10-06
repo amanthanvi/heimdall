@@ -1,0 +1,21 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND 'nohup python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-nymyjppd/pid-1791252998421399000 2>/dev/null\n'>>nohup python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-nymyjppd/pid-1791252998421399000 2>/dev/null
+READY-1
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended  nohup python3 /private/tmp/M00-T05-review3c-rust/probe/child.py  2> /dev/null
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  nohup python3 /private/tmp/M00-T05-review3c-rust/probe/child.py  2> /dev/null
+BACK-tstp-1
+READY-2
+<<SEND 'stop\n'>>stop
+zsh: suspended (signal)  nohup python3 /private/tmp/M00-T05-review3c-rust/probe/child.py  2> /dev/null
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  nohup python3 /private/tmp/M00-T05-review3c-rust/probe/child.py  2> /dev/null
+BACK-stop-2
+READY-3
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+                                                                                @P@ 

@@ -1,0 +1,31 @@
+rustc 1.99.0 (b940084d7 2026-09-28)
+binary: rustc
+commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+commit-date: 2026-09-28
+host: aarch64-apple-darwin
+release: 1.99.0
+LLVM version: 23.1.1
+cargo 1.99.0 (5f94df478 2026-08-27)
+rustup 1.29.1 (d95a37b6a 2026-08-13)
+rust-src
+rust-std-aarch64-apple-darwin
+rust-std-aarch64-apple-ios
+rust-std-aarch64-apple-ios-macabi
+rust-std-aarch64-apple-ios-sim
+rust-std-aarch64-linux-android
+rust-std-aarch64-unknown-linux-musl
+rust-std-i686-unknown-linux-musl
+rust-std-wasm32-unknown-unknown
+rust-std-x86_64-apple-ios-macabi
+rust-std-x86_64-pc-windows-gnu
+rust-std-x86_64-unknown-linux-musl
+0.16.0
+cargo-zigbuild 0.23.4
+Python 3.14.8
+Darwin 27.0.0 arm64
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A428
+docker server 29.8.1 linux/arm64
+[debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417 debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251] arm64
+[python@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed] arm64

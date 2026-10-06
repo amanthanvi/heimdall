@@ -1,0 +1,14 @@
+aarch64
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-16df67353d49c928
+
+running 1 test
+test linux_nproc_limit_never_orphans_child ... limit=4 (base 5): exit=Some(1) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot start the signal forwarder, command not launched: WouldBlock"
+limit=5 (base 5): exit=Some(1) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot start the signal forwarder, command not launched: WouldBlock"
+limit=6 (base 5): exit=Some(1) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot start the signal forwarder, command not launched: WouldBlock"
+limit=7 (base 5): exit=Some(1) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot start the signal forwarder, command not launched: WouldBlock"
+limit=8 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=9 (base 5): exit=Some(0) meta="CHILD_EXITED" child_pid_recorded=true orphan=false stderr=""
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 2.25s
+

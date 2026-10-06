@@ -1,0 +1,16 @@
+
+running 1 test
+K12 closed stdout: version: plain code=Some(1) signal=None / json code=Some(0) signal=None; profile-show-homelab: plain code=Some(1) signal=None / json code=Some(0) signal=None; profile-missing: plain code=Some(2) signal=None / json code=Some(2) signal=None; profile-schema-invalid: plain code=Some(2) signal=None / json code=Some(2) signal=None; agent-unavailable: plain code=Some(5) signal=None / json code=Some(5) signal=None; usage-unknown-flag: plain code=Some(2) signal=None / json code=Some(2) signal=None; agent-list-normal: plain code=Some(1) signal=None / json code=Some(0) signal=None
+
+thread 'k12_closed_stdout_exit_parity' (28811421) panicked at tests/cli.rs:1428:5:
+wait status without --json differs from with --json: version: plain code=Some(1) signal=None / json code=Some(0) signal=None; profile-show-homelab: plain code=Some(1) signal=None / json code=Some(0) signal=None; agent-list-normal: plain code=Some(1) signal=None / json code=Some(0) signal=None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test k12_closed_stdout_exit_parity ... FAILED
+
+failures:
+
+failures:
+    k12_closed_stdout_exit_parity
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.02s
+

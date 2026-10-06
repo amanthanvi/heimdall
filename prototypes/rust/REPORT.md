@@ -2,7 +2,7 @@
 
 # REPORT.md content — G02 prototype: Rust + Ratatui (M00-T05-rust)
 
-> **Current state:** §14 "Round 3b (2026-10-04)" is the current mechanism and evidence. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
+> **Current state:** §15 "Round 3c (2026-10-04)" is the current mechanism and evidence. It supersedes §14's statements that heimdall-proto "never stops itself or anything else" (it now mirrors a child's stop onto its own PID). §14 "Round 3b (2026-10-04)" is otherwise still current. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
 
 **Evidence:** `tests/evidence/g02-rust-selftest.json`, plus `tests/evidence/artifacts/g02-rust/selftest/` (`summary.json` with the real exit code of every step, one log per step). Re-run everything with `prototypes/rust/selftest.sh`.
 
@@ -393,3 +393,108 @@ remedy: nightly `-Zon-broken-pipe=inherit` or a pre-exec re-ignore, not applied)
   `HP_PTY_ONLY`; `selftest.sh` writes attempt 4, adds the round-2 red proofs, the K6e sensitivity steps, both harness
   runs and a canary scan of the attempt directory (no `HEIMDALL_CANARY_` value found).
 - No downloads this round; all images were local and pinned by digest or image ID.
+
+## 15. Round 3c (2026-10-04)
+
+Task M00-T05-rust-round3c-fix: one fix round under contract §9.4 (K6e child-initiated stop, K12 closed stdout,
+Q16–Q18), after harness 2.4.x failed two gated checks on both platforms. The runs below executed on
+2026-10-06 UTC (`date -u`; the task packet's date is 2026-10-04). Evidence: `tests/evidence/g02-rust-selftest.json`
+(attempt 5; attempts 1–4 kept, attempt 4 now as a full snapshot) and
+`tests/evidence/artifacts/g02-rust/selftest/attempt-5-round3c/` (`summary.json`: 56 steps, real exit codes,
+`all_expectations_met: true`; `selftest.sh` exit 0, 2026-10-06T01:20:31Z–01:36:50Z). Re-run with
+`HP_SELFTEST_RUN_HARNESS=1 HP_HARNESS_PY=<python with pyte> prototypes/rust/selftest.sh`.
+
+"Red" means the round-3b artifact fails the new test. Those artifacts are kept in gitignored `target/round3b-dist/`
+and checked against the round-3b manifest digests (darwin `00310565…`, linux-arm64 `9b9450dd…`, linux-x64 `3120f83e…`;
+step `round3b-digests`).
+
+### Failures → outcome
+
+| Failure (harness 2.4.x) | Cause | Fix | Proving test (red on round 3b → green) |
+|---|---|---|---|
+| `run.k6e_child_self_stop`, darwin-arm64 and linux-arm64: after the child's `kill(getpid(), SIGTSTP)` the child is T, heimdall-proto stays S, and bash never reports the job stopped | `run` waited with `waitid(WEXITED\|WNOWAIT)` only. The shell waits for heimdall-proto, not for the child, so it never learned of the stop | **Fixed** (`src/runner.rs`, `run` wait loop and `mirror_child_stop`). The wait loop also reads stop and continue reports (`WSTOPPED\|WCONTINUED\|WNOWAIT`). They are consumed by `waitid` calls without `WEXITED`, so the child is still never reaped before forwarding is disarmed. When the child's stop still holds after 200 ms with no continue or exit report, heimdall-proto sends the **same** stop signal to **its own PID** (`kill(getpid(), sig)`). It uses SIGSTOP when the signal is not TSTP/TTIN/TTOU or was inherited as ignored. The shell then sees its job stop, as it does under plain exec. The child stays in heimdall-proto's process group, so `fg`/`bg` (SIGCONT to the group) continue both. Nothing else is signalled, so K6a still holds (pipeline peers and the starting script are never stopped) | pty `k6e-child-self-stop-bash` (`tests/pty_tui.py`). Under `bash -i` in a fresh pty, 3 SIGTSTP self-stops and 2 SIGSTOP self-stops, each followed by these checks: the shell prints `Stopped` and a prompt, child and heimdall-proto are both T, `fg` resumes the child (`RESUMED`), there is no re-stop or prompt within 0.6 s, and the child reads a typed line. Afterwards `RC=5` and `jobs` is empty. **Red:** darwin exit 1 (`child T+, hp S+`, no Stopped), Linux arm64 exit 1 (`child T, hp S`). **Green:** darwin and Linux arm64 pass, inside the full pty runs and in 5 repeats each (`k6e-repeat-*`, exit 0) |
+| `k12.closed_stdout_exit_parity`, both platforms: with stdout a pipe whose reader closed first, `version`, `profile show` (homelab) and `agent list` (normal) exit 0 with `--json` and 1 without | The plain path used `println!`. Rust std ignores SIGPIPE, so the write fails with EPIPE, `println!` panics, and `catch_unwind` exits 1. The `--json` path ignores write errors (`let _ = write_all`) | **Fixed** (`src/main.rs` `plain()`). The plain output of these three commands ignores write errors the same way `emit()` does. The exit code now depends only on the result, so it matches the `--json` run in every case (the contract does not specify which status, only equality). Error results were already equal (Q17) and still are | `tests/cli.rs` `k12_closed_stdout_exit_parity`. It uses `std::io::pipe()` with the reader dropped before spawn and SIGPIPE at its default in the child (std resets it, as a shell does). It covers version, profile-show-homelab, profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag and agent-list-normal, with and without `--json`, and asserts equal `ExitStatus`. **Red:** darwin and Linux arm64 exit 101, with exactly the harness's three mismatches (plain 1 / json 0). **Green:** all seven equal (0/0, 2/2, 2/2, 5/5, 2/2, 0/0) on both |
+
+### Why the 200 ms grace (Q18)
+A terminal Ctrl-Z stops the whole group. The shell's `fg` then continues the members one by one, so
+heimdall-proto can run again and read the child's stop report before the child itself has been continued.
+Mirroring that stale report re-stops the job right after `fg`, which breaks K6e. Linux and XNU report a stop
+only while the child is actually stopped, but that check races with the continue. Observed: a build with the
+grace set to 0 (temporary source edit, separate target dir, source restored and compared) failed
+`k6e-interactive-bash-ctrl-z-fg-bg` in 1 of 3 manual darwin runs (`z-fg #3: stopped after fg: ('T', 'T')`;
+`attempt-5-round3c/manual-zero-grace-observation/`). The selftest step `observation-zero-grace-darwin` saw 0 of 5
+failures. The race is real but rare, so this evidence is an observation, not a red proof. With the grace in
+place: 5/5 manual runs, plus 5/5 in each of `k6e-repeat-darwin` and `k6e-repeat-linux-arm64`, plus both harness
+runs. The cost is that a self-stop reaches the shell about 200 ms late (§9.4 sets no bound; the harness allows 4 s).
+Q16: heimdall-proto never continues the child itself, so the child stays stopped until `fg`. The harness
+recorded `resumed_before_fg: false` for every self-stop (bash and zsh, SIGTSTP and SIGSTOP, both OSes).
+
+### Mechanism now used (`run`, Unix), replacing §14's "never stops itself"
+Exec semantics as in §14 (one process group, no `setpgid`/`tcsetpgrp`, the same forwarding rules), plus the stop
+mirror above. Order: block the five signals in `main` → query inherited ignores → register handlers → start the
+forwarder → restore the mask → spawn → loop on `waitid(WEXITED|WSTOPPED|WCONTINUED|WNOWAIT)`: consume continue
+reports, mirror stops that persist, and break on exit → disarm forwarding → reap.
+
+### Recorded, not gated (§9.4 and the round-3 review)
+- **Explicit SIGTSTP or SIGSTOP to the heimdall-proto PID** stops only heimdall-proto. The shell reports the job
+  stopped and takes the terminal back while the child keeps running (review3 probe `explicit_tstp`). Unchanged
+  this round; §9.4 records it for ADR-0002 and M01. A related, unprobed residual: after a mirrored stop, a SIGCONT
+  sent **only** to the heimdall-proto PID (not the group) continues heimdall-proto but leaves the child stopped.
+  Shell `fg`/`bg` signal the group and are not affected. Production remedy for both: exec-equivalent job control
+  (forward TSTP/CONT to the child, or a supervisor design), an M01 input.
+- **SIGTTIN/SIGTTOU child stops** go through the same mirror code. No harness check or native test covers them.
+- **`agent list` still uses `std::thread::spawn`** (`src/agent.rs`, the probe worker), which panics if no thread
+  can be created. Under `RUST_MIN_STACK`/`RLIMIT_NPROC` exhaustion it ends with `INTERNAL`, exit 1 (review2/review3
+  observation on darwin and Linux). This is not a contract violation and was not changed. The remedy is
+  `thread::Builder::spawn` with an error result, as `run` has done since round 3b.
+- **Windows executable search order** (code review only, no Windows host): `std::process::Command` resolves a
+  bare `argv[0]` in the child-PATH override, then heimdall-proto.exe's own directory, then System32 and the
+  Windows directory, and only then `PATH`. A same-named exe next to heimdall-proto.exe or in System32 shadows the
+  user's PATH. §9.4 records this as not gated. Production remedy: resolve `argv[0]` against `PATH` explicitly
+  (with `PATHEXT`) and pass an absolute path.
+- **Windows `agent list --socket <path>`** (code review only): `conn::connect` opens any existing path read-write
+  with `OpenOptions` and writes the 5-byte request. A regular file named by mistake is overwritten at offset 0. On
+  Unix, `connect()` fails without writing. Production input for M01: accept only `\\.\pipe\` names, or check the
+  file type (`GetFileType == FILE_TYPE_PIPE`) before writing.
+- **K12 scope:** `help` (no `--json` form) and every stderr diagnostic still use `println!`/`eprintln!`, which
+  panic (exit 1) on a closed stream. This is outside §9.4, which covers stdout of version, profile show and agent
+  list. A closed stderr is not covered by the harness.
+
+No new stack limitation this round. The K6c SIGPIPE limitation (§14) is unchanged.
+
+### Round-3c results (attempt 5; all real exit codes)
+- Host (macOS 27.0 arm64, rustc 1.99.0): fmt, clippy `-D warnings` (host and `x86_64-pc-windows-gnu`) exit 0; `cargo
+  test` lib 49, bin 4, cli 28 passed. The unsafe scan is unchanged (only `src/sigdisp.rs`).
+- darwin dist: CLI 28/28 under `env -i`; pty 27 cases: 26 pass, 1 `known_limitation` (`run-terminal-sigint-not-doubled`).
+- Linux arm64 (Docker Desktop VM, native arm64 kernel, digest-pinned images, `--network none`): lib 49, bin 4, cli 28
+  (1 ignored, run separately: `linux-arm64-nproc` exit 0); pty 27/27. linux-x64 emulated: 49 + 4 + 27 passed, 1
+  skipped (the same Rosetta reason as §14).
+- Red proofs (expected non-zero, observed): `red-round3b-{darwin,linux-arm64}-k12-closed-stdout` 101/101;
+  `red-round3b-{darwin,linux-arm64}-k6e-child-self-stop` 1/1. The older red proofs and sensitivity steps still fail as
+  expected. The round-1 and round-2 K6e filters were narrowed to `k6e-interactive` so that the new case does not
+  change their meaning.
+- **Shared harness 2.4.2, read-only** (records under `/tmp/M00-T05-rust-round3c-fix/{darwin,linux}/`, copies in
+  `attempt-5-round3c/harness-{darwin,linux}/record.json`). Darwin: exit 0, 139/139, `verified`/`pass`, digest
+  `496684ed…`. Linux arm64 via `tests/g02/linux/run.sh`: exit 0, 139/139, `verified`/`pass`, digest `47160fdd…`.
+  `run.k6e_child_self_stop` and `k12.closed_stdout_exit_parity` pass on both. No assertion, gating or not, is false
+  in either record. The non-gating SIGSTOP and zsh self-stop variants are `ok` on both. The K6a self-stop observation
+  shows no pipeline peer stopped. K17 p95 is 4.8 ms on darwin and 3.5 ms on Linux (30 keystrokes, nearest rank).
+  The darwin run used `/tmp/M00-T05-rust-round3c-fix-venv`: a venv with the hash-pinned `tests/g02/requirements.txt`
+  (pyte 0.8.2, wcwidth 0.9.1), needed because the attempt-4 `tests/g02/.venv` no longer exists and `tests/g02` is
+  not this task's to write. `selftest.sh` gained `HP_HARNESS_PY` and a `harness-python` step for this.
+- Builds (`dist/manifest.json`, rustc 1.99.0). All four targets are byte-identical from a second checkout path
+  (step `repro-other-checkout`):
+
+| Target | Size | sha256 |
+|---|---|---|
+| darwin-arm64 | 718,080 B | 496684ed… |
+| linux-x64 | 876,464 B | 961e3fb9… |
+| linux-arm64 | 813,480 B | 47160fdd… |
+| windows-x64 | 841,728 B | dde9662f… |
+
+- Test-driver changes: `tests/cli.rs` gains `k12_closed_stdout_exit_parity`; `tests/pty_tui.py` gains
+  `k6e-child-self-stop-bash`. `selftest.sh` writes attempt 5 and adds the round-3b red proofs, the K6e repeats, the
+  zero-grace observation, `HP_HARNESS_PY`, and harness output under `/tmp/M00-T05-rust-round3c-fix`. The attempt
+  directory was canary-scanned (no `HEIMDALL_CANARY_` value) and contains no home path.
+- No crate or toolchain changes. The only download was the two harness wheels into the `/tmp` venv (hash-verified
+  by pip). Whether pip took them from its cache was not recorded.

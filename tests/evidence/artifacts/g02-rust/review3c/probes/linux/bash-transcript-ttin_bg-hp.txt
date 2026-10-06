@@ -1,0 +1,13 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND '/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-i48z4s_6/pid-1791253419390500508 &\n'>>/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-i48z4s_6/pid-11791253419390500508 &
+[1] 40
+@P@ READY-1
+<<SEND 'fg\n'>><<SEND 'hello\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-i48z4s_6/pid-1791253419390500508
+GOT-hello
+READY-2
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

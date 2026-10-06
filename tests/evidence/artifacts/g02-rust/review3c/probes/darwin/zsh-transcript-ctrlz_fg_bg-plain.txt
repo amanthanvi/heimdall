@@ -1,0 +1,18 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND 'python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-rwtz0u7d/pid-1791252929550459000\n'>>python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-rwtz0u7d/pid-1791252929550459000
+READY-1
+<<SEND '\x1a'>>^Z
+zsh: suspended  python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+                                                                                @P@ <<SEND 'bg\n'>>bg
+[1]  + continued  python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+                                                                                @P@ [1]  + suspended (tty input)  python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+<<SEND 'fg\n'>><<SEND 'hello\n'>>fg
+[1]  + continued  python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+hello
+GOT-hello
+READY-2
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+                                                                                @P@ 

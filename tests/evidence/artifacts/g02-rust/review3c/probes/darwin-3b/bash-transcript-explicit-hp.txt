@@ -1,0 +1,38 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-r9s0_nf4/pid-1791253246609561000\n'>>/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall- proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/fold ers/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-r9s0_nf4/pid-1791253246609561000
+READY-1
+
+[1]+  Stopped                 /tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-r9s0_nf4/pid-1791253246609561000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-r9s0_nf4/pid-1791253246609561000
+ping
+GOT-ping
+READY-2
+
+[1]+  Stopped                 /tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-r9s0_nf4/pid-1791253246609561000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-r9s0_nf4/pid-1791253246609561000
+ping
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+<<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+<<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+BACK-tstp-3
+READY-4
+GOT-jobs;
+READY-5
+GOT-fg
+READY-6
+ping
+GOT-ping
+READY-7
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

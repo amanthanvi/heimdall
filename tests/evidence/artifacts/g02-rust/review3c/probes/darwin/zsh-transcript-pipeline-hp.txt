@@ -1,0 +1,10 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-evkhgnq2/pid-1791253007027575000 | cat\n'>>/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-evkhgnq2/pid-1791253007027575000 | cat
+READY-1
+<<SEND 'tstp\n'>>tstp
+BACK-tstp-1
+READY-2
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo PS=${PIPESTATUS[*]}${pipestatus[*]}\n'>>echo PS=${PIPESTATUS[*]}${pipestatus[*]}
+PS=5 0
+                                                                                @P@ 

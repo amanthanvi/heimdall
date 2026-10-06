@@ -1061,6 +1061,98 @@ def t_k6d(b):
     return "shared mode (hp, script and child in the terminal's foreground group): " + ", ".join(got) + "; RC=3 each"
 
 
+# ---------- round 3c (contract §9.4 K6e child-initiated stop) ----------
+
+K6ES_CHILD = r"""
+import os, signal, sys
+sig = getattr(signal, sys.argv[1])
+print('ready', os.getpid(), flush=True)
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        sys.exit(9)
+    line = line.strip()
+    if line == 'quit':
+        sys.exit(5)
+    if line == 'stop':  # stop ITSELF, as OpenSSH's ~^Z does: kill(getpid(), SIGTSTP)
+        print('SELF-STOP', flush=True)
+        os.kill(os.getpid(), sig)
+        print('RESUMED', flush=True)
+        continue
+    print('GOT', line, flush=True)
+"""
+
+
+@case("k6e-child-self-stop-bash")
+def t_k6e_self_stop(b):
+    """§9.4 K6e: a child that stops itself (SIGTSTP; SIGSTOP as well) under interactive
+    bash: the shell reports the job stopped and prompts with no user action, heimdall-proto
+    and the child are both stopped, `fg` resumes the child without a re-stop, and the child
+    reads terminal input again. 3 self-stops with SIGTSTP, 2 with SIGSTOP; exit 5 passes."""
+    if not os.access("/bin/bash", os.X_OK):
+        raise AssertionError("/bin/bash missing: K6e needs an interactive job-control shell")
+    d = tempfile.mkdtemp(prefix="k6es-", dir=TMP)
+    child_py = os.path.join(d, "c.py")
+    open(child_py, "w").write(K6ES_CHILD)
+    sh = Shell()
+    pids = []
+    notes = []
+    try:
+        assert sh.wait_count(b"HPS1$ ", 1), f"no prompt: {sh.out[-200:]!r}"
+        assert b"no job control" not in sh.out, f"bash has no job control: {sh.out[-200:]!r}"
+        prompts, stops, readies = 1, 0, 0
+        for signame, n in (("SIGTSTP", 3), ("SIGSTOP", 2)):
+            sh.send(f'"{b}" run -- "{sys.executable}" "{child_py}" {signame}\n'.encode())
+            readies += 1
+            assert sh.wait_count(b"ready ", readies), f"{signame}: child not started: {sh.out[-300:]!r}"
+            sh.read_for(0.1)
+            child = int(re.findall(rb"ready (\d+)", sh.out)[-1])
+            hp = ppid_of(child)
+            assert hp > 1, f"{signame}: child's parent not found: {hp}"
+            pids += [child, hp]
+            for i in range(1, n + 1):
+                tag = f"{signame} stop {i}"
+                stops += 1
+                sh.send(b"stop\n")
+                assert sh.wait_count(b"Stopped", stops, timeout=4.0), \
+                    f"{tag}: shell never reported the job stopped (child {proc_state(child)}, hp {proc_state(hp)}): {sh.out[-300:]!r}"
+                prompts += 1
+                assert sh.wait_count(b"HPS1$ ", prompts), f"{tag}: no prompt after the self-stop"
+                st = (proc_state(child), proc_state(hp))
+                assert all(x.startswith("T") for x in st), f"{tag}: job not stopped while shell says Stopped: {st}"
+                sh.send(b"fg\n")
+                assert sh.wait_count(b"RESUMED", stops), f"{tag}: child not resumed by fg: {sh.out[-300:]!r}"
+                sh.read_for(0.6)
+                st = (proc_state(child), proc_state(hp))
+                assert not any(x.startswith("T") for x in st), f"{tag}: stopped after fg: {st}"
+                assert sh.out.count(b"Stopped") == stops, f"{tag}: re-stopped after fg: {sh.out[-300:]!r}"
+                assert sh.out.count(b"HPS1$ ") == prompts, f"{tag}: prompt after fg: {sh.out[-300:]!r}"
+                tok = f"K6ES-{signame}-{i}".encode()
+                sh.send(tok + b"\n")
+                assert sh.wait_count(b"GOT " + tok, 1), f"{tag}: child did not read terminal input after fg"
+            sh.send(b"quit\n")
+            prompts += 1
+            assert sh.wait_count(b"HPS1$ ", prompts), f"{signame}: no prompt after exit"
+            sh.send(b"echo RC=$?\n")
+            prompts += 1
+            assert sh.wait_count(f"RC=5".encode(), readies), f"{signame}: exit status not passed through: {sh.out[-300:]!r}"
+            sh.send(b"jobs; echo JOBS\"\"-END\n")  # the echoed line shows JOBS""-END
+            prompts += 1
+            assert sh.wait_count(b"JOBS-END", readies), "jobs did not run"
+            tail = sh.out[sh.out.rfind(b"jobs; echo"):sh.out.rfind(b"JOBS-END")]
+            assert b"Stopped" not in tail and b"Running" not in tail, f"{signame}: a job is left: {tail!r}"
+            notes.append(f"{signame} x{n} ok")
+        return ("interactive bash: child self-stop reported Stopped with a prompt, child and heimdall-proto T, "
+                "fg resumes (no re-stop within 0.6 s), child reads input; RC=5; no job left; " + "; ".join(notes))
+    finally:
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        sh.close()
+
+
 def t_panic(pb):
     @case("tui-panic-restores")
     def inner(b):
@@ -1090,7 +1182,7 @@ def main():
     for fn in [t_select, t_quit, t_ctrlc, t_term, t_filter, t_esc, t_resize, t_nocolor,
                t_large, t_tiny, t_bad, t_hangup, t_run_sigint, t_run_ctrlz,
                t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
-               t_k6e, t_k6d]:
+               t_k6e, t_k6d, t_k6e_self_stop]:
         fn(binary)
     if panic_bin:
         t_panic(panic_bin)

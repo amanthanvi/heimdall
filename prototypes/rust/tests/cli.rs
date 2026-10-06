@@ -1331,3 +1331,103 @@ fn k15_parser_resource_bound() {
         worst.1
     );
 }
+
+// ---------- round 3c (contract §9.4 K12 closed stdout) ----------
+
+/// Wait status of `heimdall-proto <args>` whose stdout is the write end of a pipe whose
+/// read end was closed before the start (deterministic EPIPE / SIGPIPE on the first
+/// write). std resets SIGPIPE to its default disposition in the child, as a shell does.
+fn closed_stdout_status(args: &[OsString]) -> std::process::ExitStatus {
+    let (r, w) = std::io::pipe().unwrap();
+    drop(r);
+    cmd()
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(w)
+        .stderr(Stdio::null())
+        .status()
+        .unwrap()
+}
+
+#[test]
+fn k12_closed_stdout_exit_parity() {
+    use std::os::unix::process::ExitStatusExt;
+    let fx = fixtures();
+    let os = |v: &[&str]| v.iter().map(OsString::from).collect::<Vec<_>>();
+    let with_path = |head: &[&str], p: &Path| {
+        let mut v = os(head);
+        v.push(p.as_os_str().to_owned());
+        v
+    };
+    let missing = TempDir::new("k12m");
+    let mut cases: Vec<(&str, Vec<OsString>)> = vec![
+        ("version", os(&["version"])),
+        (
+            "profile-show-homelab",
+            with_path(&["profile", "show", "--file"], &fx.join("homelab.toml")),
+        ),
+        (
+            "profile-missing",
+            with_path(
+                &["profile", "show", "--file"],
+                &fx.join("does-not-exist.toml"),
+            ),
+        ),
+        (
+            "profile-schema-invalid",
+            with_path(
+                &["profile", "show", "--file"],
+                &fx.join("invalid-port.toml"),
+            ),
+        ),
+        (
+            "agent-unavailable",
+            with_path(
+                &["agent", "list", "--socket"],
+                &missing.path().join("none.sock"),
+            ),
+        ),
+        ("usage-unknown-flag", os(&["version", "--no-such-flag"])),
+    ];
+    // agent list with a normal one-key fake agent: one agent per invocation.
+    cases.push(("agent-list-normal", vec![]));
+    let (mut seen, mut bad) = (Vec::new(), Vec::new());
+    for (name, args) in cases {
+        let mut st = Vec::new();
+        for json in [false, true] {
+            let _d;
+            let mut a = args.clone();
+            let mut agent = None;
+            if name == "agent-list-normal" {
+                _d = TempDir::new("k12a");
+                let (sock, h) = fake_agent(
+                    _d.path(),
+                    frame(&one_key_answer(b"fixture key")),
+                    Duration::ZERO,
+                );
+                a = with_path(&["agent", "list", "--socket"], &sock);
+                agent = Some(h);
+            }
+            if json {
+                a.push("--json".into());
+            }
+            st.push(closed_stdout_status(&a));
+            if let Some(h) = agent {
+                let _ = h.join();
+            }
+        }
+        let show =
+            |s: &std::process::ExitStatus| format!("code={:?} signal={:?}", s.code(), s.signal());
+        let line = format!("{name}: plain {} / json {}", show(&st[0]), show(&st[1]));
+        if st[0] != st[1] {
+            bad.push(line.clone());
+        }
+        seen.push(line);
+    }
+    eprintln!("K12 closed stdout: {}", seen.join("; "));
+    assert!(
+        bad.is_empty(),
+        "wait status without --json differs from with --json: {}",
+        bad.join("; ")
+    );
+}

@@ -1,0 +1,39 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000\n'>>/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-pr oto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folder s/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+READY-1
+
+[1]+  Stopped                 /tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+ping
+GOT-ping
+READY-2
+
+[1]+  Stopped                 /tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+ping
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 /tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+@P@ <<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+[1]+  Stopped                 /tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+JOBS-END2
+@P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>BACK-tstp-3
+READY-4
+fg
+/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-y40azear/pid-1791252798555523000
+ping
+GOT-ping
+READY-5
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

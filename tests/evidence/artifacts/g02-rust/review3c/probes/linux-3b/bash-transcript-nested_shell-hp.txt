@@ -1,0 +1,8 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND '/w/hp3b/heimdall-proto run -- bash --norc --noprofile -i\n'>><<SEND "PS1='@N@ '\n">>/w/hp3b/heimdall-proto run -- bash --norc --noprofile -i
+[?2004h@P@ PS1='@N@ '
+[?2004l[?2004h@N@ <<SEND 'echo NPID=$$\n'>>echo NPID=$$
+[?2004lNPID=295
+[?2004h@N@ <<SEND 'suspend\n'>>suspend
+[?2004lKilled
+@P@ 

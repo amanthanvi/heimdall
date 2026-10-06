@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"succeeded","code":"AGENT_OK","data":{"identities":[{"key_type":"ssh-ed25519","fingerprint":"SHA256:SL0AR5Ybc9d0SvxZQkGMA5hqHNb9W4Q1QTVyhETgIwk","comment":"bad-�-comment"}]},"warnings":[],"next":null}

@@ -1,0 +1,22 @@
+{
+  "candidate": "rust",
+  "harness_version": "2.4.2",
+  "darwin": {
+    "harness_exit_code": 0,
+    "evidence_record": "tests/evidence/g02-rust-conformance.json",
+    "passed": 139,
+    "failed": 0,
+    "errored": 0,
+    "artifact_sha256": "496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b"
+  },
+  "linux": {
+    "harness_exit_code": 0,
+    "evidence_record": "tests/evidence/g02-rust-conformance-linux.json",
+    "passed": 139,
+    "failed": 0,
+    "errored": 0,
+    "artifact_sha256": "47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0"
+  },
+  "failures": [],
+  "summary": "Harness 2.4.2 (HARNESS_VERSION checked in tests/g02/conformance.py). Rust rebuilt from source with prototypes/rust/build.sh (rustc 1.99.0, exit 0, all four targets built, tree at HEAD 0aaee74 plus uncommitted changes). Both artifacts match the new dist/manifest.json. The darwin-arm64 binary's sha256 is 496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b and the linux-arm64 binary's is 47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0. The other manifest entries are linux-x64 961e3fb9f02e916ae25e2c4ac8e882dcd074301f90b9f7c1640249eec909ef72, windows-x64 dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd and THIRD-PARTY-NOTICES.txt d13a6ca8261db08485ced7559f40ed9a514443c0dad5b5f477fbdfcbb006a926.\n\nDarwin-arm64: full catalogue, 139 of 139 pass, harness exit 0, status verified, verdict pass. Linux-arm64: 139 of 139 pass, harness exit 0, status verified, verdict pass. The Linux run used tests/g02/linux/run.sh in the arm64 container, image heimdall-g02-harness:d0c8e448a3a7. Both runs were single full runs; no failures, errors or skips, so no flaky reruns were needed (0 reruns).\n\nThe prior round's two failures, run.k6e_child_self_stop and k12.closed_stdout_exit_parity, were failing on both platforms. Both now pass on both. The k6e gated bash-SIGTSTP form is ok on both platforms. The non-gating bash-SIGSTOP and zsh-SIGTSTP/SIGSTOP forms are also ok. The k12 closed-stdout error cases are gated (Q17): profile-missing, profile-schema-invalid, agent-unavailable and usage-unknown-flag had equal exit codes with and without --json; the record shows no other mismatch.\n\nCaveat: the darwin host load average was elevated (5.85/6.02/4.86 at start, 7.28/6.44/5.31 at end) during the run, which suggests other work was running on the machine. All timing-gated checks still passed, and the K17 filter latencies observed were about 0.7 to 4.8 ms, well under the 100 ms p95 budget.\n\nEvidence:\n- Records: <repo>/tests/evidence/g02-rust-conformance.json (file sha256 406983281d2f2de6fa23958b5ee72acf1d3ed926240e51319cac432eb85ced5f) and <repo>/tests/evidence/g02-rust-conformance-linux.json (file sha256 697619341afb48fffca2e2fe5994781e064ac81cf459d9ac53189bdd3af5ea4c).\n- Artifacts: <repo>/tests/evidence/artifacts/g02-rust/conformance/ (Linux artifacts in its linux/ subdirectory).\n- The previous top-level contents moved to prev-20261006T014544Z/ in the same directory. The earlier prev-* directories were left untouched.\n- Console logs: /tmp/g02r3c-rust-darwin.console and /tmp/g02r3c-rust-linux.console.\n- Copies of the previous records, taken before the rerun, are in /tmp/g02r3c-rust-prev/.\n\nHygiene: no full HEIMDALL_CANARY_ value in either record, any artifact or the console logs. The only prefix hits are the record's own assertion text naming the canary check, and a regex scan for the prefix plus a value character found 0 matches. The harness canary self-check passed. Absolute home paths were present in both records, in evidence_paths, in the Linux record's runner command text, and in harness.check_bound.inner/traceback.txt; I replaced <home> with <home> in those three files, and they now contain no /Users/ string. Both records still parse as valid JSON. I edited nothing under prototypes/**, did not commit, and no processes of mine remain."
+}

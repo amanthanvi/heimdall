@@ -1,0 +1,5 @@
+{"seq": 1, "ts": "2026-10-04T20:17:43.567Z", "mono_ms": 0.118, "event": "listen", "socket": "/tmp/hmg02-au2w9ch1/057-agent-partial_header/partial_header.sock", "mode": "partial_header", "keys": 1}
+{"seq": 2, "ts": "2026-10-04T20:17:43.573Z", "mono_ms": 5.343, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-04T20:17:43.573Z", "mono_ms": 5.53, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "partial_header", "sent_bytes": 1}
+{"seq": 4, "ts": "2026-10-04T20:17:43.573Z", "mono_ms": 5.555, "event": "disconnect", "conn": 1, "reason": "server_close", "bytes_received": 5, "bytes_sent": 1, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-04T20:17:43.679Z", "mono_ms": 111.725, "event": "shutdown"}

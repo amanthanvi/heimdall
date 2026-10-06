@@ -1,0 +1,761 @@
+{
+ "shell": "bash",
+ "platform": "darwin",
+ "hp": "/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+ "started": "2026-10-06T02:11:04Z",
+ "selfstop-hp": {
+  "plain": false,
+  "cycles": [
+   {
+    "cmd": "tstp",
+    "i": 0,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "tstp",
+    "i": 1,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "tstp",
+    "i": 2,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 3,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 4,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "ttin",
+    "i": 5,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   }
+  ],
+  "child": true,
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "selfstop-plain": {
+  "plain": true,
+  "cycles": [
+   {
+    "cmd": "tstp",
+    "i": 0,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "tstp",
+    "i": 1,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "tstp",
+    "i": 2,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 3,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 4,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "ttin",
+    "i": 5,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   }
+  ],
+  "child": true,
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "ctrlz_fg_bg-hp": {
+  "plain": false,
+  "stop_notice": true,
+  "states_stopped": [
+   "T",
+   "T"
+  ],
+  "ttin_notice": false,
+  "states_after_bg": [
+   "T",
+   "T"
+  ],
+  "restopped_after_fg": false,
+  "child_reads_after_fg": true,
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "ctrlz_fg_bg-plain": {
+  "plain": true,
+  "stop_notice": true,
+  "states_stopped": [
+   "T",
+   null
+  ],
+  "ttin_notice": false,
+  "states_after_bg": [
+   "T",
+   null
+  ],
+  "restopped_after_fg": false,
+  "child_reads_after_fg": true,
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "ctrlz_in_grace-hp": {
+  "plain": false,
+  "reps": [
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   }
+  ],
+  "delay": 0.05,
+  "rc": 5,
+  "jobs_left": false,
+  "restops": 0,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "ctrlz_in_grace-plain": {
+  "plain": true,
+  "reps": [
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   },
+   {
+    "stop_notice": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false
+   }
+  ],
+  "delay": 0.05,
+  "rc": 5,
+  "jobs_left": false,
+  "restops": 0,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "ttou-hp": {
+  "plain": false,
+  "stop_notice": false,
+  "output_after_fg": true,
+  "rc": 1,
+  "ok": false,
+  "leftover_killed": []
+ },
+ "ttou-plain": {
+  "plain": true,
+  "stop_notice": false,
+  "output_after_fg": true,
+  "rc": 1,
+  "ok": false,
+  "leftover_killed": []
+ },
+ "ttin_bg-hp": {
+  "plain": false,
+  "stop_notice": false,
+  "states_stopped": [
+   "T",
+   "T"
+  ],
+  "child_reads_after_fg": true,
+  "rc": 5,
+  "jobs_left": false,
+  "ok": false,
+  "leftover_killed": []
+ },
+ "ttin_bg-plain": {
+  "plain": true,
+  "stop_notice": false,
+  "states_stopped": [
+   "T",
+   null
+  ],
+  "child_reads_after_fg": true,
+  "rc": 5,
+  "jobs_left": false,
+  "ok": false,
+  "leftover_killed": []
+ },
+ "explicit-hp": {
+  "plain": false,
+  "SIGTSTP": {
+   "stop_notice": true,
+   "states": [
+    "T",
+    "T"
+   ],
+   "child_reads_after_fg": true
+  },
+  "SIGSTOP": {
+   "stop_notice": true,
+   "states": [
+    "T",
+    "T"
+   ],
+   "child_reads_after_fg": true
+  },
+  "cont_to_launcher": {
+   "states": [
+    "T",
+    "S"
+   ],
+   "jobs_says_running": false,
+   "jobs_says_stopped": true,
+   "launcher_cpu_before_after_2s": [
+    "0:00.00",
+    "0:00.00"
+   ],
+   "child_reads_after_recovery": true
+  },
+  "rc": 5,
+  "jobs_left": false,
+  "leftover_killed": []
+ },
+ "explicit-plain": {
+  "plain": true,
+  "SIGTSTP": {
+   "stop_notice": true,
+   "states": [
+    "T",
+    null
+   ],
+   "child_reads_after_fg": true
+  },
+  "SIGSTOP": {
+   "stop_notice": true,
+   "states": [
+    "T",
+    null
+   ],
+   "child_reads_after_fg": true
+  },
+  "cont_to_launcher": {
+   "states": [
+    "T",
+    null
+   ],
+   "jobs_says_running": false,
+   "jobs_says_stopped": true,
+   "child_reads_after_recovery": true
+  },
+  "rc": 5,
+  "jobs_left": false,
+  "leftover_killed": []
+ },
+ "nohup-hp": {
+  "plain": false,
+  "cycles": [
+   {
+    "cmd": "tstp",
+    "i": 0,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 1,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   }
+  ],
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "nohup-plain": {
+  "plain": true,
+  "cycles": [
+   {
+    "cmd": "tstp",
+    "i": 0,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 1,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   }
+  ],
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "pipeline-hp": {
+  "plain": false,
+  "stop_notice": false,
+  "prompt": false,
+  "states": [
+   "T",
+   "T"
+  ],
+  "back_after_manual_cont": true,
+  "any_T_after": false,
+  "pipestatus": "5 0",
+  "leftover_killed": []
+ },
+ "pipeline-plain": {
+  "plain": true,
+  "stop_notice": false,
+  "prompt": false,
+  "states": [
+   "T",
+   null
+  ],
+  "back_after_manual_cont": true,
+  "any_T_after": false,
+  "pipestatus": "5 0",
+  "leftover_killed": []
+ },
+ "sh_c-hp": {
+  "plain": false,
+  "stop_notice": false,
+  "prompt": false,
+  "states": [
+   "T",
+   "T"
+  ],
+  "back": true,
+  "after": 5,
+  "leftover_killed": []
+ },
+ "sh_c-plain": {
+  "plain": true,
+  "stop_notice": false,
+  "prompt": false,
+  "states": [
+   "T",
+   null
+  ],
+  "back": true,
+  "after": 5,
+  "leftover_killed": []
+ },
+ "nested_shell-hp": {
+  "plain": false,
+  "nested_prompt": true,
+  "stop_notice": true,
+  "outer_prompt": true,
+  "states_after_suspend": [
+   "T",
+   "T"
+  ],
+  "states_after_fg": [
+   "T",
+   "S"
+  ],
+  "nested_responds_after_fg": false,
+  "outer_prompt_after_cleanup": true,
+  "leftover_killed": []
+ },
+ "nested_shell-plain": {
+  "plain": true,
+  "nested_prompt": true,
+  "stop_notice": true,
+  "outer_prompt": true,
+  "states_after_suspend": [
+   "T",
+   null
+  ],
+  "states_after_fg": [
+   "S",
+   null
+  ],
+  "nested_responds_after_fg": true,
+  "outer_prompt_after_cleanup": true,
+  "leftover_killed": []
+ },
+ "finished": "2026-10-06T02:14:17Z"
+}

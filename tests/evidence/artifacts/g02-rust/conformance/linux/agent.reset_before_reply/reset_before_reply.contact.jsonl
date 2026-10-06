@@ -1,5 +1,5 @@
-{"seq": 1, "ts": "2026-10-04T20:17:44.029Z", "mono_ms": 0.131, "event": "listen", "socket": "/tmp/hmg02-au2w9ch1/060-agent-reset_before_reply/reset_before_reply.sock", "mode": "reset_before_reply", "keys": 1}
-{"seq": 2, "ts": "2026-10-04T20:17:44.033Z", "mono_ms": 4.869, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T20:17:44.033Z", "mono_ms": 5.072, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "reset_before_reply", "sent_bytes": 0, "consumed": false}
-{"seq": 4, "ts": "2026-10-04T20:17:44.089Z", "mono_ms": 60.209, "event": "disconnect", "conn": 1, "reason": "server_reset", "bytes_received": 5, "bytes_sent": 0, "partial_bytes": 0, "request_left_unread": true}
-{"seq": 5, "ts": "2026-10-04T20:17:44.136Z", "mono_ms": 107.815, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T01:50:59.900Z", "mono_ms": 0.091, "event": "listen", "socket": "/tmp/hmg02-q7sgu_xi/060-agent-reset_before_reply/reset_before_reply.sock", "mode": "reset_before_reply", "keys": 1}
+{"seq": 2, "ts": "2026-10-06T01:50:59.904Z", "mono_ms": 4.621, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T01:50:59.904Z", "mono_ms": 4.766, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "reset_before_reply", "sent_bytes": 0, "consumed": false}
+{"seq": 4, "ts": "2026-10-06T01:50:59.957Z", "mono_ms": 58.061, "event": "disconnect", "conn": 1, "reason": "server_reset", "bytes_received": 5, "bytes_sent": 0, "partial_bytes": 0, "request_left_unread": true}
+{"seq": 5, "ts": "2026-10-06T01:51:00.006Z", "mono_ms": 107.039, "event": "shutdown"}

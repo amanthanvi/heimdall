@@ -1,28 +1,28 @@
 Name:	cat
 Umask:	0022
 State:	R (running)
-Tgid:	515
+Tgid:	545
 Ngid:	0
-Pid:	515
-PPid:	513
+Pid:	545
+PPid:	543
 TracerPid:	0
 Uid:	10001	10001	10001	10001
 Gid:	10001	10001	10001	10001
 FDSize:	64
 Groups:	10001 
-NStgid:	515
-NSpid:	515
-NSpgid:	513
-NSsid:	513
+NStgid:	545
+NSpid:	545
+NSpgid:	543
+NSsid:	543
 Kthread:	0
 VmPeak:	    5360 kB
 VmSize:	    5360 kB
 VmLck:	       0 kB
 VmPin:	       0 kB
-VmHWM:	    1380 kB
-VmRSS:	    1380 kB
-RssAnon:	      96 kB
-RssFile:	    1284 kB
+VmHWM:	    1356 kB
+VmRSS:	    1356 kB
+RssAnon:	     100 kB
+RssFile:	    1256 kB
 RssShmem:	       0 kB
 VmData:	     356 kB
 VmStk:	     132 kB

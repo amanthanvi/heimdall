@@ -1,0 +1,12 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND 'stty tostop\n'>><<SEND "sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &\n">>stty tostop
+sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &
+                                                                                @P@ [1] 12933
+                                                                                @P@ [1]  + suspended (tty output)  sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))'
+<<SEND 'fg\n'>>fg
+[1]  + continued  sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))'
+TTOU-OUT-42
+sh: line 0: echo: write error: Interrupted system call
+                                                                                @P@ <<SEND 'echo RC=$?; stty -tostop\n'>>echo RC=$?; stty -tostop
+RC=1
+                                                                                @P@ 

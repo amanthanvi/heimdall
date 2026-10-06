@@ -1,7 +1,7 @@
 #!/bin/sh
 # Native self-test driver for the Rust G02 prototype. Runs every step, records the
 # REAL exit status of each, and writes logs plus summary.json under
-# $HP_SELFTEST_OUT (default: tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b).
+# $HP_SELFTEST_OUT (default: tests/evidence/artifacts/g02-rust/selftest/attempt-5-round3c).
 # Never touches ~/.ssh or a real agent (SSH_AUTH_SOCK is unset; fake agents live in
 # per-test temp dirs). Containers run with --network none and --pull never, from images
 # pinned by digest. POSIX sh.
@@ -13,7 +13,7 @@ set -u
 unset SSH_AUTH_SOCK
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 REPO=$(CDPATH= cd -- "$HERE/../.." && pwd -P)
-OUT="${HP_SELFTEST_OUT:-$REPO/tests/evidence/artifacts/g02-rust/selftest/attempt-4-round3b}"
+OUT="${HP_SELFTEST_OUT:-$REPO/tests/evidence/artifacts/g02-rust/selftest/attempt-5-round3c}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 STEPS="$OUT/steps.tsv"
@@ -29,6 +29,7 @@ PYIMG="python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a3
 AMD64IMG="${HP_AMD64_IMAGE:-sha256:c83674e1999044d33d751661371b873539f47e5b5c5ca3320c7e0377acca6238}"
 R1="$HERE/target/round1-dist"   # round-1 artifacts for red proofs (see step round1-digests)
 R2="$HERE/target/round2-dist"   # round-2 artifacts for round-3b red proofs (see step round2-digests)
+R3="$HERE/target/round3b-dist"  # round-3b artifacts for round-3c red proofs (see step round3b-digests)
 
 # step <name> <expect: exit0|nonzero> <command string> : sh -c, log to $OUT/<name>.log
 step() {
@@ -130,11 +131,11 @@ want={\"darwin-arm64\":\"d9838f89f746c6d79df7c57b1831443cd3956cdadfdd6e34c776f3e
 ok=all(hashlib.sha256(open(sys.argv[1]+\"/\"+t+\"/heimdall-proto\",\"rb\").read()).hexdigest()==h for t,h in want.items())
 print(\"round-2 manifest digests match:\", ok); sys.exit(0 if ok else 1)" '"$R2"
   step red-round2-darwin-thread-spawn nonzero 'HEIMDALL_G02_FIXTURES="'"$FIX"'" HEIMDALL_PROTO_BIN='"$R2"'/darwin-arm64/heimdall-proto "$(cat target/host-cli-test.txt)" thread_spawn --nocapture'
-  step round2-darwin-pty-k6e-k6d exit0 'HP_PTY_ONLY=k6 python3 tests/pty_tui.py '"$R2"'/darwin-arm64/heimdall-proto'
+  step round2-darwin-pty-k6e-k6d exit0 'HP_PTY_ONLY=k6e-interactive python3 tests/pty_tui.py '"$R2"'/darwin-arm64/heimdall-proto && HP_PTY_ONLY=k6d python3 tests/pty_tui.py '"$R2"'/darwin-arm64/heimdall-proto'
   if docker info >/dev/null 2>&1; then
     step red-round2-linux-arm64-thread-spawn nonzero "HP_TEST_ONLY=/cli- HP_TEST_ARGS='thread_spawn --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
     step red-round2-linux-arm64-nproc nonzero "HP_LINUX_USER=10001:10001 HP_TEST_ONLY=/cli- HP_TEST_ARGS='linux_nproc --ignored --test-threads=1 --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
-    step round2-linux-arm64-pty-k6e-k6d exit0 "HP_PTY_ONLY=k6 sh tools/linux_pty.sh arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
+    step round2-linux-arm64-pty-k6e-k6d exit0 "HP_PTY_ONLY=k6e-interactive sh tools/linux_pty.sh arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto && HP_PTY_ONLY=k6d sh tools/linux_pty.sh arm64 prototypes/rust/target/round2-dist/linux-arm64/heimdall-proto"
   fi
 else
   printf 'round2-digests\t-1\texit0\t0\tround-2 binaries not present under target/round2-dist\n' >>"$STEPS"
@@ -142,11 +143,39 @@ fi
 # Sensitivity of the new K6e case: the round-1 job-control design (child in its own
 # foreground group, self-SIGSTOP) must fail it.
 if [ -d "$R1" ]; then
-  step sensitivity-round1-darwin-k6e nonzero 'HP_PTY_ONLY=k6e python3 tests/pty_tui.py '"$R1"'/darwin-arm64/heimdall-proto'
+  step sensitivity-round1-darwin-k6e nonzero 'HP_PTY_ONLY=k6e-interactive python3 tests/pty_tui.py '"$R1"'/darwin-arm64/heimdall-proto'
   if docker info >/dev/null 2>&1; then
-    step sensitivity-round1-linux-arm64-k6e nonzero "HP_PTY_ONLY=k6e sh tools/linux_pty.sh arm64 prototypes/rust/target/round1-dist/linux-arm64/heimdall-proto"
+    step sensitivity-round1-linux-arm64-k6e nonzero "HP_PTY_ONLY=k6e-interactive sh tools/linux_pty.sh arm64 prototypes/rust/target/round1-dist/linux-arm64/heimdall-proto"
   fi
 fi
+
+# --- round 3c red proofs: the round-3b binaries against the round-3c tests (§9.4) -------
+if [ -d "$R3" ]; then
+  step round3b-digests exit0 'shasum -a 256 '"$R3"'/*/heimdall-proto; python3 -c "
+import hashlib,sys
+want={\"darwin-arm64\":\"003105655033a37f9934e9c4633044fd9a7417fe8d398d3ced69c68f7946f306\",\"linux-arm64\":\"9b9450ddab73b1993d1e2d33beb290a76705c07e561bfee837edeac815190b38\",\"linux-x64\":\"3120f83e86e4bfbfca4a2ba7a970de627df4304227d2ce783259d5b697b2f28f\"}
+ok=all(hashlib.sha256(open(sys.argv[1]+\"/\"+t+\"/heimdall-proto\",\"rb\").read()).hexdigest()==h for t,h in want.items())
+print(\"round-3b manifest digests match:\", ok); sys.exit(0 if ok else 1)" '"$R3"
+  step red-round3b-darwin-k12-closed-stdout nonzero 'HEIMDALL_G02_FIXTURES="'"$FIX"'" HEIMDALL_PROTO_BIN='"$R3"'/darwin-arm64/heimdall-proto "$(cat target/host-cli-test.txt)" k12_closed --nocapture'
+  step red-round3b-darwin-k6e-child-self-stop nonzero 'HP_PTY_ONLY=k6e-child python3 tests/pty_tui.py '"$R3"'/darwin-arm64/heimdall-proto'
+  if docker info >/dev/null 2>&1; then
+    step red-round3b-linux-arm64-k12-closed-stdout nonzero "HP_TEST_ONLY=/cli- HP_TEST_ARGS='k12_closed --nocapture' sh tools/linux_tests.sh arm64 aarch64-unknown-linux-musl linux-arm64 prototypes/rust/target/round3b-dist/linux-arm64/heimdall-proto"
+    step red-round3b-linux-arm64-k6e-child-self-stop nonzero "HP_PTY_ONLY=k6e-child sh tools/linux_pty.sh arm64 prototypes/rust/target/round3b-dist/linux-arm64/heimdall-proto"
+  fi
+else
+  printf 'round3b-digests\t-1\texit0\t0\tround-3b binaries not present under target/round3b-dist\n' >>"$STEPS"
+fi
+# Round 3c: repeat both K6e pty cases (group Ctrl-Z/fg/bg and child self-stop) 5 times
+# on the new artifacts; the stop mirror must never re-stop the job after `fg`.
+step k6e-repeat-darwin exit0 'rc=0; for i in 1 2 3 4 5; do HP_PTY_ONLY=k6e python3 tests/pty_tui.py dist/darwin-arm64/heimdall-proto || rc=1; done; exit $rc'
+if docker info >/dev/null 2>&1; then
+  step k6e-repeat-linux-arm64 exit0 'rc=0; for i in 1 2 3 4 5; do HP_PTY_ONLY=k6e sh tools/linux_pty.sh arm64 prototypes/rust/dist/linux-arm64/heimdall-proto || rc=1; done; exit $rc'
+fi
+# Round 3c observation (not a red proof: timing-dependent, Q18): the same source with the
+# 200 ms stop grace set to 0, built in a temporary copy, under the K6e pty cases 5 times.
+# Records how often a stale stop report re-stops the job after `fg`. Exit 0 unless the
+# build fails; the counts are in the log.
+step observation-zero-grace-darwin exit0 'd=$(mktemp -d /tmp/hp-rs-nograce-XXXXXX); rsync -a --exclude target --exclude dist --exclude __pycache__ ./ "$d/rust/"; sed -i "" "s/Duration::from_millis(200);/Duration::from_millis(0);/" "$d/rust/src/runner.rs"; grep -n "const STOP_GRACE" "$d/rust/src/runner.rs"; (cd "$d/rust" && cargo build --locked --offline --target-dir "'"$HERE"'/target/nograce" >/dev/null 2>&1) || { rm -rf "$d"; exit 1; }; rm -rf "$d"; fails=0; for i in 1 2 3 4 5; do if HP_PTY_ONLY=k6e python3 tests/pty_tui.py target/nograce/debug/heimdall-proto > target/nograce/run.json 2>/dev/null; then echo "run $i: pass"; else fails=$((fails+1)); echo "run $i: FAIL $(python3 -c "import json;d=json.load(open(\"target/nograce/run.json\"));print([r[\"detail\"][:120] for r in d[\"results\"] if not r[\"passed\"]])")"; fi; done; echo "zero-grace build: $fails of 5 runs failed a K6e pty case"'
 
 # --- shared conformance harness (read-only; tests/g02 is not this prototype's to edit).
 # HP_SELFTEST_RUN_HARNESS=1 runs the full catalogue on darwin and, through
@@ -154,14 +183,18 @@ fi
 # /tmp ($HP_HARNESS_TMP); the records and console logs are copied into $OUT/harness-*/.
 H="$REPO/tests/g02/conformance.py"
 if [ -f "$H" ] && [ -n "${HP_SELFTEST_RUN_HARNESS:-}" ]; then
+  # Python with the harness's hash-pinned requirements (pyte, wcwidth): HP_HARNESS_PY,
+  # else tests/g02/.venv, else python3 (round 3c: tests/g02/.venv no longer present).
   PY=python3
   [ -x "$REPO/tests/g02/.venv/bin/python" ] && PY="$REPO/tests/g02/.venv/bin/python"
-  HT="${HP_HARNESS_TMP:-/tmp/hp-rs-round3b-harness}"
+  [ -n "${HP_HARNESS_PY:-}" ] && PY="$HP_HARNESS_PY"
+  step harness-python exit0 "'$PY' -c 'import sys, pyte, wcwidth; print(sys.version.split()[0], \"pyte\", pyte.__name__, \"wcwidth\", wcwidth.__version__)'"
+  HT="${HP_HARNESS_TMP:-/tmp/M00-T05-rust-round3c-fix}"
   rm -rf "$HT"; mkdir -p "$HT/darwin" "$HT/linux" "$OUT/harness-darwin" "$OUT/harness-linux"
-  step harness-darwin exit0 "cd '$REPO' && '$PY' '$H' --bin '$HERE/dist/darwin-arm64/heimdall-proto' --candidate rust --out '$HT/darwin/record.json' --artifacts-dir '$HT/darwin/artifacts' --case-id G02-rust-round3b-darwin"
+  step harness-darwin exit0 "cd '$REPO' && '$PY' '$H' --bin '$HERE/dist/darwin-arm64/heimdall-proto' --candidate rust --out '$HT/darwin/record.json' --artifacts-dir '$HT/darwin/artifacts' --case-id G02-rust-round3c-darwin"
   cp "$HT/darwin/record.json" "$OUT/harness-darwin/record.json" 2>/dev/null
   if docker info >/dev/null 2>&1; then
-    step harness-linux-arm64 exit0 "cd '$REPO' && sh tests/g02/linux/run.sh --artifact-dir '$HERE/dist/linux-arm64' --candidate rust --out '$HT/linux/record.json' --artifacts-out '$HT/linux/artifacts' --case-id G02-rust-round3b-linux-arm64"
+    step harness-linux-arm64 exit0 "cd '$REPO' && sh tests/g02/linux/run.sh --artifact-dir '$HERE/dist/linux-arm64' --candidate rust --out '$HT/linux/record.json' --artifacts-out '$HT/linux/artifacts' --case-id G02-rust-round3c-linux-arm64"
     cp "$HT/linux/record.json" "$OUT/harness-linux/record.json" 2>/dev/null
   fi
 fi

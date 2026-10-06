@@ -56,7 +56,7 @@ K6E-A-5
 zsh: suspended  "$P" run -- "$Y" "$D/c.py" "$D" 5
 [1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hbbg[?2004l
 [1]  + continued  "$P" run -- "$Y" "$D/c.py" "$D" 5
-[0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
 [1]  + running    "$P" run -- "$Y" "$D/c.py" "$D" 5
 K6E-B-5
 [1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6E_RC=$? K6E_JOBS=${#jobstates}"[?2004l

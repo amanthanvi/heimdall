@@ -1,0 +1,47 @@
+{
+  "candidate": "rust",
+  "harness_version": "2.4.2",
+  "darwin": {
+    "harness_exit_code": 1,
+    "evidence_record": "<repo>/tests/evidence/g02-rust-conformance.json",
+    "passed": 137,
+    "failed": 2,
+    "errored": 0,
+    "artifact_sha256": "003105655033a37f9934e9c4633044fd9a7417fe8d398d3ced69c68f7946f306"
+  },
+  "linux": {
+    "harness_exit_code": 1,
+    "evidence_record": "<repo>/tests/evidence/g02-rust-conformance-linux.json",
+    "passed": 137,
+    "failed": 2,
+    "errored": 0,
+    "artifact_sha256": "9b9450ddab73b1993d1e2d33beb290a76705c07e561bfee837edeac815190b38"
+  },
+  "failures": [
+    {
+      "platform": "darwin-arm64",
+      "check_id": "run.k6e_child_self_stop",
+      "classification": "prototype_defect",
+      "detail": "Gated assertion '[bash SIGTSTP: hp1] stop 1: the shell reports the job stopped and prompts again with no user action' fails. Observed: after the child's kill(getpid(), SIGTSTP) the child is in state T while heimdall-proto (parent) stays in state S, and the bash terminal shows only the heartbeat with no 'Stopped' notice or prompt. The direct-exec control in the same session passes (shell prints 'Stopped', prompts, exit status 146). This is the child left stopped while the shell believes the job is running, which contract 9.4 K6e child-initiated stop gates for SIGTSTP under bash on darwin-arm64 and linux-arm64. Cause consistent with prototypes/rust/REPORT.md: runner uses exec semantics with no WUNTRACED/stop mirroring. Non-gating SIGSTOP and zsh variants show the same behaviour (recorded only). Not a harness defect: all preconditions and the direct-exec control pass. Reruns: 3 of 3 failed identically (/tmp/r3c/darwin-rerun1..3); full-run failure plus 3 reruns = deterministic, 0 flaky passes."
+    },
+    {
+      "platform": "darwin-arm64",
+      "check_id": "k12.closed_stdout_exit_parity",
+      "classification": "prototype_defect",
+      "detail": "Gated (9.4 K12 closed stdout). With stdout a pipe whose reader closed before start (harness precondition EPIPE verified), version, profile show (homelab) and agent list (normal fake agent) exit 0 with --json but exit 1 without --json, so the wait statuses differ (the three assertions 'wait status without --json equals the one with --json'). The four error-result cases (profile-missing 2/2, profile-schema-invalid 2/2, agent-unavailable 5/5, usage-unknown-flag 2/2) are equal, so Q17 error parity passes. Source (prototypes/rust/src/main.rs) ignores write errors on the --json path (let _ = out.write_all/flush) but the plain path uses println!/eprintln! and returns 1. Not a harness defect: the contract allows any status but requires equality. Reruns: 3 of 3 failed identically; deterministic."
+    },
+    {
+      "platform": "linux-arm64",
+      "check_id": "run.k6e_child_self_stop",
+      "classification": "prototype_defect",
+      "detail": "Same gated assertion and same observation as on darwin: [bash SIGTSTP: hp1] child T, parent S, no 'Stopped' notice or prompt; direct-exec control passes. Contract 9.4 gates this on linux-arm64. Reruns via tests/g02/linux/run.sh --only: 3 of 3 failed identically (/tmp/r3c/linux-rerun1..3); deterministic."
+    },
+    {
+      "platform": "linux-arm64",
+      "check_id": "k12.closed_stdout_exit_parity",
+      "classification": "prototype_defect",
+      "detail": "Same as darwin: version, profile-show-homelab and agent-list-normal exit 0 with --json, exit 1 without; error-result cases equal. Reruns: 3 of 3 failed identically; deterministic."
+    }
+  ],
+  "summary": "Rust prototype under harness 2.4.2 (rebuilt with prototypes/rust/build.sh, rc 0, all 4 targets built; no prototype file changed per git status): 139 checks on each platform, 137 pass, 2 fail, 0 error, 0 skipped on both darwin-arm64 and linux-arm64, so under K13 the candidate does not pass the common slice. Both failures are the new 9.4 gated checks, are identical on both platforms and deterministic (full run plus 3 of 3 reruns each, 0 flaky), and are classified prototype_defect: run.k6e_child_self_stop (child SIGTSTP under bash is not reported to the shell; the launcher stays asleep while the child is stopped) and k12.closed_stdout_exit_parity (--json exits 0 on closed stdout, plain exits 1, for version, profile show and agent list; error-result parity passes). Everything else passes, including canary.no_canary_anywhere, common.no_helper_processes and common.no_stray_writes. Records: tests/evidence/g02-rust-conformance.json (status verified, verdict fail per the gate-probe convention) and g02-rust-conformance-linux.json; artifacts in tests/evidence/artifacts/g02-rust/conformance/ (previous contents moved to prev-20261006T005325Z; Linux artifacts in conformance/linux). Built-binary sha256s: darwin-arm64 003105655033a37f9934e9c4633044fd9a7417fe8d398d3ced69c68f7946f306, linux-arm64 9b9450ddab73b1993d1e2d33beb290a76705c07e561bfee837edeac815190b38 (also linux-x64 3120f83e86e4bfbfca4a2ba7a970de627df4304227d2ce783259d5b697b2f28f, windows-x64 9bbdf7bd84295fafb4367ef4f9908683a3a466149e8c472ebf4fd1495d1c9763, built but not run). Build commit recorded as 0aaee74+dirty. Scans: no full HEIMDALL_CANARY_ value in records or artifacts; absolute home paths replaced after the run (repo prefix to the harness's <repo> convention, any other to <home>), 0 remaining. Rerun outputs live under /tmp/r3c (outside the write set). Linux run used the digest-pinned heimdall-g02-harness:d0c8e448a3a7 image via tests/g02/linux/run.sh with no heimdall.fixture resources touched. No contract ambiguity escalated.\""
+}

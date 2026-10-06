@@ -1,0 +1,13 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND 'nohup /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-bxq36545/pid-1791253448171545174 2>/dev/null\n'>>nohup /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-bxq365455/pid-1791253448171545174 2>/dev/null
+READY-1
+@P@ <<SEND 'tstp\n'>>tstp
+bash: tstp: command not found
+@P@ <<SEND 'fg\n'>>fg
+bash: fg: current: no such job
+@P@ <<SEND 'stop\n'>>stop
+bash: stop: command not found
+@P@ <<SEND 'fg\n'>>fg
+bash: fg: current: no such job
+@P@ <<SEND 'exit 5\n'>><<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>exit 5
+exit

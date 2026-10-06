@@ -1,0 +1,22 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND "nohup sh -c 'exec python3 /w/probe/child.py /tmp/r3c-p675ilhr/pid-1791254067337151627 </dev/tty' 2>/dev/null\n">>nohup sh -c 'exec python3 /w/probe/child.py /tmp/r3c-p675ilhr/pid-17912540673337151627 </dev/tty' 2>/dev/null
+READY-1
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 nohup sh -c 'exec python3 /w/probe/child.py /tmp/r3c-p675ilhr/pid-1791254067337151627 </dev/tty' 2> /dev/null
+@P@ <<SEND 'fg\n'>>fg
+nohup sh -c 'exec python3 /w/probe/child.py /tmp/r3c-p675ilhr/pid-1791254067337151627 </dev/tty' 2> /dev/null
+BACK-tstp-1
+READY-2
+<<SEND 'stop\n'>>stop
+
+[1]+  Stopped                 nohup sh -c 'exec python3 /w/probe/child.py /tmp/r3c-p675ilhr/pid-1791254067337151627 </dev/tty' 2> /dev/null
+@P@ <<SEND 'fg\n'>>fg
+nohup sh -c 'exec python3 /w/probe/child.py /tmp/r3c-p675ilhr/pid-1791254067337151627 </dev/tty' 2> /dev/null
+BACK-stop-2
+READY-3
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

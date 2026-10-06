@@ -1,0 +1,17 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND 'python3 /w/probe/child.py /tmp/r3c-3nkrh9ym/pid-1791253373450945001\n'>>python3 /w/probe/child.py /tmp/r3c-3nkrh9ym/pid-1791253373450945001
+READY-1
+<<SEND '\x1a'>>^Z
+[1]+  Stopped                 python3 /w/probe/child.py /tmp/r3c-3nkrh9ym/pid-1791253373450945001
+@P@ <<SEND 'bg\n'>>bg
+[1]+ python3 /w/probe/child.py /tmp/r3c-3nkrh9ym/pid-1791253373450945001 &
+@P@ <<SEND 'fg\n'>><<SEND 'hello\n'>>fg
+python3 /w/probe/child.py /tmp/r3c-3nkrh9ym/pid-1791253373450945001
+hello
+GOT-hello
+READY-2
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

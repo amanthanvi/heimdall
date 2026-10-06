@@ -164,6 +164,68 @@ fn should_forward(info: &libc::siginfo_t) -> bool {
     }
 }
 
+/// How long a child stop must persist before it is mirrored (round 3c). A stop report
+/// can be stale when it is read: a terminal Ctrl-Z stops the whole group, and the
+/// shell's `fg`/`bg` continues the members one by one, so heimdall-proto can run again
+/// and read the child's stop report before the child itself has been continued.
+/// Mirroring that report would re-stop the job right after `fg` (K6e).
+#[cfg(unix)]
+const STOP_GRACE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Round 3c (§9.4 K6e child-initiated stop). The child reported a stop (for example it
+/// stopped itself with `kill(getpid(), SIGTSTP)`, as OpenSSH's `~^Z` does). The shell
+/// waits only for heimdall-proto, so heimdall-proto stops itself with the same signal,
+/// as the program would have under plain exec, and the shell reports the job stopped.
+/// Only heimdall-proto's own PID is signalled (K6a: never stop another job member).
+/// The child shares heimdall-proto's process group, so the shell's `fg`/`bg` (SIGCONT
+/// to the group) continues both. The stop is mirrored only if it still holds after
+/// [`STOP_GRACE`] with no continue or exit report.
+#[cfg(unix)]
+fn mirror_child_stop(pid: rustix::process::Pid) {
+    use rustix::process::{Signal, WaitId, WaitIdOptions, getpid, kill_process, waitid};
+    // Consume the stop report (no WEXITED: cannot reap). None: the child was continued
+    // in between, and its continue report is handled by the caller's loop.
+    let sig = match waitid(
+        WaitId::Pid(pid),
+        WaitIdOptions::STOPPED | WaitIdOptions::NOHANG,
+    ) {
+        Ok(Some(st)) => match st.stopping_signal() {
+            Some(sig) => sig,
+            None => return,
+        },
+        _ => return,
+    };
+    let end = std::time::Instant::now() + STOP_GRACE;
+    loop {
+        match waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED
+                | WaitIdOptions::CONTINUED
+                | WaitIdOptions::NOWAIT
+                | WaitIdOptions::NOHANG,
+        ) {
+            Ok(None) | Err(rustix::io::Errno::INTR) => {}
+            _ => return, // continued or exited (stale stop), or an error: do not stop
+        }
+        if std::time::Instant::now() >= end {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // The same stop signal, so the shell names the same stop. SIGTSTP/SIGTTIN/SIGTTOU
+    // are ignored when heimdall-proto inherited them as ignored; SIGSTOP then (and for
+    // SIGSTOP or any other stop) cannot be ignored.
+    let keep = matches!(sig, libc::SIGTSTP | libc::SIGTTIN | libc::SIGTTOU)
+        && nix::sys::signal::Signal::try_from(sig)
+            .map(|s| !crate::sigdisp::inherited_ignored(s))
+            .unwrap_or(false);
+    let own = match Signal::from_named_raw(sig) {
+        Some(s) if keep => s,
+        _ => Signal::STOP,
+    };
+    let _ = kill_process(getpid(), own);
+}
+
 #[cfg(unix)]
 pub fn run(argv: &[OsString]) -> RunOutcome {
     use rustix::io::Errno;
@@ -245,12 +307,25 @@ pub fn run(argv: &[OsString]) -> RunOutcome {
     let _ = pid_tx.send(pid);
 
     // Wait for termination without reaping, so the PID stays valid while the
-    // forwarder may still signal it.
+    // forwarder may still signal it. Round 3c (§9.4 K6e child-initiated stop): stop
+    // and continue reports are read too, and a stop of the child is mirrored onto
+    // heimdall-proto (see `mirror_child_stop`). Stop/continue reports are consumed with
+    // waitid calls that lack WEXITED, so the child is never reaped here.
     loop {
         match waitid(
             WaitId::Pid(pid),
-            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            WaitIdOptions::EXITED
+                | WaitIdOptions::STOPPED
+                | WaitIdOptions::CONTINUED
+                | WaitIdOptions::NOWAIT,
         ) {
+            Ok(Some(st)) if st.stopped() => mirror_child_stop(pid),
+            Ok(Some(st)) if st.continued() => {
+                let _ = waitid(
+                    WaitId::Pid(pid),
+                    WaitIdOptions::CONTINUED | WaitIdOptions::NOHANG,
+                );
+            }
             Ok(Some(_)) => break,
             Ok(None) => continue,
             Err(Errno::INTR) => continue,

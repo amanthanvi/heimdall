@@ -1,0 +1,91 @@
+{
+  "task_id": "M00-T05-rust-round3c-fix",
+  "status": "verified",
+  "files_changed": [
+    "prototypes/rust/src/runner.rs",
+    "prototypes/rust/src/main.rs",
+    "prototypes/rust/tests/cli.rs",
+    "prototypes/rust/tests/pty_tui.py",
+    "prototypes/rust/selftest.sh",
+    "prototypes/rust/REPORT.md",
+    "prototypes/rust/dist/** (gitignored; rebuilt by build.sh, dist/manifest.json updated)",
+    "tests/evidence/g02-rust-selftest.json",
+    "tests/evidence/artifacts/g02-rust/selftest/attempt-5-round3c/** (new)"
+  ],
+  "commands_run": [
+    {
+      "command": "HEIMDALL_PROTO_BIN=target/round3b-dist/darwin-arm64/heimdall-proto cargo test --locked --test cli k12_closed -- --nocapture (red, before fix)",
+      "exit_code": 101,
+      "observed": "Three mismatches, identical to the harness: version, profile-show-homelab and agent-list-normal exit 1 plain vs 0 with --json. The 4 error cases are equal (2/2, 2/2, 5/5, 2/2)."
+    },
+    {
+      "command": "HP_PTY_ONLY=k6e-child python3 tests/pty_tui.py target/round3b-dist/darwin-arm64/heimdall-proto (red, before fix)",
+      "exit_code": 1,
+      "observed": "SIGTSTP stop 1: the shell never reported the job stopped (child T+, hp S+)."
+    },
+    {
+      "command": "cargo test --locked --test cli k12_closed (after fix, debug build)",
+      "exit_code": 0,
+      "observed": "All 7 cases equal: 0/0, 0/0, 2/2, 2/2, 5/5, 2/2, 0/0."
+    },
+    {
+      "command": "HP_PTY_ONLY={k6e-child,k6e-interactive,run-ctrl-z,k6d} python3 tests/pty_tui.py target/debug/heimdall-proto",
+      "exit_code": 0,
+      "observed": "All 4 pass. The self-stop case: SIGTSTP x3 and SIGSTOP x2, Stopped + prompt each time, both processes T, fg resumes with no re-stop, input read, RC=5, no job left."
+    },
+    {
+      "command": "zero-grace sensitivity: STOP_GRACE temporarily set to 0 (separate target dir, source restored and cmp-verified), HP_PTY_ONLY=k6e pty x3",
+      "exit_code": 1,
+      "observed": "Runs 1-2 exit 0. Run 3 exit 1: 'z-fg #3: stopped after fg: (T, T)', a stale stop report re-stopping the job after fg. With the 200 ms grace: 5/5 manual runs exit 0."
+    },
+    {
+      "command": "/bin/sh ./build.sh",
+      "exit_code": 0,
+      "observed": "All 4 targets built: darwin-arm64 496684ed..., linux-x64 961e3fb9..., linux-arm64 47160fdd..., windows-x64 dde9662f... (dist/manifest.json)."
+    },
+    {
+      "command": "linux_tests.sh arm64 k12 against round3b linux-arm64 binary / new binary",
+      "exit_code": 101,
+      "observed": "Red: the same 3 mismatches. Green run (new dist): exit 0, all 7 equal."
+    },
+    {
+      "command": "HP_PTY_ONLY=k6e-child tools/linux_pty.sh arm64 round3b binary; then HP_PTY_ONLY=k6e with new dist",
+      "exit_code": 1,
+      "observed": "Red: child T, hp S, no Stopped. Green run: exit 0, both K6e cases pass."
+    },
+    {
+      "command": "env -u SSH_AUTH_SOCK HP_SELFTEST_RUN_HARNESS=1 HP_HARNESS_PY=/tmp/M00-T05-rust-round3c-fix-venv/bin/python sh prototypes/rust/selftest.sh",
+      "exit_code": 0,
+      "observed": "56/56 steps met (2026-10-06T01:20:31Z to 01:36:50Z). Host: fmt/clippy (host + windows-gnu) 0; lib 49, bin 4, cli 28. darwin dist: cli 28/28; pty 27 = 26 pass + 1 known_limitation. Linux arm64: 49/4/28 (+nproc exit 0); pty 27/27. Red on round-3b: k12 darwin 101, Linux 101; k6e-child darwin 1, Linux 1. k6e-repeat x5 darwin 0, Linux 0. Zero-grace observation: 0/5 failures. Repro from another checkout: all 4 targets identical. Canary scan clean."
+    },
+    {
+      "command": "harness-darwin step: tests/g02/conformance.py (2.4.2) --bin dist/darwin-arm64/heimdall-proto --out /tmp/M00-T05-rust-round3c-fix/darwin/record.json",
+      "exit_code": 0,
+      "observed": "139/139 pass, status verified, verdict pass, digest 496684ed... run.k6e_child_self_stop PASS, k12.closed_stdout_exit_parity PASS. 0 false assertions (gating or not). resumed_before_fg false everywhere. K17 p95 4.8 ms."
+    },
+    {
+      "command": "harness-linux-arm64 step: sh tests/g02/linux/run.sh --artifact-dir dist/linux-arm64 --out /tmp/M00-T05-rust-round3c-fix/linux/record.json",
+      "exit_code": 0,
+      "observed": "139/139 pass, verified/pass, digest 47160fdd... Both target checks PASS, 0 false assertions, K17 p95 3.5 ms."
+    },
+    {
+      "command": "python3 minischema.validate(record.schema.json, g02-rust-selftest.json)",
+      "exit_code": 0,
+      "observed": "errors: []"
+    }
+  ],
+  "escalations": [
+    "Harness environment: tests/g02/.venv (used by attempt 4) no longer exists, and tests/g02 is outside my write ownership. The darwin harness ran with a /tmp venv (/tmp/M00-T05-rust-round3c-fix-venv) built with `pip install --require-hashes -r tests/g02/requirements.txt` (pyte 0.8.2, wcwidth 0.9.1). Whether pip used its cache or the network was not recorded. The orchestrator may want to restore the shared venv.",
+    "Date: the task packet says 2026-10-04, but `date -u` gives 2026-10-06 for every run. The REPORT heading follows the packet; the body and the records carry the real timestamps."
+  ],
+  "limitations": [
+    "The 200 ms stop grace guards against stale stop reports (Q18). Without it the re-stop after fg is rare and timing-dependent (1 of 3 manual runs failed; 0 of 5 in the selftest observation), so this evidence is an observation, not a deterministic red proof.",
+    "SIGTTIN/SIGTTOU child stops are mirrored by the same code, but no native test or harness check covers them.",
+    "Not gated, recorded in REPORT §15: an explicit SIGTSTP/SIGSTOP to the heimdall-proto PID stops only heimdall-proto. After a mirrored stop, a SIGCONT sent only to the heimdall-proto PID (not to the group) leaves the child stopped (not probed).",
+    "Recorded, not changed: agent list still uses std::thread::spawn (INTERNAL, exit 1 when no thread can be created). On closed streams, help and every stderr write still panic and exit 1; this is outside §9.4.",
+    "Windows behaviour (std exe search order; agent --socket opens and writes any existing path) is from code review only. Native runs are blocked: they need a Windows 10/11 x64 host, and WSL needs a Windows host with WSL2.",
+    "linux-x64 runs only under emulation (informational).",
+    "Other workers changed files concurrently outside my scope (prototypes/go, tests/g02, the g02-*-conformance records and artifacts). All of those mtimes predate my harness runs, and my harness output went only to /tmp/M00-T05-rust-round3c-fix."
+  ],
+  "summary": "Both §9.4 failures in the Rust prototype are fixed. Each fix is backed by a native test that fails on the round-3b binaries (digests checked) and passes on the new ones, on darwin-arm64 and in a Linux arm64 container. The full harness 2.4.2 passes 139/139 on both platforms, with status verified.\n\n1. K6e child self-stop (prototypes/rust/src/runner.rs). The wait loop now also reads stop and continue reports. It consumes them with waitid calls that leave out WEXITED, so the child is still not reaped before forwarding is disarmed. If the child's stop is still in place after 200 ms with no continue or exit report, heimdall-proto sends the same stop signal to its own PID only. It falls back to SIGSTOP when the signal isn't TSTP/TTIN/TTOU or was inherited as ignored. The shell then reports the job stopped, and fg/bg continue both processes because they share a process group. The grace period exists because, after a terminal Ctrl-Z, fg can continue heimdall-proto before the child, and mirroring that stale stop re-stopped the job after fg (seen once in 3 runs with the grace set to 0). Test: pty case k6e-child-self-stop-bash in tests/pty_tui.py.\n\n2. K12 closed stdout (prototypes/rust/src/main.rs). Plain output of version, profile show and agent list now ignores write errors, as the --json path already did. The exit status therefore depends only on the result, and all 7 cases match with and without --json. Test: k12_closed_stdout_exit_parity in tests/cli.rs.\n\nEvidence:\n- selftest attempt 5: 56/56 steps met, selftest.sh exit 0.\n- Red proofs on round-3b: K12 test exit 101 on both platforms; self-stop pty case exit 1 on both.\n- Both K6e cases repeated 5 times per platform: exit 0.\n- Build is byte-identical from a second checkout path.\n- Harness 2.4.2: darwin exit 0 and Linux exit 0 via tests/g02/linux/run.sh, 139/139 each. No assertion is false, gating or not. resumed_before_fg is false in every case. No pipeline peer was stopped (K6a).\n- Records: /tmp/M00-T05-rust-round3c-fix/{darwin,linux}/record.json, with copies in attempt-5-round3c/harness-*/record.json.\n\nREPORT.md §15 'Round 3c (2026-10-04)' covers the mechanism, the reasoning behind the grace period, results and digests. It also records the not-gated items the task asked for: explicit TSTP/STOP to the launcher, agent list's thread::spawn, the Windows exe search order, and the Windows --socket non-pipe write. tests/evidence/g02-rust-selftest.json keeps a full snapshot of attempt 4 and adds attempt 5; it passes schema validation.\n\nNew digests:\n- darwin-arm64: 496684ed337f1260193a2a805f2b44a827efe9f69db6017fe58b0877e956c47b\n- linux-arm64: 47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0\n\nNo commits."
+}

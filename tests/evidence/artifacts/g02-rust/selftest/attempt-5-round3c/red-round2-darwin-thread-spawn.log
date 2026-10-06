@@ -1,0 +1,15 @@
+
+running 1 test
+
+thread 'run_thread_spawn_failure_never_orphans_child' (28807649) panicked at tests/cli.rs:962:5:
+child still ran after heimdall-proto exited (orphan); exit Some(1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test run_thread_spawn_failure_never_orphans_child ... FAILED
+
+failures:
+
+failures:
+    run_thread_spawn_failure_never_orphans_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 27 filtered out; finished in 1.51s
+

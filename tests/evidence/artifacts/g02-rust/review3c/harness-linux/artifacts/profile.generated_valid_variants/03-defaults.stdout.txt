@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"succeeded","code":"PROFILE_OK","data":{"profile":{"name":"x","revision":1,"destinations":[{"id":"a","alias":"a","host":"h.example.internal","port":22,"account":"u","labels":[]}]}},"warnings":[],"next":null}

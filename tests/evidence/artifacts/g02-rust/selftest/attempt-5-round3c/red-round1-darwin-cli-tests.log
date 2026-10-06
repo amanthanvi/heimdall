@@ -1,0 +1,89 @@
+
+running 28 tests
+test agent_ok_and_request_bytes ... ok
+test k12_closed_stdout_exit_parity ... FAILED
+test agent_crafted_frames ... ok
+heimdall-proto: CANCELLED
+test k15_parser_resource_bound ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test k3_k4_eof_and_failure_frame_shape ... ok
+test agent_unavailable_and_timeout ... ok
+test k5_meta_state ... ok
+test k3a_reset_before_and_after_partial_frame ... ok
+test k14_non_regular_profile_files ... FAILED
+test k6a_inherited_ignored_dispositions_reach_child ... FAILED
+test k6a_inherited_ignored_signals_are_not_forwarded ... FAILED
+test k6a_limitation_sigpipe_ignore_not_preserved_by_rust_std ... ok
+test agent_cancel_sigint_within_500ms ... ok
+test profile_fixtures ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test run_binary_stdio_passthrough ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+test run_inherits_env_and_cwd ... ok
+test run_status_and_meta ... ok
+test k6a_group_sigkill_leaves_no_orphan ... FAILED
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test version_json ... ok
+test meta_file_fifo_never_blocks ... FAILED
+test run_thread_spawn_failure_never_orphans_child ... FAILED
+test run_forwards_signals_and_waits ... ok
+
+failures:
+
+---- k12_closed_stdout_exit_parity stdout ----
+K12 closed stdout: version: plain code=Some(1) signal=None / json code=Some(0) signal=None; profile-show-homelab: plain code=Some(1) signal=None / json code=Some(0) signal=None; profile-missing: plain code=Some(2) signal=None / json code=Some(2) signal=None; profile-schema-invalid: plain code=Some(2) signal=None / json code=Some(2) signal=None; agent-unavailable: plain code=Some(5) signal=None / json code=Some(5) signal=None; usage-unknown-flag: plain code=Some(2) signal=None / json code=Some(2) signal=None; agent-list-normal: plain code=Some(1) signal=None / json code=Some(0) signal=None
+
+thread 'k12_closed_stdout_exit_parity' (28800285) panicked at tests/cli.rs:1428:5:
+wait status without --json differs from with --json: version: plain code=Some(1) signal=None / json code=Some(0) signal=None; profile-show-homelab: plain code=Some(1) signal=None / json code=Some(0) signal=None; agent-list-normal: plain code=Some(1) signal=None / json code=Some(0) signal=None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- k14_non_regular_profile_files stdout ----
+
+thread 'k14_non_regular_profile_files' (28800319) panicked at tests/cli.rs:1187:13:
+/var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/hp-k14-20937-963534757/profile fifo: still running after 2 s
+
+---- k6a_inherited_ignored_dispositions_reach_child stdout ----
+
+thread 'k6a_inherited_ignored_dispositions_reach_child' (28800691) panicked at tests/cli.rs:824:5:
+assertion `left == right` failed: child must inherit SIG_IGN for HUP/INT/QUIT/TERM
+  left: (Some(129), "")
+ right: (Some(0), "survived")
+
+---- k6a_inherited_ignored_signals_are_not_forwarded stdout ----
+
+thread 'k6a_inherited_ignored_signals_are_not_forwarded' (28800719) panicked at tests/cli.rs:858:5:
+assertion `left == right` failed: HUP/INT/QUIT ignored and not forwarded; TERM forwarded once
+  left: (Some(129), "")
+ right: (Some(3), "alive count=1")
+
+---- k6a_group_sigkill_leaves_no_orphan stdout ----
+
+thread 'k6a_group_sigkill_leaves_no_orphan' (28800581) panicked at tests/cli.rs:920:5:
+child survived killpg(SIGKILL) of heimdall-proto's group
+
+---- meta_file_fifo_never_blocks stdout ----
+
+thread 'meta_file_fifo_never_blocks' (28800971) panicked at tests/cli.rs:1135:5:
+assertion `left == right` failed: no hang; child's status kept
+  left: None
+ right: Some(4)
+
+---- run_thread_spawn_failure_never_orphans_child stdout ----
+
+thread 'run_thread_spawn_failure_never_orphans_child' (28802398) panicked at tests/cli.rs:962:5:
+child still ran after heimdall-proto exited (orphan); exit Some(1)
+
+
+failures:
+    k12_closed_stdout_exit_parity
+    k14_non_regular_profile_files
+    k6a_group_sigkill_leaves_no_orphan
+    k6a_inherited_ignored_dispositions_reach_child
+    k6a_inherited_ignored_signals_are_not_forwarded
+    meta_file_fifo_never_blocks
+    run_thread_spawn_failure_never_orphans_child
+
+test result: FAILED. 21 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.90s
+

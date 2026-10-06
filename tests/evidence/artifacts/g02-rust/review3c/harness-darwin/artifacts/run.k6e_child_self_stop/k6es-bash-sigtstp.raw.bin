@@ -1,0 +1,117 @@
+[?1034hHMPS1$ "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-BEAT ctl 1 5
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-CTL-1
+K6ES-BEAT ctl 2 60
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-CTL-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+K6ES-BEAT hp1 1 5
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+K6ES-HP1-1
+K6ES-BEAT hp1 2 61
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+K6ES-HP1-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+K6ES-BEAT hp2 1 5
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+K6ES-HP2-1
+K6ES-BEAT hp2 2 59
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+K6ES-HP2-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp3 2 SIGTSTP 42
+K6ES-BEAT hp3 1 5
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp3 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp3 2 SIGTSTP 42
+K6ES-HP3-1
+K6ES-BEAT hp3 2 58
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp3 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp3 2 SIGTSTP 42
+K6ES-HP3-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp4 2 SIGTSTP 42
+K6ES-BEAT hp4 1 5
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp4 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp4 2 SIGTSTP 42
+K6ES-HP4-1
+K6ES-BEAT hp4 2 61
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp4 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp4 2 SIGTSTP 42
+K6ES-HP4-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp5 2 SIGTSTP 42
+K6ES-BEAT hp5 1 6
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp5 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp5 2 SIGTSTP 42
+K6ES-HP5-1
+K6ES-BEAT hp5 2 62
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" hp5 2 SIGTSTP 42
+HMPS1$ echo "K6ES_STOPRC=$?"
+K6ES_STOPRC=146
+HMPS1$ fg
+"$P" run -- "$Y" "$D/s.py" "$D" hp5 2 SIGTSTP 42
+K6ES-HP5-2
+HMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+K6ES_RC=42 K6ES_JOBS=       0
+HMPS1$ exit
+exit
+exit

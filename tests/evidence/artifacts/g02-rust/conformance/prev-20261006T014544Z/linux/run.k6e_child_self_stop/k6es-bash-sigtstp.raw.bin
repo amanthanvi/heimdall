@@ -1,0 +1,25 @@
+[?2004hHMPS1$ "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+[?2004lK6ES-BEAT ctl 1 6
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=148
+[?2004hHMPS1$ fg
+[?2004l"$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-CTL-1
+K6ES-BEAT ctl 2 64
+
+[1]+  Stopped                 "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+[?2004hHMPS1$ echo "K6ES_STOPRC=$?"
+[?2004lK6ES_STOPRC=148
+[?2004hHMPS1$ fg
+[?2004l"$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-CTL-2
+[?2004hHMPS1$ echo "K6ES_RC=$? K6ES_JOBS=$(jobs -p | wc -l)"
+[?2004lK6ES_RC=42 K6ES_JOBS=0
+[?2004hHMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+[?2004lK6ES-BEAT hp1 1 5
+Killed
+[?2004hHMPS1$ exit
+[?2004lexit
+exit

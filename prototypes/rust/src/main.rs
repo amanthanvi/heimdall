@@ -23,6 +23,17 @@ fn emit(e: &Envelope) {
     let _ = out.flush();
 }
 
+/// Plain (non-`--json`) output of `version`, `profile show` and `agent list`. Like
+/// [`emit`], a write error (EPIPE from a closed stdout) is ignored: the exit code
+/// depends only on the result, so it is the same with and without `--json` (contract
+/// §9.4 K12 closed stdout). `println!` would panic there and exit 1.
+fn plain(text: std::fmt::Arguments) {
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_fmt(text);
+    let _ = out.write_all(b"\n");
+    let _ = out.flush();
+}
+
 fn exit(code: i32) -> ! {
     let _ = std::io::stdout().flush();
     std::process::exit(code)
@@ -105,13 +116,13 @@ fn dispatch(args: Vec<OsString>) -> i32 {
             if json {
                 emit(&Envelope::success(Code::VersionOk, data));
             } else {
-                println!(
+                plain(format_args!(
                     "heimdall-proto {} (rust; {}; ratatui {}; crossterm {})",
                     heimdall_proto::VERSION,
                     heimdall_proto::RUSTC_VERSION,
                     heimdall_proto::TUI_FRAMEWORK_VERSION,
                     heimdall_proto::CROSSTERM_VERSION
-                );
+                ));
             }
             0
         }
@@ -120,9 +131,12 @@ fn dispatch(args: Vec<OsString>) -> i32 {
                 if json {
                     emit(&p.to_envelope());
                 } else {
-                    println!("{} (revision {})", p.name, p.revision);
+                    plain(format_args!("{} (revision {})", p.name, p.revision));
                     for d in &p.destinations {
-                        println!("{}  {}@{}:{}", d.alias, d.account, d.host, d.port);
+                        plain(format_args!(
+                            "{}  {}@{}:{}",
+                            d.alias, d.account, d.host, d.port
+                        ));
                     }
                 }
                 0
@@ -169,7 +183,10 @@ fn dispatch(args: Vec<OsString>) -> i32 {
                 ProbeOutcome::Done(Ok(ids)) => {
                     if !json {
                         for i in &ids {
-                            println!("{} {} {}", i.key_type, i.fingerprint, i.comment);
+                            plain(format_args!(
+                                "{} {} {}",
+                                i.key_type, i.fingerprint, i.comment
+                            ));
                         }
                     }
                     agent::identities_envelope(&ids)

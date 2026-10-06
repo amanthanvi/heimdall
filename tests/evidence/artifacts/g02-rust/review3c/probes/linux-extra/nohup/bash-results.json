@@ -1,0 +1,95 @@
+{
+ "shell": "bash",
+ "platform": "linux",
+ "hp": "/w/hp/heimdall-proto",
+ "started": "2026-10-06T02:34:18Z",
+ "nohup_tty-hp": {
+  "plain": false,
+  "cycles": [
+   {
+    "cmd": "tstp",
+    "i": 0,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 1,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     "T"
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     "S"
+    ],
+    "ready_after": true
+   }
+  ],
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "nohup_tty-plain": {
+  "plain": true,
+  "cycles": [
+   {
+    "cmd": "tstp",
+    "i": 0,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   },
+   {
+    "cmd": "stop",
+    "i": 1,
+    "ready_before": false,
+    "shell_stop_notice": true,
+    "prompt_after_stop": true,
+    "states_stopped": [
+     "T",
+     null
+    ],
+    "back": true,
+    "restopped_after_fg": false,
+    "states_after_fg_last": [
+     "S",
+     null
+    ],
+    "ready_after": true
+   }
+  ],
+  "rc": 5,
+  "jobs_left": false,
+  "ok": true,
+  "leftover_killed": []
+ },
+ "finished": "2026-10-06T02:34:35Z"
+}

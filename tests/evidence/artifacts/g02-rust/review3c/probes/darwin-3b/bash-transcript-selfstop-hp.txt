@@ -1,0 +1,21 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND '/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-1hz3dnol/pid-1791253114887810000\n'>>/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall- proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/fold ers/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-1hz3dnol/pid-1791253114887810000
+READY-1
+<<SEND 'tstp\n'>>tstp
+<<SEND 'fg\n'>>fg
+<<SEND 'tstp\n'>>tstp
+<<SEND 'fg\n'>>fg
+<<SEND 'tstp\n'>>tstp
+<<SEND 'fg\n'>>fg
+<<SEND 'stop\n'>>stop
+<<SEND 'fg\n'>>fg
+<<SEND 'stop\n'>>stop
+<<SEND 'fg\n'>>fg
+<<SEND 'ttin\n'>>ttin
+<<SEND 'fg\n'>>fg
+<<SEND 'exit 5\n'>>exit 5
+<<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END

@@ -1,0 +1,47 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-_rjxd9o_/pid-1791253547122137887\n'>>/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-_rjxd9o_/pid-1791253547122137887
+READY-1
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+BACK-tstp-1
+READY-2
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+BACK-tstp-2
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+BACK-tstp-3
+READY-4
+<<SEND 'stop\n'>>stop
+zsh: suspended (signal)  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+BACK-stop-4
+READY-5
+<<SEND 'stop\n'>>stop
+zsh: suspended (signal)  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+BACK-stop-5
+READY-6
+<<SEND 'ttin\n'>>ttin
+zsh: suspended (tty input)  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>>fg
+[1]  + continued  /w/hp/heimdall-proto run -- python3 /w/probe/child.py 
+BACK-ttin-6
+READY-7
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+                                                                                @P@ 

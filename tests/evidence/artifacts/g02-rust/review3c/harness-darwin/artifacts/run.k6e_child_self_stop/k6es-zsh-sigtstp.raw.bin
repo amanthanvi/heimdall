@@ -1,0 +1,61 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004h""$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42[?2004l
+K6ES-BEAT ctl 1 5
+
+zsh: suspended  "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=146
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-CTL-1
+K6ES-BEAT ctl 2 60
+
+zsh: suspended  "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=146
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$Y" "$D/s.py" "$D" ctl 2 SIGTSTP 42
+K6ES-CTL-2
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_RC=$? K6ES_JOBS=${#jobstates}"[?2004l
+K6ES_RC=42 K6ES_JOBS=0
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004h""$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42[?2004l
+K6ES-BEAT hp1 1 5
+
+zsh: suspended  "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=146
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+K6ES-HP1-1
+K6ES-BEAT hp1 2 58
+
+zsh: suspended  "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=146
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGTSTP 42
+K6ES-HP1-2
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_RC=$? K6ES_JOBS=${#jobstates}"[?2004l
+K6ES_RC=42 K6ES_JOBS=0
+[1m[7m%[27m[1m[0m                                                                                "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+[0m[27m[24m[JHMPS1$ [K[?2004h""$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42[?2004l
+K6ES-BEAT hp2 1 5
+
+zsh: suspended  "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=146
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+K6ES-HP2-1
+K6ES-BEAT hp2 2 57
+
+zsh: suspended  "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=146
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$P" run -- "$Y" "$D/s.py" "$D" hp2 2 SIGTSTP 42
+K6ES-HP2-2
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_RC=$? K6ES_JOBS=${#jobstates}"[?2004l
+K6ES_RC=42 K6ES_JOBS=0
+[1m[7m%[27m[1m[0m                                                                                exit
+[0m[27m[24m[JHMPS1$ [K[?2004heexit[?2004l
+exit

@@ -1,0 +1,1 @@
+heimdall-proto: USAGE_ERROR: profile path is a directory

@@ -1,5 +1,5 @@
-{"seq": 1, "ts": "2026-10-04T20:14:30.543Z", "mono_ms": 0.277, "event": "listen", "socket": "/tmp/hmg02-3ur673lt/049-agent-drip/drip.sock", "mode": "drip", "keys": 1}
-{"seq": 2, "ts": "2026-10-04T20:14:30.554Z", "mono_ms": 10.895, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T20:14:31.590Z", "mono_ms": 1047.482, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "drip", "sent_bytes": 10}
-{"seq": 4, "ts": "2026-10-04T20:14:31.590Z", "mono_ms": 1047.642, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 10, "partial_bytes": 0}
-{"seq": 5, "ts": "2026-10-04T20:14:31.664Z", "mono_ms": 1121.42, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T01:46:15.675Z", "mono_ms": 0.296, "event": "listen", "socket": "/tmp/hmg02-b4pdujo3/049-agent-drip/drip.sock", "mode": "drip", "keys": 1}
+{"seq": 2, "ts": "2026-10-06T01:46:15.686Z", "mono_ms": 10.459, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T01:46:16.723Z", "mono_ms": 1047.426, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "drip", "sent_bytes": 10}
+{"seq": 4, "ts": "2026-10-06T01:46:16.723Z", "mono_ms": 1047.616, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 10, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T01:46:16.798Z", "mono_ms": 1122.892, "event": "shutdown"}

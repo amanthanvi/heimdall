@@ -1,0 +1,30 @@
+aarch64
+## /repo/prototypes/rust/target/aarch64-unknown-linux-musl/debug/deps/cli-16df67353d49c928
+
+running 1 test
+test linux_nproc_limit_never_orphans_child ... limit=4 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=5 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=6 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=7 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=8 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+limit=9 (base 5): exit=Some(127) meta="CHILD_LAUNCH_FAILED" child_pid_recorded=false orphan=false stderr="heimdall-proto: cannot launch command: WouldBlock"
+
+thread 'linux_nproc_limit_never_orphans_child' (9) panicked at tests/cli.rs:1093:5:
+no unconstrained run in the sweep: [
+    "limit=4 (base 5): exit=Some(127) meta=\"CHILD_LAUNCH_FAILED\" child_pid_recorded=false orphan=false stderr=\"heimdall-proto: cannot launch command: WouldBlock\"",
+    "limit=5 (base 5): exit=Some(127) meta=\"CHILD_LAUNCH_FAILED\" child_pid_recorded=false orphan=false stderr=\"heimdall-proto: cannot launch command: WouldBlock\"",
+    "limit=6 (base 5): exit=Some(127) meta=\"CHILD_LAUNCH_FAILED\" child_pid_recorded=false orphan=false stderr=\"heimdall-proto: cannot launch command: WouldBlock\"",
+    "limit=7 (base 5): exit=Some(127) meta=\"CHILD_LAUNCH_FAILED\" child_pid_recorded=false orphan=false stderr=\"heimdall-proto: cannot launch command: WouldBlock\"",
+    "limit=8 (base 5): exit=Some(127) meta=\"CHILD_LAUNCH_FAILED\" child_pid_recorded=false orphan=false stderr=\"heimdall-proto: cannot launch command: WouldBlock\"",
+    "limit=9 (base 5): exit=Some(127) meta=\"CHILD_LAUNCH_FAILED\" child_pid_recorded=false orphan=false stderr=\"heimdall-proto: cannot launch command: WouldBlock\"",
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    linux_nproc_limit_never_orphans_child
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 1.24s
+

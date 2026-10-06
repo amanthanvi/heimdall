@@ -1,0 +1,221 @@
+{
+ "platform": "linux",
+ "cases": {
+  "version/open": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "version/stdout_closed_pipe": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "version/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "version/stdout_fd_closed": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "version/stdout_dev_full": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-homelab/open": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-homelab/stdout_closed_pipe": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-homelab/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-homelab/stdout_fd_closed": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-homelab/stdout_dev_full": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-large-100/open": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-large-100/stdout_closed_pipe": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-large-100/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-large-100/stdout_fd_closed": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-large-100/stdout_dev_full": {
+   "plain": "exit 0",
+   "json": "exit 0",
+   "equal": true
+  },
+  "profile-missing/open": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-missing/stdout_closed_pipe": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-missing/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 1",
+   "json": "exit 1",
+   "equal": true
+  },
+  "profile-missing/stdout_fd_closed": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-missing/stdout_dev_full": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-invalid-port/open": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-invalid-port/stdout_closed_pipe": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-invalid-port/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 1",
+   "json": "exit 1",
+   "equal": true
+  },
+  "profile-invalid-port/stdout_fd_closed": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-invalid-port/stdout_dev_full": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-malformed/open": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-malformed/stdout_closed_pipe": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-malformed/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 1",
+   "json": "exit 1",
+   "equal": true
+  },
+  "profile-malformed/stdout_fd_closed": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "profile-malformed/stdout_dev_full": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "agent-unavailable/open": {
+   "plain": "exit 5",
+   "json": "exit 5",
+   "equal": true
+  },
+  "agent-unavailable/stdout_closed_pipe": {
+   "plain": "exit 5",
+   "json": "exit 5",
+   "equal": true
+  },
+  "agent-unavailable/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 1",
+   "json": "exit 1",
+   "equal": true
+  },
+  "agent-unavailable/stdout_fd_closed": {
+   "plain": "exit 5",
+   "json": "exit 5",
+   "equal": true
+  },
+  "agent-unavailable/stdout_dev_full": {
+   "plain": "exit 5",
+   "json": "exit 5",
+   "equal": true
+  },
+  "usage-unknown-flag/open": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "usage-unknown-flag/stdout_closed_pipe": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "usage-unknown-flag/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 1",
+   "json": "exit 1",
+   "equal": true
+  },
+  "usage-unknown-flag/stdout_fd_closed": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "usage-unknown-flag/stdout_dev_full": {
+   "plain": "exit 2",
+   "json": "exit 2",
+   "equal": true
+  },
+  "help/open": {
+   "plain": "exit 0"
+  },
+  "help/stdout_closed_pipe": {
+   "plain": "exit 1"
+  },
+  "help/stdout_and_stderr_closed_pipe": {
+   "plain": "exit 1"
+  },
+  "help/stdout_fd_closed": {
+   "plain": "exit 0"
+  },
+  "help/stdout_dev_full": {
+   "plain": "exit 1"
+  }
+ },
+ "mismatches": []
+}

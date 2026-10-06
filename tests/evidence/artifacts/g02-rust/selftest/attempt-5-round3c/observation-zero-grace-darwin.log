@@ -1,0 +1,7 @@
+173:const STOP_GRACE: std::time::Duration = std::time::Duration::from_millis(0);
+run 1: pass
+run 2: pass
+run 3: pass
+run 4: pass
+run 5: pass
+zero-grace build: 0 of 5 runs failed a K6e pty case

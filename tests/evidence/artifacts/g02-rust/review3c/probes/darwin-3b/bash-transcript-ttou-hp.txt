@@ -1,0 +1,15 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+[?1034h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+@P@ <<SEND 'stty tostop\n'>><<SEND "/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &\n">>stty tostop
+@P@ /tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall- proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &
+[1] 21994
+@P@ <<SEND 'fg\n'>>fg
+/tmp/M00-T05-review3c-rust/src3b/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))'
+TTOU-OUT-42
+sh: line 0: echo: write error: Interrupted system call
+@P@ <<SEND 'echo RC=$?; stty -tostop\n'>>echo RC=$?; stty -tostop
+RC=1
+@P@ 

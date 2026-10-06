@@ -1,0 +1,23 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004h""$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42[?2004l
+K6ES-BEAT ctl 1 5
+zsh: suspended (signal)  "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=145
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-CTL-1
+K6ES-BEAT ctl 2 59
+zsh: suspended (signal)  "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_STOPRC=$?"[?2004l
+K6ES_STOPRC=145
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004hffg[?2004l
+[1]  + continued  "$Y" "$D/s.py" "$D" ctl 2 SIGSTOP 42
+K6ES-CTL-2
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heecho "K6ES_RC=$? K6ES_JOBS=${#jobstates}"[?2004l
+K6ES_RC=42 K6ES_JOBS=0
+[1m[7m%[27m[1m[0m                                                                                "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+[0m[27m[24m[JHMPS1$ [K[?2004h""$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42[?2004l
+K6ES-BEAT hp1 1 5
+zsh: killed     "$P" run -- "$Y" "$D/s.py" "$D" hp1 2 SIGSTOP 42
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[JHMPS1$ [K[?2004heexit[?2004l
+exit

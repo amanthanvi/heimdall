@@ -1,0 +1,34 @@
+[1m[7m%[27m[1m[0m                                                                                [0m[27m[24m[J@P@ [K[?2004h<<SEND "unsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''\n">>uunsetopt zle; PS1='@P@ '; PROMPT_EOL_MARK=''[?2004l
+                                                                                @P@ <<SEND '/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-u7f978__/pid-1791252979846516000\n'>>/tmp/M00-T05-review3c-rust/src/prototypes/rust/dist/darwin-arm64/heimdall-proto run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py /var/folders/xf/7tqtycv15vl6m4zg71bcxhc40000gn/T/r3c-u7f978__/pid-1791252979846516000
+READY-1
+
+zsh: suspended   run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+ping
+[1]  + continued   run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+GOT-ping
+READY-2
+zsh: suspended (signal)   run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+ping
+[1]  + continued   run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+GOT-ping
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+zsh: suspended   run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+                                                                                @P@ <<SEND 'jobs; echo JOBS-END2\n'>>jobs; echo JOBS-END2
+[1]  + running     run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+JOBS-END2
+                                                                                @P@ <<SEND 'fg\n'>><<SEND 'ping\n'>>fg
+BACK-tstp-3
+READY-4
+[1]  + continued   run -- python3 /private/tmp/M00-T05-review3c-rust/probe/child.py 
+ping
+GOT-ping
+READY-5
+<<SEND 'exit 5\n'>>exit 5
+                                                                                @P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+                                                                                @P@ 

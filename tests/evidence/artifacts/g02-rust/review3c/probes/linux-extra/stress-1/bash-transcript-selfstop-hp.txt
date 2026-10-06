@@ -1,0 +1,50 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND '/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709\n'>>/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-11791254093587953709
+READY-1
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+BACK-tstp-1
+READY-2
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+BACK-tstp-2
+READY-3
+<<SEND 'tstp\n'>>tstp
+
+[1]+  Stopped                 /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+BACK-tstp-3
+READY-4
+<<SEND 'stop\n'>>stop
+
+[1]+  Stopped                 /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+BACK-stop-4
+READY-5
+<<SEND 'stop\n'>>stop
+
+[1]+  Stopped                 /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+BACK-stop-5
+READY-6
+<<SEND 'ttin\n'>>ttin
+
+[1]+  Stopped                 /w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- python3 /w/probe/child.py /tmp/r3c-01yg_qrc/pid-1791254093587953709
+BACK-ttin-6
+READY-7
+<<SEND 'exit 5\n'>>exit 5
+@P@ <<SEND 'echo RC=$?; jobs; echo JOBS-END\n'>>echo RC=$?; jobs; echo JOBS-END
+RC=5
+JOBS-END
+@P@ 

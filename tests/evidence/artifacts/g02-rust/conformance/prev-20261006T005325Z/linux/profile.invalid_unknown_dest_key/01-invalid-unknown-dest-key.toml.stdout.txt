@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"failed","code":"SCHEMA_INVALID","data":{"error":{"key_path":"destinations[0].identity_file","message":"unknown key destinations[0].identity_file"}},"warnings":[],"next":null}

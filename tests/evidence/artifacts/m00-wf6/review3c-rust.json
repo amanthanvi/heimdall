@@ -1,0 +1,158 @@
+{
+  "subject": "M00-T05-review3c-rust: independent adversarial review of the rust prototype round-3c changes (runner.rs stop mirror with a 200 ms grace; main.rs plain output that ignores EPIPE) against slice-contract §9.3 K6e and §9.4 (K6e child-initiated stop, K12 closed stdout, Q16/Q17/Q18)",
+  "reexecuted_commands": [
+    {
+      "command": "rsync working tree (HEAD 0aaee74 + uncommitted) to /tmp/M00-T05-review3c-rust/src, excluding target/dist/.git; CARGO_ZIGBUILD=<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild /bin/sh ./build.sh",
+      "exit_code": 0,
+      "observed": "4/4 targets built. All four sha256 values equal dist/manifest.json in the repo and the repo's dist binaries: darwin-arm64 496684ed337f1260..., linux-x64 961e3fb9f02e916a..., linux-arm64 47160fdd0ee850db..., windows-x64 dde9662f0630bf55.... THIRD-PARTY-NOTICES d13a6ca8... also equal."
+    },
+    {
+      "command": "git archive HEAD prototypes/rust | tar -x into /tmp/.../src3b; build.sh (round-3b baseline for my own regression comparison)",
+      "exit_code": 0,
+      "observed": "darwin-arm64 0031056550..., linux-arm64 9b9450ddab73..."
+    },
+    {
+      "command": "env -u SSH_AUTH_SOCK tests/g02/.venv/bin/python tests/g02/conformance.py --bin /tmp/.../src/.../dist/darwin-arm64/heimdall-proto --candidate rust --case-id G02-rust-review3c-darwin (harness 2.4.2)",
+      "exit_code": 0,
+      "observed": "139/139 pass, status verified, verdict pass, 2026-10-06T01:58:46Z to 02:03:12Z. Load average 3.58 at start, 6.40 at end (other work was running on the host). observations.k6e_child_self_stop: bash-SIGTSTP (gated), bash-SIGSTOP, zsh-SIGTSTP and zsh-SIGSTOP all ok, resumed_before_fg false. k12_closed_stdout_errors: all 4 error cases equal (2/2, 2/2, 5/5, 2/2)."
+    },
+    {
+      "command": "env -u SSH_AUTH_SOCK tests/g02/linux/run.sh --artifact-dir /tmp/.../dist/linux-arm64 --candidate rust --case-id G02-rust-review3c-linux-arm64 (image heimdall-g02-harness:d0c8e448a3a7)",
+      "exit_code": 0,
+      "observed": "139/139 pass, status verified, verdict pass, finished 2026-10-06T02:09:25Z. The 4 k6e forms are ok."
+    },
+    {
+      "command": "python3 probe/epipe.py <darwin bin> <fixtures> (reviewer-written closed-stdout parity probe: 8 commands x {open, stdout a closed pipe, stdout+stderr a closed pipe, fd 1 closed}, plain vs --json, SIGPIPE at default)",
+      "exit_code": 0,
+      "observed": "36 cases, 0 mismatches. Success results exit 0 in every setup. Error results exit 2 or 5, or 1 when stderr is also a closed pipe (in both modes). help (no --json form): exit 1 with stdout a closed pipe."
+    },
+    {
+      "command": "docker run heimdall-g02-harness:d0c8e448a3a7 python3 epipe.py (linux-arm64, adds stdout=/dev/full)",
+      "exit_code": 0,
+      "observed": "45 cases, 0 mismatches. /dev/full: equal (0/0, 2/2, 5/5). help exit 1 on a closed pipe and on /dev/full."
+    },
+    {
+      "command": "python3 probe/probe.py <darwin 3c bin> bash|zsh (reviewer-written pty probes, each scenario also run with plain exec as the control)",
+      "exit_code": 0,
+      "observed": "bash and zsh both exit 0. Self-stop by tstp x3, stop x2 and ttin, each followed by fg: a stop notice and a prompt each time, both processes T, no re-stop within 0.8 s after fg, input read, RC=5, no job left. Ctrl-Z/bg/fg works, same as plain. Ctrl-Z 50 ms after a self-stop (inside the grace window): 10/10 with no re-stop. SIGTTOU (stty tostop) and SIGTTIN in a bg job behave as plain. Explicit TSTP/STOP to the launcher works. nohup works. A pipeline (child | cat) and `sh -c` give the same notice and states as plain. Nested `bash -i` child + suspend: diverges (see defects). SIGCONT to the launcher only: diverges (see defects)."
+    },
+    {
+      "command": "docker run ... probe.py <linux 3c bin> bash|zsh; epipe.py; probe.py <linux 3b bin> bash (subset)",
+      "exit_code": 0,
+      "observed": "Same results as darwin for selfstop (6 cycles, both shells), ctrlz_in_grace (0/10 re-stops), ttou, ttin_bg, pipeline, sh_c and nested_shell. ctrlz_fg_bg flagged restopped_after_fg for both hp AND plain: a probe artefact, since sampling starts before the shell has processed fg (parity holds). GNU nohup redirects a tty stdin, so the plain nohup scenario is void on Linux for both modes; the nohup_tty variant passes. The 3b binary: self-stop is never reported (child T, hp S), which corroborates the fixer's red."
+    },
+    {
+      "command": "python3 probe/extstop.py <bin> (non-interactive parent; another process sends SIGSTOP or SIGTSTP to the CHILD pid, then after 0.5 s SIGCONT to the child pid only; wait up to 6 s for the launcher to exit) — darwin 3c and 3b",
+      "exit_code": 0,
+      "observed": "plain: exit 7 (both signals). 3b: exit 7 (both). 3c: 'hung' for SIGSTOP and SIGTSTP. The launcher stayed T and the child became a zombie (Z). It exited 7 only after I sent SIGCONT to the exact launcher PID."
+    },
+    {
+      "command": "docker run ... extstop.py <linux 3c bin> / <linux 3b bin>",
+      "exit_code": 0,
+      "observed": "SIGSTOP: plain exit 7, 3b exit 7, 3c hung (launcher T, child Z), and exit 7 after a manual SIGCONT. SIGTSTP was discarded by the kernel in this container (orphaned process group), so it is equal everywhere (exit 7)."
+    },
+    {
+      "command": "docker run ... probe.py nohup_tty (bash, zsh) + 5x stress (selfstop-hp, ctrlz_in_grace-hp) on linux-arm64",
+      "exit_code": 0,
+      "observed": "nohup_tty ok in both shells. Stress 5/5: selfstop ok, 0 re-stops across 30 cycles; ctrlz_in_grace 0/50 re-stops."
+    },
+    {
+      "command": "5x probe.py selfstop-hp,ctrlz_in_grace-hp on darwin bash",
+      "exit_code": 0,
+      "observed": "5/5 ok; 0 re-stops in 30 self-stop cycles; 0/50 re-stops with Ctrl-Z inside the grace window."
+    },
+    {
+      "command": "cargo fmt --check; cargo clippy --locked --all-targets -- -D warnings; env -u SSH_AUTH_SOCK cargo test --locked (in the /tmp copy, darwin host)",
+      "exit_code": 0,
+      "observed": "fmt 0, clippy 0, test 0: lib 49, bin 4 and cli 28 passed, including k12_closed_stdout_exit_parity."
+    },
+    {
+      "command": "grep -rlE 'HEIMDALL_CANARY_[A-Za-z0-9]|BEGIN [A-Z ]*PRIVATE KEY' tests/evidence/artifacts/g02-rust/review3c",
+      "exit_code": 1,
+      "observed": "No matches (clean)."
+    }
+  ],
+  "confirmed_claims": [
+    "Reproducible build: all four rebuilt artifacts and the notices file have exactly the sha256 values in dist/manifest.json (496684ed..., 961e3fb9..., 47160fdd..., dde9662f..., d13a6ca8...).",
+    "Harness 2.4.2 full catalogue on darwin-arm64 against my rebuild: 139/139 pass, harness exit 0, status verified, verdict pass. run.k6e_child_self_stop and k12.closed_stdout_exit_parity both pass.",
+    "Harness 2.4.2 via tests/g02/linux/run.sh (linux-arm64, image heimdall-g02-harness:d0c8e448a3a7) against my rebuild: 139/139 pass, exit 0.",
+    "No round-3b-passing harness check regressed. Every check passes on both platforms.",
+    "K6e child-initiated stop (gated bash SIGTSTP form, plus non-gated SIGSTOP and zsh) also holds in my own probes under bash and zsh on both OSes. 6 consecutive self-stops per job (tstp x3, stop x2, ttin), each with a stop notice and a prompt, both processes T, fg resumes, no re-stop, input read, RC 5, no job left. 5x stress on each OS: 0 re-stops.",
+    "The 200 ms grace handled Ctrl-Z arriving inside the grace window: 0 re-stops in 110 trials across both OSes.",
+    "SIGTTOU (tostop) and SIGTTIN (bg read) stops of the child are mirrored, and the shell reports them as plain exec does ('suspended (tty output)'/'(tty input)' under zsh). fg works. This closes REPORT.md's 'no harness check or native test covers them' with reviewer probe evidence (non-gated).",
+    "Pipeline (child | cat), `sh -c 'X; echo AFTER'`, nohup and Ctrl-Z/bg/fg all give the same shell-visible outcome as plain exec on both OSes. The mirror never stopped another job member.",
+    "K12 closed-stdout parity holds beyond the harness cases. 0 mismatches in 36 (darwin) and 45 (Linux) plain/--json pairs, including the 100-destination profile, stdout+stderr both a closed pipe, fd 1 closed, and /dev/full.",
+    "cargo fmt/clippy/test in a clean copy: exit 0 (49/4/28).",
+    "The 3b baseline fails the self-stop scenario in my probes (child T, launcher S, no shell notice), which corroborates the fixer's red run."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "REPORT.md 'Recorded, not gated' implies that the stop mirror's only residual beyond §9.4 is an unprobed SIGCONT-to-launcher case that 'leaves the child stopped'.",
+      "evidence": "Probed. The REPORT omits the more serious consequence. After a mirrored self-stop and `kill -CONT <launcher pid>`, zsh (darwin and Linux) and bash 5.2 (Linux) report the job 'running' while the child stays T indefinitely (transcripts probes/{darwin,linux}/*-transcript-explicit-hp.txt). That is exactly the K6e clause 'never left stopped while the shell believes the job is running'. darwin bash 3.2 still shows 'Stopped'. A separate, undisclosed residual is a launcher hang after a third-party stop/continue of the child (see defects)."
+    }
+  ],
+  "hard_gate_findings": [
+    {
+      "gate": "Rebuild from a /tmp copy matches dist/manifest.json",
+      "verdict": "pass",
+      "evidence": "build.sh exit 0. All 4 binary digests and the notices digest equal the manifest (tests/evidence/artifacts/g02-rust/review3c/build/sha256-rebuilt.txt, manifest-rebuilt-3c.json)."
+    },
+    {
+      "gate": "G02 harness 2.4.2 full catalogue, darwin-arm64",
+      "verdict": "pass",
+      "evidence": "139/139, exit 0, verified/pass (review3c/harness-darwin/record.json, console.log)."
+    },
+    {
+      "gate": "G02 harness 2.4.2 full catalogue, linux-arm64 via tests/g02/linux/run.sh (K13)",
+      "verdict": "pass",
+      "evidence": "139/139, exit 0, verified/pass (review3c/harness-linux/record.json)."
+    },
+    {
+      "gate": "§9.4 K6e child-initiated stop (gated: SIGTSTP under bash, darwin-arm64 + linux-arm64)",
+      "verdict": "pass",
+      "evidence": "Harness run.k6e_child_self_stop passes on both. Reviewer probes: 6 cycles per job, 5x stress per OS, 0 re-stops."
+    },
+    {
+      "gate": "§9.4 K12 closed stdout incl. Q17 error results",
+      "verdict": "pass",
+      "evidence": "Harness k12.closed_stdout_exit_parity passes on both; reviewer epipe probe has 0 mismatches (81 pairs over both OSes)."
+    },
+    {
+      "gate": "No regression of round-3b behaviour",
+      "verdict": "fail",
+      "evidence": "Every harness check still passes. But in a non-gated scenario that 3b handled correctly, 3c hangs. A third process sends SIGSTOP (or SIGTSTP) to the child PID, then SIGCONT to the child PID only. The launcher mirrors the stop and stays T forever, and the child is left a zombie. Plain exec and 3b exit 7; 3c never exits until the launcher PID is continued by hand. Reproduced on darwin (both signals) and linux-arm64 (SIGSTOP; SIGTSTP is discarded there because the process group is orphaned). Evidence: review3c/probes/darwin/extstop-src.json, extstop-src3b.json, linux-extra/extstop-3c.json, extstop-3b.json."
+    },
+    {
+      "gate": "Canary rule (no full HEIMDALL_CANARY_ value in records/artifacts)",
+      "verdict": "pass",
+      "evidence": "Harness canary self-check passed on both platforms; reviewer grep over review3c/** found no matches (exit 1)."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "Liveness regression from the stop mirror, not gated, not disclosed in REPORT.md. Another process (a supervisor, `pkill -STOP/-CONT`, a script) sends SIGSTOP or SIGTSTP to the child PID, then SIGCONT to the child PID only. heimdall-proto has already stopped itself (mirror_child_stop -> kill(getpid())) and nothing continues it, so it never reaps the exited child (left Z) and never exits. A non-interactive parent waits forever. Plain exec and round 3b exit normally (7 in the probe). This is an inherent trade-off of mirroring, and the contract does not rule on third-party stop/continue of the child, so I am escalating rather than deciding. Possible narrowing for the orchestrator to weigh: mirror only when heimdall-proto's process group is the terminal's foreground group or a job-control context; or SIGCONT the child after the self-stop returns (this does not help this case). At minimum it must be recorded in REPORT.md as a residual.",
+      "location": "prototypes/rust/src/runner.rs mirror_child_stop() (kill_process(getpid(), own)) and the run() waitid loop; reproduced by tests/evidence/artifacts/g02-rust/review3c/probes/scripts/extstop.py (darwin: probes/darwin/extstop-src.json vs extstop-src3b.json; linux: probes/linux-extra/extstop-3c.json vs extstop-3b.json)"
+    },
+    {
+      "severity": "minor",
+      "description": "After a mirrored child self-stop, `kill -CONT <heimdall-proto pid>` continues only the launcher. zsh 5.9 (darwin and Linux) and bash 5.2 (Linux) then list the job as Running/running while the child stays T indefinitely (launcher idle, 0 CPU ticks over 2 s, so no spin). This meets the literal K6e clause 'the child is never left stopped while the shell believes the job is running', but it is triggered by an explicit signal to the launcher PID, which §9.4 records as non-gated for TSTP/STOP. Escalate whether SIGCONT falls under that. REPORT.md calls it unprobed and does not say the shell then reports the job running. A cheap remedy: after kill(getpid(), own) returns, send SIGCONT to the child if it is still stopped. That is harmless when the group was already continued.",
+      "location": "prototypes/rust/src/runner.rs mirror_child_stop(); prototypes/rust/REPORT.md 'Recorded, not gated'; evidence review3c/probes/{darwin,linux}/{bash,zsh}-transcript-explicit-hp.txt"
+    },
+    {
+      "severity": "minor",
+      "description": "Nested job-control child: with `heimdall-proto run -- bash -i`, the child shell moves itself into its own process group (heimdall-proto does not lead the group). After `suspend`, the outer shell now reports the job Stopped, but `fg` continues only heimdall-proto's group. The nested shell stays T while the outer shell believes the job is running, and the terminal is unusable until the nested PID is killed. Plain exec resumes correctly. Not a regression: 3b hung without even a stop notice. This follows from the round-2 shared-group design, and the harness explicitly does not test nested job control. Not disclosed in REPORT.md. Record it for ADR-0002/M01.",
+      "location": "prototypes/rust/src/runner.rs (shared process group design + mirror); evidence review3c/probes/{darwin,linux}/{bash,zsh}-transcript-nested_shell-{hp,plain}.txt, probes/darwin-3b and linux-3b console.log"
+    }
+  ],
+  "unverifiable_here": [
+    "windows-x64 runtime behaviour (built and digest-matched only; no Windows host).",
+    "linux-x64 runtime (built and digest-matched only; all Linux runs used linux-arm64 in the Docker Desktop arm64 VM kernel, not bare-metal Linux or WSL).",
+    "The fixer's zero-grace sensitivity experiment (STOP_GRACE=0, 1 of 3 runs re-stopped). I did not rebuild with grace 0, so the Q18 timing claim is not reproduced. With the 200 ms grace I saw 0 re-stops in 60 self-stop cycles and 110 Ctrl-Z-in-grace trials.",
+    "The fixer's selftest.sh 56/56 run and its Linux cargo test (49/4/28 + nproc). I re-ran only fmt, clippy and cargo test on the darwin host, plus the full harness on both platforms.",
+    "Harness red runs on the round-3b binary. I did not run the harness on 3b; my own probes on my 3b build corroborate the self-stop failure.",
+    "Shells other than bash (3.2 macOS, 5.2 Debian) and zsh (macOS system zsh, 5.9 Debian); fish/dash not probed.",
+    "Ptrace/debugger-induced child stops and SIGKILL of the child while the launcher is mirror-stopped (reasoned about only, not executed)."
+  ],
+  "summary": "I rebuilt round 3c from a /tmp copy. All four binary digests and the notices digest match dist/manifest.json exactly. I ran harness 2.4.2 against my build on darwin-arm64 and through tests/g02/linux/run.sh (linux-arm64): 139/139 pass on both, exit 0, verified/pass, so no harness check that passed in round 3b regressed. clippy, fmt and cargo test (49/4/28) pass.\n\nMy own pty probes, each with a plain-exec control, ran under bash and zsh on both OSes. They confirm the §9.4 K6e self-stop behaviour:\n- SIGTSTP, SIGSTOP and SIGTTIN self-stops repeated six times per job, SIGTTOU/SIGTTIN background stops, Ctrl-Z/bg/fg, Ctrl-Z inside the 200 ms grace window (0/110 re-stops), nohup, pipelines and `sh -c` all behave like plain exec. 5x stress per OS showed 0 re-stops.\n- K12 closed-stdout parity holds in 81 additional plain/--json pairs, including stderr also closed, fd 1 closed and /dev/full.\n\nThe fix report's verdict for the gated criteria is therefore confirmed. I found one undisclosed, non-gated regression:\n- A third process stops and then continues the child by PID.\n- heimdall-proto mirrors the stop and is never resumed, so it never reaps the child (left a zombie) and never exits.\n- Plain exec and round 3b exit normally. Reproduced on darwin (SIGSTOP and SIGTSTP) and Linux (SIGSTOP).\n\nThis is an inherent trade-off of mirroring that the contract does not address, so I escalate it rather than decide it (major).\n\nTwo minor findings:\n- SIGCONT sent only to the launcher after a mirrored stop: zsh and bash 5.2 then show the job running while the child stays stopped. This is the literal K6e clause, triggered by an explicit signal. REPORT.md calls it unprobed.\n- A nested job-control shell as the child: fg leaves it stopped. Pre-existing design; not a regression.\n\nProbe caveats:\n- The Linux ctrlz_fg_bg 'restopped' flag appears in plain and hp alike; it is a sampling artefact.\n- GNU nohup voids the plain nohup scenario on Linux; the nohup_tty variant covers it.\n- The jobs regex in the explicit scenario matched the echoed command; the transcripts are authoritative.\n\nEvidence is in <repo>/tests/evidence/artifacts/g02-rust/review3c/ (build/, harness-darwin/, harness-linux/, probes/ with scripts, JSON results and transcripts). The canary/private-key scan is clean. Nothing was committed."
+}

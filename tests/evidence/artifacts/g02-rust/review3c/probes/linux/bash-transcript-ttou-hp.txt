@@ -1,0 +1,10 @@
+[?2004h@P@ <<SEND "bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '
+[?2004l@P@ <<SEND 'stty tostop\n'>><<SEND "/w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &\n">>stty tostop
+@P@ /w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))' &
+[1] 29
+@P@ <<SEND 'fg\n'>>fg
+/w/hp/heimdall-proto run -- sh -c 'sleep 0.3; echo TTOU-OUT-$((6*7))'
+TTOU-OUT-42
+@P@ <<SEND 'echo RC=$?; stty -tostop\n'>>echo RC=$?; stty -tostop
+RC=0
+@P@ 
