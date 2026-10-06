@@ -10,7 +10,7 @@
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
 | M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Two review rounds resolved. Every native record is blocked (no Windows 11/WSL2 host) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
-| M00-T05 G02 language/TUI + ADR | in_progress | Rounds closed. Go and Rust 139/139 on darwin+linux (harness 2.4.2); TS 129–130/139 (frozen). ADR-0002 rewritten; independent re-review running; then owner decision D1 |
+| M00-T05 G02 language/TUI + ADR | blocked | Decision package complete: ADR-0002 proposed, re-reviewed, parity-probed. Blocked on owner decision D1 (with D2–D4) |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 
 ## Decisions recorded by the orchestrator
@@ -34,10 +34,9 @@
   - Go: 38b6b72, 139/139 darwin+linux
   - Rust: d8f0cbe, 139/139 darwin+linux
   - measurements: 97417f7
-- ADR-0002 rewritten (19ed9ba). Independent re-review (background agent) writes `tests/evidence/artifacts/review-adr-0002/review-2.md`. If that file is missing after a restart, re-launch the review with the same brief.
+- ADR-0002 revised after review-2 (a8cf583) and parity probes (§6.1). It is ready for the owner.
 - `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them at cleanup with the /tmp residue: `/tmp/hpa*` (~930 dirs), `/tmp/M00-T05-*`, `/tmp/r4fix`, `/tmp/hp-*`, `/tmp/bun-src`, `/tmp/ts-research`.
 
 ## Next actions
 
-1. When review-2 lands, fix the ADR for each finding and commit.
-2. Present the decision package (D1, D2, D3 rulings) together with the other batched owner questions. Do not start M01 before the owner records D1.
+1. Present the decision package (D1, D2, D3 rulings) together with the other batched owner questions. Do not start M01 before the owner records D1.
