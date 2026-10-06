@@ -418,3 +418,36 @@ round. Under plan §3 G02, the comparison now has enough evidence to decide,
 and more rounds would polish prototypes that will be thrown away. The owner
 can overrule this and ask for one more round, for both candidates or for
 neither.
+
+### 9.6 Windows rulings (2026-10-06, after the first native Windows run, X1)
+
+The owner made the language decision wait for Windows/WSL testing (ADR-0002
+D4). The first native runs found Windows behaviour that §1–§9.5 did not
+address. These rulings apply existing clauses to Windows and are gating for
+the X1 Windows verdict. Each candidate gets one Windows fix round under them
+(round 4).
+
+- **K14 on Windows.** A named pipe (`\\.\pipe\…`) or any other path that is
+  not a regular file, given as `--file`, counts as the FIFO case: exit 2
+  `USAGE_ERROR` within 2 s, for `profile show` and `tui`.
+- **`agent list --socket` never writes to a path that is not an endpoint.**
+  A regular file, directory or other non-pipe path given as `--socket` must
+  be refused without modifying it: exit 5 `AGENT_UNAVAILABLE`, or exit 2 for
+  a usage-class error. Writing the request frame into a user file loses user
+  data. On Unix, `connect()` already refuses such a path.
+- **§4 "without a shell" also covers batch files on Windows.** If the target
+  resolves to a `.bat` or `.cmd` file, no argument byte may be run as a
+  command. That holds whether or not the path contains a space. Either pass
+  the arguments with escaping that `cmd.exe` cannot misread, or refuse the
+  launch with exit 127 and a stderr message. Both are allowed; silent
+  injection fails.
+- **Recorded, not gated (M01 inputs):**
+  - Executable resolution order differs from plain PATH lookup. Rust std
+    searches the application directory and System32 first. Go refuses the
+    current directory (ErrDot) and runs `.cmd` through PATHEXT. M01 must
+    define and document the product's resolution policy.
+  - A TUI receiving CTRL_C_EVENT from another process: Rust is killed and
+    leaves the alternate screen active, while Go exits 1 and restores the
+    terminal.
+  - The Go pipe client connects at the Anonymous impersonation level. This
+    matters only to servers that rely on pipe impersonation.
