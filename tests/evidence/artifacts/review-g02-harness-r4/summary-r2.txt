@@ -1,0 +1,366 @@
+darwin/ctl_mirror_delay_1s | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/ctl_mirror_delay_1s | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/ctl_mirror_sigstop_always | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=2 | 
+darwin/ctl_mirror_sigstop_always | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 145]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/reference-1 | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/reference-1 | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/reference-2 | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/reference-2 | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/reference-3 | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/reference-3 | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/reference@k6a | run.k6a_pipeline_peer_not_stopped | pass | gating_fail=0 nongating_fail=0 | 
+darwin/reference@k6a | run.k6a_background_script_tty | pass | gating_fail=0 nongating_fail=0 | 
+darwin/reference@k6a | run.k6a_inherited_ignore | pass | gating_fail=0 nongating_fail=0 | 
+darwin/reference@k6a | run.k6e_job_control | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_auto_resume | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=7 | [bash SIGTSTP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to 
+darwin/rv_auto_resume | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 146]], 'heimdall_proto': []}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 145]], 'heimdall_proto': []}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended', 146]], 'heimdall_proto': []}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': []}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_cont_child_first | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=22 | 
+darwin/rv_cont_child_first | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[True, True, True, True, True, True, True, True, True, True] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[True, True, True, True] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[True, True, True, True] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[True, True, True, True] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_jc_no_sigcont | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=5 | [bash SIGTSTP: hp1] stop 1: `fg` resumes the child
+darwin/rv_jc_no_sigcont | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 145]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_jc_no_tcsetpgrp | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=5 | [bash SIGTSTP: hp1] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)
+darwin/rv_jc_no_tcsetpgrp | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 145]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_k12_agent_plain_only | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_agent_plain_only | k12.closed_stdout_exit_parity | fail | gating_fail=1 nongating_fail=0 | [agent-list-normal] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 1')}
+darwin/rv_k12_exit141_vs_signal | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_exit141_vs_signal | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 141', 'signal SIGPIPE'), 'profile-show-homelab': ('exit 141', 'signal SIGPIPE'), 'agent-list-normal': ('exit 141', 'signal SIGPIPE')}
+darwin/rv_k12_json_error_epipe | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_json_error_epipe | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_k12_json_sigpipe | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_json_sigpipe | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('signal SIGPIPE', 'exit 0'), 'profile-show-homelab': ('signal SIGPIPE', 'exit 0'), 'agent-list-normal': ('signal SIGPIPE', 'exit 0')}
+darwin/rv_k12_plain_hang | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_plain_hang | k12.closed_stdout_exit_parity | fail | gating_fail=6 nongating_fail=0 | [version-plain-closed-stdout] completed within 20.0s
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'signal SIGKILL'), 'profile-show-homelab': ('exit 0', 'signal SIGKILL'), 'agent-list-normal': ('exit 0', 'signal SIGKILL')}
+darwin/rv_k12_plain_stderr_json_sigpipe | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_plain_stderr_json_sigpipe | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('signal SIGPIPE', 'exit 0'), 'profile-show-homelab': ('signal SIGPIPE', 'exit 0'), 'agent-list-normal': ('signal SIGPIPE', 'exit 0')}
+darwin/rv_k12_plain_unflushed | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_plain_unflushed | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 120'), 'profile-show-homelab': ('exit 0', 'exit 120'), 'agent-list-normal': ('exit 0', 'exit 120')}
+darwin/rv_k12_profile_json_only | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_k12_profile_json_only | k12.closed_stdout_exit_parity | fail | gating_fail=1 nongating_fail=0 | [profile-show-homelab] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 1', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_mirror_first_only | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to 
+darwin/rv_mirror_first_only | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_mirror_killpg | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_mirror_killpg | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_mirror_killpg@k6a | run.k6a_pipeline_peer_not_stopped | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_mirror_killpg@k6a | run.k6a_background_script_tty | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_mirror_killpg@k6a | run.k6a_inherited_ignore | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_mirror_tstp_only | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=4 | 
+darwin/rv_mirror_tstp_only | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 145]], 'heimdall_proto': []}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': []}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_nograce | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_nograce | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_nograce@jc | run.k6e_job_control | pass | gating_fail=0 nongating_fail=0 | 
+darwin/rv_own_pgrp_fwd_cont | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)
+darwin/rv_own_pgrp_fwd_cont | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_own_pgrp_no_cont | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] stop 1: `fg` resumes the child
+darwin/rv_own_pgrp_no_cont | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_rc_lost_after_stop | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left
+darwin/rv_rc_lost_after_stop | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['Stopped', 146]], 'heimdall_proto': [['Stopped', 146]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['Stopped', 145]], 'heimdall_proto': [['Stopped', 145]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['suspended', 146]], 'heimdall_proto': [['suspended', 146]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': [['suspended (signal)', 145]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+darwin/rv_stop_as_exit | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=7 | [bash SIGTSTP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to 
+darwin/rv_stop_as_exit | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 146]], 'heimdall_proto': []}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 145]], 'heimdall_proto': []}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended', 146]], 'heimdall_proto': []}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended (signal)', 145]], 'heimdall_proto': []}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/ctl_mirror_delay_1s | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/ctl_mirror_delay_1s | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/ctl_mirror_sigstop_always | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=2 | 
+linux/ctl_mirror_sigstop_always | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 147]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/reference-1 | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/reference-1 | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/reference-2 | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/reference-2 | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/reference-3 | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/reference-3 | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/reference@k6a | run.k6a_pipeline_peer_not_stopped | pass | gating_fail=0 nongating_fail=0 | 
+linux/reference@k6a | run.k6a_background_script_tty | pass | gating_fail=0 nongating_fail=0 | 
+linux/reference@k6a | run.k6a_inherited_ignore | pass | gating_fail=0 nongating_fail=0 | 
+linux/reference@k6a | run.k6e_job_control | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_auto_resume | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=7 | [bash SIGTSTP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to 
+linux/rv_auto_resume | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 148]], 'heimdall_proto': []}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 147]], 'heimdall_proto': []}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended', 148]], 'heimdall_proto': []}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': []}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_cont_child_first | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=22 | 
+linux/rv_cont_child_first | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[True, True, True, True, True, True, True, True, True, True] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[True, True, True, True] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[True, True, True, True] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[True, True, True, True] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_jc_no_sigcont | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=5 | [bash SIGTSTP: hp1] stop 1: `fg` resumes the child
+linux/rv_jc_no_sigcont | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 147]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_jc_no_tcsetpgrp | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=5 | [bash SIGTSTP: hp1] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)
+linux/rv_jc_no_tcsetpgrp | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 147]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_k12_agent_plain_only | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_agent_plain_only | k12.closed_stdout_exit_parity | fail | gating_fail=1 nongating_fail=0 | [agent-list-normal] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 1')}
+linux/rv_k12_exit141_vs_signal | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_exit141_vs_signal | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 141', 'signal SIGPIPE'), 'profile-show-homelab': ('exit 141', 'signal SIGPIPE'), 'agent-list-normal': ('exit 141', 'signal SIGPIPE')}
+linux/rv_k12_json_error_epipe | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_json_error_epipe | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_k12_json_sigpipe | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_json_sigpipe | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('signal SIGPIPE', 'exit 0'), 'profile-show-homelab': ('signal SIGPIPE', 'exit 0'), 'agent-list-normal': ('signal SIGPIPE', 'exit 0')}
+linux/rv_k12_plain_hang | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_plain_hang | k12.closed_stdout_exit_parity | fail | gating_fail=6 nongating_fail=0 | [version-plain-closed-stdout] completed within 20.0s
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'signal SIGKILL'), 'profile-show-homelab': ('exit 0', 'signal SIGKILL'), 'agent-list-normal': ('exit 0', 'signal SIGKILL')}
+linux/rv_k12_plain_stderr_json_sigpipe | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_plain_stderr_json_sigpipe | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('signal SIGPIPE', 'exit 0'), 'profile-show-homelab': ('signal SIGPIPE', 'exit 0'), 'agent-list-normal': ('signal SIGPIPE', 'exit 0')}
+linux/rv_k12_plain_unflushed | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_plain_unflushed | k12.closed_stdout_exit_parity | fail | gating_fail=3 nongating_fail=0 | [version] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 120'), 'profile-show-homelab': ('exit 0', 'exit 120'), 'agent-list-normal': ('exit 0', 'exit 120')}
+linux/rv_k12_profile_json_only | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_k12_profile_json_only | k12.closed_stdout_exit_parity | fail | gating_fail=1 nongating_fail=0 | [profile-show-homelab] stdout closed by its reader: the wait status without --json equals the one with --json
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 1', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_mirror_first_only | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] stop 2: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to 
+linux/rv_mirror_first_only | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False, None] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_mirror_killpg | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_mirror_killpg | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_mirror_killpg@k6a | run.k6a_pipeline_peer_not_stopped | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_mirror_killpg@k6a | run.k6a_background_script_tty | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_mirror_killpg@k6a | run.k6a_inherited_ignore | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_mirror_tstp_only | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=4 | 
+linux/rv_mirror_tstp_only | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 147]], 'heimdall_proto': []}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': []}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_nograce | run.k6e_child_self_stop | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_nograce | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False, False, False, False, False, False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=True not_run=None resumed_before_fg=[False, False, False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_nograce@jc | run.k6e_job_control | pass | gating_fail=0 nongating_fail=0 | 
+linux/rv_own_pgrp_fwd_cont | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] stop 1: after `fg` the job is not stopped again: no 'Stopped' notice and no prompt (the job holds the terminal)
+linux/rv_own_pgrp_fwd_cont | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_own_pgrp_no_cont | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] stop 1: `fg` resumes the child
+linux/rv_own_pgrp_no_cont | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_rc_lost_after_stop | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=3 | [bash SIGTSTP: hp1] the job finished: the child completed, the job's status (as `fg` reports it) is 42 and no job is left
+linux/rv_rc_lost_after_stop | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['Stopped', 148]], 'heimdall_proto': [['Stopped', 148]]}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['Stopped', 147]], 'heimdall_proto': [['Stopped', 147]]}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['suspended', 148]], 'heimdall_proto': [['suspended', 148]]}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[False, False] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': [['suspended (signal)', 147]]}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}
+linux/rv_stop_as_exit | run.k6e_child_self_stop | fail | gating_fail=1 nongating_fail=7 | [bash SIGTSTP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to 
+linux/rv_stop_as_exit | k12.closed_stdout_exit_parity | pass | gating_fail=0 nongating_fail=0 | 
+    bash-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 148]], 'heimdall_proto': []}
+    bash-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['Stopped', 147]], 'heimdall_proto': []}
+    zsh-SIGTSTP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended', 148]], 'heimdall_proto': []}
+    zsh-SIGSTOP ok=False not_run=None resumed_before_fg=[None] notice={'control': [['suspended (signal)', 147]], 'heimdall_proto': []}
+    k12: {'version': ('exit 0', 'exit 0'), 'profile-show-homelab': ('exit 0', 'exit 0'), 'agent-list-normal': ('exit 0', 'exit 0')}

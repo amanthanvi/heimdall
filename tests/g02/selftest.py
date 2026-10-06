@@ -28,8 +28,12 @@ K12 closed stdout).
 9. Blame (INTENDED_FIRST_ASSERTION): for some mutations the intended check must fail with a specific FIRST
    failing assertion, so the defect is attributed to the right step (K6e late re-stop after `fg`; K6e child
    self-stop not reported versus `fg` not resuming the child).
-10. Observation mutations (OBSERVED): defects in non-gating observations (K6c) - the run may pass, but the
-   record's observation must show the defect and the baseline's must not.
+10. Observation mutations (OBSERVED): defects in non-gating observations (K6c, Q16, the section 9.4 SIGSTOP form,
+   K12 error results pending Q17) - the run may pass, but the record's observation must show the defect and the
+   baseline's must not.
+12. Race mutations (RACE): a defect that shows only through a scheduling race the harness cannot force (harness
+   2.4.1: run_mirror_nograce, the round-4 review's rv_nograce).  It is run and its result is reported, but it is
+   NOT required to be caught; the README says why and the question is escalated.
 11. Harness/environment faults (HARNESS_EXPECT): injected through HM_G02_HARNESS_MUTATE; a failed harness
    precondition must give outcome 'error' (invalid evidence), never 'fail'; a non-gating probe's precondition
    must not affect the gated check; a re-injected emulator defect must make the dependent checks fail.
@@ -75,6 +79,10 @@ SCOPE_OVERRIDE = {
     # K12 closed stdout (section 9.4): the defect is in the shared output path of version/profile/agent
     "plain_epipe_exit1": "version.*,common.*,k12.*,canary.*",
     "plain_epipe_sigpipe": "version.*,common.*,k12.*,canary.*",
+    # round 7 (M00-T05-harness-r4-fix): K12 error results on a closed stdout (non-gating pending Q17)
+    "json_error_epipe_exit1": "k12.*,common.*,canary.*",
+    # a race the harness cannot force: only the K6e Ctrl-Z/fg check can show it (RACE below)
+    "run_mirror_nograce": "run.k6e_job_control",
 }
 
 # mutation -> the check(s) written for it; the self-test requires that THESE checks fail
@@ -144,6 +152,8 @@ INTENDED = {
     "run_child_stop_no_continue": "run.k6e_child_self_stop",
     "plain_epipe_exit1": "k12.closed_stdout_exit_parity",
     "plain_epipe_sigpipe": "k12.closed_stdout_exit_parity",
+    # round 7 (M00-T05-harness-r4-fix): the round-4 harness review's missed mutations
+    "run_mirror_killpg": "run.k6a_child_self_stop_not_spread",
 }
 
 # mutation -> (check id, text of the assertion that must be the FIRST failing gating assertion of that check):
@@ -160,12 +170,60 @@ INTENDED_FIRST_ASSERTION = {
 
 # mutations of non-gating observations (K6c): the run need not fail, but the record's observation must show the
 # defect and the baseline's must not.  name -> (description of the expectation, extractor, predicate on the value)
+# An optional 4th element condenses the observation for the report (default: the whole value, shortened).
+def _k6es_form(name):
+    return lambda obs: ((obs.get("k6e_child_self_stop") or {}).get(name) or {})
+
+
+def _k6es_resumed_flags(v):
+    return [st.get("resumed_before_fg") for job in v.get("jobs") or [] for st in job.get("stops") or []]
+
+
+def _k12_err_cases(v):
+    return {k: [(c.get("json") or {}).get("wait_status"), (c.get("plain") or {}).get("wait_status")]
+            for k, c in (v.get("cases") or {}).items()}
+
+
 OBSERVED = {
     "run_child_sigpipe_ignored": (
         "observations.k6c_other_inherited_signal_state['sigpipe-non-python'].classification == 'child_always_ignores' "
         "and inherited_sigpipe_ignore_kept is false (harness 2.2.0 reported kept=true)",
         lambda obs: ((obs.get("k6c_other_inherited_signal_state") or {}).get("sigpipe-non-python") or {}),
-        lambda v: v.get("classification") == "child_always_ignores" and v.get("inherited_sigpipe_ignore_kept") is False),
+        lambda v: v.get("classification") == "child_always_ignores" and v.get("inherited_sigpipe_ignore_kept") is False,
+        lambda v: {k: v.get(k) for k in ("classification", "inherited_sigpipe_ignore_kept")}),
+    # round 7 (M00-T05-harness-r4-fix): the round-4 harness review's missed mutations whose defect section 9.4 / Q16 /
+    # Q17 leave non-gating
+    "run_cont_child_first": (
+        "observations.k6e_child_self_stop['bash-SIGTSTP'] shows resumed_before_fg true for a self-stop (Q16, recorded "
+        "not gated; harness 2.4.0 recorded it but the self-test did not require it)",
+        _k6es_form("bash-SIGTSTP"),
+        lambda v: any(x is True for x in _k6es_resumed_flags(v)),
+        lambda v: {"resumed_before_fg": _k6es_resumed_flags(v)}),
+    "run_mirror_tstp_only": (
+        "observations.k6e_child_self_stop['bash-SIGSTOP'] fails at 'the shell reports the job stopped' (section 9.4 "
+        "records SIGSTOP, not gated)",
+        _k6es_form("bash-SIGSTOP"),
+        lambda v: v.get("ok") is False and not v.get("not_run")
+        and "the shell reports the job stopped" in str((v.get("first_failed_step") or {}).get("desc") or ""),
+        lambda v: {"ok": v.get("ok"), "not_run": v.get("not_run"),
+                   "first_failed_step": str((v.get("first_failed_step") or {}).get("desc") or "")[:110]}),
+    "json_error_epipe_exit1": (
+        "observations.k12_closed_stdout_errors.all_equal is false (an error result's wait status with --json differs "
+        "from the one without on a closed stdout; non-gating pending Q17)",
+        lambda obs: obs.get("k12_closed_stdout_errors") or {},
+        lambda v: v.get("all_equal") is False and bool(v.get("cases"))
+        and all((c.get("json") or {}).get("rc") is not None for c in v["cases"].values()),
+        lambda v: {"all_equal": v.get("all_equal"), "json/plain": _k12_err_cases(v)}),
+}
+
+# race mutations: run and reported, NOT required to be caught (see the module docstring, item 12, and the README)
+RACE = {
+    "run_mirror_nograce": "K6e: a stale child stop report mirrored without the 200 ms grace re-stops the job after "
+                          "`fg` only in a scheduling race (inferred: the launcher stopped between reading 'still "
+                          "stopped' and stopping itself); darwin-arm64 2026-10-05 "
+                          "(selftest-results/2026-10-05-r7/nograce-experiments): 0/15 Ctrl-Z/fg cycles in each of six "
+                          "bash -i variants, idle and under 18 CPU burners, 0/12 killpg cycles; harness 2.4.0's stress "
+                          "record: 2 re-stops in 160 cycles under 20 burners",
 }
 
 # conforming variant -> the --only scope whose checks must all PASS with the variant injected
@@ -174,6 +232,9 @@ CONFORMING = {
     "tui_filter_70ms": "tui.large_100_filter_latency",
     "run_job_control_own_group": "run.*",
     "closed_stdout_sigpipe_both": "version.*,common.*,k12.*,canary.*",
+    # round 7 (M00-T05-harness-r4-fix): the round-4 harness review's conforming controls
+    "run_mirror_sigstop_always": "run.*",
+    "run_mirror_delay_1s": "run.*",
 }
 
 # harness mutations that are not canary leaks: an injected harness/environment fault and the check outcomes it
@@ -353,11 +414,12 @@ def run_platform(args, workdir):
         failed_ids = [f[0] for f in r["failed"]]
         r["intended"] = intended_of(m)
         if m in OBSERVED:
-            what, get, pred = OBSERVED[m]
+            what, get, pred = OBSERVED[m][:3]
+            summ = OBSERVED[m][3] if len(OBSERVED[m]) > 3 else (lambda v: v)
             seen, base_seen = get(r["observations"]), get(base["observations"])
             r["intended"] = ["observation: " + what]
-            r["observed_value"] = {k: seen.get(k) for k in ("classification", "inherited_sigpipe_ignore_kept")}
-            r["baseline_value"] = {k: base_seen.get(k) for k in ("classification", "inherited_sigpipe_ignore_kept")}
+            r["observed_value"] = summ(seen)
+            r["baseline_value"] = summ(base_seen)
             r["caught"] = r["exit"] in (0, 1) and bool(pred(seen)) and not pred(base_seen)
         else:
             r["caught"] = r["exit"] == 1 and bool(r["failed"]) and all(i in failed_ids for i in r["intended"])
@@ -368,6 +430,7 @@ def run_platform(args, workdir):
             r["intended"] = r["intended"] + ["first failing assertion of %s: '%s ...'" % (cid, text[:60].replace("`", ""))]
             r["caught"] = r["caught"] and bool(fa) and text in fa[0]
         r["observable"] = True
+        r["race"] = m in RACE
         gate = PLATFORM_GATED.get(m)
         if gate:
             key, pred = gate
@@ -375,8 +438,10 @@ def run_platform(args, workdir):
             r["observable"] = pred(seen)
             r["host_delivery"] = seen
         results.append(r)
-        print("%-34s exit=%s caught=%s%s by %s" % (m, r["exit"], r["caught"], "" if r["observable"] else
-                                                  " (condition not observable on this host)", failed_ids[:4]), flush=True)
+        print("%-34s exit=%s caught=%s%s%s by %s" % (m, r["exit"], r["caught"], "" if r["observable"] else
+                                                    " (condition not observable on this host)",
+                                                    " (race: recorded, not required)" if r["race"] else "",
+                                                    failed_ids[:4]), flush=True)
 
     import reference_impl as _ri
     variants = sorted(set(CONFORMING) & set(getattr(_ri, "VARIANTS", {})))
@@ -451,8 +516,9 @@ def run_platform(args, workdir):
     out["base_ok"] = base_good(base)
     out["repeats_ok"] = all(base_good(b) for b in repeats)
     out["mismatch_ok"] = mismatch["exit"] == 1 and any(f[0] == "version.valid" for f in mismatch["failed"])
-    out["observable_caught"] = all(r["caught"] for r in results if r["observable"])
+    out["observable_caught"] = all(r["caught"] for r in results if r["observable"] and not r["race"])
     out["unobservable"] = [r["mutate"] for r in results if not r["observable"]]
+    out["race_results"] = {r["mutate"]: r["caught"] for r in results if r["race"]}
     out["harness_caught"] = all(r["caught"] for r in hresults) and all(r["caught"] for r in eresults)
     out["variants_accepted"] = all(r["accepted"] for r in vresults)
     out["ok"] = bool(out["base_ok"] and out["repeats_ok"] and out["mismatch_ok"] and out["observable_caught"]
@@ -504,8 +570,12 @@ def md_platform_summary(L, name, P):
     ks = (b.get("observations") or {}).get("k3a_reset_delivery")
     L.append("- K3a reset delivery observed by the baseline: `%s`" % ks)
     muts = P["mutations"]
-    L.append("- reference mutations caught: **%d / %d** observable on this host%s" % (
-        sum(1 for r in muts if r["observable"] and r["caught"]), sum(1 for r in muts if r["observable"]),
+    L.append("- race mutations (recorded, NOT required to be caught; see RACE in selftest.py): %s" % (
+        ", ".join("`%s` %s" % (r["mutate"], "caught" if r["caught"] else "not caught") for r in muts if r.get("race"))
+        or "none"))
+    L.append("- reference mutations caught: **%d / %d** observable on this host (race mutations excluded)%s" % (
+        sum(1 for r in muts if r["observable"] and r["caught"] and not r.get("race")),
+        sum(1 for r in muts if r["observable"] and not r.get("race")),
         ("; not observable on this platform (must be caught on the other one): %s" % ", ".join("`%s`" % x for x in P["unobservable"]))
         if P["unobservable"] else ""))
     L.append("- harness mutations (canary self-check) caught: **%d / %d**" % (
@@ -535,6 +605,15 @@ def md_platform_summary(L, name, P):
     L.append("- baseline K12 closed-stdout wait statuses (section 9.4): %s" % (", ".join("`%s` json `%s` / plain `%s`" % (
         k, (v.get("json") or {}).get("wait_status"), (v.get("plain") or {}).get("wait_status"))
         for k, v in k12c.items()) or "none"))
+    k12e = (b.get("observations") or {}).get("k12_closed_stdout_errors") or {}
+    L.append("- baseline K12 closed-stdout wait statuses of error results (non-gating pending Q17): %s" % (
+        ", ".join("`%s` json `%s` / plain `%s`" % (k, (v.get("json") or {}).get("wait_status"),
+                                                   (v.get("plain") or {}).get("wait_status"))
+                  for k, v in (k12e.get("cases") or {}).items()) or "none"))
+    k6as = (b.get("observations") or {}).get("k6a_child_self_stop") or {}
+    L.append("- baseline K6a child self-stop layouts (other job member stopped after s / shell reported a stop): %s" % (
+        ", ".join("`%s` %s / %s" % (k, v.get("peer_stopped_after_s"), v.get("shell_reported_stop"))
+                  for k, v in k6as.items()) or "none"))
     L.append("- full canary values in any record/artifact of this self-test's work directory: %s" % (
         P["canary_leak_files"] or "none"))
     L.append("- platform result: **%s**\n" % ("PASS" if P["ok"] else "FAIL"))
@@ -623,14 +702,20 @@ def write_md(path, started, host, linux, ok, reasons):
         if len(src) > 5:
             by += "<br>... +%d more" % (len(src) - 5)
         if "observed_value" in r:
-            by = ("observation `%s` (baseline `%s`)" % (json.dumps(r["observed_value"]), json.dumps(r["baseline_value"]))
+            by = ("observation `%s` (baseline `%s`)" % (json.dumps(r["observed_value"], ensure_ascii=False,
+                                                                   default=str)[:400].replace("|", "\\|"),
+                                                        json.dumps(r["baseline_value"], ensure_ascii=False,
+                                                                   default=str)[:400].replace("|", "\\|"))
                   + ("<br>" + by if by else ""))
         host_caught = ("yes" if r["caught"] else "**NO**") if r["observable"] else \
             "not observable here (%s)" % json.dumps(r.get("host_delivery"))
+        if r.get("race"):
+            host_caught = "race, not required: %s" % ("caught" if r["caught"] else "not caught")
         L.append("| `%s` | %s | `%s` | %s | %s | %s | %s | %s | %s |" % (
             name, reference_impl.MUTATIONS[name], r["only"], "<br>".join("`%s`" % i for i in r["intended"]) or "-",
             r["exit"], host_caught, lr.get("exit", "-"),
-            (("yes" if lr.get("caught") else "**NO**") if lr.get("observable", True) else
+            (("race, not required: %s" % ("caught" if lr.get("caught") else "not caught")) if lr.get("race") else
+             ("yes" if lr.get("caught") else "**NO**") if lr.get("observable", True) else
              "not observable (%s)" % json.dumps(lr.get("host_delivery"))) if lr else "-",
             by or "-"))
     L.append("")

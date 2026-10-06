@@ -1,0 +1,226 @@
+{
+  "reexecuted_commands": [
+    {
+      "command": "tests/evidence/artifacts/review-g02-harness-r4/drive-r2.sh darwin (python3 tests/g02/conformance.py --only 'run.k6e_child_self_stop,k12.closed_stdout_exit_parity' against reference_impl.py --selftest x3 and 22 reviewer mutants at /tmp/rv4r2/mut/*, plus rv_nograce on run.k6e_job_control, rv_mirror_killpg on the three k6a checks and the reference on k6a+k6e_job_control), 2026-10-05T11:51:42Z..12:16:55Z",
+      "exit_code": 0,
+      "observed": "Per-run exit codes are in records-r2/darwin/summary.tsv. Reference runs 1-3: 0. Both checks pass every time with 0 non-gating failures. ctl_mirror_delay_1s: 0. ctl_mirror_sigstop_always: 0 (only the non-gating notice/$? observation differs: 145 against 146). Exit 1 (caught): rv_auto_resume, rv_jc_no_sigcont, rv_jc_no_tcsetpgrp, rv_mirror_first_only, rv_own_pgrp_fwd_cont, rv_own_pgrp_no_cont, rv_rc_lost_after_stop, rv_stop_as_exit, rv_k12_agent_plain_only, rv_k12_exit141_vs_signal, rv_k12_json_sigpipe, rv_k12_plain_hang, rv_k12_plain_stderr_json_sigpipe, rv_k12_plain_unflushed, rv_k12_profile_json_only. Exit 0 (missed): rv_cont_child_first, rv_mirror_tstp_only, rv_mirror_killpg, rv_nograce, rv_k12_json_error_epipe, rv_nograce@jc, rv_mirror_killpg@k6a. reference@k6a: 0."
+    },
+    {
+      "command": "tests/evidence/artifacts/review-g02-harness-r4/drive-r2.sh linux (the same matrix through tests/g02/linux/run.sh, image heimdall-g02-harness:d0c8e448a3a7, --network none), 2026-10-05T11:51:42Z..12:16:36Z",
+      "exit_code": 0,
+      "observed": "Identical per-mutant verdicts to darwin (records-r2/linux/summary.tsv). Reference runs 1-3 pass both checks with 0 non-gating failures. Notice/$? is Stopped/148 for SIGTSTP and 147 for SIGSTOP, and the control matches."
+    },
+    {
+      "command": "python3 tests/evidence/artifacts/review-g02-harness-r4/k12_closed_stdout_probe.py tests/g02/reference_impl.py prototypes/{go,rust}/dist/darwin-arm64/heimdall-proto (2026-10-05T11:51:47Z), and the same in the Linux container with the linux-arm64 artifacts (11:51:59Z)",
+      "exit_code": 0,
+      "observed": "Both platforms give the same result. Reference: parity in every case. Go: version and profile-ok show json=-13 and plain=-13. profile-missing gives json=-13 against plain=2, profile-invalid json=-13 against plain=2, agent-unavail json=-13 against plain=5, with SIGPIPE either default or inherited ignored. Rust: version and profile-ok give json=0 against plain=1, and the error cases are equal."
+    },
+    {
+      "command": "python3 tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --only k12.closed_stdout_exit_parity ; tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go --only k12.closed_stdout_exit_parity (2026-10-05T12:34:21Z)",
+      "exit_code": 0,
+      "observed": "The check passes on both platforms. Every case is 'signal SIGPIPE' in both modes. Go passes even though the probe above shows it breaks parity on error results."
+    },
+    {
+      "command": "python3 tests/evidence/artifacts/review-g02-harness-r4/pipeline_selfstop_demo.py <reference_impl.py> /tmp/rv4r2/mut/rv_mirror_killpg/heimdall-proto (darwin 11:52:08Z; Linux container 11:52:43Z)",
+      "exit_code": 0,
+      "observed": "Both platforms give the same result. Direct exec and the reference: the child is T, the pipeline peer is S, and bash prints no 'Stopped'. rv_mirror_killpg: the peer is T and bash prints 'Stopped' and a prompt, so the launcher stopped a pipeline peer."
+    }
+  ],
+  "mutations": [
+    {
+      "name": "rv_auto_resume",
+      "description": "Supervisor style: a child stop is answered with SIGCONT right away, and the launcher never stops itself.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_stop_as_exit",
+      "description": "Naive waitpid(WUNTRACED): the launcher treats the stop as an exit, exits 128+sig and leaves the child stopped.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_mirror_first_only",
+      "description": "Only the first self-stop per launch is reported to the shell.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin (stop 2)",
+        "run.k6e_child_self_stop linux (stop 2)"
+      ]
+    },
+    {
+      "name": "rv_own_pgrp_no_cont",
+      "description": "The child is in its own background pgrp. The launcher reports the stop, but fg never continues the child, which stays stopped after fg.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_own_pgrp_fwd_cont",
+      "description": "The child is in its own background pgrp and SIGCONT is forwarded, but the child never gets the terminal, so it re-stops after fg.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_jc_no_sigcont",
+      "description": "Job-control launcher: on fg it hands the terminal to the child but never continues it.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_jc_no_tcsetpgrp",
+      "description": "Job-control launcher: on fg it continues the child but never gives it the terminal.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_rc_lost_after_stop",
+      "description": "After any mirrored stop the launcher exits 0 instead of the child's status of 42.",
+      "caught": true,
+      "caught_by": [
+        "run.k6e_child_self_stop darwin",
+        "run.k6e_child_self_stop linux"
+      ]
+    },
+    {
+      "name": "rv_cont_child_first",
+      "description": "Sends SIGCONT to the child, then stops itself, so the child runs before fg (Q16).",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "rv_mirror_tstp_only",
+      "description": "Mirrors only SIGTSTP self-stops; a SIGSTOP self-stop goes unreported.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "rv_mirror_killpg",
+      "description": "Mirrors the stop with kill(0, SIG) (the vim idiom), which stops the whole process group, including pipeline peers.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "rv_nograce",
+      "description": "Mirrors a stale stop report with no 200 ms grace (the reference's documented race after a terminal Ctrl-Z and fg).",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "rv_k12_agent_plain_only",
+      "description": "Only `agent list` without --json exits 1 on EPIPE.",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_profile_json_only",
+      "description": "Only `profile show --json` exits 1 on EPIPE.",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_json_sigpipe",
+      "description": "Re-raises SIGPIPE in --json mode only; plain mode exits 0.",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_exit141_vs_signal",
+      "description": "Plain mode dies by SIGPIPE; --json exits 141. The number is the same but the wait status differs.",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_plain_unflushed",
+      "description": "Plain mode never flushes, so EPIPE surfaces at interpreter shutdown (exit 120).",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_plain_hang",
+      "description": "Plain mode sleeps 40 s on EPIPE and has no status within the 20 s budget.",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_plain_stderr_json_sigpipe",
+      "description": "Plain mode writes its result to stderr and exits 0; --json dies by SIGPIPE.",
+      "caught": true,
+      "caught_by": [
+        "k12.closed_stdout_exit_parity darwin",
+        "k12.closed_stdout_exit_parity linux"
+      ]
+    },
+    {
+      "name": "rv_k12_json_error_epipe",
+      "description": "--json failure results (exit 2/5) exit 1 on EPIPE; plain mode writes nothing to stdout on failure and exits 2/5. The real Go prototype behaves this way.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "ctl_mirror_sigstop_always (conforming control)",
+      "description": "Always mirrors with SIGSTOP. Expected to pass the gate.",
+      "caught": false,
+      "caught_by": []
+    },
+    {
+      "name": "ctl_mirror_delay_1s (conforming control)",
+      "description": "Mirrors the stop 1 s late. Expected to pass the gate.",
+      "caught": false,
+      "caught_by": []
+    }
+  ],
+  "defects": [
+    {
+      "severity": "major",
+      "description": "k12.closed_stdout_exit_parity judges only successful results. The base K12 rule (\"Exit codes are the same as with --json\") also covers error results, and the existing K12 check gates the exit 2 and exit 5 cases. §9.4 extends that rule to a closed stdout and has no success-only limit. The README lists 'error results (exit 2/5)' as not covered. Because of this gap, the real Go prototype passes the check on darwin and linux (observed) while breaking parity: profile show of a missing or invalid file and agent list on an unavailable socket die by SIGPIPE with --json but exit 2 or 5 without it. The probe shows this on both platforms, with SIGPIPE default or inherited ignored. Mutant rv_k12_json_error_epipe was also missed. Whether §9.4 covers error results on a closed stdout should be escalated to the owner. If it does, add profile-missing or profile-invalid and agent-unavailable cases to the check.",
+      "location": "tests/g02/conformance.py:3031-3075 (cases tuple); docs/g02/slice-contract.md §9 K12 and §9.4; evidence: tests/evidence/artifacts/review-g02-harness-r4/k12-probe-{darwin,linux}-r2.txt, records-r2/{darwin,linux}/go-k12.json"
+    },
+    {
+      "severity": "minor",
+      "description": "K6e self-stop is judged only for a simple command. A launcher that mirrors the stop with kill(0, SIGTSTP), the common vim-style suspend (rv_mirror_killpg), passes run.k6e_child_self_stop and all three run.k6a_* checks on both platforms. In a pipeline (`proto run -- child | peer`) it stops the pipeline peer, and bash prints 'Stopped'. With direct exec and the reference the peer keeps running (state S). That breaks K6a (\"must not stop another member of its own job, for example a pipeline peer\"). The README documents 'a self-stop of a child in a pipeline' as not covered. A pipeline sub-form, gated by K6a, would close the gap.",
+      "location": "tests/g02/conformance.py:4152-4423 (K6ES_FORMS, simple command only); evidence: tests/evidence/artifacts/review-g02-harness-r4/pipeline-selfstop-{darwin,linux}-r2.txt"
+    },
+    {
+      "severity": "minor",
+      "description": "k12.closed_stdout_exit_parity runs the program only with SIGPIPE at its default disposition, and asserts that disposition in a note ('subprocess restore_signals') rather than measuring it. An inherited SIGPIPE ignore is documented as not covered, so a launcher whose modes diverge only when SIGPIPE is ignored would pass. §9.4 does not name a disposition. This is recorded for completeness and is not escalated as a contract ambiguity.",
+      "location": "tests/g02/conformance.py:3075"
+    }
+  ],
+  "summary": "Status: verified for what was run. Both 2.4.0 checks pass on the reference_impl, 3 of 3 runs on darwin and 3 of 3 on linux-arm64, run concurrently, with 0 gating and 0 non-gating failures. They are not flaky in these 6 runs. Both conforming controls (always SIGSTOP; a 1 s late mirror) pass the gate.\n\n**K6e child self-stop.** It caught 8 of 12 wrong launchers on both platforms: auto-resume, stop taken as exit, first stop only, own pgrp without SIGCONT, own pgrp without the terminal, job control without SIGCONT, job control without tcsetpgrp, and exit status lost after a stop. The 4 it missed:\n- rv_cont_child_first: non-gating by the Q16 ruling now in the contract.\n- rv_mirror_tstp_only: SIGSTOP is non-gating by §9.4. Both are recorded as observations.\n- rv_nograce: a race this check does not exercise. It was also not reproduced by run.k6e_job_control in 1 run per platform.\n- rv_mirror_killpg: a real gap (defect 2). It stops pipeline peers, which breaks K6a, and the demo shows this on both platforms.\n\n**K12 closed stdout.** It caught 7 of 8: per-subcommand divergences, SIGPIPE re-raised in one mode only, exit 141 against death by signal, an unflushed exit 120, a hang, and stderr against SIGPIPE. It missed divergence on error results (defect 1, major). The real Go prototype has exactly that divergence on both platforms (--json dies by SIGPIPE, plain exits 2 or 5) and passes the check. Whether §9.4 parity covers error results should be escalated, not decided here.\n\n**Observation rename.** I found no rename in the committed diff (b224801), so I did not review it.\n\n**Prior attempt.** The files outside records-r2/*-r2 in my directory (records/, k12-probe-*.txt without -r2) come from the review attempt killed at the T3 restart. They are superseded and were not used as evidence.\n\nEvidence is in <repo>/tests/evidence/artifacts/review-g02-harness-r4/:\n- make_mutants.py: the mutant generator; mutants are built into /tmp/rv4r2/mut.\n- drive-r2.sh, summarize.py, summary-r2.txt\n- records-r2/{darwin,linux}/*.json and summary.tsv: real exit codes and UTC times.\n- k12-probe-{darwin,linux}-r2.txt and pipeline-selfstop-{darwin,linux}-r2.txt\n\nNo reviewer processes or containers were left behind, and no canary strings appear in the artifacts. Tested file hashes match the producer's tested-file-sha256-prefixes.txt: conformance e3f9e117, harness_lib 3b611a1d, reference_impl 7bc8ccc4."
+}

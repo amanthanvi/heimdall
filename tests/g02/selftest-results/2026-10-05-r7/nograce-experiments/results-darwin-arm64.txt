@@ -1,0 +1,50 @@
+# date -u start: 2026-10-05T14:44:07Z; host: Darwin arm64 27.0.0; python: Python 3.14.8; cpus: 18
+$ env REF_MUTATE=run_mirror_nograce python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py simple 15
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce layout=simple peers=- CREAD=False cycles=15 restops_after_fg=0
+# exit_code=0
+$ env REF_MUTATE=run_mirror_nograce python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py grandkids 15 100
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce layout=grandkids peers=100 CREAD=False cycles=15 restops_after_fg=0
+# exit_code=0
+$ env REF_MUTATE=run_mirror_nograce CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py simple 15
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce layout=simple peers=- CREAD=True cycles=15 restops_after_fg=0
+# exit_code=0
+$ env REF_MUTATE=run_mirror_nograce CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py grandkids 15 100
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce layout=grandkids peers=100 CREAD=True cycles=15 restops_after_fg=0
+# exit_code=0
+$ env REF_MUTATE=run_mirror_nograce CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/burn.py 18 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py simple 15
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce layout=simple peers=- CREAD=True cycles=15 restops_after_fg=0
+# exit_code=0
+$ env REF_MUTATE=run_mirror_nograce CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/burn.py 18 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py grandkids 15 100
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce layout=grandkids peers=100 CREAD=True cycles=15 restops_after_fg=0
+# exit_code=0
+$ env CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py grandkids 15 100
+launcher=reference_impl.py REF_MUTATE= layout=grandkids peers=100 CREAD=True cycles=15 restops_after_fg=0
+# exit_code=0
+$ env CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/burn.py 18 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <repo>/tests/g02/reference_impl.py grandkids 15 100
+launcher=reference_impl.py REF_MUTATE= layout=grandkids peers=100 CREAD=True cycles=15 restops_after_fg=0
+# exit_code=0
+$ env REF_MUTATE=run_mirror_nograce python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/killpg_cycles.py <repo>/tests/g02/reference_impl.py 12
+launcher=reference_impl.py REF_MUTATE=run_mirror_nograce killpg cycles=12 restops=0 peers=100
+# exit_code=0
+$ python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/killpg_cycles.py <repo>/tests/g02/reference_impl.py 12
+launcher=reference_impl.py REF_MUTATE= killpg cycles=12 restops=0 peers=100
+# exit_code=0
+$ python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/make_logged_copy.py <repo>/tests/g02/reference_impl.py <tmp>/ref_logged.py
+# exit_code=0
+$ python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/killpg_cycles.py <tmp>/ref_logged.py 12
+launcher=ref_logged.py REF_MUTATE= killpg cycles=12 restops=12 peers=100
+# exit_code=0
+$ env CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <tmp>/ref_logged.py grandkids 10 100
+no stop at cycle 1
+launcher=ref_logged.py REF_MUTATE= layout=grandkids peers=100 CREAD=True cycles=0 restops_after_fg=0
+# exit_code=0
+# date -u end: 2026-10-05T14:49:00Z
+# rerun of the last two steps after make_logged_copy.py also sets the executable bit (the pty run above executes the copy directly and could not start it); date -u: 2026-10-05T14:52:37Z
+$ python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/make_logged_copy.py <repo>/tests/g02/reference_impl.py <tmp>/ref_logged.py
+# exit_code=0
+$ env CREAD=1 python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <tmp>/ref_logged.py grandkids 10 100
+launcher=ref_logged.py REF_MUTATE= layout=grandkids peers=100 CREAD=True cycles=10 restops_after_fg=9
+# exit_code=0
+$ python3 <repo>/tests/g02/selftest-results/2026-10-05-r7/nograce-experiments/pty_cycles.py <tmp>/ref_logged.py simple 10
+launcher=ref_logged.py REF_MUTATE= layout=simple peers=- CREAD=False cycles=10 restops_after_fg=0
+# exit_code=0

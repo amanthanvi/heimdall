@@ -1,0 +1,8 @@
+# date -u: 2026-10-05T11:51:59Z linux-arm64 container heimdall-g02-harness:d0c8e448a3a7 (--network none, uid 10001, repo read-only); command: python3 /repo/tests/evidence/artifacts/review-g02-harness-r4/k12_closed_stdout_probe.py <bins>
+tests/g02/reference_impl.py | SIGPIPE default | version json=0 plain=0; profile-ok json=0 plain=0; profile-missing json=2 plain=2; profile-invalid json=2 plain=2; agent-unavail json=5 plain=5
+tests/g02/reference_impl.py | SIGPIPE inherited ignored | version json=0 plain=0; profile-ok json=0 plain=0; profile-missing json=2 plain=2; profile-invalid json=2 plain=2; agent-unavail json=5 plain=5
+go | SIGPIPE default | version json=-13 plain=-13; profile-ok json=-13 plain=-13; profile-missing json=-13 plain=2 DIFF; profile-invalid json=-13 plain=2 DIFF; agent-unavail json=-13 plain=5 DIFF
+go | SIGPIPE inherited ignored | version json=-13 plain=-13; profile-ok json=-13 plain=-13; profile-missing json=-13 plain=2 DIFF; profile-invalid json=-13 plain=2 DIFF; agent-unavail json=-13 plain=5 DIFF
+rust | SIGPIPE default | version json=0 plain=1 DIFF; profile-ok json=0 plain=1 DIFF; profile-missing json=2 plain=2; profile-invalid json=2 plain=2; agent-unavail json=5 plain=5
+rust | SIGPIPE inherited ignored | version json=0 plain=1 DIFF; profile-ok json=0 plain=1 DIFF; profile-missing json=2 plain=2; profile-invalid json=2 plain=2; agent-unavail json=5 plain=5
+# exit_code=0

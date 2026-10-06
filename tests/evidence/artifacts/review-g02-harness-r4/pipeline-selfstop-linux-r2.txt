@@ -1,0 +1,5 @@
+# date -u: 2026-10-05T11:52:43Z linux-arm64 container heimdall-g02-harness:d0c8e448a3a7 (--network none, uid 10001); command: python3 /repo/tests/evidence/artifacts/review-g02-harness-r4/pipeline_selfstop_demo.py /repo/tests/g02/reference_impl.py /mut/rv_mirror_killpg/heimdall-proto
+{'case': 'direct exec (control)', 'bash_printed_Stopped': False, 'prompt_after': False, 'child_state': 'T', 'peer_state': 'S', 'launcher_state': None}
+{'case': '/repo/tests/g02/reference_impl.py', 'bash_printed_Stopped': False, 'prompt_after': False, 'child_state': 'T', 'peer_state': 'S', 'launcher_state': 'T'}
+{'case': '/mut/rv_mirror_killpg/heimdall-proto', 'bash_printed_Stopped': True, 'prompt_after': True, 'child_state': 'T', 'peer_state': 'T', 'launcher_state': 'T'}
+# exit_code=0

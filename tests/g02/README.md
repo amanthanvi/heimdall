@@ -4,7 +4,7 @@ One harness judges all three G02 prototypes (Go + Bubble Tea, Rust + Ratatui, Ty
 identically against the frozen slice contract `docs/g02/slice-contract.md`, **including §9 "Clarifications"
 K1-K12, K3a, §9.1 round-2 rulings K6a, K10 (confirmation), K13-K16, §9.2 K6b, K6c and §9.3 round-3 rulings K6d, K6e,
 K17, K18, K10 exit form and the start-up window, and the §9.4 round-3c rulings (K6e child-initiated stop, K12 closed
-stdout)** (harness version 2.4.0), and emits a plan.md §6.6 evidence record
+stdout)** (harness version 2.4.1), and emits a plan.md §6.6 evidence record
 per candidate and platform. K13: a candidate passes the common slice only if the full harness passes on
 darwin-arm64 **and** linux-arm64; the Linux record comes from `linux/run.sh` (below). It also contains the
 instrumented fake SSH agent reused by later gates.
@@ -28,9 +28,10 @@ validated against `reference_impl.py` / `reference_tui.py` and their injectable 
 | `rss_wrap.py` | K15 measurement wrapper: runs one program, reaps it with `os.wait4`, reports wall time and peak RSS (normalised: macOS bytes, Linux KiB) |
 | `linux/run.sh`, `linux/Dockerfile`, `linux/Dockerfile.dockerignore` | K13 Linux runner: the full catalogue in a digest-pinned linux/arm64 container on the Docker Desktop arm64 VM |
 | `reference_impl.py`, `reference_tui.py` | reference implementation of the clarified contract + injectable defects (`REF_MUTATE`), harness validation only |
-| `selftest.py` / `SELFTEST.md` | proves the baseline passes (plus `--repeat-baseline N` flake runs), every reference mutation is caught (by the check(s) written for it where listed in `INTENDED`; with the right first failing assertion where listed in `INTENDED_FIRST_ASSERTION`; in the record's observation for non-gating ones, `OBSERVED`), every conforming variant (`CONFORMING`, behaviour a §9 ruling allows) passes, every canary harness mutation trips the canary self-check, and every injected harness/environment fault (`HARNESS_EXPECT`) gives the required check outcome (a failed precondition is `error`, never `fail`); `--linux` runs the same self-test inside the Linux runner container and merges it (platform-gated K3a mutation proven there) |
+| `selftest.py` / `SELFTEST.md` | proves the baseline passes (plus `--repeat-baseline N` flake runs), every reference mutation is caught (by the check(s) written for it where listed in `INTENDED`; with the right first failing assertion where listed in `INTENDED_FIRST_ASSERTION`; in the record's observation for non-gating ones, `OBSERVED`; race mutations the harness cannot force, `RACE`, are run and reported but not required), every conforming variant (`CONFORMING`, behaviour a §9 ruling allows) passes, every canary harness mutation trips the canary self-check, and every injected harness/environment fault (`HARNESS_EXPECT`) gives the required check outcome (a failed precondition is `error`, never `fail`); `--linux` runs the same self-test inside the Linux runner container and merges it (platform-gated K3a mutation proven there) |
 | `requirements.txt` | pinned, hashed `pyte==0.8.2`, `wcwidth==0.9.1` (TUI checks only) |
-| `selftest-results/2026-10-04-r6/` | machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.4.0), the informational runs of the two §9.4 checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the K6e stress runs behind the reference's stop-mirroring grace (`stress-*.json`), the console logs and the flaking result of the aborted first self-test (`run1-aborted-*`), the console logs of the aborted second one (`run2-aborted-*`: Linux `run_text_mode` exit -9, then the tool's 2 h limit), plus the sha256 prefixes of the tested files (`2026-10-04-r5/`, `2026-10-04-r4/`, `2026-10-03-r3/` and `2026-10-03-r2/`: earlier rounds, kept for history) |
+| `selftest-results/2026-10-05-r7/` | machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.4.1), the informational runs of the changed checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the timing experiments behind the `run_mirror_nograce` race classification (`nograce-experiments/`), plus the sha256 prefixes of the tested files |
+| `selftest-results/2026-10-04-r6/` | harness 2.4.0 (kept for history): machine-readable results and console logs of the self-test runs behind the current `SELFTEST.md` (darwin host and Linux container, harness 2.4.0), the informational runs of the two §9.4 checks against the Go and Rust prototype builds (`info-*.json`, not verdicts), the K6e stress runs behind the reference's stop-mirroring grace (`stress-*.json`), the console logs and the flaking result of the aborted first self-test (`run1-aborted-*`), the console logs of the aborted second one (`run2-aborted-*`: Linux `run_text_mode` exit -9, then the tool's 2 h limit), plus the sha256 prefixes of the tested files (`2026-10-04-r5/`, `2026-10-04-r4/`, `2026-10-03-r3/` and `2026-10-03-r2/`: earlier rounds, kept for history) |
 | `../fixtures/fake-agent/fake_agent.py` | instrumented fake SSH agent (stdlib only) |
 
 ## Running
@@ -341,6 +342,56 @@ self-test.
     SIGTSTP stop, `$?` 148 where the control gives 147); Rust darwin-arm64 and linux-arm64 fail both (no stop notice
     for any self-stop form; plain exit 1 versus `--json` exit 0). Records `selftest-results/2026-10-04-r6/info-*.json`.
 
+* **(i) Round-7 fixes from the independent review of harness 2.4.0 (M00-T05-harness-r4-fix, harness 2.4.1).** The
+  review built 21 wrong implementations; five defects and two conforming controls were not handled by the self-test
+  (`tests/evidence/artifacts/review-g02-harness-r4/`). No check was weakened. Each is now a reference mutation or
+  variant in `reference_impl.py`, required by `selftest.py` on macOS and in the Linux container:
+  * `run_mirror_killpg` (review `rv_mirror_killpg`): reports the child's self-stop by stopping its whole process group
+    (`kill(0, SIG)`, the vim idiom), which also stops pipeline peers and the script that started it. K6a forbids
+    stopping another member of the job, but no K6a check had a self-stopping child. New gated check
+    `run.k6a_child_self_stop_not_spread`: heimdall-proto as the first or last member of a `bash -i` pipeline and under
+    a non-job-control `sh -c` script; the child stops itself with SIGTSTP; the other member is sampled every 0.1 s for
+    4 s and must never be stopped. A direct-exec control of each layout is a harness precondition. INTENDED.
+  * `run_cont_child_first` (review `rv_cont_child_first`): continues the child, then stops itself. Q16 keeps
+    "the child stays stopped until `fg`" non-gating, so this mutation is an OBSERVED mutation:
+    `observations.k6e_child_self_stop['bash-SIGTSTP']` must show `resumed_before_fg` for a self-stop, and the
+    baseline must not.
+  * `run_mirror_tstp_only` (review `rv_mirror_tstp_only`): mirrors only SIGTSTP stops. §9.4 records SIGSTOP and does
+    not gate it, so this is an OBSERVED mutation: the `bash-SIGSTOP` form of `observations.k6e_child_self_stop` must
+    fail at "the shell reports the job stopped".
+  * `json_error_epipe_exit1` (review `rv_k12_json_error_epipe`, the Go prototype's shape): `--json` failure results
+    exit 1 on EPIPE, while plain mode writes nothing to stdout and exits 2/5. `k12.closed_stdout_exit_parity` now also
+    runs four error results on a closed stdout: profile show of a missing file and of a schema-invalid file, agent
+    list on a missing socket, and a usage error. Whether §9.4 covers error results is escalated as **Q17**, so these
+    cases are a non-gating observation (`observations.k12_closed_stdout_errors`; one switch,
+    `K12_ERROR_RESULTS_GATING`, gates them once Q17 is answered yes). The mutation is OBSERVED (`all_equal` false).
+    Informational 2026-10-05: the Go prototype dies of SIGPIPE with `--json` and exits 2/5 without it, on darwin and
+    on Linux (`info-go-*.json`). Rust's error results are equal.
+  * Conforming variants `run_mirror_sigstop_always` (review control `ctl_mirror_sigstop_always`) and
+    `run_mirror_delay_1s` (`ctl_mirror_delay_1s`) must pass all `run.*`.
+  * `run_mirror_nograce` (review `rv_nograce`) cannot be required. It mirrors a child stop report at once, without
+    the reference's 200 ms grace. Experiments on darwin-arm64 (`selftest-results/2026-10-05-r7/nograce-experiments/`;
+    its `README.txt` lists the commands and the observed lines) gave these re-stops after `fg`:
+    * 0 of 15 Ctrl-Z/`fg` cycles in `bash -i` in each of six variants: a simple command and a job with 100 extra
+      group members, each with a sleeping and a terminal-reading child, the latter also under 18 CPU burners;
+    * 0 of 12 with the group stopped and continued by killpg instead of a shell;
+    * 1 of 15 in an earlier exploratory run, console only and not preserved (terminal-reading child, 100 extra group
+      members);
+    * 2 in 160 cycles in harness 2.4.0's stress record under 20 burners.
+
+    The reference (with its grace) re-stopped in none of these cycles. An experimental `run.k6e_job_control` form
+    with 100 extra group members caught the mutation at its first cycle once, but the preserved reproductions above
+    were 0 of 15, so that form was not kept. A copy of the reference that wrote a log line between its "still
+    stopped" decision and its self-stop re-stopped in 12 of 12 killpg cycles and 9 of 10 pty cycles with the extra
+    group members, and in 0 of 10 without them. Our inference, not a measurement, is that the mutation
+    fails only when it is stopped by the group signal between that decision and its own `kill`. The log line
+    widened that window; without it the window is a few instructions, and the harness cannot force a scheduler
+    interleaving black-box. The self-test runs `run_mirror_nograce` against `run.k6e_job_control` as a **RACE**
+    mutation (reported, not required). This harness limitation is escalated as **Q18**.
+  * Self-test mechanics: `OBSERVED` entries may carry a summariser for the report. `RACE` mutations are reported in
+    `SELFTEST.md` and excluded from the caught count. The baseline summary also lists the K12 error-result statuses
+    and the K6a self-stop layouts.
+
 ## Instrumented fake agent
 
 `python3 tests/fixtures/fake-agent/fake_agent.py --socket PATH --mode MODE [--pubkey FILE ...] --log FILE --ready-file FILE`
@@ -488,6 +539,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | `run.usage_errors` | §4 | missing -- or empty argv -> exit 2, stderr only, child not started |
 | `run.k6a_pipeline_peer_not_stopped` | §4/K6a | `heimdall-proto run -- <child> \| <peer that reads the tty>` as one job of an interactive job-control shell (bash -i in a pty): the peer keeps the terminal foreground and is never stopped (no SIGTTIN, no 'Stopped'); the pipeline completes (needs pyte) |
 | `run.k6a_background_script_tty` | §4/K6a | a non-job-control script in a pty runs `heimdall-proto run -- <sleep 1> &` (same process group, SIGINT/SIGQUIT ignored, stdin the tty or /dev/null), then reads the tty itself: its read gets the typed line (no EIO) and the terminal foreground group never changes (needs pyte) |
+| `run.k6a_child_self_stop_not_spread` | §4/K6a | a child that stops ITSELF (kill(getpid(), SIGTSTP), OpenSSH's ~^Z) under `heimdall-proto run`, as a job of `bash -i` in a pty: however heimdall-proto reports the stop (section 9.4), it never stops another member of its own job - the pipeline peer after it, the pipeline peer before it, or the non-job-control `sh -c` script that started it; each other member is sampled for 4.0 s after the child's self-stop and is never in the stopped state (a direct-exec control of each layout, in which the child stops alone, is a harness precondition) (needs pyte) |
 | `run.k6a_inherited_ignore` | §4/K6a | a signal heimdall-proto inherited as ignored stays SIG_IGN in the child and is not forwarded; heimdall-proto survives it. Gated (K6c): SIGHUP (nohup) and SIGINT (non-interactive & job, started with SIGINT+SIGQUIT ignored). Recorded, not gated: SIGQUIT, SIGTERM, SIGWINCH ignores and the blocked mask (CPython child) and the SIGPIPE ignore (non-Python `yes`/`cat` child) |
 | `run.k6d_shared_mode_explicit_signals` | §4/K6d | heimdall-proto sharing its process group with the terminal's foreground job (child of a foreground non-job-control `sh -c` script; first and last member of a `bash -i` pipeline job): SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGWINCH sent explicitly to the heimdall-proto pid each reach the child at least once (count recorded; duplicates allowed, K6b; silent loss fails); exit statuses are the child's (needs pyte) |
 | `run.k6e_job_control` | §4/K6e | `heimdall-proto run -- <child>` as a job of an interactive job-control shell (bash -i in a pty; the same under zsh -f -i recorded as a non-gating observation), as a simple command and inside a command list (`run ...; echo`), 5 iterations each of: Ctrl-Z stops the job (shell reports it, the child stops), `fg` resumes it without a re-stop and the child reads the next typed line; Ctrl-Z, `bg` (the child runs again, nothing left stopped while the shell believes the job runs), `fg` (no re-stop) and the child reads the next line; after every `fg` no re-stop within 1.5 s (asserted before the next step, blaming that `fg`); finally the job exits 0 and no job is left (needs pyte) |
@@ -522,7 +574,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | `common.exit_codes_without_json` | §1/K12 | without --json the exit codes equal the --json ones (output not judged) |
 | `common.no_helper_processes` | §1/K16 | apart from the run child, heimdall-proto never executes another program: tripwire tmux/tput/infocmp/stty/sh/bash/ssh/git on PATH (prepended; for run after the child's own directory) under four environments (TMUX/TERM_PROGRAM/COLORTERM with TERM=xterm-256color and TERM=tmux-256color; TERM=screen-256color with STY; TERM=screen), for version, profile show (ok, invalid), a usage error, agent list, tui and run (needs pyte) |
 | `common.no_stray_writes` | §1/K11 | no new files in HOME, TMPDIR or the working directory after any invocation; fixtures unchanged |
-| `k12.closed_stdout_exit_parity` | §1/K12 | closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified) |
+| `k12.closed_stdout_exit_parity` | §1/K12 | closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded the same way as a NON-GATING observation pending Q17 (observations.k12_closed_stdout_errors) |
 | `canary.no_canary_anywhere` | §1 | no HEIMDALL_CANARY_ in any captured stdout/stderr/meta/pty stream |
 
 ### §9 clarification coverage
@@ -542,8 +594,8 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | K10 | TUI SIGTERM -> 143, SIGHUP/hangup -> 129, panic -> 1, never stdout; terminal restored | `tui.sigterm_restores_terminal`, `tui.sighup_exit_129`, `tui.hangup_exit_129` (shell-like and bare hangup; each also accepts the re-raised-signal death per K10 exit form); panic path not testable black-box |
 | K11 | no runtime writes outside paths named on the command line (sidecar/extraction rules) | per-invocation assertion (HOME, TMPDIR, cwd and the `--meta-file` directory) in every check that runs the binary + aggregate `common.no_stray_writes` (lists every stray path with check id and invocation); sidecar/manifest rules not covered |
 | K12 | output without `--json` not judged; exit codes equal | `common.exit_codes_without_json`; `usage.*_plain` keep judging §1 usage errors |
-| K12 closed stdout (§9.4) | exit codes equal also when stdout is a pipe whose reader has closed; "exit status" includes death by signal | `k12.closed_stdout_exit_parity` (version, profile show, agent list; read end closed before the start; `observations.k12_closed_stdout`) |
-| K6a | `run` never takes the terminal foreground from another process, never stops a member of its own job; inherited SIG_IGN stays ignored in the child and is not forwarded | `run.k6a_pipeline_peer_not_stopped` (`run -- child \| peer` as a `bash -i` pipeline job, peer reads `/dev/tty`: no `Stopped`, statuses `0 0`, peer read succeeds, job pgrp keeps the foreground), `run.k6a_background_script_tty` (non-job-control script runs `run -- sleep 1 &` with SIGINT/SIGQUIT ignored, stdin tty or /dev/null, then reads the tty with SIGTTIN ignored: no EIO, foreground group unchanged before/during/after), `run.k6a_inherited_ignore` (gated per K6c: SIGHUP ignored (nohup) and SIGINT ignored (non-interactive & job, started with SIGINT+SIGQUIT ignored): child disposition SIG_IGN via `signal.getsignal` and on Linux `/proc` SigIgn, child survives the signal without a handler, and with a handler sees no forwarded delivery; heimdall-proto survives) |
+| K12 closed stdout (§9.4) | exit codes equal also when stdout is a pipe whose reader has closed; "exit status" includes death by signal | `k12.closed_stdout_exit_parity` (version, profile show, agent list; read end closed before the start; `observations.k12_closed_stdout`); error results (profile missing / schema-invalid, agent unavailable, usage error) recorded non-gating pending Q17 (`observations.k12_closed_stdout_errors`) |
+| K6a | `run` never takes the terminal foreground from another process, never stops a member of its own job; inherited SIG_IGN stays ignored in the child and is not forwarded | `run.k6a_pipeline_peer_not_stopped` (`run -- child \| peer` as a `bash -i` pipeline job, peer reads `/dev/tty`: no `Stopped`, statuses `0 0`, peer read succeeds, job pgrp keeps the foreground), `run.k6a_background_script_tty` (non-job-control script runs `run -- sleep 1 &` with SIGINT/SIGQUIT ignored, stdin tty or /dev/null, then reads the tty with SIGTTIN ignored: no EIO, foreground group unchanged before/during/after), `run.k6a_inherited_ignore` (gated per K6c: SIGHUP ignored (nohup) and SIGINT ignored (non-interactive & job, started with SIGINT+SIGQUIT ignored): child disposition SIG_IGN via `signal.getsignal` and on Linux `/proc` SigIgn, child survives the signal without a handler, and with a handler sees no forwarded delivery; heimdall-proto survives), `run.k6a_child_self_stop_not_spread` (a child that stops itself with SIGTSTP while heimdall-proto is the first or last member of a `bash -i` pipeline or runs under a non-job-control `sh -c` script: the other member is never stopped within 4 s; direct-exec control as a precondition; `observations.k6a_child_self_stop`) |
 | K6b | precedence K6a > K6 (explicit signal exactly once) > §4 (terminal SIGINT not twice); own foreground group only when alone in the process group; terminal/killpg duplicates recorded, not gated | K6a and K6 checks gate as above; `run.explicit_signal_with_tty` (heimdall-proto alone as the foreground job: giving the child its own group is not penalised) versus `run.k6a_pipeline_peer_not_stopped` / `run.k6a_background_script_tty` (not alone: penalised); terminal Ctrl-C and `killpg` delivery counts stay non-gating observations (`run.explicit_signal_with_tty`, `run.sigint_process_group`) |
 | K6c | inherited-ignore gate covers SIGHUP and SIGINT only; other inherited ignores and the blocked mask are a recorded stack limitation | `run.k6a_inherited_ignore`: SIGQUIT in the `async-job` variant and the `other-ignores-K6c` variant (CPython child: SIGQUIT, SIGTERM, SIGWINCH ignored, SIGUSR2 blocked) and the SIGPIPE ignore observed with a non-Python child (`yes` into a closed pipe; Linux also `/bin/cat /proc/self/status`) are non-gating observations, collected in `observations.k6c_other_inherited_signal_state` |
 | K6d | shared mode: an explicit SIGINT/SIGTERM/SIGHUP/SIGQUIT/SIGWINCH to the heimdall-proto pid reaches the child at least once; duplicates allowed (K6b), silent loss fails | `run.k6d_shared_mode_explicit_signals` (`sh -c` script child; first and last member of a `bash -i` pipeline; counts in `observations.k6d_shared_mode_deliveries`) |
@@ -584,7 +636,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | §4 meta file and its state; launch failure; signal death | run.meta_child_exited, run.meta_state, run.launch_failure_*, run.child_killed_by_signal |
 | §4 signal forwarding, wait for child, no orphans | run.forward_*, run.repeated_signals (a second SIGINT/SIGTERM), run.explicit_signal_with_tty (incl. explicit SIGINT twice and terminal Ctrl-C twice), run.k6d_shared_mode_explicit_signals (shared mode, K6d), run.sigint_process_group, run.no_surviving_child |
 | §4/K6e job control (Ctrl-Z, fg, bg; child-initiated stop, §9.4) | run.k6e_job_control, run.k6e_child_self_stop |
-| §4/K6a job and signal transparency | run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty, run.k6a_inherited_ignore |
+| §4/K6a job and signal transparency | run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty, run.k6a_inherited_ignore, run.k6a_child_self_stop_not_spread |
 | §4 missing `--` / empty argv | run.usage_errors |
 | §5 TTY requirement; non-regular `--file` (K14); parser bound (K15) | tui.non_tty, tui.non_regular_file, tui.parser_resource_bound |
 | §5 rows, `> ` prefix, status line, NO_COLOR | tui.first_frame, tui.no_color |
@@ -593,7 +645,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 | §5 terminal restoration and exit code on every exit path | assert_restored in tui.select_down_enter, tui.quit_q, tui.ctrl_c, tui.ctrl_c_in_filter_mode, tui.sigterm_restores_terminal, tui.sighup_exit_129, tui.start_tiny_no_crash; tui.hangup_exit_129 (exit code only) |
 | §5 no agent contact / file writes; 100-destination fixture | tui.no_agent_contact, common.no_stray_writes (+ per-session K11), tui.large_100_filter_latency (K17: p95 <= 100 ms over 30 edits, gating) |
 | §6 version | version.valid |
-| §1/K12 exit codes without `--json`, also on a closed stdout (§9.4) | common.exit_codes_without_json, k12.closed_stdout_exit_parity |
+| §1/K12 exit codes without `--json`, also on a closed stdout (§9.4; error results there non-gating, Q17) | common.exit_codes_without_json, k12.closed_stdout_exit_parity |
 | §7 distributable build (clean machine, no toolchain on PATH, K11 sidecars) | NOT covered by this harness; the record stores the tested binary's sha256 so a build-evidence record can reference it |
 | Windows named pipe, CommandLineToArgvW quoting, console Ctrl-C | NOT covered (blocked_on: native Windows host) |
 
@@ -606,7 +658,7 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   The linux-x64 artifacts are not judged. Docker Desktop bind mounts (virtiofs) carry the repository, artifact and
   output directories; the sandbox itself is in the container's `/tmp`.
 * K3a on macOS: Darwin never reports `ECONNRESET` on an AF_UNIX stream socket, so `agent.reset_*` against a macOS build only exercise the EOF-equivalent path (the record's `limitations` and `observations.k3a_reset_delivery` say so). K13 moves the K3a judgement to the Linux record, where the reset delivery is a gating precondition.
-* K6a is judged on three scenarios only: a pipeline job of `bash -i` (bash 3.2 on macOS, bash 5.2 in the image) whose peer reads the tty, a non-job-control script whose `&` job is heimdall-proto (stdin the tty or /dev/null), and inherited SIG_IGN for SIGHUP and for SIGINT (gated, K6c; other inherited ignores - SIGQUIT, SIGTERM, SIGWINCH with a CPython child, SIGPIPE with a non-Python child - and an inherited blocked SIGUSR2 are recorded, not gated). Other shells (zsh, fish, dash) and nested job control are not tested. With an ignoring child, "not forwarded" is observable only through the child's own handler (phase 2 of `run.k6a_inherited_ignore`).
+* K6a is judged on four scenarios only: a pipeline job of `bash -i` (bash 3.2 on macOS, bash 5.2 in the image) whose peer reads the tty, a non-job-control script whose `&` job is heimdall-proto (stdin the tty or /dev/null), a child that stops itself with SIGTSTP while heimdall-proto is the first or last member of a `bash -i` pipeline or runs under a non-job-control `sh -c` script (`run.k6a_child_self_stop_not_spread`: the other member sampled every 0.1 s for 4 s; SIGSTOP self-stops, terminal-generated stops and later stops are not covered there), and inherited SIG_IGN for SIGHUP and for SIGINT (gated, K6c; other inherited ignores - SIGQUIT, SIGTERM, SIGWINCH with a CPython child, SIGPIPE with a non-Python child - and an inherited blocked SIGUSR2 are recorded, not gated). Other shells (zsh, fish, dash) and nested job control are not tested. With an ignoring child, "not forwarded" is observable only through the child's own handler (phase 2 of `run.k6a_inherited_ignore`).
 * K14 uses a FIFO without a writer, a listening AF_UNIX socket, a directory and `/dev/null`; blocking or infinite devices (`/dev/zero`, a tty) are deliberately not used. The tui variant's 2 s includes the pty shim's start-up.
 * K15 wall time is measured by `rss_wrap.py` from spawn to reap (includes process start-up); peak RSS is the `os.wait4` rusage of the binary and of the descendants it waited for (descendants it did not wait for are not counted). The tui variant's first-frame time includes the shim's and the wrapper's start-up. The 13 shapes are a sample of adversarial inputs, not a proof for every input up to 1 MiB.
 * K16 detects only executions of `tmux`, `tput`, `infocmp`, `stty`, `sh`, `bash`, `ssh`, `git` resolved through PATH; an execution by absolute path (for example `/usr/bin/tput` or `/bin/stty`) or of another program name is not detected. The environment variants are four (see K16 above); other variable combinations are not tried.
@@ -614,7 +666,9 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   (e)). The round-4 checks (guarantee (f)) close gaps found by the round-2 prototype reviews; no independent review
   of the round-4 harness changes was obtained from this task's agent context: the self-test (mutations and conforming
   variants on both platforms) and an informational reproduction of the reviewers' findings are their only validation.
-  The same holds for the round-6 checks (guarantee (h)): no independent review of the harness 2.4.0 changes was
+  The round-6 checks (guarantee (h)) were reviewed independently afterwards (`tests/evidence/artifacts/review-g02-harness-r4/`);
+  the gaps it found are closed in round 7 (guarantee (i)), whose own changes have had no independent review from this
+  task's agent context (the self-test on both platforms is their validation). Before that review the same held for the round-6 checks: no independent review of the harness 2.4.0 changes was
   obtained from this task's agent context.
 * Value non-echo (§2, K18) is judged with distinctive markers on 13 generated cases and 2 fixtures; it is a sample.
   Offending values gate on stdout and stderr (K18); values of other keys on stderr are recorded only (Q11).
@@ -625,13 +679,18 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
   output and the `/bin/ps` (macOS) or `/proc` (Linux) state of the child. A later re-stop, races needing more
   iterations, zsh/fish job control and a terminal read while in the background (Q12) are not covered.
   heimdall-proto's own state after `fg` is recorded, not gated (K6e names the child).
+  A launcher that mirrors a child stop report without a grace (`run_mirror_nograce`) re-stops the job only in a
+  scheduling race the harness cannot force; it is caught only by chance and the self-test reports it as a RACE
+  mutation, not required (Q18).
 * K6e child-initiated stop (§9.4) is judged under `bash -i` only, 5 jobs x 2 SIGTSTP self-stops after a direct-exec
   control in the same session; SIGSTOP and zsh are recorded only. Not covered: a self-stop while the job is in the
   background, inside a pipeline or command list, SIGTTIN/SIGTTOU stops, other shells. Whether the child must stay
   stopped until `fg` is recorded (`resumed_before_fg`), not gated (Q16).
 * K12 closed stdout covers version, profile show (valid) and agent list (normal) with SIGPIPE at its default
-  disposition and the read end closed before the start; an inherited SIGPIPE ignore, a reader that closes after part
-  of the output, error results and usage errors on a closed stdout, and a closed stderr are not covered.
+  disposition and the read end closed before the start. Error results on a closed stdout (profile show of a missing
+  and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded but not gated until Q17
+  is answered. An inherited SIGPIPE ignore, a reader that closes after part of the output and a closed stderr are not
+  covered.
 * K17 includes pty and emulator overhead (2 ms polling) and is wall-clock on a possibly loaded machine; the record
   stores the load average.
 * Signal repetition is tested with two signals 150 ms apart; longer bursts and other signal pairs (SIGHUP, SIGQUIT)
@@ -675,14 +734,29 @@ delivery is such a precondition instead of an observation. `run.argv_invalid_utf
 * Q16 (round 6) K6e child-initiated stop (§9.4): the harness gates that the shell reports the job stopped, that `fg`
   resumes the child, no re-stop and that the child reads the typed line. Whether the child must also stay stopped
   until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop
-  (`resumed_before_fg`, non-gating), not gated. Gate it (exec semantics) or not?
+  (`resumed_before_fg`, non-gating), not gated. Gate it (exec semantics) or not? Since harness 2.4.1 the self-test
+  requires that observation to show the review's `rv_cont_child_first` shape (mutation `run_cont_child_first`).
+* Q17 (round 7) K12 closed stdout and error results (§9.4): the base K12 rule ("exit codes are the same as with
+  `--json`") covers error results, and `common.exit_codes_without_json` gates their exit 2/5 with an open stdout.
+  §9.4 extends the rule to a closed stdout without naming a scope. On a closed stdout a `--json` error result meets
+  EPIPE/SIGPIPE, while the plain one writes nothing to stdout and exits 2/5. The harness records profile missing,
+  profile schema-invalid, agent unavailable and a usage error as a non-gating observation
+  (`observations.k12_closed_stdout_errors`). The Go prototype dies of SIGPIPE with `--json` and exits 2/5 without it
+  (review `rv_k12_json_error_epipe`; informational runs `info-go-*.json`). Does §9.4 cover error results? If yes, set
+  `K12_ERROR_RESULTS_GATING = True` in `conformance.py`.
+* Q18 (round 7; a harness limitation rather than a contract question) K6e "never re-stopped right after `fg`": a
+  launcher that mirrors a child stop report at once, without a grace for a report made stale by the shell's group
+  continue, re-stopped the job in experiments only rarely (guarantee (i)). The harness cannot force that scheduling
+  black-box, so `run_mirror_nograce` is a self-test RACE mutation (reported, not required). Accept this residual and
+  judge stop-mirroring by code review, or require a stress run (CPU load, many iterations) whose outcome is still a
+  probability?
 
 Resolved by §9 (no longer open): Q2 invalid UTF-8 argv -> K8 (now gating), Q4 TUI SIGTERM exit code -> K10,
 Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without `--json`
 -> K12. Resolved by §9.3: Q8 -> K10 exit form (exit 143/129 or death by the re-raised signal), Q9 -> K18 (offending
 values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating). §9.4 settles the round-3b review findings:
 K6e covers child-initiated stops (gated: SIGTSTP under bash, `run.k6e_child_self_stop`) and K12 parity covers a closed
-stdout (`k12.closed_stdout_exit_parity`).
+stdout (`k12.closed_stdout_exit_parity`; error results there pending Q17).
 
 ## Maintaining the harness
 
@@ -691,7 +765,9 @@ stdout (`k12.closed_stdout_exit_parity`).
   mutation to `reference_impl.MUTATIONS` that it must catch (behaviour a ruling explicitly allows goes into
   `reference_impl.VARIANTS` and `selftest.CONFORMING` instead: it must pass), add it to `selftest.INTENDED` with the check id (or a
   list of ids that must all fail) and, if its code path is reached from several groups, to `selftest.SCOPE_OVERRIDE`;
-  then re-run `selftest.py --repeat-baseline 2 --linux`. A mutation that only shows where the kernel produces the
+  then re-run `selftest.py --repeat-baseline 2 --linux`. A defect that only a scheduling race the harness cannot
+  force would show goes into `selftest.RACE` (run and reported, never counted as caught or missed) with the evidence
+  for why it cannot be forced; it is not a way around a check that can be written. A mutation that only shows where the kernel produces the
   condition goes into `selftest.PLATFORM_GATED` with the record observation that tells whether this host
   produced it. A defect of the harness itself goes into `selftest.HARNESS_MUTATIONS` (`HM_G02_HARNESS_MUTATE`,
   refused without `--selftest`).

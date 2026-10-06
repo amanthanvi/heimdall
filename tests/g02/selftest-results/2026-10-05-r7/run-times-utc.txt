@@ -1,0 +1,3 @@
+started 2026-10-05T15:21:24Z
+linux console last write 2026-10-05T22:55:48Z
+darwin console last write 2026-10-05T23:05:32Z

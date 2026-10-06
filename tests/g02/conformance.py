@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_lib as H  # noqa: E402
 import minischema  # noqa: E402
 
-HARNESS_VERSION = "2.4.0"
+HARNESS_VERSION = "2.4.1"
 REPO = H.REPO
 FIX = REPO / "tests" / "fixtures" / "g02" / "profiles"
 SPACED = FIX / "spaced dir ü" / "prøfile homelab.toml"
@@ -3028,7 +3028,41 @@ def wait_status_text(rc):
     return "exit %d" % rc
 
 
-@check("k12.closed_stdout_exit_parity", "§1/K12 closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified)")
+# K12 closed stdout for ERROR results (harness 2.4.1, round-4 harness review): whether section 9.4's closed-stdout
+# parity also covers failure results (exit 2/5) and usage errors is escalated as Q17.  Until the owner rules, these
+# cases are NON-GATING observations (observations.k12_closed_stdout_errors); set this to True if Q17 is answered yes.
+K12_ERROR_RESULTS_GATING = False
+
+
+def _k12_closed_run(t, label, args, agent_mode, missing_socket=None):
+    """Run `args` with and without --json, stdout the write end of a pipe whose read end is already closed.
+    Returns {"json": {...}, "plain": {...}}."""
+    per = {}
+    for variant in ("json", "plain"):
+        argv = list(args)
+        fa = None
+        if agent_mode:
+            fa = H.FakeAgent(t.ctx.sandbox, t.ctx.new_dir("k12c-agent"), agent_mode, agent_mode,
+                             [k["pub"] for k in t.ctx.keys()])
+            t.agents.append(fa)
+            argv.append(fa.sock)
+        elif missing_socket is not None:
+            argv.append(str(missing_socket))
+        if variant == "json":
+            argv.append("--json")
+        r, w = os.pipe()
+        os.close(r)               # no reader exists before the program starts: the first write fails, no race
+        try:
+            c = t.proto(*argv, label="%s-%s-closed-stdout" % (label, variant), stdout_fd=w)
+        finally:
+            os.close(w)
+            if fa:
+                fa.stop()
+        per[variant] = {"wait_status": wait_status_text(c.rc), "rc": c.rc}
+    return per
+
+
+@check("k12.closed_stdout_exit_parity", "§1/K12 closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded the same way as a NON-GATING observation pending Q17 (observations.k12_closed_stdout_errors)")
 def _(t):
     # environment fact behind 'deterministic': this harness's own write into such a pipe fails at once
     r, w = os.pipe()
@@ -3048,32 +3082,35 @@ def _(t):
              ("agent-list-normal", ["agent", "list", "--socket"], "normal"))
     seen = {}
     for label, args, agent_mode in cases:
-        per = {}
-        for variant in ("json", "plain"):
-            argv = list(args)
-            fa = None
-            if agent_mode:
-                fa = H.FakeAgent(t.ctx.sandbox, t.ctx.new_dir("k12c-agent"), agent_mode, agent_mode,
-                                 [k["pub"] for k in t.ctx.keys()])
-                t.agents.append(fa)
-                argv.append(fa.sock)
-            if variant == "json":
-                argv.append("--json")
-            r, w = os.pipe()
-            os.close(r)               # no reader exists before the program starts: the first write fails, no race
-            try:
-                c = t.proto(*argv, label="%s-%s-closed-stdout" % (label, variant), stdout_fd=w)
-            finally:
-                os.close(w)
-                if fa:
-                    fa.stop()
-            per[variant] = {"wait_status": wait_status_text(c.rc), "rc": c.rc}
+        per = _k12_closed_run(t, label, args, agent_mode)
         seen[label] = per
         t.check("[%s] stdout closed by its reader: the wait status without --json equals the one with --json"
                 % label, per["json"]["rc"] is not None and per["plain"]["rc"] == per["json"]["rc"],
                 per["json"]["wait_status"], per["plain"]["wait_status"])
     t.note("sigpipe_disposition_given_to_program", "default (subprocess restore_signals)")
     t.ctx.observations["k12_closed_stdout"] = seen
+    # Error results (Q17): the base K12 rule ("exit codes are the same as with --json") covers them and
+    # common.exit_codes_without_json gates their exit 2/5 with a normal stdout; whether section 9.4 extends that to
+    # a closed stdout is escalated.  Recorded with the same method; gating only if K12_ERROR_RESULTS_GATING.
+    d = t.ctx.new_dir("k12c-err")
+    err_cases = (("profile-missing", ["profile", "show", "--file", str(d / "missing.toml")], None, None, 2),
+                 ("profile-schema-invalid", ["profile", "show", "--file", str(FIX / "invalid-forbidden-key.toml")],
+                  None, None, 2),
+                 ("agent-unavailable", ["agent", "list", "--socket"], None, d / "none.sock", 5),
+                 ("usage-unknown-flag", ["version", "--no-such-flag"], None, None, 2))
+    errs = {}
+    gate = K12_ERROR_RESULTS_GATING
+    for label, args, agent_mode, sock, code in err_cases:
+        per = _k12_closed_run(t, label, args, agent_mode, missing_socket=sock)
+        per["equal"] = per["json"]["rc"] is not None and per["plain"]["rc"] == per["json"]["rc"]
+        per["exit_code_with_open_stdout"] = code
+        errs[label] = per
+        t.check("[%s] error result, stdout closed by its reader: the wait status without --json equals the one with "
+                "--json%s" % (label, "" if gate else " (non-gating observation pending Q17)"), per["equal"],
+                per["json"]["wait_status"], per["plain"]["wait_status"], gating=gate)
+    t.ctx.observations["k12_closed_stdout_errors"] = {
+        "gating": gate, "question": "Q17", "cases": errs,
+        "all_equal": all(v["equal"] for v in errs.values())}
 
 
 TRIPWIRE_NAMES = ("tmux", "tput", "infocmp", "stty", "sh", "bash", "ssh", "git")
@@ -3421,6 +3458,126 @@ def _(t):
         t.note("k6a_background_%s" % variant, res)
         cp = (_read_text(d / "child.pid") or "").split()
         _session_leftovers(t, s, [int(x) for x in cp[:2]] if len(cp) >= 2 else [], variant)
+
+
+# K6a with a child-initiated stop (harness 2.4.1, round-4 harness review rv_mirror_killpg): a launcher that reports
+# its child's self-stop to the shell by stopping its whole process group (kill(0, SIGTSTP), the vim suspend idiom)
+# stops the other members of its own job too.  Child: waits until the harness writes <tag>.go, then stops itself
+# with SIGTSTP (OpenSSH's ~^Z); exits 0 once continued.  Peer: a job member that only waits.
+K6AS_CHILD = r"""
+import json, os, signal, sys, time
+d, tag = sys.argv[1], sys.argv[2]
+def put(name, text):
+    p = os.path.join(d, tag + "." + name)
+    with open(p + ".part", "w") as f:
+        f.write(text)
+    os.replace(p + ".part", p)
+put("child.json", json.dumps({"pid": os.getpid(), "ppid": os.getppid(), "pgrp": os.getpgrp()}))
+end = time.monotonic() + 30
+while not os.path.exists(os.path.join(d, tag + ".go")) and time.monotonic() < end:
+    time.sleep(0.02)
+put("stopping", "1")
+os.kill(os.getpid(), signal.SIGTSTP)
+put("resumed", "1")
+"""
+K6AS_PEER = r"""
+import os, sys, time
+d, tag = sys.argv[1], sys.argv[2]
+with open(os.path.join(d, tag + ".peer.pid"), "w") as f:
+    f.write(str(os.getpid()))
+end = time.monotonic() + 60
+while not os.path.exists(os.path.join(d, tag + ".end")) and time.monotonic() < end:
+    time.sleep(0.05)
+"""
+K6AS_WINDOW_S = 4.0     # how long the other job member is watched: the 4 s run.k6e_child_self_stop allows for the
+                        # stop notice (K6ES_NOTICE_S), so a launcher that reports the stop late is still observed
+# (layout, command with {run} where heimdall-proto's `run --` goes, the other job member)
+K6AS_LAYOUTS = (
+    ("pipeline-first", '{run}"$Y" "$D/s.py" "$D" {tag} | "$Y" "$D/p.py" "$D" {tag}', "pipeline peer (after it)"),
+    ("pipeline-last", '"$Y" "$D/p.py" "$D" {tag} | {run}"$Y" "$D/s.py" "$D" {tag}', "pipeline peer (before it)"),
+    ("script", '/bin/sh -c \'echo $$ > "$D/{tag}.peer.pid"; {run}"$Y" "$D/s.py" "$D" {tag}; echo "K6AS_SCRIPT_RC=$?"\'',
+     "the non-job-control `sh -c` script that started it"),
+)
+
+
+@check("run.k6a_child_self_stop_not_spread", "§4/K6a a child that stops ITSELF (kill(getpid(), SIGTSTP), OpenSSH's ~^Z) under `heimdall-proto run`, as a job of `bash -i` in a pty: however heimdall-proto reports the stop (section 9.4), it never stops another member of its own job - the pipeline peer after it, the pipeline peer before it, or the non-job-control `sh -c` script that started it; each other member is sampled for %.1f s after the child's self-stop and is never in the stopped state (a direct-exec control of each layout, in which the child stops alone, is a harness precondition)" % K6AS_WINDOW_S, "pyte", budget=150)
+def _(t):
+    bash = "/bin/bash"
+    t.precondition("harness precondition: %s is executable" % bash, os.access(bash, os.X_OK), "executable", bash)
+    d = t.ctx.new_dir("k6a-selfstop")
+    (d / "s.py").write_text(K6AS_CHILD)
+    (d / "p.py").write_text(K6AS_PEER)
+    env = {"P": t.ctx.bin, "Y": PY, "D": str(d), "PS1": "HMPS1$ ", "HISTFILE": str(d / "bash-history"),
+           "BASH_SILENCE_DEPRECATION_WARNING": "1"}
+    seen = {}
+    for layout, tmpl, member in K6AS_LAYOUTS:
+        for via_proto in (False, True):
+            tag = "%s-%s" % (layout, "hp" if via_proto else "ctl")
+            lbl = "[%s, %s]" % (layout, "heimdall-proto" if via_proto else "direct-exec control")
+            s = t.pty([bash, "--norc", "--noprofile", "-i"], env=env, cwd=t.ctx.run_cwd, label="k6as-" + tag,
+                      stderr_tty=True)
+            t.precondition("%s interactive bash printed its prompt" % lbl,
+                           s.wait_for(lambda x: b"HMPS1$ " in bytes(x.raw), 10.0) is not None, "prompt",
+                           H.printable(bytes(s.raw)[-200:]))
+            t.precondition("%s harness precondition: bash enabled job control (no 'no job control' notice)" % lbl,
+                           b"no job control" not in bytes(s.raw), "job control on", H.printable(bytes(s.raw)[-200:]))
+
+            def judge(desc, ok, expected=None, observed=None, lbl=lbl, via_proto=via_proto):
+                if via_proto:
+                    return t.check("%s %s" % (lbl, desc), ok, expected, observed)
+                return t.precondition("%s harness precondition: the direct-exec control behaves: %s" % (lbl, desc),
+                                      ok, expected, observed)
+
+            mark = len(s.raw)
+            s.send(tmpl.format(run='"$P" run -- ' if via_proto else "", tag=tag) + "\r")
+            up = _wait_file(d / (tag + ".child.json"), 10, s) and _wait_file(d / (tag + ".peer.pid"), 10, s)
+            judge("the child and the other job member (%s) started" % member, up, True, up)
+            ids = _read_json(d / (tag + ".child.json")) or {}
+            child, parent = ids.get("pid"), ids.get("ppid")
+            try:
+                peer = int((_read_text(d / (tag + ".peer.pid")) or "0").strip() or 0)
+            except ValueError:
+                peer = 0
+            pids = [x for x in (child, parent if via_proto else None, peer) if isinstance(x, int) and x > 0]
+            s.settle(0.3)
+            (d / (tag + ".go")).write_text("1")
+            stopping = _wait_file(d / (tag + ".stopping"), 5, s)
+            judge("the child reached its self-stop (kill(getpid(), SIGTSTP))", stopping, True, stopping)
+            samples, stopped_at = 0, None
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < K6AS_WINDOW_S:
+                st = H.proc_state(peer) if peer and H.pid_in_session(peer, s.shim.pid) else None
+                samples += 1
+                if st == "T" and stopped_at is None:
+                    stopped_at = round(time.monotonic() - t0, 2)
+                s.pump(0.1)
+            out = bytes(s.raw)[mark:]
+            info = {"member": member, "peer_stopped_after_s": stopped_at, "samples": samples,
+                    "child_state": H.proc_state(child) if isinstance(child, int) else None,
+                    "heimdall_proto_state": H.proc_state(parent) if via_proto and isinstance(parent, int) else None,
+                    "shell_reported_stop": b"Stopped" in out}
+            seen[tag] = info
+            judge("the other member of the job (%s) is never stopped within %.1f s of the child's self-stop (K6a: "
+                  "only the job's own stop may stop it)" % (member, K6AS_WINDOW_S), stopped_at is None,
+                  "never in state T", {"first_seen_stopped_after_s": stopped_at, "samples": samples})
+            # release the job: the peer ends by itself; the stopped processes are continued (identity-checked pids)
+            (d / (tag + ".end")).write_text("1")
+            for x in pids:
+                if H.pid_in_session(x, s.shim.pid):
+                    try:
+                        os.kill(x, signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass
+            end = time.monotonic() + 5
+            while time.monotonic() < end and any(H.pid_in_session(x, s.shim.pid) for x in pids):
+                s.pump(0.05)
+            H.kill_session_pids(pids, s.shim.pid)
+            s.send("exit\r")
+            s.settle(0.3)
+            s.send("exit\r")
+            s.wait_exit(3.0)
+    t.ctx.observations["k6a_child_self_stop"] = seen
+    t.note("k6a_child_self_stop", seen)
 
 
 def _ignore_and_block_preexec(ignore, block):
@@ -3914,8 +4071,6 @@ K6E_RESTOP_WINDOW_S = 1.5
 # re-stop after `fg` with the list form on Linux (bash continues a list when its job stops).
 K6E_FORMS = (("simple", '"$P" run -- "$Y" "$D/c.py" "$D" %d'),
              ("list", '"$P" run -- "$Y" "$D/c.py" "$D" %d; echo "K6E_LIST_RC=$?"'))
-
-
 K6E_SHELLS = {
     # name: (argv, environment additions, job-stopped notice, expression for the number of jobs left)
     "bash": (["/bin/bash", "--norc", "--noprofile", "-i"], {"BASH_SILENCE_DEPRECATION_WARNING": "1"}, b"Stopped",
@@ -4864,15 +5019,15 @@ STATIC_LIMITATIONS = [
     "Every check runs under a hard wall-clock bound (default 120 s, cleanup 30 s); a check that hits it is recorded as 'error', never as pass.",
     "The disposable keys are generated per run, private halves deleted immediately; fingerprints are cross-checked against /usr/bin/ssh-keygen -lf.",
     "K6b precedence (K6a, then K6, then the section 4 terminal-SIGINT rule) is reflected as follows: run.k6a_* gate K6a; run.forward_* and run.explicit_signal_with_tty gate exactly-once for signals sent to the heimdall-proto PID; terminal and killpg duplicate counts are non-gating observations. Giving the child its own foreground group is not penalised where heimdall-proto is alone in its process group (run.explicit_signal_with_tty) and is caught where it is not (run.k6a_pipeline_peer_not_stopped, run.k6a_background_script_tty).",
-    "K6a is judged on three scenarios only: a pipeline job of bash -i (bash 3.2 on macOS, the image's bash 5.2 on Linux) whose peer reads the tty, a non-job-control script whose `&` job is heimdall-proto (stdin the tty or /dev/null), and inherited SIG_IGN for SIGHUP and for SIGINT (gated, K6c; SIGQUIT, SIGTERM, SIGWINCH, SIGPIPE ignores and an inherited blocked SIGUSR2 are recorded non-gating in observations.k6c_other_inherited_signal_state). Other shells (zsh, fish, dash) are not tested for K6a (zsh only for K6e, non-gating) and nested job control is not tested; with an ignoring child, 'not forwarded' is observed only through the child's own handler in phase 2.",
+    "K6a is judged on four scenarios only: a pipeline job of bash -i (bash 3.2 on macOS, the image's bash 5.2 on Linux) whose peer reads the tty, a non-job-control script whose `&` job is heimdall-proto (stdin the tty or /dev/null), a child that stops itself with SIGTSTP while heimdall-proto is the first or the last member of a bash -i pipeline or runs under a non-job-control `sh -c` script (run.k6a_child_self_stop_not_spread: the other member is sampled every 0.1 s for 4 s and must never be stopped; a direct-exec control of each layout is a harness precondition; SIGSTOP self-stops, terminal-generated stops and longer windows are not covered there), and inherited SIG_IGN for SIGHUP and for SIGINT (gated, K6c; SIGQUIT, SIGTERM, SIGWINCH, SIGPIPE ignores and an inherited blocked SIGUSR2 are recorded non-gating in observations.k6c_other_inherited_signal_state). Other shells (zsh, fish, dash) are not tested for K6a (zsh only for K6e, non-gating) and nested job control is not tested; with an ignoring child, 'not forwarded' is observed only through the child's own handler in phase 2.",
     "K14 uses a FIFO without a writer, a listening AF_UNIX socket, a directory and /dev/null; other devices (blocking or infinite ones such as /dev/zero) are deliberately not used.",
     "K15 wall time is measured by tests/g02/rss_wrap.py from spawn to reap (includes process start-up); peak RSS is the os.wait4 rusage of the binary and the descendants it waited for (descendants it did not wait for are not counted). The tui variant's first-frame time also includes the pty shim's and the wrapper's start-up. Shapes: deep inline tables, arrays, arrays of inline tables, inline tables of arrays, dotted keys, a table header, and wide tables, each at most 1 MiB.",
     "K16 detects only executions resolved through PATH of the names tmux, tput, infocmp, stty, sh, bash, ssh and git; an execution by absolute path (for example /usr/bin/tput) or of another name is not detected.",
     "K6d (shared mode) is judged in three layouts: heimdall-proto as the child of a foreground non-job-control `/bin/sh -c` script (sh is bash 3.2 in POSIX mode on macOS, dash in the Linux image), and as the first and as the last member of a `bash -i` pipeline job; one explicit kill(<pid>, sig) per signal and layout, delivery awaited 3 s. That the job containing heimdall-proto holds the terminal foreground (sh -c: the script's group; pipelines: the other member's group, reported by that member, not the shell's) is a harness precondition: if any layout misses it the check is 'error' (invalid evidence), never a silent pass on delivery alone; whether heimdall-proto itself stayed in that group is recorded per setup (observations.k6d_shared_setups). Other shells, Makefiles proper, nested scripts and rapid repeats are not exercised. A delivery that the kernel merges with a pending identical signal is counted once.",
-    "K6e (job control) is judged under `bash -i` (bash 3.2 on macOS, bash 5.2 in the Linux image), 5 iterations of Ctrl-Z/fg (child blocked in a terminal read) and Ctrl-Z/bg/fg (child running without terminal access); 'not re-stopped' is judged 0.5 s after `fg` and again, blaming that `fg`, before the next step once at least 1.5 s have passed since it (shell output and the /bin/ps or /proc state of the child). The same forms run under `zsh -f -i` (zsh 5.9 on macOS and in the Linux image) as NON-GATING observations (observations.k6e_job_control, keys zsh-*) until the gating question is decided. A re-stop later than 1.5 s after `fg` that does not disturb a later step, races needing more iterations, fish/dash job control and a background terminal read (Q12) are not covered.",
+    "K6e (job control) is judged under `bash -i` (bash 3.2 on macOS, bash 5.2 in the Linux image), 5 iterations of Ctrl-Z/fg (child blocked in a terminal read) and Ctrl-Z/bg/fg (child running without terminal access); 'not re-stopped' is judged 0.5 s after `fg` and again, blaming that `fg`, before the next step once at least 1.5 s have passed since it (shell output and the /bin/ps or /proc state of the child). The same forms run under `zsh -f -i` (zsh 5.9 on macOS and in the Linux image) as NON-GATING observations (observations.k6e_job_control, keys zsh-*) until the gating question is decided. A re-stop later than 1.5 s after `fg` that does not disturb a later step, races needing more iterations, fish/dash job control and a background terminal read (Q12) are not covered. In particular a launcher that mirrors a child stop report without a grace period (reference mutation run_mirror_nograce, race mutation in the self-test) re-stops the job only when it is itself stopped between reading the report and stopping itself; the harness cannot force that interleaving and catches it only by chance (Q18).",
     "K17 is measured like the earlier latency observation: from writing the keystroke to the pty master until the pyte emulator shows the expected status line AND the expected list rows (the first min(N, capacity) matching destinations in fixture order; 2 ms polling), 30 edits on large-100.toml in 5 filter sessions (`/`, 3 characters, 3 Backspaces, Esc) so the first keystroke after `/` is weighted per session, p95 by nearest rank; it includes pty and emulator overhead and is wall-clock on a possibly loaded machine (load average recorded). The session weighting (6 edits per session) is a harness sampling choice, not a contract figure.",
     "K6e child-initiated stop (section 9.4) is judged by run.k6e_child_self_stop under `bash -i` only (bash 3.2 on macOS, 5.2 in the Linux image): %d heimdall-proto jobs, each child stopping itself %d times with kill(getpid(), SIGTSTP) after a heartbeat and reading a typed line after each `fg`, preceded by a direct-exec control job in the same shell session (a harness precondition: if the control does not stop, resume and read, the check is 'error'). SIGSTOP self-stops and the same under `zsh -f -i` (2 jobs each) are NON-GATING observations (observations.k6e_child_self_stop). Not covered: a self-stop while the job is in the background, a self-stop of a child in a pipeline or command list, stops by SIGTTIN/SIGTTOU, other shells; whether the child stays stopped until `fg` (resumed_before_fg) is recorded, not gated (Q16)." % (K6ES_JOBS, K6ES_STOPS),
-    "K12 closed stdout (section 9.4) is judged by k12.closed_stdout_exit_parity for version, profile show (homelab fixture) and agent list (fake agent, normal mode), each with and without --json, stdout being the write end of a pipe whose read end the harness closed before the start; heimdall-proto starts with SIGPIPE at its default disposition (as from a shell). Not covered: an inherited SIGPIPE ignore, a reader that closes after part of the output, error results (exit 2/5) and usage errors on a closed stdout, stderr closed.",
+    "K12 closed stdout (section 9.4) is judged by k12.closed_stdout_exit_parity for version, profile show (homelab fixture) and agent list (fake agent, normal mode), each with and without --json, stdout being the write end of a pipe whose read end the harness closed before the start; heimdall-proto starts with SIGPIPE at its default disposition (as from a shell). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded the same way but NON-GATING until Q17 is answered (observations.k12_closed_stdout_errors; K12_ERROR_RESULTS_GATING). Not covered: an inherited SIGPIPE ignore, a reader that closes after part of the output, stderr closed.",
     "K6c SIGPIPE: the SIGPIPE disposition of a non-Python child is observed for both dispositions heimdall-proto can inherit (ignored and default): `yes` writing into a pipe whose reader closes exits 1 on EPIPE (ignored) or dies of SIGPIPE (default); on Linux also /bin/cat /proc/self/status SigIgn. Classified as inherited_disposition_kept (exec semantics), child_always_default (inherited ignore reset), child_always_ignores (the runtime's ignore leaks into every child) or other; inherited_sigpipe_ignore_kept is true only for the first. Non-gating (K6c); whether a default disposition must stay default in the child is not stated by the contract (escalated). The probe's own preconditions are non-gating too (classification probe_invalid), so they never affect the gated K6a check.",
 ]
 OPEN_QUESTIONS = [
@@ -4884,6 +5039,8 @@ OPEN_QUESTIONS = [
     "Q14 (round 5) K6c: K6a/K6c speak of inherited IGNORED dispositions. Whether a DEFAULT SIGPIPE disposition heimdall-proto inherited must stay default in the child (a runtime that ignores SIGPIPE itself and leaks that into every child: classification child_always_ignores) is not stated in section 4, K6a or K6c. Recorded non-gating; escalated as an ADR-0002 input.",
     "Q15 (round 5) K17 does not define the keystroke population of the p95. The harness samples 5 filter sessions of 6 edits (the first keystroke after `/` is 1 in 6), so a TUI slow only on the first keystroke of a session fails; with one pooled session it passed. Sampling choice made by the harness and escalated for confirmation.",
     "Q16 (round 6) K6e child-initiated stop (section 9.4): the harness gates that the shell reports the job stopped, that `fg` resumes the child, no re-stop and that the child reads the typed line. Whether the child must also STAY stopped until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop (resumed_before_fg, non-gating), not gated. Escalated: gate it (exec semantics) or not.",
+    "Q17 (round 7) K12 closed stdout and error results (section 9.4): the base K12 rule ('exit codes are the same as with --json') covers error results and common.exit_codes_without_json gates their exit 2/5 with an open stdout; section 9.4 extends the rule to a closed stdout without naming a scope. On a closed stdout a --json error result meets EPIPE/SIGPIPE while the plain one writes nothing to stdout and exits 2/5. The harness records these cases (profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag) as a NON-GATING observation (observations.k12_closed_stdout_errors). The Go prototype dies of SIGPIPE with --json and exits 2/5 without it (round-4 harness review). Escalated: does section 9.4 cover error results? If yes, set K12_ERROR_RESULTS_GATING = True.",
+    "Q18 (round 7, harness limitation, not a contract question) K6e 'never re-stopped right after fg': a launcher that mirrors its child's stop report at once, without a grace for a report made stale by the shell's group continue, re-stops the job only in a scheduling race (it must be stopped between reading 'child still stopped' and stopping itself). The harness cannot force that interleaving black-box; run.k6e_job_control catches it only by chance (measured 2026-10-05 on darwin-arm64, selftest-results/2026-10-05-r7/nograce-experiments: 0 of 15 Ctrl-Z/fg cycles in each of six bash -i variants, idle and under CPU load, and 0 of 12 killpg cycles; one earlier unpreserved run 1 of 15; harness 2.4.0's stress record: 2 of 160 cycles under 20 CPU burners). The self-test runs mutation run_mirror_nograce as a RACE mutation (reported, not required). Escalated: accept this residual (code review of the candidate's stop-mirroring instead), or require a stress run.",
     "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating); by section 9.4: the round-3b child self-stop finding -> K6e covers child-initiated stops (SIGTSTP under bash gated: run.k6e_child_self_stop), the closed-stdout K12 finding -> k12.closed_stdout_exit_parity.",
 ]
 

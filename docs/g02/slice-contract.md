@@ -385,3 +385,12 @@ candidate that fails gets one fix round.
   recorded (`resumed_before_fg`) and not gated. It is the same kind of
   divergence as the explicit-SIGTSTP item above. M01 takes it as an input
   for exec-equivalent job control.
+- **Q17 (harness 2.4.1): yes, gated.** §9.4's closed-stdout parity covers
+  error results too. Base K12 already requires the same exit codes for error
+  results, and §9.4 extends that rule without narrowing it. A `--json` error
+  result that dies from SIGPIPE, where the plain run exits 2 or 5, therefore
+  fails. The harness sets `K12_ERROR_RESULTS_GATING = True` from 2.4.2.
+- **Q18 (harness 2.4.1): recorded, not gated.** When a stale stop report is
+  mirrored with no grace period, the result depends on timing. The harness
+  cannot detect it reliably, so it is a known harness limitation and an M01
+  input.

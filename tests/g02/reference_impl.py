@@ -131,6 +131,11 @@ MUTATIONS = {
     "run_child_stop_no_continue": "job-control launcher (child in its own foreground process group when heimdall-proto leads its group and holds the terminal) that answers a child stop by taking the terminal back and stopping itself, but on `fg` never hands the terminal back to the child or continues it (K6e child-initiated stop, section 9.4)",
     "plain_epipe_exit1": "without --json, a write error on stdout (EPIPE: the reader closed) is fatal: 'panic' message, exit 1, while --json ignores it and exits normally (K12 closed stdout, section 9.4; the Rust round-3b println! finding)",
     "plain_epipe_sigpipe": "without --json, SIGPIPE is reset to the default before writing, so a closed stdout kills heimdall-proto with SIGPIPE, while --json ignores the write error and exits normally (K12 closed stdout, section 9.4)",
+    "run_cont_child_first": "on a child stop, sends SIGCONT to the child and then stops itself: the shell reports the job stopped while the child runs on before `fg` (Q16, recorded not gated: the self-test requires observations.k6e_child_self_stop to show resumed_before_fg; round-4 harness review rv_cont_child_first)",
+    "run_mirror_tstp_only": "mirrors a child stop only when the stop signal is SIGTSTP: a SIGSTOP self-stop is never reported to the shell (section 9.4 records SIGSTOP, not gated: the self-test requires observations.k6e_child_self_stop['bash-SIGSTOP'] to fail; round-4 harness review rv_mirror_tstp_only)",
+    "run_mirror_killpg": "mirrors a child stop with kill(0, SIG) (the vim suspend idiom): its whole process group stops, including pipeline peers and a non-job-control script that started it (K6a: never stop another member of its own job; round-4 harness review rv_mirror_killpg)",
+    "run_mirror_nograce": "mirrors a child stop report at once, without the 200 ms grace: a stale report read after a terminal Ctrl-Z and `fg`/`bg` (the child not yet continued) re-stops the job right after `fg` (K6e; only where the OS can continue the launcher before its child, see harness.stale_stop_report_probe; round-4 harness review rv_nograce)",
+    "json_error_epipe_exit1": "--json failure results (exit 2 SCHEMA_INVALID/USAGE_ERROR, exit 5 AGENT_*) exit 1 when stdout's reader has gone (EPIPE), while plain mode writes nothing to stdout on failure and exits 2/5 (K12 closed stdout for error results: recorded, not gated, pending Q17; the self-test requires observations.k12_closed_stdout_errors to show the mismatch; round-4 harness review rv_k12_json_error_epipe, the real Go prototype's shape)",
     "run_child_sigpipe_ignored": "the child is started without restoring the runtime's own SIGPIPE ignore (Popen restore_signals=False): every child runs with SIGPIPE ignored, also when heimdall-proto inherited the default (K6c observation; round-3 review rv_child_sigpipe_ignored)",
     # version
     "version_wrong_candidate": "version reports candidate 'rust'",
@@ -188,6 +193,13 @@ VARIANTS = {
     "closed_stdout_sigpipe_both": "SIGPIPE is reset to the default before writing the result, with and without --json: a "
                                   "closed stdout kills heimdall-proto with SIGPIPE in both modes (allowed: section 9.4 "
                                   "K12 requires equal wait statuses, not a particular one)",
+    "run_mirror_sigstop_always": "mirrors every child stop with SIGSTOP instead of the child's own stop signal: the shell "
+                                 "names a different stop (non-gating observation) but reports the job stopped (allowed: "
+                                 "section 9.4 requires the stop to be reported, not which signal the shell names; "
+                                 "round-4 harness review control ctl_mirror_sigstop_always)",
+    "run_mirror_delay_1s": "mirrors a child stop 1 s late (after the 200 ms grace): slow, but section 9.4 sets no time "
+                           "bound and the harness allows 4 s for the stop notice (round-4 harness review control "
+                           "ctl_mirror_delay_1s)",
     "run_job_control_own_group": "job-control alternative (round-3 review control rv_jc2): when heimdall-proto is its "
                                  "own process-group leader, holds the terminal foreground and has a terminal on stdin "
                                  "and stdout, the child gets its own process group made the foreground; heimdall-proto "
@@ -221,6 +233,8 @@ def out_json(doc, exit_code):
         if plain and "plain_epipe_exit1" in MUT:
             err("panicked: failed printing to stdout: Broken pipe")
             exit_code = 1
+        if not plain and "json_error_epipe_exit1" in MUT and doc.get("state") == "failed":
+            exit_code = 1               # mutation: a --json failure result dies on EPIPE (Go prototype shape)
         nul = os.open(os.devnull, os.O_WRONLY)
         os.dup2(nul, 1)
         os.close(nul)
@@ -693,7 +707,7 @@ def write_meta(path, code, launched, exit_code, sig):
         fh.write(json.dumps(doc, ensure_ascii=False) + "\n")
 
 
-STOP_GRACE_S = 0.2
+STOP_GRACE_S = 0.0 if "run_mirror_nograce" in MUT else 0.2
 
 
 def wait_mirroring_stops(child):
@@ -724,9 +738,20 @@ def wait_mirroring_stops(child):
                 time.sleep(0.005)
             if _pid == 0:                     # still stopped: mirror the stop to the shell
                 sig = os.WSTOPSIG(st)
+                if "run_mirror_tstp_only" in MUT and sig != signal.SIGTSTP:
+                    break                     # mutation: a SIGSTOP (or SIGTTIN/SIGTTOU) stop is never reported
                 if sig not in (signal.SIGTSTP, signal.SIGTTIN, signal.SIGTTOU) or signal.getsignal(sig) != signal.SIG_DFL:
                     sig = signal.SIGSTOP
-                os.kill(os.getpid(), sig)
+                if "run_mirror_sigstop_always" in MUT:
+                    sig = signal.SIGSTOP      # conforming variant: the shell names another stop signal
+                if "run_mirror_delay_1s" in MUT:
+                    time.sleep(1.0)           # conforming variant: reported late (no time bound in section 9.4)
+                if "run_cont_child_first" in MUT:
+                    try:
+                        os.kill(child.pid, signal.SIGCONT)   # mutation: the child runs on before `fg` (Q16)
+                    except ProcessLookupError:
+                        pass
+                os.kill(0 if "run_mirror_killpg" in MUT else os.getpid(), sig)   # mutation: whole group (K6a)
                 break
             st = st2
         if os.WIFSTOPPED(st) or os.WIFCONTINUED(st):
