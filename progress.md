@@ -35,7 +35,12 @@
   3. conformance for go/rust/ts;
   4. one fix round, a re-run and a targeted review per failing candidate;
   5. re-measure go and rust.
-- Status 2026-10-05 07:50: harness-r4 is done and committed (2.4.0, b224801; result in `m00-wf6/`). A T3 restart at about 00:56 killed review-harness-r4; it was resumed at 07:49 and harness-r4 replayed from cache.
+- Status 2026-10-05 20:45:
+  - Harness 2.4.0 committed (b224801).
+  - The independent review of 2.4.0 caught 15/22 mutations and found 1 major (K12 error results).
+  - harness-r4-fix produced 2.4.1. Its full self-test PASSed on both OSes, but the agent was killed by host sleep before it could report. The orchestrator archived the results (`selftest-results/2026-10-05-r7/NOTE.md`) and committed them (76325e4).
+  - Contract rulings: Q17 gated, Q18 recorded.
+  - The script now replaces harness-r4-fix with a static object and adds harness-q17 (2.4.2: gate K12 error results), followed by conformance, fixes and measurement. Resumed 20:44.
 - To resume: `Workflow({scriptPath, resumeFromRunId: "wf_a7ee1c85-12f"})`. Resume can re-run completed agents (seen once). If one re-runs, stop the run and replace that agent with a static object pointing at its saved result.
 - `d.env` / `p.env` in the repo root (2026-10-03 16:50, keys PATH and HOME only) are stray env dumps from an earlier session. They are not committed. Delete them at cleanup.
 

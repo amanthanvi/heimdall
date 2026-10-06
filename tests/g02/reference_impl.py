@@ -135,7 +135,8 @@ MUTATIONS = {
     "run_mirror_tstp_only": "mirrors a child stop only when the stop signal is SIGTSTP: a SIGSTOP self-stop is never reported to the shell (section 9.4 records SIGSTOP, not gated: the self-test requires observations.k6e_child_self_stop['bash-SIGSTOP'] to fail; round-4 harness review rv_mirror_tstp_only)",
     "run_mirror_killpg": "mirrors a child stop with kill(0, SIG) (the vim suspend idiom): its whole process group stops, including pipeline peers and a non-job-control script that started it (K6a: never stop another member of its own job; round-4 harness review rv_mirror_killpg)",
     "run_mirror_nograce": "mirrors a child stop report at once, without the 200 ms grace: a stale report read after a terminal Ctrl-Z and `fg`/`bg` (the child not yet continued) re-stops the job right after `fg` (K6e; only where the OS can continue the launcher before its child, see harness.stale_stop_report_probe; round-4 harness review rv_nograce)",
-    "json_error_epipe_exit1": "--json failure results (exit 2 SCHEMA_INVALID/USAGE_ERROR, exit 5 AGENT_*) exit 1 when stdout's reader has gone (EPIPE), while plain mode writes nothing to stdout on failure and exits 2/5 (K12 closed stdout for error results: recorded, not gated, pending Q17; the self-test requires observations.k12_closed_stdout_errors to show the mismatch; round-4 harness review rv_k12_json_error_epipe, the real Go prototype's shape)",
+    "json_error_epipe_exit1": "--json failure results (exit 2 SCHEMA_INVALID/USAGE_ERROR, exit 5 AGENT_*) exit 1 when stdout's reader has gone (EPIPE), while plain mode writes nothing to stdout on failure and exits 2/5 (K12 closed stdout for error results, GATING from harness 2.4.2 after the Q17 ruling: k12.closed_stdout_exit_parity must fail at the first error-result case; round-4 harness review rv_k12_json_error_epipe)",
+    "json_error_sigpipe": "--json failure results die of SIGPIPE when stdout's reader has gone (SIGPIPE reset to the default before the write, only for a failure result), while plain mode writes nothing to stdout on failure and exits 2/5: the real Go prototype's shape (K12 closed stdout for error results, GATING from harness 2.4.2 after the Q17 ruling; round-4 harness review rv_k12_json_error_epipe)",
     "run_child_sigpipe_ignored": "the child is started without restoring the runtime's own SIGPIPE ignore (Popen restore_signals=False): every child runs with SIGPIPE ignored, also when heimdall-proto inherited the default (K6c observation; round-3 review rv_child_sigpipe_ignored)",
     # version
     "version_wrong_candidate": "version reports candidate 'rust'",
@@ -190,9 +191,11 @@ VARIANTS = {
                        "update: slow, but inside the K17 p95 bound of 100 ms (round-3 review control rv_delay_90ms, "
                        "lowered to keep 30 ms margin for pty/emulator overhead while the host and Linux self-tests "
                        "run concurrently; observed overhead about 6 ms on an idle darwin host)",
-    "closed_stdout_sigpipe_both": "SIGPIPE is reset to the default before writing the result, with and without --json: a "
-                                  "closed stdout kills heimdall-proto with SIGPIPE in both modes (allowed: section 9.4 "
-                                  "K12 requires equal wait statuses, not a particular one)",
+    "closed_stdout_sigpipe_both": "SIGPIPE is reset to the default before writing a success result, with and without "
+                                  "--json: a closed stdout kills heimdall-proto with SIGPIPE in both modes (allowed: "
+                                  "section 9.4 K12 requires equal wait statuses, not a particular one). Failure "
+                                  "results are unchanged (since harness 2.4.2 and the Q17 ruling a --json failure "
+                                  "result that died of SIGPIPE while the plain one exits 2/5 is not allowed)",
     "run_mirror_sigstop_always": "mirrors every child stop with SIGSTOP instead of the child's own stop signal: the shell "
                                  "names a different stop (non-gating observation) but reports the job stopped (allowed: "
                                  "section 9.4 requires the stop to be reported, not which signal the shell names; "
@@ -222,7 +225,9 @@ def out_json(doc, exit_code):
     if "stdout_extra_newline" in MUT:
         data += b"\n"
     plain = "--json" not in sys.argv
-    if (plain and "plain_epipe_sigpipe" in MUT) or "closed_stdout_sigpipe_both" in MUT:
+    failed = doc.get("state") == "failed"
+    if ((plain and "plain_epipe_sigpipe" in MUT) or ("closed_stdout_sigpipe_both" in MUT and not failed)
+            or (not plain and failed and "json_error_sigpipe" in MUT)):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)       # mutation: a closed stdout kills the plain path
     try:
         sys.stdout.buffer.write(data)

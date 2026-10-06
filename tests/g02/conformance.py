@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_lib as H  # noqa: E402
 import minischema  # noqa: E402
 
-HARNESS_VERSION = "2.4.1"
+HARNESS_VERSION = "2.4.2"
 REPO = H.REPO
 FIX = REPO / "tests" / "fixtures" / "g02" / "profiles"
 SPACED = FIX / "spaced dir ü" / "prøfile homelab.toml"
@@ -3028,10 +3028,12 @@ def wait_status_text(rc):
     return "exit %d" % rc
 
 
-# K12 closed stdout for ERROR results (harness 2.4.1, round-4 harness review): whether section 9.4's closed-stdout
-# parity also covers failure results (exit 2/5) and usage errors is escalated as Q17.  Until the owner rules, these
-# cases are NON-GATING observations (observations.k12_closed_stdout_errors); set this to True if Q17 is answered yes.
-K12_ERROR_RESULTS_GATING = False
+# K12 closed stdout for ERROR results (round-4 harness review).  Q17 (contract section 9.4, owner ruling, harness
+# 2.4.2): the closed-stdout parity covers failure results (exit 2/5) and usage errors too, so these cases are part of
+# the GATING verdict of k12.closed_stdout_exit_parity (one assertion per case, after the three success-result
+# cases); observations.k12_closed_stdout_errors still records the wait statuses.  Kept as a switch only so the
+# record states which rule applied (observations.k12_closed_stdout_errors.gating).
+K12_ERROR_RESULTS_GATING = True
 
 
 def _k12_closed_run(t, label, args, agent_mode, missing_socket=None):
@@ -3062,7 +3064,7 @@ def _k12_closed_run(t, label, args, agent_mode, missing_socket=None):
     return per
 
 
-@check("k12.closed_stdout_exit_parity", "§1/K12 closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded the same way as a NON-GATING observation pending Q17 (observations.k12_closed_stdout_errors)")
+@check("k12.closed_stdout_exit_parity", "§1/K12 closed stdout (contract section 9.4): version, profile show (valid fixture) and agent list (fake agent, normal mode) run with stdout the write end of a pipe whose read end was closed before the program started (deterministic EPIPE / SIGPIPE on the first write; SIGPIPE at its default disposition, as a shell starts a command); the wait status without --json equals the one with --json, death by signal included (which status is not specified). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are judged the same way and are GATING too (Q17, section 9.4: a --json error result that dies of SIGPIPE or EPIPE while the plain run exits 2 or 5 fails; wait statuses in observations.k12_closed_stdout_errors)")
 def _(t):
     # environment fact behind 'deterministic': this harness's own write into such a pipe fails at once
     r, w = os.pipe()
@@ -3089,9 +3091,9 @@ def _(t):
                 per["json"]["wait_status"], per["plain"]["wait_status"])
     t.note("sigpipe_disposition_given_to_program", "default (subprocess restore_signals)")
     t.ctx.observations["k12_closed_stdout"] = seen
-    # Error results (Q17): the base K12 rule ("exit codes are the same as with --json") covers them and
-    # common.exit_codes_without_json gates their exit 2/5 with a normal stdout; whether section 9.4 extends that to
-    # a closed stdout is escalated.  Recorded with the same method; gating only if K12_ERROR_RESULTS_GATING.
+    # Error results (Q17, answered yes: section 9.4): the base K12 rule ("exit codes are the same as with --json")
+    # covers them, common.exit_codes_without_json gates their exit 2/5 with a normal stdout, and section 9.4 extends
+    # the rule to a closed stdout.  Same method as above; gating while K12_ERROR_RESULTS_GATING (True).
     d = t.ctx.new_dir("k12c-err")
     err_cases = (("profile-missing", ["profile", "show", "--file", str(d / "missing.toml")], None, None, 2),
                  ("profile-schema-invalid", ["profile", "show", "--file", str(FIX / "invalid-forbidden-key.toml")],
@@ -3106,7 +3108,7 @@ def _(t):
         per["exit_code_with_open_stdout"] = code
         errs[label] = per
         t.check("[%s] error result, stdout closed by its reader: the wait status without --json equals the one with "
-                "--json%s" % (label, "" if gate else " (non-gating observation pending Q17)"), per["equal"],
+                "--json%s" % (label, "" if gate else " (non-gating observation)"), per["equal"],
                 per["json"]["wait_status"], per["plain"]["wait_status"], gating=gate)
     t.ctx.observations["k12_closed_stdout_errors"] = {
         "gating": gate, "question": "Q17", "cases": errs,
@@ -5027,7 +5029,7 @@ STATIC_LIMITATIONS = [
     "K6e (job control) is judged under `bash -i` (bash 3.2 on macOS, bash 5.2 in the Linux image), 5 iterations of Ctrl-Z/fg (child blocked in a terminal read) and Ctrl-Z/bg/fg (child running without terminal access); 'not re-stopped' is judged 0.5 s after `fg` and again, blaming that `fg`, before the next step once at least 1.5 s have passed since it (shell output and the /bin/ps or /proc state of the child). The same forms run under `zsh -f -i` (zsh 5.9 on macOS and in the Linux image) as NON-GATING observations (observations.k6e_job_control, keys zsh-*) until the gating question is decided. A re-stop later than 1.5 s after `fg` that does not disturb a later step, races needing more iterations, fish/dash job control and a background terminal read (Q12) are not covered. In particular a launcher that mirrors a child stop report without a grace period (reference mutation run_mirror_nograce, race mutation in the self-test) re-stops the job only when it is itself stopped between reading the report and stopping itself; the harness cannot force that interleaving and catches it only by chance (Q18).",
     "K17 is measured like the earlier latency observation: from writing the keystroke to the pty master until the pyte emulator shows the expected status line AND the expected list rows (the first min(N, capacity) matching destinations in fixture order; 2 ms polling), 30 edits on large-100.toml in 5 filter sessions (`/`, 3 characters, 3 Backspaces, Esc) so the first keystroke after `/` is weighted per session, p95 by nearest rank; it includes pty and emulator overhead and is wall-clock on a possibly loaded machine (load average recorded). The session weighting (6 edits per session) is a harness sampling choice, not a contract figure.",
     "K6e child-initiated stop (section 9.4) is judged by run.k6e_child_self_stop under `bash -i` only (bash 3.2 on macOS, 5.2 in the Linux image): %d heimdall-proto jobs, each child stopping itself %d times with kill(getpid(), SIGTSTP) after a heartbeat and reading a typed line after each `fg`, preceded by a direct-exec control job in the same shell session (a harness precondition: if the control does not stop, resume and read, the check is 'error'). SIGSTOP self-stops and the same under `zsh -f -i` (2 jobs each) are NON-GATING observations (observations.k6e_child_self_stop). Not covered: a self-stop while the job is in the background, a self-stop of a child in a pipeline or command list, stops by SIGTTIN/SIGTTOU, other shells; whether the child stays stopped until `fg` (resumed_before_fg) is recorded, not gated (Q16)." % (K6ES_JOBS, K6ES_STOPS),
-    "K12 closed stdout (section 9.4) is judged by k12.closed_stdout_exit_parity for version, profile show (homelab fixture) and agent list (fake agent, normal mode), each with and without --json, stdout being the write end of a pipe whose read end the harness closed before the start; heimdall-proto starts with SIGPIPE at its default disposition (as from a shell). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are recorded the same way but NON-GATING until Q17 is answered (observations.k12_closed_stdout_errors; K12_ERROR_RESULTS_GATING). Not covered: an inherited SIGPIPE ignore, a reader that closes after part of the output, stderr closed.",
+    "K12 closed stdout (section 9.4) is judged by k12.closed_stdout_exit_parity for version, profile show (homelab fixture) and agent list (fake agent, normal mode), each with and without --json, stdout being the write end of a pipe whose read end the harness closed before the start; heimdall-proto starts with SIGPIPE at its default disposition (as from a shell). Error results on a closed stdout (profile show of a missing file and of a schema-invalid file, agent list on a missing socket, a usage error) are judged the same way and are GATING in the same check since harness 2.4.2 (Q17 answered yes, section 9.4; observations.k12_closed_stdout_errors, K12_ERROR_RESULTS_GATING = True). Not covered: an inherited SIGPIPE ignore, a reader that closes after part of the output, stderr closed.",
     "K6c SIGPIPE: the SIGPIPE disposition of a non-Python child is observed for both dispositions heimdall-proto can inherit (ignored and default): `yes` writing into a pipe whose reader closes exits 1 on EPIPE (ignored) or dies of SIGPIPE (default); on Linux also /bin/cat /proc/self/status SigIgn. Classified as inherited_disposition_kept (exec semantics), child_always_default (inherited ignore reset), child_always_ignores (the runtime's ignore leaks into every child) or other; inherited_sigpipe_ignore_kept is true only for the first. Non-gating (K6c); whether a default disposition must stay default in the child is not stated by the contract (escalated). The probe's own preconditions are non-gating too (classification probe_invalid), so they never affect the gated K6a check.",
 ]
 OPEN_QUESTIONS = [
@@ -5039,9 +5041,8 @@ OPEN_QUESTIONS = [
     "Q14 (round 5) K6c: K6a/K6c speak of inherited IGNORED dispositions. Whether a DEFAULT SIGPIPE disposition heimdall-proto inherited must stay default in the child (a runtime that ignores SIGPIPE itself and leaks that into every child: classification child_always_ignores) is not stated in section 4, K6a or K6c. Recorded non-gating; escalated as an ADR-0002 input.",
     "Q15 (round 5) K17 does not define the keystroke population of the p95. The harness samples 5 filter sessions of 6 edits (the first keystroke after `/` is 1 in 6), so a TUI slow only on the first keystroke of a session fails; with one pooled session it passed. Sampling choice made by the harness and escalated for confirmation.",
     "Q16 (round 6) K6e child-initiated stop (section 9.4): the harness gates that the shell reports the job stopped, that `fg` resumes the child, no re-stop and that the child reads the typed line. Whether the child must also STAY stopped until `fg` (a launcher that reports the stop to the shell but continues the child at once) is recorded per stop (resumed_before_fg, non-gating), not gated. Escalated: gate it (exec semantics) or not.",
-    "Q17 (round 7) K12 closed stdout and error results (section 9.4): the base K12 rule ('exit codes are the same as with --json') covers error results and common.exit_codes_without_json gates their exit 2/5 with an open stdout; section 9.4 extends the rule to a closed stdout without naming a scope. On a closed stdout a --json error result meets EPIPE/SIGPIPE while the plain one writes nothing to stdout and exits 2/5. The harness records these cases (profile-missing, profile-schema-invalid, agent-unavailable, usage-unknown-flag) as a NON-GATING observation (observations.k12_closed_stdout_errors). The Go prototype dies of SIGPIPE with --json and exits 2/5 without it (round-4 harness review). Escalated: does section 9.4 cover error results? If yes, set K12_ERROR_RESULTS_GATING = True.",
     "Q18 (round 7, harness limitation, not a contract question) K6e 'never re-stopped right after fg': a launcher that mirrors its child's stop report at once, without a grace for a report made stale by the shell's group continue, re-stops the job only in a scheduling race (it must be stopped between reading 'child still stopped' and stopping itself). The harness cannot force that interleaving black-box; run.k6e_job_control catches it only by chance (measured 2026-10-05 on darwin-arm64, selftest-results/2026-10-05-r7/nograce-experiments: 0 of 15 Ctrl-Z/fg cycles in each of six bash -i variants, idle and under CPU load, and 0 of 12 killpg cycles; one earlier unpreserved run 1 of 15; harness 2.4.0's stress record: 2 of 160 cycles under 20 CPU burners). The self-test runs mutation run_mirror_nograce as a RACE mutation (reported, not required). Escalated: accept this residual (code review of the candidate's stop-mirroring instead), or require a stress run.",
-    "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating); by section 9.4: the round-3b child self-stop finding -> K6e covers child-initiated stops (SIGTSTP under bash gated: run.k6e_child_self_stop), the closed-stdout K12 finding -> k12.closed_stdout_exit_parity.",
+    "Resolved by contract section 9 (no longer open): Q2 invalid UTF-8 argv -> K8 (gating), Q4 TUI SIGTERM code -> K10, Q5 EOF before any reply byte -> K3, Q6 control characters in agent comments -> K1, Q7 output without --json -> K12; by section 9.3: Q8 -> K10 exit form (exit 143/129 or a death by the re-raised signal both pass), Q9 -> K18 (offending values gated on stdout and stderr), Q10 -> K17 (p95 <= 100 ms, gating); by section 9.4: the round-3b child self-stop finding -> K6e covers child-initiated stops (SIGTSTP under bash gated: run.k6e_child_self_stop), the closed-stdout K12 finding -> k12.closed_stdout_exit_parity; by the owner ruling Q17 (section 9.4, harness 2.4.2): the closed-stdout parity covers error results too -> GATING in k12.closed_stdout_exit_parity (a --json error result that dies of SIGPIPE/EPIPE while the plain run exits 2/5 fails).",
 ]
 
 
