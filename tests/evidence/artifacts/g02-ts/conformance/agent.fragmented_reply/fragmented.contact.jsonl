@@ -1,5 +1,5 @@
-{"seq": 1, "ts": "2026-10-04T18:48:05.358Z", "mono_ms": 0.299, "event": "listen", "socket": "/tmp/hmg02-p1ci_x8b/028-agent-fragmented/fragmented.sock", "mode": "fragmented", "keys": 3}
-{"seq": 2, "ts": "2026-10-04T18:48:05.385Z", "mono_ms": 26.715, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T18:48:05.801Z", "mono_ms": 443.105, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "fragmented", "sent_bytes": 497}
-{"seq": 4, "ts": "2026-10-04T18:48:05.801Z", "mono_ms": 443.166, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 497, "partial_bytes": 0}
-{"seq": 5, "ts": "2026-10-04T18:48:05.890Z", "mono_ms": 531.781, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T00:54:05.395Z", "mono_ms": 0.294, "event": "listen", "socket": "/tmp/hmg02-927sbjrx/028-agent-fragmented/fragmented.sock", "mode": "fragmented", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T00:54:05.417Z", "mono_ms": 22.58, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T00:54:05.834Z", "mono_ms": 439.257, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "fragmented", "sent_bytes": 497}
+{"seq": 4, "ts": "2026-10-06T00:54:05.834Z", "mono_ms": 439.527, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 497, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T00:54:05.923Z", "mono_ms": 528.329, "event": "shutdown"}

@@ -1,0 +1,19 @@
+heimdall-proto: internal error
+245 | }, writeSync = function writeSync2(fd, buffer, offsetOrOptions, length, position) {
+246 |   try {
+247 |     if (types.isArrayBufferView(buffer)) {
+248 |       let offset = offsetOrOptions;
+249 |       if (typeof offset === "object" && offset !== null)
+250 |       return arguments.length <= 2 ? fs.writeSync(fd, buffer) : fs.writeSync(fd, buffer, offset, length, position);
+                            ^
+EPIPE: broken pipe, write
+ syscall: "write",
+   errno: -32,
+    code: "EPIPE"
+
+      at writeSync (node:fs:250:77)
+      at writeAll (/$bunfs/root/heimdall-proto:55:23)
+      at emit (/$bunfs/root/heimdall-proto:31474:11)
+      at main (/$bunfs/root/heimdall-proto:31632:11)
+
+Bun v1.4.2 (Linux arm64)

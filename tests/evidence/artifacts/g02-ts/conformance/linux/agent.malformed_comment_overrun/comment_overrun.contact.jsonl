@@ -1,5 +1,5 @@
-{"seq": 1, "ts": "2026-10-04T18:52:12.916Z", "mono_ms": 0.086, "event": "listen", "socket": "/tmp/hmg02-3axdum6o/036-agent-comment_overrun/comment_overrun.sock", "mode": "comment_overrun", "keys": 3}
-{"seq": 2, "ts": "2026-10-04T18:52:12.956Z", "mono_ms": 39.815, "event": "connect", "conn": 1}
-{"seq": 3, "ts": "2026-10-04T18:52:12.957Z", "mono_ms": 40.949, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "comment_overrun", "sent_bytes": 73}
-{"seq": 4, "ts": "2026-10-04T18:52:12.958Z", "mono_ms": 41.95, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 73, "partial_bytes": 0}
-{"seq": 5, "ts": "2026-10-04T18:52:13.061Z", "mono_ms": 145.502, "event": "shutdown"}
+{"seq": 1, "ts": "2026-10-06T00:58:12.677Z", "mono_ms": 0.102, "event": "listen", "socket": "/tmp/hmg02-l8z0hizw/036-agent-comment_overrun/comment_overrun.sock", "mode": "comment_overrun", "keys": 3}
+{"seq": 2, "ts": "2026-10-06T00:58:12.716Z", "mono_ms": 39.677, "event": "connect", "conn": 1}
+{"seq": 3, "ts": "2026-10-06T00:58:12.717Z", "mono_ms": 40.74, "event": "message", "conn": 1, "type": 11, "length": 1, "bytes": 5, "responded": "comment_overrun", "sent_bytes": 73}
+{"seq": 4, "ts": "2026-10-06T00:58:12.718Z", "mono_ms": 41.644, "event": "disconnect", "conn": 1, "reason": "peer_eof", "bytes_received": 5, "bytes_sent": 73, "partial_bytes": 0}
+{"seq": 5, "ts": "2026-10-06T00:58:12.821Z", "mono_ms": 144.533, "event": "shutdown"}

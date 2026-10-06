@@ -1,0 +1,6 @@
+[?1034hHMPS1$ "$P" run -- "$Y" "$D/s.py" "$D" pipeline-first-hp | "$Y" "$D/p.py" "$D" p ipeline-first-hp
+
+[1]+  Stopped                 "$P" run -- "$Y" "$D/s.py" "$D" pipeline-first-hp | "$Y" "$D/p.py" "$D" pipeline-first-hp
+HMPS1$ exit
+exit
+exit
