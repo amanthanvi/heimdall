@@ -76,11 +76,21 @@
 
 ## Next actions
 
-1. G02 round 4 (`docs/g02/round4-plan.md`):
-   - Workflow `wf_27f810ac-f00`, script `<session>/workflows/scripts/heimdall-m00-g02-round4-wf_27f810ac-f00.js`. To resume: `Workflow({scriptPath, resumeFromRunId})`.
-   - Hidden X2 tests are at `~/.local/share/heimdall-m00/r4-hidden/`, outside the repo. Copy them into the evidence after evaluation.
-   - Scratch is `/tmp/hm-r4/`.
-   - After the run, compute tokens and tool calls per X2 cell from the agent transcripts, then persist the results to `m00-wf7/`.
-2. X1 / G03 on the owner's Windows PC: access works (2026-10-06). WSL sshd is on port 2222 (user `athanvi`); Windows is reached through interop as the non-admin user. The host's port 22 is Win32-OpenSSH 10.0, and the owner's ssh-agent service is running and must not be touched. Workflow `wf_9d2e0ca8-091` (script `heimdall-m00-x1-windows-wsl-wf_d9d6a1f0-db9.js`). Key material: `~/.local/share/heimdall-m00/hosts/amangamingpc/` (WSL sshd host key ED25519 SHA256:cenubO/Hpmmtc+ZUZrw4DOHIhArZiB4UofXIdhHZatI pinned in `known_hosts`; isolated `ssh_config`).
-3. Re-score ADR-0002 §7 and get an independent review. The decision waits for X1 (owner D4).
-4. G04 follow-ups unblocked by the owner's decisions: P5, using the real token store, is now authorized.
+1. G02 round 4 X2–X6: workflow `wf_27f810ac-f00` (script `heimdall-m00-g02-round4-wf_27f810ac-f00.js`).
+   - Hidden X2 tests: `~/.local/share/heimdall-m00/r4-hidden/`. Copy them into the evidence after evaluation.
+   - Scratch: `/tmp/hm-r4/`.
+   - Afterwards: compute tokens and tool calls per cell from the transcripts, persist to `m00-wf7/`, and commit `tests/evidence/artifacts/g02-r4/x2..x6`.
+2. X1 is done:
+   - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
+   - G02 native: commit 48f854a. linux-x64 139/139 for both; windows-x64 Go 63/63, Rust 60/63 gating before §9.6.
+   - Contract §9.6 (Windows rulings): 7127b20.
+   - X1b Windows fix round: workflow `wf_14fda136-d13` (script `heimdall-m00-x1b-windows-fix-wf_14fda136-d13.js`).
+3. Still blocked on the owner, for G03:
+   - a disposable second WSL distribution and WSL restarts (P-B08/09/10);
+   - a second Windows account (P-W05, P-W06 cross-user, P-B11);
+   - a disposable 1Password (P-W10);
+   - a disposable host (P-W11);
+   - an operator at the console (P-W07 Ctrl-C, P-A06 UAC, P-B07 lock);
+   - X4 Windows DPAPI/CNG/TPM, which write to the user key store and the TPM.
+4. Re-score ADR-0002 §7 with X1–X6 and get an independent review. Then present the decision (owner D4: after Windows testing).
+5. G04 follow-ups: P5, now authorized in the real token store.
