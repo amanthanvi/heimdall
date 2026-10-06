@@ -1,0 +1,36 @@
+
+running 5 tests
+test agent_pipe_endpoint_still_answers ... ok
+test k14_named_pipe_nul_and_dir_as_profile_file ... FAILED
+test k14_shared_loader_refuses_pipe_without_blocking ... FAILED
+test regular_profile_files_still_load ... ok
+test socket_non_pipe_paths_refused_without_modification ... FAILED
+
+failures:
+
+---- k14_named_pipe_nul_and_dir_as_profile_file stdout ----
+
+thread 'k14_named_pipe_nul_and_dir_as_profile_file' (69752) panicked at tests/windows.rs:207:37:
+\\.\pipe\hm-M00-T05-x1b-fix-rust-26924-1: still running after 5.0027003s
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- k14_shared_loader_refuses_pipe_without_blocking stdout ----
+
+thread 'k14_shared_loader_refuses_pipe_without_blocking' (26312) panicked at tests/windows.rs:231:10:
+load_file blocked on a named pipe for 2 s: Timeout
+
+---- socket_non_pipe_paths_refused_without_modification stdout ----
+
+thread 'socket_non_pipe_paths_refused_without_modification' (27524) panicked at tests/windows.rs:286:9:
+<scratch>\tmp-before2\hm-x1b-rust-sock-26924-4\not a socket ü.bin: exit Some(5) code "AGENT_PROTOCOL_ERROR"
+
+
+failures:
+    k14_named_pipe_nul_and_dir_as_profile_file
+    k14_shared_loader_refuses_pipe_without_blocking
+    socket_non_pipe_paths_refused_without_modification
+
+test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.12s
+
+TEST_EXIT=101
+exit=101

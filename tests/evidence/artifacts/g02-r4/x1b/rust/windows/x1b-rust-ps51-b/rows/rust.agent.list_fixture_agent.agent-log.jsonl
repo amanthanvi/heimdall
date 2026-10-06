@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T08:07:50.8105864Z","agent_pid":40220,"event":"listening","keys":["SHA256:WACQyRb9SMfSAhwWJEW/MExkIVHfX5xyqmVdQUqKpdE","SHA256:x1eyNvW/S4bN/A8UOAvHMi7P2mHNTYT8+27u3NveFm8"],"pipe":"hm-x1-agent-rust-66a0d822","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-66a0d822"}
+{"client_pid":66968,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:07:51.0906314Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:07:51.1028794Z","event":"request","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T08:07:51.1045855Z","event":"response","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-66a0d822","agent_pid":40220,"event":"disconnect","ts":"2026-10-06T08:07:51.1132306Z"}
+{"method":"disconnect","ts":"2026-10-06T08:07:51.1147508Z","event":"rearm","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","conn":1}
+{"client_pid":46112,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:07:51.5156103Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:07:51.5187915Z","event":"request","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T08:07:51.5187915Z","event":"response","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-66a0d822","agent_pid":40220,"event":"disconnect","ts":"2026-10-06T08:07:51.5197968Z"}
+{"method":"disconnect","ts":"2026-10-06T08:07:51.5214891Z","event":"rearm","agent_pid":40220,"pipe":"hm-x1-agent-rust-66a0d822","conn":2}

@@ -1,0 +1,32 @@
+M00-T05-x1b-fix-rust: commands run (2026-10-06 UTC). Real exit codes. Host paths shown as placeholders
+(<repo>, <home>, <scratch> = %LOCALAPPDATA%\hm-m00\M00-T05-x1b-fix-rust\root, <wslhome>).
+
+Mac (<repo>/prototypes/rust):
+  cargo metadata --offline (lock refresh after adding the windows-sys direct dependency)  exit 0  Cargo.lock: +1 line ("windows-sys" in heimdall-proto's dependency list); no new package
+  cargo-zigbuild zigbuild --locked --offline --tests --target x86_64-pc-windows-gnu  exit 101 first (ConnectNamedPipe needs the Win32_System_IO feature), exit 0 after adding it to the dev-dependency features
+  ./build.sh  exit 0  all four targets built; dist/manifest.json rewritten (build/manifest.after.json)
+  build.sh on a git archive of HEAD in /tmp (control)  exit 0  build/manifest.head-rebuild.json; build/compare.txt
+  go build (tests/native/windows-g02/argvdump, GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off -trimpath -buildvcs=false -ldflags='-s -w')  exit 0  sha256 678efbbc... (identical to X1)
+  "before" test binary: tests/windows.rs + Cargo.toml/Cargo.lock copied into the HEAD archive, cross-built the same way  exit 0
+  staged layout (27 files) sha256 on the Mac and sha256sum -c on the host  exit 0 (HASHES_OK); staged-root.sha256
+  cargo fmt --check  exit 1 (tests/windows.rs only), then cargo fmt; cargo fmt --check  exit 0
+  cargo clippy --locked --offline --all-targets -- -D warnings  exit 0
+  cargo clippy --locked --offline --all-targets --target x86_64-pc-windows-gnu -- -D warnings  exit 0
+  cargo test --locked --offline (darwin-arm64)  exit 0  lib 49, bin 4, cli 28 passed; tests/windows.rs 0 (cfg(windows))
+  tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out /tmp/M00-T05-x1b-fix-rust/harness/g02-rust-conformance-darwin-arm64.json --artifacts-dir /tmp/M00-T05-x1b-fix-rust/harness/arts-darwin --case-id G02-rust-conformance-x1b-darwin-arm64
+      exit 0  139/139, verified/pass, artifact sha256 f9a3ec8b...  (harness/)
+  tests/g02/linux/run.sh --artifact-dir prototypes/rust/dist/linux-arm64 --candidate rust --out /tmp/M00-T05-x1b-fix-rust/harness/g02-rust-conformance-linux-arm64.json --artifacts-out /tmp/M00-T05-x1b-fix-rust/harness/arts-linux --case-id G02-rust-conformance-x1b-linux-arm64
+      exit 0  139/139, verified/pass, artifact sha256 85e038b4...  (harness/)
+
+Host (non-elevated, through WSL interop; scratch <wslhome>/hm-m00/M00-T05-x1b-fix-rust and <scratch>):
+  wsl-tests.sh before tests/windows-before.exe tests/heimdall-proto.before.exe (pre-fmt build)  exit 101  2 passed, 3 failed  (native-tests/native-tests-before-prefmt.txt)
+  wsl-tests.sh after  tests/windows-after.exe  bin/rust/heimdall-proto.exe   (pre-fmt build)  exit 0    5 passed            (native-tests/native-tests-after-prefmt.txt)
+  wsl-tests.sh libunit tests/lib-unit-after.exe bin/rust/heimdall-proto.exe                   exit 0    46 passed           (native-tests/native-lib-unit-after.txt)
+  winrun.sh ps51 x1b-rust-ps51-a  exit=0  rows=94 gating_not_pass=0
+  winrun.sh ps7  x1b-rust-ps7-a   exit=0  rows=94 gating_not_pass=0
+  winrun.sh ps51 x1b-rust-ps51-b  exit=0  rows=94 gating_not_pass=0   (verdicts identical across the three runs for all 94 rows)
+  wsl-tests.sh before2 tests/windows-before.exe tests/heimdall-proto.before.exe (rustfmt'd build)  exit 101  2 passed, 3 failed  (native-tests/native-tests-before.txt)
+  wsl-tests.sh after2  tests/windows-after.exe  bin/rust/heimdall-proto.exe   (rustfmt'd build)  exit 0    5 passed            (native-tests/native-tests-after.txt)
+  Win32_Process count with the task scratch in its command line or executable path (excluding the query itself)  0 (twice: after the script runs, before cleanup)
+  WSL ps count of heimdall|windows-|lib-unit  0
+  rm -rf both scratch directories  exit 0; the parent hm-m00 directories were left (another task's scratch is in them)

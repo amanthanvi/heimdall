@@ -1,0 +1,99 @@
+{
+  "task_id": "M00-T05-x1b-fix-rust",
+  "status": "verified",
+  "files_changed": [
+    "<repo>/prototypes/rust/src/winfile.rs",
+    "<repo>/prototypes/rust/src/profile.rs",
+    "<repo>/prototypes/rust/src/agent.rs",
+    "<repo>/prototypes/rust/src/lib.rs",
+    "<repo>/prototypes/rust/Cargo.toml",
+    "<repo>/prototypes/rust/Cargo.lock",
+    "<repo>/prototypes/rust/tests/windows.rs",
+    "<repo>/prototypes/rust/REPORT.md",
+    "<repo>/prototypes/rust/dist/ (gitignored; rebuilt by build.sh, manifest.json rewritten)",
+    "<repo>/tests/evidence/artifacts/g02-r4/x1b/rust/ (windows/x1b-rust-{ps51-a,ps7-a,ps51-b}/{results.json,rows/} + *.console.txt; native-tests/*.txt; harness/{g02-rust-conformance-darwin-arm64.json,g02-rust-conformance-linux-arm64.json,*.console.txt}; build/{manifest.before.json,manifest.after.json,manifest.head-rebuild.json,compare.txt}; tools/{run-tests.ps1,wsl-tests.sh,winrun.sh}; staged-root.sha256; commands.txt)"
+  ],
+  "commands_run": [
+    {
+      "command": "cargo-zigbuild zigbuild --locked --offline --tests --target x86_64-pc-windows-gnu",
+      "exit_code": 0,
+      "observed": "first attempt exit 101 (ConnectNamedPipe needs the Win32_System_IO feature); exit 0 after adding it to the dev-dependency features"
+    },
+    {
+      "command": "prototypes/rust/build.sh",
+      "exit_code": 0,
+      "observed": "all 4 targets built. darwin f9a3ec8b 718080; linux-x64 7b1b3fcf 887072; linux-arm64 85e038b4 825488; windows ba80f914 841728"
+    },
+    {
+      "command": "build.sh on a git archive of HEAD (control)",
+      "exit_code": 0,
+      "observed": "darwin reproduces the committed 496684ed. Linux no longer reproduces the committed bytes (876464 -> 887072, environmental drift). The HEAD rebuild and the new build differ by 2 bytes on each Linux target and 111 bytes on darwin"
+    },
+    {
+      "command": "host: wsl-tests.sh before (tests/windows.rs compiled against HEAD source, run against the round-3c exe dde9662f)",
+      "exit_code": 101,
+      "observed": "2 passed, 3 failed: profile pipe still running at 5 s; load_file blocked for 2 s; --socket regular file gave AGENT_PROTOCOL_ERROR"
+    },
+    {
+      "command": "host: wsl-tests.sh after (new tests, new exe ba80f914)",
+      "exit_code": 0,
+      "observed": "5 passed (repeated after cargo fmt: same red 101 / green 0)"
+    },
+    {
+      "command": "host: lib unit tests (cross-built) natively",
+      "exit_code": 0,
+      "observed": "46 passed"
+    },
+    {
+      "command": "host: winrun.sh ps51 x1b-rust-ps51-a (Invoke-G02WindowsX1.ps1 -Candidates rust)",
+      "exit_code": 0,
+      "observed": "rows=94 gating_not_pass=0; rust gating 71/71, host 4/4"
+    },
+    {
+      "command": "host: winrun.sh ps7 x1b-rust-ps7-a",
+      "exit_code": 0,
+      "observed": "rows=94 gating_not_pass=0"
+    },
+    {
+      "command": "host: winrun.sh ps51 x1b-rust-ps51-b",
+      "exit_code": 0,
+      "observed": "rows=94 gating_not_pass=0. Verdicts identical across all 3 runs. Only changes from the §9.6 baseline: profile.named_pipe_as_file, agent.regular_file_not_modified and tui.named_pipe_as_file went fail -> pass. Non-gating tui.ctrl_c_event still fails"
+    },
+    {
+      "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out /tmp/M00-T05-x1b-fix-rust/harness/... ",
+      "exit_code": 0,
+      "observed": "139/139, verified/pass, artifact sha256 f9a3ec8b"
+    },
+    {
+      "command": "tests/g02/linux/run.sh --artifact-dir prototypes/rust/dist/linux-arm64 --candidate rust --out /tmp/M00-T05-x1b-fix-rust/harness/...",
+      "exit_code": 0,
+      "observed": "139/139, verified/pass, artifact sha256 85e038b4"
+    },
+    {
+      "command": "cargo fmt --check (after cargo fmt); cargo clippy --all-targets -D warnings (host and x86_64-pc-windows-gnu)",
+      "exit_code": 0,
+      "observed": "clean. The first fmt check exited 1, with wrapping changes in tests/windows.rs only"
+    },
+    {
+      "command": "cargo test --locked --offline (darwin)",
+      "exit_code": 0,
+      "observed": "lib 49, bin 4, cli 28 passed; tests/windows.rs compiles to 0 tests on Unix"
+    },
+    {
+      "command": "host: Win32_Process count with the task scratch in its command line (self excluded); WSL ps count; rm -rf both scratch dirs",
+      "exit_code": 0,
+      "observed": "0 / 0; both scratch dirs removed. Another task's hm-m00 directories were left untouched"
+    }
+  ],
+  "escalations": [],
+  "limitations": [
+    "No independent adversarial review of this fix round. This is self-verification only; the orchestrator should arrange a review.",
+    "The K14 refusal still happens after CreateFileW. The stall pipe logs 1 connection for both the profile and the tui pipe rows. This is recorded and not gated under §9.6. Production remedy: classify the normalized path, or open with no access rights before the data open.",
+    "--socket opens a regular file read/write before refusing it. Content and mtime are unchanged, as shown natively. A device whose open has side effects (for example a COM port) would still be opened briefly.",
+    "The rebuilt linux-x64 artifact (7b1b3fcf) did not get a fresh native harness run. X1's linux-x64 139/139 applies to the round-3c bytes. The task-required runs (darwin-arm64 and the linux/run.sh arm64 container) are both 139/139.",
+    "A rebuild of unchanged HEAD source no longer reproduces the committed round-3c Linux artifacts (876464 -> 887072 bytes). The cause is environmental drift, not investigated. The Windows digest is not reproducible, which is already a known defect (§6).",
+    "The root cause of the pipe hang (std is_file() being true for pipe handles, so the read blocks) is inferred from std semantics and the red/green tests; the blocking call was not traced.",
+    "prototypes/rust/dist is gitignored. The updated manifest exists only locally and in tests/evidence/artifacts/g02-r4/x1b/rust/build/manifest.after.json."
+  ],
+  "summary": "Fixed all 3 Rust gating failures under §9.6, all on Windows.\n\n**What changed.** A new Windows-only `src/winfile.rs` asks the OS what kind of file a handle is, using `GetFileType`. `read_bounded` (shared by `profile show` and `tui`) now refuses anything that is not a regular file on disk with exit 2 `USAGE_ERROR`, before any read. Windows `conn::connect` refuses anything that is not a pipe before writing the request frame, which gives exit 5 `AGENT_UNAVAILABLE`.\n\nThe only new dependency is a direct `windows-sys =0.61.2`, which the lock already carried transitively; `Cargo.lock` gains one line. This adds a second documented exception to the crate's `deny(unsafe_code)`: one query-only FFI call. No Unix code changed: rebuilt Linux binaries differ by 2 bytes, which I believe are panic line numbers.\n\n**New tests.** `tests/windows.rs` creates current-user-only pipes in-process and was cross-built and run natively on the host. Against the old exe it ran 2 passed, 3 failed (exit 101); against the new exe, 5 passed (exit 0).\n\n**Native Windows script, Rust only, run 3 times** (PS 5.1 twice, PS 7 once): each run exited 0 with 71/71 Rust gating rows and 4/4 host rows passing. All 94 verdicts were identical across the runs. The only changes from the §9.6 baseline are the three rows that went from fail to pass. The full row table is in REPORT.md §16.\n\n**Shared harness 2.4.2 (read-only):** 139/139 on darwin-arm64 and 139/139 on linux-arm64 via `run.sh`, both exit 0.\n\n**Other checks:** clippy and fmt are clean, and host `cargo test` passes. The host scratch directories were removed and no process from them was left running.\n\n**Main limits:**\n- No independent review of this round.\n- The K14 refusal still connects to the pipe once before refusing. This is recorded, not gated.\n- The rebuilt linux-x64 binary did not get a fresh native harness run.\n- Rebuilding unchanged HEAD no longer reproduces the committed Linux artifacts. This is environmental drift and the cause was not investigated."
+}

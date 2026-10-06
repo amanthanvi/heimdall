@@ -12,8 +12,11 @@
 //! - [`sigdisp`] (Unix): startup signal mask and inherited-disposition query
 //! - [`keys`]: terminal input byte decoder for the TUI (no terminal queries)
 //!
-//! `unsafe` is denied crate-wide; the single exception is the query-only
-//! `sigaction(sig, NULL, &old)` in `sigdisp::inherited_ignored` (round 2, K6a).
+//! - [`winfile`] (Windows): `GetFileType` of an open handle (round 4, §9.6)
+//!
+//! `unsafe` is denied crate-wide; the exceptions are the query-only
+//! `sigaction(sig, NULL, &old)` in `sigdisp::inherited_ignored` (round 2, K6a) and the
+//! query-only `GetFileType(handle)` in `winfile::file_type` (round 4, Windows).
 #![deny(unsafe_code)]
 
 pub mod agent;
@@ -25,6 +28,8 @@ pub mod runner;
 #[cfg(unix)]
 pub mod sigdisp;
 pub mod text;
+#[cfg(windows)]
+pub mod winfile;
 
 /// Prototype version reported by `version --json` (contract §6).
 pub const VERSION: &str = "0.0.0-g02";

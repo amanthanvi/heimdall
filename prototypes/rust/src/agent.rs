@@ -250,8 +250,9 @@ mod conn {
     }
 }
 
-/// Windows: a named pipe opened as a file (`\\.\pipe\name`) via std::fs::OpenOptions.
-/// Compile-checked only; no native Windows run in this environment.
+/// Windows: a named pipe opened as a file (`\\.\pipe\name`) via std::fs::OpenOptions,
+/// refused unless `GetFileType` reports a pipe (round 4, §9.6). Run natively in round 4
+/// (tests/windows.rs and tests/native/windows-g02).
 #[cfg(windows)]
 mod conn {
     use std::fs::{File, OpenOptions};
@@ -273,6 +274,15 @@ mod conn {
             .write(true)
             .security_qos_flags(SECURITY_IDENTIFICATION)
             .open(path)?;
+        // Round 4 (§9.6): only a pipe is an endpoint. A regular file, device or any
+        // other non-pipe handle is refused here, before the request frame is written,
+        // so the path is never modified (opening it does not change content or mtime).
+        if crate::winfile::file_type(&f) != crate::winfile::FILE_TYPE_PIPE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "not a named pipe",
+            ));
+        }
         Ok((f, Closer))
     }
 

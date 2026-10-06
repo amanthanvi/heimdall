@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T08:27:04.0005571Z","agent_pid":35200,"event":"listening","keys":["SHA256:+OywerCDgsPPZhwkTJ3ITkd4JKHXua7HEmoFrI3egmg","SHA256:NENtKSidKqLdk7PkC/FbNpCnCJAtiRe+2g3PqvX1zEE"],"pipe":"heimdall g03 ü-x1-rust-d9c0170d","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\heimdall g03 ü-x1-rust-d9c0170d"}
+{"client_pid":80028,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:27:04.3026475Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:27:04.3191300Z","event":"request","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T08:27:04.3191300Z","event":"response","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","agent_pid":35200,"event":"disconnect","ts":"2026-10-06T08:27:04.3295660Z"}
+{"method":"disconnect","ts":"2026-10-06T08:27:04.3310912Z","event":"rearm","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","conn":1}
+{"client_pid":44408,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:27:04.7047926Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:27:04.7078302Z","event":"request","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T08:27:04.7078302Z","event":"response","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","agent_pid":35200,"event":"disconnect","ts":"2026-10-06T08:27:04.7093671Z"}
+{"method":"disconnect","ts":"2026-10-06T08:27:04.7093671Z","event":"rearm","agent_pid":35200,"pipe":"heimdall g03 ü-x1-rust-d9c0170d","conn":2}

@@ -1,0 +1,6 @@
+M00-T05-x1b-fix-rust: build comparison (2026-10-06). before = committed dist (d8f0cbe); head-rebuild = build.sh on a git archive of HEAD today; after = build.sh with the round-4 fix.
+target        before                       head-rebuild                 after                        differing bytes head-rebuild vs after
+darwin-arm64  496684ed337f1260 718080      496684ed337f1260 718080      f9a3ec8b46832bc7 718080      111
+linux-x64     961e3fb9f02e916a 876464      96ccfda505c3ae9b 887072      7b1b3fcfc64031fe 887072      2
+linux-arm64   47160fdd0ee850db 813480      2c58978d81a76fa0 825488      85e038b4728fc4d1 825488      2
+windows-x64   dde9662f0630bf55 841728      a6d24fe7523d9c8a 841728      ba80f914a225fd6d 841728      698844

@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T08:06:23.0509561Z","agent_pid":24388,"event":"listening","keys":["SHA256:exVPmbVquDpMEYc003WoJfmv0n76nJvBhCZoLQ7xS70","SHA256:LlQ//Ovw5FMzpvnv1N0QUHJOTMnQpcoEdlNAbXs1Nkc"],"pipe":"hm-x1-agent-rust-19d3d720","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-19d3d720"}
+{"client_pid":31144,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:06:23.3455210Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:06:23.3606148Z","event":"request","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T08:06:23.3611373Z","event":"response","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-19d3d720","agent_pid":24388,"event":"disconnect","ts":"2026-10-06T08:06:23.3698098Z"}
+{"method":"disconnect","ts":"2026-10-06T08:06:23.3714456Z","event":"rearm","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","conn":1}
+{"client_pid":60560,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:06:23.7326587Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:06:23.7358381Z","event":"request","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T08:06:23.7358381Z","event":"response","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-19d3d720","agent_pid":24388,"event":"disconnect","ts":"2026-10-06T08:06:23.7389184Z"}
+{"method":"disconnect","ts":"2026-10-06T08:06:23.7389184Z","event":"rearm","agent_pid":24388,"pipe":"hm-x1-agent-rust-19d3d720","conn":2}

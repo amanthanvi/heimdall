@@ -1,0 +1,35 @@
+M00-T05-x1b-review-rust: commands run (2026-10-06 UTC), independent review of M00-T05-x1b-fix-rust. Real exit codes.
+Placeholders: <repo>, <home>, <macscratch> = /tmp/M00-T05-x1b-review-rust on the Mac, <scratch> = %LOCALAPPDATA%\hm-m00\M00-T05-x1b-review-rust
+on the host, <wslhome>. Nothing in the repository was modified outside this directory.
+
+Mac
+  rsync prototypes/rust (working tree, without target/ and dist/) to <macscratch>/rust                                   exit 0
+  CARGO_ZIGBUILD=<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild CARGO_NET_OFFLINE=true sh ./build.sh (in the copy)  exit 0
+      all four targets built (build/build.console.txt, build/manifest.review-rebuild.json)
+  compare with <repo>/prototypes/rust/dist/manifest.json and cmp of every artifact                                        exit 0
+      darwin-arm64 f9a3ec8b… 718080, linux-x64 7b1b3fcf… 887072, linux-arm64 85e038b4… 825488, windows-x64 ba80f914… 841728,
+      THIRD-PARTY-NOTICES d13a6ca8…: all identical to the fix round's dist (sha256 and byte-for-byte cmp)
+  tests/g02/.venv/bin/python tests/g02/conformance.py --bin <macscratch>/rust/dist/darwin-arm64/heimdall-proto --candidate rust
+      --out <macscratch>/harness/g02-rust-conformance-darwin-arm64.json --artifacts-dir <macscratch>/harness/arts-darwin
+      --case-id G02-rust-conformance-x1b-review-darwin-arm64                                                           exit 0  139/139 verified/pass
+  tests/g02/linux/run.sh --artifact-dir <macscratch>/rust/dist/linux-arm64 --candidate rust
+      --out <macscratch>/harness/g02-rust-conformance-linux-arm64.json --artifacts-out <macscratch>/harness/arts-linux
+      --case-id G02-rust-conformance-x1b-review-linux-arm64                                                            exit 0  139/139 verified/pass
+  go build tests/native/windows-g02/argvdump (GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOPROXY=off -trimpath -buildvcs=false -ldflags='-s -w')
+                                                                                                                       exit 0  sha256 678efbbc… (same as X1)
+  staged layout (23 files: review-built exe, fixtures, g03 helpers, argvdump, manifest, schema, unchanged X1 script tools) staged-root.sha256
+
+Host (owner PC, non-elevated, WSL interop only; scratch <scratch> and <wslhome>/hm-m00/M00-T05-x1b-review-rust)
+  scp stage.tar; tar x; sha256sum -c --quiet ../staged-root.sha256                                                      exit 0  HASHES_OK
+  tools/winrun.sh ps51 review-ps51-a   (Invoke-G02WindowsX1.ps1 -Candidates rust, Windows PowerShell 5.1)               exit=0  rows=94 gating_not_pass=0
+  tools/winrun.sh ps7  review-ps7-a    (PowerShell 7)                                                                   exit=0  rows=94 gating_not_pass=0
+      verdicts of all 94 rows identical between the two runs and to the fix round's x1b-rust-ps51-a; non-gating tui.ctrl_c_event fails (§9.6 recorded)
+  probe/tools/runprobe.sh -Only profile | socket,agentpipe | batch | batch2 (development iterations)                    exit 0 each, except one
+      batch2 attempt exit 1 (the probe's own cleanup could not remove a trailing-dot file name; fixed in the probe with \\?\ deletes, rerun exit 0)
+  probe/tools/runprobe.sh   (all sections, final run; probe/results.jsonl, probe/console.txt)                         exit=0
+      129 cases: PASS 112, INFO 5, FAIL 12 (see the review summary: 9 trailing-dot names, 3 %VAR% in the script path; no FAIL in profile/socket/agentpipe)
+  redaction scan of all host outputs for the Windows user name, machine name, WSL user, WSL host name and the canary prefix   0 files each
+  cleanup.ps1: Win32_Process count with the task id in command line or executable path (excluding itself)             0
+      trailing-dot files and the junction removed through \\?\ / Directory.Delete, then Remove-Item <scratch>          exit 0  removed=True
+  WSL process count with the task id (self excluded)                                                                     0
+  rm -rf <wslhome>/hm-m00/M00-T05-x1b-review-rust                                                                        exit 0

@@ -498,3 +498,266 @@ No new stack limitation this round. The K6c SIGPIPE limitation (§14) is unchang
   directory was canary-scanned (no `HEIMDALL_CANARY_` value) and contains no home path.
 - No crate or toolchain changes. The only download was the two harness wheels into the `/tmp` venv (hash-verified
   by pip). Whether pip took them from its cache was not recorded.
+
+## 16. Round 4 Windows (§9.6)
+
+Task M00-T05-x1b-fix-rust, 2026-10-06 UTC. This is the one Windows fix round under contract §9.6. The baseline is
+the §9.6 script run (`tests/evidence/artifacts/g02-r4/x1/windows-96/`, task M00-T05-x1b-script). Rust failed 3 of
+71 gating rows there, the same 3 in all three runs. Rust passed all four `run.batch_target.*` rows already, because
+std refuses `.bat`/`.cmd` arguments it cannot escape (the CVE-2024-24576 fix), so `run` is unchanged.
+
+**Evidence:** `tests/evidence/artifacts/g02-r4/x1b/rust/`.
+
+| Path | Content |
+|---|---|
+| `windows/` | Three script runs: `results.json`, `rows/` and a console log each |
+| `native-tests/` | The new Windows tests, red and green |
+| `harness/` | Both 2.4.2 records and their console logs |
+| `build/` | Manifests and the build comparison |
+| `tools/` | The runner scripts |
+| `staged-root.sha256` | Hashes of the staged layout |
+| `commands.txt` | Every command, with its real exit code |
+
+**Host:** the owner's Windows 11 Pro 26300 x64 PC.
+
+- The script and tests ran as the non-elevated user, through WSL interop.
+- Scratch was `%LOCALAPPDATA%\hm-m00\M00-T05-x1b-fix-rust` and `~/hm-m00/M00-T05-x1b-fix-rust`. Both were removed
+  at the end.
+- No process from the scratch directories was left running.
+
+### Failures → outcome
+
+| Gating row (baseline) | Cause | Fix | Proving test (red before → green after) |
+|---|---|---|---|
+| `profile.named_pipe_as_file`: no exit within 10 s, killed by the script | On Windows, std's `Metadata::is_file()` means only "not a directory and not a symlink". A named pipe opened by path therefore passed the K14 regular-file check in `read_bounded` with `len() == 0`. `read_to_end` then blocked on a pipe whose server never writes. This cause is inferred from std's documented `is_file` semantics and the red/green tests; the blocking call was not traced. The cause is a std semantics gap, not a stack limitation: the OS answers the question directly | **Fixed** (`src/profile.rs` `read_bounded`). On Windows, right after the open and before any metadata query or read, `GetFileType(handle)` must be `FILE_TYPE_DISK`. Anything else (pipe, `NUL` and other character devices) is exit 2 `USAGE_ERROR` "profile path is not a regular file". Directories still fail at open. The Unix path is unchanged (O_NONBLOCK plus `is_file`) | `tests/windows.rs` `k14_named_pipe_nul_and_dir_as_profile_file` (black box: a pipe, `NUL` and a directory, each must give exit 2 `USAGE_ERROR` in under 2 s). **Red** on the round-3c exe `dde9662f…`: the pipe was still running at 5 s and was killed by the test |
+| `tui.named_pipe_as_file`: same hang, killed by the script | `tui` loads the profile with the same `profile::load_file` before it enters the alternate screen | The same fix (shared code path) | `tests/windows.rs` `k14_shared_loader_refuses_pipe_without_blocking`, which calls `load_file` on a pipe on a worker thread. **Red** before: no result within 2 s. On the pseudoconsole the script row now passes: exit 2 after 22 ms, alternate screen not active |
+| `agent.regular_file_not_modified`: the first 5 bytes became `00 00 00 01 0b` and the mtime changed; exit 5 `AGENT_PROTOCOL_ERROR` | `conn::connect` (Windows) opened any existing path read/write and wrote the request frame | **Fixed** (`src/agent.rs` `conn::connect`). After the open, `GetFileType(handle)` must be `FILE_TYPE_PIPE`, or the connection is refused before anything is written. The result is the existing `AGENT_UNAVAILABLE` path, exit 5 ("connect failed: InvalidInput"). The Unix path is unchanged (`connect()` refuses) | `tests/windows.rs` `socket_non_pipe_paths_refused_without_modification`. It passes a 4096-byte file under a path with a space and `ü`, then `NUL`, then a directory. It requires exit 5 `AGENT_UNAVAILABLE` (or exit 2 `USAGE_ERROR`) and the file's bytes and mtime unchanged. **Red** before: exit 5 `AGENT_PROTOCOL_ERROR` on the file |
+
+Two regression guards pass both before and after the fix:
+
+- `agent_pipe_endpoint_still_answers`: a real in-process pipe agent receives exactly `00 00 00 01 0b` and nothing
+  else, and the client gets `AGENT_OK`.
+- `regular_profile_files_still_load`: `homelab.toml` and `spaced dir ü/prøfile homelab.toml` both return
+  `PROFILE_OK`.
+
+**Test pipes:** the pipes in `tests/windows.rs` are created in-process. They have:
+
+- a protected DACL `D:P(A;;GA;;;<current user SID>)`;
+- `PIPE_REJECT_REMOTE_CLIENTS` and `FILE_FLAG_FIRST_PIPE_INSTANCE`;
+- names `hm-M00-T05-x1b-fix-rust-<pid>-<n>`.
+
+**Temporary files:** temp files go to the task scratch, because `TEMP` and `TMP` are pointed there by `tools/run-tests.ps1`.
+
+**How the tests ran:** the test binaries were cross-built on the Mac (`cargo zigbuild --tests --target
+x86_64-pc-windows-gnu`) and run natively with `HEIMDALL_PROTO_BIN` and `HEIMDALL_G02_FIXTURES` set.
+
+- **"Before":** the same test file compiled against a git archive of HEAD's source, run against the round-3c exe
+  `dde9662f…`. Result: 2 passed, 3 failed, exit 101 (`native-tests/native-tests-before.txt`).
+- **"After":** this round's source, run against the new exe `ba80f914…`. Result: 5 passed, exit 0
+  (`native-tests-after.txt`).
+- The lib unit tests also ran natively: 46 passed, exit 0.
+- The `-prefmt` files hold the same red and green results from the build before `cargo fmt`, which changed only
+  line wrapping in `tests/windows.rs`.
+
+### Native script run (`tests/native/windows-g02/Invoke-G02WindowsX1.ps1`, rust only, unchanged script)
+
+The script came from the working tree, sha256 `4b05649f…`. That is the same file as the §9.6 baseline staging.
+
+| Run | Shell | Exit | Rows | Rust gating |
+|---|---|---|---|---|
+| `x1b-rust-ps51-a` | Windows PowerShell 5.1.26100.9549 | 0 | 94 | 71/71 |
+| `x1b-rust-ps7-a` | PowerShell 7.6.6 | 0 | 94 | 71/71 |
+| `x1b-rust-ps51-b` | Windows PowerShell 5.1.26100.9549 | 0 | 94 | 71/71 |
+
+Host rows: 4/4 gating pass in each run. All 94 verdicts are identical across the three runs.
+
+Against the baseline, the only verdict changes are the three rows above, each `fail` → `pass`. Selected observed
+values from `x1b-rust-ps51-a`:
+
+| Row | Observed |
+|---|---|
+| `profile.named_pipe_as_file` | exit 2 `USAGE_ERROR`, 19 ms, schema-valid |
+| `tui.named_pipe_as_file` | exit 2, 22 ms from start, not killed, alternate screen not active |
+| `agent.regular_file_not_modified` | exit 5 `AGENT_UNAVAILABLE`, 19 ms; sha256 and mtime unchanged, first changed offset −1 |
+| `agent.directory_as_socket_refused` | pass, unchanged from the baseline |
+| `agent.nonexistent_path_as_socket_refused` | pass, unchanged from the baseline |
+
+The non-gating `tui.ctrl_c_event` still fails, as in the baseline. §9.6 records it and does not gate it: on a
+CTRL_C_EVENT from another process the TUI is killed with 0xC000013A, and the alternate screen is left active.
+
+<details><summary>Full row table (verdicts; bold = changed from the §9.6 baseline)</summary>
+
+| # | Candidate | Row | Gating | §9.6 baseline (s96-ps51-a) | ps51-a | ps7-a | ps51-b |
+|---|---|---|---|---|---|---|---|
+| 1 | host | `env.facts` | no | info | info | info | info |
+| 2 | host | `env.no_toolchain_on_path` | yes | pass | pass | pass | pass |
+| 3 | rust | `integrity.sha256_matches_manifest` | yes | pass | pass | pass | pass |
+| 4 | host | `harness.screen_model_unit` | yes | pass | pass | pass | pass |
+| 5 | host | `harness.ctrlc_control_direct` | yes | pass | pass | pass | pass |
+| 6 | rust | `version.json` | yes | pass | pass | pass | pass |
+| 7 | rust | `version.plain_exit` | yes | pass | pass | pass | pass |
+| 8 | rust | `profile.homelab_unicode_space_path` | yes | pass | pass | pass | pass |
+| 9 | rust | `profile.homelab_fixture` | yes | pass | pass | pass | pass |
+| 10 | rust | `profile.homelab_spaced_fixture` | yes | pass | pass | pass | pass |
+| 11 | rust | `profile.large_100` | yes | pass | pass | pass | pass |
+| 12 | rust | `profile.plain_exit` | yes | pass | pass | pass | pass |
+| 13 | rust | `profile.invalid-forbidden-key` | yes | pass | pass | pass | pass |
+| 14 | rust | `profile.invalid_plain_exit` | yes | pass | pass | pass | pass |
+| 15 | rust | `profile.invalid-unknown-dest-key` | yes | pass | pass | pass | pass |
+| 16 | rust | `profile.invalid-malformed` | yes | pass | pass | pass | pass |
+| 17 | rust | `profile.invalid-schema-version` | yes | pass | pass | pass | pass |
+| 18 | rust | `profile.invalid-duplicate-alias` | yes | pass | pass | pass | pass |
+| 19 | rust | `profile.invalid-port` | yes | pass | pass | pass | pass |
+| 20 | rust | `profile.missing_file` | yes | pass | pass | pass | pass |
+| 21 | rust | `profile.directory` | yes | pass | pass | pass | pass |
+| 22 | rust | `profile.nul_device` | yes | pass | pass | pass | pass |
+| 23 | rust | `profile.named_pipe_as_file` | yes | fail | **pass** | **pass** | **pass** |
+| 24 | rust | `profile.oversize` | yes | pass | pass | pass | pass |
+| 25 | rust | `usage.unknown_subcommand_json` | yes | pass | pass | pass | pass |
+| 26 | rust | `usage.unknown_subcommand_plain` | yes | pass | pass | pass | pass |
+| 27 | rust | `usage.unknown_flag_json` | yes | pass | pass | pass | pass |
+| 28 | rust | `usage.profile_missing_file_arg` | yes | pass | pass | pass | pass |
+| 29 | rust | `usage.agent_missing_socket_arg` | yes | pass | pass | pass | pass |
+| 30 | rust | `agent.list_fixture_agent` | yes | pass | pass | pass | pass |
+| 31 | rust | `agent.client_identifiable_by_server` | no | pass | pass | pass | pass |
+| 32 | rust | `agent.list_unicode_space_pipe` | yes | pass | pass | pass | pass |
+| 33 | rust | `agent.missing_pipe` | yes | pass | pass | pass | pass |
+| 34 | rust | `agent.regular_file_not_modified` | yes | fail | **pass** | **pass** | **pass** |
+| 35 | rust | `agent.regular_file_result` | no | pass | pass | pass | pass |
+| 36 | rust | `agent.directory_as_socket_refused` | yes | pass | pass | pass | pass |
+| 37 | rust | `agent.nonexistent_path_as_socket_refused` | yes | pass | pass | pass | pass |
+| 38 | rust | `agent.timeout_no_reply` | yes | pass | pass | pass | pass |
+| 39 | rust | `run.argv_control_direct` | yes | pass | pass | pass | pass |
+| 40 | rust | `run.argv_quoting_cases` | yes | pass | pass | pass | pass |
+| 41 | rust | `run.argv_lone_surrogate` | no | pass | pass | pass | pass |
+| 42 | rust | `run.exit_code.0` | yes | pass | pass | pass | pass |
+| 43 | rust | `run.exit_code.1` | yes | pass | pass | pass | pass |
+| 44 | rust | `run.exit_code.2` | yes | pass | pass | pass | pass |
+| 45 | rust | `run.exit_code.7` | yes | pass | pass | pass | pass |
+| 46 | rust | `run.exit_code.42` | yes | pass | pass | pass | pass |
+| 47 | rust | `run.exit_code.127` | yes | pass | pass | pass | pass |
+| 48 | rust | `run.exit_code.128` | yes | pass | pass | pass | pass |
+| 49 | rust | `run.exit_code.255` | yes | pass | pass | pass | pass |
+| 50 | rust | `run.exit_code.256` | no | pass | pass | pass | pass |
+| 51 | rust | `run.exit_code.1000` | no | pass | pass | pass | pass |
+| 52 | rust | `run.exit_code.65536` | no | pass | pass | pass | pass |
+| 53 | rust | `run.exit_code.-1` | no | pass | pass | pass | pass |
+| 54 | rust | `run.exit_code.-1073741510` | no | pass | pass | pass | pass |
+| 55 | rust | `run.launch_failure_not_found` | yes | pass | pass | pass | pass |
+| 56 | rust | `run.launch_failure_not_executable` | yes | pass | pass | pass | pass |
+| 57 | rust | `run.usage_missing_separator` | yes | pass | pass | pass | pass |
+| 58 | rust | `run.usage_empty_argv` | yes | pass | pass | pass | pass |
+| 59 | rust | `run.stdout_binary_passthrough` | yes | pass | pass | pass | pass |
+| 60 | rust | `run.stdin_binary_passthrough` | yes | pass | pass | pass | pass |
+| 61 | rust | `run.env_inherited` | yes | pass | pass | pass | pass |
+| 62 | rust | `run.cwd_inherited` | yes | pass | pass | pass | pass |
+| 63 | rust | `run.cmd_metachar_argument` | no | pass | pass | pass | pass |
+| 64 | rust | `run.cmd_metachar_argument_nospace_path` | no | pass | pass | pass | pass |
+| 65 | rust | `run.batch_control` | yes | pass | pass | pass | pass |
+| 66 | rust | `run.batch_target.cmd_space_path` | yes | pass | pass | pass | pass |
+| 67 | rust | `run.batch_target.bat_space_path` | yes | pass | pass | pass | pass |
+| 68 | rust | `run.batch_target.cmd_nospace_path` | yes | pass | pass | pass | pass |
+| 69 | rust | `run.batch_target.bat_nospace_path` | yes | pass | pass | pass | pass |
+| 70 | rust | `resolution.path_only` | yes | pass | pass | pass | pass |
+| 71 | rust | `resolution.app_dir_vs_path` | no | info | info | info | info |
+| 72 | rust | `resolution.cwd_vs_path` | no | info | info | info | info |
+| 73 | rust | `resolution.cwd_only` | no | info | info | info | info |
+| 74 | rust | `resolution.pathext_cmd` | no | info | info | info | info |
+| 75 | rust | `resolution.system32_vs_earlier_path` | no | info | info | info | info |
+| 76 | rust | `ctrlc.run_event` | yes | pass | pass | pass | pass |
+| 77 | rust | `ctrlc.run_keystroke` | yes | pass | pass | pass | pass |
+| 78 | rust | `ctrlc.run_break_event` | no | pass | pass | pass | pass |
+| 79 | rust | `ctrlc.agent_list_event` | yes | pass | pass | pass | pass |
+| 80 | rust | `ctrlc.agent_list_keystroke` | yes | pass | pass | pass | pass |
+| 81 | rust | `tui.no_tty_usage_error` | yes | pass | pass | pass | pass |
+| 82 | rust | `tui.navigate_filter_select` | yes | pass | pass | pass | pass |
+| 83 | rust | `tui.named_pipe_as_file` | yes | fail | **pass** | **pass** | **pass** |
+| 84 | rust | `tui.nul_device_as_file` | yes | pass | pass | pass | pass |
+| 85 | rust | `tui.directory_as_file` | yes | pass | pass | pass | pass |
+| 86 | rust | `tui.quit` | yes | pass | pass | pass | pass |
+| 87 | rust | `tui.ctrl_c_key` | yes | pass | pass | pass | pass |
+| 88 | rust | `tui.ctrl_c_key_in_filter_mode` | yes | pass | pass | pass | pass |
+| 89 | rust | `tui.ctrl_c_event` | no | fail | fail | fail | fail |
+| 90 | rust | `tui.resize` | yes | pass | pass | pass | pass |
+| 91 | rust | `tui.resize_latency` | no | pass | pass | pass | pass |
+| 92 | rust | `tui.no_color` | yes | pass | pass | pass | pass |
+| 93 | rust | `tui.large_100` | yes | pass | pass | pass | pass |
+| 94 | host | `harness.canary_scan` | yes | pass | pass | pass | pass |
+
+</details>
+
+### Recorded, not gated
+
+- **The K14 refusal happens after the open.** Both the profile and the `tui` pipe rows still report
+  `pipe_connects: 1`: `CreateFileW` on `\\.\pipe\…` connects to the server, and `GetFileType` then refuses the
+  handle. §9.6 gates only exit 2 within 2 s, and the script records the connection without gating it.
+  Production remedy for M01: classify the path before opening it. Use `\\.\pipe\` and `\\?\pipe\` after
+  `GetFullPathNameW` normalization, or open with no access rights and check the type before a data open.
+- **The `--socket` refusal also happens after a read/write open.** Opening a regular file this way does not
+  change its content or mtime; the native test and the script row both show this. A device whose open has side
+  effects (a serial port, for example) would still be opened briefly before the refusal.
+  Production remedy, the same as above: a pipe-namespace check on the normalized path, then a `GetFileType`
+  check on the handle.
+- **Unchanged from the baseline and recorded under §9.6:** executable resolution order (application directory
+  and System32 before PATH, no PATHEXT); the TUI under CTRL_C_EVENT; the Go-only impersonation note.
+- **The §15 entry "Windows `agent list --socket <path>` (code review only)" is resolved by this round.** The §7
+  heading "compile-checked only" is out of date for `profile`, `tui`, `agent` and `run`, which now have native
+  evidence (X1 and this round).
+
+No new stack limitation was found.
+
+### Code and dependency changes
+
+- `src/winfile.rs` (new, Windows only) holds `file_type(&File) -> u32`, which wraps `GetFileType`. It is the
+  second exception to the crate-wide `deny(unsafe_code)`: one query-only FFI call on a handle that the `File`
+  borrows. The first exception is `sigdisp`. `src/lib.rs` documents both.
+- `src/profile.rs` and `src/agent.rs` contain the two checks above, both behind `#[cfg(windows)]`.
+- `Cargo.toml` adds the Windows dependency `windows-sys = "=0.61.2"` with features `Win32_Foundation` and
+  `Win32_Storage_FileSystem`. That is the version the lock already carried through `ctrlc` and `crossterm`.
+- A Windows dev-dependency on the same crate adds the pipe, security, threading and IO features for the tests.
+- `Cargo.lock` gains one line, `windows-sys` in heimdall-proto's dependency list. No new package, no download.
+- `tests/windows.rs` (new, `#![cfg(windows)]`) contains test-only unsafe code that creates the fixture pipes.
+
+**Unix behaviour.** No Unix code changed. Rebuilding HEAD's source today and this round's source gives these
+differences:
+
+| Target | Bytes that differ | Cause |
+|---|---|---|
+| linux-x64 | 2 | panic line numbers (inferred) |
+| linux-arm64 | 2 | panic line numbers (inferred) |
+| darwin-arm64 | 111 | inferred from the byte offsets: line numbers, LC_UUID and the ad-hoc signature |
+
+The comparison is in `build/compare.txt`.
+
+**Build drift.** That rebuild of HEAD's unchanged source no longer reproduces the committed round-3c Linux
+artifacts (`961e3fb9…`, 876,464 B → 887,072 B). The cause is environmental (builder toolchain) and was not
+investigated. Windows differs in hash at the same size, which is the known §6 non-reproducibility. Darwin
+reproduced exactly.
+
+### Results (all real exit codes)
+
+- Mac checks, all exit 0:
+  - `cargo fmt --check`;
+  - `cargo clippy --all-targets -D warnings`, for the host and for `x86_64-pc-windows-gnu`;
+  - `cargo test` on darwin-arm64: lib 49, bin 4, cli 28 passed. `tests/windows.rs` compiles to 0 tests on Unix.
+- `./build.sh` built all four targets; `dist/manifest.json` was rewritten.
+
+| Target | Size | sha256 |
+|---|---|---|
+| darwin-arm64 | 718,080 B | f9a3ec8b… |
+| linux-x64 | 887,072 B | 7b1b3fcf… |
+| linux-arm64 | 825,488 B | 85e038b4… |
+| windows-x64 | 841,728 B | ba80f914… |
+
+- The shared harness 2.4.2 ran read-only. Its records are under `/tmp/M00-T05-x1b-fix-rust/harness/`, with
+  redacted copies in `harness/`:
+
+| Platform | How it ran | Exit | Checks | Status / verdict | Artifact |
+|---|---|---|---|---|---|
+| darwin-arm64 | `tests/g02/.venv/bin/python tests/g02/conformance.py` | 0 | 139/139 | `verified` / `pass` | `f9a3ec8b…` |
+| linux-arm64 | `tests/g02/linux/run.sh` (Docker Desktop arm64 VM, digest-pinned image, `--network none`) | 0 | 139/139 | `verified` / `pass` | `85e038b4…` |
+
+- The rebuilt linux-x64 artifact did **not** get a new harness run this round. X1's linux-x64 139/139 applies to
+  the round-3c bytes.
+- Windows: see the tables above. The evidence directory contains no full canary value and no user name, host
+  name or home path. Placeholders are `<scratch>`, `<repo>`, `<home>` and `S-1-5-21-<redacted>`.

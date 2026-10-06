@@ -85,7 +85,9 @@ impl Profile {
 
 /// Open `path` for reading without ever blocking: on Unix with O_NONBLOCK, so a FIFO
 /// without a writer (or a device) opens at once and is then rejected by the
-/// regular-file check in [`read_bounded`] (contract §9.1 K14).
+/// regular-file check in [`read_bounded`] (contract §9.1 K14). On Windows, opening a
+/// named pipe never waits (no free instance fails with ERROR_PIPE_BUSY); a pipe that
+/// did open is rejected by the `GetFileType` check in [`read_bounded`] (§9.6).
 fn open_nonblocking(path: &Path) -> std::io::Result<File> {
     let mut o = std::fs::OpenOptions::new();
     o.read(true);
@@ -107,6 +109,18 @@ pub fn read_bounded(path: &Path) -> Result<Vec<u8>, ProfileError> {
             format!("cannot open profile file: {}", io_kind(&e)),
         )
     })?;
+    // Windows (round 4, §9.6 K14): std's `is_file()` is true for a named pipe or a
+    // device opened by path (it only excludes directories and symlinks), and reading a
+    // pipe whose server never writes blocks forever. Ask the kernel for the device type
+    // before any metadata query or read; only file-system files are profiles.
+    #[cfg(windows)]
+    if crate::winfile::file_type(&file) != crate::winfile::FILE_TYPE_DISK {
+        return Err(ProfileError::new(
+            Code::UsageError,
+            None,
+            "profile path is not a regular file",
+        ));
+    }
     let meta = file.metadata().map_err(|e| {
         ProfileError::new(
             Code::UsageError,

@@ -1,0 +1,98 @@
+{
+  "subject": "M00-T05-x1b-review-rust: independent adversarial review of the Rust Windows fix round (M00-T05-x1b-fix-rust, contract §9.6)",
+  "reexecuted_commands": [
+    {
+      "command": "rsync prototypes/rust (no target/, dist/) to /tmp/M00-T05-x1b-review-rust/rust; CARGO_ZIGBUILD=<repo>/prototypes/rust/target/tools/bin/cargo-zigbuild CARGO_NET_OFFLINE=true sh ./build.sh",
+      "exit_code": 0,
+      "observed": "All 4 targets built. The sha256 and byte-for-byte cmp of every artifact match prototypes/rust/dist/manifest.json: darwin f9a3ec8b 718080, linux-x64 7b1b3fcf 887072, linux-arm64 85e038b4 825488, windows ba80f914 841728. The notices sha256 also matches."
+    },
+    {
+      "command": "tests/g02/.venv/bin/python tests/g02/conformance.py --bin <macscratch>/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out ... --case-id G02-rust-conformance-x1b-review-darwin-arm64",
+      "exit_code": 0,
+      "observed": "139/139 pass, status=verified verdict=pass"
+    },
+    {
+      "command": "tests/g02/linux/run.sh --artifact-dir <macscratch>/rust/dist/linux-arm64 --candidate rust --out ... --case-id G02-rust-conformance-x1b-review-linux-arm64",
+      "exit_code": 0,
+      "observed": "139/139 pass, status=verified verdict=pass"
+    },
+    {
+      "command": "host: sha256sum -c --quiet staged-root.sha256 (my stage: review-built exe plus the unchanged X1 script and tools)",
+      "exit_code": 0,
+      "observed": "HASHES_OK"
+    },
+    {
+      "command": "host: winrun.sh ps51 review-ps51-a (Invoke-G02WindowsX1.ps1 -Candidates rust, Windows PowerShell 5.1)",
+      "exit_code": 0,
+      "observed": "rows=94, gating_not_pass=0, rust gating 71/71, host 4/4. Non-gating tui.ctrl_c_event still fails (§9.6 records it)."
+    },
+    {
+      "command": "host: winrun.sh ps7 review-ps7-a (PowerShell 7)",
+      "exit_code": 0,
+      "observed": "rows=94, gating_not_pass=0. All 94 verdicts are identical to my ps51 run and to the fix round's x1b-rust-ps51-a."
+    },
+    {
+      "command": "host: probe/tools/runprobe.sh (Probe-X1bRust.ps1, all sections, final run)",
+      "exit_code": 0,
+      "observed": "129 cases: PASS 112, INFO 5, FAIL 12. Profile, socket and agentpipe had 0 FAIL. Batch had 12 FAIL: 9 trailing-dot names (cmd.exe 'not recognized', exit 1, no injection) and 3 '%VAR%-in-script-path' cases (1 injection when the env var is attacker-controlled; 2 wrong-file or not-found results)."
+    },
+    {
+      "command": "host: runprobe.sh -Only batch2 (earlier attempt)",
+      "exit_code": 1,
+      "observed": "My probe's own cleanup could not remove a file whose name ends in a dot. I fixed the probe to delete through \\\\?\\ paths; the rerun exited 0."
+    },
+    {
+      "command": "host: cleanup.ps1 (Win32_Process count with the task id, then removal of the scratch); WSL process count; rm -rf the WSL scratch",
+      "exit_code": 0,
+      "observed": "procs_with_task_scratch=0, removed=True, WSL matching processes 0 (self excluded). Redaction scan of all host outputs: 0 files contain the Windows user name, machine name, WSL user, WSL host name or the canary prefix."
+    }
+  ],
+  "confirmed_claims": [
+    "The rebuild from a clean /tmp copy of the working-tree prototypes/rust reproduces all four dist artifacts and THIRD-PARTY-NOTICES byte for byte (sha256 matches dist/manifest.json).",
+    "Rust gating on native Windows 11 is 71/71 (host 4/4) under both Windows PowerShell 5.1 and PowerShell 7 with my independently built exe (same digest ba80f914). Verdicts are identical to the fix round's runs. profile.named_pipe_as_file, tui.named_pipe_as_file and agent.regular_file_not_modified pass.",
+    "No Unix regression: the full 2.4.2 harness passes 139/139 on darwin-arm64 and on linux-arm64 (tests/g02/linux/run.sh) against my build. The diff is confined to #[cfg(windows)] code, doc comments and a Windows-only windows-sys dependency pinned to the version already in the lock.",
+    "K14 on Windows: profile show --file refuses, with exit 2 USAGE_ERROR in 17-46 ms, each of: a directory (plain, trailing backslash, \\\\?\\), NUL/nul, dir\\NUL, \\\\.\\NUL, \\\\?\\NUL, CON, CONIN$, CONOUT$, \\\\.\\CON, an empty path, the NPFS root \\\\.\\pipe\\, a missing pipe, a junction to a directory, a FileShare.None-locked file, a byte-range-locked file, a pipe served by another process that accepts and never writes (\\\\.\\pipe\\ and \\\\.\\PIPE\\ forms), an outbound-only pipe and a busy pipe (ERROR_PIPE_BUSY returns at once).",
+    "The GetFileType(FILE_TYPE_DISK) check does not reject legitimate profile files. These all return PROFILE_OK: a \\\\?\\ path, an alternate data stream, a ::$DATA path and a relative path.",
+    "agent list --socket refuses every non-pipe path I tried with exit 5 AGENT_UNAVAILABLE, before writing anything. Content sha256, size, mtime and attributes stayed unchanged for a regular file (with é in the path), an empty file, a read-only file, a hidden file, the \\\\?\\ form, a relative form, ::$DATA, an existing ADS (its content also unchanged), a file held FileShare.Read by another handle, a directory (plain and trailing backslash), a junction, NUL, CONOUT$, CONIN$, \\\\.\\pipe\\ and an empty path. A non-existent path and a non-existent ADS were not created (stream count unchanged).",
+    "agent list on pipes served by a separate PowerShell process of the same user: byte-mode and message-mode answers and the \\\\?\\pipe\\ prefix give AGENT_OK. The server saw exactly 00000001 0b and no extra bytes. A type-5 reply gives AGENT_REFUSED (exit 5). Accept-and-close, an outbound-only pipe and accept-and-never-write (1022 ms with --timeout-ms 1000) all give AGENT_UNAVAILABLE (exit 5).",
+    "§9.6 batch ruling, argument bytes: Rust std's escaping delivered every metacharacter argument exactly to the child, with no injection. This covered & | \" \\\" ^ ( ) @ ! %VAR% %VAR:~0% %VAR:b=c% %cd% %=C:% %~dp0 %% and unterminated %, and a % spanning two arguments, through a full path, FWD.BAT in upper case, a trailing-space path, a \\\\?\\ path and a bare-name PATH lookup. Overriding the CD variable or defining a variable named 'cd:~,' does not break the %%cd:~,% hack. CR and LF arguments are refused (exit 127, InvalidInput). ::$DATA and verbatim literal trailing-dot/space batch names are refused with exit 127. A bare name resolved only through PATHEXT (fwd → fwd.bat) is not found (127). A decoy cmd.exe in the working directory, first on PATH or in ComSpec was never used.",
+    "The fix's comments hold on the host: opening a named pipe never waits, a busy pipe fails at once, and opening a regular file read/write without writing changes neither content nor mtime."
+  ],
+  "refuted_claims": [
+    {
+      "claim": "REPORT.md §16: 'Rust passed all four run.batch_target.* rows already, because std refuses .bat/.cmd arguments it cannot escape (the CVE-2024-24576 fix)'.",
+      "evidence": "In my ps51 run, all 16 cases of each of the 4 run.batch_target rows have outcome received_exactly; none were refused. Std escapes the arguments (quoting plus the %%cd:~,% hack) and refuses only CR/LF (and NUL). My probes batch.arg.newline and batch.arg.cr gave exit 127 InvalidInput; every other shape was received exactly. The outcome is right but the stated mechanism is wrong."
+    }
+  ],
+  "defects": [
+    {
+      "severity": "minor",
+      "description": "Not a regression and not code this round changed (pre-existing std behaviour, outside the fix's diff). Needs an orchestrator ruling on scope: §9.6 says 'no argument byte' and does not say whether argv[0], the script path, is covered. When the batch file's own path contains %NAME%, Rust std puts the script path into the cmd.exe /e:ON /v:OFF /d /c \"\"<script>\" args\" line without the %-escaping it applies to the arguments, so cmd.exe expands it. Observed: (a) an env var whose value holds '\" & break>file & \"' plus a directory named pct%HMRDIRVAR%x led to a second command running (file created, outcome INJECTED); (b) <dir>\\os%OS%y\\fwd.bat ran a different batch file, <dir>\\osWindows_NTy\\fwd.bat, with exit 0, while the intended one never ran. Control: a direct CreateProcessW of the same .bat path through .NET Process.Start without heimdall-proto also runs the other file, so the root cause is cmd.exe; std just does not mitigate it for the script path. Either way it is an M01 input for the product's batch-launch policy: refuse a % in a batch path, or escape it.",
+      "location": "prototypes/rust/src/runner.rs (Windows launch through std::process::Command; std make_bat_command_line); evidence: tests/evidence/artifacts/g02-r4/x1b/review-rust/probe/results.jsonl cases batch.scriptpath.*, batch2.*"
+    },
+    {
+      "severity": "minor",
+      "description": "Pre-existing std behaviour, not a §9.6 violation (no injection), recorded for M01 resolution policy. For a batch path with a trailing dot or trailing dots and spaces (fwd.bat., fwd.cmd., 'fwd.bat. . .'), std detects the batch file through GetFullPathNameW but passes the un-normalized name to cmd.exe. cmd then reports '\"...\\fwd.bat.\" is not recognized' and run exits 1 (CHILD_EXITED, launched) instead of running the file or refusing with 127. A trailing space ('fwd.bat ') works.",
+      "location": "prototypes/rust/src/runner.rs (std Command on Windows); probe cases batch.trailing_dot_normalized.*, batch.trailing_dots_spaces.*, batch.cmd_trailing_dot.*"
+    },
+    {
+      "severity": "minor",
+      "description": "Documentation inaccuracy: REPORT.md attributes the passing run.batch_target.* rows to std refusing arguments it cannot escape. In fact std escapes them and the child receives them exactly; it refuses only CR/LF/NUL. See refuted_claims.",
+      "location": "prototypes/rust/REPORT.md §16, first paragraph"
+    },
+    {
+      "severity": "minor",
+      "description": "Recorded, not gating. On Windows, opening a pipe path given as profile show/tui --file connects to the pipe server before GetFileType rejects it. A separate-process StallPipe server logged 2 connects for my 2 successful opens. No bytes are read or written, and the result is USAGE_ERROR in about 18 ms as §9.6 requires. But §5 says tui makes no 'agent contact', and --file \\\\.\\pipe\\openssh-ssh-agent would make one connection to a real agent. A path-prefix pre-check cannot cover every pipe alias. M01 should decide whether a connection without traffic counts as contact.",
+      "location": "prototypes/rust/src/profile.rs read_bounded/open_nonblocking (Windows); probe case profile.pipe_server_saw_connections"
+    }
+  ],
+  "unverifiable_here": [
+    "Volume and raw-device paths (\\\\.\\C:, \\\\.\\PhysicalDrive0) and serial ports as --file or --socket. Non-admin access is denied and elevation is forbidden, so the code path that runs after a successful open of a FILE_TYPE_DISK volume handle was not exercised.",
+    "SMB/UNC paths (\\\\localhost\\c$\\..., \\\\host\\pipe\\...) as --file or --socket: not run because of the no-network/loopback-share rule. GetFileType reports FILE_TYPE_DISK for SMB files, so remote files would load (not tested).",
+    "Windows AF_UNIX socket reparse-point files as --socket or --file, and OneDrive/Cloud Files placeholders (whether opening a placeholder read/write hydrates it): not available or not safe to create on the owner's PC.",
+    "Windows on arm64 and other Windows builds: only Windows 11 Pro 26300 x64 was available.",
+    "linux-x64 artifact under the 2.4.2 harness: only linux-arm64 (container) and darwin-arm64 were run here. The linux-x64 digest is identical to the fix round's, but the artifact was not executed in this review.",
+    "tui K14 extras beyond the X1 rows (for example CON as tui --file on a pseudoconsole): not driven separately. tui uses the same profile::load_file that the probes exercised."
+  ],
+  "summary": "The fix round's claims hold, and I found no regression. My clean rebuild reproduces all four artifacts byte for byte. The unchanged X1 script, run natively against my build, gives rust gating 71/71 on both Windows PowerShell 5.1 and PowerShell 7, with all 94 verdicts identical to the fix round. The 2.4.2 harness passes 139/139 on darwin-arm64 and on linux-arm64 (container).\n\nThe two GetFileType checks (profile: must be FILE_TYPE_DISK; agent: must be FILE_TYPE_PIPE, checked before the write) fail closed and are confined to #[cfg(windows)]. I probed 129 cases beyond the script: devices, \\\\?\\ and ::$DATA forms, ADS, junctions, locks, and busy, outbound-only and never-writing pipes served by other processes of the same user. None of the profile/--file, --socket or agent-pipe probes failed, and no non-endpoint path was modified or created.\n\nFor batch files, std escapes every argument shape I tried, so no argument injection occurred. Two pre-existing std/cmd.exe issues outside the round's diff remain:\n- **%NAME% in the batch script path** (argv[0]) is expanded by cmd.exe. That allowed env-driven command injection and ran a different .bat file. A direct CreateProcessW shows the same, so cmd.exe is the root cause. This needs an orchestrator ruling on whether §9.6 covers argv[0].\n- **Trailing-dot batch names** fail in cmd.exe with exit 1 instead of running or being refused with 127.\n\nAlso recorded: REPORT.md misstates why the batch rows pass, and opening a pipe given as --file connects to its server without traffic, which matters for §5 tui's 'no agent contact' (M01 input).\n\nStatus: verified (evidence preserved, real exit codes). Evidence is in <repo>/tests/evidence/artifacts/g02-r4/x1b/review-rust/: build/, harness/, windows/review-ps51-a and review-ps7-a, probe/results.jsonl and probe/tools/, tools/, staged-root.sha256 and commands.txt. Host and Mac scratch were removed; no processes were left running."
+}

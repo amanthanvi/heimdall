@@ -1,0 +1,11 @@
+{"pipe":"heimdall g03 ü-x1-rust-b942341f","ts":"2026-10-06T08:07:10.5221524Z","keys":["SHA256:A8luFBRxl/+MedxnM+M1E2zy4whMCiesW17F94WH1II","SHA256:FbIULdcQqtRHlupyWFIPaX6MrOYRVMfzjp/aIcbsiRo"],"endpoint":"\\\\.\\pipe\\heimdall g03 ü-x1-rust-b942341f","access":"OwnerOnly","event":"listening","agent_pid":62416}
+{"conn":1,"client_image":"heimdall-proto","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","ts":"2026-10-06T08:07:10.7355335Z","agent_pid":62416,"client_sid":"S-1-5-21-<redacted>-1001","client_pid":38168,"event":"connect","pipe":"heimdall g03 ü-x1-rust-b942341f"}
+{"conn":1,"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:07:10.7502080Z","agent_pid":62416,"msg_type":11,"event":"request","pipe":"heimdall g03 ü-x1-rust-b942341f","length":1}
+{"conn":1,"ts":"2026-10-06T08:07:10.7508447Z","agent_pid":62416,"msg_type":11,"event":"response","pipe":"heimdall g03 ü-x1-rust-b942341f","result":"identities:2"}
+{"agent_pid":62416,"ts":"2026-10-06T08:07:10.7760949Z","event":"disconnect","conn":1,"pipe":"heimdall g03 ü-x1-rust-b942341f"}
+{"conn":1,"pipe":"heimdall g03 ü-x1-rust-b942341f","ts":"2026-10-06T08:07:10.7774280Z","agent_pid":62416,"event":"rearm","method":"disconnect"}
+{"conn":2,"client_image":"heimdall-proto","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","ts":"2026-10-06T08:07:11.1102342Z","agent_pid":62416,"client_sid":"S-1-5-21-<redacted>-1001","client_pid":58496,"event":"connect","pipe":"heimdall g03 ü-x1-rust-b942341f"}
+{"conn":2,"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:07:11.1117557Z","agent_pid":62416,"msg_type":11,"event":"request","pipe":"heimdall g03 ü-x1-rust-b942341f","length":1}
+{"conn":2,"ts":"2026-10-06T08:07:11.1122497Z","agent_pid":62416,"msg_type":11,"event":"response","pipe":"heimdall g03 ü-x1-rust-b942341f","result":"identities:2"}
+{"agent_pid":62416,"ts":"2026-10-06T08:07:11.1137958Z","event":"disconnect","conn":2,"pipe":"heimdall g03 ü-x1-rust-b942341f"}
+{"conn":2,"pipe":"heimdall g03 ü-x1-rust-b942341f","ts":"2026-10-06T08:07:11.1151823Z","agent_pid":62416,"event":"rearm","method":"disconnect"}

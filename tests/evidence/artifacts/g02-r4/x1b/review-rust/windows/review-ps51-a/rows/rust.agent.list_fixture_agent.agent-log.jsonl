@@ -1,0 +1,11 @@
+{"ts":"2026-10-06T08:27:02.3826962Z","agent_pid":36232,"event":"listening","keys":["SHA256:juxe/+/wQflUNJVdiP9WOjkghqaGZx/9wYKcQuFKYiY","SHA256:GOmrgYvsljCToqEsEAbKHTiRsxk2G8i0U4B36+Xt/o0"],"pipe":"hm-x1-agent-rust-d9c0170d","access":"OwnerOnly","endpoint":"\\\\.\\pipe\\hm-x1-agent-rust-d9c0170d"}
+{"client_pid":74808,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:27:02.6326851Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","conn":1}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:27:02.6455784Z","event":"request","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","msg_type":11,"length":1,"conn":1}
+{"ts":"2026-10-06T08:27:02.6455784Z","event":"response","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","msg_type":11,"result":"identities:2","conn":1}
+{"conn":1,"pipe":"hm-x1-agent-rust-d9c0170d","agent_pid":36232,"event":"disconnect","ts":"2026-10-06T08:27:02.6551391Z"}
+{"method":"disconnect","ts":"2026-10-06T08:27:02.6551391Z","event":"rearm","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","conn":1}
+{"client_pid":6472,"client_sid":"S-1-5-21-<redacted>-1001","client_image":"heimdall-proto","ts":"2026-10-06T08:27:03.0162777Z","client_path":"<scratch>\\bin\\rust\\heimdall-proto.exe","event":"connect","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","conn":2}
+{"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","ts":"2026-10-06T08:27:03.0187951Z","event":"request","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","msg_type":11,"length":1,"conn":2}
+{"ts":"2026-10-06T08:27:03.0192990Z","event":"response","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","msg_type":11,"result":"identities:2","conn":2}
+{"conn":2,"pipe":"hm-x1-agent-rust-d9c0170d","agent_pid":36232,"event":"disconnect","ts":"2026-10-06T08:27:03.0192990Z"}
+{"method":"disconnect","ts":"2026-10-06T08:27:03.0192990Z","event":"rearm","agent_pid":36232,"pipe":"hm-x1-agent-rust-d9c0170d","conn":2}

@@ -1,0 +1,12 @@
+
+running 5 tests
+test agent_pipe_endpoint_still_answers ... ok
+test k14_named_pipe_nul_and_dir_as_profile_file ... ok
+test k14_shared_loader_refuses_pipe_without_blocking ... ok
+test regular_profile_files_still_load ... ok
+test socket_non_pipe_paths_refused_without_modification ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+TEST_EXIT=0
+exit=0
