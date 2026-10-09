@@ -1,0 +1,246 @@
+[
+ {
+  "id": "S01",
+  "fragments": 4,
+  "found": 4,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S02",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S03",
+  "fragments": 4,
+  "found": 4,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S04",
+  "fragments": 1,
+  "found": 1,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S05",
+  "fragments": 0,
+  "found": 0,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S06",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S07",
+  "fragments": 5,
+  "found": 5,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S08",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S09",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S10",
+  "fragments": 1,
+  "found": 1,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S11",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S12",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S13",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S14",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S15",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S16",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S17",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S18",
+  "fragments": 3,
+  "found": 3,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S19",
+  "fragments": 1,
+  "found": 1,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S20",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S21",
+  "fragments": 0,
+  "found": 0,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S22",
+  "fragments": 4,
+  "found": 4,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S23",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S24",
+  "fragments": 2,
+  "found": 1,
+  "not_found": [
+   "Offload the burden from the model and use code where possible. Don't make the model fill arguments y"
+  ],
+  "not_found_but_in": {
+   "Offload the burden from the model and use code where possibl": []
+  }
+ },
+ {
+  "id": "S25",
+  "fragments": 1,
+  "found": 1,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S26",
+  "fragments": 5,
+  "found": 5,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S27",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S28",
+  "fragments": 1,
+  "found": 1,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S29",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S30",
+  "fragments": 1,
+  "found": 1,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S31",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S32",
+  "fragments": 2,
+  "found": 2,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S33",
+  "fragments": 3,
+  "found": 3,
+  "not_found": [],
+  "not_found_but_in": {}
+ },
+ {
+  "id": "S34",
+  "fragments": 3,
+  "found": 3,
+  "not_found": [],
+  "not_found_but_in": {}
+ }
+]
+sources=34 with_fragments=32 all_found=31 missing_in=['S24']
+exit=1

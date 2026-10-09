@@ -1,0 +1,7 @@
+sources: 34  raw identical: 29  normalized identical: 29
+DIFF S24 raw_same=False normalized_same=False
+DIFF S26 raw_same=False normalized_same=False
+DIFF S31 raw_same=False normalized_same=False
+DIFF S32 raw_same=False normalized_same=False
+DIFF S33 raw_same=False normalized_same=False
+exit=2

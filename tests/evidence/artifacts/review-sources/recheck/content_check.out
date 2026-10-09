@@ -1,0 +1,431 @@
+[
+ {
+  "check": "S26 snapshot lacks v1 quote",
+  "phrase": "Be very specific about your end goal",
+  "found": false,
+  "expected": false,
+  "ok": true
+ },
+ {
+  "check": "S31 snapshot has the quote",
+  "phrase": "Be very specific about your end goal",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S26 snapshot section",
+  "phrase": "Initiative and follow-through",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S26 snapshot section",
+  "phrase": "Testing and verification",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S26 snapshot quote",
+  "phrase": "unclear or conflicting guidance in a skill file may cause the model to pause and block wor",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S26 snapshot quote",
+  "phrase": "Make the priority of user instructions and skills explicit",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S26 snapshot quote",
+  "phrase": "complete all the necessary work until the intended outcome is fulfilled",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S26 excerpt free of v1 quote",
+  "found": false,
+  "expected": false,
+  "ok": true,
+  "phrase": "end goal"
+ },
+ {
+  "check": "pins.json S26 excerpt fragment in pinned copy",
+  "phrase": "Initiative and follow-through",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S26 excerpt fragment in pinned copy",
+  "phrase": "Testing and verification",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S26 excerpt fragment in pinned copy",
+  "phrase": "unclear or conflicting guidance in a skill file may cause the model to pause and block wor",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S26 excerpt fragment in pinned copy",
+  "phrase": "Make the priority of user instructions and skills explicit",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S26 excerpt fragment in pinned copy",
+  "phrase": "complete all the necessary work until the intended outcome is fulfilled",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S31 excerpt fragment in pinned copy",
+  "phrase": "Avoid chain-of-thought prompts: Since these models perform reasoning internally, prompting",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S31 excerpt fragment in pinned copy",
+  "phrase": "is unnecessary.",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S07 excerpt fragment in pinned copy",
+  "phrase": "Until 1Password locks (default): Every time 1Password locks, your key approvals are wiped",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S07 excerpt fragment in pinned copy",
+  "phrase": "For a set amount of time:",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S07 excerpt fragment in pinned copy",
+  "phrase": "4, 12, or 24 hours",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S07 excerpt fragment in pinned copy",
+  "phrase": "your key approvals will remain in the agent's memory for that duration, even when 1Passwor",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S07 excerpt fragment in pinned copy",
+  "phrase": "you'll be prompted to unlock 1Password so the SSH agent can access your private key.",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S22 excerpt fragment in pinned copy",
+  "phrase": "JavaScript bindings",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S22 excerpt fragment in pinned copy",
+  "phrase": "@number0/iroh",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S22 excerpt fragment in pinned copy",
+  "phrase": "built with napi-rs",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S22 excerpt fragment in pinned copy",
+  "phrase": "macOS: arm64 (no Intel build)",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S06 excerpt fragment in pinned copy",
+  "phrase": "After you've added your SSH keys, any process can use any key that the OpenSSH agent is ma",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S06 excerpt fragment in pinned copy",
+  "phrase": "asks for your consent before an SSH client or terminal session can use your key",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S19 excerpt fragment in pinned copy",
+  "phrase": "`pigeons add` writes a `Host` entry to your SSH config whose `ProxyCommand` runs `pigeons ",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S07 timed option",
+  "phrase": "You can choose from 4, 12, or 24 hours",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S07 approvals remain while locked",
+  "phrase": "even when 1Password is locked",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S07 unlock still needed",
+  "phrase": "you'll be prompted to unlock 1Password so the SSH agent can access your private key",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "pins.json S07 note no longer says spec untrue",
+  "phrase": "Spec line 323 says remembered approvals do not keep private keys available after lock; S06 and S07 support that sentence as written (the agent keeps authorization only; unlocking 1Password is still ne",
+  "found": null,
+  "expected": null,
+  "ok": true
+ },
+ {
+  "check": "S22 no Intel build",
+  "phrase": "arm64 (no Intel build)",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S22 n0 preset default",
+  "phrase": "Endpoint.bind applies the n0 preset",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 body git blob sha1 == pin",
+  "found": true,
+  "expected": true,
+  "phrase": "",
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "Nothing is sent unless it is",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "sampled once a minute",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "the sending endpoint ID is visible to the collector",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "pigeons service install",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "runs as root",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "added to ~/.ssh/config",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "pigeons_ed25519",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "anyone holding the endpoint ID can reach your SSH port",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "pigeons fly --stdio",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "/etc/pigeons/config.toml",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "ProgramData",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "systemd",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README",
+  "phrase": "launchd",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S19 README telemetry asks once (ADR line 84 wording)",
+  "phrase": "asks once",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S29 README",
+  "phrase": "Bun",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S29 README",
+  "phrase": "Zig",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S29 README Bun 1.4.1 / Zig 0.16 strings",
+  "phrase": "Bun 1.4.1; Zig 0.16",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S27 README import path",
+  "phrase": "charm.land/bubbletea/v2",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S17 pinned blob",
+  "phrase": "301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "S17 main blob today (drift note says 35c8b0a at 2026-10-03)",
+  "phrase": "35c8b0a7365837aa1e9c00e28aea744f8e12ae21",
+  "found": true,
+  "expected": null,
+  "ok": null
+ },
+ {
+  "check": "LICENCE page at e581929",
+  "phrase": "all components are under a BSD licence, or a licence more free than that",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "LICENCE page at e581929",
+  "phrase": "OpenSSH contains no GPL code",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "LICENCE page path is LICENCE",
+  "phrase": "openssh-portable/blob/e581929d3d0cf44e033e47bf3b75a2544918b87e/LICENCE",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "Go proxy v2.0.10 info",
+  "phrase": "{\"Version\": \"v2.0.10\", \"Time\": \"2026-09-24T08:06:39Z\", \"Origin\": {\"VCS\": \"git\", \"URL\": \"https://github.com/charmbracelet/bubbletea\", \"Hash\": \"d5bfd5c2ff7480a6b94536c1cf4e73569b8d523e\", \"Ref\": \"refs/ta",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "npm @opentui/core 0.5.14 integrity == pin",
+  "phrase": "sha512-tfQ+PWQyeBnYloB3diEcPqbILv14xemH5",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "npm @opentui/core 0.5.14 shasum == pin",
+  "phrase": "fad26be1b292d609bf9b7a09b74c0516173ccc67",
+  "found": true,
+  "expected": true,
+  "ok": true
+ },
+ {
+  "check": "npm tarball package.json facts",
+  "phrase": "{\"version\": \"0.5.14\", \"license\": \"MIT\", \"engines\": {\"bun\": \">=1.3.0\", \"node\": \">=26.4.0\"}, \"exports_dot\": {\"types\": \"./index.d.ts\", \"bun\": \"./index.bun.js\", \"node\": \"./index.node.js\", \"import\": \"./index.node.js\"}, \"main\": \"index.node.js\", \"optionalDependencies\": [\"@opentui/core-darwin-arm64\", \"@opentui/core-darwin-x64\", \"@opentui/core-linux-arm64\", \"@opentui/core-linux-arm64-musl\", \"@opentui/core-linux-x64\", \"@opentui/core-linux-x64-musl\", \"@opentui/core-win32-arm64\", \"@opentui/core-win32-x64\"], \"dependencies\": {\"bun-ffi-structs\": \"0.3.1\", \"diff\": \"9.0.0\", \"marked\": \"17.0.1\", \"string-width\": \"7.2.0\", \"strip-ansi\": \"7.1.2\"}, \"peerDependencies\": {\"web-tree-sitter\": \"0.25.10\"}}",
+  "found": null,
+  "expected": null,
+  "ok": true
+ }
+]
+checks=61 ok=60 failed=0 informational=1
+exit=0

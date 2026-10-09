@@ -1,0 +1,11 @@
+S16 200 main blob 3f9e64b03c pinned blob 43d96f862e DRIFTED on main
+S17 200 main blob 35c8b0a736 pinned blob 301e1e0ffe DRIFTED on main
+S18 200 main blob 4f3e062041 pinned blob 367d9116e9 DRIFTED on main
+S34 200 main blob 132b655481 pinned blob 2428783ccc DRIFTED on main
+S19 200 main blob 9cf16f68de pinned blob 9cf16f68de same
+S27 200 main blob 4d08d355bf pinned blob 4d08d355bf same
+S29 200 main blob 6f2523a1af pinned blob 6f2523a1af same
+S16 [('An environment keeps its ID across server restarts', True), ('Direct access, Tailscale, SSH, and T3 Connect chan', True)]
+S17 [('The supervisor owns transport retry policy', True), ('Reconnection does not automatically replay mutatio', True)]
+S18 [('The relay manages environment links, credentials f', True), ('the relay Worker does not proxy their HTTP or WebS', True), ('normal shutdown of a CLI-managed link releases its', True)]
+S34 [('Pairing delegates a set of scopes.', True), ('cannot widen it.', True), ('Projects are organizational boundaries, not filesy', True)]

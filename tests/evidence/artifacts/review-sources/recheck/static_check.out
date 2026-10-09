@@ -1,0 +1,152 @@
+{
+ "checks": {
+  "pin_v2_vs_baseline_all_equal": 34,
+  "baseline_vs_repeat_identical": 34,
+  "baseline_retrieved": [
+   "2026-10-03T21:17:53Z",
+   "2026-10-03T21:18:08Z"
+  ],
+  "repeat_retrieved": [
+   "2026-10-03T21:18:08Z",
+   "2026-10-03T21:18:22Z"
+  ],
+  "snapshots": {
+   "count": 27,
+   "all_ok": true,
+   "ids": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07",
+    "S08",
+    "S09",
+    "S10",
+    "S11",
+    "S12",
+    "S13",
+    "S14",
+    "S15",
+    "S20",
+    "S21",
+    "S22",
+    "S23",
+    "S24",
+    "S25",
+    "S26",
+    "S28",
+    "S30",
+    "S31",
+    "S32",
+    "S33"
+   ]
+  },
+  "snapshot_files_on_disk": 27,
+  "primary_raw": [
+   "S01",
+   "S02",
+   "S03",
+   "S04",
+   "S05",
+   "S10",
+   "S16",
+   "S17",
+   "S18",
+   "S19",
+   "S23",
+   "S27",
+   "S29",
+   "S30",
+   "S34"
+  ],
+  "primary_normalized": [
+   "S06",
+   "S07",
+   "S08",
+   "S09",
+   "S11",
+   "S12",
+   "S13",
+   "S14",
+   "S15",
+   "S20",
+   "S21",
+   "S22",
+   "S24",
+   "S25",
+   "S26",
+   "S28",
+   "S31",
+   "S32",
+   "S33"
+  ],
+  "raw_reproduced_vs_v1_true": [
+   "S01",
+   "S02",
+   "S03",
+   "S04",
+   "S05",
+   "S10",
+   "S16",
+   "S17",
+   "S18",
+   "S19",
+   "S23",
+   "S27",
+   "S29",
+   "S30",
+   "S34"
+  ],
+  "adr_rows_parsed": 34,
+  "adr_rows_mismatch": [],
+  "github_pins": [
+   {
+    "id": "S16",
+    "commit40": true,
+    "blob": "43d96f862e3b42fe48e8035ccff0c39595cc81db",
+    "baseline_blob_matches": true
+   },
+   {
+    "id": "S17",
+    "commit40": true,
+    "blob": "301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+    "baseline_blob_matches": true
+   },
+   {
+    "id": "S18",
+    "commit40": true,
+    "blob": "367d9116e92e42a0e53a7d19a185199a121e25cf",
+    "baseline_blob_matches": true
+   },
+   {
+    "id": "S19",
+    "commit40": true,
+    "blob": "9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+    "baseline_blob_matches": true
+   },
+   {
+    "id": "S27",
+    "commit40": true,
+    "blob": "4d08d355bf1076e36b4f3843ed59a8a37e8d332c",
+    "baseline_blob_matches": true
+   },
+   {
+    "id": "S29",
+    "commit40": true,
+    "blob": "6f2523a1afb3bf091b91eab073bc6fb0066d9844",
+    "baseline_blob_matches": true
+   },
+   {
+    "id": "S34",
+    "commit40": true,
+    "blob": "2428783ccc56531e1281ef056ed3b216539210e4",
+    "baseline_blob_matches": true
+   }
+  ],
+  "canary_hits": 0
+ },
+ "problems": []
+}
+exit=0

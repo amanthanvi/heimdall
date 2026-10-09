@@ -1,0 +1,75 @@
+== S28
+words committed=692 fresh=692 changed_ops=8 ratio=0.9884
+replace @184 ctx=[...and modern terminal experiences with ease.]
+   - 6000+
+   + 6200+
+replace @190 ctx=[...6000+ 📦 crates built with Ratatui]
+   - 22.8k
+   + 22.9k
+replace @195 ctx=[...Ratatui 22.8k ⭐ stars on GitHub]
+   - 54.5M
+   + 57.7M
+replace @229 ctx=[...of cheese. [ scope-tui ] ⭐]
+   - 726
+   + 734
+replace @244 ctx=[...your terminal [ rebels-in-the-sky ] ⭐]
+   - 742
+   + 749
+replace @254 ctx=[...about spacepirates [ binsider ] ⭐]
+   - 4.4k
+   + 4.5k
+replace @265 ctx=[...your terminal [ crossword ] ⭐]
+   - 55
+   + 56
+replace @276 ctx=[...your terminal [ yozefu ] ⭐]
+   - 350
+   + 349
+exit=0
+== S06
+words committed=1250 fresh=1250 changed_ops=0 ratio=1.0000
+exit=0
+== S09
+words committed=2326 fresh=2326 changed_ops=0 ratio=1.0000
+exit=0
+== S12
+words committed=1295 fresh=1295 changed_ops=0 ratio=1.0000
+exit=0
+== S26 committed vs fresh (run3, 2026-10-09T05:17Z)
+words committed=2436 fresh=2446 changed_ops=12 ratio=0.9824
+replace @610 ctx=[...GPT-6 Luna do. - Fast mode]
+   - is not available with
+   + supports
+replace @618 ctx=[...available with EU data residency for]
+   - GPT-6 Astra,
+   + GPT-6.1 Sol,
+replace @622 ctx=[...residency for GPT-6 Astra, GPT-6 Sol,]
+   - or
+   + and
+replace @624 ctx=[...GPT-6 Astra, GPT-6 Sol, or GPT-6]
+   - Luna.
+   + Luna, but not GPT-6 Astra.
+insert @627 ctx=[...st mode](https://developers.openai.com/api/docs/guides/ultrafast-mode)]
+   - 
+   + for GPT-6.1 Sol supports US and EU data residency and global processing. GPT-6 Astra Ultrafast
+delete @635 ctx=[...data residency and global processing only.]
+   - It does not support EU or other non-US regional processing endpoints.
+   + 
+replace @2273 ctx=[...`include`. - **Data residency:** Fast mode]
+   - is not available with
+   + supports
+replace @2281 ctx=[...available with EU data residency for]
+   - GPT-6 Astra,
+   + GPT-6.1 Sol,
+replace @2285 ctx=[...residency for GPT-6 Astra, GPT-6 Sol,]
+   - or
+   + and
+replace @2287 ctx=[...GPT-6 Astra, GPT-6 Sol, or GPT-6]
+   - Luna.
+   + Luna, but not GPT-6 Astra.
+insert @2290 ctx=[...st mode](https://developers.openai.com/api/docs/guides/ultrafast-mode)]
+   - 
+   + for GPT-6.1 Sol supports US and EU data residency and global processing. GPT-6 Astra Ultrafast
+delete @2298 ctx=[...data residency and global processing only.]
+   - It does not support EU or other non-US regional processing endpoints.
+   + 
+exit=0
