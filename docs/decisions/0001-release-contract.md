@@ -88,8 +88,8 @@ tests (plan §3 G01), so none are declared yet.
 |---|---|---|---|
 | macOS arm64 | TBD | blocked | clean-machine install test of a selected-stack build; current dev host observed: macOS 27.0, OpenSSH 10.3p1 (observation, not a floor) |
 | Linux x86-64 / arm64 | TBD (distribution list TBD) | blocked | real Linux desktop/user-session and headless hosts; container runs are supplementary only |
-| Windows x86-64 | TBD (Windows build + Win32-OpenSSH version) | blocked | native Windows host |
-| WSL2 x86-64 | TBD (WSL version + distributions) | blocked | native Windows host with WSL2 |
+| Windows x86-64 | TBD (Windows build + Win32-OpenSSH version) | blocked | G01 clean-machine tests (the owner's Windows 11 PC, available since 2026-10-06, is not a clean machine) |
+| WSL2 x86-64 | TBD (WSL version + distributions) | blocked | G01 clean-machine tests (the owner's Windows 11 PC with WSL2, available since 2026-10-06, is not a clean machine) |
 | 1Password SSH agent | TBD | blocked | owner-authorized test account/vault with disposable keys on each OS |
 
 ## 6. Baseline-friction worksheet — blocked on owner input
