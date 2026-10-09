@@ -81,10 +81,15 @@
    - The task-pack fix died on a 429 rate limit partway through; its partial work is in `~/.local/share/heimdall-m00/r4-hidden/`, pinned to post-X1b base 84c7665/001a791.
    - Workflow `wf_55ae5a9c-4b4` finished the pack fix, but its recheck found a new major: the transcript audit missed relative/cd/glob access and commands run from the repo root. The run correctly stopped before any implementation.
    - The host disk was full (8.5 GB free). The orchestrator moved the seeded trees into `r4-hidden/seeded-trees/` and deleted `/tmp/hm-r4` (25 GB). About 33 GB is now free.
-   - Second attempt: workflow `wf_21d21205-c96` (script `heimdall-m00-g02-round4-x2b.js`).
-     - fix2, then recheck2, then workspaces, then 3 batches.
-     - Reviewers delete each cell workspace once its evidence is copied (isolation and disk).
-     - Decision: T2.ascii_fold_only counts toward all_pass.
+   - Second attempt `wf_21d21205-c96`:
+     - fix2 and recheck2 were clean (minors only), and 24 workspaces were built in `/tmp/x2ws-*`.
+     - API 429 rate limits then killed 58 of 68 agents. Six implementations completed (T2/T3/T4 × go/rust, opus1) plus one evaluation (T2-go-opus1: 12/12 hidden, 139/139).
+     - Manual audit triage of the 6 completed transcripts: all are SUSPECT by the conservative audit, but every flag is benign. They are polls of background-task output, tool/version checks, docker runs, and the cells' own scratch; nothing read the repo prototypes, the hidden dir or another workspace. Triage list: `r4-scratch/x2-triage.txt`.
+     - The Write tool refused `out/REPORT.md` for implementers, so the orchestrator wrote those files from the structured reports.
+   - Third attempt `wf_0c100051-5bd` (script `heimdall-m00-g02-round4-x2c.js`):
+     - The completed results are passed via `args`, so there is no cache dependence.
+     - 3-chain worker pool, with T4 implementers serialized.
+     - If it is interrupted again, rebuild `args` from both journals (`/tmp/x2c-args.min.json` has the format) and relaunch.
    - Afterwards: audit the implementer transcripts with `audit-transcript.py`, compute tokens and tool calls per cell, and commit the specs, runs and the hidden pack copy.
 2. X1 is done:
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
