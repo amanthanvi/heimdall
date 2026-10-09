@@ -115,4 +115,21 @@
    - an operator at the console (P-W07 Ctrl-C, P-A06 UAC, P-B07 lock);
    - X4 Windows DPAPI/CNG/TPM, which write to the user key store and the TPM.
 4. Re-score ADR-0002 §7 with X1–X6 and get an independent review. Then present the decision (owner D4: after Windows testing).
-5. G04 follow-ups: P5, now authorized in the real token store.
+5. G04 follow-ups:
+   - P5 ran once (unlocked, v1) on 2026-10-09: commits 34ffe3e and 26fed81. Record: blocked / fail.
+     - Load and sign: the CTK key loads and signs only through `ssh-add -K -S`.
+     - Limit clause (fail): `KEYCHAIN_CERTIFICATES` does not limit which identities that path loads.
+     - Export: refused, but `sc_auth` exits 0.
+     - Fixture login: not measured, because of a v1 probe defect.
+   - Probe v3 fixes the defect and is `implemented_unverified`: self-test 132/0 and software-key rehearsals pass. The next real-store run creates and deletes one more identity under D4.
+     - It must run with the screen unlocked; the Mac was locked at 09:23Z, so the run is deferred.
+     - The lock row needs the owner at the console.
+   - Incident to disclose: the P5 agent ran a bare `ssh-agent` once. It created a socket in `~/.ssh/agent`, and without `-U` it may have removed stale sockets there. The agent was killed by exact PID and its socket removed. It held no keys, and the owner's agent was untouched.
+6. M00-T02 (source pins + support matrix):
+   - Recheck 5b2c0a3 found a major gap (M1): the matrix was neither built nor delegated.
+   - fix2 is in the working tree, uncommitted: matrix v1 with pins and record statuses, compare classes, upstream/tags/excerpts checks, A01–A04 and tag pins. An independent recheck2 is running; commit fix2 together with the ADR-0002 §8 A02 citation.
+   - Pending record-wording escalations, held until recheck2 is done:
+     - `g04-windows-*` `blocked_on` text;
+     - `g03-wsl-b-other-windows-user` `blocked_on`;
+     - `g03-win-stale-squat-pipe`: its top level becomes `blocked` under the lowest-row rule;
+     - a README rule for ordering `blocked` against `in_progress`.
