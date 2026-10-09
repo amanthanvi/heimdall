@@ -89,8 +89,16 @@
    - Third attempt `wf_0c100051-5bd` (script `heimdall-m00-g02-round4-x2c.js`):
      - The completed results are passed via `args`, so there is no cache dependence.
      - 3-chain worker pool, with T4 implementers serialized.
-     - If it is interrupted again, rebuild `args` from both journals (`/tmp/x2c-args.min.json` has the format) and relaunch.
-   - Afterwards: audit the implementer transcripts with `audit-transcript.py`, compute tokens and tool calls per cell, and commit the specs, runs and the hidden pack copy.
+     - After the 2026-10-09 compaction the harness reported it stopped, but it is still running inside the earlier claude process (pid 39190, started 2026-10-08 22:01:26). Do not relaunch while that process lives. `/tmp/x2c-watch.sh` watches for the completion record `workflows/wf_0c100051-5bd.json`.
+     - If it is interrupted again, rebuild `args` from both journals (`/tmp/x2c-args.min.json` has the format) and relaunch. Before relaunching, reset every workspace whose implementer made tool calls but did not finish: run `make-workspace.sh` on a fresh directory, and move the old manifest aside.
+     - By 2026-10-09 01:10, 16 of 24 implementations were done. Every scored cell passes all its hidden tests on darwin and Linux, and the harness at 139/139. T3 is 136/139, with exactly the 3 checks its spec expects to fail. The reviewers found no blocker or major.
+   - **Contamination found and fixed:**
+     - The T1 opus1 cells of the third attempt continued interrupted second-attempt work: Go after 47 tool calls, Rust after 31. Their workspaces were never reset.
+     - Both results are kept in `x2/runs-excluded/` (see its NOTE.md) and not scored.
+     - Both cells are being rerun in fresh workspaces by `wf_9661f31f-f4b` (`heimdall-m00-g02-round4-x2d.js`, same prompts, one chain).
+     - Every other implementer started fresh: either it finished its own fresh workspace, or its second-attempt predecessor failed with 0 tool calls.
+   - Audit triage, metrics and helper scripts: `r4-scratch/x2c-audit/` (TRIAGE.md, triage.py, evals.py, reviews.py, metrics.py). The 6 fresh third-attempt cells triaged so far are clean.
+   - Afterwards: triage the remaining transcripts, compute final metrics, and commit the specs, runs and the hidden pack copy.
 2. X1 is done:
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
    - G02 native: commit 48f854a. linux-x64 139/139 for both; windows-x64 Go 63/63, Rust 60/63 gating before §9.6.
