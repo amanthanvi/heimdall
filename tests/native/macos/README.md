@@ -131,3 +131,45 @@ It needs Docker and does not need the M00-T03 fixture. It does the following:
 - Removes the containers, the image and the temp dir.
 
 Extra arguments are passed to the probe.
+
+## `g04_ctk_probe.sh`: can a Secure Enclave CTK identity serve as a working key across screen lock? (P5)
+
+Authorized by owner decision D4 (g04 §9.1). The probe creates **one** non-exportable Secure Enclave
+identity (`sc_auth create-ctk-identity -k p-256-ne -t none`, label `heimdall-m00-p5-<random hex>`)
+in your user token store. It loads the identity through `/usr/lib/ssh-keychain.dylib` into
+dedicated `ssh-agent`s it starts itself, signs with it, and optionally logs in to fixture `ca1` with
+a short-lived certificate. It then checks that export fails and deletes the identity by its exact
+hash. Results so far: g04 §5.1, the paragraph headed "P5, unlocked run".
+
+### Before you run it
+
+- The CTK store must be **empty** and no smart card may be inserted. The probe refuses to start
+  otherwise, because it must never load, use or delete an identity it did not create.
+- For the login clause, bring up the fixture first: `tests/fixtures/ssh/up.sh`.
+
+### Run it
+
+```sh
+tests/native/macos/g04_ctk_probe.sh --mode unlocked --fixture-runtime tests/fixtures/ssh/runtime
+tests/native/macos/g04_ctk_probe.sh --mode lock --fixture-runtime tests/fixtures/ssh/runtime
+```
+
+- Lock mode is driven the same way as `g04_lock_probe.sh --mode lock`: lock with
+  **Control-Command-Q** when told to, stay locked for about `--lock-seconds`, unlock, then press
+  **Enter**.
+- If a smart-card pairing dialog appears, dismiss it. Answer the closing questions truthfully.
+- Run `tests/fixtures/ssh/down.sh` afterwards.
+
+### What it never touches
+
+Your `~/.ssh`, because the agents get `HOME=<temp>`, `-U` and `-a <temp socket>`. Also your
+`SSH_AUTH_SOCK` agent, the login keychain, 1Password, any identity it did not create, and any host
+other than the loopback fixture containers. It never runs `sc_auth delete-all-ctk-identities`.
+
+### If a run is interrupted
+
+Cleanup runs on exit, on signals and on a second signal. It deletes the identity by hash, kills its
+agents by exact PID after re-checking their start time, and removes its temp directory. Exit 4 means
+cleanup was incomplete, and the run record then says what is left. To check by hand, run
+`sc_auth list-ctk-identities`: an identity whose label starts with `heimdall-m00-p5-` is residue.
+Remove it with `sc_auth delete-ctk-identity -h <its hash>`, using that one hash only.
