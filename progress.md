@@ -6,7 +6,7 @@
 | Task | Status | Notes |
 |---|---|---|
 | M00-T01 current-state note | verified | `docs/current-state.md` |
-| M00-T02 source pins + support matrix | implemented_unverified | Committed in d096a64. Reproducible pins; review findings fixed but the fixes have not been re-reviewed. Owner items E6 and E8 |
+| M00-T02 source pins + support matrix | verified | d096a64; recheck 5b2c0a3 (M1 + m1–m9); fix2 + recheck2 3622c56 (no blocker/major). Open minors n2–n10, n13 (fetcher exit semantics, nits). Owner items E6 and E8 |
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
 | M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Two review rounds resolved. Every native record is blocked (no Windows 11/WSL2 host) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
@@ -125,11 +125,6 @@
      - It must run with the screen unlocked; the Mac was locked at 09:23Z, so the run is deferred.
      - The lock row needs the owner at the console.
    - Incident to disclose: the P5 agent ran a bare `ssh-agent` once. It created a socket in `~/.ssh/agent`, and without `-U` it may have removed stale sockets there. The agent was killed by exact PID and its socket removed. It held no keys, and the owner's agent was untouched.
-6. M00-T02 (source pins + support matrix):
-   - Recheck 5b2c0a3 found a major gap (M1): the matrix was neither built nor delegated.
-   - fix2 is in the working tree, uncommitted: matrix v1 with pins and record statuses, compare classes, upstream/tags/excerpts checks, A01–A04 and tag pins. An independent recheck2 is running; commit fix2 together with the ADR-0002 §8 A02 citation.
-   - Pending record-wording escalations, held until recheck2 is done:
-     - `g04-windows-*` `blocked_on` text;
-     - `g03-wsl-b-other-windows-user` `blocked_on`;
-     - `g03-win-stale-squat-pipe`: its top level becomes `blocked` under the lowest-row rule;
-     - a README rule for ordering `blocked` against `in_progress`.
+6. M00-T02 is verified (3622c56).
+   - Open minors from recheck2: n2 (exit code ignores off-pin), n3 (404 counts as fetch failure), n4 (latent `</head>` normalization), n5, n8–n10, n13.
+   - The record-wording escalations were applied: `g04-windows-*` and `g03-wsl-b-other-windows-user` `blocked_on`; `g03-win-stale-squat-pipe` is now `blocked` under the lowest-row rule. The status order is now written down in `tests/evidence/README.md`.

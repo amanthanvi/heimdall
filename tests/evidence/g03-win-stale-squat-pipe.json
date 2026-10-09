@@ -1,6 +1,6 @@
 {
   "case_id": "G03-win-stale-squat-pipe",
-  "status": "in_progress",
+  "status": "blocked",
   "requirement_ids": [
     "R-EN-01",
     "R-RT-03",
@@ -137,5 +137,5 @@
     "Promoted by M00-T04-G03-native-windows from environment.raw_record; fields added at promotion: environment.task/host/fixture/harness_provenance/raw_record/supplementary_ps51_record, observed_result.sub_probe_status, and the limitations after the harness-written ones. The supplementary Windows PowerShell 5.1 run of the same harness gave the same status and criteria.",
     "Orchestrator 2026-10-06 (native-review finding): the §4.1 pass criterion 'owner start fails on a pre-squatted name' (cross-user) was not observed, so per §4 the record is in_progress/inconclusive; the same-user rows that ran all passed (sub_probe_status). P-W06 is not passed for the N2 ship gate."
   ],
-  "blocked_on": null
+  "blocked_on": "a second, disposable, non-administrator local Windows account (-OtherUserCredential) with the Secondary Logon service; not available on the owner PC and creating one is outside the task authority"
 }

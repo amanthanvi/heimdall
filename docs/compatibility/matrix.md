@@ -18,9 +18,8 @@ Each row carries three separate statuses:
   `verified`, `deferred_with_decision`) of the gate and fixture records that exercise the row's mechanism. It
   describes the evidence, not product support, and follows the gate-probe convention in `tests/evidence/README.md`:
   `verified` means the probe ran as designed and its output is preserved, whatever the verdict. Each record keeps
-  its own top-level status. The multi-row rule says that status is the record's lowest row status, but two records
-  are coarser: `g03-win-stale-squat-pipe.json` (W5) is `in_progress` with a `blocked` sub-row, and
-  `m00-t03-fixtures.json` is `in_progress` by design. A row takes the lowest-standing status among the records and
+  its own top-level status. The multi-row rule says that status is the record's lowest row status (order in
+  `tests/evidence/README.md`); `m00-t03-fixtures.json` is coarser: it is `in_progress` by design. A row takes the lowest-standing status among the records and
   sub-rows it relies on:
   - `blocked` if any cited record or needed sub-row is `blocked`, or cannot run without a missing platform, host,
     operator or authorization; the missing input is named;
@@ -96,8 +95,8 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
    Linux desktop and headless hosts where the owner can log out and reboot
    (`g04-linux-logout-reboot-headless-probe.json`).
 7. **Evidence:** native Windows 11 run of 2026-10-06 (W1–W12; W4 belongs to row 16 and W11 to row 8). `verified`:
-   W1, W2, W3, W7, W8, W9. `in_progress`: W5, whose cross-user pre-squat sub-row is `blocked` on a second
-   account. `blocked`: W6 (Ctrl-C/resize need an interactive console operator), W10 (a second disposable non-admin
+   W1, W2, W3, W7, W8, W9. `blocked`: W5 (its same-user rows are verified; the cross-user pre-squat sub-row needs
+   a second account), W6 (Ctrl-C/resize need an interactive console operator), W10 (a second disposable non-admin
    Windows account), W12 (a disposable host whose agent store may be mutated, with
    `-AllowSystemAgentMutation -IAmOnADisposableHost`). The owner's agent on `\\.\pipe\openssh-ssh-agent` was never
    contacted; every probe used fixture pipes. **Observed:** Windows 11 Pro build 26300.9550 x86-64, non-elevated.
@@ -166,7 +165,7 @@ forwarding. Artifacts: `tests/evidence/artifacts/g03/native-win/`. Summary in `d
 | W2 | `SSH_AUTH_SOCK` in backslash or forward-slash form selects a fixture pipe on both Win32-OpenSSH builds. A non-existent pipe gives exit 2 with no fallback. Any non-ASCII character in the pipe name makes selection fail; spaces work. Git's MSYS `ssh-add` cannot use Windows named pipes: it opened the pipe as a file and sent no request. | `g03-win-sshauthsock-selection.json` | verified / pass | S01, S30; G03-S02 |
 | W3 | `IdentityAgent \\.\pipe\x` (single backslashes) is unescaped and reaches nothing. Doubled backslashes, forward slashes, `$VAR` and `${VAR}` select the target exclusively. Both Win32-OpenSSH builds behave the same; MSYS ssh reaches no pipe in any form. | `g03-win-identityagent-forms.json` | verified / pass | S01; G03-S03, G03-S04, G03-S05 |
 | W4 | Git precedence `GIT_SSH_COMMAND` > `core.sshCommand` > `GIT_SSH`. System32 ssh through `core.sshCommand` reached the fixture pipe. The live default row was not run. | `g03-win-git-ssh-selection.json` | blocked / inconclusive | G03-S13, G03-S14 |
-| W5 | A pipe server with `FILE_FLAG_FIRST_PIPE_INSTANCE` refuses a duplicate server. The pipe vanishes when its server dies, and the client then exits 2. The cross-user pre-squat row is blocked (second account). | `g03-win-stale-squat-pipe.json` | in_progress / inconclusive | G03-S09, G03-S10 |
+| W5 | A pipe server with `FILE_FLAG_FIRST_PIPE_INSTANCE` refuses a duplicate server. The pipe vanishes when its server dies, and the client then exits 2. The cross-user pre-squat row is blocked (second account). | `g03-win-stale-squat-pipe.json` | blocked / inconclusive | G03-S09, G03-S10 |
 | W6 | Exit 42 preserved, stderr separate, UTF-8 exact, 1 MiB binary round trip exact. `ssh true` took 151–190 ms over loopback (pwsh 7 record). Ctrl-C and resize not run. | `g03-win-process-io.json` | blocked / inconclusive | — |
 | W7 | `-F` works under a spaced, non-ASCII directory. In a directory containing `%`, only the `%%`-escaped known_hosts path works. Process-API argv exact for 17 cases; `cmd.exe` altered the `%` case. | `g03-win-path-quoting.json` | verified / pass | S01 |
 | W8 | Service DACL grants Authenticated Users start only (not stop or reconfigure). An owner-only fixture pipe needed no elevation. | `g03-win-service-elevation.json` | verified / pass | S13; G03-S08 |

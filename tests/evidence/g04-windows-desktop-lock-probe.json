@@ -26,5 +26,5 @@
     "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
     "The Windows OpenSSH ssh-agent service is machine-global; a dedicated test agent needs a G03 decision on named-pipe selection."
   ],
-  "blocked_on": "native Windows x86-64 host with an interactive user session and an owner to press Win+L and unlock (none available on this macOS arm64 machine)"
+  "blocked_on": "the probe script (PowerShell, not implemented yet) and an owner at the console of the native Windows 11 host (the owner's PC, available since 2026-10-06) to press Win+L and unlock"
 }

@@ -26,5 +26,5 @@
     "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
     "Design only."
   ],
-  "blocked_on": "native Windows x86-64 host where the owner can sign out and reboot (none available on this macOS arm64 machine)"
+  "blocked_on": "the probe script (not implemented yet) and an owner at the native Windows 11 host (the owner's PC, available since 2026-10-06) to sign out, reboot and sign back in"
 }

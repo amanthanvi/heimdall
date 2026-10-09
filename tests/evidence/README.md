@@ -33,7 +33,11 @@ pass condition was observed on the stated environment. A failing run stays
 Multi-row inventory records, such as the fixture inventory, put the
 authoritative status for each row in `observed_result.per_fixture` (or an
 equivalent per-row map). The top-level `status` is the lowest per-row status
-among the rows the record claims to cover.
+among the rows the record claims to cover. The order, lowest first, is `blocked`,
+`not_started`, `in_progress`, `implemented_unverified`, `verified`. A row with
+`deferred_with_decision` is not part of the claim and does not count. So a record
+with one `blocked` row and every other row `verified` is `blocked`, and its
+`blocked_on` names the missing input for that row.
 
 Canary rule: no evidence record or artifact may contain a full
 `HEIMDALL_CANARY_…` value. Harness assertion text names a canary by fixture
