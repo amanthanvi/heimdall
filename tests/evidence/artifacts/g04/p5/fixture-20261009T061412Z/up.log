@@ -1,0 +1,57 @@
+[2026-10-09T06:14:18Z] pulling base debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1 (preexisting=0)
+  docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1: Pulling from library/debian
+  7f50a08a2527: Already exists
+  Digest: sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  Status: Downloaded newer image for debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+[2026-10-09T06:14:18Z] building heimdall-m00-t03-sshd:local
+  #0 building with "default" instance using docker driver
+  
+  #1 [internal] load build definition from Dockerfile
+  #1 transferring dockerfile: 945B done
+  #1 DONE 0.0s
+  
+  #2 [internal] load metadata for docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  #2 DONE 0.0s
+  
+  #3 [internal] load .dockerignore
+  #3 transferring context: 2B done
+  #3 DONE 0.0s
+  
+  #4 [1/4] FROM docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  #4 DONE 0.0s
+  
+  #5 [internal] load build context
+  #5 transferring context: 1.97kB done
+  #5 DONE 0.0s
+  
+  #6 [3/4] COPY entrypoint.sh /usr/local/bin/fixture-entrypoint.sh
+  #6 CACHED
+  
+  #7 [2/4] RUN apt-get update  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server  && rm -rf /var/lib/apt/lists/*  && mkdir -p /run/sshd /fixture  && rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+  #7 CACHED
+  
+  #8 [4/4] RUN chmod 0755 /usr/local/bin/fixture-entrypoint.sh
+  #8 CACHED
+  
+  #9 exporting to image
+  #9 exporting layers done
+  #9 writing image sha256:092779bfcf39aa145342b7dd16c54135425393eb439e21452a6b522d85382561 done
+  #9 naming to docker.io/library/heimdall-m00-t03-sshd:local done
+  #9 DONE 0.0s
+  
+  View build details: docker-desktop://dashboard/build/default/default/jpzaclmvtiywnpc16ulzf66l6
+[2026-10-09T06:14:19Z] generating per-run keys, CA and host keys in <home>/GitRepos/heimdall/tests/fixtures/ssh/runtime
+[2026-10-09T06:14:19Z] starting hm-m00t03-fixed
+[2026-10-09T06:14:19Z] starting hm-m00t03-enroll
+[2026-10-09T06:14:19Z] starting hm-m00t03-ca1
+[2026-10-09T06:14:19Z] starting hm-m00t03-ca2
+[2026-10-09T06:14:19Z] starting hm-m00t03-bastion
+[2026-10-09T06:14:19Z] starting hm-m00t03-target
+[2026-10-09T06:14:20Z] up complete (run 20261009T061418Z-22894). Ports (loopback only):
+  PORT_fixed=65166
+  PORT_enroll=65168
+  PORT_ca1=65169
+  PORT_ca2=65172
+  PORT_bastion=65173
+[2026-10-09T06:14:20Z] client config: <home>/GitRepos/heimdall/tests/fixtures/ssh/runtime/ssh_config  (use: /usr/bin/ssh -F runtime/ssh_config <alias>)

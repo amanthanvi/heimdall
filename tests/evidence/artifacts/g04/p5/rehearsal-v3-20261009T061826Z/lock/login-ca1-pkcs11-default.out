@@ -1,0 +1,68 @@
+debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+debug1: Reading configuration data <tmp>/ssh_config-pkcs11-default
+debug1: <tmp>/ssh_config-pkcs11-default line 1: Applying options for probe-target
+debug1: <tmp>/ssh_config-pkcs11-default line 11: Applying options for *
+debug1: Authenticator provider $SSH_SK_PROVIDER did not resolve; disabling
+debug1: Connecting to 127.0.0.1 [127.0.0.1] port 65169.
+debug1: fd 3 clearing O_NONBLOCK
+debug1: Connection established.
+debug1: loaded pubkey from <tmp>/pkcs11-default.pub: ECDSA SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0
+debug1: identity file <tmp>/pkcs11-default.pub type 1
+debug1: loaded identity cert from <tmp>/pkcs11-default-cert.pub: ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0
+debug1: Local version string SSH-2.0-OpenSSH_10.3
+debug1: Remote protocol version 2.0, remote software version OpenSSH_10.0p2 Debian-7+deb13u4
+debug1: compat_banner: match: OpenSSH_10.0p2 Debian-7+deb13u4 pat OpenSSH* compat 0x04000000
+debug1: Authenticating to 127.0.0.1:65169 as 'cert'
+debug1: using hostkeyalias: hm-ca1
+debug1: SSH2_MSG_KEXINIT sent
+debug1: SSH2_MSG_KEXINIT received
+debug1: kex: algorithm: mlkem768x25519-sha256
+debug1: kex: host key algorithm: ssh-ed25519
+debug1: kex: server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: kex: client->server cipher: chacha20-poly1305@openssh.com MAC: <implicit> compression: none
+debug1: expecting SSH2_MSG_KEX_ECDH_REPLY
+debug1: SSH2_MSG_KEX_ECDH_REPLY received
+debug1: Server host key: ssh-ed25519 SHA256:<other-fp>
+debug1: using hostkeyalias: hm-ca1
+debug1: Host 'hm-ca1' is known and matches the ED25519 host key.
+debug1: Found key in <home>/GitRepos/heimdall/tests/fixtures/ssh/runtime/known_hosts:3
+debug1: ssh_packet_send2_wrapped: resetting send seqnr 3
+debug1: rekey out after 134217728 blocks
+debug1: SSH2_MSG_NEWKEYS sent
+debug1: Sending SSH2_MSG_EXT_INFO
+debug1: expecting SSH2_MSG_NEWKEYS
+debug1: ssh_packet_read_poll2: resetting read seqnr 3
+debug1: SSH2_MSG_NEWKEYS received
+debug1: rekey in after 134217728 blocks
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: kex_ext_info_check_ver: publickey-hostbound@openssh.com=<0>
+debug1: kex_ext_info_check_ver: ping@openssh.com=<0>
+debug1: SSH2_MSG_SERVICE_ACCEPT received
+debug1: SSH2_MSG_EXT_INFO received
+debug1: kex_ext_info_client_parse: server-sig-algs=<ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256>
+debug1: Authentications that can continue: publickey
+debug1: Next authentication method: publickey
+debug1: get_agent_identities: bound agent to hostkey
+debug1: get_agent_identities: agent returned 1 keys
+debug1: Will attempt key: <tmp>/pkcs11-default-cert.pub ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 explicit
+debug1: Will attempt key: <tmp>/pkcs11-default.pub ECDSA SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 explicit agent
+debug1: Offering public key: <tmp>/pkcs11-default-cert.pub ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 explicit
+debug1: Server accepts key: <tmp>/pkcs11-default-cert.pub ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 explicit
+Authenticated to 127.0.0.1 ([127.0.0.1]:65169) using "publickey".
+debug1: channel 0: new session [client-session] (inactive timeout: 0)
+debug1: Requesting no-more-sessions@openssh.com
+debug1: Entering interactive session.
+debug1: pledge: network
+debug1: client_input_global_request: rtype hostkeys-00@openssh.com want_reply 0
+debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+debug1: Remote: cert: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+debug1: Remote: principals: key options: agent-forwarding port-forwarding pty user-rc x11-forwarding
+debug1: Sending command: true
+debug1: pledge: fork
+debug1: client_input_channel_req: channel 0 rtype exit-status reply 0
+debug1: channel 0: free: client-session, nchannels 1
+Transferred: sent 4724, received 4084 bytes, in 0.0 seconds
+Bytes per second: sent 2757735.0, received 2384121.4
+debug1: Exit status 0

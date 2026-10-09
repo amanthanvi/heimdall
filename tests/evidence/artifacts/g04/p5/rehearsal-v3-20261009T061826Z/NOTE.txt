@@ -1,0 +1,15 @@
+Rehearsal of probe v3 after the bash-3.2 fix (2026-10-09T06:18Z). NOT Secure Enclave / CTK evidence (software
+ecdsa keys, fake sc_auth; see rehearsal.patch and ../rehearsal-v3-20261009T061500Z/NOTE.txt for the method).
+Probe as rehearsed: sha256 37a2227ab6ab863ef17904490b940a01934afe06a9a7d0f6d6860d5cbce67320 (self-tested at
+06:17Z, pass=132); the final v3 (28900c77...) differs from it only by two header comments (checked by
+removing them and recomputing the hash).
+unlocked/: all six clauses pass with key A; ca1 login accepted, ca2 control refused_at_query, no-agent
+  control failed_after_query; key B rejected as not this run's identity; ca1 logged 4 accepted logins.
+lock/: run in a pseudo-terminal, answers scripted (Enter after ~30 s, then "n" to "did the screen lock",
+  "n" to "dialog"); 16 samples, all unlocked by IORegistry; lock window correctly "not_established",
+  status in_progress / verdict inconclusive; certificate -1m:+64m; ca1 logged 17 accepted logins.
+Exit 1 in both modes is by design in hook mode (status is never verified there).
+A third run (not kept) removed the hook-mode gate on the verdict code in a temp copy and answered "y" to
+the lock question, only to exercise the verdict branches: unlocked computed verified/pass and lock
+verified/pass. During that run the Mac auto-locked (IORegistry lock signal in the window samples); its
+outputs were deleted because a scripted "y" must never look like owner evidence.

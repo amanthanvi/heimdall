@@ -1,0 +1,14 @@
+Fixture bring-up for P5, 2026-10-09 (transcribed from the agent session; these two failed attempts' logs
+were overwritten by the third attempt and are not preserved verbatim).
+Attempts 1 (05:30:34Z) and 2 (05:31:39Z): tests/fixtures/ssh/up.sh exit 1. The base image pull failed with:
+  error getting credentials - err: exit status 1, out: `keychain cannot be accessed because the current
+  session does not allow user interaction. The keychain may be locked; unlock it by running "security -v
+  unlock-keychain ~/Library/Keychains/login.keychain-db" and try again`
+  (attempt 2 used a temporary DOCKER_CONFIG without credsStore; the CLI still auto-detected osxkeychain).
+  down.sh after each: CLEANUP CONFIRMED.
+Attempt 3 (05:32:13Z): up.sh exit 0 (up.log), smoke.sh pass=61 fail=0 (smoke.log), with a per-command
+  temporary DOCKER_CONFIG whose credsStore was a stub helper that stores nothing and answers "credentials not
+  found" (anonymous pull), plus DOCKER_HOST set to the desktop-linux context socket. The owner's Docker
+  config and keychain were not read or changed. down.sh at 05:40:38Z: CLEANUP CONFIRMED (down.log); the base
+  image up.sh had pulled was removed by down.sh.
+Context: the agent ran in the launchd Background session (launchctl managername).

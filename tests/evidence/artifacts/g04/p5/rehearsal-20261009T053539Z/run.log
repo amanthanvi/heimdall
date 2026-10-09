@@ -1,0 +1,37 @@
+05:35:39Z g04_ctk_probe v1 mode=unlocked launchd_session=Background out=tmp/heimdall-g04-p5-selftest.XPyTk428/out SELF-TEST (fake sc_auth)
+05:35:39Z temp dir created (0700, disposable)
+05:35:39Z AuthenticationAuthority digest taken (memory only); token-identity pairings before: 0
+05:35:39Z SmartCard pairing dialog: enabled (if macOS offers to pair heimdall-m00-p5-..., dismiss it; do NOT pair)
+05:35:39Z pre-run CTK identities: 0 (list kept only in the 0700 temp dir; digest in memory); rows with prefix heimdall-m00-p5- from earlier runs: 0 (never touched)
+05:35:39Z creating CTK identity label=heimdall-m00-p5-0d50ebdb602887ec type=p-256-ne protection=none (timeout 20s)
+05:35:39Z create-ctk-identity rc=0 timed_out=0
+05:35:39Z own identity present (hash prefix 16AE771F); rows with own label: 1
+05:35:40Z sc_auth SSH hash for own identity: SHA256:Ioc2JH+WDgfoknlG4Bq1t7y+XKjCrCQ2rF0ovrOV46o
+05:35:40Z dedicated ssh-agent ctlpkcs11 pid=77803 (HOME=<tmp>/home-ctlpkcs11, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<random non-matching hash>)
+05:35:40Z filter control pkcs11 (non-matching hash): load rc=1 keys=0
+05:35:40Z dedicated ssh-agent pkcs11 pid=77846 (HOME=<tmp>/home-pkcs11, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<own hash>)
+05:35:40Z load pkcs11 (ssh-add -s /usr/lib/ssh-keychain.dylib) rc=0 class=other keys_in_agent=1
+05:35:40Z pkcs11: agent lists 1 key alg=ecdsa-sha2-nistp256 fp=SHA256:knqrEFTLLCeBhpHbsyxIGSiwDPVKjIAUyG/93/3GASc; fp vs sc_auth SSH hash: differs; EC-point hash vs own hash: pkhash_differs; ownership basis: only_ctk_identity_in_store
+05:35:40Z pkcs11: ssh-add -T rc=0; -Y sign rc=0; check-novalidate rc=0
+05:35:40Z pkcs11: fresh login to ca1 with default-extension certificate rc=0
+05:35:40Z pkcs11: controls: ca2 principal mismatch rc=255 (expect non-zero); ca1 without agent rc=255 (expect non-zero)
+05:35:40Z dedicated ssh-agent ctlsk pid=78088 (HOME=<tmp>/home-ctlsk, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<random non-matching hash>)
+05:35:40Z filter control sk (non-matching hash): load rc=1 keys=0
+05:35:40Z dedicated ssh-agent sk pid=78140 (HOME=<tmp>/home-sk, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<own hash>)
+05:35:40Z load sk (ssh-add -K -S /usr/lib/ssh-keychain.dylib) rc=0 class=other keys_in_agent=1
+05:35:40Z sk: agent lists 1 key alg=ssh-ed25519 fp=SHA256:MrTRH3vuk9PsC2WpYdSwfJBJcCyo/rWwhhG1YpF55lw; fp vs sc_auth SSH hash: differs; EC-point hash vs own hash: not_parsed; ownership basis: only_ctk_identity_in_store
+05:35:40Z sk: ssh-add -T rc=0; -Y sign rc=0; check-novalidate rc=0
+05:35:40Z sk: fresh login to ca1 with default-extension certificate rc=0
+05:35:40Z sk: controls: ca2 principal mismatch rc=255 (expect non-zero); ca1 without agent rc=255 (expect non-zero)
+05:35:40Z sampler pid=78407; taking 3 samples (screen stays unlocked)
+05:35:46Z sampling stopped; 3 samples
+05:35:46Z server-side (ca1): accepted logins with this run's key IDs: pkcs11=4 sk=4; presence-related lines: pkcs11=na sk=na
+05:35:46Z export check: sc_auth export-ctk-identity -h <own hash> -f <tmp>/export.p12 -p <random, not recorded>
+05:35:46Z export-ctk-identity rc=1 timed_out=0 file=absent class=hardware_bounded_cannot_be_exported
+05:35:46Z delete-ctk-identity -h <own hash> rc=0 timed_out=0; own row absent afterwards: yes
+05:35:47Z pkcs11 after identity delete: agent lists 1 key(s); ssh-add -T rc=0; -Y sign rc=0
+05:35:47Z sk after identity delete: agent lists 1 key(s); ssh-add -T rc=0; -Y sign rc=0
+05:35:47Z cleanup: sampler=stopped agents=[ctlpkcs11:terminated pkcs11:terminated ctlsk:terminated sk:terminated] sockets=[ctlpkcs11:removed pkcs11:removed ctlsk:removed sk:removed] identity=deleted identity_list=matches_pre_run authentication_authority=unchanged export_file=absent caffeinate=not_started temp_dir=removed
+05:35:47Z result: status=in_progress verdict=inconclusive; SELF-TEST with a fake sc_auth (no real token store, no ssh-keychain.dylib). mode=unlocked; identity created=yes (create_rc=0, timed_out=0); export_rc=1 export_file=absent (hardware_bounded_cannot_be_exported); deleted=yes; pkcs11: load_rc=0 keys=1 alg=ecdsa-sha2-nistp256 sign=available_all_samples login=available_all_samples variant=default works=yes; sk: load_rc=0 keys=1 alg=ssh-ed25519 sign=available_all_samples login=available_all_samples variant=default works=yes; samples=3; lock_window_evidence=not_applicable; identity_list_after_cleanup=matches_pre_run; cleanup_complete=true; canary_scan=clean.
+05:35:47Z record written: /tmp/heimdall-g04-p5-selftest.XPyTk428/out/run-record.json (JSON parses)
+05:35:47Z exit=1

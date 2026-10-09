@@ -1,0 +1,6 @@
+debug1: OpenSSH_10.3p1, LibreSSL 3.3.6
+debug1: Reading configuration data <tmp>/ssh_config-pkcs11-default
+debug1: <tmp>/ssh_config-pkcs11-default line 1: Applying options for probe-target
+debug1: <tmp>/ssh_config-pkcs11-default line 11: Applying options for *
+<tmp>/ssh_config-pkcs11-default: line 19: Bad configuration option: printf
+<tmp>/ssh_config-pkcs11-default: terminating, 1 bad configuration options

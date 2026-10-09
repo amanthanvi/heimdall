@@ -1,0 +1,4 @@
+Post-run redaction (2026-10-09, after independent review M00-T04-g04-P5): the local time of day in the
+identity's "Valid To" column (format "<m>/<d>/<yy>, <h>:<mm> AM|PM", which revealed the host's UTC offset)
+was replaced by <local-time> in identity-row.txt and in run-record.json (observed_result.identity.own_row_redacted).
+No other byte of these artifacts was changed. Probe v3 applies this redaction itself.

@@ -1,0 +1,2 @@
+Second fixture bring-up (for the probe v3 rehearsals), same anonymous-pull method as fixture-20261009T053213Z.
+up.sh exit 0 (run 20261009T061418Z-22894), smoke.sh pass=61 fail=0, down.sh at 08:44:23Z CLEANUP CONFIRMED.

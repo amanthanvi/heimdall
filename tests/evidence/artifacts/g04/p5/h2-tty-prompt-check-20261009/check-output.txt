@@ -1,0 +1,12 @@
+CTK identities before: 0
+agent pid=66223 comm=/usr/bin/ssh-agent
+never-sk: rc=124 elapsed=15s (killed by 15 s timeout: blocked)
+never-p11: rc=124 elapsed=15s (killed by 15 s timeout: blocked)
+force-sk: rc=1 elapsed=0s 
+    tty> ^DProvider "/usr/lib/ssh-keychain.dylib" returned failure -1
+    tty> Unable to load resident keys: invalid format
+force-p11: rc=1 elapsed=0s 
+    tty> ^DCould not add card "/usr/lib/ssh-keychain.dylib": agent refused operation
+agent after kill: gone
+ssh-add processes left: 0
+temp removed: yes

@@ -1,0 +1,14 @@
+149c149
+<   [ -z "$FIXTURE_RUNTIME" ] || die_usage "self-test hook does not use --fixture-runtime"
+---
+>   : # rehearsal: fixture allowed
+403,404c403,404
+<     pkcs11) run_in "$2" 60 "$3" "$SSH_ADD" -s "$KC_DYLIB";;
+<     sk) run_in "$2" 60 "$3" "$SSH_ADD" -K -S "$KC_DYLIB";;
+---
+>     pkcs11) case "$2" in ctl*) echo "rehearsal: control loads nothing" > "$3"; return 1;; esac; run_in "$2" 60 "$3" "$SSH_ADD" "$REH_KEYS/k_pkcs11";;
+>     sk) case "$2" in ctl*) echo "rehearsal: control loads nothing" > "$3"; return 1;; esac; run_in "$2" 60 "$3" "$SSH_ADD" "$REH_KEYS/k_sk";;
+817c817
+< if [ "$SELFTEST" -eq 1 ]; then
+---
+> if false; then  # rehearsal: load paths run with software keys

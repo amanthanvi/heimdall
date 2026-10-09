@@ -1,0 +1,16 @@
+182,183c182,183
+<   [ "$MODE" = unlocked ] || die_usage "self-test hook supports --mode unlocked only"
+<   [ -z "$FIXTURE_RUNTIME" ] || die_usage "self-test hook does not use --fixture-runtime"
+---
+>   : # rehearsal: lock mode allowed
+>   : # rehearsal: fixture allowed
+437,438c437,438
+<     pkcs11) run_in "$2" 60 "$3" "$SSH_ADD" -s "$KC_DYLIB";;
+<     sk) run_in "$2" 60 "$3" "$SSH_ADD" -K -S "$KC_DYLIB";;
+---
+>     pkcs11) case "$2" in ctl*) echo "rehearsal: control loads nothing" > "$3"; return 1;; esac; run_in "$2" 60 "$3" "$SSH_ADD" "$REH_KEYS/k_pkcs11";;
+>     sk) case "$2" in ctl*) echo "rehearsal: control loads nothing" > "$3"; return 1;; esac; run_in "$2" 60 "$3" "$SSH_ADD" "$REH_KEYS/k_sk";;
+927c927
+< if [ "$SELFTEST" -eq 1 ]; then
+---
+> if false; then  # rehearsal: load paths run with software keys

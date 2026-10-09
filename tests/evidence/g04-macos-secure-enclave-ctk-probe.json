@@ -6,24 +6,121 @@
     "R-CR-03",
     "R-EN-04"
   ],
-  "build_commit": null,
-  "artifact_digest": null,
+  "build_commit": "5b2c0a3c87ae2cba1aabe15f6f5eca9230f3bdde",
+  "artifact_digest": "sha256:623bfdca3623c68b522561f16a9dad5bd88f681b1740ba36d9668633eab2ec1c (tests/native/macos/g04_ctk_probe.sh v1 as run; not committed at build_commit; exact bytes kept as tests/evidence/artifacts/g04/p5/g04_ctk_probe-v1-as-run.sh.txt; current v3 (sha256 c9b2fcc176e688bd6fe68f3b9776d06c27244abd520e482834c2e2aa1e455dd2) reverses to it through probe-v2-to-v3.patch then probe-v1-to-v2.patch, checked byte for byte)",
   "environment": {
     "platform": "macOS",
-    "required": "native macOS host with Secure Enclave; owner authorization to create (and afterwards delete) a non-exportable CTK identity in the user's token store"
+    "os_version": "27.0",
+    "os_build": "26A428",
+    "arch": "arm64",
+    "hardware_model": "Mac17,6",
+    "bash": "3.2.57(1)-release",
+    "native_host": true,
+    "launchd_session": "Background (launchctl managername of the agent process that ran the probe)",
+    "screen_state_during_unlocked_run": "IOConsoleLocked=false in all 3 samples; CGSSessionScreenIsLocked absent",
+    "human_driven_lock": false,
+    "fixture": "tests/fixtures/ssh up.sh run 20261009T053213Z (smoke.sh pass=61 fail=0), loopback ports only; server OpenSSH_10.0p2 Debian-7+deb13u4; down.sh CLEANUP CONFIRMED afterwards (artifacts/g04/p5/fixture-20261009T053213Z/)"
   },
-  "provider_versions": [],
-  "started_at": null,
-  "commands_or_harness": [
-    "planned: sc_auth create-ctk-identity -l heimdall-g04-probe -k p-256-ne -t none; ssh-add -s /usr/lib/ssh-keychain.dylib into a dedicated agent (KEYCHAIN_CERTIFICATES limited to the probe hash); sample signatures across a screen lock; sc_auth delete-ctk-identity -h <hash>; see docs/research/g04-managed-credentials.md section 8.2 P5"
+  "provider_versions": [
+    {"component": "ssh-agent, ssh-add, ssh-keygen, ssh (/usr/bin)", "version": "OpenSSH_10.3p1, LibreSSL 3.3.6"},
+    {"component": "sc_auth (shell script) -> /System/Library/Frameworks/CryptoTokenKit.framework/ctkcard; /usr/lib/ssh-keychain.dylib; /usr/libexec/ssh-sk-helper; /usr/libexec/ssh-pkcs11-helper", "version": "macOS 27.0 (26A428), shipped with the OS"}
   ],
-  "observed_result": null,
+  "started_at": "2026-10-09T05:36:16Z",
+  "commands_or_harness": [
+    "tests/native/macos/g04_ctk_probe.sh --mode unlocked --interval 5 --sc-auth-timeout 60 --samples 3 --fixture-runtime tests/fixtures/ssh/runtime (v1, real run, exit 1)",
+    "inside the probe: sc_auth list-ctk-identities (pre-run list kept only in a 0700 temp file + SHA-256 in memory); sc_auth create-ctk-identity -l heimdall-m00-p5-719f92c11a00a766 -k p-256-ne -t none; per load path a filter-control agent (KEYCHAIN_CERTIFICATES=<random non-matching hash>) and a dedicated agent (HOME=<tmp>, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<own hash>); ssh-add -s /usr/lib/ssh-keychain.dylib; ssh-add -K -S /usr/lib/ssh-keychain.dylib; ssh-add -l/-L/-T; ssh-keygen -Y sign + -Y check-novalidate; certificate from the fixture CA (principal p-host1, -V -1m:+10m, then -O no-touch-required) and /usr/bin/ssh -F <tmp config> to ca1; 3 samples; sc_auth export-ctk-identity -h <own hash> -f <tmp>/export.p12 -p <random>; sc_auth delete-ctk-identity -h <own hash>; ssh-add -T / -Y sign after the delete; identity list and AuthenticationAuthority digests compared",
+    "before the run: g04_ctk_probe_selftest.sh on v1 (fake sc_auth only: exit 0, pass=81); rehearsal of a patched v1 copy with software keys against the fixture (artifacts/g04/p5/rehearsal-20261009T053539Z/)",
+    "after the run, no CTK identity created: client offer check (v2-client-offer-check-20261009T054018Z/); independent review of record, doc and probe (M00-T04-g04-P5 review, read-only); tty prompt check (h2-tty-prompt-check-20261009/); probe v2 and v3 (probe-v1-to-v2.patch, probe-v2-to-v3.patch); self-tests on v2 (pass=92) and v3 (final: pass=132, selftest-20261009T090152Z.log); v3 rehearsals with software keys in unlocked and pseudo-terminal lock mode (rehearsal-v3-20261009T061500Z/, rehearsal-v3-20261009T061826Z/); read-only post-run verification (post-run-verification.txt)"
+  ],
+  "observed_result": {
+    "verdict": "fail",
+    "criterion": "P5 (docs/research/g04-managed-credentials.md section 8.2): a non-exportable Secure Enclave CTK identity (sc_auth create-ctk-identity -k p-256-ne -t none) serves as a working key through /usr/lib/ssh-keychain.dylib in a dedicated ssh-agent limited to that one identity, authenticates to the disposable fixture, cannot be exported, is removed cleanly, and keeps signing across an owner-driven screen lock. Conjunction: the top-level verdict is fail because the 'limited to that one identity' clause was validly measured false (U3); the login clause (U4) and the lock row are unmeasured.",
+    "summary": "Unlocked run (probe v1, 2026-10-09T05:36:16Z, launchd Background session, screen unlocked). sc_auth created the p-256-ne / -t none identity in under a second (rc 0); nothing blocked with stdin /dev/null. The PKCS#11 load (ssh-add -s) put no key into the agent ('agent refused operation'). The FIDO-style load (ssh-add -K -S) put exactly one sk-ecdsa-sha2-nistp256@openssh.com key into the dedicated agent; its fingerprint equals sc_auth's SSH hash and SHA-1 of its EC point equals the CTK public-key hash. The agent signed in every setup check and 3/3 samples (ssh-add -T rc 0, ssh-keygen -Y sign rc 0, check-novalidate 'Good ... signature with ECDSA-SK key'). The KEYCHAIN_CERTIFICATES limit did NOT hold on that path: with a random non-matching hash, ssh-add -K -S still loaded one key (its fingerprint was not kept; presumably this run's identity, inferred from the own-hash load returning exactly that one proven key). Export produced no file and printed 'hardware bounded and cannot be exported', but sc_auth exited 0. Fresh logins to ca1 returned 255 for both certificate variants because of a probe defect: ssh ignores an sk-type IdentityFile/CertificateFile without SecurityKeyProvider, so the key was never offered (ca1's log had no line for this run's key IDs); login is unmeasured. In the one check right after delete-ctk-identity, the agent still listed the key but could not sign (ssh-add -T rc 1, -Y sign rc 255). Cleanup complete: identity list equal to the pre-run list (0 identities), AuthenticationAuthority unchanged, 4 agents terminated, temp dir removed. Lock row not run (needs the owner).",
+    "rows": {
+      "unlocked": {
+        "status": "in_progress",
+        "verdict": "fail",
+        "basis": "Lowest of the sub-results below. The v1 run record self-reports status verified / verdict fail; it is downgraded here to in_progress because its login clause was not measured (a client-config defect v1 could not detect; v3 now marks such a run invalid). The fail verdict stands on a validly measured clause (U3). Row-level in_progress with verdict fail is deliberate: a validly failed clause fails the conjunction even though another clause is unmeasured (tests/evidence/README.md lets the verdict refer to the stated criterion).",
+        "run_record": "tests/evidence/artifacts/g04/p5/20261009T053616Z-unlocked/run-record.json",
+        "probe_exit_code": 1,
+        "sub_results": {
+          "U1_create_nonexportable_delete": {
+            "status": "verified",
+            "verdict": "pass",
+            "criterion": "create p-256-ne -t none without blocking (stdin /dev/null, timeout); export creates no file and prints the hardware-bound refusal; delete by the exact hash removes it; identity list equal to the pre-run list; AuthenticationAuthority unchanged",
+            "criterion_note": "Changed after the run was seen: v1's criterion said export must 'fail and leave no file', and sc_auth exited 0 while refusing. This sub-row judges by refusal message plus absence of a file, as probe v2/v3 do.",
+            "observed": "create rc 0, no timeout; own row 'p-256-ne <hash B29605F3...> none heimdall-m00-p5-719f92c11a00a766 ... 10/9/27, <local-time> YES'; export rc 0, no file, stderr 'Error: Private key with public key hash <...> is hardware bounded and cannot be exported'; delete rc 0, own row absent afterwards; final list digest equal to the pre-run digest (0 identities before and after); AuthenticationAuthority digest unchanged (0 token pairings before and after); SmartCard pairing dialog setting: enabled"
+          },
+          "U2_dedicated_agent_signing": {
+            "status": "verified",
+            "verdict": "pass",
+            "criterion": "at least one ssh-keychain.dylib load path puts the identity's key (ownership proven) into a dedicated agent that signs in every setup check and unlocked sample, without blocking on a prompt",
+            "observed": "sk path: ssh-add -K -S rc 0 ('Resident identity added: ECDSA-SK SHA256:WmIl...UxM'), agent lists 1 key 'ssh:' (ECDSA-SK); fingerprint == sc_auth list-ctk-identities -t ssh hash; SHA-1(EC point) == CTK hash; ssh-add -T rc 0; -Y sign rc 0; check-novalidate rc 0; samples 3/3 ok (max gap 5 s). pkcs11 path: ssh-add -s rc 1 'agent refused operation', 0 keys (consistent with ssh-keychain(8): PKCS#11 provides RSA identities, the Secure Key module ecdsa256)"
+          },
+          "U3_keychain_certificates_limit": {
+            "status": "verified",
+            "verdict": "fail",
+            "criterion": "the same load with a random non-matching KEYCHAIN_CERTIFICATES loads zero keys, so the agent holds exactly the named identity even when others exist",
+            "observed": "sk path: control agent (KEYCHAIN_CERTIFICATES=<random 40-hex>, HOME=<tmp> without sshkeychain.plist) listed 1 key after ssh-add -K -S; the probe then issued ssh-add -D (its rc was not recorded by v1) and never used the key; the agent was terminated at cleanup. pkcs11 path: control loaded 0 keys, but that path loads no EC key at all, so it says nothing about the filter.",
+            "inference": "The control's key was presumably this run's identity (the own-hash load returned exactly that one proven key; the store held no other CTK identity; security list-smartcards reported none before the run (agent session check, output not preserved) and after it (post-run-verification.txt)). With other ecdsa256 identities present (CTK identities, smart cards, other tokens; ssh-keychain(8)), ssh-add -K -S would presumably load them all, so Heimdall cannot rely on KEYCHAIN_CERTIFICATES for selection."
+          },
+          "U4_fresh_login_fixture_ca1": {
+            "status": "in_progress",
+            "verdict": "inconclusive",
+            "criterion": "certificate login to ca1 through the dedicated agent succeeds; ca2 principal mismatch and ca1 without agent are refused",
+            "observed": "default-extension certificate rc 255; no-touch-required certificate rc 255; ca1's log filtered to this run's key IDs and presence/touch lines was empty. Client log: 'pubkey_prepare: ignoring authenticator-hosted key ... as no SecurityKeyProvider has been specified' (key and certificate); 'agent returned 1 keys'; 'No more authentication methods to try'. Negative controls not run (they run only after a positive login).",
+            "follow_up": "Without any identity and without an agent: with SecurityKeyProvider set, ssh offered the ECDSA-SK-CERT, ca1 answered 'Server accepts key' and logged 'Accepted certificate ID' at the public-key query stage (v2-client-offer-check-20261009T054018Z). v2's own SecurityKeyProvider line was then found to break every generated ssh_config under bash 3.2 (rehearsal-v3-20261009T061500Z) and is fixed in v3; v3's agent path was rehearsed with software ecdsa keys only. Whether ca1 accepts a Secure Enclave signature through the agent, including its user-presence flag, is unmeasured.",
+            "needs": "one v3 run of --mode unlocked against the real store, which creates one more CTK identity (authority question escalated; not done by the agent)"
+          },
+          "U5_signing_after_delete": {
+            "status": "verified",
+            "verdict": "pass",
+            "criterion": "informational: right after delete-ctk-identity, the dedicated agent can no longer sign with the key",
+            "observed": "one check, about 1 s after the delete: agent still lists 1 key; ssh-add -T rc 1 'agent refused operation'; ssh-keygen -Y sign rc 255. A certificate issued for the key is unaffected and stays valid until it expires."
+          }
+        }
+      },
+      "lock": {
+        "status": "blocked",
+        "verdict": "inconclusive",
+        "blocked_on": "an owner-driven screen lock/unlock cycle: tests/native/macos/g04_ctk_probe.sh --mode lock --fixture-runtime tests/fixtures/ssh/runtime (v3), run by the owner at the console; it creates and deletes one CTK identity under D4",
+        "note": "Lock mode reuses the sampling, prompts and lock-window logic of g04_lock_probe.sh --mode lock. It was rehearsed end to end in a pseudo-terminal with software keys and scripted answers (rehearsal-v3-20261009T061826Z/lock), never with a CTK identity. v3 forces askpass so no PIN prompt can wait on the owner's terminal (h2-tty-prompt-check-20261009), and stops before creating anything unless the CTK store is empty and no smart card is present."
+      }
+    },
+    "cleanup_verification": {
+      "in_run": "identity deleted; ctk_identity_list_vs_pre_run=matches_pre_run; authentication_authority=unchanged; agents ctlpkcs11/pkcs11/ctlsk/sk terminated, sockets removed; export file absent; temp dir removed; canary scan clean (run-record.json)",
+      "independent_after_run": "tests/evidence/artifacts/g04/p5/post-run-verification.txt (2026-10-09T09:00:11Z, read-only, exit 0): sc_auth list-ctk-identities header only, 0 hash tokens, 0 heimdall-m00-p5 rows; security list-smartcards rc 44 (none); 0 ;tokenidentity; entries; run PIDs 81298 81346 81404 81461 81710 not running; one ssh-agent, started 2026-09-26 (the owner's); no probe temp dirs; fixture removed"
+    }
+  },
   "evidence_paths": [
+    "tests/evidence/artifacts/g04/p5/20261009T053616Z-unlocked/",
+    "tests/evidence/artifacts/g04/p5/post-run-verification.txt",
+    "tests/evidence/artifacts/g04/p5/g04_ctk_probe-v1-as-run.sh.txt",
+    "tests/evidence/artifacts/g04/p5/probe-v1-to-v2.patch",
+    "tests/evidence/artifacts/g04/p5/probe-v2-to-v3.patch",
+    "tests/evidence/artifacts/g04/p5/v2-client-offer-check-20261009T054018Z/",
+    "tests/evidence/artifacts/g04/p5/h2-tty-prompt-check-20261009/",
+    "tests/evidence/artifacts/g04/p5/rehearsal-20261009T053539Z/",
+    "tests/evidence/artifacts/g04/p5/rehearsal-v3-20261009T061500Z/",
+    "tests/evidence/artifacts/g04/p5/rehearsal-v3-20261009T061826Z/",
+    "tests/evidence/artifacts/g04/p5/selftest/",
+    "tests/evidence/artifacts/g04/p5/fixture-20261009T053213Z/",
+    "tests/evidence/artifacts/g04/p5/fixture-20261009T061412Z/",
+    "tests/native/macos/g04_ctk_probe.sh",
+    "tests/native/macos/g04_ctk_probe_selftest.sh",
     "docs/research/g04-managed-credentials.md"
   ],
   "limitations": [
-    "Not executed. No observation exists; observed_result is null. A mock, emulator, container, or cross-compile cannot close this case (CLAUDE.md, plan.md section 6.5).",
-    "Touches a real per-user store (not disposable by construction); therefore not run by the agent."
+    "Multi-row record (tests/evidence/README.md): the top-level status is the lowest row status, using the order blocked < in_progress < verified (lock row: blocked). Requirement IDs are for traceability of the lock row only; this record is not by itself evidence that a requirement is met.",
+    "One CTK identity was created and deleted in the owner's real user token store under owner decision D4; the store held no other CTK identity before or after. The owner's identities (none) were counted, never listed into artifacts.",
+    "The unlocked run executed from the launchd Background session of an agent process. A Heimdall signer in the Aqua session, as a LaunchAgent, or as a daemon was not measured. In the same session the Docker credential helper could not reach the login keychain ('current session does not allow user interaction'; transcribed in fixture-20261009T053213Z/NOTE-bring-up.txt); CTK creation, loading and signing did not need it.",
+    "Only -t none (no per-use Touch ID) and only p-256-ne. A -t bio identity, an exportable identity, logout, sleep, reboot and headless operation are not measured.",
+    "Login to the fixture is unmeasured for the CTK key (v1 defect; v2's fix was itself broken under bash 3.2; v3 fixed and rehearsed with software keys only). The fixture accepts sk-ecdsa certificates at the public-key query stage; signature acceptance, sshd's user-presence check and the no-touch-required extension remain open.",
+    "The export password was random, single-use and protected nothing; sc_auth accepts it only as an argument, so it was visible to same-user processes for that one command. It was never written anywhere.",
+    "sc_auth export-ctk-identity exited 0 while refusing. Non-exportability rests on the refusal message, the absence of an output file, and Apple's statement that -ne keys never leave the Secure Enclave (sc_auth(8)); no attempt was made to extract key material by other means.",
+    "'No prompt' means nothing blocked with stdin /dev/null in a Background session; a non-blocking notification on the owner's screen would not be visible to the probe. The AuthenticationAuthority digest check detects an accepted SmartCard pairing.",
+    "The identity row's local time of day was redacted after the run (20261009T053616Z-unlocked/REDACTION.txt); macOS separates it from AM/PM with U+202F, which v3's redaction now handles.",
+    "Lock row: not executed. The self-test's fake sc_auth and the software-key rehearsals never count as CTK or lock evidence."
   ],
-  "blocked_on": "owner authorization to write a CTK identity into the real user token store (sc_auth), plus an owner-driven screen lock/unlock cycle"
+  "blocked_on": "owner-driven screen lock/unlock cycle for the lock row (tests/native/macos/g04_ctk_probe.sh --mode lock, v3, run by the owner); the unlocked login clause additionally needs a v3 run against the real store, which creates another CTK identity and therefore needs confirmation that D4 covers it"
 }

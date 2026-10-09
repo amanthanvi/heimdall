@@ -1,0 +1,12 @@
+Check of review finding H2 (2026-10-09T06:03Z), no CTK identity created (store verified empty first).
+Question: in lock mode the probe has a controlling terminal. Do ssh-add -s / ssh-add -K -S with stdin
+/dev/null block on their PIN/passphrase prompt?
+Method (check.sh): dedicated ssh-agent (-U -P /usr/lib/ssh-keychain.dylib -a <tmp>), HOME=<tmp>,
+KEYCHAIN_CERTIFICATES=<random>; each ssh-add run inside a pseudo-terminal with /usr/bin/script, stdin
+/dev/null, killed after 15 s by timeout(1). Typescripts are the terminal transcripts.
+Observed (check-output.txt, real exit codes):
+  SSH_ASKPASS_REQUIRE=never (probe v1/v2 setting): -K -S rc 124 after 15 s; -s rc 124 after 15 s (blocked).
+  SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=/usr/bin/true: -K -S rc 1 in 0 s; -s rc 1 in 0 s (no identities
+  to load, as expected for an empty store); nothing blocked.
+Consequence: v1/v2 lock mode would have stalled at each load until the 60 s run_in timeout and loaded
+no key. Probe v3 uses the force/true setting for every ssh tool it starts.

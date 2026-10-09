@@ -1,0 +1,449 @@
+--- a/tests/native/macos/g04_ctk_probe.sh (v2, sha256 07624475708c01eaf6a4ea4f5ceba0c6e60bf5b0ded39b595b8e4019b5abc01a)	2026-10-09 05:01:00
++++ b/tests/native/macos/g04_ctk_probe.sh	2026-10-09 05:01:23
+@@ -46,7 +46,8 @@
+ umask 077
+ export LC_ALL=C
+ 
+-# v1 (sha256 623bfdca...) ran once on 2026-10-09 (tests/evidence/artifacts/g04/p5/20261009T053616Z-unlocked/).
++# v1 (sha256 623bfdca...) ran once on 2026-10-09 (tests/evidence/artifacts/g04/p5/20261009T053616Z-unlocked/);
++# its exact bytes are kept as tests/evidence/artifacts/g04/p5/g04_ctk_probe-v1-as-run.sh.txt.
+ # v2 fixes what that run exposed (patch: tests/evidence/artifacts/g04/p5/probe-v1-to-v2.patch):
+ #   - ssh ignores an sk-type IdentityFile/CertificateFile unless SecurityKeyProvider is set, even
+ #     when the agent holds the key, so v1 never offered the key to ca1. v2 sets SecurityKeyProvider
+@@ -56,13 +57,40 @@
+ #   - ssh-add -K -S ignored KEYCHAIN_CERTIFICATES (a random non-matching hash still loaded the
+ #     identity). With other CTK identities present the load would also pull in identities this
+ #     probe did not create, so v2 stops before creating anything when the store is not empty.
+-PROBE_VERSION="2"
++# v3 follows an independent review of v2 and a rehearsal (patch: .../g04/p5/probe-v2-to-v3.patch):
++#   - The v2 SecurityKeyProvider line used `case` inside $(...), which bash 3.2 cannot parse: every
++#     generated ssh_config was broken. v3 computes the line first (rehearsal-v3-20261009T061500Z/).
++#   - With a controlling terminal (lock mode), ssh-add's PIN prompt bypassed stdin and blocked on
++#     /dev/tty (observed: tests/evidence/artifacts/g04/p5/h2-tty-prompt-check-20261009/). v3 forces
++#     askpass to /usr/bin/true for every ssh tool, so an (empty) PIN never waits for a person.
++#   - A loaded key is used only if it is proven to be this run's identity (EC-point hash equals the
++#     CTK hash, or fingerprint equals sc_auth's SSH hash); the "only identity in store" fallback is
++#     gone, and the probe stops before creating anything if a smart card or token is present
++#     (ssh-keychain.dylib serves those too).
++#   - Cleanup cannot be cut short by a second signal or a closed stderr pipe; an interrupted
++#     create gets the same grace re-check as a timed-out one.
++#   - Login attempts are classified (not offered / refused at query / refused after signature /
++#     accepted); a requested login that was never actually offered makes the evidence invalid
++#     instead of a silent fail. Per-clause results are written to the record. Lock-mode validity
++#     requires the login controls and treats an owner-reported credential dialog as invalidating.
++#   - The lock-mode certificate lives longer and samples taken after it expires are not counted
++#     as login failures. Docker calls are time-bounded. Local times of day are redacted (macOS puts
++#     U+202F, a narrow no-break space, before AM/PM; the pattern allows it).
++#
++# If a run is ever killed hard (kill -9, power loss) before cleanup, recover by hand, never in
++# bulk: `sc_auth list-ctk-identities`, find the single row whose label is the run's
++# heimdall-m00-p5-<hex> label (printed at start), then `sc_auth delete-ctk-identity -h <that
++# row's hash>`; stop leftover dedicated agents only by the PIDs the run printed.
++PROBE_VERSION="3"
+ SSH=/usr/bin/ssh; SSH_KEYGEN=/usr/bin/ssh-keygen; SSH_AGENT=/usr/bin/ssh-agent; SSH_ADD=/usr/bin/ssh-add
+ SC_AUTH=/usr/sbin/sc_auth; KC_DYLIB=/usr/lib/ssh-keychain.dylib
+ SK_HELPER=/usr/libexec/ssh-sk-helper; P11_HELPER=/usr/libexec/ssh-pkcs11-helper
+ IOREG=/usr/sbin/ioreg; CAFFEINATE=/usr/bin/caffeinate; OSASCRIPT=/usr/bin/osascript; DSCL=/usr/bin/dscl
++SECURITY=/usr/bin/security; ASKPASS_NONE=/usr/bin/true
+ unset SSH_AUTH_SOCK SSH_AGENT_PID SSH_ASKPASS DISPLAY KEYCHAIN_CERTIFICATES
+-export SSH_ASKPASS_REQUIRE=never
++# Every PIN/passphrase/confirmation request from an ssh tool gets an empty answer at once, never a
++# terminal prompt (readpassphrase would otherwise open /dev/tty even with stdin /dev/null).
++export SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=$ASKPASS_NONE
+ # Assembled from two parts so this source never contains the contiguous project canary prefix.
+ CANARY_PREFIX="HEIMDALL""_CANARY_"
+ LABEL_PREFIX="heimdall-m00-p5-"
+@@ -173,7 +201,7 @@
+ pre_fail() { printf 'g04_ctk_probe: precondition failed: %s\n' "$1" >&2; exit 3; }
+ [ "$(uname -s)" = Darwin ] || pre_fail "this probe is macOS-only"
+ [ "$(id -u)" -ne 0 ] || pre_fail "do not run as root"
+-for t in "$SSH" "$SSH_KEYGEN" "$SSH_AGENT" "$SSH_ADD" "$SC_AUTH" "$IOREG" "$OSASCRIPT" "$DSCL"; do
++for t in "$SSH" "$SSH_KEYGEN" "$SSH_AGENT" "$SSH_ADD" "$SC_AUTH" "$IOREG" "$OSASCRIPT" "$DSCL" "$SECURITY" "$ASKPASS_NONE"; do
+   [ -x "$t" ] || pre_fail "missing $t"
+ done
+ if [ "$SELFTEST" -eq 0 ]; then
+@@ -218,11 +246,11 @@
+ PRE_DIGEST=""; PRE_COUNT=""; PRE_PREFIX_ROWS=""; AA_DIGEST_BEFORE=""; AA_TOKENS_BEFORE=""; PAIRING_UI="not_checked"
+ SSHHASH_NOTE="not_parsed"
+ AGENT_NAMES=""; SAMPLER_PID=""; CAF_PID=""; CAF_IDENT=""; SC_PID=""; SC_TIMED_OUT=0; SC_KILLED=""
+-FINISHED=0; INTERRUPTED=0; SETUP_OK=0; SETUP_FAILED=0; BLOCKED=0; BLOCKED_REASON=""; SETUP_NOTES=""; FINDINGS=""
++LATE_SIGNAL=0; FINISHED=0; INTERRUPTED=0; SETUP_OK=0; SETUP_FAILED=0; BLOCKED=0; BLOCKED_REASON=""; SETUP_NOTES=""; FINDINGS=""
+ CLEAN_SAMPLER="not_started"; CLEAN_AGENTS="not_started"; CLEAN_SOCKETS="not_applicable"; CLEAN_IDENTITY="not_applicable"
+ CLEAN_IDLIST="not_checked"; CLEAN_AA="not_checked"; CLEAN_EXPORT="not_applicable"; CLEAN_CAF="not_started"; CLEAN_TEMP="not_started"
+ LOCK_INSTRUCTED_EPOCH=""; OWNER_RETURNED_EPOCH=""; ATTEST_LOCK="not_asked"; ATTEST_DIALOG="not_asked"
+-CERT_VALIDITY="-1m:+10m"; SERVER_LOGS="not_collected"
++CERT_VALIDITY="-1m:+10m"; CERT_MINUTES=10; CERT_EXPIRES_EPOCH=""; SAMPLES_AFTER_CERT_EXPIRY=0; SERVER_LOGS="not_collected"
+ PATHS="pkcs11 sk"
+ 
+ # Per-name values without associative arrays (bash 3.2). Group, name and field are script literals.
+@@ -241,7 +269,7 @@
+     { s = $0; s = rep(s, t, "<tmp>"); s = rep(s, h, "<home>"); s = rep(s, own, "@@OWNHASH@@")
+       for (k = 1; k <= nf; k++) s = rep(s, fp[k], "@@OWNFP" k "@@")
+       s = rep(s, hf, "<host>"); s = rep(s, hs, "<host>"); s = rep(s, u, "<user>"); print s }' |
+-    sed -E -e 's/[0-9A-Fa-f]{40,64}/<hex>/g' -e 's#SHA256:[A-Za-z0-9+/]{43}#SHA256:<other-fp>#g' -e "s/@@OWNHASH@@/<p5-hash:${HASH:0:8}>/g")
++    sed -E -e 's/[0-9A-Fa-f]{40,64}/<hex>/g' -e 's/[0-9]{1,2}:[0-9]{2}[^0-9A-Za-z]{0,4}[AaPp][Mm]/<local-time>/g' -e 's#SHA256:[A-Za-z0-9+/]{43}#SHA256:<other-fp>#g' -e "s/@@OWNHASH@@/<p5-hash:${HASH:0:8}>/g")
+   for fp in $OWN_FPS; do i=$((i+1)); s=$(printf '%s\n' "$s" | sed "s#@@OWNFP$i@@#$fp#g"); done
+   printf '%s\n' "$s"
+ }
+@@ -398,7 +426,7 @@
+ run_in() {  # NAME SECS OUTFILE CMD...: CMD against agent NAME with its HOME and KEYCHAIN_CERTIFICATES
+   local name=$1 secs=$2 out=$3; shift 3
+   run_with_timeout "$secs" /usr/bin/env HOME="$T/home-$name" SSH_AUTH_SOCK="$T/$name.sock" \
+-    KEYCHAIN_CERTIFICATES="$(getv A "$name" FILTER)" SSH_ASKPASS_REQUIRE=never "$@" </dev/null >"$out" 2>&1
++    KEYCHAIN_CERTIFICATES="$(getv A "$name" FILTER)" SSH_ASKPASS_REQUIRE=force SSH_ASKPASS="$ASKPASS_NONE" "$@" </dev/null >"$out" 2>&1
+ }
+ key_count() {  # NAME -> echoes number of identities in that agent (-1 if the agent is unreachable)
+   local rc
+@@ -439,7 +467,8 @@
+   if [ "$CREATE_ATTEMPTED" -eq 1 ] && [ "$DELETED" -ne 1 ]; then
+     if [ -z "$HASH" ]; then
+       resolve_own_hash && HASH=$RESOLVED_HASH
+-      if [ -z "$HASH" ] && [ "$CREATE_TO" -eq 1 ]; then sleep 5; resolve_own_hash && HASH=$RESOLVED_HASH; fi
++      # A timed-out or interrupted create (CREATE_RC unset) may still complete in the token service.
++      if [ -z "$HASH" ] && { [ "$CREATE_TO" -eq 1 ] || [ -z "$CREATE_RC" ]; }; then sleep 5; resolve_own_hash && HASH=$RESOLVED_HASH; fi
+       [ -n "$HASH" ] && { [ "$CREATED" = no ] && CREATED="partial"; log "cleanup: found this run's identity (label match) after an incomplete create"; }
+     fi
+     if [ -n "$HASH" ]; then
+@@ -506,8 +535,11 @@
+     "$(jn "$(getv R "$p" TRC)")" "$(jn "$(getv R "$p" SIGNRC)")" "$(jn "$(getv R "$p" VERRC)")"
+   printf '"login_ca1_default_cert_rc": %s, "login_ca1_no_touch_required_cert_rc": %s, "cert_variant_used": %s, "neg_ca2_principal_mismatch_rc": %s, "neg_ca1_without_agent_rc": %s, ' \
+     "$(jn "$(getv R "$p" LOGDEF)")" "$(jn "$(getv R "$p" LOGNT)")" "$(json_str "$(getv R "$p" VARIANT)")" "$(jn "$(getv R "$p" NEG2)")" "$(jn "$(getv R "$p" NEGNA)")"
++  printf '"login_class": {"default_cert": %s, "no_touch_required_cert": %s, "ca2_control": %s, "no_agent_control": %s, "measured": %s, "controls_refused": %s}, ' \
++    "$(json_str "$(getv R "$p" LOGDEFCLS)")" "$(json_str "$(getv R "$p" LOGNTCLS)")" "$(json_str "$(getv R "$p" NEG2CLS)")" "$(json_str "$(getv R "$p" NEGNACLS)")" \
++    "$([ "$(getv R "$p" LOGMEASURED)" = 1 ] && echo true || echo false)" "$([ "$(getv R "$p" CTRLOK)" = 1 ] && echo true || echo false)"
+   printf '"server_accepted_logins_with_run_key_ids": %s, "server_user_presence_rejections": %s, ' "$(jn "$(getv R "$p" SRVACC)")" "$(jn "$(getv R "$p" SRVUP)")"
+-  printf '"filter_control_non_matching_hash": {"load_rc": %s, "keys_listed": %s}, ' "$(jn "$(getv R "$p" CTLRC)")" "$(jn "$(getv R "$p" CTLKEYS)")"
++  printf '"filter_control_non_matching_hash": {"load_rc": %s, "keys_listed": %s, "ssh_add_D_rc": %s}, ' "$(jn "$(getv R "$p" CTLRC)")" "$(jn "$(getv R "$p" CTLKEYS)")" "$(jn "$(getv R "$p" CTLDRC)")"
+   printf '"after_identity_delete": {"keys_listed": %s, "ssh_add_T_rc": %s, "ssh_keygen_Y_sign_rc": %s}, ' "$(jn "$(getv R "$p" POSTKEYS)")" "$(jn "$(getv R "$p" POSTTRC)")" "$(jn "$(getv R "$p" POSTSIGN)")"
+   printf '"works_unlocked": %s, "note": %s}' "$( [ "$(getv R "$p" WORKS)" = 1 ] && echo true || echo false)" "$(json_str "$(getv R "$p" NOTE)")"
+ }
+@@ -515,8 +547,11 @@
+ finish() {
+   [ "$FINISHED" -eq 0 ] || return 0
+   FINISHED=1
+-  trap - INT TERM HUP EXIT
++  # Cleanup must not be cut short. INT/QUIT (terminal) and PIPE are ignored, also by the children
++  # cleanup starts; TERM/HUP only set a flag, so sc_abort can still terminate an sc_auth child.
++  trap '' INT QUIT PIPE; trap 'LATE_SIGNAL=1' TERM HUP; trap - EXIT
+   cleanup
++  [ "$LATE_SIGNAL" -eq 1 ] && SETUP_NOTES="${SETUP_NOTES}a further TERM/HUP arrived during cleanup and was ignored; "
+   log "cleanup: sampler=$CLEAN_SAMPLER agents=[$CLEAN_AGENTS] sockets=[$CLEAN_SOCKETS] identity=$CLEAN_IDENTITY identity_list=$CLEAN_IDLIST authentication_authority=$CLEAN_AA export_file=$CLEAN_EXPORT caffeinate=$CLEAN_CAF temp_dir=$CLEAN_TEMP"
+ 
+   # TSV: seq phase epoch ioc cgs | pkcs11: add sign ver ssh | sk: add sign ver ssh
+@@ -538,51 +573,89 @@
+   elif [ "$lall" -ge 2 ]; then src=locked_signal; lock_evidence="ioreg_lock_signal"
+   elif [ "$ATTEST_LOCK" = yes ] && { [ "$(getn lock_window pkcs11 3)" -ge 2 ] || [ "$(getn lock_window sk 3)" -ge 2 ]; }; then src=lock_window; lock_evidence="owner_attestation_only"
+   else lock_evidence="not_established"; fi
+-  local active=0 all_avail=1 any_works=0 leak="clean" status="in_progress" verdict="inconclusive" valid=0 criterion summary exit_code reqs pathsumm=""
++  local active=0 all_avail=1 leak="clean" status="in_progress" verdict="inconclusive" valid=0 criterion summary exit_code reqs pathsumm=""
++  local login_unmeasured=0 lock_login_unmeasurable=0 controls_failed=0 vnotes=""
++  local c_create c_export c_delete c_sign="not_measured" c_limit="not_measured" c_login="not_requested" sign_bad=0 limit_bad=0 login_ok=0 login_meas=0
+   for p in $PATHS; do
+     win_n=0; win_a=0; win_sn=0; win_s=0
+     if [ -n "$src" ]; then win_n=$(getn "$src" "$p" 3); win_a=$(getn "$src" "$p" 4); win_sn=$(getn "$src" "$p" 5); win_s=$(getn "$src" "$p" 6); fi
+     setv O "$p" AGENT "$(outcome "$win_n" "$win_a")"; setv O "$p" SSH "$(outcome "$win_sn" "$win_s")"; setv O "$p" N "$win_n"
++    if [ -n "$(getv R "$p" VARIANT)" ] && [ "$(getv R "$p" NEG2)" != 0 ] && [ "$(getv R "$p" NEGNA)" != 0 ]; then setv R "$p" CTRLOK 1; fi
+     if [ "$(getv R "$p" SAMPLED)" = 1 ]; then
+       active=$((active+1))
+       [ "$(getv O "$p" AGENT)" = available_all_samples ] || all_avail=0
+       if [ -n "$(getv R "$p" VARIANT)" ]; then [ "$(getv O "$p" SSH)" = available_all_samples ] || all_avail=0; fi
++      if [ -n "$FIXTURE_RUNTIME" ]; then
++        [ "$(getv R "$p" LOGMEASURED)" = 1 ] || login_unmeasured=1
++        [ -n "$(getv R "$p" VARIANT)" ] || lock_login_unmeasurable=1
++        if [ -n "$(getv R "$p" VARIANT)" ] && [ "$(getv R "$p" CTRLOK)" != 1 ]; then controls_failed=1; fi
++      fi
++      # Per-path summary for unlocked mode (informational; the verdict uses the clauses below).
++      if [ "$(getv O "$p" AGENT)" = available_all_samples ] && [ -n "$(getv R "$p" OWNBASIS)" ]; then
++        if [ -z "$FIXTURE_RUNTIME" ]; then setv R "$p" WORKS 1
++        elif [ "$(getv R "$p" CTRLOK)" = 1 ] && [ "$(getv O "$p" SSH)" = available_all_samples ]; then setv R "$p" WORKS 1; fi
++      fi
++      # Clause inputs, over paths that loaded this run's key.
++      [ "$(getv O "$p" AGENT)" = available_all_samples ] && c_sign=pass
++      [ "$(getv O "$p" AGENT)" = available_all_samples ] || sign_bad=1
++      if [ "$(getv R "$p" CTLKEYS)" = 0 ]; then [ "$c_limit" = not_measured ] && c_limit=pass; else limit_bad=1; fi
++      [ "$(getv R "$p" LOGMEASURED)" = 1 ] && login_meas=1
++      if [ "$(getv R "$p" CTRLOK)" = 1 ] && [ "$(getv O "$p" SSH)" = available_all_samples ]; then login_ok=1; fi
+     fi
+-    # Unlocked "works": exactly one key, signs, filter control loaded zero keys, every unlocked sample OK,
+-    # and with the fixture a fresh ca1 login with both negative controls refused.
+-    if [ "$MODE" = unlocked ] && [ "$(getv R "$p" SAMPLED)" = 1 ] && [ "$(getv R "$p" CTLKEYS)" = 0 ] \
+-       && [ "$(getv O "$p" AGENT)" = available_all_samples ] && [ -n "$(getv R "$p" OWNBASIS)" ]; then
+-      if [ -z "$FIXTURE_RUNTIME" ]; then setv R "$p" WORKS 1
+-      elif [ -n "$(getv R "$p" VARIANT)" ] && [ "$(getv R "$p" NEG2)" != 0 ] && [ "$(getv R "$p" NEGNA)" != 0 ] \
+-           && [ "$(getv O "$p" SSH)" = available_all_samples ]; then setv R "$p" WORKS 1; fi
+-    fi
+-    [ "$(getv R "$p" WORKS)" = 1 ] && any_works=1
+-    pathsumm="$pathsumm $p: load_rc=$(getv R "$p" LOAD_RC) keys=$(getv R "$p" KEYS) alg=$(getv R "$p" KALG) sign=$(getv O "$p" AGENT) login=$(getv O "$p" SSH) variant=$(getv R "$p" VARIANT) works=$([ "$(getv R "$p" WORKS)" = 1 ] && echo yes || echo no);"
++    pathsumm="$pathsumm $p: load_rc=$(getv R "$p" LOAD_RC) keys=$(getv R "$p" KEYS) alg=$(getv R "$p" KALG) sign=$(getv O "$p" AGENT) login=$(getv O "$p" SSH) login_class=$(getv R "$p" LOGDEFCLS)$([ -n "$(getv R "$p" LOGNTCLS)" ] && echo "/$(getv R "$p" LOGNTCLS)") variant=$(getv R "$p" VARIANT) works=$([ "$(getv R "$p" WORKS)" = 1 ] && echo yes || echo no);"
+   done
++  # Clauses of the unlocked criterion (pass | fail | not_measured | not_requested).
++  if [ "$CREATED" = yes ] && [ "$CREATE_TO" -eq 0 ]; then c_create=pass; elif [ "$CREATE_ATTEMPTED" -eq 1 ]; then c_create=fail; else c_create=not_measured; fi
++  if [ "$EXPORT_FILE" = absent ] && [ "$EXPORT_CLASS" = hardware_bounded_cannot_be_exported ]; then c_export=pass
++  elif [ "$EXPORT_FILE" = not_checked ]; then c_export=not_measured; else c_export=fail; fi
++  if [ "$DELETED" -eq 1 ] && [ "$CLEAN_IDLIST" = matches_pre_run ]; then c_delete=pass; elif [ "$CREATE_ATTEMPTED" -eq 1 ]; then c_delete=fail; else c_delete=not_measured; fi
++  if [ "$active" -eq 0 ] && [ "$CREATED" = yes ] && [ "$SELFTEST" -eq 0 ]; then c_sign=fail
++  elif [ "$active" -gt 0 ] && [ "$c_sign" != pass ]; then c_sign=fail; fi
++  [ "$sign_bad" -eq 1 ] && [ "$c_sign" = pass ] && vnotes="${vnotes}one load path signed in every sample, another did not; "
++  [ "$limit_bad" -eq 1 ] && c_limit=fail
++  if [ -n "$FIXTURE_RUNTIME" ]; then
++    if [ "$login_ok" -eq 1 ]; then c_login=pass; elif [ "$login_meas" -eq 1 ]; then c_login=fail; else c_login=not_measured; fi
++  fi
++  [ "$SAMPLES_AFTER_CERT_EXPIRY" -eq 1 ] && vnotes="${vnotes}login samples taken after the certificate expired were not counted; "
+ 
+   if grep -r -l -F "$CANARY_PREFIX" "$OUT_DIR" >/dev/null 2>&1; then leak="LEAK_DETECTED"; fi
+   if [ "$MODE" = unlocked ]; then
+-    criterion="Unlocked (screen stays unlocked): sc_auth creates a p-256-ne (non-exportable, Secure Enclave) CTK identity with -t none without any interactive prompt; through /usr/lib/ssh-keychain.dylib, at least one load path (PKCS#11 ssh-add -s, or FIDO-style ssh-add -K -S) puts exactly that one key into a dedicated ssh-agent whose KEYCHAIN_CERTIFICATES names only its hash, while the same load with a random non-matching hash loads zero keys; the agent signs (ssh-add -T, ssh-keygen -Y sign + check-novalidate) in every check and sample; with --fixture-runtime a fresh certificate login to ca1 succeeds in every check and sample while the ca2 principal-mismatch and ca1-without-agent controls are refused; export-ctk-identity creates no file and prints the hardware-bound refusal (its exit status was observed to be 0 on refusal, so it is recorded but not judged); delete-ctk-identity by the exact hash removes it. Validity: completed without interruption, identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
++    criterion="Unlocked (screen stays unlocked), conjunction of clauses (observed_result.clauses): create_noninteractive = sc_auth creates the p-256-ne -t none CTK identity without timing out (stdin /dev/null, askpass answers empty); export_refused_no_file = export-ctk-identity creates no file and prints the hardware-bound refusal (its exit status, observed 0 on refusal, is recorded, not judged); delete_by_exact_hash_list_restored = delete-ctk-identity by the exact hash removes it and the identity list equals the pre-run list; dedicated_agent_signing = at least one /usr/lib/ssh-keychain.dylib load path (PKCS#11 ssh-add -s, FIDO-style ssh-add -K -S) puts this run's key (ownership proven by EC-point hash or fingerprint) into a dedicated agent that signs (ssh-add -T, ssh-keygen -Y sign + check-novalidate) in every setup check and sample, and every path that loaded it does; keychain_certificates_limit = for every path that loaded the key, the same load with a random non-matching KEYCHAIN_CERTIFICATES loads zero keys; fixture_login_with_controls (only with --fixture-runtime) = a fresh certificate login to ca1 through the dedicated agent succeeds in setup and every sample while the ca2 principal-mismatch and ca1-without-agent controls are refused. Verdict pass if every applicable clause passes, fail if any clause fails. Validity: completed without interruption, a requested login was actually offered to the server, controls refused, identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
+   else
+-    criterion="Lock (A03 substrate, owner-driven screen lock): in the established lock window every CTK load path that worked before the lock signs through its dedicated agent in every sample and, with --fixture-runtime, the fresh ca1 login succeeds in every sample. Validity: lock window established (IORegistry signal or owner attestation, not denied by the owner), at least one baseline and one post-unlock sample, completed, identity deleted and identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
++    criterion="Lock (A03 substrate, owner-driven screen lock): in the established lock window every CTK load path that signed before the lock signs through its dedicated agent in every sample and, with --fixture-runtime, the fresh ca1 login succeeds in every sample taken while its certificate is valid. Validity: lock window established (IORegistry signal or owner attestation, not denied by the owner), at least one baseline and one post-unlock sample, with --fixture-runtime a login that worked before the lock and refused ca2/no-agent controls, no credential dialog reported by the owner, completed, identity deleted and identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
+   fi
+   if [ "$BLOCKED" -eq 1 ]; then status="blocked"
+   elif [ "$INTERRUPTED" -eq 0 ] && [ "$SETUP_OK" -eq 1 ] && cleanup_complete && [ "$leak" = clean ] && [ "$SELFTEST" -eq 0 ]; then
+     if [ "$MODE" = unlocked ]; then
+       valid=1
+-      verdict=fail
+-      if [ "$any_works" -eq 1 ] && [ "$EXPORT_FILE" = absent ] && [ "$EXPORT_CLASS" = hardware_bounded_cannot_be_exported ] && [ "$DELETED" -eq 1 ]; then verdict=pass; fi
++      # A requested login that never reached the server (key not offered, no connection) is a harness
++      # gap, not a measurement.
++      if [ -n "$FIXTURE_RUNTIME" ] && [ "$login_unmeasured" -eq 1 ]; then valid=0; vnotes="${vnotes}fixture login requested but not measured (not offered or no connection); "; fi
++      if [ "$controls_failed" -eq 1 ]; then valid=0; vnotes="${vnotes}a login negative control was not refused; "; fi
++      verdict=pass
++      for cl in "$c_create" "$c_export" "$c_delete" "$c_sign" "$c_limit" "$c_login"; do
++        case "$cl" in fail) verdict=fail;; not_measured) [ "$verdict" = pass ] && verdict=inconclusive_clause;; esac
++      done
++      [ "$verdict" = inconclusive_clause ] && { verdict=inconclusive; valid=0; vnotes="${vnotes}a clause was not measured; "; }
+     else
+       case "$lock_evidence" in ioreg_lock_signal|owner_attestation_only) valid=1;; esac
+       [ "$ATTEST_LOCK" = no ] && valid=0
+       { [ "$(getn pre pkcs11 3)" -ge 1 ] || [ "$(getn pre sk 3)" -ge 1 ]; } || valid=0
+       { [ "$(getn post pkcs11 3)" -ge 1 ] || [ "$(getn post sk 3)" -ge 1 ]; } || valid=0
+       [ "$active" -ge 1 ] || valid=0
++      if [ -n "$FIXTURE_RUNTIME" ] && [ "$lock_login_unmeasurable" -eq 1 ]; then valid=0; vnotes="${vnotes}fixture login requested but no login worked before the lock, so the window cannot show a lock effect; "; fi
++      if [ "$controls_failed" -eq 1 ]; then valid=0; vnotes="${vnotes}a login negative control was not refused; "; fi
++      if [ "$ATTEST_DIALOG" = yes ]; then valid=0; vnotes="${vnotes}owner reported a Touch ID/password/pairing/keychain dialog during the run; needs review; "; fi
+       if [ "$valid" -eq 1 ]; then verdict=pass; [ "$all_avail" -eq 1 ] || verdict=fail; fi
+     fi
+   fi
+   [ "$valid" -eq 1 ] && status="verified"
+-  [ "$status" = verified ] || verdict="inconclusive"
++  # Not verified: inconclusive, except that in unlocked mode a validly failed clause fails the
++  # conjunction even when another clause left the evidence incomplete (status stays in_progress).
++  if [ "$status" != verified ] && ! { [ "$MODE" = unlocked ] && [ "$verdict" = fail ] && [ "$BLOCKED" -eq 0 ] \
++       && [ "$INTERRUPTED" -eq 0 ] && [ "$SETUP_OK" -eq 1 ] && [ "$SELFTEST" -eq 0 ] && cleanup_complete; }; then
++    verdict="inconclusive"
++  fi
+   if [ "$SELFTEST" -eq 1 ] || [ "$MODE" = unlocked ]; then reqs='[]'; else reqs='["R-CR-02", "R-CR-03", "R-EN-04"]'; fi
+   local cc=false; cleanup_complete && cc=true
+   summary="mode=$MODE; identity created=$CREATED (create_rc=${CREATE_RC:-none}, timed_out=$CREATE_TO); export_rc=${EXPORT_RC:-none} export_file=$EXPORT_FILE ($EXPORT_CLASS); deleted=$([ "$DELETED" -eq 1 ] && echo yes || echo no);$pathsumm samples=$total; lock_window_evidence=$lock_evidence; identity_list_after_cleanup=$CLEAN_IDLIST; cleanup_complete=$cc; canary_scan=$leak."
+@@ -634,10 +707,10 @@
+     printf '  "started_at": "%s",\n' "$STARTED_AT"
+     printf '  "commands_or_harness": [\n'
+     printf '    %s,\n' "$(json_str "tests/native/macos/g04_ctk_probe.sh $args")"
+-    printf '    %s,\n' "$(json_str "before: sc_auth list-ctk-identities (kept only in a 0700 temp file + SHA-256 in memory; count recorded); dscl . -read /Users/<user> AuthenticationAuthority (SHA-256 in memory only); sc_auth pairing_ui -s status")"
++    printf '    %s,\n' "$(json_str "before: sc_auth list-ctk-identities (kept only in a 0700 temp file + SHA-256 in memory; count recorded; stop if not empty); security list-smartcards (count only; stop if any); dscl . -read /Users/<user> AuthenticationAuthority (SHA-256 in memory only); sc_auth pairing_ui -s status")"
+     printf '    %s,\n' "$(json_str "create: sc_auth create-ctk-identity -l heimdall-m00-p5-<16 hex> -k p-256-ne -t none (stdin /dev/null, timeout ${SC_TO}s); own hash = the single 40/64-hex token on the row(s) carrying the label; sc_auth list-ctk-identities -t ssh -e b64 for the SSH hash")"
+     printf '    %s,\n' "$(json_str "filter control: per load path a dedicated agent with KEYCHAIN_CERTIFICATES=<random non-matching hash>; ssh-add -s /usr/lib/ssh-keychain.dylib and ssh-add -K -S /usr/lib/ssh-keychain.dylib; ssh-add -l")"
+-    printf '    %s,\n' "$(json_str "per load path: HOME=<tmp>/home-<path> KEYCHAIN_CERTIFICATES=<own hash> /usr/bin/ssh-agent -U -P /usr/lib/ssh-keychain.dylib -a <tmp>/<path>.sock; ssh-add -s|-K -S /usr/lib/ssh-keychain.dylib; ssh-add -l/-L; ssh-add -T; ssh-keygen -Y sign -n $SIGN_NS + -Y check-novalidate")"
++    printf '    %s,\n' "$(json_str "per load path: HOME=<tmp>/home-<path> KEYCHAIN_CERTIFICATES=<own hash> /usr/bin/ssh-agent -U -P /usr/lib/ssh-keychain.dylib -a <tmp>/<path>.sock; every ssh tool runs with stdin /dev/null and SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=/usr/bin/true (empty PIN, never a terminal prompt); ssh-add -s|-K -S /usr/lib/ssh-keychain.dylib; ssh-add -l/-L; ssh-add -T; ssh-keygen -Y sign -n $SIGN_NS + -Y check-novalidate")"
+     printf '    %s,\n' "$(json_str "$([ -n "$FIXTURE_RUNTIME" ] && echo "login: ssh-keygen -s <fixture CA> -I heimdall-g04-p5-<run>-<path>-<variant> -n p-host1 -V $CERT_VALIDITY [-O no-touch-required, sk keys only, only after the default certificate was refused] <agent pubkey>; /usr/bin/ssh -F <tmp ssh_config> (ca1, IdentitiesOnly=yes, IdentityAgent=<dedicated>, ControlMaster=no, BatchMode=yes) true; controls: ca2 (principal mismatch) and ca1 with IdentityAgent=none; server lines from docker logs $FX_CA1_CONTAINER filtered to this run's key IDs" || echo "fresh SSH login not enabled (no --fixture-runtime)")")"
+     printf '    %s,\n' "$(json_str "sampling: per sample and working path ssh-add -T, ssh-keygen -Y sign + check-novalidate, optional fresh ca1 login; ioreg IOConsoleLocked and CGSSessionScreenIsLocked only")"
+     printf '    %s,\n' "$(json_str "export check: sc_auth export-ctk-identity -h <own hash> -f <tmp>/export.p12 -p <random, never recorded>; any file created is removed with rm -P")"
+@@ -673,6 +746,11 @@
+     printf '    "certificate_validity": %s,\n    "server_logs": %s,\n' "$(json_str "$([ -n "$FIXTURE_RUNTIME" ] && echo "$CERT_VALIDITY" || echo none)")" "$(json_str "$SERVER_LOGS")"
+     printf '    "cleanup": {"sampler": "%s", "dedicated_agents": %s, "agent_sockets": %s, "own_identity": "%s", "ctk_identity_list_vs_pre_run": "%s", "authentication_authority": "%s", "export_file": "%s", "caffeinate": "%s", "temp_dir": "%s", "complete": %s},\n' \
+       "$CLEAN_SAMPLER" "$(json_str "${CLEAN_AGENTS:-none}")" "$(json_str "${CLEAN_SOCKETS:-none}")" "$CLEAN_IDENTITY" "$CLEAN_IDLIST" "$CLEAN_AA" "$CLEAN_EXPORT" "$CLEAN_CAF" "$CLEAN_TEMP" "$cc"
++    if [ "$MODE" = unlocked ]; then
++      printf '    "clauses": {"create_noninteractive": "%s", "export_refused_no_file": "%s", "delete_by_exact_hash_list_restored": "%s", "dedicated_agent_signing": "%s", "keychain_certificates_limit": "%s", "fixture_login_with_controls": "%s"},\n' \
++        "$c_create" "$c_export" "$c_delete" "$c_sign" "$c_limit" "$c_login"
++    fi
++    printf '    "validity_notes": %s,\n' "$(json_str "${vnotes:-none}")"
+     printf '    "findings": %s,\n' "$(json_str "${FINDINGS:-none}")"
+     printf '    "canary_scan_of_artifacts": "%s",\n    "interrupted": %s,\n    "setup_notes": %s\n' "$leak" "$([ "$INTERRUPTED" -eq 1 ] && echo true || echo false)" "$(json_str "${SETUP_NOTES:-none}")"
+     printf '  },\n'
+@@ -698,11 +776,11 @@
+   exit "$exit_code"
+ }
+ 
+-on_signal() { INTERRUPTED=1; log "interrupted by signal $1; cleaning up"; finish; }
++on_signal() { trap '' INT QUIT PIPE; trap 'LATE_SIGNAL=1' TERM HUP; INTERRUPTED=1; log "interrupted by signal $1; cleaning up (further signals are ignored until cleanup ends)"; finish; }
+ setup_fail() { SETUP_NOTES="${SETUP_NOTES}$1; "; SETUP_FAILED=1; log "ERROR: $1"; finish; }
+ blocked() { BLOCKED=1; BLOCKED_REASON=$1; log "BLOCKED: $1"; finish; }
+ finding() { FINDINGS="${FINDINGS}$1; "; log "FINDING: $1"; }
+-trap 'on_signal INT' INT; trap 'on_signal TERM' TERM; trap 'on_signal HUP' HUP
++trap 'on_signal INT' INT; trap 'on_signal TERM' TERM; trap 'on_signal HUP' HUP; trap 'on_signal QUIT' QUIT
+ trap 'finish' EXIT
+ 
+ # ---------------------------------------------------------------- setup: snapshots (read-only)
+@@ -732,6 +810,19 @@
+ if [ "$PRE_COUNT" != 0 ] && { [ "$SELFTEST" -eq 0 ] || [ -e "$(dirname "$SC_AUTH")/enforce_empty_store" ]; }; then
+   blocked "the CTK token store already holds $PRE_COUNT identity(ies); ssh-add -K -S ignores KEYCHAIN_CERTIFICATES (P5 run 20261009T053616Z), so loading would also load identities this probe did not create. Nothing was created. Needs a store without other CTK identities, or an owner decision"
+ fi
++# ssh-keychain.dylib also serves smart cards and other tokens; none may be present (read-only check,
++# only the count is kept).
++if [ "$SELFTEST" -eq 0 ]; then
++  run_with_timeout 20 "$SECURITY" list-smartcards </dev/null > "$T/smartcards.out" 2>&1; SC_LIST_RC=$?
++  # Observed on macOS 27.0: rc 44 and "No smartcards found." when none are present.
++  if [ "$SC_LIST_RC" -eq 0 ] && [ "$(grep -c . "$T/smartcards.out")" -gt 0 ]; then
++    blocked "security list-smartcards reports $(grep -c . "$T/smartcards.out") token(s); ssh-keychain.dylib would offer them to the agents too. Nothing was created. Remove smart cards/tokens and run again"
++  elif [ "$SC_LIST_RC" -ne 0 ] && [ "$SC_LIST_RC" -ne 44 ]; then
++    blocked "security list-smartcards failed (rc=$SC_LIST_RC), so the absence of other tokens cannot be confirmed. Nothing was created"
++  fi
++  log "smart cards/tokens: none reported (security list-smartcards rc=$SC_LIST_RC)"
++  rm -f "$T/smartcards.out"
++fi
+ 
+ # ---------------------------------------------------------------- create (the one authorized write)
+ log "creating CTK identity label=$LABEL type=p-256-ne protection=none (timeout ${SC_TO}s)"
+@@ -762,6 +853,10 @@
+ 
+ # ---------------------------------------------------------------- load, sign, login
+ write_ssh_config() {  # PATH VARIANT -> $T/ssh_config-PATH-VARIANT
++  # bash 3.2 mis-parses `case` inside $(...), so the optional line is computed first. ssh ignores an
++  # sk-type IdentityFile/CertificateFile without SecurityKeyProvider, even when the agent holds the key.
++  local SKP_LINE=""
++  case "$(getv R "$1" KALG)" in sk-*) SKP_LINE="  SecurityKeyProvider $KC_DYLIB";; esac
+   cat > "$T/ssh_config-$1-$2" <<EOF
+ Host probe-target
+   HostName 127.0.0.1
+@@ -781,7 +876,7 @@
+   UpdateHostKeys no
+   VerifyHostKeyDNS no
+   IdentityAgent "$T/$1.sock"
+-$(case "$(getv R "$1" KALG)" in sk-*) printf '  SecurityKeyProvider %s\n' "$KC_DYLIB";; esac)
++$SKP_LINE
+   IdentitiesOnly yes
+   IdentityFile "$T/$1-$2.pub"
+   CertificateFile "$T/$1-$2-cert.pub"
+@@ -798,7 +893,9 @@
+ EOF
+ }
+ issue_cert() {  # PATH VARIANT(default|nt)
+-  local p=$1 v=$2 kid="heimdall-g04-p5-$RUN_TAG-$1-$2"
++  local p=$1 v=$2 kid="heimdall-g04-p5-$RUN_TAG-$1-$2" e
++  e=$(( $(date -u +%s) + CERT_MINUTES * 60 ))   # earliest expiry of any certificate issued (conservative)
++  if [ -z "$CERT_EXPIRES_EPOCH" ] || [ "$e" -lt "$CERT_EXPIRES_EPOCH" ]; then CERT_EXPIRES_EPOCH=$e; fi
+   cp "$T/$p.pub" "$T/$p-$v.pub"
+   if [ "$v" = nt ]; then "$SSH_KEYGEN" -q -s "$FX_CAKEY" -I "$kid" -n p-host1 -V "$CERT_VALIDITY" -O no-touch-required "$T/$p-$v.pub" 2>"$T/$p-$v-certgen.out"
+   else "$SSH_KEYGEN" -q -s "$FX_CAKEY" -I "$kid" -n p-host1 -V "$CERT_VALIDITY" "$T/$p-$v.pub" 2>"$T/$p-$v-certgen.out"; fi
+@@ -807,6 +904,13 @@
+   local p=$1 v=$2 h=$3 out=$4; shift 4
+   run_with_timeout 30 /usr/bin/env HOME="$T/home-$p" KEYCHAIN_CERTIFICATES="$HASH" "$SSH" -F "$T/ssh_config-$p-$v" "$@" "$h" true </dev/null >"$out" 2>&1
+ }
++login_class() {  # SSH -v OUTFILE RC -> accepted|no_connection|not_offered|refused_at_query|failed_after_query
++  if [ "$2" = 0 ]; then echo accepted
++  elif ! grep -q 'Connection established' "$1"; then echo no_connection
++  elif ! grep -q 'Offering public key' "$1"; then echo not_offered
++  elif ! grep -q 'Server accepts key' "$1"; then echo refused_at_query
++  else echo failed_after_query; fi
++}
+ pk_hash_check() {  # PUBFILE -> pkhash_match|pkhash_differs|not_parsed: hash of the key's EC point (04||X||Y) vs own hash
+   local b i q h
+   b=$(awk 'NR == 1 { print $2 }' "$1" | /usr/bin/base64 -D 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
+@@ -833,7 +937,10 @@
+   log "self-test: load paths skipped"
+ else
+   if [ -n "$FIXTURE_RUNTIME" ] && [ "$MODE" = lock ]; then
+-    CERT_VALIDITY="-1m:+$(( (PRE_SAMPLES + POST_SAMPLES) * (INTERVAL + 30) / 60 + LOCK_SECONDS / 60 + 30 ))m"
++    # Generous: three times the advised lock, plus worst-case sample time, plus 60 min. Login samples
++    # taken after expiry are recorded as not measured, never as lock failures.
++    CERT_MINUTES=$(( LOCK_SECONDS * 3 / 60 + (PRE_SAMPLES + POST_SAMPLES) * (INTERVAL + 60) / 60 + 60 ))
++    CERT_VALIDITY="-1m:+${CERT_MINUTES}m"
+   fi
+   for p in $PATHS; do
+     # Filter control: same load with a random non-matching hash, in its own agent. Must load zero keys.
+@@ -843,8 +950,8 @@
+     log "filter control $p (non-matching hash): load rc=$(getv R "$p" CTLRC) keys=$(getv R "$p" CTLKEYS)"
+     if [ "$(getv R "$p" CTLKEYS)" != 0 ]; then
+       # Whatever was loaded may belong to someone else: keep no raw output, use nothing.
+-      finding "filter control $p loaded $(getv R "$p" CTLKEYS) key(s) with a non-matching KEYCHAIN_CERTIFICATES; removed from that agent without use"
+-      run_in "ctl$p" 15 /dev/null "$SSH_ADD" -D
++      finding "filter control $p loaded $(getv R "$p" CTLKEYS) key(s) with a non-matching KEYCHAIN_CERTIFICATES; not used, ssh-add -D issued (rc in the record), agent terminated at cleanup"
++      run_in "ctl$p" 15 /dev/null "$SSH_ADD" -D; setv R "$p" CTLDRC $?
+     else
+       keep "$T/ctl$p-load.out" "filter-control-$p-load.out"
+     fi
+@@ -870,11 +977,12 @@
+     elif [ "$(getv R "$p" FP)" = "SHA256:$SSHHASH" ]; then setv R "$p" FPMATCH match
+     else setv R "$p" FPMATCH differs; fi
+     setv R "$p" PKMATCH "$(pk_hash_check "$T/$p.pub")"
+-    # Use the key only if it is provably this run's identity (or the store held no other identity).
++    # Use the key only if it is provably this run's identity. No fallback: an unproven key is
++    # removed unused and its details are not kept.
+     if [ "$(getv R "$p" PKMATCH)" = pkhash_match ]; then setv R "$p" OWNBASIS "public_key_hash_of_ec_point_equals_own_hash"
+     elif [ "$(getv R "$p" FPMATCH)" = match ]; then setv R "$p" OWNBASIS "fingerprint_equals_sc_auth_ssh_hash"
+-    elif [ "$PRE_COUNT" = 0 ]; then setv R "$p" OWNBASIS "only_ctk_identity_in_store"
+     else
++      setv R "$p" FP ""; setv R "$p" KALG ""
+       finding "load path $p: the one loaded key could not be confirmed as this run's identity; removed unused"
+       run_in "$p" 15 /dev/null "$SSH_ADD" -D
+       setv R "$p" NOTE "loaded key not confirmed as own; removed unused; raw output not kept"
+@@ -898,8 +1006,9 @@
+       issue_cert "$p" default || finding "certificate issue failed for $p (default)"
+       write_ssh_config "$p" default
+       fixture_login "$p" default probe-target "$T/$p-login-default.out" -v; setv R "$p" LOGDEF $?
++      setv R "$p" LOGDEFCLS "$(login_class "$T/$p-login-default.out" "$(getv R "$p" LOGDEF)")"
+       keep "$T/$p-login-default.out" "login-ca1-$p-default.out"
+-      log "$p: fresh login to ca1 with default-extension certificate rc=$(getv R "$p" LOGDEF)"
++      log "$p: fresh login to ca1 with default-extension certificate rc=$(getv R "$p" LOGDEF) class=$(getv R "$p" LOGDEFCLS)"
+       if [ "$(getv R "$p" LOGDEF)" = 0 ]; then setv R "$p" VARIANT default
+       else
+         case "$(getv R "$p" KALG)" in
+@@ -907,15 +1016,22 @@
+             issue_cert "$p" nt || finding "certificate issue failed for $p (no-touch-required)"
+             write_ssh_config "$p" nt
+             fixture_login "$p" nt probe-target "$T/$p-login-nt.out" -v; setv R "$p" LOGNT $?
++            setv R "$p" LOGNTCLS "$(login_class "$T/$p-login-nt.out" "$(getv R "$p" LOGNT)")"
+             keep "$T/$p-login-nt.out" "login-ca1-$p-no-touch-required.out"
+-            log "$p: fresh login to ca1 with no-touch-required certificate rc=$(getv R "$p" LOGNT)"
++            log "$p: fresh login to ca1 with no-touch-required certificate rc=$(getv R "$p" LOGNT) class=$(getv R "$p" LOGNTCLS)"
+             [ "$(getv R "$p" LOGNT)" = 0 ] && setv R "$p" VARIANT nt;;
+         esac
+       fi
++      case "$(getv R "$p" LOGDEFCLS) $(getv R "$p" LOGNTCLS)" in
++        *accepted*|*refused_at_query*|*failed_after_query*) setv R "$p" LOGMEASURED 1;;
++      esac
+       if [ -n "$(getv R "$p" VARIANT)" ]; then
+-        fixture_login "$p" "$(getv R "$p" VARIANT)" probe-negative "$T/$p-neg2.out"; setv R "$p" NEG2 $?
+-        fixture_login "$p" "$(getv R "$p" VARIANT)" probe-target "$T/$p-negna.out" -o IdentityAgent=none; setv R "$p" NEGNA $?
+-        log "$p: controls: ca2 principal mismatch rc=$(getv R "$p" NEG2) (expect non-zero); ca1 without agent rc=$(getv R "$p" NEGNA) (expect non-zero)"
++        fixture_login "$p" "$(getv R "$p" VARIANT)" probe-negative "$T/$p-neg2.out" -v; setv R "$p" NEG2 $?
++        setv R "$p" NEG2CLS "$(login_class "$T/$p-neg2.out" "$(getv R "$p" NEG2)")"
++        fixture_login "$p" "$(getv R "$p" VARIANT)" probe-target "$T/$p-negna.out" -v -o IdentityAgent=none; setv R "$p" NEGNA $?
++        setv R "$p" NEGNACLS "$(login_class "$T/$p-negna.out" "$(getv R "$p" NEGNA)")"
++        keep "$T/$p-neg2.out" "control-ca2-principal-mismatch-$p.out"; keep "$T/$p-negna.out" "control-ca1-without-agent-$p.out"
++        log "$p: controls: ca2 principal mismatch rc=$(getv R "$p" NEG2) class=$(getv R "$p" NEG2CLS); ca1 without agent rc=$(getv R "$p" NEGNA) class=$(getv R "$p" NEGNACLS) (both expected non-zero)"
+       fi
+     fi
+   done
+@@ -938,7 +1054,10 @@
+   printf 'heimdall-g04-p5 nonce %s %s %s\n' "$p" "$2" "$3" > "$T/$p-smsg"; rm -f "$T/$p-smsg.sig"
+   run_in "$p" 15 /dev/null "$SSH_KEYGEN" -Y sign -q -f "$T/$p.pub" -n "$SIGN_NS" "$T/$p-smsg"; sign=$?
+   if [ "$sign" -eq 0 ]; then "$SSH_KEYGEN" -Y check-novalidate -n "$SIGN_NS" -s "$T/$p-smsg.sig" < "$T/$p-smsg" >/dev/null 2>&1; ver=$?; else ver=-1; fi
+-  if [ -n "$(getv R "$p" VARIANT)" ]; then fixture_login "$p" "$(getv R "$p" VARIANT)" probe-target /dev/null; ssh=$?; fi
++  if [ -n "$(getv R "$p" VARIANT)" ]; then
++    if [ -n "$CERT_EXPIRES_EPOCH" ] && [ "$(date -u +%s)" -ge $((CERT_EXPIRES_EPOCH - 15)) ]; then ssh=na; : > "$T/cert-expired-sample"
++    else fixture_login "$p" "$(getv R "$p" VARIANT)" probe-target /dev/null; ssh=$?; fi
++  fi
+   echo "$add $sign $ver $ssh"
+ }
+ sample_once() {
+@@ -997,6 +1116,7 @@
+   fi
+   : > "$T/stop"; wait "$SAMPLER_PID" 2>/dev/null; SAMPLER_PID=""; CLEAN_SAMPLER="stopped"; rm -f "$T/stop"
+   log "sampling stopped; $(sample_count) samples"
++  [ -e "$T/cert-expired-sample" ] && SAMPLES_AFTER_CERT_EXPIRY=1
+   if [ "$MODE" = lock ]; then
+     ask_yn() {
+       local a
+@@ -1016,8 +1136,8 @@
+ 
+ # ---------------------------------------------------------------- server-side attribution (read-only)
+ if [ -n "$FIXTURE_RUNTIME" ] && command -v docker >/dev/null 2>&1; then
+-  if [ "$(docker port "$FX_CA1_CONTAINER" 22/tcp 2>/dev/null | head -1)" = "127.0.0.1:$FX_PORT1" ]; then
+-    docker logs --since "$((RUN_START_EPOCH - 5))" "$FX_CA1_CONTAINER" > "$T/ca1.log" 2>&1
++  if [ "$(run_with_timeout 20 docker port "$FX_CA1_CONTAINER" 22/tcp 2>/dev/null | head -1)" = "127.0.0.1:$FX_PORT1" ]; then
++    run_with_timeout 30 docker logs --since "$((RUN_START_EPOCH - 5))" "$FX_CA1_CONTAINER" > "$T/ca1.log" 2>&1
+     grep -E "heimdall-g04-p5-$RUN_TAG|presence|touch" "$T/ca1.log" > "$T/ca1-run.log"
+     keep "$T/ca1-run.log" "sshd-ca1-run-lines.log"
+     for p in $PATHS; do

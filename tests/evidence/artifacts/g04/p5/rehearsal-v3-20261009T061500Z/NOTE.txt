@@ -1,0 +1,10 @@
+First rehearsal of probe v3 (2026-10-09T06:15Z). NOT Secure Enclave / CTK evidence: a temp copy of the probe
+(rehearsal.patch) used the self-test's fake sc_auth and loaded disposable SOFTWARE ecdsa keys instead of
+/usr/lib/ssh-keychain.dylib; the fake gave the created identity the SHA-1 of key A's EC point, so path "pkcs11"
+(key A) could prove ownership and path "sk" (key B) had to be rejected as foreign.
+It exposed a defect: every generated ssh_config contained a literal "printf ..." line (unlocked/
+login-ca1-pkcs11-default.out: "Bad configuration option: printf"), because bash 3.2 cannot parse `case`
+inside $(...) (lock/terminal-transcript.txt shows bash's syntax error). The v2 SecurityKeyProvider line had
+this defect; fixed in v3 (probe-v2-to-v3.patch) and covered by new self-test checks. The foreign key B was
+rejected as intended. Lock mode ran in a pseudo-terminal with scripted answers (Enter, then n, n).
+Kept as the record of the defect; superseded by rehearsal-v3-20261009T061826Z.

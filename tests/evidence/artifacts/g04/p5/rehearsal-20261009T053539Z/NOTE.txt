@@ -1,0 +1,12 @@
+Harness rehearsal for tests/native/macos/g04_ctk_probe.sh v1 (sha256 623bfdca3623c68b522561f16a9dad5bd88f681b1740ba36d9668633eab2ec1c).
+NOT Secure Enclave / CTK evidence. A temp copy of the probe was patched (rehearsal.patch) so that:
+  - the self-test hook's fake sc_auth (store in a temp dir, empty at start) stands in for sc_auth;
+  - the two load paths add disposable SOFTWARE keys (ecdsa P-256 for "pkcs11", ed25519 for "sk")
+    to the dedicated agents instead of loading /usr/lib/ssh-keychain.dylib;
+  - the filter-control agents load nothing.
+Purpose: exercise the parts the self-test cannot reach (dedicated agents, ssh-add -T / -Y sign,
+certificate issue, fresh logins to the real M00-T03 fixture ca1 with ca2 and no-agent controls,
+the sampler and its aggregation, docker-logs attribution, post-delete checks, agent cleanup).
+The record's artifact_digest is that of the patched copy; status in_progress / verdict
+inconclusive is by design in hook mode. Run on 2026-10-09T05:35:39Z, exit 1.
+Fixture: up.sh run 20261009T053213Z, smoke.sh pass=61 fail=0.

@@ -1,0 +1,13 @@
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 58644 ssh2: ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 ID heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default (serial 0) CA ED25519 SHA256:<other-fp>
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 58656 ssh2: ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 ID heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default (serial 0) CA ED25519 SHA256:<other-fp>
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 58660 ssh2: ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 ID heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default (serial 0) CA ED25519 SHA256:<other-fp>
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 58676 ssh2: ECDSA-CERT SHA256:+mfk5bg+qWxIcUHlbwK6g4PrKVdWGgCuOsiXPntnqd0 ID heimdall-g04-p5-20261009T061827Z-d8a0bd-pkcs11-default (serial 0) CA ED25519 SHA256:<other-fp>

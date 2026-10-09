@@ -1,0 +1,16 @@
+post-run verification at 2026-10-09T09:00:11Z (read-only)
+sc_auth list-ctk-identities rc=0 lines=1 hash_tokens=0 heimdall-m00-p5_rows=0
+header line: Key Type Public Key Hash Prot Label Common Name Email Address Valid To Valid 
+security list-smartcards rc=44 (44 = none found)
+AuthenticationAuthority ;tokenidentity; entries: 0
+run PID 81298: not running
+run PID 81346: not running
+run PID 81404: not running
+run PID 81461: not running
+run PID 81710: not running
+ssh-agent processes: 1 (start times: Sep 26 2026;)
+probe temp dirs under TMPDIR or /tmp: 0
+fixture containers: 0; fixture runtime dir present: no
+screen now: IOConsoleLocked=true CGSSessionScreenIsLocked=true
+launchd session of this checking process: Background
+exit=0

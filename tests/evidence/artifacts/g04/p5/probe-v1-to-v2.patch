@@ -1,0 +1,66 @@
+--- a/tests/native/macos/g04_ctk_probe.sh (v1, sha256 623bfdca3623c68b522561f16a9dad5bd88f681b1740ba36d9668633eab2ec1c)	2026-10-09 01:38:21
++++ b/tests/native/macos/g04_ctk_probe.sh	2026-10-09 01:39:05
+@@ -46,7 +46,17 @@
+ umask 077
+ export LC_ALL=C
+ 
+-PROBE_VERSION="1"
++# v1 (sha256 623bfdca...) ran once on 2026-10-09 (tests/evidence/artifacts/g04/p5/20261009T053616Z-unlocked/).
++# v2 fixes what that run exposed (patch: tests/evidence/artifacts/g04/p5/probe-v1-to-v2.patch):
++#   - ssh ignores an sk-type IdentityFile/CertificateFile unless SecurityKeyProvider is set, even
++#     when the agent holds the key, so v1 never offered the key to ca1. v2 sets SecurityKeyProvider
++#     (and KEYCHAIN_CERTIFICATES) for sk keys; the agent still does the signing.
++#   - sc_auth export-ctk-identity exited 0 while refusing ("hardware bounded and cannot be
++#     exported", no file). v2 judges the export check by "no file" plus that refusal message.
++#   - ssh-add -K -S ignored KEYCHAIN_CERTIFICATES (a random non-matching hash still loaded the
++#     identity). With other CTK identities present the load would also pull in identities this
++#     probe did not create, so v2 stops before creating anything when the store is not empty.
++PROBE_VERSION="2"
+ SSH=/usr/bin/ssh; SSH_KEYGEN=/usr/bin/ssh-keygen; SSH_AGENT=/usr/bin/ssh-agent; SSH_ADD=/usr/bin/ssh-add
+ SC_AUTH=/usr/sbin/sc_auth; KC_DYLIB=/usr/lib/ssh-keychain.dylib
+ SK_HELPER=/usr/libexec/ssh-sk-helper; P11_HELPER=/usr/libexec/ssh-pkcs11-helper
+@@ -552,7 +562,7 @@
+ 
+   if grep -r -l -F "$CANARY_PREFIX" "$OUT_DIR" >/dev/null 2>&1; then leak="LEAK_DETECTED"; fi
+   if [ "$MODE" = unlocked ]; then
+-    criterion="Unlocked (screen stays unlocked): sc_auth creates a p-256-ne (non-exportable, Secure Enclave) CTK identity with -t none without any interactive prompt; through /usr/lib/ssh-keychain.dylib, at least one load path (PKCS#11 ssh-add -s, or FIDO-style ssh-add -K -S) puts exactly that one key into a dedicated ssh-agent whose KEYCHAIN_CERTIFICATES names only its hash, while the same load with a random non-matching hash loads zero keys; the agent signs (ssh-add -T, ssh-keygen -Y sign + check-novalidate) in every check and sample; with --fixture-runtime a fresh certificate login to ca1 succeeds in every check and sample while the ca2 principal-mismatch and ca1-without-agent controls are refused; export-ctk-identity fails and leaves no file; delete-ctk-identity by the exact hash removes it. Validity: completed without interruption, identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
++    criterion="Unlocked (screen stays unlocked): sc_auth creates a p-256-ne (non-exportable, Secure Enclave) CTK identity with -t none without any interactive prompt; through /usr/lib/ssh-keychain.dylib, at least one load path (PKCS#11 ssh-add -s, or FIDO-style ssh-add -K -S) puts exactly that one key into a dedicated ssh-agent whose KEYCHAIN_CERTIFICATES names only its hash, while the same load with a random non-matching hash loads zero keys; the agent signs (ssh-add -T, ssh-keygen -Y sign + check-novalidate) in every check and sample; with --fixture-runtime a fresh certificate login to ca1 succeeds in every check and sample while the ca2 principal-mismatch and ca1-without-agent controls are refused; export-ctk-identity creates no file and prints the hardware-bound refusal (its exit status was observed to be 0 on refusal, so it is recorded but not judged); delete-ctk-identity by the exact hash removes it. Validity: completed without interruption, identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
+   else
+     criterion="Lock (A03 substrate, owner-driven screen lock): in the established lock window every CTK load path that worked before the lock signs through its dedicated agent in every sample and, with --fixture-runtime, the fresh ca1 login succeeds in every sample. Validity: lock window established (IORegistry signal or owner attestation, not denied by the owner), at least one baseline and one post-unlock sample, completed, identity deleted and identity list equal to the pre-run list, AuthenticationAuthority unchanged, agents and temp dir gone, no canary."
+   fi
+@@ -561,7 +571,7 @@
+     if [ "$MODE" = unlocked ]; then
+       valid=1
+       verdict=fail
+-      if [ "$any_works" -eq 1 ] && [ "$EXPORT_FILE" = absent ] && [ "${EXPORT_RC:-0}" != 0 ] && [ "$DELETED" -eq 1 ]; then verdict=pass; fi
++      if [ "$any_works" -eq 1 ] && [ "$EXPORT_FILE" = absent ] && [ "$EXPORT_CLASS" = hardware_bounded_cannot_be_exported ] && [ "$DELETED" -eq 1 ]; then verdict=pass; fi
+     else
+       case "$lock_evidence" in ioreg_lock_signal|owner_attestation_only) valid=1;; esac
+       [ "$ATTEST_LOCK" = no ] && valid=0
+@@ -719,6 +729,9 @@
+ PRE_PREFIX_ROWS=$(grep -c -F -- "$LABEL_PREFIX" "$T/pre.list")
+ log "pre-run CTK identities: $PRE_COUNT (list kept only in the 0700 temp dir; digest in memory); rows with prefix $LABEL_PREFIX from earlier runs: $PRE_PREFIX_ROWS (never touched)"
+ [ "$(label_rows "$T/pre.list" | grep -c .)" -eq 0 ] || setup_fail "fresh random label already present; refusing to continue"
++if [ "$PRE_COUNT" != 0 ] && { [ "$SELFTEST" -eq 0 ] || [ -e "$(dirname "$SC_AUTH")/enforce_empty_store" ]; }; then
++  blocked "the CTK token store already holds $PRE_COUNT identity(ies); ssh-add -K -S ignores KEYCHAIN_CERTIFICATES (P5 run 20261009T053616Z), so loading would also load identities this probe did not create. Nothing was created. Needs a store without other CTK identities, or an owner decision"
++fi
+ 
+ # ---------------------------------------------------------------- create (the one authorized write)
+ log "creating CTK identity label=$LABEL type=p-256-ne protection=none (timeout ${SC_TO}s)"
+@@ -768,6 +781,7 @@
+   UpdateHostKeys no
+   VerifyHostKeyDNS no
+   IdentityAgent "$T/$1.sock"
++$(case "$(getv R "$1" KALG)" in sk-*) printf '  SecurityKeyProvider %s\n' "$KC_DYLIB";; esac)
+   IdentitiesOnly yes
+   IdentityFile "$T/$1-$2.pub"
+   CertificateFile "$T/$1-$2-cert.pub"
+@@ -791,7 +805,7 @@
+ }
+ fixture_login() {  # PATH VARIANT HOSTALIAS OUTFILE [extra ssh -o ...] -> rc
+   local p=$1 v=$2 h=$3 out=$4; shift 4
+-  run_with_timeout 30 /usr/bin/env HOME="$T/home-$p" "$SSH" -F "$T/ssh_config-$p-$v" "$@" "$h" true </dev/null >"$out" 2>&1
++  run_with_timeout 30 /usr/bin/env HOME="$T/home-$p" KEYCHAIN_CERTIFICATES="$HASH" "$SSH" -F "$T/ssh_config-$p-$v" "$@" "$h" true </dev/null >"$out" 2>&1
+ }
+ pk_hash_check() {  # PUBFILE -> pkhash_match|pkhash_differs|not_parsed: hash of the key's EC point (04||X||Y) vs own hash
+   local b i q h
