@@ -1,0 +1,23 @@
+$ python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json tests/evidence/artifacts/review-sources/recheck/fetch_run1.json   # revised compare on the recheck 403-window run
+sources: 34  IDENTICAL=15  RAW_ONLY=10  MARKER_ONLY=3  CONTENT=1  FETCH_FAILED=5  MISSING=0  EXTRA=0
+S06 MARKER_ONLY http=200/200 raw_same=no norm_same=yes markers_same=no moved=page_dateModified primary=norm primary_same=yes
+S07 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S08 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S09 MARKER_ONLY http=200/200 raw_same=no norm_same=yes markers_same=no moved=page_dateModified primary=norm primary_same=yes
+S11 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S12 MARKER_ONLY http=200/200 raw_same=no norm_same=yes markers_same=no moved=page_dateModified primary=norm primary_same=yes
+S13 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S14 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S15 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S20 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S21 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S22 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S23 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S24 FETCH_FAILED http=200/403
+S26 FETCH_FAILED http=200/403
+S28 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S31 FETCH_FAILED http=200/403
+S32 FETCH_FAILED http=200/403
+S33 FETCH_FAILED http=200/403
+exit 2: content change or missing source
+exit=2

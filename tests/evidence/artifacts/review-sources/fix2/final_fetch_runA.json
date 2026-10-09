@@ -1,0 +1,810 @@
+{
+ "normalizer_version": 1,
+ "results": [
+  {
+   "fetched_url": "https://man.openbsd.org/ssh_config",
+   "final_url": "https://man.openbsd.org/ssh_config",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S01",
+   "markers": {
+    "mdoc_footer": "September 20, 2026"
+   },
+   "normalized_text_chars": 67154,
+   "normalized_text_sha256": "54d27f610a118efa69ba7b78a1256272dcd206bc18a8391f86a7516dc720dd67",
+   "normalizer_version": 1,
+   "raw_body_sha256": "3d8e498373fc78cf844ce3317848867fb80624f0b981a92a6440bc9890b4980f",
+   "raw_bytes": 116889,
+   "retrieved_at_utc": "2026-10-09T06:13:43Z",
+   "snapshot": {
+    "gz_sha256": "3cfc36204f739eab4e7e7f6c392b25f9e3e1ad51af1f9a0eccbd47264c8a2e51",
+    "path": "<tmp>/final/snapA/S01.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh_config"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/ssh",
+   "final_url": "https://man.openbsd.org/ssh",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S02",
+   "markers": {
+    "mdoc_footer": "September 5, 2026"
+   },
+   "normalized_text_chars": 41579,
+   "normalized_text_sha256": "272138d0e56aefe4bec5e876073d24c7a7ce36e57f6e8739ef1b0afd81175c25",
+   "normalizer_version": 1,
+   "raw_body_sha256": "16c3540970d44f4904f8989509ac46a812e26847f9a1a5945355af260175c4b0",
+   "raw_bytes": 82410,
+   "retrieved_at_utc": "2026-10-09T06:13:43Z",
+   "snapshot": {
+    "gz_sha256": "c8c766f41a6057c343b03e27347243833b23db796a820cbac9f63bb46997cdc0",
+    "path": "<tmp>/final/snapA/S02.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh"
+  },
+  {
+   "fetched_url": "https://www.openssh.org/agent-restrict.html",
+   "final_url": "https://www.openssh.org/agent-restrict.html",
+   "headers": {
+    "content-length": "31685",
+    "content-type": "text/html",
+    "last-modified": "Tue, 22 Sep 2026 19:18:50 GMT"
+   },
+   "http_status": 200,
+   "id": "S03",
+   "markers": {
+    "http_last_modified": "Tue, 22 Sep 2026 19:18:50 GMT"
+   },
+   "normalized_text_chars": 24203,
+   "normalized_text_sha256": "7f421cdb50b95b49fa9710b820093593bde4a380b049878829dd309556037fc3",
+   "normalizer_version": 1,
+   "raw_body_sha256": "28939c425c736c784915e63bf8e1febfd238422c4ede43c759fe0bd8e0417f1c",
+   "raw_bytes": 31685,
+   "retrieved_at_utc": "2026-10-09T06:13:44Z",
+   "snapshot": {
+    "gz_sha256": "6828505746fcfac74d2285a791c89c03ccdf7a0e80f140459ec5ade7030e1322",
+    "path": "<tmp>/final/snapA/S03.txt.gz"
+   },
+   "spec_url": "https://www.openssh.org/agent-restrict.html"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/sshd",
+   "final_url": "https://man.openbsd.org/sshd",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S04",
+   "markers": {
+    "mdoc_footer": "September 2, 2026"
+   },
+   "normalized_text_chars": 29861,
+   "normalized_text_sha256": "e75f74e2db03ca3585750e37989d57e4be176ec988995ede902801d08ca6432e",
+   "normalizer_version": 1,
+   "raw_body_sha256": "3c4c65d0221c28f1a9cc54c4c91ddb40b23c67f4beff96c5584847ecd7a88d6b",
+   "raw_bytes": 52669,
+   "retrieved_at_utc": "2026-10-09T06:13:45Z",
+   "snapshot": {
+    "gz_sha256": "65877b936d1a2e0ee8cef8fa764094f13b1fbf44c759f32cbf6c0840f11a638a",
+    "path": "<tmp>/final/snapA/S04.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/sshd"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/sshd_config",
+   "final_url": "https://man.openbsd.org/sshd_config",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S05",
+   "markers": {
+    "mdoc_footer": "September 17, 2026"
+   },
+   "normalized_text_chars": 62811,
+   "normalized_text_sha256": "3e704e51b73647f9a6e9eb37c00788e2771fe12e01bdfe10ffeeeb56fe744c70",
+   "normalizer_version": 1,
+   "raw_body_sha256": "76b5b91d17571ea57d275f412b736b56cddbbbb473aa90da4c7e8b27fd9121da",
+   "raw_bytes": 113957,
+   "retrieved_at_utc": "2026-10-09T06:13:45Z",
+   "snapshot": {
+    "gz_sha256": "abbb22b20671510a0c68f888f956ab739e368e5567f14ae512a85ca7119aaf6d",
+    "path": "<tmp>/final/snapA/S05.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/sshd_config"
+  },
+  {
+   "fetched_url": "https://www.1password.dev/ssh/agent/security",
+   "final_url": "https://www.1password.dev/ssh/agent/security",
+   "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "etag": "W/\"14igerlss29oypm\""
+   },
+   "http_status": 200,
+   "id": "S06",
+   "markers": {
+    "page_dateModified": "2026-10-08T15:54:18.074Z"
+   },
+   "normalized_text_chars": 7501,
+   "normalized_text_sha256": "e6e8c6609fe5250949d5823b1a6e1bcf63395b6adff14e40f661de0d35feabe3",
+   "normalizer_version": 1,
+   "raw_body_sha256": "a303e319c6f151b8b5c4b73c9c792eb5ce9c4b06a43484275586172014901b47",
+   "raw_bytes": 1164948,
+   "retrieved_at_utc": "2026-10-09T06:13:46Z",
+   "snapshot": {
+    "gz_sha256": "609dbbd6b07baf06c021ebcef06bf2546d205d0c12877ebb36b3d327dfd39cb5",
+    "path": "<tmp>/final/snapA/S06.txt.gz"
+   },
+   "spec_url": "https://www.1password.dev/ssh/agent/security"
+  },
+  {
+   "fetched_url": "https://www.1password.dev/ssh/agent/authorization",
+   "final_url": "https://www.1password.dev/ssh/agent/authorization",
+   "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "etag": "W/\"o6n7cfw7pgpwje\""
+   },
+   "http_status": 200,
+   "id": "S07",
+   "markers": {
+    "page_dateModified": "2026-09-04T17:57:13.051Z"
+   },
+   "normalized_text_chars": 8131,
+   "normalized_text_sha256": "0c5ee2dc8039aa82449dc9b785f8e433b04db1a2429596a003a55e43eee174c2",
+   "normalizer_version": 1,
+   "raw_body_sha256": "e3bf5a93ea6e2dcb9d1de8fc41d3720e43cea43d7cea6d5f5a88d53e813568c6",
+   "raw_bytes": 1208900,
+   "retrieved_at_utc": "2026-10-09T06:13:46Z",
+   "snapshot": {
+    "gz_sha256": "86b36bf79bdea174f41d962950cd14b2762b1b1ebfc0908d87853c6df07a50d8",
+    "path": "<tmp>/final/snapA/S07.txt.gz"
+   },
+   "spec_url": "https://www.1password.dev/ssh/agent/authorization"
+  },
+  {
+   "fetched_url": "https://www.1password.dev/environments/mcp-server",
+   "final_url": "https://www.1password.dev/environments/mcp-server",
+   "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "etag": "W/\"qubp4th2ozqzcw\""
+   },
+   "http_status": 200,
+   "id": "S08",
+   "markers": {
+    "page_dateModified": "2026-09-14T19:31:18.103Z"
+   },
+   "normalized_text_chars": 9405,
+   "normalized_text_sha256": "002f6741c79eb7c87615b80bffdc3342fa7a00f2a4e18ffc1e314887ae5e1049",
+   "normalizer_version": 1,
+   "raw_body_sha256": "846df620051f4a1572102737d962376539ad3648e587ead445b50f09f621c5d1",
+   "raw_bytes": 1259148,
+   "retrieved_at_utc": "2026-10-09T06:13:47Z",
+   "snapshot": {
+    "gz_sha256": "c8426aa183b76699ad93a7cdbcad40b29aafb05ef3a22a0d9f605b026e9f6055",
+    "path": "<tmp>/final/snapA/S08.txt.gz"
+   },
+   "spec_url": "https://www.1password.dev/environments/mcp-server"
+  },
+  {
+   "fetched_url": "https://www.1password.dev/ssh/bookmarks",
+   "final_url": "https://www.1password.dev/ssh/bookmarks",
+   "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "etag": "W/\"3xu5at3181tfa5\""
+   },
+   "http_status": 200,
+   "id": "S09",
+   "markers": {
+    "page_dateModified": "2026-10-08T15:54:18.093Z"
+   },
+   "normalized_text_chars": 13912,
+   "normalized_text_sha256": "3526471b4874705882f7035e5239496a61f7f62a15220ff8e2ef40a4add4cbb6",
+   "normalizer_version": 1,
+   "raw_body_sha256": "2ec57a1e36ccab3f02c94a35da0aa96b58c2c3d358ae7bc25d3baa5c6e820841",
+   "raw_bytes": 1373165,
+   "retrieved_at_utc": "2026-10-09T06:13:47Z",
+   "snapshot": {
+    "gz_sha256": "91e0dcc51657bfb97d345e3579710269b4589a79951ac06730f6ae6366f9c04b",
+    "path": "<tmp>/final/snapA/S09.txt.gz"
+   },
+   "spec_url": "https://www.1password.dev/ssh/bookmarks"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/ssh-keygen",
+   "final_url": "https://man.openbsd.org/ssh-keygen",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S10",
+   "markers": {
+    "mdoc_footer": "October 1, 2026"
+   },
+   "normalized_text_chars": 39454,
+   "normalized_text_sha256": "f5c2faa4137cfaaec2438719779f0ee32703978db1daf15548db678b84da2ab9",
+   "normalizer_version": 1,
+   "raw_body_sha256": "163d73c60b555592cc674c2a3e115d5d6c097e072bd5df09514a13cb4b8561ef",
+   "raw_bytes": 77967,
+   "retrieved_at_utc": "2026-10-09T06:13:48Z",
+   "snapshot": {
+    "gz_sha256": "4472a2600ef79cfa357f3bd867848090614707cf7f496bb103dbe9449e62233e",
+    "path": "<tmp>/final/snapA/S10.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh-keygen"
+  },
+  {
+   "fetched_url": "https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+   "final_url": "https://smallstep.com/docs/tutorials/ssh-certificate-login/",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S11",
+   "markers": {
+    "last_updated_on": "February 3, 2026"
+   },
+   "normalized_text_chars": 13838,
+   "normalized_text_sha256": "b70565475abd28d0d1717ec73ff7ab50a9d42d32b3930084caa1c02ec1644fa8",
+   "normalizer_version": 1,
+   "raw_body_sha256": "2721a35f8027a772bca3c15fbb76cf9ce04efb11bfc69264bd54df3acadfd4e9",
+   "raw_bytes": 279315,
+   "retrieved_at_utc": "2026-10-09T06:13:48Z",
+   "snapshot": {
+    "gz_sha256": "a49ee7f1fa774d7efe9cf94d7637e2488d08815bb103dbbe4c68b1e6d40d65ed",
+    "path": "<tmp>/final/snapA/S11.txt.gz"
+   },
+   "spec_url": "https://smallstep.com/docs/tutorials/ssh-certificate-login/"
+  },
+  {
+   "fetched_url": "https://www.1password.dev/ssh/integrations/wsl",
+   "final_url": "https://www.1password.dev/ssh/integrations/wsl",
+   "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "etag": "W/\"j23wvyvegirdff\""
+   },
+   "http_status": 200,
+   "id": "S12",
+   "markers": {
+    "page_dateModified": "2026-10-08T15:54:18.071Z"
+   },
+   "normalized_text_chars": 7852,
+   "normalized_text_sha256": "e081095a090c9c2c6017c063fee8849397e6cd5986d7973c71653e4637fa7e32",
+   "normalizer_version": 1,
+   "raw_body_sha256": "dd8ac18d86c739cecc7f2b770926875c21258dfe6687d55eaaafaff6e943ee85",
+   "raw_bytes": 1277313,
+   "retrieved_at_utc": "2026-10-09T06:13:49Z",
+   "snapshot": {
+    "gz_sha256": "a6b77015c3ea847ffd9862451d5942e98a1ba6663bf646be667993792c7ba4f5",
+    "path": "<tmp>/final/snapA/S12.txt.gz"
+   },
+   "spec_url": "https://www.1password.dev/ssh/integrations/wsl"
+  },
+  {
+   "fetched_url": "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement",
+   "final_url": "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement",
+   "headers": {
+    "content-type": "text/html",
+    "etag": "\"DiakSPH250OctQG7OR76aPccOps=\"",
+    "last-modified": "Mon, 14 Sep 2026 17:33:07 GMT"
+   },
+   "http_status": 200,
+   "id": "S13",
+   "markers": {
+    "http_last_modified": "Mon, 14 Sep 2026 17:33:07 GMT",
+    "last_updated_on": "2025-10-03",
+    "ms_date": "2025-10-03T00:00:00Z",
+    "updated_at": "2026-04-21T17:36:00Z"
+   },
+   "normalized_text_chars": 12837,
+   "normalized_text_sha256": "c39cdaad6475f67f157de25180259636a9639b6465e913411df4814ec5e48b36",
+   "normalizer_version": 1,
+   "raw_body_sha256": "6483f7a1e0d097359b9b60b4ef6e67aab0e4ce04d377c426f0dd164c23e124ab",
+   "raw_bytes": 60962,
+   "retrieved_at_utc": "2026-10-09T06:13:49Z",
+   "snapshot": {
+    "gz_sha256": "1a2a4cdd3fcc5b5ee542d63d976565fc4070ee847b2607a10172690eaa309a1b",
+    "path": "<tmp>/final/snapA/S13.txt.gz"
+   },
+   "spec_url": "https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/concepts/endpoints",
+   "final_url": "https://docs.iroh.computer/concepts/endpoints",
+   "headers": {
+    "content-length": "298177",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"157zlfp2rxi6e0l\""
+   },
+   "http_status": 200,
+   "id": "S14",
+   "markers": {
+    "page_dateModified": "2026-09-03T21:23:54.136Z"
+   },
+   "normalized_text_chars": 6354,
+   "normalized_text_sha256": "16a5c1dc482cb4ec3a97223a1875c297982b19bdfce33992ea7eac920be7018b",
+   "normalizer_version": 1,
+   "raw_body_sha256": "070f5262f7fc0a4a0b45ed0c5838a6d22232ccb801ae74dcc136bf1ae2ad0350",
+   "raw_bytes": 298177,
+   "retrieved_at_utc": "2026-10-09T06:13:50Z",
+   "snapshot": {
+    "gz_sha256": "970e022a2c1d588258614140846636dc82de90523555136e617bd11135967920",
+    "path": "<tmp>/final/snapA/S14.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/concepts/endpoints"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/concepts/tickets",
+   "final_url": "https://docs.iroh.computer/concepts/tickets",
+   "headers": {
+    "content-length": "279950",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"wlbza84mdd5zyo\""
+   },
+   "http_status": 200,
+   "id": "S15",
+   "markers": {
+    "page_dateModified": "2026-09-03T21:23:54.135Z"
+   },
+   "normalized_text_chars": 4844,
+   "normalized_text_sha256": "4929438e0c7651d59a6f53e814640da8787e1cd69176471ae9a18947164c4fbd",
+   "normalizer_version": 1,
+   "raw_body_sha256": "2f2d3c7442334aa5918ba13bdf3df6405c99513baf9bd69033436791ca2bce6a",
+   "raw_bytes": 279950,
+   "retrieved_at_utc": "2026-10-09T06:13:50Z",
+   "snapshot": {
+    "gz_sha256": "d1a2ffbaf0de7f30ccae3bb9a77b658d45d6f4cf1a3fd462b33df084e76f32fa",
+    "path": "<tmp>/final/snapA/S15.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/concepts/tickets"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/cba7dd77817df2a458d86977f1daf4606c67dfc8/docs/internals/remote.md",
+   "final_url": "https://raw.githubusercontent.com/pingdotgg/t3code/cba7dd77817df2a458d86977f1daf4606c67dfc8/docs/internals/remote.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "43d96f862e3b42fe48e8035ccff0c39595cc81db",
+   "headers": {
+    "content-length": "4047",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"d5382649c19a5fdded5af8d12630c2afcaae163e91bf06bc403f528f62caf307\""
+   },
+   "http_status": 200,
+   "id": "S16",
+   "markers": {},
+   "normalized_text_chars": 4032,
+   "normalized_text_sha256": "10496fd2c893103a1579846994e835cd07378e65dd8ede3803ef6c36263aec7e",
+   "normalizer_version": 1,
+   "raw_body_sha256": "196f958196577f425a868fdfbaa427e106efe896ce96f05b39205476693cf12a",
+   "raw_bytes": 4047,
+   "retrieved_at_utc": "2026-10-09T06:13:51Z",
+   "spec_url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/remote.md"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/99641fd09a509feb644b3c8ef718c12c60cf436c/docs/internals/connection-runtime.md",
+   "final_url": "https://raw.githubusercontent.com/pingdotgg/t3code/99641fd09a509feb644b3c8ef718c12c60cf436c/docs/internals/connection-runtime.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+   "headers": {
+    "content-length": "4650",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"2d610c695da9b723420dc2cbb4804b50c42bea87bd1d6b1888ffb0b4868cb3c2\""
+   },
+   "http_status": 200,
+   "id": "S17",
+   "markers": {},
+   "normalized_text_chars": 4634,
+   "normalized_text_sha256": "d0ddc9a5384fc09f6b4addac0b763967f7f9fa94712dd0cb5305b86f1ba93ec3",
+   "normalizer_version": 1,
+   "raw_body_sha256": "2ea79169cb0f384ad66bbc9aa11d29a07c96274bb50f2687e6b28a440d770217",
+   "raw_bytes": 4650,
+   "retrieved_at_utc": "2026-10-09T06:13:51Z",
+   "spec_url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/connection-runtime.md"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/8d7b5e998c72b4674326cbac7d23bafe9b222668/docs/internals/t3-connect.md",
+   "final_url": "https://raw.githubusercontent.com/pingdotgg/t3code/8d7b5e998c72b4674326cbac7d23bafe9b222668/docs/internals/t3-connect.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "367d9116e92e42a0e53a7d19a185199a121e25cf",
+   "headers": {
+    "content-length": "7632",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"0f2cefa56c8bbe27fb3d54b2f2daaef105331555965d20fa975359c4be85b61f\""
+   },
+   "http_status": 200,
+   "id": "S18",
+   "markers": {},
+   "normalized_text_chars": 7611,
+   "normalized_text_sha256": "6c450b0ee2d0d697f1d4578f8ef24128c26e1669ace823fb0a62ca13a9e3443d",
+   "normalizer_version": 1,
+   "raw_body_sha256": "4f6c365fe60836a1f701d534c4895ef24b53b58bb79b55be4f3a80de6c54009e",
+   "raw_bytes": 7632,
+   "retrieved_at_utc": "2026-10-09T06:13:51Z",
+   "spec_url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/t3-connect.md"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/n0-computer/pigeons/7800c52076012d5d14a28e5e5946ed32fa82e0f0/README.md",
+   "final_url": "https://raw.githubusercontent.com/n0-computer/pigeons/7800c52076012d5d14a28e5e5946ed32fa82e0f0/README.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+   "headers": {
+    "content-length": "9748",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"09f1be80a8e287f81a154b05c0bd06a60f4f636fc201abe1e2bed1d49fd54df8\""
+   },
+   "http_status": 200,
+   "id": "S19",
+   "markers": {},
+   "normalized_text_chars": 8424,
+   "normalized_text_sha256": "6817e313230ad50491fe7a23bd741c5119cc1edceb377b643349c4244ff6b2f7",
+   "normalizer_version": 1,
+   "raw_body_sha256": "577dbc3e19f9155a485ff60bbe6f27158e0975efd238273df795888d4d4ec135",
+   "raw_bytes": 9748,
+   "retrieved_at_utc": "2026-10-09T06:13:52Z",
+   "spec_url": "https://github.com/n0-computer/pigeons"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/concepts/security-privacy",
+   "final_url": "https://docs.iroh.computer/concepts/security-privacy",
+   "headers": {
+    "content-length": "301194",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"13svs9d8rqh6gd6\""
+   },
+   "http_status": 200,
+   "id": "S20",
+   "markers": {
+    "page_dateModified": "2026-09-03T21:23:54.123Z"
+   },
+   "normalized_text_chars": 9334,
+   "normalized_text_sha256": "e2b026250fe2ac35494a5cf12dbe99a50cb503d01907f1814bcc88382bdd6782",
+   "normalizer_version": 1,
+   "raw_body_sha256": "457c35d3f3ebb6b4b4b68a08f30c6ecd3376b263d0308634e74dc69cf13797b7",
+   "raw_bytes": 301194,
+   "retrieved_at_utc": "2026-10-09T06:13:52Z",
+   "snapshot": {
+    "gz_sha256": "8799bfa2da7282a0701a0dbb72ae8c3e27cb57dfd0d6e35ee9345e8070cb91c6",
+    "path": "<tmp>/final/snapA/S20.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/concepts/security-privacy"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/languages/rust",
+   "final_url": "https://docs.iroh.computer/languages/rust",
+   "headers": {
+    "content-length": "285381",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"qr7u8ihk24646x\""
+   },
+   "http_status": 200,
+   "id": "S21",
+   "markers": {
+    "page_dateModified": "2026-06-11T18:58:34.973Z"
+   },
+   "normalized_text_chars": 2202,
+   "normalized_text_sha256": "a96c1837085523bfe6ff8a7d22760a59b7930c6c0fcb79f8ca75ed4454898be7",
+   "normalizer_version": 1,
+   "raw_body_sha256": "a0367c51dbbee212dba11d20fe8b0660007fe50248c88fcdbf956e81afb46fb8",
+   "raw_bytes": 285381,
+   "retrieved_at_utc": "2026-10-09T06:13:53Z",
+   "snapshot": {
+    "gz_sha256": "ce8d0807df6f70acef748f5e400e8e9416a139c91dcced43d4667bf0a78db02e",
+    "path": "<tmp>/final/snapA/S21.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/languages/rust"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/languages/javascript",
+   "final_url": "https://docs.iroh.computer/languages/javascript",
+   "headers": {
+    "content-length": "333508",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"18o4ffnvvl75bq\""
+   },
+   "http_status": 200,
+   "id": "S22",
+   "markers": {
+    "page_dateModified": "2026-06-11T18:43:52.437Z"
+   },
+   "normalized_text_chars": 4087,
+   "normalized_text_sha256": "5e7ff1b110b49b9179322c9b9ef176297dec68be298c59d011fe84352ac8b8cc",
+   "normalizer_version": 1,
+   "raw_body_sha256": "a5607487bfd6060a3ffa3d005fbee6272269c5d21f105c1191e6a7d888c85823",
+   "raw_bytes": 333508,
+   "retrieved_at_utc": "2026-10-09T06:13:53Z",
+   "snapshot": {
+    "gz_sha256": "9d0d821ff967a7a0f3975746abd9f95f65cd756b7a0d6766d212895d03f50a91",
+    "path": "<tmp>/final/snapA/S22.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/languages/javascript"
+  },
+  {
+   "fetched_url": "https://mitchellh.com/writing/building-block-economy",
+   "final_url": "https://mitchellh.com/writing/building-block-economy",
+   "headers": {
+    "content-length": "45864",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"282a10284d3b6c98eca558dea9d2ee37\""
+   },
+   "http_status": 200,
+   "id": "S23",
+   "markers": {
+    "page_dateModified": "2026-04-07T00:00:00.000Z"
+   },
+   "normalized_text_chars": 7395,
+   "normalized_text_sha256": "12a977ce0a5db862bcd73bb7fd7184ee1e02451654543b1f6f8ab07ea888fdf5",
+   "normalizer_version": 1,
+   "raw_body_sha256": "ba26dc3b4dee0bac8ebcd750bccf6c81df5e27d5b8e13546e6052aa19397243d",
+   "raw_bytes": 45864,
+   "retrieved_at_utc": "2026-10-09T06:13:54Z",
+   "snapshot": {
+    "gz_sha256": "42d81db732ca6c3a994bc7c5a441f021689d498b84bc2ac705712ee1068bc0fb",
+    "path": "<tmp>/final/snapA/S23.txt.gz"
+   },
+   "spec_url": "https://mitchellh.com/writing/building-block-economy"
+  },
+  {
+   "fetched_url": "https://developers.openai.com/api/docs/guides/function-calling.md",
+   "final_url": "https://developers.openai.com/api/docs/guides/function-calling.md",
+   "headers": {
+    "content-length": "77573",
+    "content-type": "text/markdown; charset=utf-8",
+    "etag": "\"608999745cafbaa5860e6113b3767e5f\"",
+    "last-modified": "Thu, 08 Oct 2026 23:49:51 GMT"
+   },
+   "http_status": 200,
+   "id": "S24",
+   "markers": {
+    "http_last_modified": "Thu, 08 Oct 2026 23:49:51 GMT"
+   },
+   "normalized_text_chars": 68931,
+   "normalized_text_sha256": "51a9bd1593d64e8a2402a5acfa3eec4b8205986afe96f582eb5b9d7b42a32b44",
+   "normalizer_version": 1,
+   "raw_body_sha256": "ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
+   "raw_bytes": 77573,
+   "retrieved_at_utc": "2026-10-09T06:13:54Z",
+   "snapshot": {
+    "gz_sha256": "c0e22594bb654ac679cbd8886d5cbc76c0990f0cef2b05ee5f300cd78c7b42c7",
+    "path": "<tmp>/final/snapA/S24.txt.gz"
+   },
+   "spec_url": "https://developers.openai.com/api/docs/guides/function-calling"
+  },
+  {
+   "fetched_url": "https://learn.chatgpt.com/docs/build-skills.md",
+   "final_url": "https://learn.chatgpt.com/docs/build-skills.md",
+   "headers": {
+    "content-type": "text/markdown; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S25",
+   "markers": {},
+   "normalized_text_chars": 9727,
+   "normalized_text_sha256": "6bbf6cd1028ec1d6df6ce8621d42e1bc8a9cb748f966d2e3a91980c1bdc80e84",
+   "normalizer_version": 1,
+   "raw_body_sha256": "d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
+   "raw_bytes": 10925,
+   "retrieved_at_utc": "2026-10-09T06:13:54Z",
+   "snapshot": {
+    "gz_sha256": "abdecde98c2bdeaa54f27384ce4ffef00d759869d109a19ef815c04d7e5bd268",
+    "path": "<tmp>/final/snapA/S25.txt.gz"
+   },
+   "spec_url": "https://learn.chatgpt.com/docs/build-skills"
+  },
+  {
+   "fetched_url": "https://developers.openai.com/api/docs/guides/latest-model.md",
+   "final_url": "https://developers.openai.com/api/docs/guides/latest-model.md",
+   "headers": {
+    "content-length": "19325",
+    "content-type": "text/markdown; charset=utf-8",
+    "etag": "\"432135c8a0744f49376a68db82524868\"",
+    "last-modified": "Fri, 09 Oct 2026 06:01:39 GMT"
+   },
+   "http_status": 200,
+   "id": "S26",
+   "markers": {
+    "http_last_modified": "Fri, 09 Oct 2026 06:01:39 GMT"
+   },
+   "normalized_text_chars": 19218,
+   "normalized_text_sha256": "913ff184a3e9820e1489a60bc937a015d7896c6309ee4904cd9f018a560abb96",
+   "normalizer_version": 1,
+   "raw_body_sha256": "ad1aeb3d87e2e61a91233447f7c54b7b18ebfecc4315eeefab15bf5861b3a5c7",
+   "raw_bytes": 19325,
+   "retrieved_at_utc": "2026-10-09T06:13:55Z",
+   "snapshot": {
+    "gz_sha256": "3a91e4d97f2cbbc735a4fe7b37bb9646cc982d5c7a9d89f85a47be1e67ce88ee",
+    "path": "<tmp>/final/snapA/S26.txt.gz"
+   },
+   "spec_url": "https://developers.openai.com/api/docs/guides/latest-model"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/96d69d2f7eb182bb311be08fc56ed2c208239aff/README.md",
+   "final_url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/96d69d2f7eb182bb311be08fc56ed2c208239aff/README.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "4d08d355bf1076e36b4f3843ed59a8a37e8d332c",
+   "headers": {
+    "content-length": "14892",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"1440a49731963b0e1c854f9cbb60515783186cad9b43d43bbd6279ddb5dda601\""
+   },
+   "http_status": 200,
+   "id": "S27",
+   "markers": {},
+   "normalized_text_chars": 14110,
+   "normalized_text_sha256": "7755fb75d9a367accad6dcf5371f6d932d532c788a0facf4d437c881397263d7",
+   "normalizer_version": 1,
+   "raw_body_sha256": "5039b3d120bccea147692e63c21f724254e3809f30b3b32948d67534bf66891f",
+   "raw_bytes": 14892,
+   "retrieved_at_utc": "2026-10-09T06:13:55Z",
+   "spec_url": "https://github.com/charmbracelet/bubbletea"
+  },
+  {
+   "fetched_url": "https://ratatui.rs/",
+   "final_url": "https://ratatui.rs/",
+   "headers": {
+    "content-type": "text/html"
+   },
+   "http_status": 200,
+   "id": "S28",
+   "markers": {},
+   "normalized_text_chars": 4203,
+   "normalized_text_sha256": "89ae828491be6b378b7bc84e2ff73d0891436b0b449e999a4d082dd0b068a5ec",
+   "normalizer_version": 1,
+   "raw_body_sha256": "c4c7f8638e1f379d360123e17f956a1350ca361bb48fb044bed7146a279ee584",
+   "raw_bytes": 357265,
+   "retrieved_at_utc": "2026-10-09T06:13:56Z",
+   "snapshot": {
+    "gz_sha256": "e2f3adb40d096de1fce4c15d6cc10584ccd0a9fef7750288b3867d5e799918f8",
+    "path": "<tmp>/final/snapA/S28.txt.gz"
+   },
+   "spec_url": "https://ratatui.rs/"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/anomalyco/opentui/de8dc97080e4c404d9018d9e6a485036aeaef7d2/README.md",
+   "final_url": "https://raw.githubusercontent.com/anomalyco/opentui/de8dc97080e4c404d9018d9e6a485036aeaef7d2/README.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "6f2523a1afb3bf091b91eab073bc6fb0066d9844",
+   "headers": {
+    "content-length": "3264",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"f5db794326c0e9e38e683c6706fbd6edfd900ea2ad187cfab51113939674089e\""
+   },
+   "http_status": 200,
+   "id": "S29",
+   "markers": {},
+   "normalized_text_chars": 3222,
+   "normalized_text_sha256": "0a26997c5eeb0e1f064c00455e0a72662ff8dc10e0c4e8b1b1174d52a3b69dc4",
+   "normalizer_version": 1,
+   "raw_body_sha256": "6266260d556e4511deb45075aec7d3bf89b4a65464e204c2f1dec9426ca3d71f",
+   "raw_bytes": 3264,
+   "retrieved_at_utc": "2026-10-09T06:13:56Z",
+   "spec_url": "https://github.com/anomalyco/opentui"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/ssh-agent",
+   "final_url": "https://man.openbsd.org/ssh-agent",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S30",
+   "markers": {
+    "mdoc_footer": "September 18, 2026"
+   },
+   "normalized_text_chars": 8945,
+   "normalized_text_sha256": "a2048f6b8afcb6abb536bb24799555cf12dc0383bd1b0ae0aa26ee4c396e7940",
+   "normalizer_version": 1,
+   "raw_body_sha256": "ee873a3e04c286169850c0e57c39c4a6586b2bf6fb0f92635c074b5bd5f8649f",
+   "raw_bytes": 21260,
+   "retrieved_at_utc": "2026-10-09T06:13:56Z",
+   "snapshot": {
+    "gz_sha256": "905e6510d1dc708c4dcb78508de185a097b2f81e2a49eee5d1c6e50238bb3e0b",
+    "path": "<tmp>/final/snapA/S30.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh-agent"
+  },
+  {
+   "fetched_url": "https://developers.openai.com/api/docs/guides/reasoning-best-practices.md",
+   "final_url": "https://developers.openai.com/api/docs/guides/reasoning-best-practices.md",
+   "headers": {
+    "content-length": "17199",
+    "content-type": "text/markdown; charset=utf-8",
+    "etag": "\"d03e20fe5df5656318993379c73b8a1a\"",
+    "last-modified": "Thu, 08 Oct 2026 23:56:57 GMT"
+   },
+   "http_status": 200,
+   "id": "S31",
+   "markers": {
+    "http_last_modified": "Thu, 08 Oct 2026 23:56:57 GMT"
+   },
+   "normalized_text_chars": 17006,
+   "normalized_text_sha256": "1d11c6880da3275e547cdb45f85d45107f4bfdf8f5e5ea703c5620b93df8184c",
+   "normalizer_version": 1,
+   "raw_body_sha256": "00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
+   "raw_bytes": 17199,
+   "retrieved_at_utc": "2026-10-09T06:13:57Z",
+   "snapshot": {
+    "gz_sha256": "fc2646dc4271edd358d31361cac38825c06cc0a44c2de617ae8ff861df5c4e29",
+    "path": "<tmp>/final/snapA/S31.txt.gz"
+   },
+   "spec_url": "https://developers.openai.com/api/docs/guides/reasoning-best-practices"
+  },
+  {
+   "fetched_url": "https://developers.openai.com/api/docs/guides/evaluation-best-practices.md",
+   "final_url": "https://developers.openai.com/api/docs/guides/evaluation-best-practices.md",
+   "headers": {
+    "content-length": "23604",
+    "content-type": "text/markdown; charset=utf-8",
+    "etag": "\"211f24f8a34d8e920b5bcac64a0365da\"",
+    "last-modified": "Fri, 09 Oct 2026 00:11:52 GMT"
+   },
+   "http_status": 200,
+   "id": "S32",
+   "markers": {
+    "http_last_modified": "Fri, 09 Oct 2026 00:11:52 GMT"
+   },
+   "normalized_text_chars": 22663,
+   "normalized_text_sha256": "30b9b23c5c754b052c357641a6c886e96fd233824bc7da3c92f3a4662f6cc562",
+   "normalizer_version": 1,
+   "raw_body_sha256": "93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
+   "raw_bytes": 23604,
+   "retrieved_at_utc": "2026-10-09T06:13:57Z",
+   "snapshot": {
+    "gz_sha256": "038e0e5dc3f22454f8a8c09cc6eb6846a21e4207617803923689b472b3f52af8",
+    "path": "<tmp>/final/snapA/S32.txt.gz"
+   },
+   "spec_url": "https://developers.openai.com/api/docs/guides/evaluation-best-practices"
+  },
+  {
+   "fetched_url": "https://developers.openai.com/api/docs/guides/agent-builder-safety.md",
+   "final_url": "https://developers.openai.com/api/docs/guides/agent-builder-safety.md",
+   "headers": {
+    "content-length": "5808",
+    "content-type": "text/markdown; charset=utf-8",
+    "etag": "\"3861fa90102bf2280557a83e6941185e\"",
+    "last-modified": "Thu, 08 Oct 2026 23:50:40 GMT"
+   },
+   "http_status": 200,
+   "id": "S33",
+   "markers": {
+    "http_last_modified": "Thu, 08 Oct 2026 23:50:40 GMT"
+   },
+   "normalized_text_chars": 5764,
+   "normalized_text_sha256": "f9b8be94ef4a431f80ba79335d9a43554f48380b992580c4ca8931bef742ad11",
+   "normalizer_version": 1,
+   "raw_body_sha256": "e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
+   "raw_bytes": 5808,
+   "retrieved_at_utc": "2026-10-09T06:13:57Z",
+   "snapshot": {
+    "gz_sha256": "a45598c2de68e0aacc25b928627400813ff032a32ae98c83c634ae0a4302562b",
+    "path": "<tmp>/final/snapA/S33.txt.gz"
+   },
+   "spec_url": "https://developers.openai.com/api/docs/guides/agent-builder-safety"
+  },
+  {
+   "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/3b75e607eb909522a8f5562fb40e44efc72bb66c/docs/internals/environment-auth.md",
+   "final_url": "https://raw.githubusercontent.com/pingdotgg/t3code/3b75e607eb909522a8f5562fb40e44efc72bb66c/docs/internals/environment-auth.md",
+   "git_blob_matches_pin": true,
+   "git_blob_sha1": "2428783ccc56531e1281ef056ed3b216539210e4",
+   "headers": {
+    "content-length": "4347",
+    "content-type": "text/plain; charset=utf-8",
+    "etag": "\"5091197d78e06e29b47237105fd72a7041f7d864806462aeea211a8515ad2f3c\""
+   },
+   "http_status": 200,
+   "id": "S34",
+   "markers": {},
+   "normalized_text_chars": 4331,
+   "normalized_text_sha256": "bc6434abfdf811c973903c452ef27cf98a67a57dd69f44afdd483aa2c946cadd",
+   "normalizer_version": 1,
+   "raw_body_sha256": "e743ed4c50da6603f3c0ab4fa448672253e8e58b263d9eebf02100746d38b7b8",
+   "raw_bytes": 4347,
+   "retrieved_at_utc": "2026-10-09T06:13:58Z",
+   "spec_url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/environment-auth.md"
+  }
+ ],
+ "set": "spec",
+ "tool": "fetch_pins.py"
+}

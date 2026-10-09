@@ -1,0 +1,38 @@
+sources: 34  IDENTICAL=34  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=0  FETCH_FAILED=0  MISSING=0  EXTRA=0
+S01 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S02 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S03 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S04 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S05 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S06 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S07 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S08 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S09 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S10 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S11 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S12 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S13 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S14 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S15 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S16 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S17 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S18 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S19 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S20 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S21 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S22 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S23 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S24 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S25 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S26 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S27 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S28 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S29 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S30 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+S31 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S32 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S33 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+S34 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=yes
+exit 0: all identical
+window=2026-10-09T07:53:56Z..2026-10-09T07:53:56Z
+exit=0

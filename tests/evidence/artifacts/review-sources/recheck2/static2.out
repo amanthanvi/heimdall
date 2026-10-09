@@ -1,0 +1,422 @@
+ok   S01 has baseline
+ok   S01 primary kind valid
+ok   S01 pin_v2.raw_body_sha256 == baseline
+ok   S01 pin_v2.raw_body_sha256 is 64-hex
+ok   S01 pin_v2.normalized_text_sha256 == baseline
+ok   S01 pin_v2.normalized_text_sha256 is 64-hex
+ok   S01 raw_body_sha256 unchanged vs HEAD
+ok   S01 normalized_text_sha256 unchanged vs HEAD
+ok   S01 snapshot gz sha == pin
+ok   S01 snapshot text sha == baseline normalized
+ok   S02 has baseline
+ok   S02 primary kind valid
+ok   S02 pin_v2.raw_body_sha256 == baseline
+ok   S02 pin_v2.raw_body_sha256 is 64-hex
+ok   S02 pin_v2.normalized_text_sha256 == baseline
+ok   S02 pin_v2.normalized_text_sha256 is 64-hex
+ok   S02 raw_body_sha256 unchanged vs HEAD
+ok   S02 normalized_text_sha256 unchanged vs HEAD
+ok   S02 snapshot gz sha == pin
+ok   S02 snapshot text sha == baseline normalized
+ok   S03 has baseline
+ok   S03 primary kind valid
+ok   S03 pin_v2.raw_body_sha256 == baseline
+ok   S03 pin_v2.raw_body_sha256 is 64-hex
+ok   S03 pin_v2.normalized_text_sha256 == baseline
+ok   S03 pin_v2.normalized_text_sha256 is 64-hex
+ok   S03 raw_body_sha256 unchanged vs HEAD
+ok   S03 normalized_text_sha256 unchanged vs HEAD
+ok   S03 snapshot gz sha == pin
+ok   S03 snapshot text sha == baseline normalized
+ok   S04 has baseline
+ok   S04 primary kind valid
+ok   S04 pin_v2.raw_body_sha256 == baseline
+ok   S04 pin_v2.raw_body_sha256 is 64-hex
+ok   S04 pin_v2.normalized_text_sha256 == baseline
+ok   S04 pin_v2.normalized_text_sha256 is 64-hex
+ok   S04 raw_body_sha256 unchanged vs HEAD
+ok   S04 normalized_text_sha256 unchanged vs HEAD
+ok   S04 snapshot gz sha == pin
+ok   S04 snapshot text sha == baseline normalized
+ok   S05 has baseline
+ok   S05 primary kind valid
+ok   S05 pin_v2.raw_body_sha256 == baseline
+ok   S05 pin_v2.raw_body_sha256 is 64-hex
+ok   S05 pin_v2.normalized_text_sha256 == baseline
+ok   S05 pin_v2.normalized_text_sha256 is 64-hex
+ok   S05 raw_body_sha256 unchanged vs HEAD
+ok   S05 normalized_text_sha256 unchanged vs HEAD
+ok   S05 snapshot gz sha == pin
+ok   S05 snapshot text sha == baseline normalized
+ok   S06 has baseline
+ok   S06 primary kind valid
+ok   S06 pin_v2.raw_body_sha256 == baseline
+ok   S06 pin_v2.raw_body_sha256 is 64-hex
+ok   S06 pin_v2.normalized_text_sha256 == baseline
+ok   S06 pin_v2.normalized_text_sha256 is 64-hex
+ok   S06 raw_body_sha256 unchanged vs HEAD
+ok   S06 normalized_text_sha256 unchanged vs HEAD
+ok   S06 snapshot gz sha == pin
+ok   S06 snapshot text sha == baseline normalized
+ok   S07 has baseline
+ok   S07 primary kind valid
+ok   S07 pin_v2.raw_body_sha256 == baseline
+ok   S07 pin_v2.raw_body_sha256 is 64-hex
+ok   S07 pin_v2.normalized_text_sha256 == baseline
+ok   S07 pin_v2.normalized_text_sha256 is 64-hex
+ok   S07 raw_body_sha256 unchanged vs HEAD
+ok   S07 normalized_text_sha256 unchanged vs HEAD
+ok   S07 snapshot gz sha == pin
+ok   S07 snapshot text sha == baseline normalized
+ok   S08 has baseline
+ok   S08 primary kind valid
+ok   S08 pin_v2.raw_body_sha256 == baseline
+ok   S08 pin_v2.raw_body_sha256 is 64-hex
+ok   S08 pin_v2.normalized_text_sha256 == baseline
+ok   S08 pin_v2.normalized_text_sha256 is 64-hex
+ok   S08 raw_body_sha256 unchanged vs HEAD
+ok   S08 normalized_text_sha256 unchanged vs HEAD
+ok   S08 snapshot gz sha == pin
+ok   S08 snapshot text sha == baseline normalized
+ok   S09 has baseline
+ok   S09 primary kind valid
+ok   S09 pin_v2.raw_body_sha256 == baseline
+ok   S09 pin_v2.raw_body_sha256 is 64-hex
+ok   S09 pin_v2.normalized_text_sha256 == baseline
+ok   S09 pin_v2.normalized_text_sha256 is 64-hex
+ok   S09 raw_body_sha256 unchanged vs HEAD
+ok   S09 normalized_text_sha256 unchanged vs HEAD
+ok   S09 snapshot gz sha == pin
+ok   S09 snapshot text sha == baseline normalized
+ok   S10 has baseline
+ok   S10 primary kind valid
+ok   S10 pin_v2.raw_body_sha256 == baseline
+ok   S10 pin_v2.raw_body_sha256 is 64-hex
+ok   S10 pin_v2.normalized_text_sha256 == baseline
+ok   S10 pin_v2.normalized_text_sha256 is 64-hex
+ok   S10 raw_body_sha256 unchanged vs HEAD
+ok   S10 normalized_text_sha256 unchanged vs HEAD
+ok   S10 snapshot gz sha == pin
+ok   S10 snapshot text sha == baseline normalized
+ok   S11 has baseline
+ok   S11 primary kind valid
+ok   S11 pin_v2.raw_body_sha256 == baseline
+ok   S11 pin_v2.raw_body_sha256 is 64-hex
+ok   S11 pin_v2.normalized_text_sha256 == baseline
+ok   S11 pin_v2.normalized_text_sha256 is 64-hex
+ok   S11 raw_body_sha256 unchanged vs HEAD
+ok   S11 normalized_text_sha256 unchanged vs HEAD
+ok   S11 snapshot gz sha == pin
+ok   S11 snapshot text sha == baseline normalized
+ok   S12 has baseline
+ok   S12 primary kind valid
+ok   S12 pin_v2.raw_body_sha256 == baseline
+ok   S12 pin_v2.raw_body_sha256 is 64-hex
+ok   S12 pin_v2.normalized_text_sha256 == baseline
+ok   S12 pin_v2.normalized_text_sha256 is 64-hex
+ok   S12 raw_body_sha256 unchanged vs HEAD
+ok   S12 normalized_text_sha256 unchanged vs HEAD
+ok   S12 snapshot gz sha == pin
+ok   S12 snapshot text sha == baseline normalized
+ok   S13 has baseline
+ok   S13 primary kind valid
+ok   S13 pin_v2.raw_body_sha256 == baseline
+ok   S13 pin_v2.raw_body_sha256 is 64-hex
+ok   S13 pin_v2.normalized_text_sha256 == baseline
+ok   S13 pin_v2.normalized_text_sha256 is 64-hex
+ok   S13 raw_body_sha256 unchanged vs HEAD
+ok   S13 normalized_text_sha256 unchanged vs HEAD
+ok   S13 snapshot gz sha == pin
+ok   S13 snapshot text sha == baseline normalized
+ok   S14 has baseline
+ok   S14 primary kind valid
+ok   S14 pin_v2.raw_body_sha256 == baseline
+ok   S14 pin_v2.raw_body_sha256 is 64-hex
+ok   S14 pin_v2.normalized_text_sha256 == baseline
+ok   S14 pin_v2.normalized_text_sha256 is 64-hex
+ok   S14 raw_body_sha256 unchanged vs HEAD
+ok   S14 normalized_text_sha256 unchanged vs HEAD
+ok   S14 snapshot gz sha == pin
+ok   S14 snapshot text sha == baseline normalized
+ok   S15 has baseline
+ok   S15 primary kind valid
+ok   S15 pin_v2.raw_body_sha256 == baseline
+ok   S15 pin_v2.raw_body_sha256 is 64-hex
+ok   S15 pin_v2.normalized_text_sha256 == baseline
+ok   S15 pin_v2.normalized_text_sha256 is 64-hex
+ok   S15 raw_body_sha256 unchanged vs HEAD
+ok   S15 normalized_text_sha256 unchanged vs HEAD
+ok   S15 snapshot gz sha == pin
+ok   S15 snapshot text sha == baseline normalized
+ok   S16 has baseline
+ok   S16 primary kind valid
+ok   S16 pin_v2.raw_body_sha256 == baseline
+ok   S16 pin_v2.raw_body_sha256 is 64-hex
+ok   S16 pin_v2.normalized_text_sha256 == baseline
+ok   S16 pin_v2.normalized_text_sha256 is 64-hex
+ok   S16 raw_body_sha256 unchanged vs HEAD
+ok   S16 normalized_text_sha256 unchanged vs HEAD
+ok   S16 permalink is a 40-hex commit
+ok   S16 baseline blob == pin blob
+ok   S17 has baseline
+ok   S17 primary kind valid
+ok   S17 pin_v2.raw_body_sha256 == baseline
+ok   S17 pin_v2.raw_body_sha256 is 64-hex
+ok   S17 pin_v2.normalized_text_sha256 == baseline
+ok   S17 pin_v2.normalized_text_sha256 is 64-hex
+ok   S17 raw_body_sha256 unchanged vs HEAD
+ok   S17 normalized_text_sha256 unchanged vs HEAD
+ok   S17 permalink is a 40-hex commit
+ok   S17 baseline blob == pin blob
+ok   S18 has baseline
+ok   S18 primary kind valid
+ok   S18 pin_v2.raw_body_sha256 == baseline
+ok   S18 pin_v2.raw_body_sha256 is 64-hex
+ok   S18 pin_v2.normalized_text_sha256 == baseline
+ok   S18 pin_v2.normalized_text_sha256 is 64-hex
+ok   S18 raw_body_sha256 unchanged vs HEAD
+ok   S18 normalized_text_sha256 unchanged vs HEAD
+ok   S18 permalink is a 40-hex commit
+ok   S18 baseline blob == pin blob
+ok   S19 has baseline
+ok   S19 primary kind valid
+ok   S19 pin_v2.raw_body_sha256 == baseline
+ok   S19 pin_v2.raw_body_sha256 is 64-hex
+ok   S19 pin_v2.normalized_text_sha256 == baseline
+ok   S19 pin_v2.normalized_text_sha256 is 64-hex
+ok   S19 raw_body_sha256 unchanged vs HEAD
+ok   S19 normalized_text_sha256 unchanged vs HEAD
+ok   S19 permalink is a 40-hex commit
+ok   S19 baseline blob == pin blob
+ok   S20 has baseline
+ok   S20 primary kind valid
+ok   S20 pin_v2.raw_body_sha256 == baseline
+ok   S20 pin_v2.raw_body_sha256 is 64-hex
+ok   S20 pin_v2.normalized_text_sha256 == baseline
+ok   S20 pin_v2.normalized_text_sha256 is 64-hex
+ok   S20 raw_body_sha256 unchanged vs HEAD
+ok   S20 normalized_text_sha256 unchanged vs HEAD
+ok   S20 snapshot gz sha == pin
+ok   S20 snapshot text sha == baseline normalized
+ok   S21 has baseline
+ok   S21 primary kind valid
+ok   S21 pin_v2.raw_body_sha256 == baseline
+ok   S21 pin_v2.raw_body_sha256 is 64-hex
+ok   S21 pin_v2.normalized_text_sha256 == baseline
+ok   S21 pin_v2.normalized_text_sha256 is 64-hex
+ok   S21 raw_body_sha256 unchanged vs HEAD
+ok   S21 normalized_text_sha256 unchanged vs HEAD
+ok   S21 snapshot gz sha == pin
+ok   S21 snapshot text sha == baseline normalized
+ok   S22 has baseline
+ok   S22 primary kind valid
+ok   S22 pin_v2.raw_body_sha256 == baseline
+ok   S22 pin_v2.raw_body_sha256 is 64-hex
+ok   S22 pin_v2.normalized_text_sha256 == baseline
+ok   S22 pin_v2.normalized_text_sha256 is 64-hex
+ok   S22 raw_body_sha256 unchanged vs HEAD
+ok   S22 normalized_text_sha256 unchanged vs HEAD
+ok   S22 snapshot gz sha == pin
+ok   S22 snapshot text sha == baseline normalized
+ok   S23 has baseline
+ok   S23 primary kind valid
+ok   S23 pin_v2.raw_body_sha256 == baseline
+ok   S23 pin_v2.raw_body_sha256 is 64-hex
+ok   S23 pin_v2.normalized_text_sha256 == baseline
+ok   S23 pin_v2.normalized_text_sha256 is 64-hex
+ok   S23 raw_body_sha256 unchanged vs HEAD
+ok   S23 normalized_text_sha256 unchanged vs HEAD
+     note: S23 primary changed raw_body_sha256 -> normalized_text_sha256; primary_change={"from": "raw_body_sha256", "to": "normalized_text_sha256", "by": "M00-T02-fix2 (finding m3)", "date": "2026-10-09", "reason": "Static-site HTML: the raw bytes changed (46148 to 45864 bytes, new etag)
+ok   S23 snapshot gz sha == pin
+ok   S23 snapshot text sha == baseline normalized
+ok   S24 has baseline
+ok   S24 primary kind valid
+ok   S24 pin_v2.raw_body_sha256 == baseline
+ok   S24 pin_v2.raw_body_sha256 is 64-hex
+ok   S24 pin_v2.normalized_text_sha256 == baseline
+ok   S24 pin_v2.normalized_text_sha256 is 64-hex
+ok   S24 raw_body_sha256 unchanged vs HEAD
+ok   S24 normalized_text_sha256 unchanged vs HEAD
+ok   S24 snapshot gz sha == pin
+ok   S24 snapshot text sha == baseline normalized
+ok   S25 has baseline
+ok   S25 primary kind valid
+ok   S25 pin_v2.raw_body_sha256 == baseline
+ok   S25 pin_v2.raw_body_sha256 is 64-hex
+ok   S25 pin_v2.normalized_text_sha256 == baseline
+ok   S25 pin_v2.normalized_text_sha256 is 64-hex
+ok   S25 raw_body_sha256 unchanged vs HEAD
+ok   S25 normalized_text_sha256 unchanged vs HEAD
+ok   S25 snapshot gz sha == pin
+ok   S25 snapshot text sha == baseline normalized
+ok   S26 has baseline
+ok   S26 primary kind valid
+ok   S26 pin_v2.raw_body_sha256 == baseline
+ok   S26 pin_v2.raw_body_sha256 is 64-hex
+ok   S26 pin_v2.normalized_text_sha256 == baseline
+ok   S26 pin_v2.normalized_text_sha256 is 64-hex
+ok   S26 raw_body_sha256 unchanged vs HEAD
+ok   S26 normalized_text_sha256 unchanged vs HEAD
+ok   S26 snapshot gz sha == pin
+ok   S26 snapshot text sha == baseline normalized
+ok   S27 has baseline
+ok   S27 primary kind valid
+ok   S27 pin_v2.raw_body_sha256 == baseline
+ok   S27 pin_v2.raw_body_sha256 is 64-hex
+ok   S27 pin_v2.normalized_text_sha256 == baseline
+ok   S27 pin_v2.normalized_text_sha256 is 64-hex
+ok   S27 raw_body_sha256 unchanged vs HEAD
+ok   S27 normalized_text_sha256 unchanged vs HEAD
+ok   S27 permalink is a 40-hex commit
+ok   S27 baseline blob == pin blob
+ok   S28 has baseline
+ok   S28 primary kind valid
+ok   S28 pin_v2.raw_body_sha256 == baseline
+ok   S28 pin_v2.raw_body_sha256 is 64-hex
+ok   S28 pin_v2.normalized_text_sha256 == baseline
+ok   S28 pin_v2.normalized_text_sha256 is 64-hex
+ok   S28 raw_body_sha256 unchanged vs HEAD
+ok   S28 normalized_text_sha256 unchanged vs HEAD
+ok   S28 snapshot gz sha == pin
+ok   S28 snapshot text sha == baseline normalized
+ok   S29 has baseline
+ok   S29 primary kind valid
+ok   S29 pin_v2.raw_body_sha256 == baseline
+ok   S29 pin_v2.raw_body_sha256 is 64-hex
+ok   S29 pin_v2.normalized_text_sha256 == baseline
+ok   S29 pin_v2.normalized_text_sha256 is 64-hex
+ok   S29 raw_body_sha256 unchanged vs HEAD
+ok   S29 normalized_text_sha256 unchanged vs HEAD
+ok   S29 permalink is a 40-hex commit
+ok   S29 baseline blob == pin blob
+ok   S30 has baseline
+ok   S30 primary kind valid
+ok   S30 pin_v2.raw_body_sha256 == baseline
+ok   S30 pin_v2.raw_body_sha256 is 64-hex
+ok   S30 pin_v2.normalized_text_sha256 == baseline
+ok   S30 pin_v2.normalized_text_sha256 is 64-hex
+ok   S30 raw_body_sha256 unchanged vs HEAD
+ok   S30 normalized_text_sha256 unchanged vs HEAD
+ok   S30 snapshot gz sha == pin
+ok   S30 snapshot text sha == baseline normalized
+ok   S31 has baseline
+ok   S31 primary kind valid
+ok   S31 pin_v2.raw_body_sha256 == baseline
+ok   S31 pin_v2.raw_body_sha256 is 64-hex
+ok   S31 pin_v2.normalized_text_sha256 == baseline
+ok   S31 pin_v2.normalized_text_sha256 is 64-hex
+ok   S31 raw_body_sha256 unchanged vs HEAD
+ok   S31 normalized_text_sha256 unchanged vs HEAD
+ok   S31 snapshot gz sha == pin
+ok   S31 snapshot text sha == baseline normalized
+ok   S32 has baseline
+ok   S32 primary kind valid
+ok   S32 pin_v2.raw_body_sha256 == baseline
+ok   S32 pin_v2.raw_body_sha256 is 64-hex
+ok   S32 pin_v2.normalized_text_sha256 == baseline
+ok   S32 pin_v2.normalized_text_sha256 is 64-hex
+ok   S32 raw_body_sha256 unchanged vs HEAD
+ok   S32 normalized_text_sha256 unchanged vs HEAD
+ok   S32 snapshot gz sha == pin
+ok   S32 snapshot text sha == baseline normalized
+ok   S33 has baseline
+ok   S33 primary kind valid
+ok   S33 pin_v2.raw_body_sha256 == baseline
+ok   S33 pin_v2.raw_body_sha256 is 64-hex
+ok   S33 pin_v2.normalized_text_sha256 == baseline
+ok   S33 pin_v2.normalized_text_sha256 is 64-hex
+ok   S33 raw_body_sha256 unchanged vs HEAD
+ok   S33 normalized_text_sha256 unchanged vs HEAD
+ok   S33 snapshot gz sha == pin
+ok   S33 snapshot text sha == baseline normalized
+ok   S34 has baseline
+ok   S34 primary kind valid
+ok   S34 pin_v2.raw_body_sha256 == baseline
+ok   S34 pin_v2.raw_body_sha256 is 64-hex
+ok   S34 pin_v2.normalized_text_sha256 == baseline
+ok   S34 pin_v2.normalized_text_sha256 is 64-hex
+ok   S34 raw_body_sha256 unchanged vs HEAD
+ok   S34 normalized_text_sha256 unchanged vs HEAD
+ok   S34 permalink is a 40-hex commit
+ok   S34 baseline blob == pin blob
+ok   A01 has baseline
+ok   A01 primary kind valid
+ok   A01 pin_v2.raw_body_sha256 == baseline
+ok   A01 pin_v2.raw_body_sha256 is 64-hex
+ok   A01 pin_v2.normalized_text_sha256 == baseline
+ok   A01 pin_v2.normalized_text_sha256 is 64-hex
+ok   A01 snapshot gz sha == pin
+ok   A01 snapshot text sha == baseline normalized
+ok   A02 has baseline
+ok   A02 primary kind valid
+ok   A02 pin_v2.raw_body_sha256 == baseline
+ok   A02 pin_v2.raw_body_sha256 is 64-hex
+ok   A02 pin_v2.normalized_text_sha256 == baseline
+ok   A02 pin_v2.normalized_text_sha256 is 64-hex
+ok   A02 snapshot gz sha == pin
+ok   A02 snapshot text sha == baseline normalized
+ok   A03 has baseline
+ok   A03 primary kind valid
+ok   A03 pin_v2.raw_body_sha256 == baseline
+ok   A03 pin_v2.raw_body_sha256 is 64-hex
+ok   A03 pin_v2.normalized_text_sha256 == baseline
+ok   A03 pin_v2.normalized_text_sha256 is 64-hex
+ok   A03 snapshot gz sha == pin
+ok   A03 snapshot text sha == baseline normalized
+ok   A04 has baseline
+ok   A04 primary kind valid
+ok   A04 pin_v2.raw_body_sha256 == baseline
+ok   A04 pin_v2.raw_body_sha256 is 64-hex
+ok   A04 pin_v2.normalized_text_sha256 == baseline
+ok   A04 pin_v2.normalized_text_sha256 is 64-hex
+ok   A04 snapshot gz sha == pin
+ok   A04 snapshot text sha == baseline normalized
+primary kinds: {'raw_body_sha256': 14, 'normalized_text_sha256': 24}
+ok   fetch-baseline.json unchanged vs HEAD
+ok   tag charmbracelet/bubbletea v2.0.10 commit 40-hex
+ok   tag charmbracelet/bubbletea v2.0.10 ref_sha 40-hex
+ok   tag charmbracelet/bubbletea v2.0.10 annotated => ref_sha != commit
+ok   tag ratatui/ratatui ratatui-v0.30.2 commit 40-hex
+ok   tag ratatui/ratatui ratatui-v0.30.2 ref_sha 40-hex
+ok   tag ratatui/ratatui ratatui-v0.30.2 annotated => ref_sha != commit
+ok   tag anomalyco/opentui v0.5.14 commit 40-hex
+ok   tag anomalyco/opentui v0.5.14 ref_sha 40-hex
+ok   tag anomalyco/opentui v0.5.14 annotated => ref_sha != commit
+ok   tag n0-computer/iroh v1.3.0 commit 40-hex
+ok   tag n0-computer/iroh v1.3.0 ref_sha 40-hex
+ok   tag n0-computer/iroh v1.3.0 annotated => ref_sha != commit
+ok   tag n0-computer/iroh-ffi v1.1.0 commit 40-hex
+ok   tag n0-computer/iroh-ffi v1.1.0 ref_sha 40-hex
+ok   tag n0-computer/iroh-ffi v1.1.0 lightweight => ref_sha == commit
+ok   tag n0-computer/pigeons v0.2.1 commit 40-hex
+ok   tag n0-computer/pigeons v0.2.1 ref_sha 40-hex
+ok   tag n0-computer/pigeons v0.2.1 annotated => ref_sha != commit
+ok   tag PowerShell/Win32-OpenSSH 10.0.0.0p2-Preview commit 40-hex
+ok   tag PowerShell/Win32-OpenSSH 10.0.0.0p2-Preview ref_sha 40-hex
+ok   tag PowerShell/Win32-OpenSSH 10.0.0.0p2-Preview lightweight => ref_sha == commit
+ok   tag PowerShell/Win32-OpenSSH v9.8.3.0p2-Preview commit 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.3.0p2-Preview ref_sha 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.3.0p2-Preview lightweight => ref_sha == commit
+ok   tag PowerShell/Win32-OpenSSH v9.8.2.0p2-Preview commit 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.2.0p2-Preview ref_sha 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.2.0p2-Preview lightweight => ref_sha == commit
+ok   tag PowerShell/Win32-OpenSSH v9.8.1.0p1-Preview commit 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.1.0p1-Preview ref_sha 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.1.0p1-Preview lightweight => ref_sha == commit
+ok   tag PowerShell/Win32-OpenSSH v9.8.0.0p1-Preview commit 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.0.0p1-Preview ref_sha 40-hex
+ok   tag PowerShell/Win32-OpenSSH v9.8.0.0p1-Preview lightweight => ref_sha == commit
+ok   tag PowerShell/openssh-portable v10.0.0.0 commit 40-hex
+ok   tag PowerShell/openssh-portable v10.0.0.0 ref_sha 40-hex
+ok   tag PowerShell/openssh-portable v10.0.0.0 lightweight => ref_sha == commit
+ok   tag smallstep/certificates v0.30.2 commit 40-hex
+ok   tag smallstep/certificates v0.30.2 ref_sha 40-hex
+ok   tag smallstep/certificates v0.30.2 lightweight => ref_sha == commit
+ok   tag smallstep/cli v0.31.0 commit 40-hex
+ok   tag smallstep/cli v0.31.0 ref_sha 40-hex
+ok   tag smallstep/cli v0.31.0 lightweight => ref_sha == commit
+tag_pins fields: ['advertisement_url', 'annotated', 'candidate', 'commit', 'label', 'ref_sha', 'repo', 'resolved_at_utc', 'tag']
+ok   snapshot files == pinned snapshot paths
+snapshot count 31
+FAILED: 0
+exit=0

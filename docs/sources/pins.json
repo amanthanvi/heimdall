@@ -1,7 +1,7 @@
 {
  "schema_version": 2,
- "task_id": "M00-T02 (v1) + M00-T02-fix (v2)",
- "method": "v2 (M00-T02-fix): `python3 docs/sources/tools/fetch_pins.py fetch` (stdlib, GET only) fetches every source and records raw-body sha256, normalized-text sha256 (normalizer v1, documented in the script docstring), size, status and date markers; baseline in docs/sources/fetch-baseline.json (retrieved 2026-10-03T21:18Z), identical repeat run in docs/sources/fetch-repeat.json. GitHub sources are fetched at the pinned commit via raw.githubusercontent.com/<repo>/<sha>/<path> and their git blob sha1 is recomputed and compared with the pinned blob. 27 non-git sources have a deterministic compressed normalized-text snapshot under docs/sources/snapshots/. The v1 `text_sha256` values were produced by a script that was not retained, could not be reproduced by the independent review (0/34), and are kept only as `pin.legacy_text_sha256_unreproducible`; they are not drift detectors. v1 method text (superseded): curl -sL GET of each spec URL (HTML converted to text, sha256 of text and of raw body; raw HTML hashes are advisory only), gh api GET for GitHub, crates.io and npm registry GET. Text sha256 re-fetched ~10 minutes apart: all 34 stable.",
+ "task_id": "M00-T02 (v1) + M00-T02-fix (v2) + M00-T02-fix2",
+ "method": "v2 (M00-T02-fix, revised by M00-T02-fix2): `python3 -I docs/sources/tools/fetch_pins.py fetch` (stdlib, GET only) fetches every source and records raw-body sha256, normalized-text sha256 (normalizer v1, documented in the script docstring), size, HTTP status and date markers; baseline in docs/sources/fetch-baseline.json (retrieved 2026-10-03T21:18Z), identical repeat run in docs/sources/fetch-repeat.json. Auxiliary sources A01-A04 (Iroh binding and platform pages, added by fix2) have their own baseline, docs/sources/fetch-baseline-aux.json (2026-10-09). GitHub sources are fetched at the pinned commit via raw.githubusercontent.com/<repo>/<sha>/<path> and their git blob sha1 is recomputed and compared with the pinned blob; `fetch_pins.py upstream` separately reports drift on the branch the spec URL names. 27 non-git spec sources and A01-A04 have a deterministic compressed normalized-text snapshot under docs/sources/snapshots/. Release tags are resolved to immutable commit ids in `tag_pins` (`fetch_pins.py tags`). v1 hashes: for the 28 HTML and GitHub sources the v1 `text_sha256` came from a script that was not retained and cannot be reproduced; it is kept as `pin.legacy_text_sha256_unreproducible` and is not a drift detector. For the 6 `.md` sources (S24-S26, S31-S33) the v1 `text_sha256` equals the v2 raw-body sha256, so v1 hashed the same raw .md bytes; it is kept as `pin.legacy_raw_body_sha256_v1` and counts as reproduced. v1 method text (superseded): curl -sL GET of each spec URL (HTML converted to text, sha256 of text and of raw body; raw HTML hashes are advisory only), gh api GET for GitHub, crates.io and npm registry GET. WITHDRAWN (no record reproduces it): the v1 sentence \"Text sha256 re-fetched ~10 minutes apart: all 34 stable\".",
  "sources": [
   {
    "id": "S01",
@@ -180,8 +180,8 @@
    "retrieved_at_utc": "2026-10-02T23:56:03Z",
    "claim": "Authentication methods, key registries, CA and principal policy",
    "claim_status": "supported",
-   "excerpt": "AuthenticationMethods, AuthorizedKeysFile, AuthorizedPrincipalsFile, TrustedUserCAKeys all present",
-   "note": "",
+   "excerpt": "AuthenticationMethods, AuthorizedKeysFile, AuthorizedPrincipalsFile, TrustedUserCAKeys all present; \"AuthorizedPrincipalsFile Specifies a file that lists principal names that are accepted for certificate authentication.\" ; \"TrustedUserCAKeys Specifies a file containing public keys of certificate authorities that are trusted to sign user certificates for authentication\"",
+   "note": "M00-T02-fix2: verbatim quotes from the snapshot were added to the excerpt so that `fetch_pins.py excerpts` can check it (it had no quoted fragment).",
    "pin": {
     "type": "mdoc_footer_date",
     "value": "OpenBSD-current September 17, 2026 (SSHD_CONFIG(5))",
@@ -558,8 +558,8 @@
    "excerpt": "\"Each endpoint in iroh has a unique identifier (EndpointID) created as a cryptographic key.\" ; EndpointAddr is a separate struct that tells iroh \"what & where to dial\"",
    "note": "Docs now say EndpointID / EndpointAddr (older material says NodeID).",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: 531bfa52f519570fcdc4759e19ada1441bcb7bb1117ac94f3ca9646931b8d5f2",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2",
     "legacy_text_sha256_unreproducible": "531bfa52f519570fcdc4759e19ada1441bcb7bb1117ac94f3ca9646931b8d5f2",
     "legacy_raw_body_sha256_v1": "7ec1d8b107bee7c27d3d16aa0c460be4ff0814fef6e6464b54e90c2398b1885f"
    },
@@ -599,8 +599,8 @@
    "excerpt": "\"Tickets are reusable: Unlike what the name might imply, tickets are not single-use tokens.\" ; \"Sharing a ticket means sharing your IP address\"",
    "note": "",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: 879d2dc1f925511c317d9a4620449b0a14f93bccde63eb1d79efb7f8c53e6736",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2",
     "legacy_text_sha256_unreproducible": "879d2dc1f925511c317d9a4620449b0a14f93bccde63eb1d79efb7f8c53e6736",
     "legacy_raw_body_sha256_v1": "b7b75d891b799912ee86c3b7120a3407db3b0ebf8014808c213d4648cb2bf100"
    },
@@ -641,7 +641,7 @@
    "claim": "Environment identity/execution independent of routes",
    "claim_status": "supported",
    "excerpt": "\"An environment keeps its ID across server restarts and endpoint changes.\" ; \"Direct access, Tailscale, SSH, and T3 Connect change how the client reaches that server; they do not introduce another execution model.\"",
-   "note": "",
+   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 3f9e64b03cf10e51adb4c07923c5ee46936f3c84, not the pinned blob 43d96f862e3b42fe48e8035ccff0c39595cc81db. The pin is the commit permalink cba7dd7; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 2/2. The commit that changed the path on main was not looked up (no GitHub API request).",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "cba7dd77817df2a458d86977f1daf4606c67dfc8 (last commit touching path); blob 43d96f862e3b42fe48e8035ccff0c39595cc81db",
@@ -684,7 +684,7 @@
    "claim": "Connection supervision and mutation replay boundary",
    "claim_status": "supported",
    "excerpt": "\"The supervisor owns transport retry policy\" ; \"Reconnection does not automatically replay mutations, whose retry and ...\"",
-   "note": "Drift after the v1 pin: commit 9333509 (2026-10-03T04:42:36Z, \"fix(client-runtime): reconnects back off with jitter and keep healthy sockets\") changed the path on main (blob 301e1e0 -> 35c8b0a, 4650 -> 5002 bytes). The pin is the commit permalink 99641fd; v2 fetches at that commit (blob sha1 matches). The reopen condition on source change is triggered for main but not for the pinned commit; quotes used still hold in the new text per the independent review.",
+   "note": "Drift after the v1 pin: commit 9333509 (2026-10-03T04:42:36Z, \"fix(client-runtime): reconnects back off with jitter and keep healthy sockets\") changed the path on main (blob 301e1e0 -> 35c8b0a, 4650 -> 5002 bytes). The pin is the commit permalink 99641fd; v2 fetches at that commit (blob sha1 matches). The reopen condition on source change is triggered for main but not for the pinned commit; quotes used still hold in the new text per the independent review. Re-observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and 06:14Z: main blob 35c8b0a7365837aa1e9c00e28aea744f8e12ae21, quoted excerpt fragments still on main 2/2.",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "99641fd09a509feb644b3c8ef718c12c60cf436c (last commit touching path); blob 301e1e0ffecb1b5278444e1808cb59153c1c23fc",
@@ -727,7 +727,7 @@
    "claim": "Control/transport/session separation and resource lifecycle",
    "claim_status": "supported",
    "excerpt": "\"The relay manages environment links, credentials for reaching environments, and managed tunnel allocations. ... the relay Worker does not proxy their HTTP or WebSocket sessions.\" ; \"normal shutdown of a CLI-managed link releases its tunnel\"",
-   "note": "",
+   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 4f3e0620416439ba191f7d60a15fdac5f22272e5, not the pinned blob 367d9116e92e42a0e53a7d19a185199a121e25cf. The pin is the commit permalink 8d7b5e9; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 3/3. The commit that changed the path on main was not looked up (no GitHub API request).",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "8d7b5e998c72b4674326cbac7d23bafe9b222668 (last commit touching path); blob 367d9116e92e42a0e53a7d19a185199a121e25cf",
@@ -814,8 +814,8 @@
    "excerpt": "\"relays are not able to read any of the traffic ... However, the relays are able to see metadata about connections, such as source and destination IP addresses, connection times, and the amount of relayed data.\" ; default shared public infrastructure operated by n0.computer",
    "note": "",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: d8b01ac348b2a9d1f9488dd807b1b585788a9934a4f37ed48473b1e6cf2698ae",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2",
     "legacy_text_sha256_unreproducible": "d8b01ac348b2a9d1f9488dd807b1b585788a9934a4f37ed48473b1e6cf2698ae",
     "legacy_raw_body_sha256_v1": "a3206db7141bddb0ede0e454940831206c4b9b85640b66140531e9f93686b0db"
    },
@@ -855,11 +855,11 @@
    "retrieved_at_utc": "2026-10-02T23:56:07Z",
    "claim": "Native Rust interface and published platform list",
    "claim_status": "supported",
-   "excerpt": "iOS device+simulator; Android aarch64, armv7; macOS arm64, x86_64; Linux x86_64, aarch64, armv7 (glibc and musl); Windows x86_64, aarch64",
-   "note": "crates.io iroh 1.3.0 (see candidates).",
+   "excerpt": "\"Platform Architectures iOS device and simulator Android aarch64, armv7 macOS arm64, x86_64 Linux x86_64, aarch64, armv7 (glibc and musl) Windows x86_64, aarch64\" (table cells flattened by the normalizer) ; \"iroh is written in Rust, so the Rust crate is the most fully-featured way to use it.\"",
+   "note": "crates.io iroh 1.3.0 (see candidates). M00-T02-fix2: verbatim quotes from the snapshot were added to the excerpt so that `fetch_pins.py excerpts` can check it (it had no quoted fragment).",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: c80e02d4e454124816d49e3ef8d1b620b5de0a81b5f8a5aa2fb2c514465d72fc",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2",
     "legacy_text_sha256_unreproducible": "c80e02d4e454124816d49e3ef8d1b620b5de0a81b5f8a5aa2fb2c514465d72fc",
     "legacy_raw_body_sha256_v1": "934cb6a9acca94d6c880aef18f6b40f24fd80120b2b9b1e85b2093cb7b7c261c"
    },
@@ -899,8 +899,8 @@
    "excerpt": "\"JavaScript bindings ... @number0/iroh ... built with napi-rs ... macOS: arm64 (no Intel build)\" ; Linux x86_64/aarch64 (glibc+musl), armv7; Windows x86_64, aarch64; Android aarch64, armv7; Node.js >=20.3.0",
    "note": "No darwin-x64 prebuilt: an Intel-Mac TS+Iroh path has no published binary. Relevant to G02 (escalation E4). v2: page also says \"Endpoint.bind applies the n0 preset (public discovery + default relays) by default\" (public network use unless overridden; relevant to the no-public-network fixture boundary).",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: e0ca98621d53b7e96f5a82b433a8cf1ebc7a99eece4a7aa27538d7ee67b57266",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2",
     "legacy_text_sha256_unreproducible": "e0ca98621d53b7e96f5a82b433a8cf1ebc7a99eece4a7aa27538d7ee67b57266",
     "legacy_raw_body_sha256_v1": "5395916a6c431cd46f72547bc9758f08e4987412140d65741927f6647b38d397"
    },
@@ -938,10 +938,10 @@
    "claim": "April 7, 2026 essay on reusable primitives",
    "claim_status": "supported",
    "excerpt": "Dated \"April 7, 2026\"; \"I use the term 'building block' to describe how they're being used\"",
-   "note": "",
+   "note": "Primary pin kind changed from raw to normalized by M00-T02-fix2 (pin_v2.primary_change). The raw hash stays as the record of the bytes fetched on 2026-10-03.",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: 49326b4c42b3afbeccd7f9a8dbfd141354c347619c12033564021909214099e4",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2",
     "legacy_text_sha256_unreproducible": "49326b4c42b3afbeccd7f9a8dbfd141354c347619c12033564021909214099e4",
     "legacy_raw_body_sha256_v1": "f29e59ef0ff58b0fff8979ceb104fdafeb94ef4e6b0067238d4eda114a878e81"
    },
@@ -949,7 +949,7 @@
     "retrieved_at_utc": "2026-10-03T21:18Z",
     "fetched_url": "https://mitchellh.com/writing/building-block-economy",
     "http_status": 200,
-    "primary": "raw_body_sha256",
+    "primary": "normalized_text_sha256",
     "raw_body_sha256": "f29e59ef0ff58b0fff8979ceb104fdafeb94ef4e6b0067238d4eda114a878e81",
     "raw_bytes": 46148,
     "normalized_text_sha256": "12a977ce0a5db862bcd73bb7fd7184ee1e02451654543b1f6f8ab07ea888fdf5",
@@ -971,6 +971,13 @@
      "raw_matches_baseline": false,
      "normalized_matches_baseline": false,
      "note": "closest snapshot found by the read-only availability API; informational unless normalized_matches_baseline is true"
+    },
+    "primary_change": {
+     "from": "raw_body_sha256",
+     "to": "normalized_text_sha256",
+     "by": "M00-T02-fix2 (finding m3)",
+     "date": "2026-10-09",
+     "reason": "Static-site HTML: the raw bytes changed (46148 to 45864 bytes, new etag) between 2026-10-03T21:18Z and 2026-10-09T05:17Z (first seen by the recheck) with identical normalized text, so a raw primary flagged a rebuild as drift. The pinned normalized hash is unchanged and still matched on 2026-10-09."
     }
    }
   },
@@ -981,13 +988,13 @@
    "retrieved_at_utc": "2026-10-02T23:56:07Z",
    "claim": "Compact predictable operations; move routine orchestration to code",
    "claim_status": "supported",
-   "excerpt": "\"Offload the burden from the model and use code where possible. Don't make the model fill arguments you already know. Combine functions that are always called in sequence.\" ; \"Aim for fewer than 20 functions available at the start of a turn\"",
-   "note": "sha is of the .md variant served by the same site.",
+   "excerpt": "\"Offload the burden from the model and use code where possible. ... Don't make the model fill arguments you already know. ... Combine functions that are always called in sequence.\" ; \"Aim for fewer than 20 functions available at the start of a turn\"",
+   "note": "sha is of the .md variant served by the same site. M00-T02-fix2: the first quote joins three list headings that are not adjacent on the page; the ellipses now mark the gaps (finding m9c).",
    "pin": {
-    "type": "text_sha256_markdown_variant",
-    "value": "sha256 of extracted text: ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
-    "legacy_text_sha256_unreproducible": "ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
-    "legacy_raw_body_sha256_v1": null
+    "type": "legacy_v1_md_body_sha256",
+    "value": "superseded: the v1 value is the sha256 of the raw .md body (legacy_raw_body_sha256_v1, equal to pin_v2.raw_body_sha256); the pin is pin_v2",
+    "legacy_raw_body_sha256_v1": "ce460da5635ff6b235fd45bb94a425975fc438f5e47ba71705e7ebf689172ae1",
+    "legacy_v1_note": "v1 (2026-10-02T23:56Z) recorded this hash as text_sha256. It equals pin_v2.raw_body_sha256 (2026-10-03T21:18Z), so v1 hashed the same raw .md bytes; relabelled from legacy_text_sha256_unreproducible by M00-T02-fix2 (finding m4)."
    },
    "pin_v2": {
     "retrieved_at_utc": "2026-10-03T21:18Z",
@@ -999,7 +1006,7 @@
     "normalized_text_sha256": "51a9bd1593d64e8a2402a5acfa3eec4b8205986afe96f582eb5b9d7b42a32b44",
     "normalized_text_chars": 68931,
     "normalizer_version": 1,
-    "raw_reproduced_vs_v1_pin": null,
+    "raw_reproduced_vs_v1_pin": true,
     "markers": {
      "http_last_modified": "Sat, 03 Oct 2026 20:10:54 GMT"
     },
@@ -1025,10 +1032,10 @@
    "excerpt": "\"Skills use progressive disclosure to manage context efficiently.\"",
    "note": "",
    "pin": {
-    "type": "text_sha256_markdown_variant",
-    "value": "sha256 of extracted text: d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
-    "legacy_text_sha256_unreproducible": "d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
-    "legacy_raw_body_sha256_v1": null
+    "type": "legacy_v1_md_body_sha256",
+    "value": "superseded: the v1 value is the sha256 of the raw .md body (legacy_raw_body_sha256_v1, equal to pin_v2.raw_body_sha256); the pin is pin_v2",
+    "legacy_raw_body_sha256_v1": "d15791562748e64a53dfec534b8558aa522e732cec0fdedcf7257fa4ef486a20",
+    "legacy_v1_note": "v1 (2026-10-02T23:56Z) recorded this hash as text_sha256. It equals pin_v2.raw_body_sha256 (2026-10-03T21:18Z), so v1 hashed the same raw .md bytes; relabelled from legacy_text_sha256_unreproducible by M00-T02-fix2 (finding m4)."
    },
    "pin_v2": {
     "retrieved_at_utc": "2026-10-03T21:18Z",
@@ -1040,7 +1047,7 @@
     "normalized_text_sha256": "6bbf6cd1028ec1d6df6ce8621d42e1bc8a9cb748f966d2e3a91980c1bdc80e84",
     "normalized_text_chars": 9727,
     "normalizer_version": 1,
-    "raw_reproduced_vs_v1_pin": null,
+    "raw_reproduced_vs_v1_pin": true,
     "markers": {},
     "snapshot": {
      "path": "docs/sources/snapshots/S25.txt.gz",
@@ -1065,12 +1072,12 @@
    "claim": "Outcome-focused instructions, follow-through, file hygiene, verification scope",
    "claim_status": "supported",
    "excerpt": "Sections \"Initiative and follow-through\" and \"Testing and verification\"; \"unclear or conflicting guidance in a skill file may cause the model to pause and block work early\"; \"Make the priority of user instructions and skills explicit\"; \"complete all the necessary work until the intended outcome is fulfilled\"",
-   "note": "Page now headlines GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna. v2 correction: the v1 excerpt also quoted \"Be very specific about your end goal\"; that sentence is on S31 (reasoning-best-practices), not S26. The S26 claim stays supported by the quotes above (checked in docs/sources/snapshots/S26.txt.gz). The S31 quote is attributed to S31 below.",
+   "note": "Page now headlines GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna. v2 correction: the v1 excerpt also quoted \"Be very specific about your end goal\"; that sentence is on S31 (reasoning-best-practices), not S26. The S26 claim stays supported by the quotes above (checked in docs/sources/snapshots/S26.txt.gz). The S31 quote is attributed to S31 below. M00-T02-fix2: on 2026-10-09 `compare` classifies S26 as CONTENT (edit in the Fast-mode / EU data-residency passage, Last-Modified 2026-10-08T23:50Z); all 5 excerpt fragments are still in the live text (fix2/excerpts_today.out). The snapshot keeps the pinned text.",
    "pin": {
-    "type": "text_sha256_markdown_variant",
-    "value": "sha256 of extracted text: 14b1d9281eb2132c5f14075eb44572cda843ec1101ad9680cd4adc004c0147d3",
-    "legacy_text_sha256_unreproducible": "14b1d9281eb2132c5f14075eb44572cda843ec1101ad9680cd4adc004c0147d3",
-    "legacy_raw_body_sha256_v1": null
+    "type": "legacy_v1_md_body_sha256",
+    "value": "superseded: the v1 value is the sha256 of the raw .md body (legacy_raw_body_sha256_v1, equal to pin_v2.raw_body_sha256); the pin is pin_v2",
+    "legacy_raw_body_sha256_v1": "14b1d9281eb2132c5f14075eb44572cda843ec1101ad9680cd4adc004c0147d3",
+    "legacy_v1_note": "v1 (2026-10-02T23:56Z) recorded this hash as text_sha256. It equals pin_v2.raw_body_sha256 (2026-10-03T21:18Z), so v1 hashed the same raw .md bytes; relabelled from legacy_text_sha256_unreproducible by M00-T02-fix2 (finding m4)."
    },
    "pin_v2": {
     "retrieved_at_utc": "2026-10-03T21:18Z",
@@ -1082,7 +1089,7 @@
     "normalized_text_sha256": "f6ecbbe14400b8f766e53930e151123c4b5e0317ad77c953239f8a31a49cb352",
     "normalized_text_chars": 19150,
     "normalizer_version": 1,
-    "raw_reproduced_vs_v1_pin": null,
+    "raw_reproduced_vs_v1_pin": true,
     "markers": {
      "http_last_modified": "Sat, 03 Oct 2026 20:04:56 GMT"
     },
@@ -1148,10 +1155,10 @@
    "claim": "Rust TUI candidate",
    "claim_status": "supported",
    "excerpt": "\"Ratatui is a Rust library for building fast, lightweight, and rich terminal user interfaces\" ; site shows version 0.30.2",
-   "note": "Page text hash stable across two fetches; site stat counters could make it drift.",
+   "note": "Normalized text identical in the v2 baseline and repeat runs; the site's live counters (crate count, stars, downloads) change the normalized text, so `compare` reports CONTENT for S28 (observed 2026-10-09) even when the cited sentence is unchanged; check the excerpt before treating it as drift.",
    "pin": {
-    "type": "text_sha256",
-    "value": "sha256 of extracted text: 6e6d4e2aa02e3a49e0462721d4f36b580f27bd53e178440dfb55264096fff322; site-displayed version 0.30.2",
+    "type": "legacy_v1_text_sha256",
+    "value": "superseded: the v1 text hash is kept only as legacy_text_sha256_unreproducible (not a drift detector); the reproducible pin is pin_v2; v1 also recorded the site-displayed version 0.30.2",
     "legacy_text_sha256_unreproducible": "6e6d4e2aa02e3a49e0462721d4f36b580f27bd53e178440dfb55264096fff322",
     "legacy_raw_body_sha256_v1": "2dc9f22326443fb0b72e42d06c28c097113c0a445a8dde5723a286ad66554e0f"
    },
@@ -1275,10 +1282,10 @@
    "excerpt": "\"Avoid chain-of-thought prompts: Since these models perform reasoning internally, prompting them to 'think step by step' ... is unnecessary.\" ; page covers o1/o3/o4-mini/GPT-4.1 era models",
    "note": "v2: S31 carries \"Be very specific about your end goal: In your instructions, try to give very specific parameters for a successful response\" (moved here from the v1 S26 excerpt).",
    "pin": {
-    "type": "text_sha256_markdown_variant",
-    "value": "sha256 of extracted text: 00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
-    "legacy_text_sha256_unreproducible": "00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
-    "legacy_raw_body_sha256_v1": null
+    "type": "legacy_v1_md_body_sha256",
+    "value": "superseded: the v1 value is the sha256 of the raw .md body (legacy_raw_body_sha256_v1, equal to pin_v2.raw_body_sha256); the pin is pin_v2",
+    "legacy_raw_body_sha256_v1": "00d3f8ee705eb2340513512da669b45aa534ea8c8412e65470cf576aa59baa76",
+    "legacy_v1_note": "v1 (2026-10-02T23:56Z) recorded this hash as text_sha256. It equals pin_v2.raw_body_sha256 (2026-10-03T21:18Z), so v1 hashed the same raw .md bytes; relabelled from legacy_text_sha256_unreproducible by M00-T02-fix2 (finding m4)."
    },
    "pin_v2": {
     "retrieved_at_utc": "2026-10-03T21:18Z",
@@ -1290,7 +1297,7 @@
     "normalized_text_sha256": "1d11c6880da3275e547cdb45f85d45107f4bfdf8f5e5ea703c5620b93df8184c",
     "normalized_text_chars": 17006,
     "normalizer_version": 1,
-    "raw_reproduced_vs_v1_pin": null,
+    "raw_reproduced_vs_v1_pin": true,
     "markers": {
      "http_last_modified": "Sat, 03 Oct 2026 20:17:41 GMT"
     },
@@ -1316,10 +1323,10 @@
    "excerpt": "Eval process: collect dataset, define metrics, \"Run and compare evals\"; judge tasks \"against specific criteria instead of open-ended generation\"",
    "note": "Banner: \"OpenAI is deprecating the Evals platform ... read-only on October 31, 2026 ... shut down on November 30, 2026.\" Guidance text still stands; the platform it points to is going away (E5).",
    "pin": {
-    "type": "text_sha256_markdown_variant",
-    "value": "sha256 of extracted text: 93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
-    "legacy_text_sha256_unreproducible": "93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
-    "legacy_raw_body_sha256_v1": null
+    "type": "legacy_v1_md_body_sha256",
+    "value": "superseded: the v1 value is the sha256 of the raw .md body (legacy_raw_body_sha256_v1, equal to pin_v2.raw_body_sha256); the pin is pin_v2",
+    "legacy_raw_body_sha256_v1": "93aeca2e3b1fc3df153d004ed8227b48f2d6c55e3786c2fb33c6c0af6eb92164",
+    "legacy_v1_note": "v1 (2026-10-02T23:56Z) recorded this hash as text_sha256. It equals pin_v2.raw_body_sha256 (2026-10-03T21:18Z), so v1 hashed the same raw .md bytes; relabelled from legacy_text_sha256_unreproducible by M00-T02-fix2 (finding m4)."
    },
    "pin_v2": {
     "retrieved_at_utc": "2026-10-03T21:18Z",
@@ -1331,7 +1338,7 @@
     "normalized_text_sha256": "30b9b23c5c754b052c357641a6c886e96fd233824bc7da3c92f3a4662f6cc562",
     "normalized_text_chars": 22663,
     "normalizer_version": 1,
-    "raw_reproduced_vs_v1_pin": null,
+    "raw_reproduced_vs_v1_pin": true,
     "markers": {
      "http_last_modified": "Sat, 03 Oct 2026 20:06:01 GMT"
     },
@@ -1357,10 +1364,10 @@
    "excerpt": "\"Use structured outputs to constrain data flow\" ; \"Don't use untrusted variables in developer messages\" ; \"you can significantly reduce risks of prompt injection\" (not eliminate)",
    "note": "",
    "pin": {
-    "type": "text_sha256_markdown_variant",
-    "value": "sha256 of extracted text: e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
-    "legacy_text_sha256_unreproducible": "e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
-    "legacy_raw_body_sha256_v1": null
+    "type": "legacy_v1_md_body_sha256",
+    "value": "superseded: the v1 value is the sha256 of the raw .md body (legacy_raw_body_sha256_v1, equal to pin_v2.raw_body_sha256); the pin is pin_v2",
+    "legacy_raw_body_sha256_v1": "e3902b08bb7fc6f922698bcc889c101caa3537e8bb641d0b9262347a564bb646",
+    "legacy_v1_note": "v1 (2026-10-02T23:56Z) recorded this hash as text_sha256. It equals pin_v2.raw_body_sha256 (2026-10-03T21:18Z), so v1 hashed the same raw .md bytes; relabelled from legacy_text_sha256_unreproducible by M00-T02-fix2 (finding m4)."
    },
    "pin_v2": {
     "retrieved_at_utc": "2026-10-03T21:18Z",
@@ -1372,7 +1379,7 @@
     "normalized_text_sha256": "f9b8be94ef4a431f80ba79335d9a43554f48380b992580c4ca8931bef742ad11",
     "normalized_text_chars": 5764,
     "normalizer_version": 1,
-    "raw_reproduced_vs_v1_pin": null,
+    "raw_reproduced_vs_v1_pin": true,
     "markers": {
      "http_last_modified": "Sat, 03 Oct 2026 20:43:26 GMT"
     },
@@ -1396,7 +1403,7 @@
    "claim": "Pairing/management boundaries; project-vs-sandbox",
    "claim_status": "supported",
    "excerpt": "\"Pairing delegates a set of scopes. ... cannot widen it.\" ; \"Projects are organizational boundaries, not filesystem sandboxes.\"",
-   "note": "",
+   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 132b65548125543e14dee24854f2be2aeac7b33f, not the pinned blob 2428783ccc56531e1281ef056ed3b216539210e4. The pin is the commit permalink 3b75e60; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 3/3. The commit that changed the path on main was not looked up (no GitHub API request).",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "3b75e607eb909522a8f5562fb40e44efc72bb66c (last commit touching path); blob 2428783ccc56531e1281ef056ed3b216539210e4",
@@ -1443,7 +1450,8 @@
    "default_branch_head": "96d69d2f7eb182bb311be08fc56ed2c208239aff",
    "last_commit": "2026-10-02T11:07:33Z",
    "stars": 45249,
-   "notes": "Go library. v2 import path moved to charm.land vanity domain."
+   "notes": "Go library. v2 import path moved to charm.land vanity domain.",
+   "latest_stable_tag_commit": "d5bfd5c2ff7480a6b94536c1cf4e73569b8d523e"
   },
   "ratatui": {
    "source": "S28",
@@ -1460,7 +1468,8 @@
     "version": "0.1.2",
     "license": "MIT",
     "note": "ratatui-crossterm defaults to feature crossterm_0_29, optional crossterm_0_28"
-   }
+   },
+   "github_release_commit": "e665c36cb14752a61cd777fbd06dbef8474f2add"
   },
   "crossterm": {
    "crate": "crossterm",
@@ -1538,7 +1547,8 @@
     }
    },
    "native_components": "SOURCE-BACKED: Zig implementation in the private @opentui/native workspace, shipped as prebuilt per-platform optional npm packages (8 packages: darwin x64/arm64, linux x64/arm64 plus musl variants, win32 x64/arm64); npm dependency bun-ffi-structs 0.3.1; dev needs Bun 1.4.1+ and Zig 0.16.0 (README, S29). INFERENCE (not stated in any source; G02 must test): that the native code is loaded through Bun FFI on every runtime (inferred from the bun-ffi-structs dependency name and the \"bun\" export condition); that a Node 26.4+ runtime can load the same native packages (the npm exports map has a distinct \"node\" condition pointing to ./index.node.js, but loading behavior was not run).",
-   "notes": "0.x pre-1.0 versioning; all packages version-locked to the same number. Full tarball integrity for @opentui/core recorded in v2 (v1 stored a truncated value); other candidate packages carry no integrity pin yet (reopen when a candidate is installed for G02)."
+   "notes": "0.x pre-1.0 versioning; all packages version-locked to the same number. Full tarball integrity for @opentui/core recorded in v2 (v1 stored a truncated value); other candidate packages carry no integrity pin yet (reopen when a candidate is installed for G02).",
+   "latest_release_commit": "31a93fbe66992298d6d0f27481fa781f43d0c1e2"
   },
   "iroh": {
    "source": [
@@ -1553,7 +1563,9 @@
     "rust_version": "1.91",
     "repo_head": "b4c8fc68ef21b78781741fab8c6c86a1043d0f97",
     "last_commit": "2026-10-02T16:42:21Z",
-    "platforms_per_docs": "iOS; Android aarch64, armv7; macOS arm64, x86_64; Linux x86_64, aarch64, armv7 (glibc, musl); Windows x86_64, aarch64"
+    "platforms_per_docs": "iOS; Android aarch64, armv7; macOS arm64, x86_64; Linux x86_64, aarch64, armv7 (glibc, musl); Windows x86_64, aarch64",
+    "github_release_tag": "v1.3.0",
+    "github_release_commit": "0072d7d84b233f9e7185eb676f049beaf557ac03"
    },
    "iroh_tickets_crate": {
     "version": "1.0.0",
@@ -1583,14 +1595,20 @@
     "missing": "darwin-x64 (macOS Intel) not published",
     "source_repo": "n0-computer/iroh-ffi",
     "ffi_repo_release": "v1.1.0 (2026-07-16)",
-    "ffi_repo_head": "3103bf5295be6d50c5272ff7a426e9b539f3f587"
+    "ffi_repo_head": "3103bf5295be6d50c5272ff7a426e9b539f3f587",
+    "ffi_repo_release_commit": "5e451092dba0c1a09ee83ff6e5be37b1152a5c58"
    },
    "other_bindings": {
-    "python_swift_kotlin": "via iroh-ffi/uniffi (present in repo; not individually version-checked here)",
-    "go": "git.coopcloud.tech/decentral1se/iroh-go, docs label it experimental, Linux x86_64/aarch64 (musl) only, no stable tag, third-party host",
-    "c": "iroh-c-ffi, build from source, no prebuilt binaries; Linux x86_64 glibc, macOS arm64, Windows x86_64"
+    "python_swift_kotlin": "A01 lists Python (Official, prebuilt wheels), Swift (Official, iOS + macOS) and Kotlin (Official, JVM + Android); A03 says these bindings, like JavaScript, are built on iroh-ffi/uniffi; versions not individually checked",
+    "go": "Community binding (A01: \"built and maintained by community members rather than the number0 team\"), module git.coopcloud.tech/decentral1se/iroh-go (A02 `go get` line), \"still considered experimental\" (A02), platforms Linux x86_64 and aarch64, musl (A02), no stable tag yet (A02: \"aiming to publish a stable tag\"). Not on A01/A02: the words \"highly experimental\" and any cgo requirement (escalation E9).",
+    "c": "iroh-c-ffi, listed as Official, build from source (A01); \"There are no prebuilt binaries\"; platforms Linux x86_64 (glibc), macOS arm64, Windows x86_64; a raw C API generated with safer-ffi, not built on iroh-ffi/uniffi (A03)",
+    "sources": [
+     "A01",
+     "A02",
+     "A03"
+    ]
    },
-   "docs_platform_compat_page": "Linux, macOS, Windows, Android, iOS, WebAssembly, FreeRTOS: Yes"
+   "docs_platform_compat_page": "A04 (https://docs.iroh.computer/compatibility): Linux, macOS, Windows, Android, iOS, WebAssembly (browser), FreeRTOS: Yes. Vendor statement, not Heimdall evidence."
   },
   "pigeons": {
    "source": "S19",
@@ -1610,7 +1628,9 @@
     "windows-x86_64 (.zip)"
    ],
    "integration": "`pigeons roost` on server; `pigeons add --id <endpoint id> --name <host>` writes an ssh_config Host entry whose ProxyCommand runs `pigeons fly --stdio`; ssh then uses the tunnel over stdin/stdout. Install script is curl|bash from an S3 bucket (do not use in fixtures; use release assets or cargo). v2 additions (README at 7800c52, see S19 note): opt-in anonymous telemetry to iroh-services; `pigeons service install` runs the roost as root; `pigeons add` writes ~/.ssh/config; dedicated .ssh/pigeons_ed25519 key; anyone with the endpoint ID can reach the SSH port. Fixtures must use a scratch HOME, no service install, telemetry off.",
-   "stars": 181
+   "stars": 181,
+   "latest_release_commit": "e187bc789846240e6f2c1d8ccd0b090d80240839",
+   "release_assets_note": "asset names only; asset digests are not recorded (tag_pins pins the tag commit)"
   },
   "win32_openssh": {
    "v1_error": "v1 examined PowerShell/Win32-OpenSSH (default branch L1-Prod), which only tracks releases and issues; its README says active development is in PowerShell/openssh-portable. The v1 statements \"no LICENSE file\" and \"head 39d8050 on 2026-09-23\" described the wrong repository (39d8050 is an issue-triage bot commit).",
@@ -1648,8 +1668,23 @@
    "github_license_field": "NOASSERTION (key \"other\"): GitHub does not classify the multi-clause LICENCE file",
    "windows_specific_code_sample": "contrib/win32/win32compat/misc.c at e581929 carries \"Copyright(c) 2016 Microsoft Corp.\" with a BSD-2-clause-style notice. One file sampled; the Windows-specific tree was not audited file by file.",
    "releases_on_source_repo": "GitHub releases API returns none for PowerShell/openssh-portable; installable assets (MSI/zip) are attached to PowerShell/Win32-OpenSSH releases",
-   "notes": "Upstream sync is current in source (merge of OpenSSH 10.3p1 on 2026-09-25) but the newest published Windows release is 10.0.0.0p2-Preview from 2025-10-27, so source head is ahead of any release. Every one of the 5 latest releases carries \"Preview\" in its tag. Windows 11/Server inbox OpenSSH is a separate Microsoft-distributed build and is not pinned here.",
-   "status_of_e6": "E6 restated: licensing is a BSD-style LICENCE in openssh-portable (not absent). The open owner decision is the support baseline: whether a Preview-only release line, with source ahead of releases, may be called a supported Windows OpenSSH baseline."
+   "notes": "Upstream sync is current in source (merge of OpenSSH 10.3p1 on 2026-09-25) but the newest published Windows release is 10.0.0.0p2-Preview from 2025-10-27, so source head is ahead of any release. Every one of the 5 latest releases carries \"Preview\" in its tag. The Windows 11/Server inbox OpenSSH is a separate Microsoft-distributed build with no release tag to pin; G03 observed 9.5p2 (file version 9.5.6.3) on one Windows 11 host on 2026-10-06 (e6_facts).",
+   "status_of_e6": "E6 restated: licensing is a BSD-style LICENCE in openssh-portable (not absent). The open owner decision is the support baseline: whether a Preview-only release line, with source ahead of releases, may be called a supported Windows OpenSSH baseline, and how the inbox build relates to it. Facts for the owner, not a decision: e6_facts.",
+   "latest_release_commit": "2cc4c136533fc945d2052b71079907a1a21fa624",
+   "recent_tag_commits": {
+    "10.0.0.0p2-Preview": "2cc4c136533fc945d2052b71079907a1a21fa624",
+    "v9.8.3.0p2-Preview": "2f3309f177b288ef271164fb8673adcb2277a341",
+    "v9.8.2.0p2-Preview": "87589cb52a9ae2f9709e941c948de530011bfef4",
+    "v9.8.1.0p1-Preview": "e5a914404f758ee4bcdc33fb11bb15ff4e8c511c",
+    "v9.8.0.0p1-Preview": "8ada677ca0918bbb36f2130a8e9e16e41924e25d"
+   },
+   "e6_facts": [
+    "Inbox client observed natively (G03, 2026-10-06, tests/evidence/g03-win-env-inventory.json, record status verified): on the owner's Windows 11 Pro build 26300.9550 x86-64, C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe reports \"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2\", file version 9.5.6.3, sha256 0b8b5653141c6e02e8afc043d1703dcd6410f1606422ff3ba5eb52dc56a5cce9. Spec section 3.2 says Windows tests include \"the installed Windows OpenSSH client\"; the inbox build is Microsoft-distributed with Windows and has no release tag to pin. One host, one observation; not a floor.",
+    "Same host: the Win32-OpenSSH GitHub MSI was installed at C:\\Program Files\\OpenSSH (ssh.exe reports \"OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 3.8.2\", file version 10.0.0.0, sha256 6890c128c86cc2c38aad9fcb32a82b851ff3d38c714a1f656b8e445d7cd5e1c6), first on PATH, and the ssh-agent and sshd services ran from it. Git for Windows 2.55.0.windows.3 bundles MSYS \"OpenSSH_10.3p1, OpenSSL 3.5.7 9 Jun 2026\". Both builds were compared only in some probes: P-W02 (SSH_AUTH_SOCK selection; the record has agent contact rows for both builds) and P-W03 (IdentityAgent forms) per docs/research/g03-windows-wsl.md section 0.1, and the five WSL Mode A probes P-A01-P-A05 (run r3-msi10, same status and criteria, section 0.2). The other executed native Windows probes used the inbox 9.5p2 only.",
+    "Both Microsoft builds report LibreSSL 3.8.2 in their version banner. The LibreSSL licence, and the licences of any other third-party component in the release binaries, are not recorded here: the LICENCE quoted above covers the openssh-portable source tree only. Microsoft's licence terms for the inbox Feature-on-Demand build are not recorded either.",
+    "Vendor positioning recorded by the G03 pins (tests/evidence/artifacts/g03/sources/): G03-S01 records the GitHub releases as labelled \"preview-release (non-production ready)\" (release-list metadata, no stored excerpt); G03-S08 (Microsoft Learn, excerpt stored) says Microsoft's openssh-portable fork releases \"might differ from the version in Windows\".",
+    "Release tag 10.0.0.0p2-Preview resolves to commit 2cc4c136533fc945d2052b71079907a1a21fa624 in PowerShell/Win32-OpenSSH (tag_pins, lightweight tag); release asset digests (MSI/zip) are not recorded."
+   ]
   },
   "smallstep": {
    "step_ca": {
@@ -1658,7 +1693,8 @@
     "released_at": "2026-03-23T00:17:17Z",
     "license": "Apache-2.0",
     "repo_head": "fdeb6fdf53f9ad430c283940eb4c5f1203406fa7",
-    "last_commit": "2026-09-29T12:27:36Z"
+    "last_commit": "2026-09-29T12:27:36Z",
+    "latest_release_commit": "6e8ec61405239cf3f37b2bbf260a587b7d2e4e31"
    },
    "step_cli": {
     "repo": "smallstep/cli",
@@ -1666,7 +1702,8 @@
     "released_at": "2026-09-25T20:09:06Z",
     "license": "Apache-2.0",
     "repo_head": "8301c0dfb1546ccddb808375b9f9311be03c2ba9",
-    "last_commit": "2026-09-25T19:43:47Z"
+    "last_commit": "2026-09-25T19:43:47Z",
+    "latest_release_commit": "8301c0dfb1546ccddb808375b9f9311be03c2ba9"
    },
    "notes": "S11 says SSH certificate activation on the hosted Certificate Manager requires contacting Smallstep; open-source step-ca covers SSH CA per tutorial."
   }
@@ -1700,7 +1737,7 @@
   {
    "id": "E6",
    "source": "PowerShell/Win32-OpenSSH (releases) and PowerShell/openssh-portable (source, LICENCE)",
-   "summary": "Restated after review. The BSD-style licence is present as LICENCE in PowerShell/openssh-portable (latestw_all, head e581929, 2026-09-25); v1 looked at the release-tracking repo and wrongly reported no licence. Open owner decision: all 5 latest Win32-OpenSSH releases are tagged Preview (latest 10.0.0.0p2-Preview, 2025-10-27) while source head is ahead (merged OpenSSH 10.3p1); whether that can be a \"supported\" Windows OpenSSH baseline is not decided here."
+   "summary": "Restated after review. The BSD-style licence is present as LICENCE in PowerShell/openssh-portable (latestw_all, head e581929, 2026-09-25); v1 looked at the release-tracking repo and wrongly reported no licence. Open owner decision: all 5 latest Win32-OpenSSH releases are tagged Preview (latest 10.0.0.0p2-Preview, 2025-10-27) while source head is ahead (merged OpenSSH 10.3p1); whether that can be a \"supported\" Windows OpenSSH baseline is not decided here. M00-T02-fix2 added facts for the owner (candidates.win32_openssh.e6_facts): the inbox build observed by G03 (OpenSSH_for_Windows 9.5p2, LibreSSL 3.8.2, file version 9.5.6.3, Windows 11 build 26300.9550), the MSI 10.0p2 on the same host, the unrecorded LibreSSL licence of the release binaries, and the vendor positioning in G03-S01/G03-S08. Still not decided here."
   },
   {
    "id": "E7",
@@ -1710,16 +1747,22 @@
   {
    "id": "E8",
    "source": "docs/sources/snapshots",
-   "summary": "27 compressed normalized-text snapshots of third-party documentation are committed for independent verification (docs/sources/snapshots/README.md). Copyright stays with the publishers. If the repository is ever published, the owner should decide whether to keep, replace with hashes plus archive URLs, or remove them; not decided here."
+   "summary": "31 compressed normalized-text snapshots of third-party documentation are committed for independent verification: the 27 non-git spec sources and the auxiliary sources A01-A04 (docs/sources/snapshots/README.md). Copyright stays with the publishers. If the repository is ever published, the owner should decide whether to keep, replace with hashes plus archive URLs, or remove them; not decided here."
+  },
+  {
+   "id": "E9",
+   "source": "A02 (docs.iroh.computer/languages/go) vs docs/decisions/0002-language-tui-distribution.md:373",
+   "summary": "ADR-0002 section 7 says the community Go binding is \"highly experimental\" and \"needs cgo\". The pinned docs page A02 says \"iroh-go is still considered experimental\" and lists Linux x86_64 and aarch64 (musl); neither \"highly experimental\" nor cgo appears on A01 or A02. The cgo requirement is an inference (a Go binding over the iroh-ffi native library) or comes from module inspection in tests/evidence/artifacts/g02-r4/x5/RESULTS.md. Wording fix for ADR-0002 is the orchestrator's; applied in ADR-0002 section 8 (Go row) in the same commit as fix2."
   }
  ],
  "reopen_conditions": [
-  "Any listed source Mdocdate or text sha256 changes before a gate that cites it is closed.",
+  "`fetch_pins.py compare` against docs/sources/fetch-baseline.json (or fetch-baseline-aux.json) classifies a source cited by a gate that is still open as CONTENT (normalized text changed), or reports primary_same=no for it; read docs/sources/snapshots/<id>.txt.gz to see what the pin said. MARKER_ONLY, and RAW_ONLY with primary_same=yes, are not drift; FETCH_FAILED means re-run, not drift.",
+  "`fetch_pins.py upstream` reports a GitHub source drifted on the branch its spec URL names and not every quoted excerpt fragment is still there (on 2026-10-09 S16, S17, S18 and S34 had drifted on main with all fragments present).",
+  "`fetch_pins.py tags` reports a moved or missing release tag (exit 2).",
   "A candidate dependency ships a new major/minor release before G02 selection is locked.",
   "Win32-OpenSSH (PowerShell/Win32-OpenSSH) publishes a release tag without \"Preview\", or PowerShell/openssh-portable changes LICENCE.",
-  "Iroh JS publishes darwin-x64 or Pigeons changes its ProxyCommand integration.",
-  "Owner amends spec 19 or the support matrix cites a source not listed here.",
-  "v2: `fetch_pins.py compare` against docs/sources/fetch-baseline.json reports drift (exit 2) for a source cited by a gate that is still open; read docs/sources/snapshots/<id>.txt.gz to see what the pin said."
+  "Iroh JS publishes darwin-x64, Pigeons changes its ProxyCommand integration, telemetry or service behavior, or A02 changes the Go binding's status or platforms.",
+  "Owner amends spec 19, or docs/compatibility/matrix.md cites a source not listed in this file or in tests/evidence/artifacts/g03/sources/source-pins.json."
  ],
  "v1_generated_at_utc": "2026-10-02T23:56:00Z",
  "generated_at_utc": "2026-10-03T21:18:23Z",
@@ -1731,7 +1774,293 @@
   "repeat_result": "34/34 raw_body_sha256 identical and 34/34 normalized_text_sha256 + date markers identical between baseline (21:17:52Z start) and repeat (immediately after); 27/27 snapshot .gz files byte-identical",
   "snapshots_dir": "docs/sources/snapshots",
   "archive_lookups": "docs/sources/archive-lookups.json",
-  "raw_stability": "15 sources reproduced the original v1 raw_body_sha256 about 21 h after the v1 retrieval (S01-S05, S10, S16-S19, S23, S27, S29, S30, S34); 13 did not (S06-S09, S11-S15, S20-S22, S28: HTML page chrome or content changed); 6 OpenAI/ChatGPT .md pages (S24, S25, S26, S31, S32, S33) had no v1 raw hash. Raw hash is the primary pin only for the 15 stable sources; the other 19 use the normalized-text hash as primary and keep the raw hash as secondary evidence of the exact bytes fetched.",
-  "verify": "python3 docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = identical; exit 2 lists drifted ids; compare the drifted id snapshot with `zcat docs/sources/snapshots/<id>.txt.gz`)"
- }
+  "raw_stability": "v1 to v2 (about 21 h, 2026-10-02T23:56Z to 2026-10-03T21:18Z): 21 sources reproduced the v1 raw-body sha256: S01-S05, S10, S16-S19, S23, S27, S29, S30, S34 (v1 raw hash) and S24, S25, S26, S31, S32, S33 (v1 recorded the raw .md hash as text_sha256; relabelled by M00-T02-fix2). 13 did not: S06-S09, S11-S15, S20-S22, S28. v2 to 2026-10-09T05:31Z (about 5.3 days, fix2 run of the committed fetcher): raw unchanged for 19 (S01-S05, S10, S16-S19, S24, S25, S27, S29-S34), changed for 15 (S06-S09, S11-S15, S20-S23, S26, S28). Primary kinds since M00-T02-fix2: raw_body_sha256 for the 7 GitHub permalinks (S16-S19, S27, S29, S34) and the 7 OpenBSD/OpenSSH pages (S01-S05, S10, S30), whose raw hash held over the whole interval; normalized_text_sha256 for the other 20 spec sources (CMS or static-site HTML, and .md variants of doc sites, whose bytes can change in a rebuild without a text change) and for A01-A04.",
+  "verify": "python3 -I docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = all IDENTICAL; 4 = text identical, only raw bytes or date markers moved; 3 = a fetch failed; 2 = CONTENT change or missing source; read the drifted id's snapshot with `gzip -dc docs/sources/snapshots/<id>.txt.gz`). Also: `fetch --set aux` + compare against fetch-baseline-aux.json; `upstream`; `tags`; `excerpts --set all --fetch-git`; `selftest`.",
+  "baseline_aux": "docs/sources/fetch-baseline-aux.json",
+  "fix2_rerun": "2026-10-09, M00-T02-fix2 (tests/evidence/artifacts/review-sources/fix2/): the committed fetcher (as of d096a64) fetched all 34 with HTTP 200 (exit 0); compare against the baseline: IDENTICAL 15, RAW_ONLY 10, MARKER_ONLY 7, CONTENT 2 (S26 page edit, S28 live counters), FETCH_FAILED 0; every primary pin held except S23 (raw, text identical; now normalized-primary), S26 and S28. The committed snapshots all verify against the baseline; fresh snapshots are byte-identical except S26 and S28. See fix2/README.md for the runs with the revised fetcher."
+ },
+ "tag_pins": [
+  {
+   "candidate": "bubbletea",
+   "repo": "charmbracelet/bubbletea",
+   "tag": "v2.0.10",
+   "label": "Bubble Tea release v2.0.10 (Go module charm.land/bubbletea/v2)",
+   "ref_sha": "360d776f21f902822eda75653153648a74b23273",
+   "annotated": true,
+   "commit": "d5bfd5c2ff7480a6b94536c1cf4e73569b8d523e",
+   "resolved_at_utc": "2026-10-09T05:37:38Z",
+   "advertisement_url": "https://github.com/charmbracelet/bubbletea.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "ratatui",
+   "repo": "ratatui/ratatui",
+   "tag": "ratatui-v0.30.2",
+   "label": "Ratatui GitHub release tag for crate 0.30.2",
+   "ref_sha": "8d20b4fafe0be257ad230a3a568db5dce954b83f",
+   "annotated": true,
+   "commit": "e665c36cb14752a61cd777fbd06dbef8474f2add",
+   "resolved_at_utc": "2026-10-09T05:37:38Z",
+   "advertisement_url": "https://github.com/ratatui/ratatui.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "opentui",
+   "repo": "anomalyco/opentui",
+   "tag": "v0.5.14",
+   "label": "OpenTUI release v0.5.14 (npm @opentui/* 0.5.14)",
+   "ref_sha": "a66a8ca9896e421fef57553456589dbfa096f7af",
+   "annotated": true,
+   "commit": "31a93fbe66992298d6d0f27481fa781f43d0c1e2",
+   "resolved_at_utc": "2026-10-09T05:37:38Z",
+   "advertisement_url": "https://github.com/anomalyco/opentui.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "iroh.rust_crate",
+   "repo": "n0-computer/iroh",
+   "tag": "v1.3.0",
+   "label": "Iroh GitHub release tag for crate 1.3.0",
+   "ref_sha": "613ea3727b63de828e9eb65ad2f490d2b3181266",
+   "annotated": true,
+   "commit": "0072d7d84b233f9e7185eb676f049beaf557ac03",
+   "resolved_at_utc": "2026-10-09T05:37:39Z",
+   "advertisement_url": "https://github.com/n0-computer/iroh.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "iroh.javascript",
+   "repo": "n0-computer/iroh-ffi",
+   "tag": "v1.1.0",
+   "label": "iroh-ffi release v1.1.0 (npm @number0/iroh 1.1.0)",
+   "ref_sha": "5e451092dba0c1a09ee83ff6e5be37b1152a5c58",
+   "annotated": false,
+   "commit": "5e451092dba0c1a09ee83ff6e5be37b1152a5c58",
+   "resolved_at_utc": "2026-10-09T05:37:39Z",
+   "advertisement_url": "https://github.com/n0-computer/iroh-ffi.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "pigeons",
+   "repo": "n0-computer/pigeons",
+   "tag": "v0.2.1",
+   "label": "Pigeons release v0.2.1 (crate iroh-pigeons 0.2.1; release assets)",
+   "ref_sha": "f7d629eddd3dcb22b5d54b4aa62bcd231d5df287",
+   "annotated": true,
+   "commit": "e187bc789846240e6f2c1d8ccd0b090d80240839",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/n0-computer/pigeons.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "win32_openssh",
+   "repo": "PowerShell/Win32-OpenSSH",
+   "tag": "10.0.0.0p2-Preview",
+   "label": "Win32-OpenSSH latest release (Preview)",
+   "ref_sha": "2cc4c136533fc945d2052b71079907a1a21fa624",
+   "annotated": false,
+   "commit": "2cc4c136533fc945d2052b71079907a1a21fa624",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/PowerShell/Win32-OpenSSH.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "win32_openssh",
+   "repo": "PowerShell/Win32-OpenSSH",
+   "tag": "v9.8.3.0p2-Preview",
+   "label": "Win32-OpenSSH release (Preview)",
+   "ref_sha": "2f3309f177b288ef271164fb8673adcb2277a341",
+   "annotated": false,
+   "commit": "2f3309f177b288ef271164fb8673adcb2277a341",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/PowerShell/Win32-OpenSSH.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "win32_openssh",
+   "repo": "PowerShell/Win32-OpenSSH",
+   "tag": "v9.8.2.0p2-Preview",
+   "label": "Win32-OpenSSH release (Preview)",
+   "ref_sha": "87589cb52a9ae2f9709e941c948de530011bfef4",
+   "annotated": false,
+   "commit": "87589cb52a9ae2f9709e941c948de530011bfef4",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/PowerShell/Win32-OpenSSH.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "win32_openssh",
+   "repo": "PowerShell/Win32-OpenSSH",
+   "tag": "v9.8.1.0p1-Preview",
+   "label": "Win32-OpenSSH release (Preview)",
+   "ref_sha": "e5a914404f758ee4bcdc33fb11bb15ff4e8c511c",
+   "annotated": false,
+   "commit": "e5a914404f758ee4bcdc33fb11bb15ff4e8c511c",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/PowerShell/Win32-OpenSSH.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "win32_openssh",
+   "repo": "PowerShell/Win32-OpenSSH",
+   "tag": "v9.8.0.0p1-Preview",
+   "label": "Win32-OpenSSH release (Preview)",
+   "ref_sha": "8ada677ca0918bbb36f2130a8e9e16e41924e25d",
+   "annotated": false,
+   "commit": "8ada677ca0918bbb36f2130a8e9e16e41924e25d",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/PowerShell/Win32-OpenSSH.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "win32_openssh",
+   "repo": "PowerShell/openssh-portable",
+   "tag": "v10.0.0.0",
+   "label": "openssh-portable source tag v10.0.0.0, the tag G03-S02 cites (tests/evidence/artifacts/g03/sources/source-pins.json); that the 10.0.0.0p2-Preview binaries were built from it is not established here",
+   "ref_sha": "b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+   "annotated": false,
+   "commit": "b8c08ef9da9450a94a9c5ef717d96a7bd83f3332",
+   "resolved_at_utc": "2026-10-09T05:37:40Z",
+   "advertisement_url": "https://github.com/PowerShell/openssh-portable.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "smallstep.step_ca",
+   "repo": "smallstep/certificates",
+   "tag": "v0.30.2",
+   "label": "step-ca release v0.30.2",
+   "ref_sha": "6e8ec61405239cf3f37b2bbf260a587b7d2e4e31",
+   "annotated": false,
+   "commit": "6e8ec61405239cf3f37b2bbf260a587b7d2e4e31",
+   "resolved_at_utc": "2026-10-09T05:37:41Z",
+   "advertisement_url": "https://github.com/smallstep/certificates.git/info/refs?service=git-upload-pack"
+  },
+  {
+   "candidate": "smallstep.step_cli",
+   "repo": "smallstep/cli",
+   "tag": "v0.31.0",
+   "label": "step CLI release v0.31.0",
+   "ref_sha": "8301c0dfb1546ccddb808375b9f9311be03c2ba9",
+   "annotated": false,
+   "commit": "8301c0dfb1546ccddb808375b9f9311be03c2ba9",
+   "resolved_at_utc": "2026-10-09T05:37:41Z",
+   "advertisement_url": "https://github.com/smallstep/cli.git/info/refs?service=git-upload-pack"
+  }
+ ],
+ "auxiliary_sources": [
+  {
+   "id": "A01",
+   "url": "https://docs.iroh.computer/languages",
+   "claim": "Iroh language bindings: status (Official or Community) and platform notes per language",
+   "claim_status": "supported",
+   "excerpt": "\"C Official Raw FFI via iroh-c-ffi, build from source\" ; \"Go Community FFI bindings via iroh-ffi\" ; \"bindings are built and maintained by community members rather than the number0 team. They aren\u2019t covered by official support, may lag behind iroh releases, and cover fewer platforms\" (table cells flattened by the normalizer)",
+   "supports": "candidates.iroh.other_bindings (go: Community status; c: Official, build from source)",
+   "note": "Auxiliary source added by M00-T02-fix2 (finding m5); not a spec section 19 source.",
+   "fetched_url": "https://docs.iroh.computer/languages",
+   "retrieved_at_utc": "2026-10-09T05:37:49Z",
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-09T05:37:49Z",
+    "fetched_url": "https://docs.iroh.computer/languages",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "aed6a310949f36d8da737209ddf4e02429b91bd05fe1177b1b44a10b282eed68",
+    "raw_bytes": 273231,
+    "normalized_text_sha256": "7cd2ef128439aad8f496b08fd3d5f80fc97563dbda3663b86005e19cd2cbd975",
+    "normalized_text_chars": 3705,
+    "normalizer_version": 1,
+    "markers": {
+     "page_dateModified": "2026-07-17T15:40:55.549Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/A01.txt.gz",
+     "gz_sha256": "7a88d85e527ffe309a4696b01483f8eb53b03d2d09cfca84a555dc7aa6ac7c77",
+     "content": "normalized text, one line"
+    },
+    "baseline": "docs/sources/fetch-baseline-aux.json"
+   }
+  },
+  {
+   "id": "A02",
+   "url": "https://docs.iroh.computer/languages/go",
+   "claim": "Iroh Go binding: experimental, Linux musl only, no stable tag, module host",
+   "claim_status": "supported",
+   "excerpt": "\"iroh-go is still considered experimental but ready for testing\" ; \"Platform Architectures Linux x86_64, aarch64 (musl)\" ; \"We\u2019re aiming to publish a stable tag once we see more usage and adoption of the Go bindings.\" ; \"go get git.coopcloud.tech/decentral1se/iroh-go\"",
+   "supports": "candidates.iroh.other_bindings.go",
+   "note": "Auxiliary source added by M00-T02-fix2 (finding m5). The page does not contain the words \"highly experimental\" or \"cgo\" (see escalation E9).",
+   "fetched_url": "https://docs.iroh.computer/languages/go",
+   "retrieved_at_utc": "2026-10-09T05:37:49Z",
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-09T05:37:49Z",
+    "fetched_url": "https://docs.iroh.computer/languages/go",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "5b7f31b581adb64dc61b8119c6ecc0704ab0e3406a5209b7fd1f22c5fa943fc0",
+    "raw_bytes": 286697,
+    "normalized_text_sha256": "a2034e5ba8770264bced7f6e0361116b3a8eba47c19499b201f91d75d25e6a0a",
+    "normalized_text_chars": 2246,
+    "normalizer_version": 1,
+    "markers": {
+     "page_dateModified": "2026-07-10T23:57:37.516Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/A02.txt.gz",
+     "gz_sha256": "d8f1fd69d8192aa3f3db6b98ff09d3b8b8649c65be6f6a9fe882eba492d3d6fe",
+     "content": "normalized text, one line"
+    },
+    "baseline": "docs/sources/fetch-baseline-aux.json"
+   }
+  },
+  {
+   "id": "A03",
+   "url": "https://docs.iroh.computer/languages/c",
+   "claim": "Iroh C binding: iroh-c-ffi, source build only, platform list",
+   "claim_status": "supported",
+   "excerpt": "\"Use iroh from C via the iroh-c-ffi bindings.\" ; \"Platform Architectures Linux x86_64 (glibc) macOS arm64 Windows x86_64\" ; \"There are no prebuilt binaries; you build the static/shared library from source and link against it.\"",
+   "supports": "candidates.iroh.other_bindings.c",
+   "note": "Auxiliary source added by M00-T02-fix2 (finding m5).",
+   "fetched_url": "https://docs.iroh.computer/languages/c",
+   "retrieved_at_utc": "2026-10-09T05:37:50Z",
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-09T05:37:50Z",
+    "fetched_url": "https://docs.iroh.computer/languages/c",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "43e591183fbce51def30c8ec14d5b68a0374122b86c689339e774bcbcfff10cb",
+    "raw_bytes": 302791,
+    "normalized_text_sha256": "b18847abe0eabe0295133e53c3819e2fae2d06bcd3dda9bd5e99ff5861a53dcd",
+    "normalized_text_chars": 2956,
+    "normalizer_version": 1,
+    "markers": {
+     "page_dateModified": "2026-07-17T15:40:55.543Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/A03.txt.gz",
+     "gz_sha256": "2631bddb06f69d418b6bd0b06ec5af110ddde84ef9e7582d0bda93eb14223bee",
+     "content": "normalized text, one line"
+    },
+    "baseline": "docs/sources/fetch-baseline-aux.json"
+   }
+  },
+  {
+   "id": "A04",
+   "url": "https://docs.iroh.computer/compatibility",
+   "claim": "Iroh operating-system support table",
+   "claim_status": "supported",
+   "excerpt": "\"iroh supports all major operating systems.\" ; \"OS Supported Linux Yes macOS Yes Windows Yes Android Yes iOS Yes WebAssembly (browser) Yes FreeRTOS Yes\" (table cells flattened by the normalizer)",
+   "supports": "candidates.iroh.docs_platform_compat_page",
+   "note": "Auxiliary source added by M00-T02-fix2 (finding m5). A vendor support statement, not Heimdall evidence.",
+   "fetched_url": "https://docs.iroh.computer/compatibility",
+   "retrieved_at_utc": "2026-10-09T05:37:50Z",
+   "pin_v2": {
+    "retrieved_at_utc": "2026-10-09T05:37:50Z",
+    "fetched_url": "https://docs.iroh.computer/compatibility",
+    "http_status": 200,
+    "primary": "normalized_text_sha256",
+    "raw_body_sha256": "0449864fc0c5e3011c66a6d401b0ab101e9de9cd8e82892c909b01511979737a",
+    "raw_bytes": 274385,
+    "normalized_text_sha256": "546300ec31ce01691645eca15a978e055ab83915937d08e8708d24ed634d8ba9",
+    "normalized_text_chars": 4291,
+    "normalizer_version": 1,
+    "markers": {
+     "page_dateModified": "2026-09-14T13:41:54.964Z"
+    },
+    "snapshot": {
+     "path": "docs/sources/snapshots/A04.txt.gz",
+     "gz_sha256": "8386d5f4fc33926d0f05a72d1439f813817433f366d0739cd3b4ab8ca5a417b1",
+     "content": "normalized text, one line"
+    },
+    "baseline": "docs/sources/fetch-baseline-aux.json"
+   }
+  }
+ ],
+ "candidates_provenance": "Producer-observed 2026-10-02 (v1) and 2026-10-03 (M00-T02-fix). Independently checked by the review of 2026-10-03 (tests/evidence/artifacts/m00-wf3/review-sources.json; gh api, crates.io, npm and Go proxy reads): versions, release tags and dates, licence fields, rust-version/engines and repo heads of the candidates as they stood in v1. Produced after that review and so not covered by it: the corrected Win32-OpenSSH source row (openssh-portable e581929, LICENCE blob and sha256, NOASSERTION, no releases on openssh-portable, misc.c sample) and the Bubble Tea tag commit. The recheck of 2026-10-09 (tests/evidence/artifacts/review-sources/recheck/) verified the LICENCE bytes at e581929 (blob and sha256) and the Bubble Tea v2.0.10 commit d5bfd5c (Go proxy origin), and the @opentui/core tarball. Still producer-observed only: e581929 as the latestw_all head on 2026-09-25, the NOASSERTION licence field, the empty release list of openssh-portable, the misc.c sample. tag_pins (2026-10-09, fix2) were resolved from the public git ref advertisements and re-checked the same day.",
+ "fix2_edited_at_utc": "2026-10-09"
 }

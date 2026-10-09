@@ -1,0 +1,4 @@
+usage: fetch_pins.py compare [-h] [--pins PINS] [--no-pins] [--all] a b
+fetch_pins.py compare: error: the following arguments are required: a, b
+window=2026-10-09T07:54:07Z..2026-10-09T07:54:07Z
+exit=64

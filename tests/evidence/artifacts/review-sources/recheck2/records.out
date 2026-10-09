@@ -1,0 +1,85 @@
+g02-go-conformance-linux-x64.json                       status=verified               verdict=pass         blocked_on=-
+g02-go-conformance-linux.json                           status=verified               verdict=pass         blocked_on=-
+g02-go-conformance.json                                 status=verified               verdict=pass         blocked_on=-
+g02-go-selftest.json                                    status=blocked                verdict=pass         blocked_on=native Windows x64 host: windows-x64 artifact execution, named-pipe agent probe (including the K3a pipe-reset mapping), console Ctrl-C, CreateProcess quoting an
+g02-go-x1-windows.json                                  status=verified               verdict=fail         blocked_on=-
+    per-row keys: ['rows']
+g02-measurements.json                                   status=verified               verdict=pass         blocked_on=-
+    per-row keys: ['per_pass_drift']
+g02-rust-conformance-linux-x64.json                     status=verified               verdict=pass         blocked_on=-
+g02-rust-conformance-linux.json                         status=verified               verdict=pass         blocked_on=-
+g02-rust-conformance.json                               status=verified               verdict=pass         blocked_on=-
+g02-rust-selftest.json                                  status=verified               verdict=pass         blocked_on=-
+g02-rust-x1-windows.json                                status=verified               verdict=fail         blocked_on=-
+    per-row keys: ['rows']
+g02-ts-conformance-linux.json                           status=in_progress            verdict=fail         blocked_on=-
+g02-ts-conformance.json                                 status=in_progress            verdict=fail         blocked_on=-
+g02-ts-selftest.json                                    status=verified               verdict=fail         blocked_on=-
+g03-win-1password-coexistence.json                      status=blocked                verdict=None         blocked_on=1Password for Windows signed in to a DISPOSABLE account with a disposable SSH key, plus owner authorization (-AllowProviderContact -OwnerAuthorizationNote); def
+g03-win-agent-constraints.json                          status=blocked                verdict=None         blocked_on=disposable Windows host with the OpenSSH Authentication Agent service running and owner authorization (-AllowSystemAgentMutation -IAmOnADisposableHost -OwnerAut
+g03-win-env-inventory.json                              status=verified               verdict=pass         blocked_on=-
+g03-win-git-ssh-selection.json                          status=blocked                verdict=inconclusive blocked_on=a declared disposable Windows host (-IAmOnADisposableHost) whose %USERPROFILE%\.ssh is absent or empty; this is the owner PC (Git default ssh could read owner S
+g03-win-identityagent-forms.json                        status=verified               verdict=pass         blocked_on=-
+g03-win-key-file-permissions.json                       status=verified               verdict=pass         blocked_on=-
+g03-win-path-quoting.json                               status=verified               verdict=pass         blocked_on=-
+g03-win-pipe-acl-other-user.json                        status=blocked                verdict=None         blocked_on=a second, disposable, non-administrator local Windows account on the probe host (-OtherUserCredential) with the Secondary Logon service available This run (2026
+g03-win-process-io.json                                 status=blocked                verdict=inconclusive blocked_on=an operator at an interactive Windows console session (manual steps); not available over SSH/WSL interop
+g03-win-service-elevation.json                          status=verified               verdict=pass         blocked_on=-
+g03-win-sshauthsock-selection.json                      status=verified               verdict=pass         blocked_on=-
+g03-win-stale-squat-pipe.json                           status=in_progress            verdict=inconclusive blocked_on=-
+g03-wsl-a-cert-change.json                              status=verified               verdict=pass         blocked_on=-
+g03-wsl-a-elevation.json                                status=in_progress            verdict=inconclusive blocked_on=-
+g03-wsl-a-executable-selection.json                     status=verified               verdict=pass         blocked_on=-
+g03-wsl-a-git.json                                      status=verified               verdict=pass         blocked_on=-
+g03-wsl-a-path-quoting.json                             status=verified               verdict=pass         blocked_on=-
+g03-wsl-a-process-io.json                               status=verified               verdict=pass         blocked_on=-
+g03-wsl-b-distro-restart.json                           status=blocked                verdict=None         blocked_on=a disposable second WSL2 target distribution and owner authorization to create it and to run wsl.exe --terminate on it (--allow-terminate-target); this task's o
+g03-wsl-b-endpoint-perms.json                           status=in_progress            verdict=inconclusive blocked_on=-
+g03-wsl-b-host-lock.json                                status=blocked                verdict=None         blocked_on=an operator present to lock and unlock the Windows session during --lock-window-minutes N
+g03-wsl-b-idle-timeout.json                             status=blocked                verdict=None         blocked_on=a disposable second WSL2 target distribution with no other sessions and owner authorization to create it and to terminate it for the idle baseline (--allow-term
+g03-wsl-b-multi-distro-exposure.json                    status=blocked                verdict=None         blocked_on=a disposable second WSL2 target distribution (python3 + OpenSSH client) on the owner's PC and owner authorization to create it (wsl --import/--install) and remo
+g03-wsl-b-other-windows-user.json                       status=blocked                verdict=None         blocked_on=native Windows 11 x86-64 host (exact build recorded at run time; G01 selects floors) with the in-box Win32-OpenSSH client (version unknown until P-W01 runs) and
+g03-wsl-b-relay-attribution.json                        status=verified               verdict=pass         blocked_on=-
+g03-wsl-b-socket-deletion.json                          status=verified               verdict=pass         blocked_on=-
+g03-wsl-b-stale-socket.json                             status=verified               verdict=pass         blocked_on=-
+g03-wsl-b-teardown-deadline.json                        status=verified               verdict=pass         blocked_on=-
+g03-wsl-b-unauthorized-key.json                         status=verified               verdict=pass         blocked_on=-
+g03-wsl-env-inventory.json                              status=verified               verdict=pass         blocked_on=-
+g04-exp-e1-dedicated-agent.json                         status=verified               verdict=pass         blocked_on=-
+g04-exp-e2-cert-expiry.json                             status=verified               verdict=pass         blocked_on=-
+g04-exp-e3-principal-scope.json                         status=verified               verdict=pass         blocked_on=-
+g04-exp-e4-account-ca-principals.json                   status=verified               verdict=pass         blocked_on=-
+g04-exp-e5-issuer-separation.json                       status=verified               verdict=pass         blocked_on=-
+g04-exp-e6-fresh-login-verification.json                status=verified               verdict=pass         blocked_on=-
+g04-exp-enroll-marker-key.json                          status=verified               verdict=pass         blocked_on=-
+g04-exp-g09-prelim-mux-after-expiry.json                status=verified               verdict=pass         blocked_on=-
+g04-exp-g09-prelim-mux-preconnected-after-stop.json     status=verified               verdict=fail         blocked_on=-
+g04-exp-g09-prelim-mux-stop-race.json                   status=verified               verdict=pass         blocked_on=-
+g04-linux-desktop-lock-probe.json                       status=blocked                verdict=None         blocked_on=Linux desktop host with a graphical user session and an owner to lock/unlock it (Docker containers on this Mac are not a desktop session)
+g04-linux-logout-reboot-headless-probe.json             status=blocked                verdict=None         blocked_on=Linux desktop and headless hosts where the owner can log out and reboot (not available to the agent)
+g04-macos-data-protection-keychain-probe.json           status=blocked                verdict=None         blocked_on=an Apple Developer signing identity and provisioning profile for a test bundle (an unsigned CLI cannot use the data-protection keychain per Apple TN3137), plus 
+g04-macos-lock-probe-smoke-20261003T002226Z.json        status=in_progress            verdict=inconclusive blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-lock-probe-smoke-20261003T002454Z.json        status=verified               verdict=pass         blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-lock-probe-smoke-20261003T002636Z.json        status=in_progress            verdict=inconclusive blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-lock-probe-smoke-20261003T002755Z.json        status=verified               verdict=pass         blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-lock-probe-smoke-20261003T002820Z.json        status=verified               verdict=pass         blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-lock-probe-smoke-20261003T192414Z.json        status=verified               verdict=pass         blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-lock-probe-smoke-20261003T193955Z.json        status=verified               verdict=pass         blocked_on=-
+    per-row keys: ['per_phase_counts']
+g04-macos-logout-probe.json                             status=blocked                verdict=None         blocked_on=owner-driven macOS account logout and re-login cycle (cannot be performed by the agent; would also end the agent's own session)
+g04-macos-reboot-headless-probe.json                    status=blocked                verdict=None         blocked_on=owner-driven macOS reboot (including FileVault unlock at boot) with observations before and after the first user login
+g04-macos-screen-lock-probe.json                        status=blocked                verdict=None         blocked_on=owner-driven macOS screen lock/unlock cycle (a human at the console of the macOS 27.0 arm64 host must lock and unlock the screen while tests/native/macos/g04_lo
+g04-macos-secure-enclave-ctk-probe.json                 status=blocked                verdict=inconclusive blocked_on=owner-driven screen lock/unlock cycle for the lock row (tests/native/macos/g04_ctk_probe.sh --mode lock, run by the owner); the unlocked login clause additional
+    per-row keys: ['rows']
+g04-macos-sleep-probe.json                              status=blocked                verdict=None         blocked_on=owner-driven macOS system sleep/wake cycle spanning a deadline
+g04-windows-desktop-lock-probe.json                     status=blocked                verdict=None         blocked_on=native Windows x86-64 host with an interactive user session and an owner to press Win+L and unlock (none available on this macOS arm64 machine)
+g04-windows-signout-reboot-probe.json                   status=blocked                verdict=None         blocked_on=native Windows x86-64 host where the owner can sign out and reboot (none available on this macOS arm64 machine)
+m00-t03-fixtures.json                                   status=in_progress            verdict=None         blocked_on=-
+    per-row keys: ['per_fixture']
+exit=0

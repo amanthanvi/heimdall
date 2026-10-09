@@ -1,0 +1,4 @@
+$ python3 -I docs/sources/tools/fetch_pins.py selftest
+# start 2026-10-09T06:13:42Z
+selftest: all checks passed
+exit=0

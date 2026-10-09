@@ -1,0 +1,20 @@
+# S03 stall during 02_fetch_run1 (copied verbatim from the recheck2 session; not re-run)
+# run1.json: S02 retrieved 2026-10-09T07:21:10Z, S03 retrieved 2026-10-09T07:53:20Z (HTTP 200, 31685 bytes, same raw hash as the baseline)
+# At about 07:36Z the fetch process (own PID, elapsed 15:25) held one ESTABLISHED IPv6 TCP connection to the www.openssh.org address on :443.
+# Meanwhile, independent GETs of the same listed URL succeeded quickly:
+$ curl -sS -G -o /dev/null --max-time 30 -w "%{http_code} %{time_total}s $u\n" https://www.openssh.org/agent-restrict.html
+200 0.459956s https://www.openssh.org/agent-restrict.html
+curl exit=0
+$ curl -6 ... ; curl -4 ...
+200 0.448068s size=31685 ip=<IPv6>
+curl exit=0
+200 0.519628s size=31685 ip=<IPv4>
+curl exit=0
+$ python3 -I probe_get.py https://www.openssh.org/agent-restrict.html "heimdall-source-pins/1 (read-only GET; M00-T02-fix)"
+200 31685 0.90s 31685 close
+exit=0
+$ python3 -I probe_get.py https://www.openssh.org/agent-restrict.html "curl/8.7.1"
+200 31685 0.97s 31685 close
+exit=0
+# run2 (04_fetch_run2) fetched all 34 sources in 16 s (07:53:40Z-07:53:56Z).
+# Cause of the 32-minute stall not established [U]; http_get has a 60 s per-socket-operation timeout but no overall deadline.

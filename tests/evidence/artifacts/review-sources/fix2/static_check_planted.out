@@ -1,0 +1,8 @@
+# negative control: a temp copy of matrix.md with three planted overclaims (row 1 label and gate 'verified'; M4 '7 verified / pass'; M5 'verified / pass'); other files symlinked; temp dir deleted afterwards
+$ python3 -I static_check_fix2.py <tmp-root>
+FAIL matrix M4 tally [('in_progress', 'inconclusive'), ('in_progress', 'inconclusive'), ('verified', 'pass'), ('verified', 'pass'), ('verified', 'pass'), ('verified', 'pass'), ('verified', 'pass')] vs cell '7 verified / pass'
+FAIL matrix M5: 6 non-smoke g04-macos probe records, statuses ['blocked']
+FAIL row 1 label is not-tested (verified)
+FAIL row 1 names a blocked input/record and is blocked (verified)
+checks: 408 ok, 4 failed
+exit=1

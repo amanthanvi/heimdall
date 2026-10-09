@@ -1,0 +1,34 @@
+S06 http=200 raw=1164948 norm_chars=7501 hidden_chars=959486 prose_candidates=36 not_in_visible=11
+    e.g. "Password SSH Agent and how it's different from the standard OpenSSH agent."
+    e.g. 'Try searching for what you need or selecting from the list of tools.'
+    e.g. 'Password to generate SSH keys and authenticate SSH requests.'
+    e.g. 'Password in the browser to quickly upload public keys in Git and SSH platforms.'
+S07 http=200 raw=1208900 norm_chars=8131 hidden_chars=985617 prose_candidates=34 not_in_visible=11
+    e.g. 'Try searching for what you need or selecting from the list of tools.'
+    e.g. 'Password to generate SSH keys and authenticate SSH requests.'
+    e.g. 'Password in the browser to quickly upload public keys in Git and SSH platforms.'
+    e.g. 'Learn more about how to use the SSH agent for specific hosts, avoid authentication limits, and use multiple Git identities on the same machine.'
+S12 http=200 raw=1277313 norm_chars=7852 hidden_chars=1003843 prose_candidates=23 not_in_visible=11
+    e.g. 'Try searching for what you need or selecting from the list of tools.'
+    e.g. 'Password to generate SSH keys and authenticate SSH requests.'
+    e.g. 'Password in the browser to quickly upload public keys in Git and SSH platforms.'
+    e.g. 'Learn more about how to use the SSH agent for specific hosts, avoid authentication limits, and use multiple Git identities on the same machine.'
+S13 http=200 raw=60962 norm_chars=12837 hidden_chars=2090 prose_candidates=0 not_in_visible=0
+S21 http=200 raw=285381 norm_chars=2202 hidden_chars=175863 prose_candidates=7 not_in_visible=3
+    e.g. 'Operating system, hardware, microcontroller, and network transport support for iroh.'
+    e.g. 'Use iroh from Rust, Python, Swift, Kotlin, JavaScript, C, or Go.'
+    e.g. "How iroh versions are released, how long they're supported, and what wire-protocol compatibility you can rely on."
+S22 http=200 raw=333508 norm_chars=4087 hidden_chars=201830 prose_candidates=7 not_in_visible=3
+    e.g. 'Operating system, hardware, microcontroller, and network transport support for iroh.'
+    e.g. 'Use iroh from Rust, Python, Swift, Kotlin, JavaScript, C, or Go.'
+    e.g. "How iroh versions are released, how long they're supported, and what wire-protocol compatibility you can rely on."
+A02 http=200 raw=286697 norm_chars=2246 hidden_chars=178364 prose_candidates=5 not_in_visible=3
+    e.g. 'Operating system, hardware, microcontroller, and network transport support for iroh.'
+    e.g. 'Use iroh from Rust, Python, Swift, Kotlin, JavaScript, C, or Go.'
+    e.g. "How iroh versions are released, how long they're supported, and what wire-protocol compatibility you can rely on."
+A04 http=200 raw=274385 norm_chars=4291 hidden_chars=175204 prose_candidates=9 not_in_visible=2
+    e.g. 'Use iroh from Rust, Python, Swift, Kotlin, JavaScript, C, or Go.'
+    e.g. "How iroh versions are released, how long they're supported, and what wire-protocol compatibility you can rely on."
+S28 http=200 raw=355813 norm_chars=4203 hidden_chars=15245 prose_candidates=0 not_in_visible=0
+S23 http=200 raw=45864 norm_chars=7395 hidden_chars=21872 prose_candidates=4 not_in_visible=0
+exit=0

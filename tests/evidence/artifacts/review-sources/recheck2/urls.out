@@ -1,0 +1,55 @@
+fetch S01 listed https://man.openbsd.org/ssh_config
+fetch S02 listed https://man.openbsd.org/ssh
+fetch S03 listed https://www.openssh.org/agent-restrict.html
+fetch S04 listed https://man.openbsd.org/sshd
+fetch S05 listed https://man.openbsd.org/sshd_config
+fetch S06 listed https://www.1password.dev/ssh/agent/security
+fetch S07 listed https://www.1password.dev/ssh/agent/authorization
+fetch S08 listed https://www.1password.dev/environments/mcp-server
+fetch S09 listed https://www.1password.dev/ssh/bookmarks
+fetch S10 listed https://man.openbsd.org/ssh-keygen
+fetch S11 listed https://smallstep.com/docs/tutorials/ssh-certificate-login/
+fetch S12 listed https://www.1password.dev/ssh/integrations/wsl
+fetch S13 listed https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement
+fetch S14 listed https://docs.iroh.computer/concepts/endpoints
+fetch S15 listed https://docs.iroh.computer/concepts/tickets
+fetch S16 listed https://raw.githubusercontent.com/pingdotgg/t3code/cba7dd77817df2a458d86977f1daf4606c67dfc8/docs/internals/remote.md
+upstream S16 listed https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md
+fetch S17 listed https://raw.githubusercontent.com/pingdotgg/t3code/99641fd09a509feb644b3c8ef718c12c60cf436c/docs/internals/connection-runtime.md
+upstream S17 listed https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md
+fetch S18 listed https://raw.githubusercontent.com/pingdotgg/t3code/8d7b5e998c72b4674326cbac7d23bafe9b222668/docs/internals/t3-connect.md
+upstream S18 listed https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md
+fetch S19 listed https://raw.githubusercontent.com/n0-computer/pigeons/7800c52076012d5d14a28e5e5946ed32fa82e0f0/README.md
+upstream S19 NOT-LISTED https://raw.githubusercontent.com/n0-computer/pigeons/HEAD/README.md
+fetch S20 listed https://docs.iroh.computer/concepts/security-privacy
+fetch S21 listed https://docs.iroh.computer/languages/rust
+fetch S22 listed https://docs.iroh.computer/languages/javascript
+fetch S23 listed https://mitchellh.com/writing/building-block-economy
+fetch S24 listed https://developers.openai.com/api/docs/guides/function-calling.md
+fetch S25 listed https://learn.chatgpt.com/docs/build-skills.md
+fetch S26 listed https://developers.openai.com/api/docs/guides/latest-model.md
+fetch S27 listed https://raw.githubusercontent.com/charmbracelet/bubbletea/96d69d2f7eb182bb311be08fc56ed2c208239aff/README.md
+upstream S27 NOT-LISTED https://raw.githubusercontent.com/charmbracelet/bubbletea/HEAD/README.md
+fetch S28 listed https://ratatui.rs/
+fetch S29 listed https://raw.githubusercontent.com/anomalyco/opentui/de8dc97080e4c404d9018d9e6a485036aeaef7d2/README.md
+upstream S29 NOT-LISTED https://raw.githubusercontent.com/anomalyco/opentui/HEAD/README.md
+fetch S30 listed https://man.openbsd.org/ssh-agent
+fetch S31 listed https://developers.openai.com/api/docs/guides/reasoning-best-practices.md
+fetch S32 listed https://developers.openai.com/api/docs/guides/evaluation-best-practices.md
+fetch S33 listed https://developers.openai.com/api/docs/guides/agent-builder-safety.md
+fetch S34 listed https://raw.githubusercontent.com/pingdotgg/t3code/3b75e607eb909522a8f5562fb40e44efc72bb66c/docs/internals/environment-auth.md
+upstream S34 listed https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md
+fetch A01 listed https://docs.iroh.computer/languages
+fetch A02 listed https://docs.iroh.computer/languages/go
+fetch A03 listed https://docs.iroh.computer/languages/c
+fetch A04 listed https://docs.iroh.computer/compatibility
+tags charmbracelet/bubbletea v2.0.10 listed https://github.com/charmbracelet/bubbletea.git/info/refs?service=git-upload-pack
+tags ratatui/ratatui ratatui-v0.30.2 listed https://github.com/ratatui/ratatui.git/info/refs?service=git-upload-pack
+tags anomalyco/opentui v0.5.14 listed https://github.com/anomalyco/opentui.git/info/refs?service=git-upload-pack
+tags n0-computer/iroh v1.3.0 listed https://github.com/n0-computer/iroh.git/info/refs?service=git-upload-pack
+tags n0-computer/iroh-ffi v1.1.0 listed https://github.com/n0-computer/iroh-ffi.git/info/refs?service=git-upload-pack
+tags n0-computer/pigeons v0.2.1 listed https://github.com/n0-computer/pigeons.git/info/refs?service=git-upload-pack
+tags PowerShell/Win32-OpenSSH 10.0.0.0p2-Preview listed https://github.com/PowerShell/Win32-OpenSSH.git/info/refs?service=git-upload-pack
+tags PowerShell/openssh-portable v10.0.0.0 listed https://github.com/PowerShell/openssh-portable.git/info/refs?service=git-upload-pack
+tags smallstep/certificates v0.30.2 listed https://github.com/smallstep/certificates.git/info/refs?service=git-upload-pack
+tags smallstep/cli v0.31.0 listed https://github.com/smallstep/cli.git/info/refs?service=git-upload-pack

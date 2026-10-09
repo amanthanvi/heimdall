@@ -1,0 +1,12 @@
+$ python3 -I docs/sources/tools/fetch_pins.py compare <tmp>/runs/aux_run1.json <tmp>/runs/aux_run2.json --all
+sources: 4  IDENTICAL=4  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=0  FETCH_FAILED=0  MISSING=0  EXTRA=0
+A01 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+A02 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+A03 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+A04 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes
+exit 0: all identical
+exit=0
+A01 snapshot run1 = run2
+A02 snapshot run1 = run2
+A03 snapshot run1 = run2
+A04 snapshot run1 = run2

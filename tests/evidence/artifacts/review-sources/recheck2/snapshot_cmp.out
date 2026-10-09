@@ -1,0 +1,5 @@
+# byte comparison of fresh snapshots (recheck2 run1/run2/aux) with committed docs/sources/snapshots
+run1 vs committed: equal=25 differ: S26.txt.gz S28.txt.gz
+run1 vs run2: equal=27 differ: none
+aux vs committed: equal=4 differ: none
+exit=0

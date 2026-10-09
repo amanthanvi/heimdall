@@ -1,0 +1,15 @@
+S26 fragments in today's text 5/5; word diff ops=12 removed_words=38 added_words=48
+    replace old='is not available with' new='supports'
+    replace old='GPT-6 Astra,' new='GPT-6.1 Sol,'
+    replace old='or' new='and'
+    replace old='Luna.' new='Luna, but not GPT-6 Astra.'
+    insert old='' new='for GPT-6.1 Sol supports US and EU data residency and global processing. GPT-6 Astra Ultra'
+    delete old='It does not support EU or other non-US regional processing endpoints.' new=''
+S28 fragments in today's text 1/1; word diff ops=8 removed_words=8 added_words=8
+    replace old='6000+' new='6200+'
+    replace old='22.8k' new='22.9k'
+    replace old='54.5M' new='58.2M'
+    replace old='726' new='736'
+    replace old='742' new='749'
+    replace old='4.4k' new='4.5k'
+exit=0

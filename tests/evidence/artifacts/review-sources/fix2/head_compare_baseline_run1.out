@@ -1,0 +1,22 @@
+$ python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json <tmp>/runs/head_run1.json   # committed (d096a64) compare
+sources: 34  raw identical: 19  normalized identical: 25
+DIFF S06 raw_same=False normalized_same=False
+DIFF S07 raw_same=False normalized_same=True
+DIFF S08 raw_same=False normalized_same=True
+DIFF S09 raw_same=False normalized_same=False
+DIFF S11 raw_same=False normalized_same=True
+DIFF S12 raw_same=False normalized_same=False
+DIFF S13 raw_same=False normalized_same=True
+DIFF S14 raw_same=False normalized_same=True
+DIFF S15 raw_same=False normalized_same=True
+DIFF S20 raw_same=False normalized_same=True
+DIFF S21 raw_same=False normalized_same=True
+DIFF S22 raw_same=False normalized_same=True
+DIFF S23 raw_same=False normalized_same=True
+DIFF S24 raw_same=True normalized_same=False
+DIFF S26 raw_same=False normalized_same=False
+DIFF S28 raw_same=False normalized_same=False
+DIFF S31 raw_same=True normalized_same=False
+DIFF S32 raw_same=True normalized_same=False
+DIFF S33 raw_same=True normalized_same=False
+exit=2

@@ -370,7 +370,7 @@ from lifecycle and packaging evidence. G02 establishes this much:
 | Candidate | Path available | Evidence (none compiled or networked) |
 |---|---|---|
 | Rust | Embed the `iroh` crate (1.3.0, MIT OR Apache-2.0) in an async runtime thread, or run it as a supervised helper from the same codebase | A scratch dependency resolve found 363 crates, including tokio, rustls and ring 0.17.14 (C and assembly). **Cross-compiling ring under zig is untested**, which is a G06 risk |
-| Go | Only a supervised helper written in Rust. There is no official Go binding; the community binding is "highly experimental", needs cgo and supports musl only | Registry inspection. A Go product would gain a second toolchain and a second artifact, including the same ring and zig risk |
+| Go | Only a supervised helper written in Rust. There is no official Go binding. The community binding (iroh-go) is "still considered experimental" and supports Linux x86_64 and aarch64 (musl) only `[A02]`; as a binding over the iroh-ffi native library it needs cgo (inference from X5 module inspection, `tests/evidence/artifacts/g02-r4/x5/RESULTS.md` §5) | Registry inspection. A Go product would gain a second toolchain and a second artifact, including the same ring and zig risk |
 | TS | npm `@number0/iroh` 1.1.0 (napi). There is no darwin-x64 build. Under `bun --compile` it extracts a 13 MB `.node` file to TMPDIR, which conflicts with K11 | Loaded and survived compile in a scratch probe |
 
 plan §3 G02 notes that published bindings do not substitute for packaging

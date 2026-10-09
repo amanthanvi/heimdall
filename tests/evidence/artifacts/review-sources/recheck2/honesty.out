@@ -1,0 +1,19 @@
+[H1 raw-primary S01 raw-only change] exit=4 counts={'RAW_ONLY': 1}
+      S01 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=raw primary_same=no
+[H2 raw-primary S03 raw+marker change] exit=4 counts={'MARKER_ONLY': 1}
+      S03 MARKER_ONLY http=200/200 raw_same=no norm_same=yes markers_same=no moved=http_last_modified primary=raw primary_same=no
+[H3 S13 page gone (404)] exit=3 counts={'FETCH_FAILED': 1}
+      S13 FETCH_FAILED http=200/404
+[H4 fresh-vs-fresh, S26/S28 off-pin] exit=0 counts={'IDENTICAL': 2}
+      S26 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+      S28 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+[H5 S16 blob mismatch] exit=2 counts={'CONTENT': 1}
+      S16 CONTENT http=200/200 raw_same=no norm_same=yes markers_same=yes blob_mismatch=yes primary=raw primary_same=no
+[H6] template-only change: normalized equal = True | raw equal = False
+[H7] no </head>: normalized text = ''
+[H8] upstream drift 0/0 fragments -> exit 4
+[H8] upstream drift 1/1 fragments -> exit 4
+[H9] upstream 404 (file removed on branch) -> exit 3
+[H10] fragment 'is not permitted by default' found in 'this is not permitted by defaults': True
+[H10b] negation lost upstream? 'keys are exportable' in 'the keys are not exportable': False
+exit=0

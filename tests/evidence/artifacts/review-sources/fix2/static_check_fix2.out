@@ -1,0 +1,415 @@
+$ python3 -I tests/evidence/artifacts/review-sources/fix2/static_check_fix2.py <repo>
+ok   S01 pin_v2 equals its baseline record
+ok   S02 pin_v2 equals its baseline record
+ok   S03 pin_v2 equals its baseline record
+ok   S04 pin_v2 equals its baseline record
+ok   S05 pin_v2 equals its baseline record
+ok   S06 pin_v2 equals its baseline record
+ok   S07 pin_v2 equals its baseline record
+ok   S08 pin_v2 equals its baseline record
+ok   S09 pin_v2 equals its baseline record
+ok   S10 pin_v2 equals its baseline record
+ok   S11 pin_v2 equals its baseline record
+ok   S12 pin_v2 equals its baseline record
+ok   S13 pin_v2 equals its baseline record
+ok   S14 pin_v2 equals its baseline record
+ok   S15 pin_v2 equals its baseline record
+ok   S16 pin_v2 equals its baseline record
+ok   S17 pin_v2 equals its baseline record
+ok   S18 pin_v2 equals its baseline record
+ok   S19 pin_v2 equals its baseline record
+ok   S20 pin_v2 equals its baseline record
+ok   S21 pin_v2 equals its baseline record
+ok   S22 pin_v2 equals its baseline record
+ok   S23 pin_v2 equals its baseline record
+ok   S24 pin_v2 equals its baseline record
+ok   S25 pin_v2 equals its baseline record
+ok   S26 pin_v2 equals its baseline record
+ok   S27 pin_v2 equals its baseline record
+ok   S28 pin_v2 equals its baseline record
+ok   S29 pin_v2 equals its baseline record
+ok   S30 pin_v2 equals its baseline record
+ok   S31 pin_v2 equals its baseline record
+ok   S32 pin_v2 equals its baseline record
+ok   S33 pin_v2 equals its baseline record
+ok   S34 pin_v2 equals its baseline record
+ok   A01 pin_v2 equals its baseline record
+ok   A02 pin_v2 equals its baseline record
+ok   A03 pin_v2 equals its baseline record
+ok   A04 pin_v2 equals its baseline record
+ok   S01 snapshot gz sha256
+ok   S01 snapshot text = normalized pin
+ok   S02 snapshot gz sha256
+ok   S02 snapshot text = normalized pin
+ok   S03 snapshot gz sha256
+ok   S03 snapshot text = normalized pin
+ok   S04 snapshot gz sha256
+ok   S04 snapshot text = normalized pin
+ok   S05 snapshot gz sha256
+ok   S05 snapshot text = normalized pin
+ok   S06 snapshot gz sha256
+ok   S06 snapshot text = normalized pin
+ok   S07 snapshot gz sha256
+ok   S07 snapshot text = normalized pin
+ok   S08 snapshot gz sha256
+ok   S08 snapshot text = normalized pin
+ok   S09 snapshot gz sha256
+ok   S09 snapshot text = normalized pin
+ok   S10 snapshot gz sha256
+ok   S10 snapshot text = normalized pin
+ok   S11 snapshot gz sha256
+ok   S11 snapshot text = normalized pin
+ok   S12 snapshot gz sha256
+ok   S12 snapshot text = normalized pin
+ok   S13 snapshot gz sha256
+ok   S13 snapshot text = normalized pin
+ok   S14 snapshot gz sha256
+ok   S14 snapshot text = normalized pin
+ok   S15 snapshot gz sha256
+ok   S15 snapshot text = normalized pin
+ok   S20 snapshot gz sha256
+ok   S20 snapshot text = normalized pin
+ok   S21 snapshot gz sha256
+ok   S21 snapshot text = normalized pin
+ok   S22 snapshot gz sha256
+ok   S22 snapshot text = normalized pin
+ok   S23 snapshot gz sha256
+ok   S23 snapshot text = normalized pin
+ok   S24 snapshot gz sha256
+ok   S24 snapshot text = normalized pin
+ok   S25 snapshot gz sha256
+ok   S25 snapshot text = normalized pin
+ok   S26 snapshot gz sha256
+ok   S26 snapshot text = normalized pin
+ok   S28 snapshot gz sha256
+ok   S28 snapshot text = normalized pin
+ok   S30 snapshot gz sha256
+ok   S30 snapshot text = normalized pin
+ok   S31 snapshot gz sha256
+ok   S31 snapshot text = normalized pin
+ok   S32 snapshot gz sha256
+ok   S32 snapshot text = normalized pin
+ok   S33 snapshot gz sha256
+ok   S33 snapshot text = normalized pin
+ok   A01 snapshot gz sha256
+ok   A01 snapshot text = normalized pin
+ok   A02 snapshot gz sha256
+ok   A02 snapshot text = normalized pin
+ok   A03 snapshot gz sha256
+ok   A03 snapshot text = normalized pin
+ok   A04 snapshot gz sha256
+ok   A04 snapshot text = normalized pin
+ok   31 snapshot files present (found 31)
+ok   raw-primary set is the 14 expected ids (S01,S02,S03,S04,S05,S10,S16,S17,S18,S19,S27,S29,S30,S34)
+ok   S23 normalized-primary with primary_change
+ok   A01-A04 normalized-primary
+ok   S01 pin.value holds no 64-hex hash
+ok   S02 pin.value holds no 64-hex hash
+ok   S03 pin.value holds no 64-hex hash
+ok   S04 pin.value holds no 64-hex hash
+ok   S05 pin.value holds no 64-hex hash
+ok   S06 pin.value holds no 64-hex hash
+ok   S07 pin.value holds no 64-hex hash
+ok   S08 pin.value holds no 64-hex hash
+ok   S09 pin.value holds no 64-hex hash
+ok   S10 pin.value holds no 64-hex hash
+ok   S11 pin.value holds no 64-hex hash
+ok   S12 pin.value holds no 64-hex hash
+ok   S13 pin.value holds no 64-hex hash
+ok   S14 pin.value holds no 64-hex hash
+ok   S15 pin.value holds no 64-hex hash
+ok   S16 pin.value holds no 64-hex hash
+ok   S17 pin.value holds no 64-hex hash
+ok   S18 pin.value holds no 64-hex hash
+ok   S19 pin.value holds no 64-hex hash
+ok   S20 pin.value holds no 64-hex hash
+ok   S21 pin.value holds no 64-hex hash
+ok   S22 pin.value holds no 64-hex hash
+ok   S23 pin.value holds no 64-hex hash
+ok   S24 pin.value holds no 64-hex hash
+ok   S25 pin.value holds no 64-hex hash
+ok   S26 pin.value holds no 64-hex hash
+ok   S27 pin.value holds no 64-hex hash
+ok   S28 pin.value holds no 64-hex hash
+ok   S29 pin.value holds no 64-hex hash
+ok   S30 pin.value holds no 64-hex hash
+ok   S31 pin.value holds no 64-hex hash
+ok   S32 pin.value holds no 64-hex hash
+ok   S33 pin.value holds no 64-hex hash
+ok   S34 pin.value holds no 64-hex hash
+ok   S24 v1 hash relabelled as reproduced raw .md hash
+ok   S25 v1 hash relabelled as reproduced raw .md hash
+ok   S26 v1 hash relabelled as reproduced raw .md hash
+ok   S31 v1 hash relabelled as reproduced raw .md hash
+ok   S32 v1 hash relabelled as reproduced raw .md hash
+ok   S33 v1 hash relabelled as reproduced raw .md hash
+ok   raw_reproduced_vs_v1_pin true for 21 sources (found 21)
+ok   method marks the v1 '10 minutes' sentence withdrawn
+ok   reopen conditions use v2 terms
+ok   tag charmbracelet/bubbletea v2.0.10 resolved to 40-hex ids
+ok   tag ratatui/ratatui ratatui-v0.30.2 resolved to 40-hex ids
+ok   tag anomalyco/opentui v0.5.14 resolved to 40-hex ids
+ok   tag n0-computer/iroh v1.3.0 resolved to 40-hex ids
+ok   tag n0-computer/iroh-ffi v1.1.0 resolved to 40-hex ids
+ok   tag n0-computer/pigeons v0.2.1 resolved to 40-hex ids
+ok   tag PowerShell/Win32-OpenSSH 10.0.0.0p2-Preview resolved to 40-hex ids
+ok   tag PowerShell/Win32-OpenSSH v9.8.3.0p2-Preview resolved to 40-hex ids
+ok   tag PowerShell/Win32-OpenSSH v9.8.2.0p2-Preview resolved to 40-hex ids
+ok   tag PowerShell/Win32-OpenSSH v9.8.1.0p1-Preview resolved to 40-hex ids
+ok   tag PowerShell/Win32-OpenSSH v9.8.0.0p1-Preview resolved to 40-hex ids
+ok   tag PowerShell/openssh-portable v10.0.0.0 resolved to 40-hex ids
+ok   tag smallstep/certificates v0.30.2 resolved to 40-hex ids
+ok   tag smallstep/cli v0.31.0 resolved to 40-hex ids
+ok   ADR row S01 matches pins.json (url, kind, prefix)
+ok   ADR row S02 matches pins.json (url, kind, prefix)
+ok   ADR row S03 matches pins.json (url, kind, prefix)
+ok   ADR row S04 matches pins.json (url, kind, prefix)
+ok   ADR row S05 matches pins.json (url, kind, prefix)
+ok   ADR row S06 matches pins.json (url, kind, prefix)
+ok   ADR row S07 matches pins.json (url, kind, prefix)
+ok   ADR row S08 matches pins.json (url, kind, prefix)
+ok   ADR row S09 matches pins.json (url, kind, prefix)
+ok   ADR row S10 matches pins.json (url, kind, prefix)
+ok   ADR row S11 matches pins.json (url, kind, prefix)
+ok   ADR row S12 matches pins.json (url, kind, prefix)
+ok   ADR row S13 matches pins.json (url, kind, prefix)
+ok   ADR row S14 matches pins.json (url, kind, prefix)
+ok   ADR row S15 matches pins.json (url, kind, prefix)
+ok   ADR row S16 matches pins.json (url, kind, prefix)
+ok   ADR row S17 matches pins.json (url, kind, prefix)
+ok   ADR row S18 matches pins.json (url, kind, prefix)
+ok   ADR row S19 matches pins.json (url, kind, prefix)
+ok   ADR row S20 matches pins.json (url, kind, prefix)
+ok   ADR row S21 matches pins.json (url, kind, prefix)
+ok   ADR row S22 matches pins.json (url, kind, prefix)
+ok   ADR row S23 matches pins.json (url, kind, prefix)
+ok   ADR row S24 matches pins.json (url, kind, prefix)
+ok   ADR row S25 matches pins.json (url, kind, prefix)
+ok   ADR row S26 matches pins.json (url, kind, prefix)
+ok   ADR row S27 matches pins.json (url, kind, prefix)
+ok   ADR row S28 matches pins.json (url, kind, prefix)
+ok   ADR row S29 matches pins.json (url, kind, prefix)
+ok   ADR row S30 matches pins.json (url, kind, prefix)
+ok   ADR row S31 matches pins.json (url, kind, prefix)
+ok   ADR row S32 matches pins.json (url, kind, prefix)
+ok   ADR row S33 matches pins.json (url, kind, prefix)
+ok   ADR row S34 matches pins.json (url, kind, prefix)
+ok   ADR row A01 matches pins.json (url, kind, prefix)
+ok   ADR row A02 matches pins.json (url, kind, prefix)
+ok   ADR row A03 matches pins.json (url, kind, prefix)
+ok   ADR row A04 matches pins.json (url, kind, prefix)
+ok   matrix id A01 exists in pins.json
+ok   matrix id A02 exists in pins.json
+ok   matrix id A03 exists in pins.json
+ok   matrix id A04 exists in pins.json
+ok   matrix id S01 exists in pins.json
+ok   matrix id S02 exists in pins.json
+ok   matrix id S03 exists in pins.json
+ok   matrix id S04 exists in pins.json
+ok   matrix id S05 exists in pins.json
+ok   matrix id S06 exists in pins.json
+ok   matrix id S07 exists in pins.json
+ok   matrix id S09 exists in pins.json
+ok   matrix id S10 exists in pins.json
+ok   matrix id S11 exists in pins.json
+ok   matrix id S12 exists in pins.json
+ok   matrix id S13 exists in pins.json
+ok   matrix id S14 exists in pins.json
+ok   matrix id S15 exists in pins.json
+ok   matrix id S16 exists in pins.json
+ok   matrix id S17 exists in pins.json
+ok   matrix id S18 exists in pins.json
+ok   matrix id S19 exists in pins.json
+ok   matrix id S20 exists in pins.json
+ok   matrix id S21 exists in pins.json
+ok   matrix id S22 exists in pins.json
+ok   matrix id S30 exists in pins.json
+ok   matrix id S34 exists in pins.json
+ok   matrix id G03-S01 exists in G03 source pins
+ok   matrix id G03-S02 exists in G03 source pins
+ok   matrix id G03-S03 exists in G03 source pins
+ok   matrix id G03-S04 exists in G03 source pins
+ok   matrix id G03-S05 exists in G03 source pins
+ok   matrix id G03-S06 exists in G03 source pins
+ok   matrix id G03-S07 exists in G03 source pins
+ok   matrix id G03-S08 exists in G03 source pins
+ok   matrix id G03-S09 exists in G03 source pins
+ok   matrix id G03-S10 exists in G03 source pins
+ok   matrix id G03-S12 exists in G03 source pins
+ok   matrix id G03-S13 exists in G03 source pins
+ok   matrix id G03-S14 exists in G03 source pins
+ok   matrix id G03-S15 exists in G03 source pins
+ok   matrix id G03-S16 exists in G03 source pins
+ok   matrix id G03-S17 exists in G03 source pins
+ok   matrix id G03-S18 exists in G03 source pins
+ok   matrix cites existing record g03-wsl-env-inventory.json
+ok   matrix cites existing record g04-linux-logout-reboot-headless-probe.json
+ok   matrix cites existing record g03-win-path-quoting.json
+ok   matrix cites existing record g03-wsl-b-stale-socket.json
+ok   matrix cites existing record g04-exp-e1-dedicated-agent.json
+ok   matrix cites existing record g04-exp-e2-cert-expiry.json
+ok   matrix cites existing record g04-exp-e3-principal-scope.json
+ok   matrix cites existing record g04-exp-e4-account-ca-principals.json
+ok   matrix cites existing record g04-exp-e5-issuer-separation.json
+ok   matrix cites existing record g04-exp-e6-fresh-login-verification.json
+ok   matrix cites existing record g04-windows-signout-reboot-probe.json
+ok   matrix cites existing record g04-exp-enroll-marker-key.json
+ok   matrix cites existing record g03-win-identityagent-forms.json
+ok   matrix cites existing record m00-t03-fixtures.json
+ok   matrix cites existing record g02-go-conformance-linux-x64.json
+ok   matrix cites existing record g02-go-x1-windows.json
+ok   matrix cites existing record g03-wsl-a-git.json
+ok   matrix cites existing record g03-win-env-inventory.json
+ok   matrix cites existing record g03-wsl-a-elevation.json
+ok   matrix cites existing record g04-linux-desktop-lock-probe.json
+ok   matrix cites existing record g03-wsl-a-process-io.json
+ok   matrix cites existing record g03-wsl-a-path-quoting.json
+ok   matrix cites existing record g03-wsl-b-endpoint-perms.json
+ok   matrix cites existing record g03-wsl-b-socket-deletion.json
+ok   matrix cites existing record g04-exp-g09-prelim-mux-after-expiry.json
+ok   matrix cites existing record g04-exp-g09-prelim-mux-stop-race.json
+ok   matrix cites existing record g04-exp-g09-prelim-mux-preconnected-after-stop.json
+ok   matrix cites existing record g02-rust-x1-windows.json
+ok   matrix cites existing record g03-win-process-io.json
+ok   matrix cites existing record g03-win-key-file-permissions.json
+ok   matrix cites existing record g03-wsl-a-cert-change.json
+ok   matrix cites existing record g03-wsl-b-unauthorized-key.json
+ok   matrix cites existing record g03-win-pipe-acl-other-user.json
+ok   matrix cites existing record g04-windows-desktop-lock-probe.json
+ok   matrix cites existing record g03-win-sshauthsock-selection.json
+ok   matrix cites existing record g03-win-stale-squat-pipe.json
+ok   matrix cites existing record g03-wsl-b-relay-attribution.json
+ok   matrix cites existing record g04-macos-screen-lock-probe.json
+ok   matrix cites existing record g04-macos-logout-probe.json
+ok   matrix cites existing record g04-macos-reboot-headless-probe.json
+ok   matrix cites existing record g04-macos-sleep-probe.json
+ok   matrix cites existing record g03-wsl-b-teardown-deadline.json
+ok   matrix cites existing record g03-win-git-ssh-selection.json
+ok   matrix cites existing record g02-ts-conformance-linux.json
+ok   matrix cites existing record g03-win-1password-coexistence.json
+ok   matrix cites existing record g02-rust-conformance-linux.json
+ok   matrix cites existing record g03-win-agent-constraints.json
+ok   matrix cites existing record g03-win-service-elevation.json
+ok   matrix cites existing record g02-rust-conformance.json
+ok   matrix cites existing record g03-wsl-a-executable-selection.json
+ok   matrix cites existing record g02-rust-conformance-linux-x64.json
+ok   matrix cites existing record g03-wsl-b-host-lock.json
+ok   matrix cites existing record g03-wsl-b-multi-distro-exposure.json
+ok   matrix cites existing record g03-wsl-b-distro-restart.json
+ok   matrix cites existing record g03-wsl-b-idle-timeout.json
+ok   matrix cites existing record g03-wsl-b-other-windows-user.json
+ok   matrix cites existing record g02-ts-conformance.json
+ok   matrix cites existing record g04-macos-data-protection-keychain-probe.json
+ok   matrix cites existing record g02-go-conformance.json
+ok   matrix cites existing record g04-macos-secure-enclave-ctk-probe.json
+ok   matrix cites existing record g02-go-conformance-linux.json
+ok   matrix W1 status cell 'verified / pass' vs g03-win-env-inventory.json (verified/pass)
+ok   matrix W2 status cell 'verified / pass' vs g03-win-sshauthsock-selection.json (verified/pass)
+ok   matrix W3 status cell 'verified / pass' vs g03-win-identityagent-forms.json (verified/pass)
+ok   matrix W4 status cell 'blocked / inconclusive' vs g03-win-git-ssh-selection.json (blocked/inconclusive)
+ok   matrix W5 status cell 'in_progress / inconclusive' vs g03-win-stale-squat-pipe.json (in_progress/inconclusive)
+ok   matrix W6 status cell 'blocked / inconclusive' vs g03-win-process-io.json (blocked/inconclusive)
+ok   matrix W7 status cell 'verified / pass' vs g03-win-path-quoting.json (verified/pass)
+ok   matrix W8 status cell 'verified / pass' vs g03-win-service-elevation.json (verified/pass)
+ok   matrix W9 status cell 'verified / pass' vs g03-win-key-file-permissions.json (verified/pass)
+ok   matrix W10 status cell 'blocked (second disposable non-admin acc' vs g03-win-pipe-acl-other-user.json (blocked/None)
+ok   matrix W11 status cell 'blocked (disposable 1Password on a dispo' vs g03-win-1password-coexistence.json (blocked/None)
+ok   matrix W12 status cell 'blocked (disposable host, agent-store mu' vs g03-win-agent-constraints.json (blocked/None)
+ok   matrix L1 status cell 'verified / pass' vs g03-wsl-env-inventory.json (verified/pass)
+ok   matrix L2 status cell 'verified / pass' vs g03-wsl-a-executable-selection.json (verified/pass)
+ok   matrix L3 status cell 'verified / pass' vs g03-wsl-a-process-io.json (verified/pass)
+ok   matrix L4 status cell 'verified / pass' vs g03-wsl-a-path-quoting.json (verified/pass)
+ok   matrix L5 status cell 'verified / pass' vs g03-wsl-a-git.json (verified/pass)
+ok   matrix L6 status cell 'verified / pass' vs g03-wsl-a-cert-change.json (verified/pass)
+ok   matrix L7 status cell 'in_progress / inconclusive' vs g03-wsl-a-elevation.json (in_progress/inconclusive)
+ok   matrix L8 status cell 'in_progress / inconclusive' vs g03-wsl-b-endpoint-perms.json (in_progress/inconclusive)
+ok   matrix L9 status cell 'verified / pass' vs g03-wsl-b-unauthorized-key.json (verified/pass)
+ok   matrix L10 status cell 'verified / pass (both)' vs g03-wsl-b-socket-deletion.json (verified/pass)
+ok   matrix L10 status cell 'verified / pass (both)' vs g03-wsl-b-stale-socket.json (verified/pass)
+ok   matrix L11 status cell 'verified / pass' vs g03-wsl-b-relay-attribution.json (verified/pass)
+ok   matrix L12 status cell 'verified / pass' vs g03-wsl-b-teardown-deadline.json (verified/pass)
+ok   matrix L13 status cell 'blocked (5; inputs in row 11 notes)' vs g03-wsl-b-host-lock.json (blocked/None)
+ok   matrix L13 status cell 'blocked (5; inputs in row 11 notes)' vs g03-wsl-b-multi-distro-exposure.json (blocked/None)
+ok   matrix L13 status cell 'blocked (5; inputs in row 11 notes)' vs g03-wsl-b-distro-restart.json (blocked/None)
+ok   matrix L13 status cell 'blocked (5; inputs in row 11 notes)' vs g03-wsl-b-idle-timeout.json (blocked/None)
+ok   matrix L13 status cell 'blocked (5; inputs in row 11 notes)' vs g03-wsl-b-other-windows-user.json (blocked/None)
+ok   matrix M1 status cell 'in_progress (rows 1–5 verified per fixtu' vs m00-t03-fixtures.json (in_progress/None)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-e1-dedicated-agent.json (verified/pass)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-e2-cert-expiry.json (verified/pass)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-e3-principal-scope.json (verified/pass)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-e4-account-ca-principals.json (verified/pass)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-e5-issuer-separation.json (verified/pass)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-e6-fresh-login-verification.json (verified/pass)
+ok   matrix M2 status cell 'verified / pass (7)' vs g04-exp-enroll-marker-key.json (verified/pass)
+ok   matrix M3 status cell 'verified / pass, pass, **fail**' vs g04-exp-g09-prelim-mux-after-expiry.json (verified/pass)
+ok   matrix M3 status cell 'verified / pass, pass, **fail**' vs g04-exp-g09-prelim-mux-stop-race.json (verified/pass)
+ok   matrix M3 status cell 'verified / pass, pass, **fail**' vs g04-exp-g09-prelim-mux-preconnected-after-stop.json (verified/fail)
+ok   matrix M3 ordered verdicts ['pass', 'pass', 'fail'] vs records [('verified', 'pass'), ('verified', 'pass'), ('verified', 'fail')]
+ok   matrix M4 tally [('in_progress', 'inconclusive'), ('in_progress', 'inconclusive'), ('verified', 'pass'), ('verified', 'pass'), ('verified', 'pass'), ('verified', 'pass'), ('verified', 'pass')] vs cell '5 verified / pass, 2 in_progress / inconclusive'
+ok   matrix M5: 6 non-smoke g04-macos probe records, statuses ['blocked']
+ok   main table has 16 rows (found 16)
+ok   row 1 label is not-tested (not-tested)
+ok   row 1 G01 floor is blocked (blocked)
+ok   row 1 gate evidence uses an allowed status (blocked)
+ok   row 1 names a blocked input/record and is blocked (blocked)
+ok   row 2 label is not-tested (not-tested)
+ok   row 2 G01 floor is blocked (blocked)
+ok   row 2 gate evidence uses an allowed status (blocked)
+ok   row 2 names a blocked input/record and is blocked (blocked)
+ok   row 3 label is not-tested (not-tested)
+ok   row 3 G01 floor is blocked (blocked)
+ok   row 3 gate evidence uses an allowed status (blocked)
+ok   row 3 names a blocked input/record and is blocked (blocked)
+ok   row 4 label is not-tested (not-tested)
+ok   row 4 G01 floor is blocked (blocked)
+ok   row 4 gate evidence uses an allowed status (blocked)
+ok   row 4 names a blocked input/record and is blocked (blocked)
+ok   row 5 label is not-tested (not-tested)
+ok   row 5 G01 floor is blocked (blocked)
+ok   row 5 gate evidence uses an allowed status (blocked)
+ok   row 5 names a blocked input/record and is blocked (blocked)
+ok   row 6 label is not-tested (not-tested)
+ok   row 6 G01 floor is blocked (blocked)
+ok   row 6 gate evidence uses an allowed status (blocked)
+ok   row 6 names a blocked input/record and is blocked (blocked)
+ok   row 7 label is not-tested (not-tested)
+ok   row 7 G01 floor is blocked (blocked)
+ok   row 7 gate evidence uses an allowed status (blocked)
+ok   row 7 names a blocked input/record and is blocked (blocked)
+ok   row 8 label is not-tested (not-tested)
+ok   row 8 G01 floor is blocked (blocked)
+ok   row 8 gate evidence uses an allowed status (blocked)
+ok   row 8 names a blocked input/record and is blocked (blocked)
+ok   row 9 label is not-tested (not-tested)
+ok   row 9 G01 floor is blocked (blocked)
+ok   row 9 gate evidence uses an allowed status (blocked)
+ok   row 9 names a blocked input/record and is blocked (blocked)
+ok   row 10 label is not-tested (not-tested)
+ok   row 10 G01 floor is blocked (blocked)
+ok   row 10 gate evidence uses an allowed status (blocked)
+ok   row 10 names a blocked input/record and is blocked (blocked)
+ok   row 11 label is not-tested (not-tested)
+ok   row 11 G01 floor is blocked (blocked)
+ok   row 11 gate evidence uses an allowed status (blocked)
+ok   row 11 names a blocked input/record and is blocked (blocked)
+ok   row 12 label is not-tested (not-tested)
+ok   row 12 G01 floor is blocked (blocked)
+ok   row 12 gate evidence uses an allowed status (not_started)
+ok   row 12 not_started only with no evidence and no named blocked input
+ok   row 13 label is not-tested (not-tested)
+ok   row 13 G01 floor is blocked (blocked)
+ok   row 13 gate evidence uses an allowed status (blocked)
+ok   row 13 names a blocked input/record and is blocked (blocked)
+ok   row 14 label is not-tested (not-tested)
+ok   row 14 G01 floor is blocked (blocked)
+ok   row 14 gate evidence uses an allowed status (blocked)
+ok   row 14 names a blocked input/record and is blocked (blocked)
+ok   row 15 label is not-tested (not-tested)
+ok   row 15 G01 floor is blocked (blocked)
+ok   row 15 gate evidence uses an allowed status (not_started)
+ok   row 15 not_started only with no evidence and no named blocked input
+ok   row 16 label is not-tested (not-tested)
+ok   row 16 G01 floor is blocked (blocked)
+ok   row 16 gate evidence uses an allowed status (blocked)
+checks: 412 ok, 0 failed
+exit=0
