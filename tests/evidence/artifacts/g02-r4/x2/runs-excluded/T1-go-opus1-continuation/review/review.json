@@ -1,0 +1,14 @@
+{
+  "cell": "T1-go-opus1",
+  "reviewer_task": "M00-T05-r4-x2-review-T1-go-opus1",
+  "inputs": ["implementer-out/diff.patch", "TASK.md (T1)", "prototypes/go post-change tree"],
+  "read_only_checks": {"gofmt -l ./internal ./cmd": "exit 0, no files listed", "go vet ./internal/run (darwin host)": "no output", "GOOS=linux GOARCH=arm64 go vet ./internal/run": "no output"},
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "internal/run/wait_test.go TestRealStopDecodeAndState", "description": "Deferred syscall.Kill(pid, SIGKILL) runs after the body already reaped pid with Wait4, so it can signal a reused PID belonging to an unrelated process; the same check-then-kill TOCTOU exists in jobctl_test.go shell.close/reapLeftover after the shell may have reaped the job."},
+    {"severity": "minor", "location": "internal/run/run_unix.go job.cont", "description": "Every continue (orphaned-stop undo, forwarded third-party SIGCONT, poller fg continue) is killpg(-child) rather than the stopped child only, so grandchildren in the child's group that were stopped independently are also resumed, and the orphaned-group emulation delivers a SIGCONT that plain exec would not."},
+    {"severity": "minor", "location": "internal/run/run_unix.go mirrorSignal", "description": "A child stop by SIGTTOU is mirrored as SIGTSTP, so $? is 128+SIGTSTP instead of 128+SIGTTOU as with plain exec (documented in REPORT known gaps; outside the hidden S1-S5 coverage)."},
+    {"severity": "minor", "location": "internal/run/run_unix.go job.onStop mirror decision", "description": "Mirroring keys only on terminal foreground; a non-shell parent that places the launcher's group in the foreground gets a third-party stop mirrored and the launcher is never continued, and a background job's third-party stop is listed Running where plain exec shows Stopped (bg then does not continue the child). Documented as known gaps."},
+    {"severity": "minor", "location": "cmd/heimdall-proto/jobctl_test.go", "description": "Scenario tests synchronize with fixed sleeps (for example 600 ms before typing after fg, 2.5 s waits) and take about 90 s; they are differential against plain exec but timing-sensitive under load."}
+  ]
+}

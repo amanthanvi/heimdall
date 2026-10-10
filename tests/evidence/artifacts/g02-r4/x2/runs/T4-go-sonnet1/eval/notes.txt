@@ -1,0 +1,5 @@
+Evaluator notes (M00-T05-r4-x2-eval-T4-go-sonnet1).
+- harness-darwin.json and harness-linux.json: absolute repository and home paths replaced by <repo>, <home>, <user> after the run (scan-home exit 0 afterwards). Content otherwise unchanged.
+- Transcript audit (audit-transcript.py) was NOT run by this evaluator: no session file was supplied in the task packet.
+- Hidden tests passed on the first run on both platforms; no reruns were needed.
+- Frozen build digests equal the implementer's artifacts.json digests (darwin-arm64 cfb023b5..., linux-arm64 77c25ea2...).

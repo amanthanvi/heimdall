@@ -1,0 +1,12 @@
+case	exit	observed
+T4 darwin: pinned base-go record vs seeded-go baseline, --lang go, --expect-sha256 base-go pin	0	valid=True all_pass=True fixed=5/5 regressed=0 problems=[]
+same record, --lang rust	2	valid=False all_pass=False fixed=5/5 regressed=0 problems=["result record lang 'go' is not --lang rust"]
+same record, no --expect-sha256	2	score.py: error: the following arguments are required: --expect-sha256
+same record, --expect-sha256 of another binary (seeded-go pin)	2	valid=False all_pass=False fixed=5/5 regressed=0 problems=['result record is for another binary']
+same record, malformed --expect-sha256	2	score.py: --expect-sha256 must be 64 hex digits
+crafted: same record with lang removed (as written before fix round 2)	2	valid=False all_pass=False fixed=5/5 regressed=0 problems=['result record lang None is not --lang go']
+crafted: same record, binary_sha256_after changed	2	valid=False all_pass=False fixed=5/5 regressed=0 problems=['result record is for another binary']
+T1 darwin: base-rust record vs its own baseline	0	valid=True all_pass=False fixed=0/6 regressed=0 problems=[]
+T2 darwin: base-go record vs its own baseline	0	valid=True all_pass=False fixed=0/11 regressed=0 problems=[]
+T2 darwin: positive-control record (lang control) scored as go	2	valid=False all_pass=False fixed=11/11 regressed=0 problems=['result record is for another binary', "result record lang 'control' is not --lang go"]
+crafted: positive-control record relabelled lang go with the base-go digest	0	valid=True all_pass=True fixed=11/11 regressed=0 problems=[]

@@ -96,6 +96,7 @@
      - The T1 opus1 cells of the third attempt continued interrupted second-attempt work: Go after 47 tool calls, Rust after 31. Their workspaces were never reset.
      - Both results are kept in `x2/runs-excluded/` (see its NOTE.md) and not scored.
      - Both cells are being rerun in fresh workspaces by `wf_9661f31f-f4b` (`heimdall-m00-g02-round4-x2d.js`, same prompts, one chain).
+     - 2026-10-09 23:25: the host rebooted and killed `wf_9661f31f-f4b`. T1-go-opus1 was done (impl, eval, review); T1-rust-opus1 was not. **Session heimdall-83 owns the rest of round 4.** Other sessions must not relaunch x2d or rerun cells.
      - Every other implementer started fresh: either it finished its own fresh workspace, or its second-attempt predecessor failed with 0 tool calls.
    - Audit triage, metrics and helper scripts: `r4-scratch/x2c-audit/` (TRIAGE.md, triage.py, evals.py, reviews.py, metrics.py). The 6 fresh third-attempt cells triaged so far are clean.
    - Afterwards: triage the remaining transcripts, compute final metrics, and commit the specs, runs and the hidden pack copy.

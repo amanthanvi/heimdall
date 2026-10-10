@@ -1,0 +1,46 @@
+# X2 T2 fixture: valid profile with no finding (every rule has a near miss).
+schema_version = 1
+name = "nearmiss-qv"
+revision = 2
+
+[meta]
+account = "root"
+port = 80
+
+[[destinations]]
+id = "n_one"
+alias = "one-aliasnm"
+host = "same-hostnm.example.invalid"
+port = 22
+account = "Root"
+labels = ["lblnm-a", "lblnm-b"]
+
+[[destinations]]
+id = "n_two"
+alias = "two-aliasnm"
+host = "same-hostnm.example.invalid"
+port = 2222
+account = "roots"
+labels = ["lblnm-a", "lblnm-b"]
+
+[[destinations]]
+id = "n_three"
+alias = "three-aliasnm"
+host = "other-hostnm.example.invalid"
+account = "acctnm"
+labels = ["lblnm-c"]
+
+[[destinations]]
+id = "n_four"
+alias = "four-aliasnm"
+host = "other-hostnm.example.invalid"
+port = 1024
+account = "rootnm"
+
+[[destinations]]
+id = "n_five"
+alias = "five-aliasnm"
+host = "same-hostnm.example.invalid.alt"
+port = 65535
+account = "acctnm"
+labels = [""]

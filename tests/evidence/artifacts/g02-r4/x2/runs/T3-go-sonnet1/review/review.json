@@ -1,0 +1,9 @@
+{"cell":"T3-go-sonnet1","reviewer_task":"M00-T05-r4-x2-review-T3-go-sonnet1",
+"scores":{"spec_conformance":5,"test_quality":4,"clarity":4},
+"defects":[
+{"severity":"minor","location":"prototypes/go/internal/tui/tui_test.go TestHelpOverlay","description":"The 'keys ignored in help' assertion checks m.Outcome != Quit, but Quit is the zero value of Outcome, so a regression where q quits from the overlay would not be caught (the returned tea.Cmd is discarded by press). A reviewer probe on a copy confirmed the implementation does ignore q (cmd nil, help still open); only the test is vacuous for that key."},
+{"severity":"minor","location":"prototypes/go/internal/tui/tui_test.go ulText","description":"Doc comment names the helper ulCells while the function is ulText."},
+{"severity":"minor","location":"prototypes/go/internal/tui/tui_test.go TestHighlight","description":"No unit test covers the truncation path where the cut falls inside an underlined span (the trailing SGR 24 safeguard). Reviewer probe at 60 columns showed the output is well-formed (empty SGR 4/24 pair plus closing SGR 24, then reset), so this is a coverage gap, not a behaviour defect."},
+{"severity":"minor","location":"prototypes/go/internal/tui/tui.go markMatch","description":"Highlight matching runs on the sanitized rune slice (control chars replaced by U+FFFD) while profile.Filter matches the raw string, so a filter containing U+FFFD could underline a sanitized control character that Filter did not match on. Not reachable with validated profiles in practice; noted for consistency."}
+],
+"probes":"Reviewer ran go test (probe test in a private copy of prototypes/go, deleted afterwards): truncation inside an underline, q inside help, and U+0130 folding; all behaved correctly (go test ok). go vet ./... exit 0 in the copy."}

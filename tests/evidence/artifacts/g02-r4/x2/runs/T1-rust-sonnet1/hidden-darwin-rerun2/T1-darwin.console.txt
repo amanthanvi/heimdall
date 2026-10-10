@@ -1,0 +1,17 @@
+hidden.sh: task=T1 platform=darwin lang=rust sha256=92c44aa37d90b32a1e626a60fa6896bef8b4d4b23755259064e03cd40f1ca350 started=2026-10-09T06:08:58Z
+PASS  T1.nonint_stop_cont_SIGSTOP (2.1s)
+PASS  T1.nonint_stop_cont_SIGTSTP (2.1s)
+PASS  T1.pty_stop_cont_bash_SIGSTOP (15.5s)
+PASS  T1.pty_stop_cont_bash_SIGTSTP (15.5s)
+PASS  T1.pty_stop_cont_zsh_SIGSTOP (15.5s)
+PASS  T1.pty_stop_cont_zsh_SIGTSTP (15.5s)
+PASS  T1.cont_launcher_only_bash (9.9s)
+PASS  T1.cont_launcher_only_zsh (9.9s)
+PASS  T1.nested_shell_bash (8.3s)
+PASS  T1.nested_shell_zsh (8.3s)
+PASS  T1.sigstop_meta_bash_read (10.9s)
+PASS  T1.sigstop_meta_bash_ext (10.9s)
+PASS  T1.sigstop_meta_zsh_read (11.0s)
+PASS  T1.sigstop_meta_zsh_ext (11.0s)
+SUMMARY T1 PASS platform=darwin lang=rust {"pass": 14, "fail": 0, "error": 0, "total": 14}
+hidden.sh: exit=0 finished=2026-10-09T06:11:25Z

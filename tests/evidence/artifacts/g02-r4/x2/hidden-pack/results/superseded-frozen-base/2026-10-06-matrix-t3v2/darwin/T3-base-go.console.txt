@@ -1,0 +1,18 @@
+PASS  T3.no_highlight_without_filter (1.0s)
+FAIL  T3.highlight_single_char (3.6s) ::  row lab-server: underlined columns for filter 'a';  row nas: underlined columns for filter 'a';  row vps-東京: underlined columns for filter 'a'
+FAIL  T3.highlight_case_insensitive (7.3s) :: [LAB] row lab-server: underlined columns for filter 'LAB'; [EXAMPLE] row lab-server: underlined columns for filter 'EXAMPLE'; [EXAMPLE] row nas: underlined columns for filter 'EXAMPLE'; [EXAMPLE] row vps-東京: underlined columns for filter 'EXAMPLE'
+FAIL  T3.highlight_wide_chars (3.6s) ::  row vps-東京: underlined columns for filter '東'
+FAIL  T3.highlight_after_enter_and_esc (4.2s) :: [after Enter] row nas: underlined columns for filter 'as'
+FAIL  T3.highlight_narrow (3.6s) ::  row lab-server: underlined columns for filter 'a';  row nas: underlined columns for filter 'a'
+FAIL  T3.highlight_no_color (3.8s) ::  row lab-server: underlined columns for filter 'e';  row nas: underlined columns for filter 'e';  row vps-東京: underlined columns for filter 'e'
+FAIL  T3.help_toggle (3.6s) :: help overlay shows every key line in order
+FAIL  T3.help_esc_keeps_filter (4.1s) :: help overlay shows every key line in order
+FAIL  T3.help_ignores_other_keys (3.4s) :: help overlay shows every key line in order
+FAIL  T3.help_ctrl_c (3.4s) :: help overlay shows every key line in order
+PASS  T3.question_mark_in_filter_mode (0.5s)
+PASS  T3.help_tiny_terminal (1.6s)
+FAIL  T3.selection_kept_when_visible (5.4s) :: [append 'e'] vps-東京 still selected; [append 'x'] vps-東京 still selected; [Backspace] vps-東京 still selected; [Esc clear] vps-東京 still selected
+FAIL  T3.selection_falls_back_to_first (2.6s) :: [filter emptied] vps-東京 still selected
+FAIL  T3.selection_kept_large (2.8s) :: host-037-db still selected and on screen; SELECTED host-037-db
+FAIL  T3.k17_filter_latency (45.8s) :: [session 1] backspace to '7': status 19/100, 19 contiguous result rows, '> host-070-lab'; [session 1] backspace to '': status 100/100, 23 contiguous result rows, '> host-070-lab'; [session 2] typing '7': status 19/100, 19 contiguous result rows, '> host-070-lab'; [session 2] backspace to '7': status 19/100, 19 contiguous result rows, '> host-070-lab'
+SUMMARY T3 FAIL platform=darwin {"pass": 3, "fail": 14, "error": 0, "total": 17}

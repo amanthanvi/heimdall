@@ -1,0 +1,44 @@
+{
+ "task_id": "T2-rust-opus2",
+ "candidate": "rust",
+ "artifacts": [
+  {
+   "target": "darwin-arm64",
+   "path": "/tmp/x2ws-09f5dae5/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+   "bytes": 734608,
+   "sha256": "e21a23ef2e30452ece36c43e501cad873c2f38f69dfe1ed2fb31a44ee8c1b42f",
+   "manifest_sha256_matches": true
+  },
+  {
+   "target": "linux-arm64",
+   "path": "/tmp/x2ws-09f5dae5/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto",
+   "bytes": 841392,
+   "sha256": "7a45aef676987bddee42c08aeb83749cb1b5d3812673f04b7fe738cdf8ff44dc",
+   "manifest_sha256_matches": true
+  }
+ ],
+ "manifest": {
+  "path": "/tmp/x2ws-09f5dae5/heimdall/prototypes/rust/dist/manifest.json",
+  "sha256": "181d244dfe575ad5e37f16d41d54afd8bcc678dd5a4171ab167febaffced353b",
+  "targets_built": {
+   "darwin-arm64": true,
+   "linux-x64": true,
+   "linux-arm64": true,
+   "windows-x64": true
+  }
+ },
+ "harness": {
+  "darwin": {
+   "record": "/tmp/x2ws-09f5dae5/scratch/harness-darwin.json",
+   "status": "verified",
+   "verdict": "pass",
+   "binary": "/private/tmp/x2ws-09f5dae5/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto"
+  },
+  "linux": {
+   "record": "/tmp/x2ws-09f5dae5/scratch/harness-linux.json",
+   "status": "verified",
+   "verdict": "pass",
+   "binary": "/private/tmp/x2ws-09f5dae5/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto"
+  }
+ }
+}

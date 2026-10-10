@@ -1,0 +1,39 @@
+===== plain (bash)
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+PROMPT$ set +H; stty cols 400
+PROMPT$ /bin/sleep 30 </dev/null >/dev/null 2>&1 & J=$!; C=$J; echo J=$J
+[1] 79069
+J=79069
+PROMPT$ sleep 0.3; kill -STOP $C; sleep 0.7
+
+[1]+  Stopped                 /bin/sleep 30 < /dev/null > /dev/null 2>&1
+PROMPT$ ps -o pid=,stat= -p $C; ps -o pid=,stat= -p $J
+79069 T   
+79069 T   
+PROMPT$ jobs -l
+[1]+ 79069 Suspended (signal): 17  /bin/sleep 30 < /dev/null > /dev/null 2>&1
+PROMPT$ kill -KILL $C $J 2>/dev/null; wait; echo CLEANED
+CLEANED
+PROMPT$ 
+===== heimdall-proto (bash)
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+PROMPT$ set +H; stty cols 400
+PROMPT$ <ws>/heimdall/prototypes/go/dist/darwin-arm64/heimdall-<heimdall/prototypes/go/dist/darwin-arm64/heimdall-p                         roto run -- /bin/sleep 30<t/darwin-arm64/heimdall-proto run -- /bin/sleep 30                          </dev/null >/dev/null 2>&<oto run -- /bin/sleep 30 </dev/null >/dev/null 2>&1                          & J=$!; sleep 0.5; C=$(p</dev/null >/dev/null 2>&1 & J=$!; sleep 0.5; C=$(pg                         rep -P $J); echo J=$J C=$<& J=$!; sleep 0.5; C=$(pgrep -P $J); echo J=$J C=$C                         
+[1] 79233
+J=79233 C=79235
+PROMPT$ sleep 0.3; kill -STOP $C; sleep 0.7
+PROMPT$ ps -o pid=,stat= -p $C; ps -o pid=,stat= -p $J
+79235 T   
+79233 S   
+PROMPT$ jobs -l
+[1]+ 79233 Running                 <ws>/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sleep 30 < /dev/null > /dev/null 2>&1 &
+PROMPT$ kill -KILL $C $J 2>/dev/null; wait; echo CLEANED
+[1]+  Killed: 9               <ws>/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto run -- /bin/sleep 30 < /dev/null > /dev/null 2>&1
+CLEANED
+PROMPT$ 

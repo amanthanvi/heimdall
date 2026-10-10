@@ -1,0 +1,8 @@
+ok  	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	11.667s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.136s
+ok  	github.com/heimdall-g02/proto-go/internal/lint	0.007s
+ok  	github.com/heimdall-g02/proto-go/internal/profile	0.099s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.297s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.009s

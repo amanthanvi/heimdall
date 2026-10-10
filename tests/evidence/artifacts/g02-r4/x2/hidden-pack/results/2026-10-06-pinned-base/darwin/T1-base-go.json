@@ -1,0 +1,728 @@
+{
+ "task": "T1",
+ "platform": "darwin",
+ "started_at": "2026-10-06T14:41:04Z",
+ "finished_at": "2026-10-06T14:43:37Z",
+ "binary_sha256": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+ "binary_sha256_after": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+ "python": "3.14.8",
+ "verdict": "fail",
+ "summary": {
+  "pass": 6,
+  "fail": 8,
+  "error": 0,
+  "total": 14
+ },
+ "checks": [
+  {
+   "id": "T1.nonint_stop_cont_SIGSTOP",
+   "title": "1a non-interactive: third-party SIGSTOP then SIGCONT of the child PID",
+   "status": "pass",
+   "error": null,
+   "seconds": 2.13,
+   "assertions": [
+    {
+     "name": "launcher exit status after the third-party SIGCONT (control: 7)",
+     "ok": true,
+     "expected": "7",
+     "observed": "7"
+    },
+    {
+     "name": "launcher exits within 6 s of the SIGCONT",
+     "ok": true,
+     "expected": "exited",
+     "observed": "7"
+    },
+    {
+     "name": "child completed its work",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "child reaped (no zombie, no orphan) once the launcher has exited",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"child_parent_is_launcher\": false, \"after_stop\": {\"child\": \"T\", \"launcher\": null, \"launcher_exited\": false}, \"rc\": 7, \"exit_after_cont_s\": 0.51, \"child_completed\": true, \"child_reaped\": true, \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"child_parent_is_launcher\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": \"S\", \"launcher_exited\": false}, \"rc\": 7, \"exit_after_cont_s\": 0.51, \"child_completed\": true, \"child_reaped\": true, \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.nonint_stop_cont_SIGTSTP",
+   "title": "1a non-interactive: third-party SIGTSTP then SIGCONT of the child PID",
+   "status": "pass",
+   "error": null,
+   "seconds": 2.12,
+   "assertions": [
+    {
+     "name": "launcher exit status after the third-party SIGCONT (control: 7)",
+     "ok": true,
+     "expected": "7",
+     "observed": "7"
+    },
+    {
+     "name": "launcher exits within 6 s of the SIGCONT",
+     "ok": true,
+     "expected": "exited",
+     "observed": "7"
+    },
+    {
+     "name": "child completed its work",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "child reaped (no zombie, no orphan) once the launcher has exited",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"child_parent_is_launcher\": false, \"after_stop\": {\"child\": \"T\", \"launcher\": null, \"launcher_exited\": false}, \"rc\": 7, \"exit_after_cont_s\": 0.5, \"child_completed\": true, \"child_reaped\": true, \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"child_parent_is_launcher\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": \"S\", \"launcher_exited\": false}, \"rc\": 7, \"exit_after_cont_s\": 0.5, \"child_completed\": true, \"child_reaped\": true, \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.pty_stop_cont_bash_SIGSTOP",
+   "title": "1b interactive bash, foreground job: third-party SIGSTOP then SIGCONT of the child PID",
+   "status": "fail",
+   "error": null,
+   "seconds": 15.2,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped (as with plain exec)",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (145)",
+     "ok": false,
+     "expected": "145",
+     "observed": "255"
+    },
+    {
+     "name": "child was continued and completed its work",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "[finished by itself] `jobs` lists no running or stopped job",
+     "ok": true,
+     "expected": "no running job",
+     "observed": "{\"text\": \"\", \"running\": false, \"stopped\": false}"
+    },
+    {
+     "name": "interactive shell still alive",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "all gone",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"stop_notice\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": null}, \"cont_sent\": true, \"child_completed\": true, \"rc_after\": 145, \"jobs\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"needed_fg\": false, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \" x > \\\"$1.done\\\"; exit 7\\\\' sh \\\\'<tmp>/pf\\\\'\\\\n'>>sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '/tmp/hm-r4/M 00-T05-r4-taskpack-fix/fix2/tmp/pr3c-fxnted1t/pf'\\n\\n[1]+  Stopped                 sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=145\\n[1]+  Exit 7                  sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n@P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n@P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"stop_notice\": false, \"after_stop\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"cont_sent\": false, \"child_completed\": false, \"rc_after\": 255, \"jobs\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"needed_fg\": false, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"te off' 2>/dev/null; PS1='@P@ '\\\\n\\\">>bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\\n@P@ <<SEND '\\\\'<bin>\\\\' run -- sh -c \\\\'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7\\\\' sh \\\\'<tmp>/pf\\\\'\\\\n'>>'<bin>' run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7'  sh '<tmp>/pf'\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=255\\n@P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n@P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.pty_stop_cont_bash_SIGTSTP",
+   "title": "1b interactive bash, foreground job: third-party SIGTSTP then SIGCONT of the child PID",
+   "status": "pass",
+   "error": null,
+   "seconds": 15.48,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped (as with plain exec)",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (146)",
+     "ok": true,
+     "expected": "146",
+     "observed": "146"
+    },
+    {
+     "name": "child was continued and completed its work",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "[stayed stopped] `fg` ends the job with the child's status 7",
+     "ok": true,
+     "expected": "7",
+     "observed": "7"
+    },
+    {
+     "name": "[stayed stopped] no job left after `fg`",
+     "ok": true,
+     "expected": "no job",
+     "observed": "{\"text\": \"\", \"running\": false, \"stopped\": false}"
+    },
+    {
+     "name": "interactive shell still alive",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "all gone",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"stop_notice\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": null}, \"cont_sent\": true, \"child_completed\": true, \"rc_after\": 146, \"jobs\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"needed_fg\": false, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \" x > \\\"$1.done\\\"; exit 7\\\\' sh \\\\'<tmp>/pf\\\\'\\\\n'>>sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '/tmp/hm-r4/M 00-T05-r4-taskpack-fix/fix2/tmp/pr3c-4u3im9rb/pf'\\n\\n[1]+  Stopped                 sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=146\\n[1]+  Exit 7                  sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n@P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n@P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"stop_notice\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": \"T\"}, \"cont_sent\": true, \"child_completed\": true, \"rc_after\": 146, \"jobs\": {\"text\": \"0-T05-r4-taskpack-fix/fix2/tmp/hm-r4-x2-bin.JLRvuE/heimdall-proto' run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '/tmp/hm-r4/M00-T05-r4-taskpack-fix/fix2/tmp/pr3c-3t0at2s_/pf'\", \"running\": false, \"stopped\": true}, \"needed_fg\": true, \"rc_after_fg\": 7, \"jobs_after_fg\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"> \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=146\\n@P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\n[1]+  Stopped                 '<bin>' run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\nJE-42\\n@P@ <<SEND 'fg\\\\n'>>fg\\n'<bin>' run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n@P@ <<SEND 'echo RC2=$?\\\\n'>>echo RC2=$?\\nRC2=7\\n@P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n@P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.pty_stop_cont_zsh_SIGSTOP",
+   "title": "1b interactive zsh, foreground job: third-party SIGSTOP then SIGCONT of the child PID",
+   "status": "fail",
+   "error": null,
+   "seconds": 15.17,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped (as with plain exec)",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (145)",
+     "ok": false,
+     "expected": "145",
+     "observed": "255"
+    },
+    {
+     "name": "child was continued and completed its work",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "[finished by itself] `jobs` lists no running or stopped job",
+     "ok": true,
+     "expected": "no running job",
+     "observed": "{\"text\": \"\", \"running\": false, \"stopped\": false}"
+    },
+    {
+     "name": "interactive shell still alive",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "all gone",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"stop_notice\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": null}, \"cont_sent\": true, \"child_completed\": true, \"rc_after\": 145, \"jobs\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"needed_fg\": false, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \" 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh \\n                                                                                @P@ [1]  + exit 7     sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh \\n<<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=145\\n                                                                                @P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n                                                                                @P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"stop_notice\": false, \"after_stop\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"cont_sent\": false, \"child_completed\": false, \"rc_after\": 255, \"jobs\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"needed_fg\": false, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"1; echo x > \\\"$1.done\\\"; exit 7\\\\' sh \\\\'<tmp>/pf\\\\'\\\\n'>>'<bin>' run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh '<tmp>/pf'\\n                                                                                @P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=255\\n                                                                                @P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n                                                                                @P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.pty_stop_cont_zsh_SIGTSTP",
+   "title": "1b interactive zsh, foreground job: third-party SIGTSTP then SIGCONT of the child PID",
+   "status": "pass",
+   "error": null,
+   "seconds": 15.5,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped (as with plain exec)",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (146)",
+     "ok": true,
+     "expected": "146",
+     "observed": "146"
+    },
+    {
+     "name": "child was continued and completed its work",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "[stayed stopped] `fg` ends the job with the child's status 7",
+     "ok": true,
+     "expected": "7",
+     "observed": "7"
+    },
+    {
+     "name": "[stayed stopped] no job left after `fg`",
+     "ok": true,
+     "expected": "no job",
+     "observed": "{\"text\": \"\", \"running\": false, \"stopped\": false}"
+    },
+    {
+     "name": "interactive shell still alive",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "all gone",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"stop_notice\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": null}, \"cont_sent\": true, \"child_completed\": true, \"rc_after\": 146, \"jobs\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"needed_fg\": false, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \" 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh \\n                                                                                @P@ [1]  + exit 7     sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh \\n<<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=146\\n                                                                                @P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n                                                                                @P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"stop_notice\": true, \"after_stop\": {\"child\": \"T\", \"launcher\": \"T\"}, \"cont_sent\": true, \"child_completed\": true, \"rc_after\": 146, \"jobs\": {\"text\": \"[1]  + suspended   run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh\", \"running\": false, \"stopped\": true}, \"needed_fg\": true, \"rc_after_fg\": 7, \"jobs_after_fg\": {\"text\": \"\", \"running\": false, \"stopped\": false}, \"shell_alive\": true, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"                            @P@ <<SEND 'fg\\\\n'>>fg\\n[1]  + continued   run -- sh -c 'echo $$ > \\\"$1\\\"; sleep 1; echo x > \\\"$1.done\\\"; exit 7' sh \\n                                                                                @P@ <<SEND 'echo RC2=$?\\\\n'>>echo RC2=$?\\nRC2=7\\n                                                                                @P@ <<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\nJE-42\\n                                                                                @P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.cont_launcher_only_bash",
+   "title": "2 interactive bash: child self-stop reported, then SIGCONT sent only to the launcher PID",
+   "status": "pass",
+   "error": null,
+   "seconds": 9.91,
+   "assertions": [
+    {
+     "name": "self-stop reported by the shell",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "SIGCONT to the launcher PID resumes the child (it prints BACK)",
+     "ok": true,
+     "expected": "true",
+     "observed": "{\"resumed\": true, \"states\": {\"child\": \"T\", \"launcher\": \"T\"}}"
+    },
+    {
+     "name": "`jobs` 2.6 s later says stopped, as with plain exec (never running while the child is stopped)",
+     "ok": true,
+     "expected": "stopped",
+     "observed": "{\"text\": \"ll-proto' run -- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<home>/.local/share/heimdall-m00/r4-hidden/t1/child_tstp.py' '/tmp/hm-r4/M00-T05-r4-taskpack-fix/fix2/tmp/pr3c-mfmnmrpw/pf'\", \"running\": false, \"stopped\": true}"
+    },
+    {
+     "name": "`fg` gives the terminal back: the child reads the next line",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "exit status after `exit 5`",
+     "ok": true,
+     "expected": "5",
+     "observed": "5"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "all gone",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"ready\": true, \"stop_notice\": true, \"prompt_after_stop\": true, \"states_stopped\": {\"child\": \"T\", \"launcher\": null}, \"child_resumed\": true, \"states_after_cont\": {\"child\": \"T\", \"launcher\": null}, \"jobs\": {\"text\": \"'/opt/homebrew/opt/python@3.14/bin/python3.14' '<home>/.local/share/heimdall-m00/r4-hidden/t1/child_tstp.py' '/tmp/hm-r4/M00-T05-r4-taskpack-fix/fix2/tmp/pr3c-f9cac9i_/pf'\", \"running\": false, \"stopped\": true}, \"child_reads_after_fg\": true, \"rc\": 5, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"p\\n\\n[1]+  Stopped                 '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/pf'\\n@P@ BACK-tstp-1\\nREADY-2\\n<<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\n[1]+  Stopped                 '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/pf'\\nJE-42\\n@P@ <<SEND 'fg\\\\n'>><<SEND 'probe42\\\\n'>>fg\\n'/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/pf'\\nprobe42\\nGOT-probe42\\nREADY-3\\n<<SEND 'exit 5\\\\n'>>exit 5\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=5\\n@P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"ready\": true, \"stop_notice\": true, \"prompt_after_stop\": true, \"states_stopped\": {\"child\": \"T\", \"launcher\": \"T\"}, \"child_resumed\": true, \"states_after_cont\": {\"child\": \"T\", \"launcher\": \"T\"}, \"jobs\": {\"text\": \"ll-proto' run -- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<home>/.local/share/heimdall-m00/r4-hidden/t1/child_tstp.py' '/tmp/hm-r4/M00-T05-r4-taskpack-fix/fix2/tmp/pr3c-mfmnmrpw/pf'\", \"running\": false, \"stopped\": true}, \"child_reads_after_fg\": true, \"rc\": 5, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"-- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/pf'\\n@P@ BACK-tstp-1\\nREADY-2\\n<<SEND 'jobs; echo JE-$((40+2))\\\\n'>>jobs; echo JE-$((40+2))\\n[1]+  Stopped                 '<bin>' run -- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/pf'\\nJE-42\\n@P@ <<SEND 'fg\\\\n'>><<SEND 'probe42\\\\n'>>fg\\n'<bin>' run -- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/pf'\\nprobe42\\nGOT-probe42\\nREADY-3\\n<<SEND 'exit 5\\\\n'>>exit 5\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=5\\n@P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.cont_launcher_only_zsh",
+   "title": "2 interactive zsh: child self-stop reported, then SIGCONT sent only to the launcher PID",
+   "status": "pass",
+   "error": null,
+   "seconds": 9.9,
+   "assertions": [
+    {
+     "name": "self-stop reported by the shell",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "SIGCONT to the launcher PID resumes the child (it prints BACK)",
+     "ok": true,
+     "expected": "true",
+     "observed": "{\"resumed\": true, \"states\": {\"child\": \"T\", \"launcher\": \"T\"}}"
+    },
+    {
+     "name": "`jobs` 2.6 s later says stopped, as with plain exec (never running while the child is stopped)",
+     "ok": true,
+     "expected": "stopped",
+     "observed": "{\"text\": \"[1]  + suspended (tty input)   run -- '/opt/homebrew/opt/python@3.14/bin/python3.14'\", \"running\": false, \"stopped\": true}"
+    },
+    {
+     "name": "`fg` gives the terminal back: the child reads the next line",
+     "ok": true,
+     "expected": "true",
+     "observed": "true"
+    },
+    {
+     "name": "exit status after `exit 5`",
+     "ok": true,
+     "expected": "5",
+     "observed": "5"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "all gone",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"ready\": true, \"stop_notice\": true, \"prompt_after_stop\": true, \"states_stopped\": {\"child\": \"T\", \"launcher\": null}, \"child_resumed\": true, \"states_after_cont\": {\"child\": \"T\", \"launcher\": null}, \"jobs\": {\"text\": \"[1]  + suspended (tty input)  '/opt/homebrew/opt/python@3.14/bin/python3.14'\", \"running\": false, \"stopped\": true}, \"child_reads_after_fg\": true, \"rc\": 5, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"/homebrew/opt/python@3.14/bin/python3.14'  \\nJE-42\\n                                                                                @P@ <<SEND 'fg\\\\n'>><<SEND 'probe42\\\\n'>>fg\\n[1]  + continued  '/opt/homebrew/opt/python@3.14/bin/python3.14'  \\nprobe42\\nGOT-probe42\\nREADY-3\\n<<SEND 'exit 5\\\\n'>>exit 5\\n                                                                                @P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=5\\n                                                                                @P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"ready\": true, \"stop_notice\": true, \"prompt_after_stop\": true, \"states_stopped\": {\"child\": \"T\", \"launcher\": \"T\"}, \"child_resumed\": true, \"states_after_cont\": {\"child\": \"T\", \"launcher\": \"T\"}, \"jobs\": {\"text\": \"[1]  + suspended (tty input)   run -- '/opt/homebrew/opt/python@3.14/bin/python3.14'\", \"running\": false, \"stopped\": true}, \"child_reads_after_fg\": true, \"rc\": 5, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"w/opt/python@3.14/bin/python3.14'  \\nJE-42\\n                                                                                @P@ <<SEND 'fg\\\\n'>><<SEND 'probe42\\\\n'>>fg\\n[1]  + continued   run -- '/opt/homebrew/opt/python@3.14/bin/python3.14'  \\nprobe42\\nGOT-probe42\\nREADY-3\\n<<SEND 'exit 5\\\\n'>>exit 5\\n                                                                                @P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=5\\n                                                                                @P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.nested_shell_bash",
+   "title": "3 outer bash runs `run -- bash -i`; `suspend` in it, then `fg`",
+   "status": "fail",
+   "error": null,
+   "seconds": 6.37,
+   "assertions": [
+    {
+     "name": "`suspend` in the nested shell: stop notice",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "outer shell prompt returns and the outer shell survives",
+     "ok": false,
+     "expected": "true",
+     "observed": "{\"prompt\": true, \"alive\": false}"
+    },
+    {
+     "name": "after `fg` the nested shell answers",
+     "ok": false,
+     "expected": "nested",
+     "observed": "null"
+    },
+    {
+     "name": "outer $? after `exit 3` in the nested shell",
+     "ok": false,
+     "expected": "3",
+     "observed": "null"
+    },
+    {
+     "name": "no nested shell or launcher left",
+     "ok": true,
+     "expected": "none left",
+     "observed": "{\"final\": {\"nested\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"nested_prompt\": true, \"stop_notice\": true, \"outer_prompt\": true, \"outer_alive_after_suspend\": true, \"after_suspend\": {\"nested\": \"T\", \"launcher\": null}, \"answer_after_fg\": \"nested\", \"outer_rc_after_nested_exit_3\": 3, \"outer_alive_end\": true, \"final\": {\"nested\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"account to use zsh, please run `chsh -s /bin/zsh`.\\nFor more details, please visit https://support.apple.com/kb/HT208050.\\n@P@ PS1='@N@ '; W=nested\\n@N@ <<SEND 'echo NPID=$$\\\\n'>>echo NPID=$$\\nNPID=33834\\n@N@ <<SEND 'suspend\\\\n'>>suspend\\n\\n[1]+  Stopped                 bash --norc --noprofile -i\\n@P@ <<SEND 'fg\\\\n'>>fg\\nbash --norc --noprofile -i\\n@N@ <<SEND 'echo ALIVE-$W-$((40+2))\\\\n'>>echo ALIVE-$W-$((40+2))\\nALIVE-nested-42\\n@N@ <<SEND 'exit 3\\\\n'>>exit 3\\nexit\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=3\\n@P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"nested_prompt\": true, \"stop_notice\": false, \"outer_prompt\": true, \"outer_alive_after_suspend\": false, \"after_suspend\": {\"nested\": \"gone\", \"launcher\": \"gone\"}, \"outer_alive_end\": false, \"final\": {\"nested\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"-- bash --norc --noprofile -i\\\\n\\\">><<SEND \\\"PS1='@N@ '; W=nested\\\\n\\\">>'<bin>' run -- bash --norc --noprofile -i\\n\\nThe default interactive shell is now zsh.\\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\\nFor more details, please visit https://support.apple.com/kb/HT208050.\\n@P@ PS1='@N@ '; W=nested\\n@N@ <<SEND 'echo NPID=$$\\\\n'>>echo NPID=$$\\nNPID=33850\\n@N@ <<SEND 'suspend\\\\n'>>suspend\\n@P@ exit\\n<<PTY EOF>>\", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.nested_shell_zsh",
+   "title": "3 outer zsh runs `run -- bash -i`; `suspend` in it, then `fg`",
+   "status": "fail",
+   "error": null,
+   "seconds": 6.38,
+   "assertions": [
+    {
+     "name": "`suspend` in the nested shell: stop notice",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "outer shell prompt returns and the outer shell survives",
+     "ok": false,
+     "expected": "true",
+     "observed": "{\"prompt\": true, \"alive\": false}"
+    },
+    {
+     "name": "after `fg` the nested shell answers",
+     "ok": false,
+     "expected": "nested",
+     "observed": "null"
+    },
+    {
+     "name": "outer $? after `exit 3` in the nested shell",
+     "ok": false,
+     "expected": "3",
+     "observed": "null"
+    },
+    {
+     "name": "no nested shell or launcher left",
+     "ok": true,
+     "expected": "none left",
+     "observed": "{\"final\": {\"nested\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"nested_prompt\": true, \"stop_notice\": true, \"outer_prompt\": true, \"outer_alive_after_suspend\": true, \"after_suspend\": {\"nested\": \"T\", \"launcher\": null}, \"answer_after_fg\": \"nested\", \"outer_rc_after_nested_exit_3\": 3, \"outer_alive_end\": true, \"final\": {\"nested\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"l)  bash --norc --noprofile -i\\n                                                                                @P@ <<SEND 'fg\\\\n'>>fg\\n[1]  + continued  bash --norc --noprofile -i\\n@N@ <<SEND 'echo ALIVE-$W-$((40+2))\\\\n'>>echo ALIVE-$W-$((40+2))\\nALIVE-nested-42\\n@N@ <<SEND 'exit 3\\\\n'>>exit 3\\nexit\\n                                                                                @P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=3\\n                                                                                @P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"nested_prompt\": true, \"stop_notice\": false, \"outer_prompt\": true, \"outer_alive_after_suspend\": false, \"after_suspend\": {\"nested\": \"gone\", \"launcher\": \"gone\"}, \"outer_alive_end\": false, \"final\": {\"nested\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \">' run -- bash --norc --noprofile -i\\\\n\\\">><<SEND \\\"PS1='@N@ '; W=nested\\\\n\\\">>'<bin>' run -- bash --norc --noprofile -i\\n\\nThe default interactive shell is now zsh.\\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\\nFor more details, please visit https://support.apple.com/kb/HT208050.\\n@P@ PS1='@N@ '; W=nested\\n@N@ <<SEND 'echo NPID=$$\\\\n'>>echo NPID=$$\\nNPID=34765\\n@N@ <<SEND 'suspend\\\\n'>>suspend\\n                                                                                @P@ <<PTY EOF>>\", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.sigstop_meta_bash_read",
+   "title": "4 interactive bash, run --meta-file: the child is stopped by SIGSTOP (it stops itself)",
+   "status": "fail",
+   "error": null,
+   "seconds": 13.81,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (145)",
+     "ok": false,
+     "expected": "145",
+     "observed": "255"
+    },
+    {
+     "name": "child stays stopped and the launcher stays alive until `fg`",
+     "ok": false,
+     "expected": "true",
+     "observed": "[\"gone/gone\"]"
+    },
+    {
+     "name": "after `fg` the child reads the terminal again",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the child's normal exit",
+     "ok": false,
+     "expected": "0",
+     "observed": "127"
+    },
+    {
+     "name": "meta file: code",
+     "ok": true,
+     "expected": "CHILD_EXITED",
+     "observed": "CHILD_EXITED"
+    },
+    {
+     "name": "meta file: data",
+     "ok": false,
+     "expected": "{\"launched\": true, \"exit_code\": 0, \"signal\": null}",
+     "observed": "{\"exit_code\": -1, \"launched\": true, \"signal\": null}"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "none left",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"trigger\": \"read\", \"states\": [\"T/None\"], \"child_stopped_throughout\": true, \"launcher_alive_throughout\": true, \"stop_reported\": true, \"rc_after_stop\": 145, \"child_reads_after_fg\": true, \"rc_after_quit\": 0, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"ead.py' '/tmp/hm-r4/M00-T05-r4-taskpack-fix/ fix2/tmp/pr3c-uu8zw2ot/c.log' read SIGSTOP\\n<<SEND '~z\\\\n'>>~z\\nGOT ~z\\n\\n[1]+  Stopped                 '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/c.log' read SIGSTOP\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=145\\n@P@ <<SEND 'fg\\\\n'>><<SEND 'hello42\\\\n'>>fg\\n'/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/c.log' read SIGSTOP\\nhello42\\nGOT hello42\\n<<SEND 'quit\\\\n'>>quit\\nGOT quit\\n@P@ <<SEND 'echo RC2=$?\\\\n'>>echo RC2=$?\\nRC2=0\\n@P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"trigger\": \"read\", \"states\": [\"gone/gone\"], \"child_stopped_throughout\": false, \"launcher_alive_throughout\": false, \"stop_reported\": false, \"rc_after_stop\": 255, \"child_reads_after_fg\": false, \"rc_after_quit\": 127, \"meta\": {\"schema_version\": \"1\", \"state\": \"succeeded\", \"code\": \"CHILD_EXITED\", \"data\": {\"exit_code\": -1, \"launched\": true, \"signal\": null}, \"warnings\": [], \"next\": null}, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"-- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<home>/.local/share/heimdall-m00/r4-hidden/t1/child_read.py' '/tmp/hm-r4/M00-T0 5-r4-taskpack-fix/fix2/tmp/pr3c-xmkt6obl/c.log' read SIGSTOP\\n<<SEND '~z\\\\n'>>~z\\nGOT ~z\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=255\\n@P@ <<SEND 'fg\\\\n'>><<SEND 'hello42\\\\n'>>fg\\nbash: fg: current: no such job\\n@P@ hello42\\nbash: hello42: command not found\\n@P@ <<SEND 'quit\\\\n'>><<SEND 'echo RC2=$?\\\\n'>>quit\\nbash: quit: command not found\\n@P@ echo RC2=$?\\nRC2=127\\n@P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.sigstop_meta_bash_ext",
+   "title": "4 interactive bash, run --meta-file: the child is stopped by SIGSTOP (a third party stops it)",
+   "status": "fail",
+   "error": null,
+   "seconds": 13.83,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (145)",
+     "ok": false,
+     "expected": "145",
+     "observed": "255"
+    },
+    {
+     "name": "child stays stopped and the launcher stays alive until `fg`",
+     "ok": false,
+     "expected": "true",
+     "observed": "[\"gone/gone\"]"
+    },
+    {
+     "name": "after `fg` the child reads the terminal again",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the child's normal exit",
+     "ok": false,
+     "expected": "0",
+     "observed": "127"
+    },
+    {
+     "name": "meta file: code",
+     "ok": true,
+     "expected": "CHILD_EXITED",
+     "observed": "CHILD_EXITED"
+    },
+    {
+     "name": "meta file: data",
+     "ok": false,
+     "expected": "{\"launched\": true, \"exit_code\": 0, \"signal\": null}",
+     "observed": "{\"exit_code\": -1, \"launched\": true, \"signal\": null}"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "none left",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"trigger\": \"ext\", \"states\": [\"T/None\"], \"child_stopped_throughout\": true, \"launcher_alive_throughout\": true, \"stop_reported\": true, \"rc_after_stop\": 145, \"child_reads_after_fg\": true, \"rc_after_quit\": 0, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"-m00/r4-hidden/t1/child_read.py' '/tmp/hm-r4/M00-T05-r4-taskpack-fix/ fix2/tmp/pr3c-4lrn9ve1/c.log' read SIGSTOP\\n\\n[1]+  Stopped                 '/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/c.log' read SIGSTOP\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=145\\n@P@ <<SEND 'fg\\\\n'>><<SEND 'hello42\\\\n'>>fg\\n'/opt/homebrew/opt/python@3.14/bin/python3.14' '<child>' '<tmp>/c.log' read SIGSTOP\\nhello42\\nGOT hello42\\n<<SEND 'quit\\\\n'>>quit\\nGOT quit\\n@P@ <<SEND 'echo RC2=$?\\\\n'>>echo RC2=$?\\nRC2=0\\n@P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"trigger\": \"ext\", \"states\": [\"gone/gone\"], \"child_stopped_throughout\": false, \"launcher_alive_throughout\": false, \"stop_reported\": false, \"rc_after_stop\": 255, \"child_reads_after_fg\": false, \"rc_after_quit\": 127, \"meta\": {\"schema_version\": \"1\", \"state\": \"succeeded\", \"code\": \"CHILD_EXITED\", \"data\": {\"exit_code\": -1, \"launched\": true, \"signal\": null}, \"warnings\": [], \"next\": null}, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"r3c-k zye6he7/meta.json' -- '/opt/homebrew/opt/python@3.14/bin/python3.14' '<home>/.local/share/heimdall-m00/r4-hidden/t1/child_read.py' '/tmp/hm-r4/M00-T0 5-r4-taskpack-fix/fix2/tmp/pr3c-kzye6he7/c.log' read SIGSTOP\\n@P@ <<SEND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=255\\n@P@ <<SEND 'fg\\\\n'>><<SEND 'hello42\\\\n'>>fg\\nbash: fg: current: no such job\\n@P@ hello42\\nbash: hello42: command not found\\n@P@ <<SEND 'quit\\\\n'>><<SEND 'echo RC2=$?\\\\n'>>quit\\nbash: quit: command not found\\n@P@ echo RC2=$?\\nRC2=127\\n@P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.sigstop_meta_zsh_read",
+   "title": "4 interactive zsh, run --meta-file: the child is stopped by SIGSTOP (it stops itself)",
+   "status": "fail",
+   "error": null,
+   "seconds": 13.8,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (145)",
+     "ok": false,
+     "expected": "145",
+     "observed": "255"
+    },
+    {
+     "name": "child stays stopped and the launcher stays alive until `fg`",
+     "ok": false,
+     "expected": "true",
+     "observed": "[\"gone/gone\"]"
+    },
+    {
+     "name": "after `fg` the child reads the terminal again",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the child's normal exit",
+     "ok": false,
+     "expected": "0",
+     "observed": "127"
+    },
+    {
+     "name": "meta file: code",
+     "ok": true,
+     "expected": "CHILD_EXITED",
+     "observed": "CHILD_EXITED"
+    },
+    {
+     "name": "meta file: data",
+     "ok": false,
+     "expected": "{\"launched\": true, \"exit_code\": 0, \"signal\": null}",
+     "observed": "{\"exit_code\": -1, \"launched\": true, \"signal\": null}"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "none left",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"trigger\": \"read\", \"states\": [\"T/None\"], \"child_stopped_throughout\": true, \"launcher_alive_throughout\": true, \"stop_reported\": true, \"rc_after_stop\": 145, \"child_reads_after_fg\": true, \"rc_after_quit\": 0, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"ND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=145\\n                                                                                @P@ <<SEND 'fg\\\\n'>><<SEND 'hello42\\\\n'>>fg\\n[1]  + continued  '/opt/homebrew/opt/python@3.14/bin/python3.14'   read SIGSTOP\\nhello42\\nGOT hello42\\n<<SEND 'quit\\\\n'>>quit\\nGOT quit\\n                                                                                @P@ <<SEND 'echo RC2=$?\\\\n'>>echo RC2=$?\\nRC2=0\\n                                                                                @P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"trigger\": \"read\", \"states\": [\"gone/gone\"], \"child_stopped_throughout\": false, \"launcher_alive_throughout\": false, \"stop_reported\": false, \"rc_after_stop\": 255, \"child_reads_after_fg\": false, \"rc_after_quit\": 127, \"meta\": {\"schema_version\": \"1\", \"state\": \"succeeded\", \"code\": \"CHILD_EXITED\", \"data\": {\"exit_code\": -1, \"launched\": true, \"signal\": null}, \"warnings\": [], \"next\": null}, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"42\\\\n'>>fg\\nfg: no current job\\n                                                                                @P@ hello42\\nzsh: command not found: hello42\\n                                                                                @P@ <<SEND 'quit\\\\n'>><<SEND 'echo RC2=$?\\\\n'>>quit\\necho RC2=$?\\nzsh: command not found: quit\\n                                                                                @P@ RC2=127\\n                                                                                @P@ \", \"leftover_killed\": 0}"
+   ]
+  },
+  {
+   "id": "T1.sigstop_meta_zsh_ext",
+   "title": "4 interactive zsh, run --meta-file: the child is stopped by SIGSTOP (a third party stops it)",
+   "status": "fail",
+   "error": null,
+   "seconds": 13.78,
+   "assertions": [
+    {
+     "name": "shell reports the job stopped",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the stop equals plain exec's (145)",
+     "ok": false,
+     "expected": "145",
+     "observed": "255"
+    },
+    {
+     "name": "child stays stopped and the launcher stays alive until `fg`",
+     "ok": false,
+     "expected": "true",
+     "observed": "[\"gone/gone\"]"
+    },
+    {
+     "name": "after `fg` the child reads the terminal again",
+     "ok": false,
+     "expected": "true",
+     "observed": "false"
+    },
+    {
+     "name": "$? after the child's normal exit",
+     "ok": false,
+     "expected": "0",
+     "observed": "127"
+    },
+    {
+     "name": "meta file: code",
+     "ok": true,
+     "expected": "CHILD_EXITED",
+     "observed": "CHILD_EXITED"
+    },
+    {
+     "name": "meta file: data",
+     "ok": false,
+     "expected": "{\"launched\": true, \"exit_code\": 0, \"signal\": null}",
+     "observed": "{\"exit_code\": -1, \"launched\": true, \"signal\": null}"
+    },
+    {
+     "name": "no launcher or child process left",
+     "ok": true,
+     "expected": "none left",
+     "observed": "{\"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"leftover_killed\": 0}"
+    }
+   ],
+   "notes": [
+    "control: {\"via\": \"plain\", \"trigger\": \"ext\", \"states\": [\"T/None\"], \"child_stopped_throughout\": true, \"launcher_alive_throughout\": true, \"stop_reported\": true, \"rc_after_stop\": 145, \"child_reads_after_fg\": true, \"rc_after_quit\": 0, \"final\": {\"child\": \"gone\", \"launcher\": null}, \"transcript_tail\": \"ND 'echo RC=$?\\\\n'>>echo RC=$?\\nRC=145\\n                                                                                @P@ <<SEND 'fg\\\\n'>><<SEND 'hello42\\\\n'>>fg\\n[1]  + continued  '/opt/homebrew/opt/python@3.14/bin/python3.14'   read SIGSTOP\\nhello42\\nGOT hello42\\n<<SEND 'quit\\\\n'>>quit\\nGOT quit\\n                                                                                @P@ <<SEND 'echo RC2=$?\\\\n'>>echo RC2=$?\\nRC2=0\\n                                                                                @P@ \", \"leftover_killed\": 0}",
+    "subject: {\"via\": \"heimdall-proto\", \"trigger\": \"ext\", \"states\": [\"gone/gone\"], \"child_stopped_throughout\": false, \"launcher_alive_throughout\": false, \"stop_reported\": false, \"rc_after_stop\": 255, \"child_reads_after_fg\": false, \"rc_after_quit\": 127, \"meta\": {\"schema_version\": \"1\", \"state\": \"succeeded\", \"code\": \"CHILD_EXITED\", \"data\": {\"exit_code\": -1, \"launched\": true, \"signal\": null}, \"warnings\": [], \"next\": null}, \"final\": {\"child\": \"gone\", \"launcher\": \"gone\"}, \"transcript_tail\": \"42\\\\n'>>fg\\nfg: no current job\\n                                                                                @P@ hello42\\nzsh: command not found: hello42\\n                                                                                @P@ <<SEND 'quit\\\\n'>><<SEND 'echo RC2=$?\\\\n'>>quit\\necho RC2=$?\\nzsh: command not found: quit\\n                                                                                @P@ RC2=127\\n                                                                                @P@ \", \"leftover_killed\": 0}"
+   ]
+  }
+ ]
+}

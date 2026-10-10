@@ -1,0 +1,32 @@
+{
+ "task": "T4",
+ "lang": "rust",
+ "record_lang": "rust",
+ "platform": "darwin",
+ "result_binary_sha256": "1494e496db5d289bc9b95a37a5bd7194bc887f67c4fc08bbea0c6a40d4277219",
+ "baseline_subject": "seeded-rust",
+ "baseline_binary_sha256": "66187b16db9938919cb6a7562a67f8e9db40c42e9de19d2b816f56d3a95de530",
+ "baseline_pinned": true,
+ "valid": true,
+ "problems": [],
+ "total": 6,
+ "pass": 6,
+ "all_pass": true,
+ "baseline_pass": 1,
+ "baseline_fail": 5,
+ "fixed": "5/5",
+ "fixed_checks": [
+  "T4.plain_mode_exit",
+  "T4.relative_and_chained",
+  "T4.repro_absolute_symlink",
+  "T4.symlink_bounds_and_errors",
+  "T4.tui_via_symlink"
+ ],
+ "still_failing_checks": [],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [],
+ "all_pass_excluding_unproven": true,
+ "fixed_excluding_unproven": "5/5"
+}

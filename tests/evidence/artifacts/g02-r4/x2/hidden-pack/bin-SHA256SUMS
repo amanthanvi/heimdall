@@ -1,0 +1,8 @@
+bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214  bin/base-go/darwin-arm64/heimdall-proto
+18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96  bin/base-go/linux-arm64/heimdall-proto
+f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18  bin/base-rust/darwin-arm64/heimdall-proto
+85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d  bin/base-rust/linux-arm64/heimdall-proto
+7ccf5a2bfe299541ecffbd8f5949f509c30fbbe9b67fd3e8002234260d61d05a  bin/seeded-go/darwin-arm64/heimdall-proto
+3e118cb903f983886bdaa742caa3ebb6e9e0f3554e9fd66cc39f90cfd7af9943  bin/seeded-go/linux-arm64/heimdall-proto
+66187b16db9938919cb6a7562a67f8e9db40c42e9de19d2b816f56d3a95de530  bin/seeded-rust/darwin-arm64/heimdall-proto
+25af8e125d8ab1149ed7301a5ddf8bc45427eeb9ae4dc4ff9d4fe8e3a7859c00  bin/seeded-rust/linux-arm64/heimdall-proto

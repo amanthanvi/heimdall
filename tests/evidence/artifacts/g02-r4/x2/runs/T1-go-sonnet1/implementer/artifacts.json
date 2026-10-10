@@ -1,0 +1,7 @@
+{
+  "task_id": "T1-go-sonnet1",
+  "artifacts": [
+    {"target": "darwin-arm64", "path": "/tmp/x2ws-8da57df3/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto", "sha256": "5d0be6efbc4a821116b2729deb14bc3b016fc7d9d2defd61b404e5af4dd597c5"},
+    {"target": "linux-arm64", "path": "/tmp/x2ws-8da57df3/heimdall/prototypes/go/dist/linux-arm64/heimdall-proto", "sha256": "40668676204acde0b2684d4a16014e6cbd6559de08e3517a7d62867f2fbfa193"}
+  ]
+}

@@ -1,0 +1,24 @@
+Reviewer probe (read-only against built artifacts), darwin-arm64, 2026-10-09.
+Setup: pty session leader /bin/sh (non-interactive) -> helper puts itself in a new process
+group, takes the terminal foreground, execs a non-interactive sh that runs the command with
+stdio on the terminal. The group is NOT orphaned (its parent is in another group of the same
+session). Third party: SIGSTOP/SIGTSTP child, 0.5 s, SIGCONT child only. Pass = sh records
+exit status within 6 s of SIGCONT.
+Command: python3 -I probe-tty-nonjobcontrol.py <binary> probe-fg-helper.py   (exit 0 both runs)
+
+Changed binary (eval/out/dist-frozen/darwin-arm64/heimdall-proto):
+SIGSTOP plain exec -> exit 7 after 1.51s
+SIGSTOP heimdall-proto -> HUNG >6s after SIGCONT; launcher stopped (T), child zombie (Z+) unreaped
+SIGTSTP plain exec -> exit 7 after 1.54s
+SIGTSTP heimdall-proto -> HUNG >6s after SIGCONT; launcher stopped, child zombie unreaped
+
+Baseline binary (implementer's starting-commit darwin debug build):
+SIGSTOP plain exec -> exit 7 after 1.52s
+SIGSTOP heimdall-proto -> HUNG >6s after SIGCONT; child zombie (Z+) unreaped
+SIGTSTP plain exec -> exit 7 after 1.49s
+SIGTSTP heimdall-proto -> HUNG >6s after SIGCONT; child zombie (Z+) unreaped
+
+Conclusion: pre-existing, not a regression; outside S1 as specified (S1 requires no terminal
+on stdio). The change's job-control heuristic (terminal on stdio => job control) does not cover
+non-job-control parents whose stdio is a terminal. All probe-started launcher PIDs were
+stopped by exact PID afterwards and verified gone.

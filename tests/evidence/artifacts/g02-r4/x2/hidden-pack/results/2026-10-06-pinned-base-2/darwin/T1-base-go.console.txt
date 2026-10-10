@@ -1,0 +1,17 @@
+hidden.sh: task=T1 platform=darwin sha256=bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214 started=2026-10-06T15:29:46Z
+PASS  T1.nonint_stop_cont_SIGSTOP (2.1s)
+PASS  T1.nonint_stop_cont_SIGTSTP (2.1s)
+FAIL  T1.pty_stop_cont_bash_SIGSTOP (15.2s) :: shell reports the job stopped (as with plain exec); $? after the stop equals plain exec's (145); child was continued and completed its work
+PASS  T1.pty_stop_cont_bash_SIGTSTP (15.5s)
+FAIL  T1.pty_stop_cont_zsh_SIGSTOP (15.2s) :: shell reports the job stopped (as with plain exec); $? after the stop equals plain exec's (145); child was continued and completed its work
+PASS  T1.pty_stop_cont_zsh_SIGTSTP (15.5s)
+PASS  T1.cont_launcher_only_bash (9.8s)
+PASS  T1.cont_launcher_only_zsh (9.8s)
+FAIL  T1.nested_shell_bash (6.4s) :: `suspend` in the nested shell: stop notice; outer shell prompt returns and the outer shell survives; after `fg` the nested shell answers; outer $? after `exit 3` in the nested shell
+FAIL  T1.nested_shell_zsh (6.4s) :: `suspend` in the nested shell: stop notice; outer shell prompt returns and the outer shell survives; after `fg` the nested shell answers; outer $? after `exit 3` in the nested shell
+FAIL  T1.sigstop_meta_bash_read (13.8s) :: shell reports the job stopped; $? after the stop equals plain exec's (145); child stays stopped and the launcher stays alive until `fg`; after `fg` the child reads the terminal again
+FAIL  T1.sigstop_meta_bash_ext (13.7s) :: shell reports the job stopped; $? after the stop equals plain exec's (145); child stays stopped and the launcher stays alive until `fg`; after `fg` the child reads the terminal again
+FAIL  T1.sigstop_meta_zsh_read (13.8s) :: shell reports the job stopped; $? after the stop equals plain exec's (145); child stays stopped and the launcher stays alive until `fg`; after `fg` the child reads the terminal again
+FAIL  T1.sigstop_meta_zsh_ext (13.7s) :: shell reports the job stopped; $? after the stop equals plain exec's (145); child stays stopped and the launcher stays alive until `fg`; after `fg` the child reads the terminal again
+SUMMARY T1 FAIL platform=darwin {"pass": 6, "fail": 8, "error": 0, "total": 14}
+hidden.sh: exit=1 finished=2026-10-06T15:32:19Z

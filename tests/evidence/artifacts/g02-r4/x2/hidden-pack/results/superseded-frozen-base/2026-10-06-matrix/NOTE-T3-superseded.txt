@@ -1,0 +1,1 @@
+T3 rows in this directory ran t3/tui.py v1 (16 checks). Superseded by ../2026-10-06-matrix-t3v2 (tui.py v2: + T3.k17_filter_latency, + NO_COLOR selection-prefix assertion). T1, T2, T4 rows are current.

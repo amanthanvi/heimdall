@@ -1,0 +1,36 @@
+{
+  "candidate": "go",
+  "artifacts": [
+    {
+      "target": "darwin-arm64",
+      "path": "/tmp/x2ws-d0ea9f3d/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto",
+      "bytes": 5212000,
+      "sha256": "c2c7c3043380ccbb3a13fbd63d36d706cff65b47775eb625282cd65951d4ff64"
+    },
+    {
+      "target": "linux-arm64",
+      "path": "/tmp/x2ws-d0ea9f3d/heimdall/prototypes/go/dist/linux-arm64/heimdall-proto",
+      "bytes": 5177504,
+      "sha256": "31f9129b75fd00b205551e13e8a8887003f33bd67c17e1b12cb4dd7bfcadae98"
+    }
+  ],
+  "manifest": "/tmp/x2ws-d0ea9f3d/heimdall/prototypes/go/dist/manifest.json",
+  "all_targets_built": [
+    [
+      "darwin-arm64",
+      true
+    ],
+    [
+      "linux-x64",
+      true
+    ],
+    [
+      "linux-arm64",
+      true
+    ],
+    [
+      "windows-x64",
+      true
+    ]
+  ]
+}

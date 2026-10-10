@@ -1,0 +1,31 @@
+{
+  "cell": "T1-rust-opus1",
+  "task": "T1",
+  "lang": "rust",
+  "built": true,
+  "all_targets_build": true,
+  "binary_sha256": {
+    "darwin-arm64": "37ea9ee49912892671b7728c892b27be3baa0f53a3620deefe09e21c451dcf38",
+    "linux-arm64": "930f0d1418e8a8421cdd4214554724e99a5dbfd0d7bb123fc54203b6a8ad9998",
+    "linux-x64": "7af7aaf34494966cc365eb3d6cd868b510b2dbb49d91d294cd0c267e1450e297",
+    "windows-x64": "24a618232b273f49959d4e941b2e6c090c4e158535af79c862935b6ec67311b3"
+  },
+  "implementer_digests_match_rebuild": true,
+  "base_tree_digest_matches_BASE_json": true,
+  "pin_check": "pass (T4 seeded-* exit 1, base-* exit 0, digests equal BASE.json)",
+  "hidden": {
+    "darwin": {"exit": 0, "passed": 14, "total": 14, "failed_ids": [], "reruns": 0},
+    "linux": {"exit": 0, "passed": 14, "total": 14, "failed_ids": [], "reruns": 0}
+  },
+  "score": {
+    "darwin": {"valid": true, "all_pass": true, "fixed": "6/6", "regressed": 0, "unproven_checks": ["T1.nested_shell_bash", "T1.nested_shell_zsh"]},
+    "linux": {"valid": true, "all_pass": true, "fixed": "6/6", "regressed": 0, "unproven_checks": []}
+  },
+  "harness_2_4_2": {
+    "darwin": {"exit": 0, "passed": 139, "total": 139, "failed_ids": []},
+    "linux": {"exit": 0, "passed": 139, "total": 139, "failed_ids": []}
+  },
+  "unit_tests": {"exit": 0, "summary": "cargo test --locked: lib 49, bin 4, cli 29, windows 0 passed, no failures"},
+  "transcript_audit": "not run by this evaluator: no session transcript path was supplied in the task packet",
+  "provenance_caveat": "implementer report states the workspace was not fresh: it held a git commit 0a0a5f5 and uncommitted draft changes to src/runner.rs, tests/cli.rs, tests/pty_tui.py from an earlier interrupted run of the same task; the implementer reviewed, kept and verified them. Not a single-author fresh run; token, tool-call and duration figures understate the full effort."
+}

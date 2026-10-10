@@ -1,0 +1,9 @@
+{"cell":"T4-rust-sonnet1","task":"T4","lang":"rust","built":true,"all_targets_build":true,
+ "frozen_build_sha256":{"darwin-arm64":"802553a604a85b43226e04e7fed41502e017ba5be0aa4b341e1025f93a2bfa38","linux-arm64":"a4ee98f510e286bab3a038b7840c8c540c834ec217f9a65bf192b7d2666f5bd6","linux-x64":"fe19b4645cfb426c096c8ec96b44f5bff75ac0e96ea4d904979c802d0f5ca475","windows-x64":"2abc4db79899b4578ae7918eacdb8738c5ccca69e0d8daf615533d1ee9bcf3cc"},
+ "implementer_digests_match_clean_rebuild":true,
+ "pin_check":"T4 seeded-* exit 1, base-* exit 0, digests equal BASE.json (pin-check-exit-codes.tsv)",
+ "transcript_audit":"not performed: no implementer transcript supplied to this evaluator",
+ "hidden":{"darwin":{"exit":0,"pass":6,"total":6,"fixed":"5/5","regressed":0},"linux":{"exit":0,"pass":6,"total":6,"fixed":"5/5","regressed":0},"reruns":"one extra full run per platform, both exit 0 (no flakiness observed; no failing check required reruns)"},
+ "harness_2_4_2":{"darwin":"139/139 exit 0","linux":"139/139 exit 0"},
+ "unit_tests":"cargo test --locked exit 0; 49 lib + 4 + 29 cli passed",
+ "notes":["build.sh notices generation fails offline (cargo metadata --offline); build.sh exits 0, all four targets built; environmental","change touches src/profile.rs, tests/cli.rs, tests/pty_tui.py only; Windows path unchanged and not run natively","implementer workspace tools/__pycache__ pyc excluded from change.patch"]}

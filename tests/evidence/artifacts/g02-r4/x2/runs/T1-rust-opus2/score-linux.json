@@ -1,0 +1,33 @@
+{
+ "task": "T1",
+ "lang": "rust",
+ "record_lang": "rust",
+ "platform": "linux",
+ "result_binary_sha256": "36986c356d3e2081a00a94173d8f74f439d94f2cf00dd753f225287c8b923aaf",
+ "baseline_subject": "base-rust",
+ "baseline_binary_sha256": "85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d",
+ "baseline_pinned": true,
+ "valid": true,
+ "problems": [],
+ "total": 14,
+ "pass": 14,
+ "all_pass": true,
+ "baseline_pass": 8,
+ "baseline_fail": 6,
+ "fixed": "6/6",
+ "fixed_checks": [
+  "T1.cont_launcher_only_bash",
+  "T1.cont_launcher_only_zsh",
+  "T1.nested_shell_bash",
+  "T1.nested_shell_zsh",
+  "T1.nonint_stop_cont_SIGSTOP",
+  "T1.nonint_stop_cont_SIGTSTP"
+ ],
+ "still_failing_checks": [],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [],
+ "all_pass_excluding_unproven": true,
+ "fixed_excluding_unproven": "6/6"
+}

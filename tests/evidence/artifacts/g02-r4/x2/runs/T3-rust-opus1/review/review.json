@@ -1,0 +1,21 @@
+{
+  "cell": "T3-rust-opus1",
+  "reviewer_task": "M00-T05-r4-x2-review-T3-rust-opus1",
+  "method": "Read diff.patch against TASK.md and the surrounding prototypes/rust code (list_model.rs, tui.rs, tests/pty_tui.py). Read-only probes: cargo fmt --check exit 0; implementer clippy logs (host and windows) end with Finished and no warnings; ratatui 0.30.2 in Cargo.lock. Did not rerun hidden tests, harness or unit tests (evaluator did).",
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/src/tui.rs render()", "description": "render() mutates the model (m.set_viewport) as a side effect of drawing; refilter() then relies on the viewport/offset of the last drawn frame. Correct today because terminal.draw autoresizes before the closure and every key batch is followed by a draw, but the coupling is implicit and the signature change to &mut ListModel is easy to miss."},
+    {"severity": "minor", "location": "prototypes/rust/src/list_model.rs find_ci / ListModel::row", "description": "find_ci re-lowercases alias and host for every shown row on every frame although keys already holds the lowercased forms. Harmless at 100 rows (K17 passed) but duplicated work and a second place encoding the matching rule."},
+    {"severity": "minor", "location": "prototypes/rust/tests/pty_tui.py Screen.feed SGR handling", "description": "The VT model treats any SGR parameter equal to 4 as underline-on, so an extended colour such as 38;5;4 would be misread as underline; the underline flag is also not reset on resize. Not triggered by the current ratatui output (named colours, NO_COLOR) but fragile test infrastructure."},
+    {"severity": "minor", "location": "prototypes/rust/tests/pty_tui.py HELP constant", "description": "Help lines are duplicated in the pty test instead of being checked against the spec text once; acceptable for a black-box test but two copies to keep in sync with HELP_LINES."}
+  ],
+  "notes": [
+    "find_ci byte-offset mapping is correct: str::to_lowercase equals the concatenation of per-char lowercase forms except final sigma, which has the same UTF-8 length; matches starting/ending inside an expansion widen to the whole char; unit tests cover the İ and Σ cases.",
+    "Matching rule is the existing filter rule (Unicode to_lowercase + substring), as T3 requires; the ASCII-only folding check applies to T2 and is not applicable here.",
+    "Part C: refilter records the selected profile index and screen row, binary-searches the new shown list (sorted profile order), falls back to 0, and fit_offset keeps a full window containing the selection. No overflow with the usize::MAX initial viewport (early return when len <= cap). state.select precedes offset_mut, avoiding ratatui's reset of offset on select(None).",
+    "Part B: help consumes all keys except Ctrl-C (handled first) and ?/Esc; Esc does not touch the filter; overlay drawn full-screen from an empty frame buffer so no list text remains; test-panic hook also gated on help.",
+    "Part A: only alias and (width >= 50) host segments can be underlined; prefix, separators, account, @, :, port never; empty needle underlines nothing; Modifier::UNDERLINED carries no colour so NO_COLOR stays colour-free."
+  ],
+  "spec_conformance": 5,
+  "test_quality": 4,
+  "clarity": 4
+}

@@ -1,0 +1,29 @@
+CALL 2 agent-afcffbfd4d4896ef7.jsonl line 18 Bash: path-outside:other-workspace,raw-path-outside:home
+CALL 12 agent-afcffbfd4d4896ef7.jsonl line 71 Read: path-outside:home
+CALL 26 agent-afcffbfd4d4896ef7.jsonl line 155 Bash: raw-path-outside:outside
+CALL 30 agent-afcffbfd4d4896ef7.jsonl line 178 Bash: cwd-outside:repository,marker:repository,unresolved-expansion
+CALL 34 agent-afcffbfd4d4896ef7.jsonl line 202 Bash: raw-path-outside:outside
+CALL 39 agent-afcffbfd4d4896ef7.jsonl line 232 Bash: output-marker:repository
+CALL 42 agent-afcffbfd4d4896ef7.jsonl line 251 Bash: raw-path-outside:outside
+CALL 44 agent-afcffbfd4d4896ef7.jsonl line 263 airport_Write: raw-path-outside:outside
+CALL 46 agent-afcffbfd4d4896ef7.jsonl line 273 Bash: raw-path-outside:outside
+CALL 47 agent-afcffbfd4d4896ef7.jsonl line 279 Bash: cwd-outside:repository
+CALL 48 agent-afcffbfd4d4896ef7.jsonl line 285 Bash: cwd-outside:repository,marker:repository,unresolved-expansion
+CALL 51 agent-afcffbfd4d4896ef7.jsonl line 304 Bash: path-outside:root,unresolved-expansion
+CALL 52 agent-afcffbfd4d4896ef7.jsonl line 310 Bash: raw-path-outside:outside
+CALL 53 agent-afcffbfd4d4896ef7.jsonl line 315 Bash: path-outside:other-workspace,path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp
+CALL 54 agent-afcffbfd4d4896ef7.jsonl line 321 Bash: path-outside:other-workspace,path-outside:outside,raw-path-outside:outside
+CALL 55 agent-afcffbfd4d4896ef7.jsonl line 327 Bash: output-marker:repository
+CALL 58 agent-afcffbfd4d4896ef7.jsonl line 345 Bash: cwd-outside:repository,marker:repository,unresolved-expansion
+CALL 60 agent-afcffbfd4d4896ef7.jsonl line 358 Bash: path-outside:other-workspace,path-outside:outside,raw-path-outside:outside
+CALL 70 agent-afcffbfd4d4896ef7.jsonl line 415 Bash: path-outside:root,unresolved-expansion
+CALL 71 agent-afcffbfd4d4896ef7.jsonl line 420 Bash: path-outside:other-workspace,path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp
+CALL 72 agent-afcffbfd4d4896ef7.jsonl line 426 Bash: cwd-outside:repository,marker:repository,output-marker:other-workspace,raw-path-outside:home,raw-path-outside:outside
+CALL 73 agent-afcffbfd4d4896ef7.jsonl line 432 Bash: raw-path-outside:outside
+CALL 76 agent-afcffbfd4d4896ef7.jsonl line 450 Bash: path-outside:other-workspace,raw-path-outside:home,raw-path-outside:other-workspace
+CALL 77 agent-afcffbfd4d4896ef7.jsonl line 456 Bash: cwd-outside:repository,path-outside:other-workspace,raw-path-outside:other-workspace,raw-path-outside:outside
+NOTE agent-afcffbfd4d4896ef7.jsonl line 3 prompt: marker:repository
+NOTE agent-afcffbfd4d4896ef7.jsonl line 6 prompt: marker:repository
+NOTE agent-afcffbfd4d4896ef7.jsonl line 7 prompt: marker:task-pack
+VERDICT SUSPECT calls [2, 12, 26, 30, 34, 39, 42, 44, 46, 47, 48, 51, 52, 53, 54, 55, 58, 60, 70, 71, 72, 73, 76, 77] entries 0
+audit: 1 transcript file(s), 78 tool call(s), 24 offending

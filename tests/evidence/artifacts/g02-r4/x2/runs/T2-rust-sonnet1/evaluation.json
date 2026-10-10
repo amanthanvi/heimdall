@@ -1,0 +1,7 @@
+{"cell":"T2-rust-sonnet1","built":true,"all_targets_build":true,
+"digests":{"darwin-arm64":"3ae21efee251e0ff1bb7066888021545ecca6606d605439faead521be354af54","linux-arm64":"27d940703ae87d4f1a2cbfd23465efb96b317f3518d2642724e7f81a550bbc5b","match_implementer_report":true},
+"hidden":{"darwin":{"passed":12,"total":12,"exit":0},"linux":{"passed":12,"total":12,"exit":0}},
+"score":{"all_pass":true,"fixed":"11/11","regressed":0},
+"harness":{"darwin":"139/139","linux":"139/139"},
+"unit":"cargo test --locked exit 0 (59 + 4 + 38 passed)",
+"notes":["no reruns needed; no flakiness observed","build.sh notices generation failed (cargo metadata offline), build still exit 0","implementer workspace held tools/__pycache__ (stray, excluded from patch)","transcript audit not performed by this evaluator"]}

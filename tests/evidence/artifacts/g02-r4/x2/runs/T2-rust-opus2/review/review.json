@@ -1,0 +1,27 @@
+{
+  "cell": "T2-rust-opus2",
+  "task_id": "M00-T05-r4-x2-review-T2-rust-opus2",
+  "reviewer": "claude-opus-5-5 (independent; did not implement)",
+  "method": "Read diff.patch (7 files, +1269/-3) against TASK.md and the surrounding prototypes/rust sources (profile.rs loader, cli.rs parse_opts, main.rs emit/plain, envelope.rs to_line/exit_code). No tests rerun; evaluation results taken as given.",
+  "ascii_fold_check": "verified by reading: rule 1 host key uses str::to_ascii_lowercase; rule 5 folds via to_ascii_lowercase only when a byte is_ascii_uppercase (Cow borrow otherwise). Both map only A-Z. Unit tests also cover U+212A KELVIN SIGN, U+00DC/U+00FC, A-umlaut and sharp-s near misses.",
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/src/lint.rs tests::linear_on_many_labels", "description": "Wall-clock assertion (lint of 100k labels < 2 s) in a unit test; may flake on a heavily loaded host or in a debug build under contention. The complexity is evidently linear, so a count-based or ignored perf test would be more robust."},
+    {"severity": "minor", "location": "prototypes/rust/src/lint.rs json_line", "description": "Hand-written JSON serializer duplicates the envelope shape (member order, schema_version, warnings, next) instead of going through Envelope. It is pinned by a byte-identity unit test against Envelope::to_line, so drift is caught, but any future envelope change has to be made in two places. The justification (peak RSS on a 1 MiB, 262k-label profile) is documented."},
+    {"severity": "minor", "location": "prototypes/rust/src/lint.rs Finding::destination_indexes", "description": "De-duplication relies on places being in non-decreasing destination order, enforced only by debug_assert. True for all five rules today, but a future rule that emits out of order would silently produce repeated ids in release builds."}
+  ],
+  "correctness_notes": [
+    "Input handling reuses profile::load_file and copies the profile show error branch verbatim (same stderr line, envelope, exit), so SCHEMA_INVALID/INPUT_TOO_LARGE/USAGE_ERROR/K2/K14/K15/K18 parity holds by construction; an integration test compares stdout, stderr and exit byte for byte against profile show on 11 inputs in 3 option modes.",
+    "Option parsing reuses parse_opts with the same flags as profile show: either order, missing value, unknown flag, repeated flag -> exit 2 with USAGE_ERROR JSON only with --json.",
+    "Rule 5 'two or more different spellings' is computed as any member spelling != the group's first spelling, which is equivalent. Same-destination case variants go to rule 5 only; exact duplicates go to rule 4; identical labels across destinations produce nothing.",
+    "Effective port comes from the loader default (22); port 0 is rejected by the loader, so 1..1023 except 22 is correct.",
+    "destination_ids cannot repeat ids because the loader rejects duplicate destination ids.",
+    "Closed-stdout write errors are ignored as in emit/plain, so exit parity (K12) holds; default_signals applied to ProfileLint like ProfileShow."
+  ],
+  "security_notes": [
+    "No profile value in stdout/stderr: messages are fixed strings, key paths are built from fixed ASCII plus integer indexes, ids are escaped via serde_json. Plain output omits even ids. Error path is unchanged K18 loader output.",
+    "Resources bounded by the existing 1 MiB input cap; each rule is a single hash-map pass; output size is linear in labels. No file writes, no network."
+  ],
+  "test_quality_notes": "15 lint unit tests (each rule, near misses, ordering, rule 4/5 interplay, ASCII-only fold, exact four members, non-echo, byte identity with Envelope), 2 parser tests, 8 binary tests (exact JSON both orders on a path with spaces and non-ASCII, non-echo in all modes, clean fixtures, large-100 fixture, error parity with show, K14 FIFO/dir/device/socket within 2 s, usage errors, closed-stdout parity, no file writes via directory snapshot).",
+  "scores": {"spec_conformance": 5, "test_quality": 5, "clarity": 4},
+  "summary": "Correct and conformant; no blocker or major defects found. ASCII-only folding confirmed by code reading. Three minor maintainability/robustness notes."
+}

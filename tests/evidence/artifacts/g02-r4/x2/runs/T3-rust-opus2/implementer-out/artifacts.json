@@ -1,0 +1,8 @@
+{
+  "task_id": "T3-rust-opus2",
+  "build": "prototypes/rust/build.sh (exit 0; darwin-arm64, linux-x64, linux-arm64, windows-x64 all built)",
+  "artifacts": [
+    {"target": "darwin-arm64", "path": "/tmp/x2ws-c5670791/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto", "bytes": 718112, "sha256": "7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590"},
+    {"target": "linux-arm64", "path": "/tmp/x2ws-c5670791/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto", "bytes": 829312, "sha256": "37f6ae6f26fb1b051b51586e41e46a322a313279ffe4c7b6e33a77dcad78a55e"}
+  ]
+}

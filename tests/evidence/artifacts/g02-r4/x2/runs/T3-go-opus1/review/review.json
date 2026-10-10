@@ -1,0 +1,22 @@
+{
+  "task_id": "M00-T05-r4-x2-review-T3-go-opus1",
+  "cell": "T3-go-opus1",
+  "reviewer": "independent subagent (Opus 5.5); did not implement this cell",
+  "method": "Read out/diff.patch (9 files, +656/-46) against TASK.md and surrounding prototypes/go code (internal/tui/tui.go, internal/profile Filter, cmd/heimdall-proto runTUI); read bubbletea v2.0.10 tea.go/tty_*.go and x/ansi v0.11.8 truncate.go from the local module cache. No builds or tests were rerun; evaluator results were taken as given.",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/tui_output.go (sgrSafeOutput)", "description": "Product output stream rewritten to work around a pyte (test emulator) mis-parse of CSI > Pp m. It is well documented and inert on XTMODKEYS-aware terminals, but it is permanent product code that exists for the acceptance emulator. It relies on the claim that the renderer pen is plain when Bubble Tea emits XTMODKEYS; if a future Bubble Tea emitted it mid-frame, the inserted CSI m would silently drop styling. A sequence split across Write calls would also miss its reset (acknowledged by the implementer). Neither was observed."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/tui_output.go Write", "description": "On a short write the returned byte count maps bytes of the expanded buffer q to bytes of p (clamped to len(p)), so n is not an accurate offset into p. An error is always returned and Bubble Tea ignores n, so there is no practical effect."},
+    {"severity": "minor", "location": "prototypes/go/internal/tui/tui.go matchSpan/highlight", "description": "Matching and SGR insertion work on runes, not grapheme clusters. A filter that matches a base letter of a decomposed sequence (e + U+0301) or a ZWJ emoji part would put SGR 4/24 inside a cluster. Outside the spec's ASCII/CJK test scope; this is inferred from reading the code and was not observed."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/tui_underline_pty_test.go", "description": "The pty test drives keys with fixed 250 ms sleeps and an 8 s timeout. Timing-based, so it may flake under heavy load (not observed)."},
+    {"severity": "minor", "location": "prototypes/go/internal/tui/tui_test.go TestHelpOverlay", "description": "The comment 'filter mode survives an open/close cycle' is inaccurate: help can only open outside filter mode, and the step only checks that the render is unchanged."}
+  ],
+  "notes": [
+    "Case folding: T3 requires the existing filter rule. matchSpan uses strings.ToLower like profile.Filter, which is a 1:1 rune mapping (unicode.ToLower), so rune indexes align with Sanitize output. Rune-wise substring match equals strings.Contains on valid UTF-8. ASCII-only folding is a T2 concern and not applicable here.",
+    "ansi.Truncate (x/ansi v0.11.8) keeps escape sequences after the cut, so a clipped match does not leave underline on. TestMatchHighlightTruncated covers this.",
+    "Bubble Tea v2.0.10 detects the output terminal through the term.File interface (tty_unix.go:30, tty_windows.go:36), which the wrapper satisfies via Fd/Read/Write/Close. Windows was not run (compile/vet only per the implementer).",
+    "Part C refilter correctly handles an empty prior result (prev=-1 -> row 0). Stateless scrolling keeps the selected row visible with a full window, which matches the K17 part C predicate.",
+    "Help overlay: Ctrl-C is checked before the help gate. WindowSizeMsg/InterruptMsg/TermMsg/HangupMsg are handled regardless. Esc/? close it without touching filter state. In filter mode, ? falls through to the printable append.",
+    "Security: displayed text stays Sanitize'd. Only fixed SGR constants are inserted. The filter is printable-checked. The output regex is linear. No secrets are involved."
+  ]
+}

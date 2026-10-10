@@ -1,0 +1,10 @@
+check	command_template	exit
+crafted_audit	python3 -I -B <scratch>/craft.py <hidden> <repo> <scratch>/transcripts	0
+audit_selftest	python3 -I -B <hidden>/audit-selftest.py --repo <repo> --scratch <scratch>/selftest	0
+make_workspace	HM_REPO=<repo> sh <hidden>/make-workspace.sh --task T2 --lang go --dest /tmp/x2ws-<rand>/heimdall --manifest <scratch>/ws-manifest.json	0
+verify_matrix	HM_REPO=<repo> TASKS=T2 sh <hidden>/verify-matrix.sh <scratch>/matrix-T2 darwin	0
+score_no_expect	score.py without --expect-sha256	2
+score_valid	score.py T2 go darwin --expect-sha256 <record sha>	0
+score_wrong_sha	score.py --expect-sha256 aaaa...	2
+score_wrong_lang	score.py --lang rust on go record	2
+score_no_lang	score.py record without lang	2

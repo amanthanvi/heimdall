@@ -1,0 +1,9 @@
+hidden.sh: task=T4 platform=linux lang=rust sha256=a4ee98f510e286bab3a038b7840c8c540c834ec217f9a65bf192b7d2666f5bd6 started=2026-10-09T11:14:16Z
+PASS  T4.repro_absolute_symlink (0.0s)
+PASS  T4.relative_and_chained (0.0s)
+PASS  T4.still_rejected_nonregular (0.0s)
+PASS  T4.symlink_bounds_and_errors (0.0s)
+PASS  T4.plain_mode_exit (0.0s)
+PASS  T4.tui_via_symlink (0.2s)
+SUMMARY T4 PASS platform=linux lang=rust {"pass": 6, "fail": 0, "error": 0, "total": 6}
+hidden.sh: exit=0 finished=2026-10-09T11:14:17Z

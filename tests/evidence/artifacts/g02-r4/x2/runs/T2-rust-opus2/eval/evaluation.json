@@ -1,0 +1,8 @@
+{"cell":"T2-rust-opus2","task":"T2","lang":"rust","built":true,"all_targets_build":true,
+ "sha256":{"darwin-arm64":"e21a23ef2e30452ece36c43e501cad873c2f38f69dfe1ed2fb31a44ee8c1b42f","linux-arm64":"7a45aef676987bddee42c08aeb83749cb1b5d3812673f04b7fe738cdf8ff44dc","matches_implementer":true},
+ "hidden":{"darwin":{"passed":12,"total":12,"failed_ids":[]},"linux":{"passed":12,"total":12,"failed_ids":[]},"reruns":0},
+ "score":{"all_pass":true,"fixed":"11/11","regressed":0,"valid":true},
+ "harness_2_4_2":{"darwin":{"passed":139,"total":139},"linux":{"passed":139,"total":139}},
+ "unit_tests":{"exit_code":0,"summary":"lib 64, bin 4, cli 36 passed"},
+ "diff_stats":{"files":7,"insertions":1269,"deletions":3,"note":"includes REPORT.md (+89)"},
+ "not_done":["transcript audit (no session file supplied)","pin-check (not rerun; sibling cells' pin-check records exist)"]}

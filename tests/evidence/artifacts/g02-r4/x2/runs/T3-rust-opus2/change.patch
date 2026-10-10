@@ -1,0 +1,1283 @@
+diff --color -ruN -x target -x dist /tmp/x2ws-c5670791/eval/base/prototypes/rust/REPORT.md /tmp/x2ws-c5670791/eval/frozen/rust/REPORT.md
+--- /tmp/x2ws-c5670791/eval/base/prototypes/rust/REPORT.md	2026-10-06 04:41:29
++++ /tmp/x2ws-c5670791/eval/frozen/rust/REPORT.md	2026-10-09 00:47:08
+@@ -2,7 +2,7 @@
+ 
+ # REPORT.md content — G02 prototype: Rust + Ratatui (M00-T05-rust)
+ 
+-> **Current state:** §15 "Round 3c (2026-10-04)" is the current mechanism and evidence. It supersedes §14's statements that heimdall-proto "never stops itself or anything else" (it now mirrors a child's stop onto its own PID). §14 "Round 3b (2026-10-04)" is otherwise still current. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
++> **Current state:** §17 (X2 task T3) replaces the K9 selection rule described in §4 and §12. §15 "Round 3c (2026-10-04)" is the current mechanism and evidence. It supersedes §14's statements that heimdall-proto "never stops itself or anything else" (it now mirrors a child's stop onto its own PID). §14 "Round 3b (2026-10-04)" is otherwise still current. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
+ 
+ **Evidence:** `tests/evidence/g02-rust-selftest.json`, plus `tests/evidence/artifacts/g02-rust/selftest/` (`summary.json` with the real exit code of every step, one log per step). Re-run everything with `prototypes/rust/selftest.sh`.
+ 
+@@ -761,3 +761,35 @@
+   the round-3c bytes.
+ - Windows: see the tables above. The evidence directory contains no full canary value and no user name, host
+   name or home path. Placeholders are `<scratch>`, `<repo>`, `<home>` and `S-1-5-21-<redacted>`.
++
++## 17. X2 task T3: match underline, help overlay, selection kept across filter edits
++
++Supersedes the K9 statements in §4 and §12: a filter edit now keeps the selected destination (task T3 part C).
++
++- **Part A, underline** (`src/list_model.rs` `match_range`, `ListModel::row_match`; `src/tui.rs` `row_line`).
++  While the filter is non-empty, the first case-insensitive occurrence of it in the alias, and in the host when
++  the row shows it (50 columns or more), is drawn with the underline attribute; nothing else in a row is. The
++  search uses the filter's own rule (`str::to_lowercase` on both sides) and maps the hit back to whole
++  characters of the original string through per-character lowercase lengths, so it stays exact where lowercasing
++  changes the length. Underline is an attribute, so it is drawn under `NO_COLOR`; crossterm still writes no
++  colour SGR then.
++- **Part B, help overlay** (`HELP_LINES`, `ListModel::help_open`; `src/tui.rs` `render_help`). `?` outside
++  filter mode opens it; `?` or `Esc` closes it (Esc does not touch the filter); every other key except Ctrl-C is
++  ignored while it is open. It replaces the whole screen, one help line per row with a one-space indent, so no
++  list text shares a row with it; small terminals clip it. In filter mode `?` is filter text.
++- **Part C, selection** (`ListModel::refilter`, `ListModel::scroll`). After an edit the previously selected
++  destination stays selected if it is still shown (found by binary search in the ascending `shown` list),
++  otherwise the first shown row is selected. The model now owns the list window: `scroll(height)` keeps the
++  previous window position, clamps it so the window is always full when enough rows match, and moves it only as
++  far as needed to keep the selection visible. When the selection is kept, it keeps its screen row where
++  possible. Ratatui's own offset logic does not back-fill a window that a shrinking list leaves short, so the
++  offset is set explicitly.
++- **Tests:** unit tests replace the K9 test with part C tests and add match, help and scroll tests
++  (`src/list_model.rs`), plus `TestBackend` render tests that check underlined cells, help rows and full windows
++  (`src/tui.rs`). `tests/pty_tui.py` tracks the underline attribute per cell; its K9 case is replaced by the part
++  C cases `t3c-filter-edit-keeps-selection`, `t3c-large-100-far-selection` and `t3c-k17-latency-part-c` (K17
++  with the part C update predicate), and `t3a-match-underline` and `t3b-help-overlay` are new.
++- **Harness 2.4.2:** 136/139 pass on darwin-arm64 and on linux-arm64. The three failures are the checks that
++  encode K9 (`tui.filter_edit_resets_selection`, `tui.no_color`'s last marker step,
++  `tui.large_100_filter_latency`'s rows predicate), which the task names as expected; `tui.no_color`'s
++  no-colour-SGR assertion passes, and the K17 p95 recorded by the harness was 2.8 ms (darwin) and 3.0 ms (Linux).
+diff --color -ruN -x target -x dist /tmp/x2ws-c5670791/eval/base/prototypes/rust/src/list_model.rs /tmp/x2ws-c5670791/eval/frozen/rust/src/list_model.rs
+--- /tmp/x2ws-c5670791/eval/base/prototypes/rust/src/list_model.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-c5670791/eval/frozen/rust/src/list_model.rs	2026-10-09 00:47:14
+@@ -24,17 +24,77 @@
+     Cancel,
+ }
+ 
++/// The help overlay text (task T3 part B), top to bottom, one screen row each.
++pub const HELP_LINES: [&str; 9] = [
++    "Keys",
++    "Up / k      move up",
++    "Down / j    move down",
++    "/           filter",
++    "Enter       select",
++    "Esc         clear filter",
++    "q           quit",
++    "?           close help",
++    "Ctrl-C      cancel",
++];
++
++/// Byte range in `hay` of the first case-insensitive occurrence of `needle_lower`
++/// (already lowercased with `str::to_lowercase`, the filter's rule). `None` when
++/// the needle is empty or does not occur.
++///
++/// The search runs on `hay.to_lowercase()`, exactly as the filter does, and the hit is
++/// mapped back to whole characters of `hay`: a character is part of the range when its
++/// lowercase form overlaps the hit. `str::to_lowercase` lowercases character by
++/// character (its one context rule, final sigma, swaps two code points of equal UTF-8
++/// length), so per-character lowercase lengths locate every character exactly, even
++/// where lowercasing changes the length.
++pub fn match_range(hay: &str, needle_lower: &str) -> Option<std::ops::Range<usize>> {
++    if needle_lower.is_empty() {
++        return None;
++    }
++    let lower = hay.to_lowercase();
++    let hit_start = lower.find(needle_lower)?;
++    let hit_end = hit_start + needle_lower.len();
++    let mut lo = 0; // byte offset of the current character's lowercase form in `lower`
++    let mut range: Option<std::ops::Range<usize>> = None;
++    for (i, c) in hay.char_indices() {
++        let len: usize = c.to_lowercase().map(char::len_utf8).sum();
++        if lo < hit_end && lo + len > hit_start {
++            let end = i + c.len_utf8();
++            range = Some(range.map_or(i..end, |r| r.start..end));
++        }
++        lo += len;
++        if lo >= hit_end {
++            break;
++        }
++    }
++    range
++}
++
++/// Underlined parts of one list row (task T3 part A): byte ranges of the first match in
++/// the alias and in the host.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct RowMatch {
++    pub alias: Option<std::ops::Range<usize>>,
++    pub host: Option<std::ops::Range<usize>>,
++}
++
+ #[derive(Debug, Clone)]
+ pub struct ListModel {
+     items: Vec<Destination>,
+     /// Pre-lowercased (alias, host) for filtering.
+     keys: Vec<(String, String)>,
+     filter: String,
++    /// `filter` lowercased with the filtering rule (kept for highlighting).
++    needle: String,
+     filtering: bool,
++    /// Help overlay open (task T3 part B).
++    help: bool,
+     /// Indices into `items` that match the filter, in profile order.
+     shown: Vec<usize>,
+     /// Position within `shown`.
+     selected: usize,
++    /// First shown row on screen (position within `shown`); see [`ListModel::scroll`].
++    offset: usize,
+ }
+ 
+ impl ListModel {
+@@ -48,9 +108,12 @@
+             items,
+             keys,
+             filter: String::new(),
++            needle: String::new(),
+             filtering: false,
++            help: false,
+             shown,
+             selected: 0,
++            offset: 0,
+         }
+     }
+ 
+@@ -66,6 +129,9 @@
+     pub fn is_filtering(&self) -> bool {
+         self.filtering
+     }
++    pub fn help_open(&self) -> bool {
++        self.help
++    }
+     /// Selected position within the shown rows, if any rows are shown.
+     pub fn selected(&self) -> Option<usize> {
+         if self.shown.is_empty() {
+@@ -102,7 +168,39 @@
+         }
+     }
+ 
++    /// Parts of `d` to underline: the first case-insensitive occurrence of the filter
++    /// text in the alias and in the host. Both are `None` while the filter is empty.
++    pub fn row_match(&self, d: &Destination) -> RowMatch {
++        RowMatch {
++            alias: match_range(&d.alias, &self.needle),
++            host: match_range(&d.host, &self.needle),
++        }
++    }
++
++    /// First shown row to draw in a list window of `height` rows. The window is always
++    /// full when enough rows match, and it always contains the selected row; otherwise
++    /// the previous position is kept (the list scrolls only as far as needed).
++    pub fn scroll(&mut self, height: usize) -> usize {
++        let n = self.shown.len();
++        let mut off = self.offset.min(n.saturating_sub(height));
++        if height > 0 && n > 0 {
++            if self.selected < off {
++                off = self.selected;
++            } else if self.selected >= off + height {
++                off = self.selected + 1 - height;
++            }
++        }
++        self.offset = off;
++        off
++    }
++
++    /// Re-apply the filter after an edit (task T3 part C, replacing contract K9): the
++    /// destination selected before the edit stays selected if it is still shown, at the
++    /// same screen row where possible; otherwise the first shown row is selected.
+     fn refilter(&mut self) {
++        let before = self
++            .selected()
++            .map(|s| (self.shown[s], s - self.offset.min(s)));
+         let needle = self.filter.to_lowercase();
+         self.shown = (0..self.items.len())
+             .filter(|&i| {
+@@ -111,14 +209,32 @@
+                     || self.keys[i].1.contains(&needle)
+             })
+             .collect();
+-        // Contract §9 K9: every filter change resets the selection to the first shown row.
+-        self.selected = 0;
++        self.needle = needle;
++        // `shown` is in ascending profile order, so the kept destination is found by
++        // binary search.
++        match before.and_then(|(item, row)| Some((self.shown.binary_search(&item).ok()?, row))) {
++            Some((pos, row)) => {
++                self.selected = pos;
++                self.offset = pos - row.min(pos);
++            }
++            None => {
++                self.selected = 0;
++                self.offset = 0;
++            }
++        }
+     }
+ 
+     pub fn handle(&mut self, key: Key) -> Action {
+         if key == Key::CtrlC {
+             return Action::Cancel;
+         }
++        if self.help {
++            // Only `?` and Esc close the overlay; Esc does not touch the filter.
++            if matches!(key, Key::Char('?') | Key::Esc) {
++                self.help = false;
++            }
++            return Action::None;
++        }
+         if self.filtering {
+             match key {
+                 Key::Enter => self.filtering = false,
+@@ -145,6 +261,7 @@
+             Key::Up | Key::Char('k') => self.up(),
+             Key::Down | Key::Char('j') => self.down(),
+             Key::Char('/') => self.filtering = true,
++            Key::Char('?') => self.help = true,
+             Key::Char('q') => return Action::Quit,
+             Key::Enter => {
+                 if let Some(d) = self.selected_item() {
+@@ -236,10 +353,14 @@
+         assert_eq!(m.handle(Key::CtrlC), Action::Cancel);
+     }
+ 
+-    /// K9: append, Backspace and the Esc clear each reset the selection to the first
+-    /// shown row; leaving filter mode with Enter keeps it.
++    fn sel_alias(m: &ListModel) -> Option<String> {
++        m.selected_item().map(|d| d.alias.clone())
++    }
++
++    /// Part C (replaces K9): append, Backspace and the Esc clear keep the selected
++    /// destination when it is still shown; leaving filter mode with Enter keeps it too.
+     #[test]
+-    fn k9_filter_edit_resets_selection_enter_keeps_it() {
++    fn filter_edit_keeps_selection_when_still_shown() {
+         let mut m = model("homelab.toml");
+         m.handle(Key::Down);
+         m.handle(Key::Down);
+@@ -247,19 +368,19 @@
+         m.handle(Key::Char('/'));
+         typ(&mut m, "e"); // all three rows still match ("e" in every alias/host)
+         assert_eq!(m.shown_len(), 3);
+-        assert_eq!(m.selected(), Some(0), "append resets");
+-        m.handle(Key::Down);
+-        assert_eq!(m.selected(), Some(1));
++        assert_eq!(m.selected(), Some(2), "append keeps vps-東京");
++        m.handle(Key::Up);
++        assert_eq!(sel_alias(&m).as_deref(), Some("nas"));
++        typ(&mut m, "x"); // "ex": all three hosts contain "example"
++        assert_eq!(sel_alias(&m).as_deref(), Some("nas"), "append keeps nas");
+         m.handle(Key::Backspace);
+-        assert_eq!(m.selected(), Some(0), "Backspace resets");
+-        m.handle(Key::Down);
+-        m.handle(Key::Down);
++        assert_eq!(sel_alias(&m).as_deref(), Some("nas"), "Backspace keeps nas");
+         m.handle(Key::Esc);
+-        assert_eq!(m.selected(), Some(0), "Esc clear resets");
++        assert_eq!(m.filter(), "");
++        assert_eq!(sel_alias(&m).as_deref(), Some("nas"), "Esc clear keeps nas");
+         m.handle(Key::Char('/'));
+         typ(&mut m, "e");
+         m.handle(Key::Down);
+-        m.handle(Key::Down);
+         assert_eq!(
+             m.handle(Key::Enter),
+             Action::None,
+@@ -268,6 +389,254 @@
+         assert!(!m.is_filtering());
+         assert_eq!(m.selected(), Some(2), "Enter keeps selection");
+         assert_eq!(m.handle(Key::Enter), Action::Select("vps-東京".into()));
++    }
++
++    /// Part C: when the selected destination is filtered out, the first shown row is
++    /// selected, and the kept selection's position follows the destination, not the row.
++    #[test]
++    fn filter_edit_falls_back_to_first_row() {
++        let mut m = model("homelab.toml");
++        m.handle(Key::Char('j')); // nas
++        m.handle(Key::Char('/'));
++        typ(&mut m, "vp"); // only vps-東京
++        assert_eq!(m.shown_len(), 1);
++        assert_eq!(
++            sel_alias(&m).as_deref(),
++            Some("vps-東京"),
++            "nas gone: first row"
++        );
++        m.handle(Key::Backspace);
++        m.handle(Key::Backspace); // all three again; vps-東京 is kept, now at row 2
++        assert_eq!(m.selected(), Some(2));
++        assert_eq!(sel_alias(&m).as_deref(), Some("vps-東京"));
++        typ(&mut m, "lab"); // only lab-server
++        assert_eq!(sel_alias(&m).as_deref(), Some("lab-server"));
++        m.handle(Key::Esc);
++        assert_eq!(
++            sel_alias(&m).as_deref(),
++            Some("lab-server"),
++            "Esc clear keeps it"
++        );
++        // Esc clear when the selection is filtered out
++        m.handle(Key::Char('j'));
++        m.handle(Key::Char('j'));
++        m.handle(Key::Char('/'));
++        typ(&mut m, "nas");
++        assert_eq!(
++            sel_alias(&m).as_deref(),
++            Some("nas"),
++            "vps-東京 gone: first row"
++        );
++        m.handle(Key::Esc);
++        assert_eq!(sel_alias(&m).as_deref(), Some("nas"), "Esc clear keeps nas");
++    }
++
++    /// Part C: no row shown before the edit -> the first shown row after it.
++    #[test]
++    fn filter_edit_from_empty_result_selects_first() {
++        let mut m = model("homelab.toml");
++        m.handle(Key::Char('j'));
++        m.handle(Key::Char('j'));
++        m.handle(Key::Char('/'));
++        typ(&mut m, "zz");
++        assert_eq!(m.selected(), None);
++        m.handle(Key::Backspace);
++        assert_eq!(m.selected(), None, "still no match for 'z'");
++        m.handle(Key::Backspace);
++        assert_eq!(m.selected(), Some(0), "nothing was selected: first row");
++        typ(&mut m, "zz");
++        m.handle(Key::Esc);
++        assert_eq!(
++            m.selected(),
++            Some(0),
++            "Esc clear from an empty result: first row"
++        );
++    }
++
++    /// Part C on 100 destinations: a destination far down the list stays selected and
++    /// visible, and the window stays full.
++    #[test]
++    fn far_selection_kept_and_scrolled_into_view() {
++        let mut m = model("large-100.toml");
++        let h = 22;
++        for _ in 0..77 {
++            m.handle(Key::Down);
++            m.scroll(h);
++        }
++        assert_eq!(sel_alias(&m).as_deref(), Some("host-077-db"));
++        assert_eq!(m.scroll(h), 77 + 1 - h, "scrolled minimally");
++        m.handle(Key::Char('/'));
++        typ(&mut m, "7");
++        let off = m.scroll(h);
++        assert_eq!(sel_alias(&m).as_deref(), Some("host-077-db"));
++        let sel = m.selected().unwrap();
++        assert!(off <= sel && sel < off + h, "selection visible");
++        assert!(off + h.min(m.shown_len()) <= m.shown_len(), "window full");
++        let row = sel - off;
++        m.handle(Key::Backspace);
++        let off = m.scroll(h);
++        assert_eq!(m.selected(), Some(77));
++        assert!(off <= 77 && 77 < off + h && off + h <= 100);
++        // The selection keeps its screen row when that is possible.
++        assert_eq!(77 - off, row);
++        m.handle(Key::Esc);
++        assert_eq!(m.selected(), Some(77));
++        // Filtered out: first row, window from the top.
++        m.handle(Key::Char('/'));
++        typ(&mut m, "-web");
++        assert_eq!(m.selected(), Some(0));
++        assert_eq!(sel_alias(&m).as_deref(), Some("host-000-web"));
++        assert_eq!(m.scroll(h), 0);
++    }
++
++    #[test]
++    fn scroll_keeps_window_full_and_selection_visible() {
++        let mut m = model("large-100.toml");
++        assert_eq!(m.scroll(10), 0);
++        for _ in 0..15 {
++            m.handle(Key::Down);
++        }
++        assert_eq!(m.scroll(10), 6);
++        for _ in 0..3 {
++            m.handle(Key::Up);
++        }
++        assert_eq!(m.scroll(10), 6, "no scroll while the selection is visible");
++        assert_eq!(m.scroll(0), 6, "zero height keeps the position");
++        assert_eq!(m.scroll(200), 0, "taller than the list: from the top");
++        m.handle(Key::Char('/'));
++        typ(&mut m, "9"); // 19 rows, host-009 .. host-099
++        assert_eq!(m.shown_len(), 19);
++        assert_eq!(m.selected(), Some(0));
++        assert!(m.scroll(10) == 0);
++    }
++
++    #[test]
++    fn help_overlay_keys() {
++        let mut m = model("homelab.toml");
++        m.handle(Key::Char('j'));
++        m.handle(Key::Char('/'));
++        typ(&mut m, "a");
++        m.handle(Key::Enter); // filter kept, not filtering
++        let before = (
++            m.filter().to_string(),
++            m.is_filtering(),
++            m.selected(),
++            m.shown_len(),
++        );
++        assert_eq!(m.handle(Key::Char('?')), Action::None);
++        assert!(m.help_open());
++        for k in [
++            Key::Up,
++            Key::Down,
++            Key::Enter,
++            Key::Backspace,
++            Key::Char('j'),
++            Key::Char('k'),
++            Key::Char('q'),
++            Key::Char('/'),
++            Key::Char('x'),
++            Key::Other,
++        ] {
++            assert_eq!(m.handle(k), Action::None, "{k:?} ignored in help");
++            assert!(m.help_open());
++        }
++        assert_eq!(m.handle(Key::Esc), Action::None);
++        assert!(!m.help_open(), "Esc closes");
++        assert_eq!(
++            (
++                m.filter().to_string(),
++                m.is_filtering(),
++                m.selected(),
++                m.shown_len()
++            ),
++            before,
++            "Esc closing help does not clear the filter"
++        );
++        m.handle(Key::Char('?'));
++        m.handle(Key::Char('?'));
++        assert!(!m.help_open(), "? closes");
++        assert_eq!(
++            (
++                m.filter().to_string(),
++                m.is_filtering(),
++                m.selected(),
++                m.shown_len()
++            ),
++            before
++        );
++        m.handle(Key::Char('?'));
++        assert_eq!(
++            m.handle(Key::CtrlC),
++            Action::Cancel,
++            "Ctrl-C cancels in help"
++        );
++    }
++
++    #[test]
++    fn question_mark_is_filter_text_in_filter_mode() {
++        let mut m = model("homelab.toml");
++        m.handle(Key::Char('/'));
++        m.handle(Key::Char('?'));
++        assert!(!m.help_open());
++        assert_eq!(m.filter(), "?");
++        assert_eq!(m.shown_len(), 0);
++    }
++
++    #[test]
++    fn match_ranges() {
++        assert_eq!(match_range("lab-server", ""), None);
++        assert_eq!(
++            match_range("lab-server", "e"),
++            Some(5..6),
++            "first occurrence only"
++        );
++        assert_eq!(match_range("Lab-SERVER", "server"), Some(4..10));
++        assert_eq!(match_range("vps-東京", "東京"), Some(4..10));
++        assert_eq!(match_range("vps-東京", "s-東"), Some(2..7));
++        assert_eq!(match_range("nas", "x"), None);
++        // Lowercasing that changes the length still maps to whole characters:
++        // 'İ' (2 bytes) lowercases to "i̇" (3 bytes).
++        assert_eq!(match_range("İx", "x"), Some(2..3));
++        assert_eq!(match_range("aİb", "i̇b"), Some(1..4));
++        assert_eq!(
++            match_range("ΟΔΟΣ", "ς"),
++            Some(6..8),
++            "final sigma, as the filter"
++        );
++    }
++
++    #[test]
++    fn row_match_uses_filter() {
++        let mut m = model("homelab.toml");
++        let d = m.shown_items().next().unwrap().clone();
++        assert_eq!(
++            m.row_match(&d),
++            RowMatch::default(),
++            "empty filter: nothing"
++        );
++        m.handle(Key::Char('/'));
++        typ(&mut m, "LAB");
++        let d = m.shown_items().next().unwrap().clone();
++        assert_eq!(
++            m.row_match(&d),
++            RowMatch {
++                alias: Some(0..3),
++                host: Some(0..3)
++            }
++        );
++        m.handle(Key::Esc);
++        assert_eq!(m.row_match(&d), RowMatch::default(), "after Esc: nothing");
++        m.handle(Key::Char('/'));
++        typ(&mut m, "vps1");
++        let d = m.shown_items().next().unwrap().clone();
++        assert_eq!(
++            m.row_match(&d),
++            RowMatch {
++                alias: None,
++                host: Some(0..4)
++            },
++            "host-only match"
++        );
+     }
+ 
+     #[test]
+diff --color -ruN -x target -x dist /tmp/x2ws-c5670791/eval/base/prototypes/rust/src/tui.rs /tmp/x2ws-c5670791/eval/frozen/rust/src/tui.rs
+--- /tmp/x2ws-c5670791/eval/base/prototypes/rust/src/tui.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-c5670791/eval/frozen/rust/src/tui.rs	2026-10-09 00:47:14
+@@ -11,13 +11,14 @@
+ //! which restores the terminal and exits 129 on the main thread.
+ 
+ use std::io::{self, IsTerminal, Write};
++use std::ops::Range;
+ use std::path::Path;
+ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+ use std::sync::{Arc, Once};
+ use std::time::Duration;
+ 
+-use heimdall_proto::list_model::{Action, Key, ListModel};
+-use heimdall_proto::profile;
++use heimdall_proto::list_model::{Action, HELP_LINES, Key, ListModel};
++use heimdall_proto::profile::{self, Destination};
+ use ratatui::Terminal;
+ use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
+ use ratatui::buffer::Cell;
+@@ -29,6 +30,7 @@
+ };
+ use ratatui::layout::{Constraint, Layout, Position, Size};
+ use ratatui::style::{Color, Modifier, Style};
++use ratatui::text::{Line, Span};
+ use ratatui::widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph};
+ 
+ static ACTIVE: AtomicBool = AtomicBool::new(false);
+@@ -164,13 +166,67 @@
+     }
+ }
+ 
+-fn render(f: &mut ratatui::Frame, m: &ListModel, state: &mut ListState, color: bool) {
++/// Spans of `s` with the byte range `r` (the filter match) underlined.
++fn underline_match(s: &str, r: Option<Range<usize>>) -> Vec<Span<'_>> {
++    match r {
++        Some(r) => vec![
++            Span::raw(&s[..r.start]),
++            Span::styled(
++                &s[r.clone()],
++                Style::new().add_modifier(Modifier::UNDERLINED),
++            ),
++            Span::raw(&s[r.end..]),
++        ],
++        None => vec![Span::raw(s)],
++    }
++}
++
++/// One list row: the text of [`ListModel::row_text`], with the first filter match in
++/// the alias and (when the host is shown) in the host underlined (task T3 part A).
++/// Underline is an attribute, not a colour, so it is drawn under `NO_COLOR` too.
++fn row_line<'a>(m: &ListModel, d: &'a Destination, width: u16) -> Line<'a> {
++    let hit = m.row_match(d);
++    let mut spans = underline_match(&d.alias, hit.alias);
++    if width >= 50 {
++        spans.push(Span::raw(format!("  {}@", d.account)));
++        spans.extend(underline_match(&d.host, hit.host));
++        spans.push(Span::raw(format!(":{}", d.port)));
++    }
++    Line::from(spans)
++}
++
++/// Help overlay (task T3 part B): replaces the whole screen, one help line per row, so
++/// nothing of the list shares a row with it. Small terminals clip it.
++fn render_help(f: &mut ratatui::Frame) {
++    let lines: Vec<Line> = HELP_LINES
++        .iter()
++        .enumerate()
++        .map(|(i, l)| {
++            let line = Line::raw(format!(" {l}"));
++            if i == 0 {
++                line.style(Style::new().add_modifier(Modifier::BOLD))
++            } else {
++                line
++            }
++        })
++        .collect();
++    f.render_widget(Paragraph::new(lines), f.area());
++}
++
++fn render(f: &mut ratatui::Frame, m: &mut ListModel, state: &mut ListState, color: bool) {
++    if m.help_open() {
++        render_help(f);
++        return;
++    }
+     let area = f.area();
+     let [list_area, status_area] =
+         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
++    // The model chooses the window (full, containing the selection); Ratatui then has
++    // nothing to adjust.
++    let offset = m.scroll(list_area.height as usize);
+     let items: Vec<ListItem> = m
+         .shown_items()
+-        .map(|d| ListItem::new(ListModel::row_text(d, area.width)))
++        .map(|d| ListItem::new(row_line(m, d, area.width)))
+         .collect();
+     // Selection is marked by the "> " prefix; unselected rows get two spaces.
+     let mut list = List::new(items)
+@@ -180,6 +236,7 @@
+         list = list.highlight_style(Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+     }
+     state.select(m.selected());
++    *state.offset_mut() = offset;
+     f.render_stateful_widget(list, list_area, state);
+     f.render_widget(Paragraph::new(m.status_line()), status_area);
+ }
+@@ -414,7 +471,7 @@
+             Input::Keys(keys) => {
+                 for key in keys {
+                     #[cfg(feature = "test-panic")]
+-                    if key == Key::Char('!') && !model.is_filtering() {
++                    if key == Key::Char('!') && !model.is_filtering() && !model.help_open() {
+                         panic!("g02 test-panic hook");
+                     }
+                     match model.handle(key) {
+@@ -425,6 +482,291 @@
+                     }
+                 }
+             }
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use ratatui::backend::TestBackend;
++    use std::path::PathBuf;
++
++    fn model(name: &str) -> ListModel {
++        let p = std::env::var_os("HEIMDALL_G02_FIXTURES")
++            .map(PathBuf::from)
++            .unwrap_or_else(|| {
++                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/g02/profiles")
++            })
++            .join(name);
++        ListModel::new(profile::load_file(&p).unwrap().destinations)
++    }
++
++    fn keys(m: &mut ListModel, s: &str) {
++        for c in s.chars() {
++            m.handle(match c {
++                '\r' => Key::Enter,
++                '\x1b' => Key::Esc,
++                '\x7f' => Key::Backspace,
++                c => Key::Char(c),
++            });
++        }
++    }
++
++    struct Screen {
++        term: Terminal<TestBackend>,
++        state: ListState,
++    }
++
++    impl Screen {
++        fn new(w: u16, h: u16) -> Self {
++            Screen {
++                term: Terminal::new(TestBackend::new(w, h)).unwrap(),
++                state: ListState::default(),
++            }
++        }
++        fn draw(&mut self, m: &mut ListModel, color: bool) {
++            let state = &mut self.state;
++            self.term.draw(|f| render(f, m, state, color)).unwrap();
++        }
++        fn buf(&self) -> &ratatui::buffer::Buffer {
++            self.term.backend().buffer()
++        }
++        fn line(&self, y: u16) -> String {
++            let b = self.buf();
++            (0..b.area.width)
++                .map(|x| b[(x, y)].symbol())
++                .collect::<String>()
++        }
++        /// Per screen row: the underlined cells as (x, symbol), skipping the hidden
++        /// right halves of wide characters (empty symbol).
++        fn underlined(&self) -> Vec<(u16, Vec<(u16, String)>)> {
++            let b = self.buf();
++            (0..b.area.height)
++                .filter_map(|y| {
++                    let cells: Vec<(u16, String)> = (0..b.area.width)
++                        .filter(|&x| b[(x, y)].modifier.contains(Modifier::UNDERLINED))
++                        .map(|x| (x, b[(x, y)].symbol().to_string()))
++                        .filter(|(_, s)| !s.is_empty())
++                        .collect();
++                    (!cells.is_empty()).then_some((y, cells))
++                })
++                .collect()
++        }
++        fn underlined_text(&self) -> Vec<(u16, String)> {
++            self.underlined()
++                .into_iter()
++                .map(|(y, c)| (y, c.into_iter().map(|(_, s)| s).collect()))
++                .collect()
++        }
++        fn any_color(&self) -> bool {
++            let b = self.buf();
++            b.content
++                .iter()
++                .any(|c| c.fg != Color::Reset || c.bg != Color::Reset)
++        }
++    }
++
++    fn u(y: u16, s: &str) -> (u16, String) {
++        (y, s.to_string())
++    }
++
++    #[test]
++    fn row_line_text_matches_row_text() {
++        let mut m = model("homelab.toml");
++        keys(&mut m, "/e");
++        for d in m.shown_items() {
++            for w in [20, 49, 50, 80] {
++                let text: String = row_line(&m, d, w)
++                    .spans
++                    .iter()
++                    .map(|s| s.content.as_ref())
++                    .collect();
++                assert_eq!(text, ListModel::row_text(d, w));
++            }
++        }
++    }
++
++    #[test]
++    fn no_underline_without_filter() {
++        let mut m = model("homelab.toml");
++        let mut s = Screen::new(80, 24);
++        s.draw(&mut m, true);
++        assert!(s.underlined().is_empty());
++        keys(&mut m, "/");
++        s.draw(&mut m, true);
++        assert!(s.underlined().is_empty(), "filter mode, empty filter");
++    }
++
++    /// Part A: alias and host matches underlined, at exact cells; nothing else in the row.
++    #[test]
++    fn underline_alias_and_host_cells() {
++        let mut m = model("homelab.toml");
++        let mut s = Screen::new(80, 24);
++        keys(&mut m, "/LaB");
++        s.draw(&mut m, true);
++        assert!(
++            s.line(0)
++                .starts_with("> lab-server  aman@lab.example.internal:22")
++        );
++        let lab: Vec<(u16, String)> = vec![(2, "l".into()), (3, "a".into()), (4, "b".into())];
++        let host: Vec<(u16, String)> = vec![(19, "l".into()), (20, "a".into()), (21, "b".into())];
++        let want: Vec<(u16, String)> = lab.into_iter().chain(host).collect();
++        assert_eq!(s.underlined(), vec![(0, want)]);
++        // after Enter the filter is kept: still underlined
++        keys(&mut m, "\r");
++        s.draw(&mut m, true);
++        assert_eq!(s.underlined_text(), vec![u(0, "lablab")]);
++        // after Esc (outside filter mode Esc does nothing; re-enter and clear)
++        keys(&mut m, "/\x1b");
++        s.draw(&mut m, true);
++        assert!(s.underlined().is_empty(), "Esc cleared the filter");
++    }
++
++    #[test]
++    fn underline_first_occurrence_only_and_host_only_rows() {
++        let mut m = model("homelab.toml");
++        let mut s = Screen::new(80, 24);
++        keys(&mut m, "/e");
++        s.draw(&mut m, true);
++        // lab-server: 'e' at alias index 5 (col 7); host "lab.example.internal" index 4
++        // (col 2+17+4 = 23). nas: alias has no 'e'; host "nas.example.internal" index 4
++        // (col 2+3+2+6+4 = 17). vps-東京: no 'e' in alias; host "vps1.example.invalid"
++        // index 5 (col 2 + 8 + 2 + 7 + 5 = 24).
++        let got = s.underlined();
++        assert_eq!(got.len(), 3, "{got:?}");
++        assert_eq!(got[0], (0, vec![(7, "e".into()), (23, "e".into())]));
++        assert_eq!(got[1], (1, vec![(17, "e".into())]));
++        assert_eq!(got[2], (2, vec![(24, "e".into())]));
++    }
++
++    #[test]
++    fn underline_cjk_and_narrow() {
++        let mut m = model("homelab.toml");
++        let mut s = Screen::new(80, 24);
++        keys(&mut m, "/東京");
++        s.draw(&mut m, true);
++        assert_eq!(
++            s.underlined(),
++            vec![(0, vec![(6, "東".into()), (8, "京".into())])]
++        );
++        let mut n = Screen::new(40, 10);
++        n.draw(&mut m, true);
++        assert_eq!(n.underlined_text(), vec![u(0, "東京")]);
++        // host-only match below 50 columns: nothing underlined
++        let mut m = model("homelab.toml");
++        keys(&mut m, "/internal");
++        n.draw(&mut m, true);
++        assert!(n.line(0).starts_with("> lab-server"));
++        assert!(n.underlined().is_empty());
++        // ... and at 80 columns only the host part
++        s.draw(&mut m, true);
++        assert_eq!(
++            s.underlined_text(),
++            vec![u(0, "internal"), u(1, "internal")]
++        );
++    }
++
++    #[test]
++    fn no_color_keeps_underline_and_marker() {
++        let mut m = model("homelab.toml");
++        let mut s = Screen::new(80, 24);
++        keys(&mut m, "j/nas");
++        s.draw(&mut m, false);
++        assert!(!s.any_color());
++        assert!(s.line(0).starts_with("> nas"));
++        assert_eq!(s.underlined_text(), vec![u(0, "nasnas")]);
++        let mut c = Screen::new(80, 24);
++        c.draw(&mut m, true);
++        assert!(c.any_color(), "sanity: colour without NO_COLOR");
++    }
++
++    #[test]
++    fn help_overlay_lines_and_close() {
++        let mut m = model("homelab.toml");
++        let mut s = Screen::new(80, 24);
++        keys(&mut m, "j/a\r");
++        s.draw(&mut m, true);
++        let before: Vec<String> = (0..24).map(|y| s.line(y)).collect();
++        keys(&mut m, "?");
++        s.draw(&mut m, true);
++        let rows: Vec<String> = (0..24).map(|y| s.line(y).trim().to_string()).collect();
++        for (i, l) in HELP_LINES.iter().enumerate() {
++            assert_eq!(rows[i], *l);
++        }
++        assert!(rows[9..].iter().all(|r| r.is_empty()), "{rows:?}");
++        assert!(s.underlined().is_empty());
++        keys(&mut m, "jkq/x\r\x7f");
++        s.draw(&mut m, true);
++        assert_eq!(s.line(0).trim(), "Keys", "other keys ignored");
++        keys(&mut m, "\x1b");
++        s.draw(&mut m, true);
++        let after: Vec<String> = (0..24).map(|y| s.line(y)).collect();
++        assert_eq!(
++            after, before,
++            "Esc closes; list, filter and selection unchanged"
++        );
++        keys(&mut m, "??");
++        s.draw(&mut m, true);
++        let after: Vec<String> = (0..24).map(|y| s.line(y)).collect();
++        assert_eq!(after, before, "? closes");
++    }
++
++    #[test]
++    fn help_overlay_tiny_terminal() {
++        let mut m = model("homelab.toml");
++        keys(&mut m, "?");
++        for (w, h) in [(20, 5), (1, 1), (2, 2), (20, 1), (80, 24), (0, 0)] {
++            let mut s = Screen::new(w, h);
++            s.draw(&mut m, true);
++        }
++        let mut s = Screen::new(20, 5);
++        s.draw(&mut m, true);
++        assert_eq!(s.line(0).trim(), "Keys");
++        assert_eq!(s.line(4).trim(), "Enter       select");
++        keys(&mut m, "?");
++        s.draw(&mut m, true);
++        assert!(s.line(0).starts_with("> lab-server"));
++    }
++
++    /// Part C at the screen: a destination far down the 100-row list stays marked and
++    /// visible, and the window is a full run of consecutive matches.
++    #[test]
++    fn far_selection_visible_after_filter_edits() {
++        let mut m = model("large-100.toml");
++        let mut s = Screen::new(80, 24);
++        for _ in 0..77 {
++            m.handle(Key::Down);
++            s.draw(&mut m, false);
++        }
++        let marked = |s: &Screen| {
++            (0..23)
++                .map(|y| s.line(y))
++                .find(|l| l.starts_with("> "))
++                .map(|l| l[2..].split_whitespace().next().unwrap().to_string())
++        };
++        assert_eq!(marked(&s).as_deref(), Some("host-077-db"));
++        for edit in ["/7", "\x7f", "77", "\x7f\x7f", "\x1b"] {
++            keys(&mut m, edit);
++            s.draw(&mut m, false);
++            assert_eq!(marked(&s).as_deref(), Some("host-077-db"), "after {edit:?}");
++            let shown: Vec<String> = m.shown_items().map(|d| d.alias.clone()).collect();
++            let rows: Vec<String> = (0..23)
++                .map(|y| s.line(y))
++                .filter(|l| l.len() > 2 && !l[2..].trim().is_empty())
++                .map(|l| l[2..].split_whitespace().next().unwrap().to_string())
++                .collect();
++            assert_eq!(
++                rows.len(),
++                shown.len().min(23),
++                "full window after {edit:?}"
++            );
++            let start = shown.iter().position(|a| *a == rows[0]).unwrap();
++            assert_eq!(
++                rows,
++                shown[start..start + rows.len()],
++                "consecutive, in order"
++            );
+         }
+     }
+ }
+diff --color -ruN -x target -x dist /tmp/x2ws-c5670791/eval/base/prototypes/rust/tests/pty_tui.py /tmp/x2ws-c5670791/eval/frozen/rust/tests/pty_tui.py
+--- /tmp/x2ws-c5670791/eval/base/prototypes/rust/tests/pty_tui.py	2026-10-06 04:41:29
++++ /tmp/x2ws-c5670791/eval/frozen/rust/tests/pty_tui.py	2026-10-09 00:47:14
+@@ -39,19 +39,39 @@
+ 
+ 
+ class Screen:
+-    """Minimal VT model: enough of CUP/ED/EL/SGR/DEC private modes for ratatui output."""
++    """Minimal VT model: enough of CUP/ED/EL/SGR/DEC private modes for ratatui output.
+ 
++    Tracks one SGR attribute, underline (4 on; 0, 24 or an empty SGR off), per cell in
++    `ul`, so the match highlight can be checked cell by cell."""
++
+     def __init__(self, cols, rows):
+-        self.cols, self.rows = cols, rows
+-        self.grid = [[" "] * cols for _ in range(rows)]
+-        self.x = self.y = 0
+         self.pending = b""
++        self.underline = False
++        self.resize(cols, rows)
+ 
+     def resize(self, cols, rows):
+         self.cols, self.rows = cols, rows
+-        self.grid = [[" "] * cols for _ in range(rows)]
++        self._blank()
+         self.x = self.y = 0
+ 
++    def _blank(self):
++        self.grid = [[" "] * self.cols for _ in range(self.rows)]
++        self.ul = [[False] * self.cols for _ in range(self.rows)]
++
++    def underlined(self):
++        """Per screen row with underlined cells: (row, [(col, char), ...]); the right
++        half of a wide character is not listed separately."""
++        out = []
++        for y in range(self.rows):
++            cells = [(x, self.grid[y][x]) for x in range(self.cols)
++                     if self.ul[y][x] and self.grid[y][x] is not None]
++            if cells:
++                out.append((y, cells))
++        return out
++
++    def underlined_text(self):
++        return [(y, "".join(c for _x, c in cells)) for y, cells in self.underlined()]
++
+     def text(self):
+         return "\n".join("".join(c for c in row if c is not None).rstrip() for row in self.grid)
+ 
+@@ -66,8 +86,10 @@
+                 if xx + 1 < self.cols and row[xx + 1] is None:
+                     row[xx + 1] = " "  # wrote over the left half of a wide char
+             row[self.x] = ch
++            self.ul[self.y][self.x] = self.underline
+             if w == 2 and self.x + 1 < self.cols:
+                 row[self.x + 1] = None
++                self.ul[self.y][self.x + 1] = self.underline
+         self.x += w
+ 
+     def feed(self, data: bytes):
+@@ -94,16 +116,25 @@
+                     elif final == b"J":
+                         mode = nums[0] if nums else 0
+                         if mode in (2, 3):
+-                            self.grid = [[" "] * self.cols for _ in range(self.rows)]
++                            self._blank()
+                         elif mode == 0:
+                             for yy in range(self.y, self.rows):
+                                 for xx in range(self.x if yy == self.y else 0, self.cols):
+                                     self.grid[yy][xx] = " "
++                                    self.ul[yy][xx] = False
+                     elif final == b"K" and 0 <= self.y < self.rows:
+                         for xx in range(self.x, self.cols):
+                             self.grid[self.y][xx] = " "
++                            self.ul[self.y][xx] = False
+                     elif final in (b"h", b"l") and params.startswith("?1049"):
+-                        self.grid = [[" "] * self.cols for _ in range(self.rows)]
++                        self._blank()
++                    elif final == b"m" and not params.startswith("?"):
++                        for p in (params.split(";") if params else [""]):
++                            p = p.split(":")[0]
++                            if p in ("", "0", "24"):
++                                self.underline = False
++                            elif p == "4":
++                                self.underline = True
+                     i += m.end()
+                     continue
+                 i += 2
+@@ -625,40 +656,222 @@
+     return "count=1, exit 3 for " + ", ".join(done) + " (state checked via child/heimdall-proto pgids and tcgetpgrp)"
+ 
+ 
+-@case("k9-filter-edit-resets-selection")
+-def t_k9(b):
++def marked_alias(t):
++    """Alias on the row carrying the '> ' marker (None if no row is marked)."""
++    for line in t.splitlines()[:-1]:
++        if line.startswith("> "):
++            return line[2:].split()[0] if line[2:].split() else None
++    return None
++
++
++@case("t3c-filter-edit-keeps-selection")
++def t_keep_selection(b):
++    """Task T3 part C (replaces K9): a filter edit keeps the selected destination when it
++    is still shown, otherwise selects the first shown row; Enter keeps the selection."""
+     s = tui(b)
+     assert s.wait_text("3/3") is not None, "first frame"
+-    row = lambda i: (lambda t: len(t.splitlines()) > i and t.splitlines()[i].startswith("> "))
+     status = lambda t: t.splitlines()[-1].strip()
+-    DOWN = b"\x1b[B"  # in filter mode j/k are filter text; arrows move
++    on = lambda alias, st: (lambda t: status(t) == st and marked_alias(t) == alias)
++    UP = b"\x1b[A"  # in filter mode j/k are filter text; arrows move
+     s.write(b"jj")
+-    assert s.wait_screen(row(2)) is not None, "jj selects row 3"
++    assert s.wait_screen(on("vps-東京", "3/3")) is not None, "jj selects row 3"
+     s.write(b"/e")  # all three rows still shown
+-    assert s.wait_screen(lambda t: status(t) == "3/3  /e" and row(0)(t)) is not None, f"append must reset: {s.screen.text()!r}"
+-    s.write(DOWN)
+-    assert s.wait_screen(row(1)) is not None, "Down in filter mode"
++    assert s.wait_screen(on("vps-東京", "3/3  /e")) is not None, f"append must keep: {s.screen.text()!r}"
++    s.write(UP)
++    assert s.wait_screen(on("nas", "3/3  /e")) is not None, "Up in filter mode"
+     s.write(b"\x7f")
+-    assert s.wait_screen(lambda t: status(t) == "3/3  /" and row(0)(t)) is not None, f"Backspace must reset: {s.screen.text()!r}"
+-    s.write(DOWN)
+-    assert s.wait_screen(row(1)) is not None, "Down in filter mode (2)"
++    assert s.wait_screen(on("nas", "3/3  /")) is not None, f"Backspace must keep: {s.screen.text()!r}"
++    s.write(b"nas")
++    assert s.wait_screen(on("nas", "1/3  /nas")) is not None, f"append must keep: {s.screen.text()!r}"
+     s.write(b"\x1b")
+-    assert s.wait_screen(lambda t: status(t) == "3/3" and row(0)(t), timeout=2) is not None, f"Esc clear must reset: {s.screen.text()!r}"
+-    s.write(b"/e")
+-    assert s.wait_screen(lambda t: status(t) == "3/3  /e") is not None, "re-enter filter"
+-    s.write(DOWN + DOWN)
+-    assert s.wait_screen(row(2)) is not None, "Down Down in filter mode"
++    assert s.wait_screen(on("nas", "3/3"), timeout=2) is not None, f"Esc clear must keep: {s.screen.text()!r}"
++    s.write(b"/lab")  # nas filtered out: first shown row
++    assert s.wait_screen(on("lab-server", "1/3  /lab")) is not None, f"fallback to first row: {s.screen.text()!r}"
++    s.write(b"\x7f\x7f\x7f")
++    assert s.wait_screen(on("lab-server", "3/3  /")) is not None, "Backspace keeps lab-server"
++    s.write(b"zz")
++    assert s.wait_screen(lambda t: status(t) == "0/3  /zz" and marked_alias(t) is None) is not None, "no rows"
++    s.write(b"\x7f\x7f")
++    assert s.wait_screen(on("lab-server", "3/3  /")) is not None, "no row before the edit: first row"
++    s.write(b"\x1b[B\x1b[B")
++    assert s.wait_screen(on("vps-東京", "3/3  /")) is not None, "Down Down in filter mode"
+     s.write(b"\r")  # leave filter mode: keeps selection
+-    assert s.wait_screen(lambda t: status(t) == "3/3  filter: e") is not None, "Enter leaves filter mode"
+-    s.read_for(0.1)
+-    assert row(2)(s.screen.text()), f"Enter must keep selection: {s.screen.text()!r}"
++    assert s.wait_screen(on("vps-東京", "3/3")) is not None, "Enter leaves filter mode and keeps selection"
+     s.write(b"\r")
+     code, termios_ok = s.finish()
+     assert code == 0 and termios_ok, f"exit {code}"
+     assert "SELECTED vps-東京".encode() in s.out, s.out[-120:]
+-    return "append/Backspace/Esc reset to row 1; Enter keeps row 3; SELECTED vps-東京"
++    return "append/Backspace/Esc keep the selected destination; filtered out -> first row; Enter keeps; SELECTED vps-東京"
+ 
+ 
++@case("t3c-large-100-far-selection")
++def t_keep_far(b):
++    s = tui(b, fixture="large-100.toml")
++    assert s.wait_text("100/100") is not None
++    s.write(b"\x1b[B" * 77)
++    assert s.wait_screen(lambda t: marked_alias(t) == "host-077-db") is not None, "77 Downs"
++    rows = lambda t: [l[2:].split()[0] for l in t.splitlines()[:-1] if l[2:].split()]
++    for edit, count in ((b"/7", "19/100"), (b"7", "1/100"), (b"\x7f", "19/100"), (b"\x7f", "100/100"),
++                        (b"7", "19/100"), (b"\x1b", "100/100")):
++        s.write(edit)
++        ok = s.wait_screen(lambda t: t.splitlines()[-1].strip().startswith(count)
++                           and marked_alias(t) == "host-077-db")
++        assert ok is not None, f"after {edit!r}: {s.screen.text()!r}"
++        n = int(count.split("/")[0])
++        got = rows(s.screen.text())
++        assert len(got) == min(n, 23), f"full window after {edit!r}: {got}"
++    s.write(b"\r")
++    code, termios_ok = s.finish()
++    assert code == 0 and termios_ok, f"exit {code}"
++    assert b"SELECTED host-077-db" in s.out
++    return "host-077-db stays marked and visible through 6 filter edits; full windows; SELECTED host-077-db"
++
++
++def large_destinations():
++    import tomllib
++    with open(FIX / "large-100.toml", "rb") as f:
++        return [(d["alias"], d["host"]) for d in tomllib.load(f)["destinations"]]
++
++
++@case("t3c-k17-latency-part-c")
++def t_k17_part_c(b):
++    """K17 with the part C update predicate: after each edit the status shows the new count,
++    the list shows a full window of consecutive matches in profile order, and '> ' is on
++    the destination part C selects. 5 sessions x 6 edits (7, 0, 5, three Backspaces),
++    after first moving the selection to host-070-lab so that the kept selection matters."""
++    dests = large_destinations()
++    matches = lambda f: [a for a, h in dests if f.lower() in a.lower() or f.lower() in h.lower()]
++    s = tui(b, fixture="large-100.toml")
++    assert s.wait_text("100/100") is not None
++    cap = len(s.screen.text().splitlines()) - 1  # rows above the status line
++
++    def window_ok(t, typed, want_sel):
++        lines = t.splitlines()
++        exp = matches(typed)
++        if lines[-1].strip().split()[0:1] != [f"{len(exp)}/100"]:
++            return False
++        rows = [(l[:2], l[2:].split()[0]) for l in lines[:-1] if l[2:].split()]
++        names = [r[1] for r in rows]
++        if len(names) != min(len(exp), cap):
++            return False
++        if names and names != exp[exp.index(names[0]):exp.index(names[0]) + len(names)]:
++            return False
++        marked = [n for p, n in rows if p == "> "]
++        return marked == ([want_sel] if want_sel else [])
++
++    s.write(b"\x1b[B" * 70)
++    assert s.wait_screen(lambda t: marked_alias(t) == "host-070-lab") is not None
++    lats, sel = [], "host-070-lab"
++    for _session in range(5):
++        s.write(b"/")
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "100/100  /") is not None
++        typed = ""
++        for edit in ["7", "0", "5", None, None, None]:
++            typed = typed + edit if edit else typed[:-1]
++            exp = matches(typed)
++            sel = sel if sel in exp else (exp[0] if exp else None)
++            t0 = time.monotonic()
++            s.write(edit.encode() if edit else b"\x7f")
++            dt = s.wait_screen(lambda t: window_ok(t, typed, sel))
++            assert dt is not None, f"no part-C update after {typed!r} (want '> {sel}'): {s.screen.text()!r}"
++            lats.append(round((time.monotonic() - t0) * 1000, 1))
++        s.write(b"\x1b")
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "100/100", timeout=2) is not None
++        s.read_for(0.1)
++    s.write(b"q")
++    code, termios_ok = s.finish()
++    assert code == 0 and termios_ok, f"exit {code}"
++    v = sorted(lats)
++    p95 = v[-(-95 * len(v) // 100) - 1]
++    assert len(lats) == 30 and p95 <= 100, f"p95 {p95} ms: {lats}"
++    return f"30 edits, p95 {p95} ms, max {max(lats)} ms (part C predicate; selection ends on {sel})"
++
++
++@case("t3a-match-underline")
++def t_underline(b):
++    for env, label in (({}, "colour"), ({"NO_COLOR": "1"}, "NO_COLOR")):
++        s = tui(b, env=env)
++        assert s.wait_text("3/3") is not None
++        assert s.screen.underlined() == [], "no filter: nothing underlined"
++        s.write(b"/LaB")
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "1/3  /LaB") is not None
++        s.read_for(0.1)
++        want = [(0, [(2, "l"), (3, "a"), (4, "b"), (19, "l"), (20, "a"), (21, "b")])]
++        assert s.screen.underlined() == want, f"[{label}] {s.screen.underlined()}"
++        s.write(b"\r")
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "1/3  filter: LaB") is not None
++        s.read_for(0.1)
++        assert s.screen.underlined() == want, f"[{label}] after Enter: {s.screen.underlined()}"
++        s.write("/\x7f\x7f\x7f東京".encode())
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "1/3  /東京") is not None
++        s.read_for(0.1)
++        assert s.screen.underlined() == [(0, [(6, "東"), (8, "京")])], f"[{label}] CJK: {s.screen.underlined()}"
++        s.write(b"\x7f\x7fe")
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "3/3  /e") is not None
++        s.read_for(0.1)
++        assert s.screen.underlined_text() == [(0, "ee"), (1, "e"), (2, "e")], f"[{label}] 'e': {s.screen.underlined()}"
++        s.resize(40, 10)
++        assert s.wait_screen(lambda t: "@" not in t and "3/3" in t) is not None
++        s.read_for(0.1)
++        assert s.screen.underlined_text() == [(0, "e")], f"[{label}] 40 cols: {s.screen.underlined()}"
++        s.write(b"\x1b")
++        assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "3/3", timeout=2) is not None
++        s.read_for(0.1)
++        assert s.screen.underlined() == [], f"[{label}] after Esc: {s.screen.underlined()}"
++        s.write(b"q")
++        code, termios_ok = s.finish()
++        assert code == 0 and termios_ok, f"exit {code}"
++        if env:
++            assert not has_color_sgr(s.out), "color SGR emitted with NO_COLOR=1"
++            assert b"\x1b[4m" in s.out, "underline SGR present with NO_COLOR=1"
++    return "alias/host first-match cells underlined (filter mode, after Enter, CJK, 40 cols); none after Esc; NO_COLOR: underline, no colour"
++
++
++HELP = ["Keys", "Up / k move up", "Down / j move down", "/ filter", "Enter select",
++        "Esc clear filter", "q quit", "? close help", "Ctrl-C cancel"]
++
++
++def help_rows(t):
++    return [" ".join(l.split()) for l in t.splitlines()]
++
++
++@case("t3b-help-overlay")
++def t_help(b):
++    s = tui(b)
++    assert s.wait_text("3/3") is not None
++    s.write(b"j/nas\r")
++    assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "1/3  filter: nas" and marked_alias(t) == "nas") is not None
++    s.read_for(0.1)
++    before = s.screen.text()
++    s.write(b"?")
++    assert s.wait_screen(lambda t: help_rows(t)[:9] == HELP) is not None, f"help: {s.screen.text()!r}"
++    s.write(b"jkq/x\r\x7f\x1b[B")
++    s.read_for(0.2)
++    assert s.alive() and help_rows(s.screen.text())[:9] == HELP, "other keys ignored"
++    s.write(b"\x1b")
++    assert s.wait_screen(lambda t: t == before, timeout=2) is not None, f"Esc closes, state kept: {s.screen.text()!r}"
++    s.write(b"?")
++    assert s.wait_screen(lambda t: help_rows(t)[:9] == HELP) is not None
++    s.resize(20, 5)
++    clipped = lambda t: all(r and h.startswith(r) for r, h in zip(help_rows(t)[:5], HELP))
++    assert s.wait_screen(clipped) is not None, f"20x5 (clipped): {s.screen.text()!r}"
++    s.resize(80, 24)
++    assert s.wait_screen(lambda t: help_rows(t)[:9] == HELP) is not None
++    s.write(b"?")
++    assert s.wait_screen(lambda t: t == before) is not None, "? closes, state kept"
++    s.write(b"/?")
++    assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "0/3  /nas?") is not None, "? is filter text in filter mode"
++    s.write(b"\x1b")
++    assert s.wait_screen(lambda t: t.splitlines()[-1].strip() == "3/3", timeout=2) is not None
++    s.write(b"?")
++    assert s.wait_screen(lambda t: help_rows(t)[:9] == HELP) is not None
++    s.write(b"\x03")
++    code, termios_ok = s.finish()
++    assert code == 130 and termios_ok, f"exit {code}"
++    assert b"SELECTED" not in s.out
++    return "nine help lines in order; other keys ignored; Esc/? close with state kept; 20x5; ? is text in filter mode; Ctrl-C 130"
++
++
+ @case("k10-sighup-129-sigterm-143-no-stdout")
+ def t_k10(b):
+     got = {}
+@@ -1181,7 +1394,7 @@
+         panic_bin = os.path.abspath(args[args.index("--panic-binary") + 1])
+     for fn in [t_select, t_quit, t_ctrlc, t_term, t_filter, t_esc, t_resize, t_nocolor,
+                t_large, t_tiny, t_bad, t_hangup, t_run_sigint, t_run_ctrlz,
+-               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
++               t_k6, t_keep_selection, t_keep_far, t_k17_part_c, t_underline, t_help, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
+                t_k6e, t_k6d, t_k6e_self_stop]:
+         fn(binary)
+     if panic_bin:
+Binary files /tmp/x2ws-c5670791/eval/base/prototypes/rust/tools/__pycache__/inventory.cpython-314.pyc and /tmp/x2ws-c5670791/eval/frozen/rust/tools/__pycache__/inventory.cpython-314.pyc differ

@@ -1,0 +1,46 @@
+{
+ "cell": "T3-rust-opus1",
+ "built": true,
+ "all_targets_build": true,
+ "hidden": {
+  "darwin": {
+   "passed": 17,
+   "total": 17,
+   "failed_ids": [],
+   "binary_sha256": "9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc"
+  },
+  "linux": {
+   "passed": 17,
+   "total": 17,
+   "failed_ids": [],
+   "binary_sha256": "11b9be2032c21fb4d5cd6743ba4e93aa7aae12972647a69d24596c9223b735d1"
+  }
+ },
+ "harness": {
+  "darwin": {
+   "passed": 136,
+   "total": 139,
+   "failed_ids": [
+    "tui.filter_edit_resets_selection",
+    "tui.large_100_filter_latency",
+    "tui.no_color"
+   ]
+  },
+  "linux": {
+   "passed": 136,
+   "total": 139,
+   "failed_ids": [
+    "tui.filter_edit_resets_selection",
+    "tui.large_100_filter_latency",
+    "tui.no_color"
+   ]
+  }
+ },
+ "unit_tests": {
+  "exit_code": 0,
+  "summary": "cargo test --locked: 54 lib, 4 bin, 28 cli passed, 0 failed"
+ },
+ "build_reproducible_vs_implementer_dist": true,
+ "transcript_audit": "not run by this evaluator (no session path supplied)",
+ "hidden_reruns": "none needed (no failing check)"
+}

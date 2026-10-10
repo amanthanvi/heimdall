@@ -1,0 +1,53 @@
+diff -ruN a/src/profile.rs b/src/profile.rs
+--- a/src/profile.rs
++++ b/src/profile.rs
+@@ -100,8 +100,24 @@
+ }
+ 
+ /// Read a profile file with the size bound applied before parsing. Anything that is
+-/// not a regular file (FIFO, socket, device, directory) is a usage error (K14).
++/// not a regular file (FIFO, socket, device, symlink, directory) is a usage error (K14).
+ pub fn read_bounded(path: &Path) -> Result<Vec<u8>, ProfileError> {
++    // Check the path itself before opening it. `symlink_metadata` does not follow a
++    // final symlink: following it here would let the link be retargeted to a FIFO or
++    // device between this check and the open.
++    if let Ok(m) = std::fs::symlink_metadata(path)
++        && !m.file_type().is_file()
++    {
++        return Err(ProfileError::new(
++            Code::UsageError,
++            None,
++            if m.is_dir() {
++                "profile path is a directory"
++            } else {
++                "profile path is not a regular file"
++            },
++        ));
++    }
+     let file = open_nonblocking(path).map_err(|e| {
+         ProfileError::new(
+             Code::UsageError,
+diff -ruN a/tests/cli.rs b/tests/cli.rs
+--- a/tests/cli.rs
++++ b/tests/cli.rs
+@@ -1190,6 +1190,20 @@
+         assert_eq!(o.status.code(), Some(2), "{}", p.display());
+         assert_eq!(one_json(&o)["code"], "USAGE_ERROR", "{}", p.display());
+     }
++    // A symlink is refused even when it points to a regular file: the regular-file
++    // check does not follow links (see profile::read_bounded).
++    let reg = d.path().join("ok.toml");
++    std::fs::write(&reg, "schema_version = 1\nname = \"x\"\nrevision = 1\n").unwrap();
++    let link = d.path().join("ok-link.toml");
++    std::os::unix::fs::symlink(&reg, &link).unwrap();
++    for (p, want) in [(&reg, 0), (&link, 2)] {
++        let o = cmd()
++            .args(["profile", "show", "--json", "--file"])
++            .arg(p)
++            .output()
++            .unwrap();
++        assert_eq!(o.status.code(), Some(want), "{}", p.display());
++    }
+ }
+ 
+ /// Peak RSS (bytes) and wall time of one `profile show --json` run, measured with

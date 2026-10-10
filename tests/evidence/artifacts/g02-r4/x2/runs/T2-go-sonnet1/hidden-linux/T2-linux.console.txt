@@ -1,0 +1,15 @@
+hidden.sh: task=T2 platform=linux lang=go sha256=75b30edaeea5bfc1139e327682822a96a7c5d573ed3f9611cc9cb3b551099c8a started=2026-10-09T05:45:00Z
+PASS  T2.clean_homelab (0.0s)
+PASS  T2.clean_empty (0.0s)
+PASS  T2.clean_near_miss (0.0s)
+PASS  T2.all_rules_exact (0.0s)
+PASS  T2.flag_order (0.0s)
+PASS  T2.ascii_fold_only (0.0s)
+PASS  T2.spaced_unicode_path (0.0s)
+PASS  T2.plain_exit_codes (0.0s)
+PASS  T2.single_rules (0.0s)
+PASS  T2.invalid_same_as_show (0.1s)
+PASS  T2.usage_errors (0.0s)
+PASS  T2.no_writes (0.0s)
+SUMMARY T2 PASS platform=linux lang=go {"pass": 12, "fail": 0, "error": 0, "total": 12}
+hidden.sh: exit=0 finished=2026-10-09T05:45:00Z

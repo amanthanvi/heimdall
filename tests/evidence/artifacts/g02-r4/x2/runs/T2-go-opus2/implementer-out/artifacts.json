@@ -1,0 +1,4 @@
+{"candidate":"go","task_id":"T2-go-opus2","artifacts":[
+ {"target":"darwin-arm64","path":"/tmp/x2ws-fabd9b12/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto","bytes":5245568,"sha256":"97dcb08609df1f4f4fdc2a51f816c40b45293229728a83a1aa3f2a20222ad9c4"},
+ {"target":"linux-arm64","path":"/tmp/x2ws-fabd9b12/heimdall/prototypes/go/dist/linux-arm64/heimdall-proto","bytes":5177504,"sha256":"d8c171c2492fbf7d9b108ec82bc23ab82c86023bca61859fa8aedda27ca8ad0f"}
+]}

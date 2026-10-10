@@ -1,0 +1,19 @@
+{
+  "candidate": "go",
+  "source_commit_base": "db74ced",
+  "artifacts": [
+    {
+      "target": "darwin-arm64",
+      "path": "/tmp/x2ws-4c8e064b/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto",
+      "bytes": 5212304,
+      "sha256": "457ce20fd37f9b1ee1c3dd35e2b2d1884f5209ce33d69524711d371a4b4c2d7f"
+    },
+    {
+      "target": "linux-arm64",
+      "path": "/tmp/x2ws-4c8e064b/heimdall/prototypes/go/dist/linux-arm64/heimdall-proto",
+      "bytes": 5177504,
+      "sha256": "4ae668ad0fb69585fa8a221729d30748118e16af738632a598c4d0e1a7f61f65"
+    }
+  ],
+  "manifest": "/tmp/x2ws-4c8e064b/heimdall/prototypes/go/dist/manifest.json"
+}

@@ -1,0 +1,12 @@
+{"cell":"T4-rust-opus1","task":"T4","lang":"rust","run":"opus1",
+ "pin_check":"exit 0; T4 seeded-* exit 1, base-* exit 0, seeded-rust sha256_12 66187b16db99 (darwin) / 25af8e125d8a (linux) as pinned",
+ "base_tree_digest":"dd09515d9be70c8ded304ca45000e201c02601894fc049d94492a636ef17bd59 (matches BASE.json)",
+ "build":{"exit":0,"targets":{"darwin-arm64":true,"linux-x64":true,"linux-arm64":true,"windows-x64":true},
+  "sha256":{"darwin-arm64":"513c1520d63dd9ac73df2a22013b9c0948df4b426ee396573e47fbd4781bd30f","linux-arm64":"98ddf571fdf1f308ed2cfb2ac5b946e9f77dd5feb29e26c677bdc43a3fd43355"},
+  "equal_to_implementer_build":true},
+ "hidden":{"darwin":"6/6 exit 0","linux":"6/6 exit 0","reruns":"none needed (no failures)"},
+ "score":{"darwin":{"valid":true,"all_pass":true,"fixed":"5/5","regressed":0},"linux":{"valid":true,"all_pass":true,"fixed":"5/5","regressed":0}},
+ "harness_2_4_2":{"darwin":"139/139 exit 0","linux":"139/139 exit 0"},
+ "unit_tests":"cargo test --locked exit 0 (50+4+30 passed, 0 failed)",
+ "transcript_audit":"not run (no session transcript path was provided to this evaluator)",
+ "diff":"4 files, +292/-42: src/profile.rs (read_bounded: symlink_metadata -> metadata, O_NOCTTY added, opened-handle check kept), tests/cli.rs, tests/pty_tui.py, REPORT.md"}

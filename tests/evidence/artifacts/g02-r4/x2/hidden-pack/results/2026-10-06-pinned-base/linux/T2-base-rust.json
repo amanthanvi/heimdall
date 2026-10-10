@@ -1,0 +1,2052 @@
+{
+ "task": "T2",
+ "platform": "linux",
+ "started_at": "2026-10-06T14:48:51Z",
+ "finished_at": "2026-10-06T14:48:51Z",
+ "binary_sha256": "85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d",
+ "binary_sha256_after": "85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d",
+ "python": "3.13.16",
+ "verdict": "fail",
+ "summary": {
+  "pass": 1,
+  "fail": 11,
+  "error": 0,
+  "total": 12
+ },
+ "checks": [
+  {
+   "id": "T2.clean_homelab",
+   "title": "homelab profile: LINT_CLEAN, exit 0, findings []",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_CLEAN",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": []}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "--json: value 'lab-server' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lab.example.internal' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'aman' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'vps-東京' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'free-form metadata' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'personal' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.clean_empty",
+   "title": "profile without destinations: LINT_CLEAN, exit 0",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_CLEAN",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": []}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.clean_near_miss",
+   "title": "every rule's near miss: LINT_CLEAN, exit 0",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_CLEAN",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": []}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "--json: value 'nearmiss-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'aliasnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'hostnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'Root' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'roots' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'rootnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.all_rules_exact",
+   "title": "all five rules: LINT_FINDINGS, exit 3, exact findings in exact order",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[0].host\", \"destinations[1].host\", \"destinations[4].host\"], \"destination_ids\": [\"d_alpha\", \"d_bravo\", \"d_echo\"], \"message\": \"destinations share the same host and port\"}, {\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[3].host\", \"destinations[7].host\"], \"destination_ids\": [\"d_delta\", \"d_hotel\"], \"message\": \"destinations share the same host and port\"}, {\"rule\": \"privileged-port\", \"key_paths\": [\"destinations[3].port\"], \"destination_ids\": [\"d_delta\"], \"message\": \"port below 1024 other than 22\"}, {\"rule\": \"privileged...(2344 chars)",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "--json: value 'lintcase-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metaval-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metahost-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metalbl-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'METALBL-K2X9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'aliaszq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'hostq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'HostQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'HOSTQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'höst-q' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctalpha' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctdelta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctecho' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctgolf' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'accthotel' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctindia' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblzeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LblZeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBLZETA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblomega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblOmega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lbldup' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblpi' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblkappa' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBLKAPPA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'Root' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.flag_order",
+   "title": "--json before --file gives the same result",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[0].host\", \"destinations[1].host\", \"destinations[4].host\"], \"destination_ids\": [\"d_alpha\", \"d_bravo\", \"d_echo\"], \"message\": \"destinations share the same host and port\"}, {\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[3].host\", \"destinations[7].host\"], \"destination_ids\": [\"d_delta\", \"d_hotel\"], \"message\": \"destinations share the same host and port\"}, {\"rule\": \"privileged-port\", \"key_paths\": [\"destinations[3].port\"], \"destination_ids\": [\"d_delta\"], \"message\": \"port below 1024 other than 22\"}, {\"rule\": \"privileged...(2344 chars)",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "--json: value 'lintcase-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metaval-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metahost-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metalbl-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'METALBL-K2X9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'aliaszq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'hostq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'HostQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'HOSTQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'höst-q' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctalpha' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctdelta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctecho' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctgolf' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'accthotel' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctindia' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblzeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LblZeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBLZETA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblomega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblOmega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lbldup' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblpi' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblkappa' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBLKAPPA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'Root' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.ascii_fold_only",
+   "title": "case folding is ASCII-only: Unicode-only case pairs (É/é, Ü/ü, KELVIN SIGN/k) are not findings; one ASCII pair is (fix round 2026-10-06)",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"label-case-variant\", \"key_paths\": [\"destinations[2].labels[0]\", \"destinations[2].labels[1]\"], \"destination_ids\": [\"f_c\"], \"message\": \"labels differ only in letter case\"}]}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "--json: value 'asciifold-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'foldqv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'fold-ü-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'FOLD-Ü-QV' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'elvin-foldqv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lbl-é-foldqv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBL-É-FOLDQV' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lbl-k-foldqv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'Lbl-Ascii-FoldQV' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lbl-ascii-foldqv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.spaced_unicode_path",
+   "title": "path with spaces and non-ASCII characters",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "stdout ends with exactly one newline",
+     "ok": true,
+     "expected": "one trailing \\n",
+     "observed": "ubcommand\"}},\"warnings\":[],\"next\":null}\n"
+    },
+    {
+     "name": "stdout has no ESC byte",
+     "ok": true,
+     "expected": "no ESC",
+     "observed": ""
+    },
+    {
+     "name": "stdout is a JSON object",
+     "ok": true,
+     "expected": "object",
+     "observed": "dict"
+    },
+    {
+     "name": "envelope keys",
+     "ok": true,
+     "expected": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]",
+     "observed": "[\"code\", \"data\", \"next\", \"schema_version\", \"state\", \"warnings\"]"
+    },
+    {
+     "name": "schema_version",
+     "ok": true,
+     "expected": "1",
+     "observed": "1"
+    },
+    {
+     "name": "state",
+     "ok": false,
+     "expected": "succeeded",
+     "observed": "failed"
+    },
+    {
+     "name": "code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "warnings",
+     "ok": true,
+     "expected": "[]",
+     "observed": "[]"
+    },
+    {
+     "name": "next",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "data (exact)",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[0].host\", \"destinations[1].host\", \"destinations[4].host\"], \"destination_ids\": [\"d_alpha\", \"d_bravo\", \"d_echo\"], \"message\": \"destinations share the same host and port\"}, {\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[3].host\", \"destinations[7].host\"], \"destination_ids\": [\"d_delta\", \"d_hotel\"], \"message\": \"destinations share the same host and port\"}, {\"rule\": \"privileged-port\", \"key_paths\": [\"destinations[3].port\"], \"destination_ids\": [\"d_delta\"], \"message\": \"port below 1024 other than 22\"}, {\"rule\": \"privileged...(2344 chars)",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "--json: value 'lintcase-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metaval-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metahost-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'metalbl-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'METALBL-K2X9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'aliaszq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'hostq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'HostQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'HOSTQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'höst-q' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctalpha' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctdelta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctecho' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctgolf' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'accthotel' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'acctindia' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblzeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LblZeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBLZETA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblomega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblOmega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lbldup' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblpi' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'lblkappa' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'LBLKAPPA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "--json: value 'Root' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.plain_exit_codes",
+   "title": "without --json: same exit codes (0 clean, 3 findings), values not echoed",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.01,
+   "assertions": [
+    {
+     "name": "clean: exit code without --json",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "clean plain: value 'lab-server' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "clean plain: value 'lab.example.internal' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "clean plain: value 'aman' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "clean plain: value 'vps-東京' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "clean plain: value 'free-form metadata' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "clean plain: value 'personal' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss: exit code without --json",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "near-miss plain: value 'nearmiss-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'aliasnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'hostnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'Root' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'roots' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'rootnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'acctnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "near-miss plain: value 'lblnm' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules: exit code without --json",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "all-rules plain: value 'lintcase-qv' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'metaval-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'metahost-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'metalbl-K2x9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'METALBL-K2X9' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'aliaszq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'hostq' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'HostQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'HOSTQ' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'höst-q' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'acctalpha' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'acctdelta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'acctecho' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'acctgolf' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'accthotel' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'acctindia' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'lblzeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'LblZeta' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'LBLZETA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'lblomega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'lblOmega' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'lbldup' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'lblpi' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'lblkappa' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'LBLKAPPA' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    },
+    {
+     "name": "all-rules plain: value 'Root' not echoed on stdout/stderr",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present on stderr"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.single_rules",
+   "title": "each rule in isolation (one-destination edits of a clean profile)",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.01,
+   "assertions": [
+    {
+     "name": "[default port equals explicit 22] exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "[default port equals explicit 22] code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[default port equals explicit 22] data",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"duplicate-endpoint\", \"key_paths\": [\"destinations[0].host\", \"destinations[1].host\"], \"destination_ids\": [\"s_a\", \"s_b\"], \"message\": \"destinations share the same host and port\"}]}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "[port 21 is privileged] exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "[port 21 is privileged] code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[port 21 is privileged] data",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"privileged-port\", \"key_paths\": [\"destinations[0].port\"], \"destination_ids\": [\"s_a\"], \"message\": \"port below 1024 other than 22\"}]}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "[port 1 is privileged] exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "[port 1 is privileged] code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[port 1 is privileged] data",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"privileged-port\", \"key_paths\": [\"destinations[0].port\"], \"destination_ids\": [\"s_a\"], \"message\": \"port below 1024 other than 22\"}]}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "[labels only differ in case within one destination] exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "[labels only differ in case within one destination] code",
+     "ok": false,
+     "expected": "LINT_FINDINGS",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[labels only differ in case within one destination] data",
+     "ok": false,
+     "expected": "{\"findings\": [{\"rule\": \"label-case-variant\", \"key_paths\": [\"destinations[0].labels[0]\", \"destinations[0].labels[1]\"], \"destination_ids\": [\"s_a\"], \"message\": \"labels differ only in letter case\"}]}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "[same label in two destinations is fine] exit code",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "[same label in two destinations is fine] code",
+     "ok": false,
+     "expected": "LINT_CLEAN",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[same label in two destinations is fine] data",
+     "ok": false,
+     "expected": "{\"findings\": []}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    },
+    {
+     "name": "[same host, different port is fine] exit code",
+     "ok": false,
+     "expected": "0",
+     "observed": "2"
+    },
+    {
+     "name": "[same host, different port is fine] code",
+     "ok": false,
+     "expected": "LINT_CLEAN",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[same host, different port is fine] data",
+     "ok": false,
+     "expected": "{\"findings\": []}",
+     "observed": "{\"error\": {\"key_path\": null, \"message\": \"unknown or missing sub-subcommand\"}}"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.invalid_same_as_show",
+   "title": "a profile `profile show` rejects gives the same code/exit/state/key_path; no value echoed; never blocks",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.04,
+   "assertions": [
+    {
+     "name": "[forbidden-key.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[forbidden-key.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[forbidden-key.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[forbidden-key.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[forbidden-key.toml] data.error.key_path equals show's",
+     "ok": false,
+     "expected": "private_key",
+     "observed": "null"
+    },
+    {
+     "name": "[forbidden-key.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[unknown-dest-key.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[unknown-dest-key.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[unknown-dest-key.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[unknown-dest-key.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[unknown-dest-key.toml] data.error.key_path equals show's",
+     "ok": false,
+     "expected": "destinations[0].identity_file",
+     "observed": "null"
+    },
+    {
+     "name": "[unknown-dest-key.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[malformed.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[malformed.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[malformed.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[malformed.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[malformed.toml] data.error.key_path equals show's",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "[malformed.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[schema-version-2.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[schema-version-2.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[schema-version-2.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[schema-version-2.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[schema-version-2.toml] data.error.key_path equals show's",
+     "ok": false,
+     "expected": "schema_version",
+     "observed": "null"
+    },
+    {
+     "name": "[schema-version-2.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[duplicate-alias.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[duplicate-alias.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[duplicate-alias.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[duplicate-alias.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[duplicate-alias.toml] data.error.key_path equals show's",
+     "ok": false,
+     "expected": "destinations[1].alias",
+     "observed": "null"
+    },
+    {
+     "name": "[duplicate-alias.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[port-zero.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[port-zero.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[port-zero.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[port-zero.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[port-zero.toml] data.error.key_path equals show's",
+     "ok": false,
+     "expected": "destinations[0].port",
+     "observed": "null"
+    },
+    {
+     "name": "[port-zero.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[control-char.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[control-char.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[control-char.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[control-char.toml] code equals show's",
+     "ok": false,
+     "expected": "SCHEMA_INVALID",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[control-char.toml] data.error.key_path equals show's",
+     "ok": false,
+     "expected": "destinations[0].account",
+     "observed": "null"
+    },
+    {
+     "name": "[control-char.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[oversize.toml] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[oversize.toml] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[oversize.toml] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[oversize.toml] code equals show's",
+     "ok": false,
+     "expected": "INPUT_TOO_LARGE",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[oversize.toml] data.error.key_path equals show's",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "[oversize.toml] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[missing] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[missing] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[missing] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[missing] code equals show's",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[missing] data.error.key_path equals show's",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "[missing] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[directory] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[directory] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[directory] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[directory] code equals show's",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[directory] data.error.key_path equals show's",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "[directory] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    },
+    {
+     "name": "[fifo] lint returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[fifo] exit code equals show's",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[fifo] state equals show's",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[fifo] code equals show's",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[fifo] data.error.key_path equals show's",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "[fifo] marker value not echoed by lint",
+     "ok": true,
+     "expected": "absent",
+     "observed": "present"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.usage_errors",
+   "title": "missing --file / unknown flag: exit 2 USAGE_ERROR (JSON only with --json)",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.01,
+   "assertions": [
+    {
+     "name": "[missing --file, --json] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[missing --file, --json] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[missing --file, --json] state",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[unknown flag, --json] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[unknown flag, --json] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[unknown flag, --json] state",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    },
+    {
+     "name": "[missing --file, plain] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[missing --file, plain] stdout empty",
+     "ok": true,
+     "expected": "\"b''\"",
+     "observed": "\"b''\""
+    },
+    {
+     "name": "[--file without value] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[--file without value] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[--file without value] state",
+     "ok": true,
+     "expected": "failed",
+     "observed": "failed"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T2.no_writes",
+   "title": "lint writes no file next to the profile or in the working directory",
+   "status": "fail",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code",
+     "ok": false,
+     "expected": "3",
+     "observed": "2"
+    },
+    {
+     "name": "no new files",
+     "ok": true,
+     "expected": "[[\"all-rules.toml\"], []]",
+     "observed": "[[\"all-rules.toml\"], []]"
+    }
+   ],
+   "notes": []
+  }
+ ]
+}

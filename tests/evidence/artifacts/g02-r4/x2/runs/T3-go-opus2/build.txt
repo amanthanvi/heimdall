@@ -1,0 +1,7 @@
+signed darwin-arm64: ad-hoc, hardened runtime
+built darwin-arm64 (5245312 bytes)
+built linux-x64 (5476512 bytes)
+built linux-arm64 (5177504 bytes)
+built windows-x64 (5125120 bytes)
+wrote /tmp/x2ws-65820374/eval/frozen/go/dist/manifest.json
+build_exit=0

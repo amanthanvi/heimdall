@@ -1,0 +1,90 @@
+{
+ "cell": "T1-go-opus1",
+ "task": "T1",
+ "lang": "go",
+ "run": "opus1",
+ "evaluated_utc": "2026-10-09",
+ "base": {
+  "commit": "84c7665",
+  "tree_digest_checked": "9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af",
+  "equals_BASE_json": true
+ },
+ "pin_check": {
+  "exit": 0,
+  "note": "T4 seeded-* exit 1, base-* exit 0, sha256_12 equal to BASE.json on darwin and linux (results/pin-check/exit-codes.tsv)"
+ },
+ "transcript_audit": {
+  "verdict": "SUSPECT",
+  "calls_flagged": 24,
+  "of_calls": 78,
+  "hand_inspection": "not contaminated by the evidence available: flagged calls are the first cd into the workspace from the repository-root cwd, commands run at the repository-root cwd that touch only the Go module cache, own scratch, docker, ps and persisted tool output, and references to the workspace's parent directory. One ps listing printed executable names of other cells' processes (no file content). No call read the repository prototypes, hidden material, seeded or base trees, or another workspace. Fresh workspace (manifest created 2026-10-09T05:01:14Z; implementer ran git init itself).",
+  "caveat": "hand inspection looked at tool inputs and the flagged outputs only"
+ },
+ "build": {
+  "exit": 0,
+  "all_four_targets": true,
+  "darwin_arm64_sha256": "457ce20fd37f9b1ee1c3dd35e2b2d1884f5209ce33d69524711d371a4b4c2d7f",
+  "linux_arm64_sha256": "4ae668ad0fb69585fa8a221729d30748118e16af738632a598c4d0e1a7f61f65",
+  "equals_implementer_digests": true,
+  "rebuilt_from_frozen_copy": true
+ },
+ "diff": {
+  "files": 9,
+  "insertions": 933,
+  "deletions": 101,
+  "note": "diff -ruN against git archive of 84c7665 (excluding dist and target); implementer's diff.patch is a git diff against its own start commit db74ced"
+ },
+ "hidden": {
+  "darwin": {
+   "exit": 0,
+   "pass": 14,
+   "total": 14,
+   "failed": []
+  },
+  "linux": {
+   "exit": 0,
+   "pass": 14,
+   "total": 14,
+   "failed": []
+  },
+  "reruns": "none needed (no failing check)",
+  "flaky": false
+ },
+ "score": {
+  "darwin": {
+   "all_pass": true,
+   "fixed": "8/8",
+   "regressed": 0,
+   "unproven_checks": [
+    "T1.nested_shell_bash",
+    "T1.nested_shell_zsh"
+   ],
+   "all_pass_excluding_unproven": true,
+   "fixed_excluding_unproven": "6/6"
+  },
+  "linux": {
+   "all_pass": true,
+   "fixed": "6/6",
+   "regressed": 0
+  }
+ },
+ "harness_2_4_2": {
+  "darwin": {
+   "pass": 139,
+   "total": 139,
+   "verdict": "pass",
+   "expected": "139/139"
+  },
+  "linux": {
+   "pass": 139,
+   "total": 139,
+   "verdict": "pass",
+   "expected": "139/139"
+  }
+ },
+ "unit_tests": {
+  "command": "go test ./... with HEIMDALL_G02_FIXTURES set",
+  "exit": 0,
+  "summary": "cmd/heimdall-proto, internal/agent, internal/profile, internal/run, internal/tui ok; two packages without test files"
+ }
+}

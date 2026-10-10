@@ -1,0 +1,14 @@
+{
+  "cell": "T2-rust-opus1",
+  "reviewer_task": "M00-T05-r4-x2-review-T2-rust-opus1",
+  "reviewed": "implementer-out/diff.patch against TASK.md T2 and prototypes/rust surroundings",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 5},
+  "ascii_fold_check": "Code read: rule 1 uses str::to_ascii_lowercase on host, rule 5 on labels; rule 3 exact == \"root\"; rule 4 exact &str keys. Probes against eval/out/dist-frozen/darwin-arm64 binary (exit 3 observed): U+212A Kelvin sign and U+0130 not folded; Kx/kx and i/I folded; all occurrences of every spelling included in (i,j) order.",
+  "defects": [
+    {"severity": "minor", "location": "src/main.rs Cmd::ProfileLint Err branch", "description": "Error branch duplicates profile show's verbatim instead of a shared helper; future edits to one path could silently break the show/lint equivalence the spec requires (integration test lint_input_errors_match_profile_show does guard it)."},
+    {"severity": "minor", "location": "src/lint.rs tests::homelab_fixture_is_clean", "description": "Silently passes when the fixture is not found (if let Ok), so a relocated run gives a false green rather than a skip."},
+    {"severity": "minor", "location": "tests/cli.rs lint_input_errors_match_profile_show run_bounded", "description": "2 s wall-clock bound includes process spawn; could flake under heavy contention (it encodes K14 faithfully though)."},
+    {"severity": "minor", "location": "workspace tools/__pycache__ (evaluator-reported)", "description": "Stray .pyc left in the workspace; not in the implementer's diff.patch; hygiene only."}
+  ],
+  "deleted_cell_dir": "/tmp/x2ws-2dd1a4d7"
+}

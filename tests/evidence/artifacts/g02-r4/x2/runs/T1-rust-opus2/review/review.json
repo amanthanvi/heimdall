@@ -1,0 +1,24 @@
+{
+  "task_id": "M00-T05-r4-x2-review-T1-rust-opus2",
+  "cell": "T1-rust-opus2",
+  "reviewer": "independent (did not implement); model claude-opus-5-5",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/src/runner.rs on_child_stop (job_control = v.on_stdio || ...)",
+     "description": "Job-control heuristic treats 'terminal on stdio' as job control. A non-job-control parent (non-interactive sh in a non-orphaned foreground group) with tty stdio: third party stops+continues the child -> launcher stops itself, never resumed, child left a zombie; plain exec exits 7 in ~1.5 s. Observed by reviewer probe (probe-tty-nonjobcontrol.txt). Pre-existing in baseline, outside S1 as specified, and not listed in REPORT §17 known deviations."},
+    {"severity": "minor", "location": "prototypes/rust/src/runner.rs continue_child (st.restore_fg.take())",
+     "description": "restore_fg is consumed on the first SIGCONT even when the terminal hand-back is not applied (e.g. outer `bg` of a suspended nested shell); a later `fg` then gives the terminal only to the launcher's group and the nested shell never gets it back, unlike plain exec where `fg` targets the nested shell's group. Inferred from code; not run."},
+    {"severity": "minor", "location": "prototypes/rust/tests/pty_tui.py X2Session.close",
+     "description": "close() sends SIGCONT+SIGKILL to every PID ever recorded, including long-exited children, so a recycled PID of an unrelated process could be signalled. Copies a pre-existing pattern in the file."},
+    {"severity": "minor", "location": "prototypes/rust/tests/cli.rs x2_s1_third_party_stop_cont_without_terminal",
+     "description": "read_line on the job's stdout has no timeout: if the child never prints its PID the test blocks indefinitely instead of failing."}
+  ],
+  "notes": [
+    "No unsafe; libc use limited to O_NOCTTY|O_NONBLOCK and SIGCONT numbers. Forwarder signals the child only under the mutex with exited == false, preserving the no-recycled-PID guarantee; reaping still happens after exited is set.",
+    "tcsetpgrp is only called while the launcher's group is foreground and only to a group recorded as holding the terminal at the child's stop (K6a preserved). K16: launcher executes nothing new.",
+    "Grace restart on own SIGCONT and the re-check before self-stop narrow the stale-stop race; REPORT honestly states the residual race, double SIGCONT, and redirected-background-job deviation.",
+    "Tests: every pty scenario runs a plain-exec control in the same bash and zsh session and compares notices, $?, jobs, typed input, process states, meta file; plus a redirected-stdio regression guard for the S1 rule. Linux zsh half is reported blocked when the image lacks zsh.",
+    "T2 ASCII case-folding check not applicable to T1.",
+    "Observed, not started by this reviewer and left alone: a pre-existing baseline debug launcher process (PPID 1, state S, started 2026-10-08 23:13 local) from the implementer's runs; its executable path was inside the deleted cell directory."
+  ]
+}

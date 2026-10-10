@@ -1,0 +1,26 @@
+{
+ "cell": "T3-go-sonnet1", "task": "T3", "lang": "go", "run": "sonnet1",
+ "built": true, "all_targets_build": true,
+ "base_commit": "84c7665", "base_tree_digest_matches_BASE_json": true,
+ "changed_files": ["internal/tui/tui.go", "internal/tui/tui_test.go"],
+ "diff_stats": {"files": 2, "insertions": 264, "deletions": 16},
+ "sha256": {
+  "darwin-arm64": "9eb467768617e4e923c4f9e8485be4b6c8345eb644bd419dc01d650cc3dffbf9",
+  "linux-arm64": "1ca9e1f632ba6f9b5a1a2212e774a7a57fb3c1ec86a68cd3cc4c6948024f71dd",
+  "note": "evaluator rebuild equals the implementer's last build (both platforms)"
+ },
+ "hidden": {
+  "darwin": {"exit": 0, "pass": 17, "fail": 0, "error": 0, "total": 17, "score_valid": true, "fixed": "14/14", "regressed": 0},
+  "linux": {"exit": 0, "pass": 17, "fail": 0, "error": 0, "total": 17, "score_valid": true, "fixed": "14/14", "regressed": 0},
+  "reruns": "none needed; no failing hidden check, one run per platform",
+  "t1_fixed_regressed": "not applicable (T3)"
+ },
+ "harness_2_4_2": {
+  "darwin": {"exit": 1, "total": 139, "pass": 136, "fail": 3, "failed_ids": ["tui.filter_edit_resets_selection", "tui.no_color", "tui.large_100_filter_latency"]},
+  "linux": {"exit": 1, "total": 139, "pass": 136, "fail": 3, "failed_ids": ["tui.filter_edit_resets_selection", "tui.no_color", "tui.large_100_filter_latency"]},
+  "expected_for_T3": "136/139 with exactly these three failing: matched on both platforms"
+ },
+ "unit_tests": {"exit": 0, "summary": "go test -count=1 ./... ok in cmd/heimdall-proto, internal/agent, internal/profile, internal/run, internal/tui"},
+ "not_done": ["transcript audit (no transcript supplied to this evaluator)", "pin-check (once per session, not run by this cell evaluator)"],
+ "notes": "Linux hidden.sh wall time was about 17 minutes between start and finish stamps while the 17 checks themselves took about 20 s (container startup); results unaffected."
+}

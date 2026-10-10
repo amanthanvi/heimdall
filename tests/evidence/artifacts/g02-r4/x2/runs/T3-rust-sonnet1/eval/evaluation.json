@@ -1,0 +1,18 @@
+{
+ "cell": "T3-rust-sonnet1",
+ "task": "T3", "lang": "rust", "run": "sonnet1",
+ "base_tree_digest_checked": "58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13 (equals BASE.json)",
+ "pin_check": "verify-matrix T4 both: exit 0; seeded exit 1, base exit 0, digests equal pins (exit-codes.tsv)",
+ "audit": "not run by this evaluator (no transcript path in the task packet)",
+ "build": {"exit": 0, "targets": {"darwin-arm64": true, "linux-x64": true, "linux-arm64": true, "windows-x64": true},
+   "note": "clean rebuild from frozen sources (target/ emptied except target/tools); notices generation failed in tools/gen_notices.py because cargo metadata --locked --offline cannot download redox_syscall (offline registry lacks non-host deps); build.sh still exited 0",
+   "sha256_darwin_arm64": "a49cc5b0a44307468befd92efe9e0db6d8d05ecb3817b53c331c6a1562e67477",
+   "sha256_linux_arm64": "ecff520d717ccfa13c1eccd4f28de8a48afb952341316f20be5816a3bb970e28",
+   "digests_equal_implementer_build": true},
+ "hidden": {"darwin": {"exit": 0, "pass": 17, "total": 17}, "linux": {"exit": 0, "pass": 17, "total": 17}, "reruns": "none needed (no failing check)", "flaky": false},
+ "score": {"darwin": {"all_pass": true, "fixed": "14/14", "regressed": "0"}, "linux": {"all_pass": true, "fixed": "14/14", "regressed": "0"}},
+ "harness_2_4_2": {"darwin": {"total": 139, "pass": 136, "fail": 3, "error": 0}, "linux": {"total": 139, "pass": 136, "fail": 3, "error": 0},
+   "failed_ids": ["tui.filter_edit_resets_selection", "tui.no_color", "tui.large_100_filter_latency"], "matches_expected_T3_exceptions": true},
+ "unit_tests": {"cmd": "cargo test --locked --offline (HEIMDALL_G02_FIXTURES set)", "exit": 0, "passed": "53 lib + 4 + 28 integration, 0 failed"},
+ "diff": {"files": 3, "insertions": 553, "deletions": 38, "note": "src/list_model.rs, src/tui.rs, tests/pty_tui.py; implementer-produced tools/__pycache__ excluded from change.patch"}
+}

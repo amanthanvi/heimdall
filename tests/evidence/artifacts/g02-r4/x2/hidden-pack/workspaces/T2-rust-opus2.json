@@ -1,0 +1,16 @@
+{
+ "task": "T2",
+ "lang": "rust",
+ "created_utc": "2026-10-06T16:58:20Z",
+ "workspace": "/private/tmp/x2ws-09f5dae5/heimdall",
+ "test_build": false,
+ "prototype_source": "git archive 001a791 prototypes/rust",
+ "prototype_tree_digest": "58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13",
+ "prototype_tree_digest_pinned": true,
+ "support_commit": "f4ecabb",
+ "spec_sha256": "4b2dcaa4cca701463a40a28d2f905c5f2ae4ecfc8a00ef4930b070238a1fa9e9",
+ "venv_python": "3.14",
+ "venv_packages": "0.8.2 0.9.1",
+ "venv_site_packages_digest": "d59907249026ae182a389dfcac9ecd03fe5ddd945916a9d24d76087143819665",
+ "tree_digest_method": "find . -type f | LC_ALL=C sort | xargs sha256 | sha256 (prototype dir as delivered, before cargo-zigbuild is added under target/ and before any change)"
+}

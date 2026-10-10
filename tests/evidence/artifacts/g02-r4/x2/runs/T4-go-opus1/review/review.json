@@ -1,0 +1,19 @@
+{
+  "cell": "T4-go-opus1",
+  "reviewer_task": "M00-T05-r4-x2-review-T4-go-opus1",
+  "reviewer_model": "claude-opus-5-5",
+  "inputs": "implementer-out/diff.patch (byte-identical to the workspace out/diff.patch), TASK.md, prototypes/go tree in the cell workspace",
+  "reviewer_checks_run": [
+    {"cmd": "go vet ./...", "exit_code": 0},
+    {"cmd": "GOOS=windows go vet ./internal/profile", "exit_code": 0},
+    {"cmd": "go test -race -count=3 ./internal/profile", "exit_code": 0},
+    {"cmd": "go test -count=1 -run 'Symlink|K14' ./cmd/heimdall-proto", "exit_code": 0, "note": "tail of output showed ok"},
+    {"cmd": "dist/darwin-arm64/heimdall-proto profile show --json via relative link / link to /dev/tty / link to FIFO", "exit_codes": [0, 2, 2], "note": "PROFILE_OK; USAGE_ERROR not a regular file; USAGE_ERROR not a regular file; no blocking observed"}
+  ],
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/internal/profile/symlink_test.go TestLoadSymlinkRetargetedBeforeOpen", "description": "The swap closures call symlink(), which calls t.Fatal, and run inside the goroutine started by loadWithin (Load -> beforeOpen). t.Fatal/FailNow from a non-test goroutine is not supported; only reached on setup failure, so it does not affect passing runs. beforeOpen is also a mutable package global restored by hand (no t.Cleanup), so a Fatalf timeout leaves it set; harmless today because tests are not parallel."},
+    {"severity": "minor", "location": "prototypes/go/REPORT.md (T4 section)", "description": "Refers to `statHandle` as if it were project code; it is a Go standard-library internal (os/stat_windows.go) and does not exist in the prototype tree, which can mislead a future agent searching for it."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/tui_terminfo_test.go runTUIFile", "description": "New unconditional drain wait of up to 500 ms on r.done after exit adds latency to every existing runTUIEnv caller; bounded and justified for output capture, but not mentioned as a cost."}
+  ],
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 5}
+}

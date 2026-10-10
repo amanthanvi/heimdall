@@ -1,0 +1,38 @@
+{
+ "task": "T1",
+ "lang": "go",
+ "record_lang": "go",
+ "platform": "darwin",
+ "result_binary_sha256": "797e00e74a55bfcd2376b3c9836c44c512f2c2349bd4807ab3693d6df5dd2038",
+ "baseline_subject": "base-go",
+ "baseline_binary_sha256": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+ "baseline_pinned": true,
+ "valid": true,
+ "problems": [],
+ "total": 14,
+ "pass": 14,
+ "all_pass": true,
+ "baseline_pass": 6,
+ "baseline_fail": 8,
+ "fixed": "8/8",
+ "fixed_checks": [
+  "T1.nested_shell_bash",
+  "T1.nested_shell_zsh",
+  "T1.pty_stop_cont_bash_SIGSTOP",
+  "T1.pty_stop_cont_zsh_SIGSTOP",
+  "T1.sigstop_meta_bash_ext",
+  "T1.sigstop_meta_bash_read",
+  "T1.sigstop_meta_zsh_ext",
+  "T1.sigstop_meta_zsh_read"
+ ],
+ "still_failing_checks": [],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [
+  "T1.nested_shell_bash",
+  "T1.nested_shell_zsh"
+ ],
+ "all_pass_excluding_unproven": true,
+ "fixed_excluding_unproven": "6/6"
+}

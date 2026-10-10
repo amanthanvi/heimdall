@@ -1,0 +1,7 @@
+SUMMARY T1 FAIL platform=darwin {"pass": 6, "fail": 8, "error": 0, "total": 14}
+SUMMARY T1 FAIL platform=darwin {"pass": 8, "fail": 6, "error": 0, "total": 14}
+SUMMARY T1 PASS platform=darwin {"pass": 14, "fail": 0, "error": 0, "total": 14}
+SUMMARY T1 FAIL platform=linux {"pass": 8, "fail": 6, "error": 0, "total": 14}
+SUMMARY T1 FAIL platform=linux {"pass": 8, "fail": 6, "error": 0, "total": 14}
+SUMMARY T1 PASS platform=linux {"pass": 14, "fail": 0, "error": 0, "total": 14}
+matrix rc=0

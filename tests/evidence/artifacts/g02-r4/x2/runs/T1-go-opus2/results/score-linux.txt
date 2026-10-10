@@ -1,0 +1,33 @@
+{
+ "task": "T1",
+ "lang": "go",
+ "record_lang": "go",
+ "platform": "linux",
+ "result_binary_sha256": "6e740de2a799749f57a4b3b328311013be9541c7906175348bda177cc8dfbb74",
+ "baseline_subject": "base-go",
+ "baseline_binary_sha256": "18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96",
+ "baseline_pinned": true,
+ "valid": true,
+ "problems": [],
+ "total": 14,
+ "pass": 14,
+ "all_pass": true,
+ "baseline_pass": 8,
+ "baseline_fail": 6,
+ "fixed": "6/6",
+ "fixed_checks": [
+  "T1.pty_stop_cont_bash_SIGSTOP",
+  "T1.pty_stop_cont_zsh_SIGSTOP",
+  "T1.sigstop_meta_bash_ext",
+  "T1.sigstop_meta_bash_read",
+  "T1.sigstop_meta_zsh_ext",
+  "T1.sigstop_meta_zsh_read"
+ ],
+ "still_failing_checks": [],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [],
+ "all_pass_excluding_unproven": true,
+ "fixed_excluding_unproven": "6/6"
+}

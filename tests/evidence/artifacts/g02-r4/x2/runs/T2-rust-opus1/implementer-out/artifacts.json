@@ -1,0 +1,21 @@
+{
+ "task_id": "T2-rust-opus1",
+ "candidate": "rust",
+ "artifacts": [
+  {
+   "target": "darwin-arm64",
+   "path": "/tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+   "artifact_dir": "/tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust/dist/darwin-arm64",
+   "bytes": 734592,
+   "sha256": "e73c91bdd257d2df3d1019889a690f47db2f08b4e2c78a6a151f98510622cb62"
+  },
+  {
+   "target": "linux-arm64",
+   "path": "/tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto",
+   "artifact_dir": "/tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust/dist/linux-arm64",
+   "bytes": 840232,
+   "sha256": "ba9b4e65ff7821f5e60b1e15226f01571e60f80c028b87c02d4cd7f24ff23b40"
+  }
+ ],
+ "manifest": "/tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust/dist/manifest.json"
+}

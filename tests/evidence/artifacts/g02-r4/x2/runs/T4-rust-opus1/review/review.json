@@ -1,0 +1,16 @@
+{
+  "cell": "T4-rust-opus1",
+  "reviewer": "independent reviewer (Opus 5.5), did not implement",
+  "inputs": ["implementer-out/diff.patch", "TASK.md (T4)", "prototypes/rust/src/profile.rs context", "docs/g02/slice-contract.md K14"],
+  "reviewer_probes": [
+    {"what": "profile show --json via built darwin-arm64 binary: plain file, absolute link, relative link, link->FIFO (no writer), link->directory, link->/dev/zero, dangling link", "observed": "exit 0 PROFILE_OK for file and both links; exit 2 USAGE_ERROR for FIFO/device ('not a regular file'), directory ('is a directory'), dangling ('cannot open profile file: NotFound'); all within a 3 s alarm", "exit_codes": [0,0,0,2,2,2,2]},
+    {"what": "HP_PTY_ONLY=symlink tests/pty_tui.py against the built darwin-arm64 binary", "observed": "tui-symlinked-profile passed; k14-tui-symlink-to-fifo-usage-error passed (exit 2 in 0.04 s)", "exit_code": 0}
+  ],
+  "scores": {"spec_conformance": 5, "test_quality": 5, "clarity": 5},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/src/profile.rs symlinks_are_followed_but_k14_still_applies", "description": "Unit test uses a pid-named dir under temp_dir with no drop guard, so a failing assertion leaves the directory behind (the CLI tests use a TempDir guard)."},
+    {"severity": "minor", "location": "prototypes/rust/tests/pty_tui.py stow_layout", "description": "Idempotence keyed on config/ only; if dotfiles/ exists without config/ the os.makedirs(dot) call raises. Harmless in the current single-call flow."},
+    {"severity": "minor", "location": "prototypes/rust/src/profile.rs read_bounded (Windows path)", "description": "Following links on Windows (metadata + GetFileType on the handle) is compile-checked only; no native Windows symlink evidence. Disclosed by the implementer; not a code defect."}
+  ],
+  "summary": "Correct, minimal root-cause fix: pre-open symlink_metadata replaced by metadata (follows links); the authoritative K14 check on the opened handle (O_NONBLOCK + fstat, Windows GetFileType) is unchanged, so links retargeted to a FIFO/device are still refused without blocking; O_NOCTTY is a sound hardening. No path or OS string echo (io_kind only). tui shares load_file. Tests cover absolute/relative/chained/through-linked-dir links byte-identically with and without --json, an invalid profile behind a link, and K14 through links (FIFO, socket, /dev/null, dir abs/rel, dangling, loop), plus PTY cases; the obsolete 'link is refused' assertion was removed rather than left contradictory. Only minor test-hygiene nits."
+}

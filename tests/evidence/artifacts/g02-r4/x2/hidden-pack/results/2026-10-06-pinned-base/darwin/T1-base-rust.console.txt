@@ -1,0 +1,17 @@
+hidden.sh: task=T1 platform=darwin sha256=f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18 started=2026-10-06T14:43:37Z
+FAIL  T1.nonint_stop_cont_SIGSTOP (7.6s) :: launcher exit status after the third-party SIGCONT (control: 7); launcher exits within 6 s of the SIGCONT
+FAIL  T1.nonint_stop_cont_SIGTSTP (7.6s) :: launcher exit status after the third-party SIGCONT (control: 7); launcher exits within 6 s of the SIGCONT
+PASS  T1.pty_stop_cont_bash_SIGSTOP (15.5s)
+PASS  T1.pty_stop_cont_bash_SIGTSTP (15.5s)
+PASS  T1.pty_stop_cont_zsh_SIGSTOP (15.5s)
+PASS  T1.pty_stop_cont_zsh_SIGTSTP (15.5s)
+FAIL  T1.cont_launcher_only_bash (10.0s) :: SIGCONT to the launcher PID resumes the child (it prints BACK)
+FAIL  T1.cont_launcher_only_zsh (10.0s) :: SIGCONT to the launcher PID resumes the child (it prints BACK); `jobs` 2.6 s later says stopped, as with plain exec (never running while the child is stopped)
+FAIL  T1.nested_shell_bash (11.1s) :: after `fg` the nested shell answers; outer $? after `exit 3` in the nested shell; no nested shell or launcher left
+FAIL  T1.nested_shell_zsh (11.0s) :: after `fg` the nested shell answers; outer $? after `exit 3` in the nested shell; no nested shell or launcher left
+PASS  T1.sigstop_meta_bash_read (11.0s)
+PASS  T1.sigstop_meta_bash_ext (11.0s)
+PASS  T1.sigstop_meta_zsh_read (11.0s)
+PASS  T1.sigstop_meta_zsh_ext (11.0s)
+SUMMARY T1 FAIL platform=darwin {"pass": 8, "fail": 6, "error": 0, "total": 14}
+hidden.sh: exit=1 finished=2026-10-06T14:46:21Z

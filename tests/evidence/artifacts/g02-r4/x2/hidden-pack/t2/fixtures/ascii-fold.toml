@@ -1,0 +1,34 @@
+# X2 T2 fixture (fix round 2026-10-06): the spec folds case for ASCII letters only.
+# Each pair below is equal under Unicode case folding/lowercasing but NOT under ASCII-lowercase,
+# so none of them is a finding.  One plain ASCII case pair keeps the result LINT_FINDINGS.
+schema_version = 1
+name = "asciifold-qv"
+revision = 2
+
+[[destinations]]
+id = "f_a"
+alias = "a-foldqv"
+host = "fold-ü-qv.example.invalid"
+account = "acct-foldqv"
+labels = ["lbl-é-foldqv", "lbl-k-foldqv"]
+
+[[destinations]]
+id = "f_b"
+alias = "b-foldqv"
+host = "FOLD-Ü-QV.example.invalid"
+port = 22
+account = "acct-foldqv"
+labels = ["LBL-É-FOLDQV", "lbl-K-foldqv"]
+
+[[destinations]]
+id = "f_c"
+alias = "c-foldqv"
+host = "Kelvin-foldqv.example.invalid"
+account = "acct-foldqv"
+labels = ["Lbl-Ascii-FoldQV", "lbl-ascii-foldqv"]
+
+[[destinations]]
+id = "f_d"
+alias = "d-foldqv"
+host = "kelvin-foldqv.example.invalid"
+account = "acct-foldqv"

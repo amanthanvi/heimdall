@@ -1,0 +1,86 @@
+{
+ "about": "X2 evaluator commands per platform (fix round 2026-10-06; fix round 2 the same day). Templates only: no absolute paths. Set HM_REPO to the heimdall repository root and HM_HIDDEN to this directory before running; copy these templates, never expanded command lines, into evidence. Never give any of this to an implementer. Placeholders: {task} T1..T4, {lang} go|rust, {ws} the cell's workspace (make-workspace.sh), {eval} the evaluator's scratch directory for the cell (outside every workspace), {sha_darwin} / {sha_linux} the sha256 of the frozen build's darwin-arm64 / linux-arm64 heimdall-proto. Every pack Python runs with -I -B (no __pycache__, which would embed the home path). Scratch for the pack author and reviewers is $HM_HIDDEN/../r4-scratch; /tmp/hm-r4 no longer exists.",
+ "env": {
+  "HM_REPO": "<repo root>",
+  "HM_HIDDEN": "<this directory>",
+  "SSH_AUTH_SOCK": "unset"
+ },
+ "steps": [
+  {
+   "id": "pin-check",
+   "when": "once per evaluation session",
+   "cmd": "cd \"$HM_REPO\" && TASKS=T4 sh \"$HM_HIDDEN/verify-matrix.sh\" {eval}/pin-check both",
+   "expect": "verify-matrix.sh exits 2 if HM_REPO/tests/g02 differs from BASE.json support_commit; otherwise exit-codes.tsv shows T4 seeded-* exit 1 and base-* exit 0 with sha256_12 equal to BASE.json"
+  },
+  {
+   "id": "workspace",
+   "when": "before the implementer starts",
+   "cmd": "HM_REPO=\"$HM_REPO\" sh \"$HM_HIDDEN/make-workspace.sh\" --task {task} --lang {lang} --dest /tmp/x2ws-$(openssl rand -hex 6)/heimdall --manifest {eval}/workspace-manifest.json",
+   "expect": "exit 0; --dest is resolved (relative made absolute, . and .. refused, nearest existing ancestor resolved with pwd -P) and refused before anything is created if it lies inside the repository, $HM_HIDDEN/.. (hidden dir and r4-scratch) or /tmp/hm-r4. The implementer gets only the --dest path and the instruction to read TASK.md; start it with that path as its working directory if the runner allows (otherwise every call made before it cds into the workspace is flagged by the audit)"
+  },
+  {
+   "id": "audit",
+   "when": "after the implementer finishes, before evaluation",
+   "cmd": "python3 -I -B \"$HM_HIDDEN/audit-transcript.py\" --repo \"$HM_REPO\" --workspace {ws} --workspace-prefix /tmp/x2ws- --scratch <session dir> <session>.jsonl <session dir>",
+   "expect": "VERDICT CLEAN, exit 0. VERDICT SUSPECT, exit 1: inspect the listed call indices by hand (reason codes say why: cwd-outside, path-outside, glob-outside, unresolved-expansion, unparsed-command, marker, output-marker) and record whether the cell is contaminated. Self-test: python3 -I -B \"$HM_HIDDEN/audit-selftest.py\" --repo \"$HM_REPO\" --scratch \"$HM_HIDDEN/../r4-scratch/audit-selftest\""
+  },
+  {
+   "id": "freeze",
+   "cmd": "mkdir -p {eval}/frozen && cp -R {ws}/prototypes/{lang} {eval}/frozen/{lang} && rm -rf {eval}/frozen/{lang}/dist",
+   "expect": "evaluation never reads the live workspace again"
+  },
+  {
+   "id": "diff",
+   "cmd": "T1-T3: git -C \"$HM_REPO\" archive <BASE.json base.{lang}.commit> prototypes/{lang} | tar -x -C {eval}/base; T4: mkdir -p {eval}/base/prototypes && cp -R \"$HM_HIDDEN/<BASE.json seed.{lang}.tree>\" {eval}/base/prototypes/{lang}; then diff -ruN -x target -x dist {eval}/base/prototypes/{lang} {eval}/frozen/{lang} > {eval}/change.patch",
+   "expect": "the implementer's change; check the base copy's tree digest against BASE.json first"
+  },
+  {
+   "id": "build",
+   "cmd": "cd {eval}/frozen/{lang} && sh build.sh  (Rust: CARGO_ZIGBUILD=\"$HM_REPO/prototypes/rust/target/tools/bin/cargo-zigbuild\")",
+   "expect": "exit 0, all four targets incl. windows-x64; record sha256 of dist/darwin-arm64/heimdall-proto and dist/linux-arm64/heimdall-proto"
+  },
+  {
+   "id": "hidden-darwin",
+   "platform": "darwin-arm64 host",
+   "cmd": "cd \"$HM_REPO\" && sh \"$HM_HIDDEN/hidden.sh\" --task {task} --platform darwin --lang {lang} --bin {eval}/frozen/{lang}/dist/darwin-arm64/heimdall-proto --expect-sha256 {sha_darwin} --out-dir {eval}/hidden-darwin",
+   "expect": "exit 0 all pass, 1 a check failed, 2 setup/invalid (rerun, do not score)"
+  },
+  {
+   "id": "hidden-linux",
+   "platform": "linux-arm64 container (Docker Desktop arm64, --network none)",
+   "cmd": "cd \"$HM_REPO\" && sh \"$HM_HIDDEN/hidden.sh\" --task {task} --platform linux --lang {lang} --bin {eval}/frozen/{lang}/dist/linux-arm64/heimdall-proto --expect-sha256 {sha_linux} --out-dir {eval}/hidden-linux",
+   "expect": "as above; the container sees only the hidden dir, a private copy of the binary and the output dir"
+  },
+  {
+   "id": "score",
+   "cmd": "python3 -I -B \"$HM_HIDDEN/score.py\" --task {task} --lang {lang} --platform <darwin|linux> --expect-sha256 <sha of that platform> {eval}/hidden-<platform>/{task}-<platform>.json",
+   "expect": "exit 0 and valid=true; --expect-sha256 is required and must equal the record's binary_sha256 and binary_sha256_after, and the record's lang must equal --lang. Report all_pass, fixed, regressed (T1: compare languages by these, not by raw pass counts). T2.ascii_fold_only counts toward all_pass for both languages (orchestrator decision, README)"
+  },
+  {
+   "id": "harness-darwin",
+   "cmd": "cd \"$HM_REPO\" && python3 -B tests/g02/conformance.py --bin {eval}/frozen/{lang}/dist/darwin-arm64/heimdall-proto --candidate {lang} --out {eval}/harness-darwin.json",
+   "expect": "139/139 (T3: 136/139, exactly tui.filter_edit_resets_selection, tui.no_color, tui.large_100_filter_latency fail)"
+  },
+  {
+   "id": "harness-linux",
+   "cmd": "cd \"$HM_REPO\" && sh tests/g02/linux/run.sh --artifact-dir {eval}/frozen/{lang}/dist/linux-arm64 --candidate {lang} --out {eval}/harness-linux.json",
+   "expect": "as for darwin"
+  },
+  {
+   "id": "unit",
+   "cmd": "cd {eval}/frozen/{lang} && HEIMDALL_G02_FIXTURES=\"$HM_REPO/tests/fixtures/g02/profiles\" go test ./...   |   cargo test --locked",
+   "expect": "exit 0"
+  },
+  {
+   "id": "evidence-scan",
+   "cmd": "python3 -I -B \"$HM_HIDDEN/scan-home.py\" <everything about to be copied into $HM_REPO/tests/evidence>",
+   "expect": "exit 0; never copy a file with a hit"
+  },
+  {
+   "id": "cleanup",
+   "when": "last, after evidence-scan and after the reviewer's artifacts are in {eval}/out",
+   "cmd": "HM_REPO=\"$HM_REPO\" sh \"$HM_HIDDEN/cleanup-cell.sh\" --lang {lang} --ws {ws} --eval {eval}",
+   "expect": "exit 0; {eval}/out holds dist-frozen/ (the evaluator's build, all targets), dist-workspace/ (the implementer's last build, if any) and SHA256SUMS; Rust target/ directories (except target/tools) and Go build/module caches inside {ws} and {eval} are deleted; sources, change.patch and records are kept. The host disk is nearly full: never skip this step"
+  }
+ ]
+}

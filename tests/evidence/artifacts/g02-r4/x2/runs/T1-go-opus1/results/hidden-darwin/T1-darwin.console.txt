@@ -1,0 +1,17 @@
+hidden.sh: task=T1 platform=darwin lang=go sha256=457ce20fd37f9b1ee1c3dd35e2b2d1884f5209ce33d69524711d371a4b4c2d7f started=2026-10-09T06:05:20Z
+PASS  T1.nonint_stop_cont_SIGSTOP (2.3s)
+PASS  T1.nonint_stop_cont_SIGTSTP (2.1s)
+PASS  T1.pty_stop_cont_bash_SIGSTOP (15.5s)
+PASS  T1.pty_stop_cont_bash_SIGTSTP (15.5s)
+PASS  T1.pty_stop_cont_zsh_SIGSTOP (15.6s)
+PASS  T1.pty_stop_cont_zsh_SIGTSTP (15.6s)
+PASS  T1.cont_launcher_only_bash (9.9s)
+PASS  T1.cont_launcher_only_zsh (9.9s)
+PASS  T1.nested_shell_bash (8.2s)
+PASS  T1.nested_shell_zsh (8.2s)
+PASS  T1.sigstop_meta_bash_read (11.0s)
+PASS  T1.sigstop_meta_bash_ext (11.0s)
+PASS  T1.sigstop_meta_zsh_read (11.1s)
+PASS  T1.sigstop_meta_zsh_ext (11.0s)
+SUMMARY T1 PASS platform=darwin lang=go {"pass": 14, "fail": 0, "error": 0, "total": 14}
+hidden.sh: exit=0 finished=2026-10-09T06:07:47Z

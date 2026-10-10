@@ -1,0 +1,22 @@
+{
+  "cell": "T1-go-opus2",
+  "task_id": "M00-T05-r4-x2-review-T1-go-opus2",
+  "reviewer": "independent subagent (Opus 5.5); did not implement this change",
+  "method": "Read out/diff.patch against TASK.md and the patched prototypes/go/internal/run/run_unix.go in the cell workspace; confirmed the darwin syscall.WaitStatus claim in the local Go toolchain source (syscall_bsd.go lines 127/129 compare the stop signal with SIGSTOP). No tests were re-run; evaluation results were taken as given.",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/internal/run/run_unix.go shouldMirror", "description": "Mirroring keys on terminal foreground ownership, a heuristic. A third party's SIGSTOP/SIGTSTP of the child while the job is in the background of an interactive shell is not mirrored (plain exec shows Stopped), and a non-shell parent that gives heimdall-proto's group the foreground then continues only the child leaves heimdall-proto stopped. Both are outside S1-S5 and are disclosed in REPORT.md known gaps."},
+    {"severity": "minor", "location": "prototypes/go/internal/run/run_unix.go mirrorStop (SIGTTOU branch)", "description": "SIGTTOU stops are still reported as SIGTSTP, so $? is 128+SIGTSTP rather than 128+SIGTTOU as with plain exec. Not covered by S1-S5; disclosed."},
+    {"severity": "minor", "location": "prototypes/go/internal/run/run_unix.go mirrorStop/stopSelf (S3 path)", "description": "After a third party's SIGCONT to the launcher, the shell sees the job as running until heimdall-proto sends SIGCONT to the child. For that short window the child is stopped while the job is listed as running. TASK.md S3 says this must never happen. The window is unmeasured, though the hidden tests passed; disclosed."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/jobctl_test.go", "description": "The end-to-end tests are timing-based (many fixed sleeps of 0.2-1 s, plus waits) and add about 130 s to go test. Under load they risk flakiness, and the slow default run is costly for future agents. Shells are hard-coded to /bin/bash and /bin/zsh and are skipped when absent, which can silently drop coverage on hosts that put zsh elsewhere. s.close() runs both explicitly and through t.Cleanup; this is harmless but redundant."}
+  ],
+  "strengths": [
+    "Root cause on darwin (Go BSD WaitStatus treats a SIGSTOP stop as a continue) is correctly diagnosed. The fix decodes the raw status word as the C macros do, covering exit, signal with the core bit, stop, and continue reports on both OSes.",
+    "The wait loop no longer treats an unrecognised (continue) report as an exit.",
+    "kill(getpid()) replaces kill(0), which tightens K6a.",
+    "Orphaned-group handling now matches plain exec for SIGSTOP.",
+    "Every scenario test has a plain-exec control; failure of the control is reported as a precondition failure. Cleanup kills only exact PIDs after a session-id identity check.",
+    "The header comment and the REPORT.md section explain the decision table and the known gaps candidly."
+  ],
+  "summary": "Correct, well-reasoned fix that meets S1-S5 on both platforms (the evaluation reports 14/14 hidden and 139/139 harness on darwin and Linux). No blocker or major defect was found. The remaining issues are minor plain-exec deviations outside the gated scenarios, all disclosed, plus slow and timing-sensitive tests. No security issue: no new input parsing, no value echo, and resource use is bounded (sleep before re-continuing in an orphaned group, and a bounded stopWait)."
+}

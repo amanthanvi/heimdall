@@ -1,0 +1,1159 @@
+diff --git a/prototypes/go/REPORT.md b/prototypes/go/REPORT.md
+index fe8f37f..52d1d08 100644
+--- a/prototypes/go/REPORT.md
++++ b/prototypes/go/REPORT.md
+@@ -435,7 +435,7 @@ Task M00-T05-go-round3c-fix is the one fix round under §9.4 and the Q17 ruling
+ - `run.k6e_child_self_stop` SIGSTOP variants (§9.4: recorded, not gated):
+   - darwin: under bash and zsh, the shell did not report the job stopped within 4 s.
+   - linux: the stop was reported, but as SIGTSTP (status 148, control 147), because heimdall-proto mirrors SIGSTOP as SIGTSTP (round 3b).
+-  - The pre-fix records on the round-3b artifacts show the same darwin result. This round did not change it and did not investigate it.
++  - The pre-fix records on the round-3b artifacts show the same darwin result. This round did not change it and did not investigate it. [X2 T1 update: both causes are fixed (wait-status decoding on darwin, SIGSTOP mirrored as SIGSTOP); both variants now equal the control on both OSes. See the section "X2 task T1".]
+ - The gated `bash-SIGTSTP` variant passed on both OSes. zsh SIGTSTP was also ok.
+ - K17 filter p95: 17.8 ms (darwin), 19.0 ms (linux).
+ 
+@@ -643,3 +643,39 @@ Full row table (`windows-run/ROWS.md`; per-row observations in `windows-run/fix-
+ - **One host, one Windows build, non-elevated, pseudoconsoles only**, as in X1. The script changes from task M00-T05-x1b-script still have no independent review.
+ - The owner's cmd.exe AutoRun ran during the pre-fix test runs, as it did in the X1 baseline runs. It does not run after the fix, because cmd.exe is never started.
+ - **Cleanup:** both task scratch directories were removed. No heimdall-proto, argvdump or test-binary process, and no process with the task scratch in its command line, was left (counts 0/0/0).
++
++## X2 task T1: exec-equivalent job control for `run` (2026-10-09)
++
++Task: make `run` behave like plain exec of the child in the five TASK.md situations S1-S5, on darwin-arm64 and linux-arm64, under bash and zsh, without breaking anything else. All results below were observed in this workspace; the shared harness was run read-only.
++
++### Causes found (baseline = the sources at the start of the task)
++
++1. **darwin: a SIGSTOP stop was taken for an exit.** Go's `syscall.WaitStatus` (and x/sys `unix.WaitStatus`) on BSD compares the stop signal with SIGSTOP where `<sys/wait.h>` compares it with 0x13 (SIGCONT). A child stopped by SIGSTOP therefore decoded as "continued", neither stopped nor signaled, and `ExitStatus()` returned -1: heimdall-proto exited 255, wrote `exit_code: -1` to the meta file and left the child stopped in a group that the kernel then hung up (§9.5 finding). This broke S2 (SIGSTOP), S4 and S5 on darwin.
++2. **SIGSTOP was mirrored as SIGTSTP.** The shell's `$?` was 128+SIGTSTP instead of 128+SIGSTOP (Linux 148 vs 147). This broke S2 (SIGSTOP) and S5 on Linux.
++3. **Every stop was mirrored, whoever sent it.** In modeExclusive a stop of the child always stopped heimdall-proto. With a non-interactive parent (S1) that has a controlling terminal but does not give heimdall-proto the foreground, a third party's SIGSTOP/SIGTSTP of the child stopped heimdall-proto too; the third party then continued only the child, so heimdall-proto stayed stopped forever and never reaped the child.
++
++### Change (internal/run)
++
++- `waitstatus_unix.go` (new): `wstatus`, a decoder of the raw wait status that follows the C macros on both OSes. `startAndWait` uses it for stops, exits and deaths.
++- `run_unix.go` `mirrorStop`/`shouldMirror`/`stopSelf`:
++  - A stop is mirrored only when the shell can see it: the job holds the terminal foreground (the child's group or heimdall-proto's), or the stop is SIGTTIN/SIGTTOU (terminal access from the background, which a job-control shell lists as stopped). A third party's stop while the job is not in the foreground is left alone: heimdall-proto keeps waiting and exits with the child's status (S1).
++  - The mirror uses the child's own stop signal, SIGSTOP included, so `$?` and the notice ("Stopped", "suspended (signal)") equal plain exec. SIGTTOU stays mapped to SIGTSTP (heimdall-proto ignores SIGTTOU for tcsetpgrp, and os/signal cannot restore its default).
++  - heimdall-proto stops itself with `kill(getpid(), sig)` instead of `kill(0, sig)` (K6a: never another group member).
++  - Orphaned group (no shell can see a stop): as before, TSTP/TTIN/TTOU stops are undone by continuing the child (the kernel would have discarded them for plain exec); a SIGSTOP stop is now left in place, as plain exec would be.
++  - Unchanged: after its own SIGCONT, heimdall-proto hands the terminal to the child only if its group holds the foreground, and always continues the child. That is what makes S3 work: a third party's SIGCONT to heimdall-proto resumes the child, the child's background read stops it with SIGTTIN, and that stop is mirrored as SIGTTIN.
++- S2 uses the permitted deviation (b): when a third party continues only the child while heimdall-proto is stopped, the shell keeps listing the job as stopped until `fg`, which ends it with the child's status.
++
++### Tests added
++
++- `internal/run/waitstatus_test.go`: synthetic status words; real children stopped by SIGSTOP and SIGTSTP (native decode, the darwin regression); `shouldMirror` table.
++- `cmd/heimdall-proto/jobctl_test.go`: S1-S5 end to end, each with a plain-exec control in the same environment (the control must behave as TASK.md describes, else the test fails as a precondition). S1 runs a non-shell parent (`hp-jc-s1`) without and with a controlling terminal, stdio files or pipes, SIGSTOP and SIGTSTP. S2-S5 drive `bash --norc --noprofile -i` and `zsh -f -i` on a pty. The child is the test binary (`hp-jc-child`). `-short` skips the shell scenarios.
++- Red check: the new cmd tests on the baseline `run_unix.go` (darwin) fail S1 (ctty, files, both signals), S2, S4 and S5 (proto variants); S3 passed already.
++
++### Known gaps (unchanged or introduced)
++
++- A third party's SIGSTOP/SIGTSTP of the child while the job is in the background of an interactive shell (`&` or `bg`) is not mirrored; plain exec would show "Stopped". The child is stopped while the shell lists the job as running until the third party continues it.
++- S2 (b): the job finishes only at `fg`, not on its own.
++- S3: the shell can list the job as running during a short window (not measured) between heimdall-proto's continue and the child's SIGTTIN stop being mirrored (plain exec has the same "running" window, but with the child running).
++- A SIGTTOU stop is reported as SIGTSTP.
++- An explicit SIGTSTP/SIGSTOP sent to the heimdall-proto PID still stops only heimdall-proto (§9.4, recorded; not in T1).
++- A non-shell parent that makes heimdall-proto's group the terminal foreground (a one-job shell such as the harness's pty_shim) and then has a third party stop and continue only the child would still leave heimdall-proto stopped: from inside, that is indistinguishable from a job-control shell.
+diff --git a/prototypes/go/cmd/heimdall-proto/jobctl_test.go b/prototypes/go/cmd/heimdall-proto/jobctl_test.go
+new file mode 100644
+index 0000000..106bebd
+--- /dev/null
++++ b/prototypes/go/cmd/heimdall-proto/jobctl_test.go
+@@ -0,0 +1,680 @@
++//go:build darwin || linux
++
++package main
++
++// Exec-equivalent job control for `heimdall-proto run` (X2 task T1, S1-S5).
++// Every scenario runs twice in the same environment: once as plain exec of
++// the child (the control) and once through heimdall-proto. The control must
++// behave as described (otherwise the environment is unsuitable and the test
++// fails as such); heimdall-proto must then give the same observable result.
++// The child is this test binary (hp-jc-child); the shells are the system's
++// bash and zsh, run interactively on a fresh pty.
++
++import (
++	"bufio"
++	"encoding/json"
++	"fmt"
++	"os"
++	"os/exec"
++	"os/signal"
++	"path/filepath"
++	"regexp"
++	"strconv"
++	"strings"
++	"syscall"
++	"testing"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++func init() {
++	helperChildren["hp-jc-child"] = jcChild
++	helperChildren["hp-jc-s1"] = jcS1Runner
++}
++
++// jcChild is the scenario child. HP_JC_MODE selects what it does; it exits
++// with HP_JC_RC. Progress is reported through files in dir.
++//
++//	run            heartbeat for 1.5 s, then exit
++//	selfstop-SIG   wait for dir/go, stop itself with kill(getpid(), SIG)
++//	               (OpenSSH's ~^Z), then read one line from stdin and exit
++//	read           read one line from stdin and exit
++func jcChild(dir string) {
++	put := func(name, text string) {
++		p := filepath.Join(dir, name)
++		_ = os.WriteFile(p+".part", []byte(text), 0o600)
++		_ = os.Rename(p+".part", p)
++	}
++	has := func(name string) bool { _, err := os.Stat(filepath.Join(dir, name)); return err == nil }
++	id, _ := json.Marshal(map[string]int{"pid": os.Getpid(), "ppid": os.Getppid(), "pgrp": unix.Getpgrp()})
++	put("child.json", string(id))
++	rc, _ := strconv.Atoi(os.Getenv("HP_JC_RC"))
++	mode := os.Getenv("HP_JC_MODE")
++	switch {
++	case mode == "run":
++		end := time.Now().Add(1500 * time.Millisecond)
++		for time.Now().Before(end) {
++			time.Sleep(20 * time.Millisecond)
++		}
++		put("done", "1")
++		os.Exit(rc)
++	case strings.HasPrefix(mode, "selfstop-") || mode == "read":
++		if mode != "read" {
++			for !has("go") {
++				time.Sleep(10 * time.Millisecond)
++			}
++			// kill(2) returns before a multithreaded process has stopped;
++			// our own SIGCONT marks the end of the stop.
++			cont := make(chan os.Signal, 1)
++			signal.Notify(cont, syscall.SIGCONT)
++			put("stopping", "1")
++			_ = unix.Kill(os.Getpid(), unix.SignalNum(strings.TrimPrefix(mode, "selfstop-")))
++			<-cont
++			signal.Stop(cont)
++			put("resumed", "1")
++		}
++		put("reading", "1")
++		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
++		put("got", line)
++		put("done", "1")
++		os.Exit(rc)
++	}
++	os.Exit(99)
++}
++
++type jcS1Result struct {
++	HasCtty     bool  `json:"has_ctty"`
++	Started     bool  `json:"started"`
++	RC          int   `json:"rc"`
++	TimedOut    bool  `json:"timed_out"`
++	AfterContMs int64 `json:"after_cont_ms"`
++	ChildDone   bool  `json:"child_done"`
++	ChildGone   bool  `json:"child_gone"`
++}
++
++// jcS1Runner is S1's non-interactive parent (not a shell). It starts the
++// command in a process group of its own, which is not orphaned (the runner
++// is in the same session), with stdin /dev/null and stdout/stderr files
++// (HP_JC_STDIO=files) or pipes (pipe). As the third party it then stops the
++// child with HP_JC_SIG, waits 0.5 s and continues the child's PID only.
++func jcS1Runner(dir string) {
++	res := jcS1Result{RC: -1}
++	if fd, err := unix.Open("/dev/tty", unix.O_RDONLY|unix.O_NOCTTY, 0); err == nil {
++		res.HasCtty = true
++		unix.Close(fd)
++	}
++	write := func() {
++		b, _ := json.Marshal(res)
++		_ = os.WriteFile(filepath.Join(dir, "s1.json"), b, 0o600)
++		os.Exit(0)
++	}
++	self, _ := os.Executable()
++	job := filepath.Join(dir, "job")
++	_ = os.Mkdir(job, 0o700)
++	argv := []string{self, "hp-jc-child", job}
++	if os.Getenv("HP_JC_VIA") == "proto" {
++		argv = append([]string{self, "run", "--"}, argv...)
++	}
++	cmd := exec.Command(argv[0], argv[1:]...)
++	cmd.Env = append(os.Environ(), "HP_AS_MAIN=1", "HP_JC_MODE=run", "HP_JC_RC=5")
++	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
++	var keep []*os.File
++	if os.Getenv("HP_JC_STDIO") == "pipe" {
++		for i := 0; i < 3; i++ {
++			r, w, err := os.Pipe()
++			if err != nil {
++				write()
++			}
++			if i == 0 {
++				cmd.Stdin = r
++				keep = append(keep, w)
++			} else {
++				keep = append(keep, r)
++				if i == 1 {
++					cmd.Stdout = w
++				} else {
++					cmd.Stderr = w
++				}
++			}
++		}
++	} else {
++		out, err := os.Create(filepath.Join(dir, "out"))
++		if err != nil {
++			write()
++		}
++		cmd.Stdout, cmd.Stderr = out, out
++	}
++	if err := cmd.Start(); err != nil {
++		write()
++	}
++	res.Started = true
++	waited := make(chan struct{})
++	go func() { _ = cmd.Wait(); close(waited) }()
++	child := 0
++	if waitFile(filepath.Join(job, "child.json"), 10*time.Second) {
++		var id struct{ Pid int }
++		_ = json.Unmarshal(must(os.ReadFile(filepath.Join(job, "child.json"))), &id)
++		child = id.Pid
++	}
++	if child <= 0 {
++		_ = cmd.Process.Kill()
++		<-waited
++		write()
++	}
++	time.Sleep(200 * time.Millisecond)
++	_ = unix.Kill(child, unix.SignalNum(os.Getenv("HP_JC_SIG")))
++	time.Sleep(500 * time.Millisecond)
++	_ = unix.Kill(child, unix.SIGCONT)
++	t0 := time.Now()
++	select {
++	case <-waited:
++		res.AfterContMs = time.Since(t0).Milliseconds()
++		res.RC = cmd.ProcessState.ExitCode()
++	case <-time.After(8 * time.Second):
++		res.TimedOut = true
++		// Release exactly what this runner started: the child and the
++		// launcher (continued first, so a stopped one can die).
++		for _, p := range []int{child, cmd.Process.Pid} {
++			_ = unix.Kill(p, unix.SIGCONT)
++			_ = unix.Kill(p, unix.SIGKILL)
++		}
++		<-waited
++	}
++	_, err := os.Stat(filepath.Join(job, "done"))
++	res.ChildDone = err == nil
++	res.ChildGone = unix.Kill(child, 0) == unix.ESRCH
++	for _, f := range keep {
++		f.Close()
++	}
++	write()
++}
++
++// S1: a non-interactive parent; a third party stops the child and then
++// continues the child's PID only. Like plain exec, the command completes, the
++// launcher exits with its status within 6 s of the SIGCONT and the child is
++// reaped. Run without a controlling terminal and with one (the runner is the
++// session leader of a pty, so heimdall-proto sees a terminal whose
++// foreground it does not hold); the second form hung before the change.
++func TestJobControlS1ThirdPartyStopNonInteractive(t *testing.T) {
++	self, err := os.Executable()
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, ctty := range []bool{false, true} {
++		for _, stdio := range []string{"files", "pipe"} {
++			for _, sig := range []string{"SIGSTOP", "SIGTSTP"} {
++				for _, via := range []string{"plain", "proto"} {
++					name := fmt.Sprintf("ctty=%v/%s/%s/%s", ctty, stdio, sig, via)
++					t.Run(name, func(t *testing.T) {
++						d := t.TempDir()
++						cmd := exec.Command(self, "hp-jc-s1", d)
++						cmd.Env = []string{"PATH=/usr/bin:/bin", "HP_JC_SIG=" + sig, "HP_JC_VIA=" + via, "HP_JC_STDIO=" + stdio}
++						var r *ptyRun
++						if ctty {
++							r = startPTY(t)
++							defer r.master.Close()
++							defer r.slave.Close()
++							cmd.Stdin, cmd.Stdout, cmd.Stderr = r.slave, r.slave, r.slave
++							cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
++						} else {
++							cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
++						}
++						if err := cmd.Start(); err != nil {
++							t.Fatal(err)
++						}
++						done := make(chan struct{})
++						go func() { _ = cmd.Wait(); close(done) }()
++						select {
++						case <-done:
++						case <-time.After(30 * time.Second):
++							_ = cmd.Process.Kill() // the runner this test started
++							<-done
++						}
++						var res jcS1Result
++						if err := json.Unmarshal(must(os.ReadFile(filepath.Join(d, "s1.json"))), &res); err != nil {
++							t.Fatalf("no runner result: %v", err)
++						}
++						t.Logf("%+v", res)
++						if res.HasCtty != ctty {
++							t.Fatalf("precondition: runner has_ctty=%v, want %v", res.HasCtty, ctty)
++						}
++						if res.TimedOut || res.RC != 5 || !res.ChildDone || res.AfterContMs > 6000 {
++							t.Errorf("want exit 5 with the child completed within 6 s of SIGCONT, got %+v", res)
++						}
++						if via == "proto" && !res.ChildGone {
++							t.Errorf("child not reaped after heimdall-proto exited")
++						}
++					})
++				}
++			}
++		}
++	}
++}
++
++// --- interactive shell driver -------------------------------------------
++
++const jcPrompt = "HMJC$ "
++
++var (
++	jcCSI   = regexp.MustCompile(`\x1b(\[[0-9;?<=>]*[ -/]*[@-~]|[()][0-9A-Za-z]|[=>78])`)
++	jcRCre  = regexp.MustCompile(`RC=(\d+)`)
++	jcJobRe = regexp.MustCompile(`NJOBS=\s*(\d+)`)
++)
++
++type jcShell struct {
++	t        *testing.T
++	name     string
++	r        *ptyRun
++	cmd      *exec.Cmd
++	exited   chan struct{}
++	stopWord string
++	jobsExpr string
++	pids     []int // processes of the job, released on cleanup
++}
++
++var jcShells = map[string]struct {
++	argv           []string
++	stopWord, jobs string
++}{
++	"bash": {[]string{"/bin/bash", "--norc", "--noprofile", "-i"}, "Stopped", "$(jobs -p | wc -l)"},
++	"zsh":  {[]string{"/bin/zsh", "-f", "-i"}, "suspended", "${#jobstates}"},
++}
++
++func startShell(t *testing.T, name, dir string) *jcShell {
++	t.Helper()
++	sh := jcShells[name]
++	if _, err := os.Stat(sh.argv[0]); err != nil {
++		t.Skipf("%s not available: %v", sh.argv[0], err)
++	}
++	self, err := os.Executable()
++	if err != nil {
++		t.Fatal(err)
++	}
++	s := &jcShell{t: t, name: name, r: startPTY(t), exited: make(chan struct{}), stopWord: sh.stopWord, jobsExpr: sh.jobs}
++	s.cmd = exec.Command(sh.argv[0], sh.argv[1:]...)
++	s.cmd.Dir = dir
++	s.cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TERM=xterm-256color", "LANG=en_US.UTF-8",
++		"PS1=" + jcPrompt, "HISTFILE=" + filepath.Join(dir, ".hist"), "BASH_SILENCE_DEPRECATION_WARNING=1",
++		"HP_AS_MAIN=1", "P=" + self, "D=" + dir}
++	s.cmd.Stdin, s.cmd.Stdout, s.cmd.Stderr = s.r.slave, s.r.slave, s.r.slave
++	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
++	if err := s.cmd.Start(); err != nil {
++		t.Fatal(err)
++	}
++	go func() { _ = s.cmd.Wait(); close(s.exited) }()
++	t.Cleanup(s.close)
++	if !s.waitFor(0, 10*time.Second, func(out string) bool { return strings.Contains(out, jcPrompt) }) {
++		t.Fatalf("%s printed no prompt: %q", name, s.tail(0))
++	}
++	time.Sleep(time.Second) // zsh drops typeahead sent right after its first prompt
++	return s
++}
++
++func (s *jcShell) close() {
++	for _, p := range s.pids { // exact PIDs of this session's job, identity-checked
++		if p > 1 && p != s.cmd.Process.Pid {
++			if sid, err := unix.Getsid(p); err == nil && sid == s.cmd.Process.Pid {
++				_ = unix.Kill(p, unix.SIGCONT)
++				_ = unix.Kill(p, unix.SIGKILL)
++			}
++		}
++	}
++	select {
++	case <-s.exited:
++	default:
++		_ = s.cmd.Process.Kill() // the shell this test started
++		<-s.exited
++	}
++	s.r.master.Close()
++	s.r.slave.Close()
++}
++
++func (s *jcShell) mark() int { return len(s.r.output()) }
++
++func (s *jcShell) since(m int) string {
++	out := s.r.output()
++	if m > len(out) {
++		m = len(out)
++	}
++	return jcCSI.ReplaceAllString(string(out[m:]), "")
++}
++
++func (s *jcShell) tail(m int) string {
++	out := s.since(m)
++	if len(out) > 400 {
++		out = out[len(out)-400:]
++	}
++	return out
++}
++
++func (s *jcShell) waitFor(m int, d time.Duration, pred func(string) bool) bool {
++	end := time.Now().Add(d)
++	for {
++		if pred(s.since(m)) {
++			return true
++		}
++		if time.Now().After(end) {
++			return false
++		}
++		time.Sleep(5 * time.Millisecond)
++	}
++}
++
++func (s *jcShell) send(text string) { _, _ = s.r.master.Write([]byte(text + "\r")) }
++
++func promptAtEnd(out string) bool {
++	return strings.HasSuffix(strings.TrimRight(out, " \r\n"), strings.TrimRight(jcPrompt, " "))
++}
++
++// run types a command line and waits for the next prompt.
++func (s *jcShell) run(line string) string {
++	m := s.mark()
++	s.send(line)
++	s.waitFor(m+len(line), 5*time.Second, promptAtEnd)
++	time.Sleep(250 * time.Millisecond)
++	return s.since(m + len(line))
++}
++
++// rc returns $? at the shell's prompt.
++func (s *jcShell) rc() int {
++	mm := jcRCre.FindStringSubmatch(s.run(`echo "RC=$?"`))
++	if mm == nil {
++		return -1
++	}
++	n, _ := strconv.Atoi(mm[1])
++	return n
++}
++
++// jobs returns the number of jobs the shell lists and its `jobs` output.
++func (s *jcShell) jobs() (int, string) {
++	out := s.run(`jobs; echo "NJOBS=` + s.jobsExpr + `"`)
++	mm := jcJobRe.FindStringSubmatch(out)
++	if mm == nil {
++		return -1, out
++	}
++	n, _ := strconv.Atoi(mm[1])
++	return n, out
++}
++
++// waitNotice waits for the shell's stop notice followed by its prompt and
++// returns the notice word with its optional "(signal)" suffix.
++func (s *jcShell) waitNotice(m int, d time.Duration) (string, bool) {
++	ok := s.waitFor(m, d, func(out string) bool {
++		i := strings.Index(out, s.stopWord)
++		return i >= 0 && strings.Contains(out[i:], jcPrompt)
++	})
++	if !ok {
++		return "", false
++	}
++	time.Sleep(250 * time.Millisecond)
++	out := s.since(m)
++	i := strings.Index(out, s.stopWord)
++	word := s.stopWord
++	if rest := strings.TrimLeft(out[i+len(word):], " "); strings.HasPrefix(rest, "(") {
++		if j := strings.Index(rest, ")"); j > 0 && j < 24 {
++			word += " " + rest[:j+1]
++		}
++	}
++	return word, true
++}
++
++// jcJob starts one job of the scenario child in the shell and returns its
++// directory, the child's PID and the launcher's PID (the child itself for
++// plain exec).
++func (s *jcShell) jcJob(dir, via, tag, mode string, rc int, meta string) (string, int, int) {
++	s.t.Helper()
++	job := filepath.Join(dir, tag)
++	if err := os.Mkdir(job, 0o700); err != nil {
++		s.t.Fatal(err)
++	}
++	line := fmt.Sprintf(`HP_JC_MODE=%s HP_JC_RC=%d `, mode, rc)
++	if via == "proto" {
++		line += `"$P" run `
++		if meta != "" {
++			line += `--meta-file "` + meta + `" `
++		}
++		line += "-- "
++	}
++	line += `"$P" hp-jc-child "$D/` + tag + `"`
++	s.send(line)
++	if !waitFile(filepath.Join(job, "child.json"), 10*time.Second) {
++		s.t.Fatalf("[%s %s] child did not start: %q", s.name, via, s.tail(0))
++	}
++	var id struct{ Pid, Ppid int }
++	_ = json.Unmarshal(must(os.ReadFile(filepath.Join(job, "child.json"))), &id)
++	launcher := id.Pid
++	if via == "proto" {
++		launcher = id.Ppid
++	}
++	s.pids = append(s.pids, id.Pid, launcher)
++	return job, id.Pid, launcher
++}
++
++func jcSignum(name string) int { return int(unix.SignalNum(name)) }
++
++func forShellsAndVias(t *testing.T, f func(t *testing.T, shell, via string)) {
++	if testing.Short() {
++		t.Skip("interactive-shell scenarios skipped in -short mode")
++	}
++	for _, shell := range []string{"bash", "zsh"} {
++		for _, via := range []string{"plain", "proto"} {
++			t.Run(shell+"/"+via, func(t *testing.T) { f(t, shell, via) })
++		}
++	}
++}
++
++// expect fails the test; for the plain-exec control, a failure means the
++// environment does not behave as the scenario assumes.
++func expect(t *testing.T, via string, ok bool, format string, args ...any) {
++	t.Helper()
++	if ok {
++		return
++	}
++	msg := fmt.Sprintf(format, args...)
++	if via == "plain" {
++		t.Fatalf("precondition (plain exec control): %s", msg)
++	}
++	t.Errorf("%s", msg)
++}
++
++// S2: the foreground child is stopped by a third party (SIGSTOP or SIGTSTP),
++// then continued by the third party after 0.5 s. The shell reports the stop
++// with 128+N of the child's stop signal; the child completes. Then either the
++// job is gone, or (permitted deviation) it is listed as stopped until `fg`,
++// which ends it with the child's status. Nothing is left behind.
++func TestJobControlS2ThirdPartyStopInteractive(t *testing.T) {
++	forShellsAndVias(t, func(t *testing.T, shell, via string) {
++		for _, sig := range []string{"SIGSTOP", "SIGTSTP"} {
++			d := t.TempDir()
++			s := startShell(t, shell, d)
++			job, child, launcher := s.jcJob(d, via, "t", "run", 7, "")
++			time.Sleep(300 * time.Millisecond)
++			m := s.mark()
++			_ = unix.Kill(child, unix.SignalNum(sig))
++			t0 := time.Now()
++			word, ok := s.waitNotice(m, 500*time.Millisecond)
++			time.Sleep(time.Until(t0.Add(500 * time.Millisecond)))
++			_ = unix.Kill(child, unix.SIGCONT)
++			if !ok {
++				word, ok = s.waitNotice(m, 3*time.Second)
++			}
++			expect(t, via, ok, "[%s] no stop notice: %q", sig, s.tail(m))
++			rc := s.rc()
++			expect(t, via, rc == 128+jcSignum(sig), "[%s] $? of the stopped job = %d, want %d", sig, rc, 128+jcSignum(sig))
++			expect(t, via, waitFile(filepath.Join(job, "done"), 6*time.Second), "[%s] child did not run to completion", sig)
++			time.Sleep(500 * time.Millisecond)
++			n, out := s.jobs()
++			if n != 0 {
++				expect(t, via, via == "proto" && strings.Contains(out, s.stopWord),
++					"[%s] job left after the child completed and not listed as stopped: %q", sig, out)
++				s.run("fg")
++				frc := s.rc()
++				expect(t, via, frc == 7, "[%s] `fg` ended the job with %d, want the child's 7", sig, frc)
++				n, out = s.jobs()
++				expect(t, via, n == 0, "[%s] jobs left after `fg`: %q", sig, out)
++			}
++			time.Sleep(200 * time.Millisecond)
++			expect(t, via, procState(child) == "" && procState(launcher) == "",
++				"[%s] process left: child %q launcher %q", sig, procState(child), procState(launcher))
++			t.Logf("[%s %s %s] notice %q", shell, via, sig, word)
++			s.close()
++		}
++	})
++}
++
++// S3: the child stops itself with SIGTSTP; then a third party continues the
++// launcher's PID only (the child's, for plain exec). The child resumes, reads
++// the terminal from the background and is stopped by SIGTTIN; the shell
++// lists the job as stopped, never as running while the child is stopped.
++// `fg` gives the child the terminal; it reads the typed line and its status
++// becomes $?.
++func TestJobControlS3SelfStopThenLauncherContinued(t *testing.T) {
++	forShellsAndVias(t, func(t *testing.T, shell, via string) {
++		d := t.TempDir()
++		s := startShell(t, shell, d)
++		job, child, launcher := s.jcJob(d, via, "t", "selfstop-SIGTSTP", 6, "")
++		time.Sleep(200 * time.Millisecond)
++		m := s.mark()
++		_ = os.WriteFile(filepath.Join(job, "go"), nil, 0o600)
++		_, ok := s.waitNotice(m, 4*time.Second)
++		expect(t, via, ok, "no stop notice after the child's self-stop: %q", s.tail(m))
++		_ = unix.Kill(launcher, unix.SIGCONT)
++		expect(t, via, waitFile(filepath.Join(job, "resumed"), 3*time.Second), "the child did not resume")
++		var last string
++		for i := 0; i < 5; i++ {
++			time.Sleep(150 * time.Millisecond)
++			st := procState(child)
++			_, out := s.jobs()
++			last = out
++			expect(t, via, !(st == "T" && strings.Contains(strings.ToLower(out), "running")),
++				"the shell lists the job as running while the child is stopped: %q", out)
++		}
++		expect(t, via, procState(child) == "T" && strings.Contains(last, s.stopWord),
++			"after reading from the background the child should be stopped (%q) and the job listed as stopped: %q",
++			procState(child), last)
++		m = s.mark()
++		s.send("fg")
++		time.Sleep(400 * time.Millisecond)
++		s.send("S3LINE")
++		expect(t, via, waitFile(filepath.Join(job, "got"), 3*time.Second), "the child did not read after `fg`: %q", s.tail(m))
++		expect(t, via, string(must(os.ReadFile(filepath.Join(job, "got")))) == "S3LINE\n", "the child read the wrong line")
++		s.waitFor(m, 5*time.Second, promptAtEnd)
++		time.Sleep(250 * time.Millisecond)
++		rc := s.rc()
++		expect(t, via, rc == 6, "$? after the job ended = %d, want 6", rc)
++		n, out := s.jobs()
++		expect(t, via, n == 0, "jobs left: %q", out)
++	})
++}
++
++// S4: an interactive bash run through heimdall-proto suspends itself
++// (`suspend`, SIGSTOP to its own group). The outer shell reports the stop and
++// keeps running; `fg` gives the nested shell the terminal again; `exit 3`
++// becomes the outer $?.
++func TestJobControlS4NestedShellSuspend(t *testing.T) {
++	if _, err := os.Stat("/bin/bash"); err != nil {
++		t.Skip("/bin/bash not available")
++	}
++	forShellsAndVias(t, func(t *testing.T, shell, via string) {
++		d := t.TempDir()
++		s := startShell(t, shell, d)
++		line := `PS1='NEST$ ' `
++		if via == "proto" {
++			line += `"$P" run -- `
++		}
++		line += "/bin/bash --norc --noprofile -i"
++		m := s.mark()
++		s.send(line)
++		expect(t, via, s.waitFor(m+len(line), 8*time.Second, func(o string) bool { return strings.Contains(o, "NEST$ ") }),
++			"nested shell printed no prompt: %q", s.tail(m))
++		time.Sleep(300 * time.Millisecond)
++		m = s.mark()
++		s.send("suspend")
++		word, ok := s.waitNotice(m, 5*time.Second)
++		expect(t, via, ok, "no stop notice from the outer shell after `suspend`: %q", s.tail(m))
++		rc := s.rc()
++		expect(t, via, rc == 128+jcSignum("SIGSTOP"), "outer $? after `suspend` = %d, want %d", rc, 128+jcSignum("SIGSTOP"))
++		m = s.mark()
++		s.send("fg")
++		time.Sleep(500 * time.Millisecond)
++		s.send("echo NEST_$((40+2))")
++		expect(t, via, s.waitFor(m, 4*time.Second, func(o string) bool { return strings.Contains(o, "NEST_42") }),
++			"the nested shell does not answer after `fg`: %q", s.tail(m))
++		time.Sleep(200 * time.Millisecond)
++		m = s.mark()
++		s.send("exit 3")
++		s.waitFor(m+6, 5*time.Second, promptAtEnd)
++		time.Sleep(250 * time.Millisecond)
++		rc = s.rc()
++		expect(t, via, rc == 3, "outer $? after `exit 3` = %d", rc)
++		n, out := s.jobs()
++		expect(t, via, n == 0, "jobs left: %q", out)
++		select {
++		case <-s.exited:
++			expect(t, via, false, "the outer shell exited")
++		default:
++		}
++		t.Logf("[%s %s] notice %q", shell, via, word)
++	})
++}
++
++// S5: with --meta-file, the child is stopped by SIGSTOP, from itself or
++// from a third party. The shell reports it with 128+SIGSTOP; the child stays
++// stopped and heimdall-proto alive until `fg`; then the child reads the
++// terminal, exits 0, $? is 0 and the meta file says CHILD_EXITED, exit 0.
++func TestJobControlS5SigstopWithMetaFile(t *testing.T) {
++	forShellsAndVias(t, func(t *testing.T, shell, via string) {
++		for _, trig := range []string{"self", "third-party"} {
++			d := t.TempDir()
++			s := startShell(t, shell, d)
++			meta := filepath.Join(d, "meta.json")
++			mode := "read"
++			if trig == "self" {
++				mode = "selfstop-SIGSTOP"
++			}
++			job, child, launcher := s.jcJob(d, via, "t", mode, 0, meta)
++			time.Sleep(300 * time.Millisecond)
++			m := s.mark()
++			if trig == "self" {
++				_ = os.WriteFile(filepath.Join(job, "go"), nil, 0o600)
++			} else {
++				waitFile(filepath.Join(job, "reading"), 3*time.Second)
++				time.Sleep(100 * time.Millisecond)
++				_ = unix.Kill(child, unix.SIGSTOP)
++			}
++			_, ok := s.waitNotice(m, 4*time.Second)
++			expect(t, via, ok, "[%s] no stop notice: %q", trig, s.tail(m))
++			rc := s.rc()
++			expect(t, via, rc == 128+jcSignum("SIGSTOP"), "[%s] $? of the stopped job = %d, want %d", trig, rc, 128+jcSignum("SIGSTOP"))
++			time.Sleep(time.Second)
++			cs, ls := procState(child), procState(launcher)
++			expect(t, via, cs == "T" && ls != "" && ls != "Z", "[%s] while stopped: child %q (want T), launcher %q (want alive)", trig, cs, ls)
++			_, err := os.Stat(filepath.Join(job, "resumed"))
++			expect(t, via, err != nil, "[%s] the child resumed before `fg`", trig)
++			m = s.mark()
++			s.send("fg")
++			time.Sleep(400 * time.Millisecond)
++			s.send("S5LINE")
++			expect(t, via, waitFile(filepath.Join(job, "got"), 3*time.Second), "[%s] the child did not read after `fg`: %q", trig, s.tail(m))
++			s.waitFor(m, 5*time.Second, promptAtEnd)
++			time.Sleep(250 * time.Millisecond)
++			rc = s.rc()
++			expect(t, via, rc == 0, "[%s] $? after the job ended = %d, want 0", trig, rc)
++			if via == "proto" {
++				var doc struct {
++					Code string          `json:"code"`
++					Data json.RawMessage `json:"data"`
++				}
++				_ = json.Unmarshal(must(os.ReadFile(meta)), &doc)
++				var data map[string]any
++				_ = json.Unmarshal(doc.Data, &data)
++				want := map[string]any{"launched": true, "exit_code": float64(0), "signal": nil}
++				if doc.Code != "CHILD_EXITED" || fmt.Sprint(data) != fmt.Sprint(want) {
++					t.Errorf("[%s] meta file: code %q data %v, want CHILD_EXITED %v", trig, doc.Code, data, want)
++				}
++			}
++			s.close()
++		}
++	})
++}
+diff --git a/prototypes/go/cmd/heimdall-proto/procstate_darwin_test.go b/prototypes/go/cmd/heimdall-proto/procstate_darwin_test.go
+new file mode 100644
+index 0000000..31ba0a4
+--- /dev/null
++++ b/prototypes/go/cmd/heimdall-proto/procstate_darwin_test.go
+@@ -0,0 +1,19 @@
++package main
++
++import "golang.org/x/sys/unix"
++
++// procState is the scheduler state of pid: "T" stopped, "Z" zombie, "S"
++// otherwise, "" if there is no such process (sysctl kern.proc.pid).
++func procState(pid int) string {
++	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
++	if err != nil || int(kp.Proc.P_pid) != pid {
++		return ""
++	}
++	switch kp.Proc.P_stat {
++	case 4: // SSTOP
++		return "T"
++	case 5: // SZOMB
++		return "Z"
++	}
++	return "S"
++}
+diff --git a/prototypes/go/cmd/heimdall-proto/procstate_linux_test.go b/prototypes/go/cmd/heimdall-proto/procstate_linux_test.go
+new file mode 100644
+index 0000000..7371487
+--- /dev/null
++++ b/prototypes/go/cmd/heimdall-proto/procstate_linux_test.go
+@@ -0,0 +1,28 @@
++package main
++
++import (
++	"bytes"
++	"os"
++	"strconv"
++)
++
++// procState is the scheduler state of pid from /proc/<pid>/stat ("T"
++// stopped, "Z" zombie, ...), or "" if there is no such process.
++func procState(pid int) string {
++	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
++	if err != nil {
++		return ""
++	}
++	i := bytes.LastIndexByte(b, ')')
++	if i < 0 {
++		return ""
++	}
++	f := bytes.Fields(b[i+1:])
++	if len(f) == 0 {
++		return ""
++	}
++	if f[0][0] == 't' {
++		return "T" // stopped by a tracer counts as stopped too
++	}
++	return string(f[0][:1])
++}
+diff --git a/prototypes/go/internal/run/run_test.go b/prototypes/go/internal/run/run_test.go
+index fe750cb..8e211c5 100644
+--- a/prototypes/go/internal/run/run_test.go
++++ b/prototypes/go/internal/run/run_test.go
+@@ -25,6 +25,14 @@ func TestMain(m *testing.M) {
+ 	case "selfkill":
+ 		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+ 		time.Sleep(time.Second)
++	case "selfstop":
++		// Stop with HP_SIG, then exit 4 once continued (waitstatus_test.go).
++		cont := make(chan os.Signal, 1)
++		signal.Notify(cont, syscall.SIGCONT)
++		n, _ := strconv.Atoi(os.Getenv("HP_SIG"))
++		_ = syscall.Kill(os.Getpid(), syscall.Signal(n))
++		<-cont
++		os.Exit(4)
+ 	case "trap":
+ 		// Count each forwarded signal; exit when SIGTERM arrives.
+ 		ch := make(chan os.Signal, 8)
+diff --git a/prototypes/go/internal/run/run_unix.go b/prototypes/go/internal/run/run_unix.go
+index 441e139..2832bcc 100644
+--- a/prototypes/go/internal/run/run_unix.go
++++ b/prototypes/go/internal/run/run_unix.go
+@@ -55,11 +55,44 @@ var forwarded = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, sys
+ // inherited disposition and resets it to the default in the child; that is a
+ // stack limitation recorded in REPORT.md.
+ //
+-// Job control (K6e, modeExclusive): when the child stops, heimdall-proto
+-// stops itself with kill(0, sig) so the shell sees the job stop. In a
++// Job control (K6e, modeExclusive; exec equivalence, X2 task T1): the shell
++// waits for heimdall-proto, not for the child, so a stop of the child is
++// visible to the shell only if heimdall-proto stops too. mirrorStop decides,
++// per stop report, what plain exec of the child would have shown:
++//
++//   - The job holds the terminal foreground (the child's group or
++//     heimdall-proto's own): a terminal Ctrl-Z, a self-stop (OpenSSH ~^Z,
++//     `suspend` of a nested shell) or a stop sent by a third party. The
++//     shell would see the job stop with that signal, so heimdall-proto stops
++//     itself with the same signal, SIGSTOP included, and the shell's $? is
++//     128+N as for plain exec. SIGTTOU is the one exception (reported as
++//     SIGTSTP): heimdall-proto must ignore SIGTTOU for tcsetpgrp, and os/signal
++//     cannot restore its default action.
++//   - The job is not in the terminal foreground and the stop is SIGTTIN or
++//     SIGTTOU: the child touched the terminal from the background (after
++//     `bg`, or after being continued by a third party while the shell held
++//     the terminal). A job-control shell lists such a job as stopped, so the
++//     stop is mirrored too.
++//   - Any other stop while the job is not in the terminal foreground comes
++//     from a third party (for example a supervisor that stops and continues
++//     the child of a non-interactive parent). No shell is waiting to report
++//     it, and whoever stopped the child continues only the child. The stop
++//     is not mirrored, so heimdall-proto keeps waiting and exits with the
++//     child's status once it ends.
++//
++// To stop itself heimdall-proto calls kill(getpid(), sig): only
++// heimdall-proto, never another member of its group (K6a). In a
+ // multithreaded process that call returns before the stop has taken effect
+ // (Linux stops the thread group asynchronously), so heimdall-proto then waits
+-// for its own SIGCONT before it looks at the terminal again (stopSelf).
++// for its own SIGCONT before it looks at the terminal again (stopSelf). Once
++// continued, it hands the terminal to the child only if its own group holds
++// the foreground (`fg`; never after `bg` or a third party's SIGCONT), and
++// continues the child: the child resumes whenever the job is resumed, as the
++// job's only process would with plain exec. A child that then reads the
++// terminal from the background stops with SIGTTIN, which is mirrored again.
++//
++// Wait statuses are decoded with wstatus, not syscall.WaitStatus, which on
++// macOS mistakes a SIGSTOP stop for a continue (waitstatus_unix.go).
+ 
+ type mode int
+ 
+@@ -244,8 +277,9 @@ func startAndWait(cmd *exec.Cmd) Status {
+ 	if md == modeExclusive {
+ 		flags = syscall.WUNTRACED
+ 	}
+-	var ws syscall.WaitStatus
++	var st wstatus
+ 	for {
++		var ws syscall.WaitStatus
+ 		_, err := syscall.Wait4(pid, &ws, flags, nil)
+ 		if err == syscall.EINTR {
+ 			continue
+@@ -257,11 +291,15 @@ func startAndWait(cmd *exec.Cmd) Status {
+ 			}
+ 			return Status{Launched: true, Exit: 1}
+ 		}
+-		if ws.Stopped() {
+-			mirrorStop(ttyFD, pid, own, ws.StopSignal(), &mu, cont)
++		st = wstatus(ws)
++		if st.stopped() {
++			mirrorStop(ttyFD, pid, own, st.stopSignal(), &mu, cont)
+ 			continue
+ 		}
+-		break
++		if st.exited() || st.signaled() {
++			break
++		}
++		// Neither exit nor stop (a continue report; never requested): wait on.
+ 	}
+ 	mu.Lock()
+ 	reaped = true
+@@ -271,60 +309,85 @@ func startAndWait(cmd *exec.Cmd) Status {
+ 		restoreFG(ttyFD, pid, own)
+ 	}
+ 
+-	if ws.Signaled() {
+-		n := int(ws.Signal())
++	if st.signaled() {
++		n := int(st.termSignal())
+ 		return Status{Launched: true, Signal: intp(n), Exit: 128 + n}
+ 	}
+-	code := ws.ExitStatus()
++	code := st.exitCode()
+ 	return Status{Launched: true, ExitCode: intp(code), Exit: code}
+ }
+ 
+-// mirrorStop handles a stopped child (modeExclusive only).
++// mirrorStop handles a stopped child (modeExclusive only); see "Job control"
++// above. It returns once the child may run again, or at once when the stop is
++// not heimdall-proto's to report.
+ func mirrorStop(ttyFD, pid, own int, sig syscall.Signal, mu *sync.Mutex, cont <-chan os.Signal) {
+ 	mu.Lock()
+ 	defer mu.Unlock()
+ 	fg := tcgetpgrp(ttyFD)
+-	if fg == own && (sig == syscall.SIGTTIN || sig == syscall.SIGTTOU) {
++	ttyStop := sig == syscall.SIGTTIN || sig == syscall.SIGTTOU
++	if fg == own && ttyStop {
+ 		// The child touched the terminal in the short window before the
+-		// handoff: give it the terminal and let it continue.
++		// handoff (start, or `fg` after `bg`): give it the terminal and let it
++		// continue.
+ 		setFG(ttyFD, pid)
+ 		_ = syscall.Kill(-pid, syscall.SIGCONT)
+ 		return
+ 	}
+-	// Stop our own group (heimdall-proto alone in modeExclusive) so the shell
+-	// sees the job stop. SIGSTOP is never sent to our own group: in an
+-	// orphaned group the kernel discards SIGTSTP/SIGTTIN/SIGTTOU, but SIGSTOP
+-	// would stop us with nobody to continue us. SIGTTOU is ignored by
+-	// heimdall-proto (setFG), so that stop is mirrored as SIGTSTP.
+-	if sig == syscall.SIGSTOP || sig == syscall.SIGTTOU {
+-		sig = syscall.SIGTSTP
++	if !shouldMirror(fg, own, pid, sig) {
++		return // a third party's stop while the job is not in the foreground
++	}
++	if orphaned(own) {
++		// No shell can see heimdall-proto stop, and the kernel would discard
++		// a SIGTSTP, SIGTTIN or SIGTTOU to plain exec's child in an orphaned
++		// group: continue the child. A SIGSTOP would have stopped it there
++		// too, so it stays stopped until whoever stopped it continues it.
++		if sig != syscall.SIGSTOP {
++			time.Sleep(handoffPoll) // a child stopping again at once: no busy loop
++			_ = syscall.Kill(-pid, syscall.SIGCONT)
++		}
++		return
++	}
++	if sig == syscall.SIGTTOU {
++		sig = syscall.SIGTSTP // SIGTTOU is ignored by heimdall-proto (setFG)
+ 	}
+ 	if fg == pid {
+ 		setFG(ttyFD, own) // reclaim the terminal for the shell's view of the job
+ 	}
+-	stopSelf(sig, own, cont)
++	stopSelf(sig, cont)
+ 	// Resumed (or the stop was not taken): hand the terminal back only if our
+-	// group holds the foreground (`fg`), never after `bg`.
++	// group holds the foreground (`fg`), never after `bg` or a SIGCONT from
++	// someone else. The child is continued either way, as the job's only
++	// process would be.
+ 	if tcgetpgrp(ttyFD) == own {
+ 		setFG(ttyFD, pid)
+ 	}
+ 	_ = syscall.Kill(-pid, syscall.SIGCONT)
+ }
+ 
+-// stopSelf stops heimdall-proto's group with sig and returns once heimdall-
+-// proto has been continued. kill(0, sig) returns before a multithreaded
+-// process has actually stopped, so the return of kill says nothing; our own
+-// SIGCONT does (K6e). If the stop cannot happen (orphaned group, or the
+-// signal inherited as ignored) it returns after a short or bounded wait.
+-func stopSelf(sig syscall.Signal, own int, cont <-chan os.Signal) {
++// shouldMirror reports whether a stop of the child with sig must be shown to
++// the shell by stopping heimdall-proto: fg is the terminal's foreground
++// process group, own heimdall-proto's group and pid the child's group.
++func shouldMirror(fg, own, pid int, sig syscall.Signal) bool {
++	if fg == own || fg == pid {
++		return true // the job is the foreground job: the shell sees the stop
++	}
++	return sig == syscall.SIGTTIN || sig == syscall.SIGTTOU
++}
++
++// stopSelf stops heimdall-proto with sig and returns once heimdall-proto has
++// been continued. kill(2) returns before a multithreaded process has actually
++// stopped, so the return of kill says nothing; our own SIGCONT does (K6e).
++// If the stop is not taken (the signal inherited as ignored, or the group
++// orphaned since the caller checked) it returns after a bounded wait. The
++// caller sends SIGSTOP only while the group is not orphaned; a stopped
++// process whose group becomes orphaned later is sent SIGHUP and SIGCONT by
++// the kernel, so heimdall-proto is never left stopped with nobody to
++// continue it.
++func stopSelf(sig syscall.Signal, cont <-chan os.Signal) {
+ 	for len(cont) > 0 { // a SIGCONT from an earlier `fg` or `bg`
+ 		<-cont
+ 	}
+-	if orphaned(own) {
+-		time.Sleep(handoffPoll) // the kernel discards the stop; avoid a busy loop
+-		return
+-	}
+-	_ = syscall.Kill(0, sig)
++	_ = syscall.Kill(os.Getpid(), sig) // heimdall-proto only, never its group (K6a)
+ 	select {
+ 	case <-cont:
+ 	case <-time.After(stopWait):
+diff --git a/prototypes/go/internal/run/waitstatus_test.go b/prototypes/go/internal/run/waitstatus_test.go
+new file mode 100644
+index 0000000..e36c8e2
+--- /dev/null
++++ b/prototypes/go/internal/run/waitstatus_test.go
+@@ -0,0 +1,99 @@
++//go:build !windows
++
++package run
++
++import (
++	"os"
++	"os/exec"
++	"strconv"
++	"syscall"
++	"testing"
++)
++
++// Synthetic status words, laid out as in <sys/wait.h> on Linux and macOS.
++func TestWStatusDecode(t *testing.T) {
++	for _, sig := range []syscall.Signal{syscall.SIGSTOP, syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU} {
++		w := wstatus(uint32(sig)<<8 | 0x7f)
++		if !w.stopped() || w.stopSignal() != sig || w.exited() || w.signaled() {
++			t.Errorf("stop by %v (%#x): stopped=%v sig=%v exited=%v signaled=%v", sig, uint32(w), w.stopped(), w.stopSignal(), w.exited(), w.signaled())
++		}
++	}
++	for _, code := range []int{0, 1, 42, 255} {
++		w := wstatus(uint32(code) << 8)
++		if !w.exited() || w.exitCode() != code || w.stopped() || w.signaled() {
++			t.Errorf("exit %d (%#x) misdecoded", code, uint32(w))
++		}
++	}
++	for _, sig := range []syscall.Signal{syscall.SIGKILL, syscall.SIGTERM, syscall.SIGSEGV} {
++		for _, core := range []uint32{0, 0x80} {
++			w := wstatus(uint32(sig) | core)
++			if !w.signaled() || w.termSignal() != sig || w.stopped() || w.exited() {
++				t.Errorf("death by %v core=%#x misdecoded", sig, core)
++			}
++		}
++	}
++	// WCONTINUED reports (never requested) are not stops: 0xffff on Linux,
++	// SIGCONT in the stop-signal byte on macOS.
++	for _, w := range []wstatus{0xffff, wstatus(uint32(syscall.SIGCONT)<<8 | 0x7f)} {
++		if w.stopped() || w.exited() || w.signaled() {
++			t.Errorf("continue report %#x taken for stop/exit/death", uint32(w))
++		}
++	}
++}
++
++// A real child stopped by each stop signal is decoded as stopped with that
++// signal; syscall.WaitStatus on macOS decodes the SIGSTOP stop as a continue,
++// which made heimdall-proto exit 255 and leave the child stopped.
++func TestWStatusNativeStops(t *testing.T) {
++	for _, sig := range []syscall.Signal{syscall.SIGSTOP, syscall.SIGTSTP} {
++		cmd := exec.Command(self(t))
++		cmd.Env = append(os.Environ(), "HP_HELPER=selfstop", "HP_SIG="+strconv.Itoa(int(sig)))
++		// Own process group, not orphaned: SIGTSTP is not discarded.
++		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
++		if err := cmd.Start(); err != nil {
++			t.Fatal(err)
++		}
++		pid := cmd.Process.Pid
++		var ws syscall.WaitStatus
++		if _, err := syscall.Wait4(pid, &ws, syscall.WUNTRACED, nil); err != nil {
++			t.Fatal(err)
++		}
++		w := wstatus(ws)
++		if !w.stopped() || w.stopSignal() != sig {
++			t.Errorf("%v: raw %#x decoded stopped=%v sig=%v", sig, uint32(ws), w.stopped(), w.stopSignal())
++		}
++		_ = syscall.Kill(pid, syscall.SIGCONT)
++		if _, err := syscall.Wait4(pid, &ws, 0, nil); err != nil {
++			t.Fatal(err)
++		}
++		if w := wstatus(ws); !w.exited() || w.exitCode() != 4 {
++			t.Errorf("%v: after SIGCONT raw %#x, want exit 4", sig, uint32(ws))
++		}
++	}
++}
++
++func TestShouldMirror(t *testing.T) {
++	const own, child, other = 100, 200, 300
++	cases := []struct {
++		fg   int
++		sig  syscall.Signal
++		want bool
++	}{
++		// The job holds the terminal: every stop is the shell's to see.
++		{child, syscall.SIGTSTP, true},
++		{child, syscall.SIGSTOP, true},
++		{own, syscall.SIGSTOP, true},
++		// Background terminal access: the shell lists the job as stopped.
++		{other, syscall.SIGTTIN, true},
++		{other, syscall.SIGTTOU, true},
++		// A third party's stop outside the foreground (S1): left alone.
++		{other, syscall.SIGSTOP, false},
++		{other, syscall.SIGTSTP, false},
++		{-1, syscall.SIGTSTP, false},
++	}
++	for _, c := range cases {
++		if got := shouldMirror(c.fg, own, child, c.sig); got != c.want {
++			t.Errorf("fg=%d sig=%v: %v, want %v", c.fg, c.sig, got, c.want)
++		}
++	}
++}
+diff --git a/prototypes/go/internal/run/waitstatus_unix.go b/prototypes/go/internal/run/waitstatus_unix.go
+new file mode 100644
+index 0000000..3cf92df
+--- /dev/null
++++ b/prototypes/go/internal/run/waitstatus_unix.go
+@@ -0,0 +1,37 @@
++//go:build !windows
++
++package run
++
++import "syscall"
++
++// wstatus decodes a raw wait(2) status word the way the C macros of both
++// Linux and macOS do.
++//
++// syscall.WaitStatus (and x/sys/unix.WaitStatus) cannot be used for stops on
++// BSD-derived systems: there, Stopped() reports false and Continued() true for
++// a child stopped by SIGSTOP, because Go compares the stop signal with SIGSTOP
++// where <sys/wait.h> compares it with 0x13 (SIGCONT). heimdall-proto then took
++// a SIGSTOP stop for an exit, returned exit status 255 and left the child
++// stopped (contract §9.5, Go darwin finding).
++//
++// Layout (Linux and macOS alike): exited is 0x00 in the low 7 bits with the
++// exit code in bits 8-15; killed is the signal number in the low 7 bits
++// (0x80 = core dumped); stopped is 0x7f in the low 8 bits with the stop signal
++// in bits 8-15. A WCONTINUED report is 0xffff on Linux and 0x137f (SIGCONT
++// as the "stop" signal) on macOS; heimdall-proto never asks for it, but it is
++// never taken for a stop.
++type wstatus uint32
++
++func (w wstatus) exited() bool { return w&0x7f == 0 }
++
++func (w wstatus) exitCode() int { return int(w>>8) & 0xff }
++
++func (w wstatus) signaled() bool { return w&0x7f != 0 && w&0x7f != 0x7f }
++
++func (w wstatus) termSignal() syscall.Signal { return syscall.Signal(w & 0x7f) }
++
++func (w wstatus) stopped() bool {
++	return w&0xff == 0x7f && w.stopSignal() != syscall.SIGCONT
++}
++
++func (w wstatus) stopSignal() syscall.Signal { return syscall.Signal(w>>8) & 0xff }

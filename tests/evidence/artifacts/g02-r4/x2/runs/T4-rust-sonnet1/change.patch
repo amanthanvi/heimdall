@@ -1,0 +1,250 @@
+diff --color -ruN -x target -x dist -x __pycache__ /tmp/x2ws-45c710be/eval/base/prototypes/rust/src/profile.rs /tmp/x2ws-45c710be/eval/frozen/rust/src/profile.rs
+--- /tmp/x2ws-45c710be/eval/base/prototypes/rust/src/profile.rs	2026-10-09 07:13:26
++++ /tmp/x2ws-45c710be/eval/frozen/rust/src/profile.rs	2026-10-09 07:13:26
+@@ -94,18 +94,29 @@
+     #[cfg(unix)]
+     {
+         use std::os::unix::fs::OpenOptionsExt;
+-        o.custom_flags(libc::O_NONBLOCK);
++        o.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+     }
+     o.open(path)
+ }
+ 
+ /// Read a profile file with the size bound applied before parsing. Anything that is
+-/// not a regular file (FIFO, socket, device, symlink, directory) is a usage error (K14).
++/// not a regular file (FIFO, socket, device, directory, or a symlink whose target is
++/// one of those) is a usage error (K14). A symlink to a regular file is followed.
+ pub fn read_bounded(path: &Path) -> Result<Vec<u8>, ProfileError> {
+-    // Check the path itself before opening it. `symlink_metadata` does not follow a
+-    // final symlink: following it here would let the link be retargeted to a FIFO or
+-    // device between this check and the open.
+-    if let Ok(m) = std::fs::symlink_metadata(path)
++    // Pre-check before opening, so a device or socket is never opened needlessly.
++    // A symbolic link is followed (a profile may be linked into place, e.g. by GNU
++    // stow): its target must itself be a regular file. A dangling link or a link loop
++    // fails the follow and is reported by the open below. This pre-check is only an
++    // early refusal; it cannot be relied on because the link may be retargeted before
++    // the open. The authoritative check is the fstat of the opened file below, and the
++    // open itself cannot block (O_NONBLOCK), so a retarget to a FIFO is still rejected.
++    let mut checked = std::fs::symlink_metadata(path);
++    if let Ok(m) = &checked
++        && m.file_type().is_symlink()
++    {
++        checked = std::fs::metadata(path);
++    }
++    if let Ok(m) = checked
+         && !m.file_type().is_file()
+     {
+         return Err(ProfileError::new(
+@@ -766,6 +777,23 @@
+             Code::UsageError
+         );
+         assert_eq!(load_file(&dir).unwrap_err().code, Code::UsageError);
++        // A symlink to a regular file is followed; a symlink to a directory is not a
++        // profile (K14); a dangling link is a usage error.
++        #[cfg(unix)]
++        {
++            let link = dir.join("exact-link.toml");
++            let _ = std::fs::remove_file(&link);
++            std::os::unix::fs::symlink(&exact, &link).unwrap();
++            assert!(load_file(&link).is_ok(), "symlink to a regular file loads");
++            let dlink = dir.join("dir-link");
++            let _ = std::fs::remove_file(&dlink);
++            std::os::unix::fs::symlink(&dir, &dlink).unwrap();
++            assert_eq!(load_file(&dlink).unwrap_err().code, Code::UsageError);
++            let dangling = dir.join("dangling");
++            let _ = std::fs::remove_file(&dangling);
++            std::os::unix::fs::symlink(dir.join("nope"), &dangling).unwrap();
++            assert_eq!(load_file(&dangling).unwrap_err().code, Code::UsageError);
++        }
+         std::fs::remove_dir_all(&dir).unwrap();
+     }
+ }
+diff --color -ruN -x target -x dist -x __pycache__ /tmp/x2ws-45c710be/eval/base/prototypes/rust/tests/cli.rs /tmp/x2ws-45c710be/eval/frozen/rust/tests/cli.rs
+--- /tmp/x2ws-45c710be/eval/base/prototypes/rust/tests/cli.rs	2026-10-09 07:13:26
++++ /tmp/x2ws-45c710be/eval/frozen/rust/tests/cli.rs	2026-10-09 07:13:26
+@@ -1190,20 +1190,121 @@
+         assert_eq!(o.status.code(), Some(2), "{}", p.display());
+         assert_eq!(one_json(&o)["code"], "USAGE_ERROR", "{}", p.display());
+     }
+-    // A symlink is refused even when it points to a regular file: the regular-file
+-    // check does not follow links (see profile::read_bounded).
+-    let reg = d.path().join("ok.toml");
+-    std::fs::write(&reg, "schema_version = 1\nname = \"x\"\nrevision = 1\n").unwrap();
+-    let link = d.path().join("ok-link.toml");
+-    std::os::unix::fs::symlink(&reg, &link).unwrap();
+-    for (p, want) in [(&reg, 0), (&link, 2)] {
++}
++
++/// Run `profile show --json --file <p>` and require it to finish within 2 s.
++fn show_within_2s(p: &Path) -> Output {
++    let mut c = cmd()
++        .args(["profile", "show", "--json", "--file"])
++        .arg(p)
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .unwrap();
++    let t = Instant::now();
++    while c.try_wait().unwrap().is_none() && t.elapsed() < Duration::from_secs(2) {
++        std::thread::sleep(Duration::from_millis(10));
++    }
++    if c.try_wait().unwrap().is_none() {
++        let _ = c.kill();
++        let _ = c.wait();
++        panic!("{}: still running after 2 s", p.display());
++    }
++    c.wait_with_output().unwrap()
++}
++
++/// A symbolic link to a regular profile file works exactly like the file itself
++/// (absolute, relative, chained, and with a link in a directory component), in both
++/// the JSON and the plain output. A link whose final target is not a regular file is
++/// still K14: exit 2 `USAGE_ERROR` within 2 s, never blocking.
++#[test]
++fn profile_symlinks_follow_to_regular_files_only() {
++    use std::os::unix::fs::symlink;
++    let d = TempDir::new("symlink");
++    let real_dir = d.path().join("dotfiles");
++    let cfg = d.path().join("config");
++    std::fs::create_dir(&real_dir).unwrap();
++    std::fs::create_dir(&cfg).unwrap();
++    let real = real_dir.join("homelab.toml");
++    std::fs::copy(fixtures().join("homelab.toml"), &real).unwrap();
++
++    let want_json = one_json(&run(&[
++        "profile",
++        "show",
++        "--json",
++        "--file",
++        real.to_str().unwrap(),
++    ]));
++    assert_eq!(want_json["code"], "PROFILE_OK");
++    let plain_of = |p: &Path| {
+         let o = cmd()
+-            .args(["profile", "show", "--json", "--file"])
++            .args(["profile", "show", "--file"])
+             .arg(p)
+             .output()
+             .unwrap();
+-        assert_eq!(o.status.code(), Some(want), "{}", p.display());
++        (o.status.code(), o.stdout, o.stderr)
++    };
++    let want_plain = plain_of(&real);
++    assert_eq!(want_plain.0, Some(0));
++
++    let abs = cfg.join("profile.toml");
++    symlink(&real, &abs).unwrap();
++    let rel = cfg.join("relative.toml");
++    symlink("../dotfiles/homelab.toml", &rel).unwrap();
++    let chain = cfg.join("chain.toml");
++    symlink("profile.toml", &chain).unwrap();
++    let dirlink = d.path().join("dirlink");
++    symlink("dotfiles", &dirlink).unwrap();
++    let via_dir = dirlink.join("homelab.toml");
++
++    for p in [&abs, &rel, &chain, &via_dir] {
++        let o = show_within_2s(p);
++        assert_eq!(o.status.code(), Some(0), "{}", p.display());
++        assert_eq!(one_json(&o), want_json, "{}", p.display());
++        assert_eq!(plain_of(p), want_plain, "{}", p.display());
+     }
++
++    // A link to a regular file that is not a valid profile reports the file's own error.
++    let bad = real_dir.join("bad.toml");
++    std::fs::write(&bad, "schema_version = 1\nname = ").unwrap();
++    let bad_link = cfg.join("bad-link.toml");
++    symlink(&bad, &bad_link).unwrap();
++    let o = show_within_2s(&bad_link);
++    assert_eq!(o.status.code(), show_within_2s(&bad).status.code());
++    assert_eq!(
++        one_json(&o)["code"],
++        one_json(&show_within_2s(&bad))["code"]
++    );
++
++    // Links that do not end at a regular file are K14 (or an open failure).
++    let fifo = d.path().join("fifo");
++    mkfifo(&fifo);
++    let sock = d.path().join("p.sock");
++    let _l = UnixListener::bind(&sock).unwrap();
++    let mut bad_links: Vec<PathBuf> = Vec::new();
++    for (name, target) in [
++        ("to-fifo", fifo.clone()),
++        ("to-socket", sock.clone()),
++        ("to-dir", real_dir.clone()),
++        ("to-null", PathBuf::from("/dev/null")),
++        ("dangling", d.path().join("missing")),
++        ("to-fifo-via-link", cfg.join("to-fifo")),
++    ] {
++        let l = cfg.join(name);
++        symlink(&target, &l).unwrap();
++        bad_links.push(l);
++    }
++    symlink("loop-b", cfg.join("loop-a")).unwrap();
++    symlink("loop-a", cfg.join("loop-b")).unwrap();
++    bad_links.push(cfg.join("loop-a"));
++    for l in &bad_links {
++        let o = show_within_2s(l);
++        assert_eq!(o.status.code(), Some(2), "{}", l.display());
++        assert_eq!(one_json(&o)["code"], "USAGE_ERROR", "{}", l.display());
++        no_canary(&o);
++    }
++    // The link target is untouched and still loads.
++    assert_eq!(show_within_2s(&real).status.code(), Some(0));
+ }
+ 
+ /// Peak RSS (bytes) and wall time of one `profile show --json` run, measured with
+diff --color -ruN -x target -x dist -x __pycache__ /tmp/x2ws-45c710be/eval/base/prototypes/rust/tests/pty_tui.py /tmp/x2ws-45c710be/eval/frozen/rust/tests/pty_tui.py
+--- /tmp/x2ws-45c710be/eval/base/prototypes/rust/tests/pty_tui.py	2026-10-09 07:13:26
++++ /tmp/x2ws-45c710be/eval/frozen/rust/tests/pty_tui.py	2026-10-09 07:13:26
+@@ -12,6 +12,7 @@
+ import os
+ import re
+ import select
++import shutil
+ import signal
+ import struct
+ import subprocess
+@@ -731,6 +732,32 @@
+     return f"tui --file <FIFO without writer> -> exit 2 in {dt:.2f}s, no alternate screen"
+ 
+ 
++@case("tui-symlinked-profile")
++def t_symlink_tui(b):
++    d = os.path.join(TMP, "symlink-profile")
++    os.makedirs(d, exist_ok=True)
++    real = os.path.join(d, "homelab.toml")
++    shutil.copyfile(FIX / "homelab.toml", real)
++    absl, rell, fifo, tofifo = (os.path.join(d, n) for n in ("abs.toml", "rel.toml", "fifo", "to-fifo.toml"))
++    os.symlink(real, absl)
++    os.symlink("homelab.toml", rell)
++    os.mkfifo(fifo)
++    os.symlink(fifo, tofifo)
++    for link in (absl, rell):
++        s = Pty([b, "tui", "--file", link])
++        assert s.wait_text("3/3") is not None, f"{link}: list not shown"
++        s.write(b"q")
++        code, termios_ok = s.finish()
++        assert code == 0 and termios_ok, f"{link}: exit {code}"
++    t = time.monotonic()
++    s = Pty([b, "tui", "--file", tofifo])
++    code, termios_ok = s.finish(timeout=3)
++    dt = time.monotonic() - t
++    assert code == 2 and dt < 2.0, f"link to FIFO: exit {code} in {dt:.2f}s"
++    assert b"\x1b[?1049h" not in s.out and termios_ok
++    return "tui --file <absolute/relative symlink to a profile> works; <symlink to a FIFO> -> exit 2 quickly"
++
++
+ FAKEBIN = os.path.join(TMP, "fakebin")
+ EXECLOG = os.path.join(TMP, "helper-exec.log")
+ 
+@@ -1181,7 +1208,7 @@
+         panic_bin = os.path.abspath(args[args.index("--panic-binary") + 1])
+     for fn in [t_select, t_quit, t_ctrlc, t_term, t_filter, t_esc, t_resize, t_nocolor,
+                t_large, t_tiny, t_bad, t_hangup, t_run_sigint, t_run_ctrlz,
+-               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
++               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_symlink_tui, t_k16, t_k16_split, t_run_leader_hup,
+                t_k6e, t_k6d, t_k6e_self_stop]:
+         fn(binary)
+     if panic_bin:

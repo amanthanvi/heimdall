@@ -1,0 +1,11 @@
+{
+ "task": "T2",
+ "lang": "go",
+ "run": "opus2",
+ "base_commit": "84c7665",
+ "base_tree_digest": "9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af",
+ "base_digest_matches_BASE_json": true,
+ "darwin_arm64_sha256": "97dcb08609df1f4f4fdc2a51f816c40b45293229728a83a1aa3f2a20222ad9c4",
+ "linux_arm64_sha256": "d8c171c2492fbf7d9b108ec82bc23ab82c86023bca61859fa8aedda27ca8ad0f",
+ "implementer_digests_equal_evaluator_rebuild": true
+}

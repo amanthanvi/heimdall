@@ -1,0 +1,16 @@
+{
+  "task_id": "M00-T05-r4-x2-review-T4-go-sonnet1",
+  "cell": "T4-go-sonnet1",
+  "reviewer_model": "claude-opus-5-5",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 5},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/main_test.go TestProfileShowFollowsSymlink", "description": "main_test.go has no build tag, and the new test calls os.Symlink without a skip. On native Windows without symlink privilege or Developer Mode it fails with t.Fatal instead of t.Skip. This is latent: Windows tests are not run today, but a native X1 run would hit it."},
+    {"severity": "minor", "location": "prototypes/go/internal/profile/k14_test.go TestLoadRejectsSymlinkToNonRegular (final block)", "description": "The comment says a link retargeted after the pre-check is refused. The block only calls openNoBlock and f.Stat directly on a FIFO link. No test injects a swap between Stat and open through Load, so the fstat and os.SameFile path stays unexercised and the comment overstates the coverage."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/tui_symlink_test.go runTUIProcess", "description": "The test depends on timing. It waits a fixed 600 ms before sending 'q' and 100 ms to drain output before checking the alt-screen leave sequence. Existing pty tests use the same pattern, and the test passed 5 of 5 reviewer reruns on darwin, but it could flake on a loaded host."},
+    {"severity": "minor", "location": "prototypes/go/internal/profile/open_windows.go", "description": "Symlinks are now followed on Windows too, where they used to be refused. The comment there still says Stat has already refused non-regular paths, so a plain open cannot block. For a followed link that can be retargeted after the check, the comment was not revisited. The descriptor check still refuses non-regular files, and this path is compile-checked only."}
+  ],
+  "reviewer_probes": [
+    {"command": "HEIMDALL_G02_FIXTURES=<ws>/tests/fixtures/g02/profiles go test -count=5 -run 'TestTUIFollowsSymlink|TestProfileShowFollowsSymlink|TestLoad.*Symlink|TestK14' ./cmd/heimdall-proto ./internal/profile", "exit_code": 0, "observed": "ok cmd/heimdall-proto 11.221s; ok internal/profile 0.015s (darwin-arm64)"},
+    {"command": "GOOS=windows GOARCH=amd64 go test -c -o /dev/null ./cmd/heimdall-proto ./internal/profile", "exit_code": 0, "observed": "no output (test code compiles for windows-amd64; not run)"}
+  ]
+}

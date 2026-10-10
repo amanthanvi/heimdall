@@ -1,0 +1,27 @@
+darwin T2 base-go expected=red exit=1 SUMMARY T2 FAIL platform=darwin lang=go {"pass": 1, "fail": 11, "error": 0, "total": 12}
+darwin T2 base-rust expected=red exit=1 SUMMARY T2 FAIL platform=darwin lang=rust {"pass": 1, "fail": 11, "error": 0, "total": 12}
+darwin T2 pc expected=green exit=0 SUMMARY T2 PASS platform=darwin lang=control {"pass": 12, "fail": 0, "error": 0, "total": 12}
+darwin T3 base-go expected=red exit=1 SUMMARY T3 FAIL platform=darwin lang=go {"pass": 3, "fail": 14, "error": 0, "total": 17}
+darwin T3 base-rust expected=red exit=1 SUMMARY T3 FAIL platform=darwin lang=rust {"pass": 3, "fail": 14, "error": 0, "total": 17}
+darwin T3 pc expected=green exit=0 SUMMARY T3 PASS platform=darwin lang=control {"pass": 17, "fail": 0, "error": 0, "total": 17}
+darwin T1 base-go expected=red exit=1 SUMMARY T1 FAIL platform=darwin lang=go {"pass": 6, "fail": 8, "error": 0, "total": 14}
+darwin T1 base-rust expected=red exit=1 SUMMARY T1 FAIL platform=darwin lang=rust {"pass": 8, "fail": 6, "error": 0, "total": 14}
+darwin T1 pc expected=green exit=0 SUMMARY T1 PASS platform=darwin lang=control {"pass": 14, "fail": 0, "error": 0, "total": 14}
+darwin T4 seeded-go expected=red exit=1 SUMMARY T4 FAIL platform=darwin lang=go {"pass": 1, "fail": 5, "error": 0, "total": 6}
+darwin T4 base-go expected=green exit=0 SUMMARY T4 PASS platform=darwin lang=go {"pass": 6, "fail": 0, "error": 0, "total": 6}
+darwin T4 seeded-rust expected=red exit=1 SUMMARY T4 FAIL platform=darwin lang=rust {"pass": 1, "fail": 5, "error": 0, "total": 6}
+darwin T4 base-rust expected=green exit=0 SUMMARY T4 PASS platform=darwin lang=rust {"pass": 6, "fail": 0, "error": 0, "total": 6}
+linux T2 base-go expected=red exit=1 SUMMARY T2 FAIL platform=linux lang=go {"pass": 1, "fail": 11, "error": 0, "total": 12}
+linux T2 base-rust expected=red exit=1 SUMMARY T2 FAIL platform=linux lang=rust {"pass": 1, "fail": 11, "error": 0, "total": 12}
+linux T2 pc expected=green exit=0 SUMMARY T2 PASS platform=linux lang=control {"pass": 12, "fail": 0, "error": 0, "total": 12}
+linux T3 base-go expected=red exit=1 SUMMARY T3 FAIL platform=linux lang=go {"pass": 3, "fail": 14, "error": 0, "total": 17}
+linux T3 base-rust expected=red exit=1 SUMMARY T3 FAIL platform=linux lang=rust {"pass": 3, "fail": 14, "error": 0, "total": 17}
+linux T3 pc expected=green exit=0 SUMMARY T3 PASS platform=linux lang=control {"pass": 17, "fail": 0, "error": 0, "total": 17}
+linux T1 base-go expected=red exit=1 SUMMARY T1 FAIL platform=linux lang=go {"pass": 8, "fail": 6, "error": 0, "total": 14}
+linux T1 base-rust expected=red exit=1 SUMMARY T1 FAIL platform=linux lang=rust {"pass": 8, "fail": 6, "error": 0, "total": 14}
+linux T1 pc expected=green exit=0 SUMMARY T1 PASS platform=linux lang=control {"pass": 14, "fail": 0, "error": 0, "total": 14}
+linux T4 seeded-go expected=red exit=1 SUMMARY T4 FAIL platform=linux lang=go {"pass": 1, "fail": 5, "error": 0, "total": 6}
+linux T4 base-go expected=green exit=0 SUMMARY T4 PASS platform=linux lang=go {"pass": 6, "fail": 0, "error": 0, "total": 6}
+linux T4 seeded-rust expected=red exit=1 SUMMARY T4 FAIL platform=linux lang=rust {"pass": 1, "fail": 5, "error": 0, "total": 6}
+linux T4 base-rust expected=green exit=0 SUMMARY T4 PASS platform=linux lang=rust {"pass": 6, "fail": 0, "error": 0, "total": 6}
+verify-matrix exit=0

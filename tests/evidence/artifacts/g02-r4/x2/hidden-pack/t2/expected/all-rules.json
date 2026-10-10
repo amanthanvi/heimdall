@@ -1,0 +1,16 @@
+{"schema_version": "1", "state": "succeeded", "code": "LINT_FINDINGS", "warnings": [], "next": null,
+ "data": {"findings": [
+  {"rule": "duplicate-endpoint", "key_paths": ["destinations[0].host", "destinations[1].host", "destinations[4].host"], "destination_ids": ["d_alpha", "d_bravo", "d_echo"], "message": "destinations share the same host and port"},
+  {"rule": "duplicate-endpoint", "key_paths": ["destinations[3].host", "destinations[7].host"], "destination_ids": ["d_delta", "d_hotel"], "message": "destinations share the same host and port"},
+  {"rule": "privileged-port", "key_paths": ["destinations[3].port"], "destination_ids": ["d_delta"], "message": "port below 1024 other than 22"},
+  {"rule": "privileged-port", "key_paths": ["destinations[5].port"], "destination_ids": ["d_foxtrot"], "message": "port below 1024 other than 22"},
+  {"rule": "privileged-port", "key_paths": ["destinations[7].port"], "destination_ids": ["d_hotel"], "message": "port below 1024 other than 22"},
+  {"rule": "root-account", "key_paths": ["destinations[1].account"], "destination_ids": ["d_bravo"], "message": "account is root"},
+  {"rule": "root-account", "key_paths": ["destinations[5].account"], "destination_ids": ["d_foxtrot"], "message": "account is root"},
+  {"rule": "duplicate-label", "key_paths": ["destinations[1].labels[1]", "destinations[1].labels[3]"], "destination_ids": ["d_bravo"], "message": "label repeated within a destination"},
+  {"rule": "duplicate-label", "key_paths": ["destinations[1].labels[2]", "destinations[1].labels[4]"], "destination_ids": ["d_bravo"], "message": "label repeated within a destination"},
+  {"rule": "duplicate-label", "key_paths": ["destinations[3].labels[1]", "destinations[3].labels[2]"], "destination_ids": ["d_delta"], "message": "label repeated within a destination"},
+  {"rule": "label-case-variant", "key_paths": ["destinations[0].labels[0]", "destinations[1].labels[0]", "destinations[3].labels[0]"], "destination_ids": ["d_alpha", "d_bravo", "d_delta"], "message": "labels differ only in letter case"},
+  {"rule": "label-case-variant", "key_paths": ["destinations[0].labels[1]", "destinations[2].labels[0]", "destinations[6].labels[0]"], "destination_ids": ["d_alpha", "d_charlie", "d_golf"], "message": "labels differ only in letter case"},
+  {"rule": "label-case-variant", "key_paths": ["destinations[5].labels[0]", "destinations[5].labels[1]"], "destination_ids": ["d_foxtrot"], "message": "labels differ only in letter case"}
+ ]}}

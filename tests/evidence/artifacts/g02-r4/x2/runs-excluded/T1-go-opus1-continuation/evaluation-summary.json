@@ -1,0 +1,15 @@
+{
+ "task_id": "M00-T05-r4-x2-eval-T1-go-opus1",
+ "cell": "T1-go-opus1",
+ "base_tree_digest_check": "base 84c7665 prototypes/go digest equals BASE.json (9ee4b916...)",
+ "build": {"command": "sh build.sh (frozen copy)", "exit_code": 0, "targets": ["darwin-arm64","linux-x64","linux-arm64","windows-x64"],
+   "darwin_arm64_sha256": "797e00e74a55bfcd2376b3c9836c44c512f2c2349bd4807ab3693d6df5dd2038",
+   "linux_arm64_sha256": "da6c76b03f2eac73163fbb68bc4856fe057df8278550c53b7fa4b898da87ec61",
+   "digests_equal_implementer_report": true},
+ "hidden": {"darwin": {"exit": 0, "pass": 14, "total": 14, "fixed": "8/8", "regressed": 0, "all_pass": true, "fixed_excluding_unproven": "6/6"},
+            "linux": {"exit": 0, "pass": 14, "total": 14, "fixed": "6/6", "regressed": 0, "all_pass": true},
+            "reruns": "none needed (no failing check)"},
+ "harness_2_4_2": {"darwin": "139/139 exit 0", "linux": "139/139 exit 0"},
+ "unit_tests": {"command": "go test -count=1 ./... with HEIMDALL_G02_FIXTURES", "exit_code": 0},
+ "not_run": ["pin-check (once per session; hidden.sh checks the harness pin itself)", "transcript audit (no transcript supplied to this evaluator)"]
+}

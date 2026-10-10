@@ -1,0 +1,47 @@
+{
+ "task_id": "T3-rust-opus1",
+ "built_by": "prototypes/rust/build.sh (exit 0; all four targets built: darwin-arm64, linux-x64, linux-arm64, windows-x64)",
+ "artifacts": [
+  {
+   "target": "darwin-arm64",
+   "path": "/tmp/x2ws-674ddca9/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+   "bytes": 734528,
+   "sha256": "9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc"
+  },
+  {
+   "target": "linux-arm64",
+   "path": "/tmp/x2ws-674ddca9/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto",
+   "bytes": 829528,
+   "sha256": "11b9be2032c21fb4d5cd6743ba4e93aa7aae12972647a69d24596c9223b735d1"
+  }
+ ],
+ "manifest": {
+  "path": "/tmp/x2ws-674ddca9/heimdall/prototypes/rust/dist/manifest.json",
+  "targets": [
+   {
+    "target": "darwin-arm64",
+    "built": true,
+    "bytes": 734528,
+    "sha256": "9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc"
+   },
+   {
+    "target": "linux-x64",
+    "built": true,
+    "bytes": 890952,
+    "sha256": "d227b55a8db59d26def9018b5ff41eb5096f24e6d18eab2c84d1a778326b46c8"
+   },
+   {
+    "target": "linux-arm64",
+    "built": true,
+    "bytes": 829528,
+    "sha256": "11b9be2032c21fb4d5cd6743ba4e93aa7aae12972647a69d24596c9223b735d1"
+   },
+   {
+    "target": "windows-x64",
+    "built": true,
+    "bytes": 845312,
+    "sha256": "b85ff358fca4794a65770f108e900ae5a694f5b749acac8671e6e6f332ddda81"
+   }
+  ]
+ }
+}

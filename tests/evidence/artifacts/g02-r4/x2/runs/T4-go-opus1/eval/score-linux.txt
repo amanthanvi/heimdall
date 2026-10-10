@@ -1,0 +1,32 @@
+{
+ "task": "T4",
+ "lang": "go",
+ "record_lang": "go",
+ "platform": "linux",
+ "result_binary_sha256": "31f9129b75fd00b205551e13e8a8887003f33bd67c17e1b12cb4dd7bfcadae98",
+ "baseline_subject": "seeded-go",
+ "baseline_binary_sha256": "3e118cb903f983886bdaa742caa3ebb6e9e0f3554e9fd66cc39f90cfd7af9943",
+ "baseline_pinned": true,
+ "valid": true,
+ "problems": [],
+ "total": 6,
+ "pass": 6,
+ "all_pass": true,
+ "baseline_pass": 1,
+ "baseline_fail": 5,
+ "fixed": "5/5",
+ "fixed_checks": [
+  "T4.plain_mode_exit",
+  "T4.relative_and_chained",
+  "T4.repro_absolute_symlink",
+  "T4.symlink_bounds_and_errors",
+  "T4.tui_via_symlink"
+ ],
+ "still_failing_checks": [],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [],
+ "all_pass_excluding_unproven": true,
+ "fixed_excluding_unproven": "5/5"
+}

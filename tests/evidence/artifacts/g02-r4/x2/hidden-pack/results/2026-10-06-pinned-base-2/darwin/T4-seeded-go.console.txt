@@ -1,0 +1,9 @@
+hidden.sh: task=T4 platform=darwin sha256=7ccf5a2bfe299541ecffbd8f5949f509c30fbbe9b67fd3e8002234260d61d05a started=2026-10-06T15:37:30Z
+FAIL  T4.repro_absolute_symlink (0.0s) :: [absolute symlink] exit code; [absolute symlink] code; [absolute symlink] stdout identical to the direct path's
+FAIL  T4.relative_and_chained (0.0s) :: [relative symlink] exit code; [relative symlink] code; [relative symlink] stdout identical to the direct path's; [chain of two symlinks] exit code
+PASS  T4.still_rejected_nonregular (0.0s)
+FAIL  T4.symlink_bounds_and_errors (0.0s) :: [oversize] code; [duplicate alias] code; [duplicate alias] data.error.key_path equals the direct path's
+FAIL  T4.plain_mode_exit (0.0s) :: exit code without --json
+FAIL  T4.tui_via_symlink (0.2s) :: list with 3/3 shown within 10 s; q exits 0
+SUMMARY T4 FAIL platform=darwin {"pass": 1, "fail": 5, "error": 0, "total": 6}
+hidden.sh: exit=1 finished=2026-10-06T15:37:30Z

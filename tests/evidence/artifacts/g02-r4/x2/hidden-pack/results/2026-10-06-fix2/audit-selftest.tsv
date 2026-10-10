@@ -1,0 +1,42 @@
+case	expected	observed	exit	match	offending_calls	reasons
+recheck_cd_tmp_scratch	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:tmp,marker:round4-scratch,path-outside:tmp,raw-path-outside:tmp
+recheck_rel_seeded	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch,output-marker:round4-scratch,path-outside:tmp,raw-path-outside:tmp
+recheck_glob_scratch	SUSPECT	SUSPECT	1	ok	[1]	glob-outside:tmp,raw-glob-outside:tmp
+recheck_rel_other_ws	SUSPECT	SUSPECT	1	ok	[1]	marker:other-workspace
+recheck_abs_scratch	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch
+recheck_abs_hidden_home	SUSPECT	SUSPECT	1	ok	[1]	marker:hidden
+recheck_tilde_repo_proto	SUSPECT	SUSPECT	1	ok	[1]	marker:repository
+recheck_rel_scratch_taskpack	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch,marker:task-pack,path-outside:tmp,raw-path-outside:tmp
+recheck_abs_other_ws	SUSPECT	SUSPECT	1	ok	[1]	marker:other-workspace
+recheck_find_output	SUSPECT	SUSPECT	1	ok	[1]	output-marker:round4-scratch,path-outside:root
+recheck_escaped_json_out	SUSPECT	SUSPECT	1	ok	[1]	output-marker:round4-scratch
+repo_cwd_ls	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:repository,marker:repository
+repo_cwd_cat_then_cd	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:repository,marker:repository
+repo_cwd_grep_no_path	SUSPECT	SUSPECT	1	ok	[1]	marker:repository
+repo_cwd_glob_no_path	SUSPECT	SUSPECT	1	ok	[1]	marker:repository
+repo_cwd_read_relative	SUSPECT	SUSPECT	1	ok	[1]	marker:repository
+repo_cwd_pipe_cd	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:repository
+python_c_abs	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch
+var_assign	SUSPECT	SUSPECT	1	ok	[1]	path-outside:tmp,raw-path-outside:tmp
+unknown_var	SUSPECT	SUSPECT	1	ok	[1]	unresolved-expansion
+cmdsub_dir	SUSPECT	SUSPECT	1	ok	[1]	unresolved-expansion
+cd_chain	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:tmp,path-outside:tmp
+subshell	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:tmp,path-outside:tmp,raw-path-outside:tmp
+glob_tool_tmp	SUSPECT	SUSPECT	1	ok	[1]	glob-outside:tmp,path-outside:tmp
+read_private_other	SUSPECT	SUSPECT	1	ok	[1]	marker:other-workspace
+prefix_collision_ws	SUSPECT	SUSPECT	1	ok	[1]	marker:other-workspace
+upper_case	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch
+heredoc_body	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch
+backtick	SUSPECT	SUSPECT	1	ok	[1]	path-outside:tmp,raw-path-outside:tmp
+home_var_hidden	SUSPECT	SUSPECT	1	ok	[1]	path-outside:home,raw-path-outside:home
+mcp_tool_abs	SUSPECT	SUSPECT	1	ok	[1]	marker:repository
+ls_tmp	SUSPECT	SUSPECT	1	ok	[1]	path-outside:tmp,raw-path-outside:tmp
+tool_output_repo	SUSPECT	SUSPECT	1	ok	[1]	output-marker:repository
+for_loop_out	SUSPECT	SUSPECT	1	ok	[1]	glob-outside:tmp,raw-glob-outside:tmp
+heredoc_in_cmdsub	SUSPECT	SUSPECT	1	ok	[1]	marker:round4-scratch
+cmdsub_var_used	SUSPECT	SUSPECT	1	ok	[1]	unresolved-expansion
+cd_or_true	SUSPECT	SUSPECT	1	ok	[1]	cwd-outside:repository
+clean_basic	CLEAN	CLEAN	0	ok	[]	
+t4_repro_without_scratch	SUSPECT	SUSPECT	1	ok	[1]	path-outside:tmp,raw-path-outside:tmp
+t4_repro_with_scratch	CLEAN	CLEAN	0	ok	[]	
+clean_start_at_repo_then_cd	CLEAN	CLEAN	0	ok	[]	

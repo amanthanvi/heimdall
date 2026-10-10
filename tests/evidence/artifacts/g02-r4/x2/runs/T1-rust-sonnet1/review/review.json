@@ -1,0 +1,29 @@
+{
+  "task_id": "M00-T05-r4-x2-review-T1-rust-sonnet1",
+  "cell": "T1-rust-sonnet1",
+  "reviewer": "independent (did not implement)",
+  "inputs": "workspace out/diff.patch (byte-identical to implementer-out/diff.patch), TASK.md, prototypes/rust/src/runner.rs, docs/g02/slice-contract.md K6a-K6e",
+  "probe": {
+    "what": "interactive bash -i in a fresh pty (SSH_AUTH_SOCK unset); `sh -c 'kill -TSTP $$; echo RESUMED' &` plain, then the same under the cell's darwin-arm64 binary `run --`; `jobs -l`; cleanup with kill %1",
+    "exit_code": 0,
+    "observed": "plain exec: jobs -l lists the job as 'Suspended: 18'. Under the launcher: jobs -l lists 'Running' while the child has stopped itself. The job was killed with kill %1 and ended with 'Exit 143'. ps for both probe PIDs afterwards found nothing (ps exit 1)."
+  },
+  "defects": [
+    {"severity": "major", "location": "src/runner.rs in_foreground_job / mirror_child_stop (`if !jc.sample() { return; }`); REPORT.md section 16 known gap (1)",
+     "description": "A job started in the background (`cmd &`) of an interactive job-control shell that was never in the foreground no longer gets the child stop mirrored. The child stays stopped while the shell lists the job as Running. This breaks binding contract K6e, which says the child is never left stopped while the shell believes the job is running. The round-3c code mirrored this case unconditionally. The probe confirmed it on darwin. The gap is documented, but no distinguishing signal was tried, for example checking whether stdin, stdout or stderr is the controlling tty (S1 guarantees none is). Neither the hidden tests nor the harness cover this case."},
+    {"severity": "minor", "location": "src/runner.rs JobCtl::fresh_cont (set after kill_process(pid, CONT), cleared only by mem::take in the next mirror_child_stop)",
+     "description": "fresh_cont is supposed to mean 'the next stop report is new, never stale'. In fact it outlives the stop it was meant for. If the child's continue report is consumed by the main loop and the child does not stop again (for example S3 followed by fg with the child running), the flag stays true. A much later Ctrl-Z then fg is then mirrored with zero grace. That reopens the stale-stop race that STOP_GRACE exists to close, and the job can be re-stopped right after fg (K6e). The window is narrow (microseconds). This was found by reading the code and was not reproduced."},
+    {"severity": "minor", "location": "src/runner.rs STOP_GRACE 200 ms -> 100 ms",
+     "description": "The K6e grace was halved without a stated need. The stated reason, staying below a 0.5 s stop-then-continue, already held at 200 ms. This narrows the margin against the round-3c stale-stop race for no demonstrated gain."},
+    {"severity": "minor", "location": "src/runner.rs mirror_child_stop (main-loop stop after a Ctrl-Z group stop)",
+     "description": "After a terminal Ctrl-Z, a SIGCONT sent to the launcher's PID alone makes the launcher read the child's group-stop report and mirror it, so it stops itself again. The child is resumed only on a second SIGCONT to the launcher. Under plain exec one SIGCONT resumes the process. This is outside S1-S5 and found by reading the code only."},
+    {"severity": "minor", "location": "tests/pty_tui.py _x2_s4: `assert sh.wait_count(PROMPT, n or 1)`",
+     "description": "This check can never fail. n is the current prompt count, so the assertion 'outer shell did not prompt' holds already. S4 also accepts either 128+SIGSTOP or 128+SIGTSTP instead of comparing with a plain-exec control."},
+    {"severity": "minor", "location": "tests/pty_tui.py x2_cleanup / x2_for_each_shell",
+     "description": "Cleanup sends SIGKILL to every PID recorded during the case, including PIDs that already exited and were reaped seconds earlier. If a PID is reused, an unrelated process could be killed. The tests run no plain-exec control. S2 path (a) accepts $? of 0 or 7. S5 checks exit 5 rather than the spec's exit 0 (the behaviour is equivalent)."},
+    {"severity": "minor", "location": "diff: tools/__pycache__/inventory.cpython-314.pyc; REPORT.md/runner.rs 'Round 5' labels",
+     "description": "A stray bytecode artifact is in the diff. The new code and report are labelled 'Round 5', but this work is G02 round 4, X2 T1. That mislabel will confuse future agents."}
+  ],
+  "scores": {"spec_conformance": 4, "test_quality": 3, "clarity": 4},
+  "strengths": "The change is small and well localized. Gating the mirror on job-control membership correctly fixes S1. Sending SIGCONT to the child when only the launcher is continued fixes S3 and S4, and the comments explain why S4 needs it. The sticky 'seen' flag correctly handles the nested shell taking its own process group. There are no new unsafe or helper processes (K16 holds), and no reaping happens outside the WEXITED path. /dev/tty is opened read-only with O_CLOEXEC and no terminal acquisition. The tests cover S1 to S5 under bash and zsh. The REPORT documents the known gaps honestly."
+}

@@ -1,0 +1,31 @@
+{
+  "task_id": "M00-T05-r4-x2-review-T2-go-opus1",
+  "cell": "T2-go-opus1",
+  "reviewer": "independent (did not implement); Opus 5.5",
+  "inputs": "out/diff.patch (8 files, +915/-2) against TASK.md T2 and prototypes/go surrounding code (main.go, internal/profile, internal/result)",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "ascii_fold_check": "Read by code: asciiLower (internal/lint/lint.go) maps only bytes 'A'..'Z' to 'a'..'z' byte-wise; bytes >= 0x80 (all UTF-8 continuation/lead bytes) are untouched. Used for rule 1 host keys and rule 5 label keys; rule 3 and rule 4 use exact comparison. strings.ToLower/EqualFold not used anywhere in the lint path. Read-only probe on the built darwin-arm64 artifact (U+212A Kelvin sign vs 'k'/'K', U+00C4 vs U+00E4, in host and labels): only the ASCII pairs were grouped (exit 3); Kelvin and A-umlaut variants were not.",
+  "probes": [
+    {"cmd": "profile lint --file p.toml --json (Kelvin/umlaut fixture)", "exit": 3, "observed": "duplicate-endpoint for k.ex/K.EX (port omitted vs 22) only; label-case-variant for k/K only"},
+    {"cmd": "profile lint --json --file p.toml", "exit": 3},
+    {"cmd": "profile lint --file p.toml (plain)", "exit": 3, "observed": "rule, message, key paths only; no ids or values"},
+    {"cmd": "profile lint --file --json", "exit": 2, "observed": "USAGE_ERROR JSON on stdout"},
+    {"cmd": "profile show --file --json", "exit": 2, "observed": "no JSON on stdout (takes '--json' as a path)"}
+  ],
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/main.go cmdProfileLint / fileValueIsFlag", "description": "Deliberate divergence from profile show: `lint --file --json` emits a USAGE_ERROR JSON document while `show --file --json` emits none (same exit 2 and code). Defensible under §1 ('flag without its value ... JSON only when --json is given') and documented by the implementer, but it makes lint input handling not byte-identical to show for that argv, and the extra pre-parse scanner is a second, hand-rolled argument parser alongside the flag package that future agents must keep consistent."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/main.go cmdProfileLint", "description": "The profile.Load error block (stderr line, optional JSON Fail result, ExitCode) is copied from cmdProfileShow rather than shared; 'same error path' is enforced by duplication plus a test, so a future change to show's error handling could silently diverge."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/lint_test.go TestProfileLintWritesNothing", "description": "The no-write check only inspects the profile's own directory (entry count, mtime, size); it does not check the working directory or a temp root, so a write elsewhere would pass."}
+  ],
+  "positives": [
+    "lint.Lint is a pure function over a parsed Profile; ordering for all five rules follows from first-appearance grouping in file order, matching the spec's ordering rules without sorting.",
+    "Rule 4/5 interplay matches the spec: exact repeats are rule 4, case variants (even within one destination) are rule 5 only; identical labels across destinations are not a finding.",
+    "Value non-echo: findings carry only fixed rule ids/messages, key paths and destination ids; plain mode omits ids too. Error paths reuse profile.Load (K2/K14/K15/K18).",
+    "Non-nil slices guarantee [] encoding; exit 3 mapped via result.ExitCode; K12 closed-stdout parity cases added.",
+    "Tests: exact-JSON end-to-end in both option orders and --file=, spaced/non-ASCII paths, equivalence with show over every invalid-* fixture plus oversize/missing/dir/dup-id, FIFO with 2 s bound, ASCII-only fold unit test with Kelvin sign and a reported mutation check."
+  ],
+  "evaluation_reference": "Evaluator result not redone: hidden T2 12/12 darwin and linux, harness 139/139 both, unit tests exit 0.",
+  "cleanup": {
+    "cell_dir_check": "tests/evidence/artifacts/g02-r4/x2/runs/T2-go-opus1 held implementer-out/diff.patch and implementer-out/artifacts.json (byte-identical to the workspace out/ copies) and eval/ (evaluator results). REPORT.md was NOT present there; it was copied to review/implementer-REPORT.md (sha256 377ab548...c37d, identical) before deletion."
+  }
+}

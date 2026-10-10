@@ -1,0 +1,4 @@
+platform	task	subject	expected	exit	sha256_12	started_utc
+darwin	T2	base-go	red	1	bdfd64a2f5a0	2026-10-06T16:57:24Z
+darwin	T2	base-rust	red	1	f9a3ec8b4683	2026-10-06T16:57:24Z
+darwin	T2	pc	green	0	-	2026-10-06T16:57:24Z

@@ -1,0 +1,13 @@
+{
+  "cell": "T3-rust-sonnet1",
+  "reviewer_task": "M00-T05-r4-x2-review-T3-rust-sonnet1",
+  "reviewed": "implementer/diff.patch (3 files, +553/-38) against TASK.md T3 and prototypes/rust",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/src/list_model.rs find_ci / match_ranges", "description": "Highlight matching uses per-char char::to_lowercase while the filter (keys, needle) uses str::to_lowercase. By documented Rust std behaviour these differ for Greek final sigma, so a row shown by the filter (e.g. alias ending in capital sigma, filter 'ς') gets no underline. Outside the ASCII/CJK test domain; not exercised by tests. Inferred from std semantics, not run."},
+    {"severity": "minor", "location": "prototypes/rust/src/tui.rs row_line vs list_model.rs ListModel::row_text", "description": "row_line duplicates the row format; row_text is no longer used by the renderer but is still the function the unit tests check (row_text_width_rule), so the rendered row text has no unit coverage and the two can drift."},
+    {"severity": "minor", "location": "prototypes/rust/src/tui.rs render (scroll offset)", "description": "The new manual scroll-offset clamp (keep selection visible, fill the window after a list shrinks) has no unit test; it is covered only by the pty script and harness/hidden runs."},
+    {"severity": "minor", "location": "prototypes/rust/tests/pty_tui.py t_x2a", "description": "Comment 'filter mode again; extend to a mixed-case alias+host match' describes the wrong step (the code enters filter mode and immediately presses Esc). The pty script is not run by cargo test."},
+    {"severity": "minor", "location": "prototypes/rust/src/list_model.rs match_ranges", "description": "Lowercases the filter and runs an O(n*m) scan with a Vec allocation per shown row (all shown rows, not only visible ones) on every frame. Bounded by profile size and well within K17 (implementer reported p95 4.1 ms darwin, 3.2 ms linux), so efficiency only."}
+  ]
+}

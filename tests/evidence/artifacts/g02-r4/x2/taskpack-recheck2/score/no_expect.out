@@ -1,0 +1,5 @@
+usage: score.py [-h] --task {T1,T2,T3,T4} --lang {go,rust}
+                --platform {darwin,linux} [--baseline-dir BASELINE_DIR]
+                --expect-sha256 EXPECT_SHA256
+                result
+score.py: error: the following arguments are required: --expect-sha256

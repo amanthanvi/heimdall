@@ -1,0 +1,373 @@
+diff --color -ruN -x target -x dist /tmp/x2ws-fc81ec54/eval/base/prototypes/go/internal/tui/tui.go /tmp/x2ws-fc81ec54/eval/frozen/go/internal/tui/tui.go
+--- /tmp/x2ws-fc81ec54/eval/base/prototypes/go/internal/tui/tui.go	2026-10-06 04:41:29
++++ /tmp/x2ws-fc81ec54/eval/frozen/go/internal/tui/tui.go	2026-10-09 05:03:57
+@@ -5,6 +5,7 @@
+ 
+ import (
+ 	"fmt"
++	"sort"
+ 	"strings"
+ 	"unicode"
+ 	"unicode/utf8"
+@@ -39,6 +40,7 @@
+ 	sel       int
+ 	filter    string
+ 	filtering bool
++	help      bool // help overlay open
+ 	width     int
+ 	height    int
+ 	noColor   bool
+@@ -56,9 +58,22 @@
+ 
+ func (m *Model) Init() tea.Cmd { return nil }
+ 
++// refilter recomputes the shown rows after a filter edit. The destination that
++// was selected just before the edit stays selected when it is still shown;
++// otherwise (or when nothing was shown) the first shown row is selected.
+ func (m *Model) refilter() {
++	prev := -1
++	if m.sel >= 0 && m.sel < len(m.shown) {
++		prev = m.shown[m.sel]
++	}
+ 	m.shown = profile.Filter(m.dests, m.filter)
+ 	m.sel = 0
++	if prev >= 0 {
++		// shown holds ascending destination indexes.
++		if i := sort.SearchInts(m.shown, prev); i < len(m.shown) && m.shown[i] == prev {
++			m.sel = i
++		}
++	}
+ }
+ 
+ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+@@ -85,6 +100,13 @@
+ 		m.Outcome = Cancelled
+ 		return m, tea.Quit
+ 	}
++	if m.help {
++		// Only ? and Esc act while the overlay is open; every other key is ignored.
++		if k.Code == tea.KeyEscape || k.Text == "?" {
++			m.help = false
++		}
++		return m, nil
++	}
+ 	switch k.Code {
+ 	case tea.KeyUp:
+ 		m.move(-1)
+@@ -128,6 +150,8 @@
+ 		m.move(1)
+ 	case k.Text == "/":
+ 		m.filtering = true
++	case k.Text == "?":
++		m.help = true
+ 	case k.Text == "q":
+ 		m.Outcome = Quit
+ 		return m, tea.Quit
+@@ -165,8 +189,62 @@
+ const (
+ 	sgrSelected = "\x1b[1;36m" // bold cyan; never the only selection cue
+ 	sgrReset    = "\x1b[0m"
++	sgrULOn     = "\x1b[4m"  // underline on: match highlight (not a colour)
++	sgrULOff    = "\x1b[24m" // underline off only; keeps the selected row's colour
+ )
+ 
++// helpLines is the help overlay text, top to bottom.
++var helpLines = []string{
++	"Keys",
++	"Up / k      move up",
++	"Down / j    move down",
++	"/           filter",
++	"Enter       select",
++	"Esc         clear filter",
++	"q           quit",
++	"?           close help",
++	"Ctrl-C      cancel",
++}
++
++// markMatch returns s sanitized, with the first case-insensitive occurrence of
++// q underlined. Matching is per rune (unicode.ToLower), the rule strings.ToLower
++// applies in profile.Filter, so rune offsets are stable. found reports whether
++// an underline was emitted.
++func markMatch(s string, q []rune) (out string, found bool) {
++	rs := []rune(s)
++	for i, r := range rs {
++		if unicode.IsControl(r) {
++			rs[i] = utf8.RuneError
++		}
++	}
++	at := indexFold(rs, q)
++	if at < 0 {
++		return string(rs), false
++	}
++	end := at + len(q)
++	return string(rs[:at]) + sgrULOn + string(rs[at:end]) + sgrULOff + string(rs[end:]), true
++}
++
++// indexFold is the rune index of the first case-insensitive occurrence of q
++// in rs, or -1. An empty q never matches (no highlight for an empty filter).
++func indexFold(rs, q []rune) int {
++	if len(q) == 0 {
++		return -1
++	}
++	for i := 0; i+len(q) <= len(rs); i++ {
++		j := 0
++		for ; j < len(q); j++ {
++			if unicode.ToLower(rs[i+j]) != unicode.ToLower(q[j]) {
++				break
++			}
++		}
++		if j == len(q) {
++			return i
++		}
++	}
++	return -1
++}
++
+ // Render is the pure layout function (exported for tests).
+ func (m *Model) Render() string {
+ 	w, h := max(m.width, 1), max(m.height, 1)
+@@ -176,19 +254,29 @@
+ 	if rows > 0 && m.sel >= rows {
+ 		start = m.sel - rows + 1
+ 	}
++	q := []rune(m.filter)
+ 	for i := 0; i < rows; i++ {
+ 		idx := start + i
+-		if idx < len(m.shown) {
++		if m.help {
++			if i < len(helpLines) {
++				b.WriteString(ansi.Truncate("  "+helpLines[i], w, ""))
++			}
++		} else if idx < len(m.shown) {
+ 			d := m.dests[m.shown[idx]]
+-			text := Sanitize(d.Alias)
++			text, hl := markMatch(d.Alias, q)
+ 			if w >= 50 {
+-				text = fmt.Sprintf("%s  %s@%s:%d", Sanitize(d.Alias), Sanitize(d.Account), Sanitize(d.Host), d.Port)
++				host, hlHost := markMatch(d.Host, q)
++				hl = hl || hlHost
++				text = fmt.Sprintf("%s  %s@%s:%d", text, Sanitize(d.Account), host, d.Port)
+ 			}
+ 			prefix := "  "
+ 			if idx == m.sel {
+ 				prefix = "> "
+ 			}
+ 			line := ansi.Truncate(prefix+text, w, "")
++			if hl {
++				line += sgrULOff // the cut may have dropped the closing sequence
++			}
+ 			if idx == m.sel && !m.noColor {
+ 				line = sgrSelected + line + sgrReset
+ 			}
+diff --color -ruN -x target -x dist /tmp/x2ws-fc81ec54/eval/base/prototypes/go/internal/tui/tui_test.go /tmp/x2ws-fc81ec54/eval/frozen/go/internal/tui/tui_test.go
+--- /tmp/x2ws-fc81ec54/eval/base/prototypes/go/internal/tui/tui_test.go	2026-10-06 04:41:29
++++ /tmp/x2ws-fc81ec54/eval/frozen/go/internal/tui/tui_test.go	2026-10-09 05:03:57
+@@ -116,10 +116,11 @@
+ 	}
+ }
+ 
+-// K9 (slice-contract §9): each filter change (appended character, Backspace,
+-// Esc clear) resets the selection to the first shown row; leaving filter mode
+-// with Enter keeps the selection.
+-func TestK9SelectionAfterFilterEdit(t *testing.T) {
++// Part C (replaces contract K9): after a filter edit (appended character,
++// Backspace, Esc clear) the destination selected just before the edit stays
++// selected when still shown; otherwise the first shown row is selected.
++// Leaving filter mode with Enter keeps the selection.
++func TestSelectionKeptAcrossFilterEdits(t *testing.T) {
+ 	m := New(dests(30), true) // aliases host-000..host-029, vps-東京
+ 	down := tea.KeyPressMsg{Code: tea.KeyDown}
+ 	sel := func() string { return m.dests[m.shown[m.sel]].Alias }
+@@ -128,24 +129,183 @@
+ 	if sel() != "host-002" {
+ 		t.Fatal(sel())
+ 	}
+-	press(m, txt("o")) // append
+-	if m.sel != 0 || sel() != "host-000" {
++	press(m, txt("o")) // append: host-002 still matches
++	if sel() != "host-002" {
+ 		t.Fatalf("append: %d %s", m.sel, sel())
+ 	}
+-	press(m, down, down, tea.KeyPressMsg{Code: tea.KeyBackspace})
+-	if m.sel != 0 || m.filter != "h" {
+-		t.Fatalf("backspace: %d %q", m.sel, m.filter)
++	press(m, txt("s"), txt("t"), txt("-"), txt("0"), txt("1")) // host-01x: host-002 drops out
++	if m.sel != 0 || sel() != "host-010" {
++		t.Fatalf("dropped: %d %s", m.sel, sel())
+ 	}
++	press(m, down, down) // host-012
++	press(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
++	if sel() != "host-012" || m.filter != "host-0" {
++		t.Fatalf("backspace: %q %q", sel(), m.filter)
++	}
+ 	press(m, down, down, down, tea.KeyPressMsg{Code: tea.KeyEscape})
+-	if m.sel != 0 || m.filter != "" || m.filtering {
+-		t.Fatalf("esc: %d", m.sel)
++	if sel() != "host-015" || m.filter != "" || m.filtering || len(m.shown) != 31 {
++		t.Fatalf("esc: %d %q", m.sel, sel())
+ 	}
+ 	press(m, txt("/"), txt("1"), down, down, tea.KeyPressMsg{Code: tea.KeyEnter})
+-	if m.filtering || m.filter != "1" || m.sel != 2 {
+-		t.Fatalf("enter must keep selection: %d", m.sel)
++	if m.filtering || m.filter != "1" {
++		t.Fatalf("enter must keep filter: %q", m.filter)
+ 	}
+ 	keep := sel()
+ 	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || m.Alias != keep {
+ 		t.Fatalf("selected %q want %q", m.Alias, keep)
++	}
++}
++
++func TestSelectionFarDownAndNoRowsBefore(t *testing.T) {
++	m := New(dests(100), true)
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	for i := 0; i < 90; i++ {
++		press(m, tea.KeyPressMsg{Code: tea.KeyDown})
++	}
++	press(m, txt("/"), txt("h"))
++	if got := m.dests[m.shown[m.sel]].Alias; got != "host-090" {
++		t.Fatal(got)
++	}
++	if out := ansi.Strip(m.Render()); !strings.Contains(out, "> host-090") {
++		t.Fatalf("selection not visible:\n%s", out)
++	}
++	press(m, txt("z")) // no rows
++	if len(m.shown) != 0 {
++		t.Fatal("expected no rows")
++	}
++	press(m, tea.KeyPressMsg{Code: tea.KeyBackspace}) // none before -> first
++	if m.sel != 0 || m.dests[m.shown[0]].Alias != "host-000" {
++		t.Fatalf("sel=%d", m.sel)
++	}
++}
++
++// ulCells returns, for each line of the rendered output, the text that sits
++// under the underline attribute (SGR 4 on, 24 off, 0 reset).
++func ulText(out string) []string {
++	var res []string
++	for _, line := range strings.Split(out, "\n") {
++		var sb strings.Builder
++		ul := false
++		for i := 0; i < len(line); {
++			if line[i] == 0x1b && i+1 < len(line) && line[i+1] == '[' {
++				j := i + 2
++				for j < len(line) && (line[j] < 0x40 || line[j] > 0x7e) {
++					j++
++				}
++				if j < len(line) && line[j] == 'm' {
++					for _, p := range strings.Split(line[i+2:j], ";") {
++						switch p {
++						case "4":
++							ul = true
++						case "24":
++							ul = false
++						case "0", "":
++							ul = false
++						}
++					}
++				}
++				i = j + 1
++				continue
++			}
++			if ul {
++				sb.WriteByte(line[i])
++			}
++			i++
++		}
++		res = append(res, sb.String())
++	}
++	return res
++}
++
++func TestHighlight(t *testing.T) {
++	ds := []profile.Destination{
++		{Alias: "Web-Prod", Host: "web1.example.invalid", Account: "web", Port: 22},
++		{Alias: "db", Host: "WEB9.example.invalid", Account: "web", Port: 22},
++		{Alias: "vps-東京", Host: "vps1.example.invalid", Account: "deploy", Port: 2222},
++	}
++	m := New(ds, true) // NO_COLOR: underline must still show
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
++	if got := ulText(m.Render()); strings.Join(got, "") != "" {
++		t.Fatalf("empty filter underlined %q", got)
++	}
++	press(m, txt("/"), txt("w"), txt("E"), txt("b"))
++	out := m.Render()
++	if strings.Contains(out, "\x1b[3") || strings.Contains(out, "\x1b[1;") {
++		t.Fatalf("colour SGR with NO_COLOR: %q", out)
++	}
++	got := ulText(out)
++	if got[0] != "Webweb" || got[1] != "WEB" || got[2] != "" {
++		t.Fatalf("underlined: %q", got)
++	}
++	// Narrow: host not shown, so the host-only match underlines nothing.
++	m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
++	got = ulText(m.Render())
++	if got[0] != "Web" || got[1] != "" {
++		t.Fatalf("narrow: %q", got)
++	}
++	// Also after Enter leaves filter mode; CJK filter; Esc clears.
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape}, txt("/"), txt("東"), tea.KeyPressMsg{Code: tea.KeyEnter})
++	if got = ulText(m.Render()); got[0] != "東" {
++		t.Fatalf("cjk: %q", got)
++	}
++	press(m, txt("/"), tea.KeyPressMsg{Code: tea.KeyEscape})
++	if got = ulText(m.Render()); strings.Join(got, "") != "" {
++		t.Fatalf("after esc: %q", got)
++	}
++	// Selected row with colour: bold cyan survives the underline end.
++	mc := New(ds, false)
++	press(mc, txt("/"), txt("e"))
++	if out := mc.Render(); !strings.Contains(out, sgrSelected) || strings.Contains(strings.SplitN(out, "\n", 2)[0], "\x1b[0m\x1b[24m") {
++		t.Fatalf("%q", out)
++	}
++}
++
++func TestHelpOverlay(t *testing.T) {
++	m := New(dests(5), true)
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	press(m, txt("/"), txt("?")) // ordinary filter text in filter mode
++	if m.help || m.filter != "?" {
++		t.Fatal("? in filter mode")
++	}
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape}, txt("j"), txt("j"), txt("?"))
++	if !m.help {
++		t.Fatal("help not open")
++	}
++	before := m.sel
++	lines := strings.Split(m.Render(), "\n")
++	for i, want := range helpLines {
++		if strings.Join(strings.Fields(lines[i]), " ") != strings.Join(strings.Fields(want), " ") {
++			t.Fatalf("line %d: %q", i, lines[i])
++		}
++	}
++	press(m, txt("q"), txt("/"), txt("j"), tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyEnter})
++	if !m.help || m.filtering || m.sel != before || m.Outcome != Quit || m.filter != "" {
++		t.Fatal("keys not ignored")
++	}
++	// Esc closes without clearing an active filter.
++	m = New(dests(30), true)
++	press(m, txt("/"), txt("1"), tea.KeyPressMsg{Code: tea.KeyEnter}, tea.KeyPressMsg{Code: tea.KeyDown}, txt("?"), tea.KeyPressMsg{Code: tea.KeyEscape})
++	if m.help || m.filter != "1" || m.sel != 1 {
++		t.Fatalf("esc: help=%v filter=%q sel=%d", m.help, m.filter, m.sel)
++	}
++	if out := m.Render(); strings.Contains(out, "close help") {
++		t.Fatal("help remains")
++	}
++	press(m, txt("?"), txt("?"))
++	if m.help {
++		t.Fatal("? closes")
++	}
++	// Ctrl-C cancels from the overlay.
++	press(m, txt("?"))
++	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
++	if m.Outcome != Cancelled || cmd == nil {
++		t.Fatal("ctrl-c in help")
++	}
++	// Tiny sizes never crash.
++	m = New(dests(30), false)
++	press(m, txt("?"))
++	for _, sz := range [][2]int{{20, 5}, {1, 1}, {0, 0}, {80, 24}} {
++		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
++		_ = m.Render()
+ 	}
+ }

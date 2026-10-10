@@ -1,0 +1,154 @@
+{
+ "pc_t1-run-darwin.json": {
+  "case_id": "G02-r4-pc-t1-run-darwin",
+  "status": "in_progress",
+  "verdict": "inconclusive",
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 213.5
+  },
+  "started_at": "2026-10-06T02:20:25-04:00",
+  "artifact_digest": "sha256:aee2ed853788f89769108da680e70bbff35a835026fd5d4c2e17995b6029cac1",
+  "not_passed": [],
+  "platform": "darwin-arm64",
+  "container_image": null
+ },
+ "pc_t1-run-linux.json": {
+  "case_id": "G02-r4-pc-t1-run-linux",
+  "status": "in_progress",
+  "verdict": "inconclusive",
+  "summary": {
+   "pass": 31,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 31,
+   "duration_s": 209.4
+  },
+  "started_at": "2026-10-06T06:25:00+00:00",
+  "artifact_digest": "sha256:aee2ed853788f89769108da680e70bbff35a835026fd5d4c2e17995b6029cac1",
+  "not_passed": [],
+  "platform": "linux-arm64",
+  "container_image": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92"
+ },
+ "pc_t3-tui-darwin.json": {
+  "case_id": "G02-r4-pc-t3-tui-darwin",
+  "status": "in_progress",
+  "verdict": "fail",
+  "summary": {
+   "pass": 24,
+   "fail": 3,
+   "error": 0,
+   "skipped": 0,
+   "total": 27,
+   "duration_s": 43.9
+  },
+  "started_at": "2026-10-06T02:49:57-04:00",
+  "artifact_digest": "sha256:5876e438c0c541ba752405b136314c409af3f33437a56ae5494b416f359df48e",
+  "not_passed": [
+   "tui.filter_edit_resets_selection",
+   "tui.no_color",
+   "tui.large_100_filter_latency"
+  ],
+  "platform": "darwin-arm64",
+  "container_image": null
+ },
+ "pc_t3-tui-linux.json": {
+  "case_id": "G02-r4-pc-t3-tui-linux",
+  "status": "in_progress",
+  "verdict": "fail",
+  "summary": {
+   "pass": 24,
+   "fail": 3,
+   "error": 0,
+   "skipped": 0,
+   "total": 27,
+   "duration_s": 43.4
+  },
+  "started_at": "2026-10-06T07:02:00+00:00",
+  "artifact_digest": "sha256:5876e438c0c541ba752405b136314c409af3f33437a56ae5494b416f359df48e",
+  "not_passed": [
+   "tui.filter_edit_resets_selection",
+   "tui.no_color",
+   "tui.large_100_filter_latency"
+  ],
+  "platform": "linux-arm64",
+  "container_image": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92"
+ },
+ "seeded-go-darwin.json": {
+  "case_id": "G02-r4-seeded-go-darwin",
+  "status": "verified",
+  "verdict": "pass",
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 261.8
+  },
+  "started_at": "2026-10-06T01:58:24-04:00",
+  "artifact_digest": "sha256:813ebd8a45caec5df89e4c872e08194a12d1374e2b7b2cf6dde9f703271b5126",
+  "not_passed": [],
+  "platform": "darwin-arm64",
+  "container_image": null
+ },
+ "seeded-go-linux.json": {
+  "case_id": "G02-r4-seeded-go-linux",
+  "status": "verified",
+  "verdict": "pass",
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 257.2
+  },
+  "started_at": "2026-10-06T05:58:27+00:00",
+  "artifact_digest": "sha256:f9aa4c3d67b7b920515833a7a53dee2f8b4d29d57c423cae6f31f6c9493d2653",
+  "not_passed": [],
+  "platform": "linux-arm64",
+  "container_image": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92"
+ },
+ "seeded-rust-darwin.json": {
+  "case_id": "G02-r4-seeded-rust-darwin",
+  "status": "verified",
+  "verdict": "pass",
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 267.7
+  },
+  "started_at": "2026-10-06T02:02:46-04:00",
+  "artifact_digest": "sha256:4fa59c1b1a4561608bae91266719b266fd172d7ff6d142c352b3446070c49874",
+  "not_passed": [],
+  "platform": "darwin-arm64",
+  "container_image": null
+ },
+ "seeded-rust-linux.json": {
+  "case_id": "G02-r4-seeded-rust-linux",
+  "status": "verified",
+  "verdict": "pass",
+  "summary": {
+   "pass": 139,
+   "fail": 0,
+   "error": 0,
+   "skipped": 0,
+   "total": 139,
+   "duration_s": 260.0
+  },
+  "started_at": "2026-10-06T06:02:45+00:00",
+  "artifact_digest": "sha256:2efb332b2d61af009172b4c42ddf4cb9fbb94ff9df31eb7dd4e384189ba1baf1",
+  "not_passed": [],
+  "platform": "linux-arm64",
+  "container_image": "sha256:5081bb560f9b42446f6c786c834ba07de6122d5e9bf6ce6354bdd57f9e5feb92"
+ }
+}

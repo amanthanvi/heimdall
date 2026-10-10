@@ -1,0 +1,12 @@
+{
+ "darwin-arm64": {
+  "path": "/tmp/x2ws-4369ff85/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+  "sha256": "1494e496db5d289bc9b95a37a5bd7194bc887f67c4fc08bbea0c6a40d4277219",
+  "bytes": 718128
+ },
+ "linux-arm64": {
+  "path": "/tmp/x2ws-4369ff85/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto",
+  "sha256": "9932ec08bf14ce34bed24dc0e4a63fcf27ef6de95e1d5c0f52519fff2e383fbf",
+  "bytes": 825856
+ }
+}

@@ -1,0 +1,20 @@
+{
+  "task_id": "M00-T05-r4-x2-review-T3-rust-opus2",
+  "cell": "T3-rust-opus2",
+  "reviewed": "implementer-out/diff.patch against TASK.md (T3) and prototypes/rust sources in the workspace copy",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/tests/pty_tui.py Screen.feed SGR branch", "description": "The SGR parser checks each ';'-separated parameter on its own, so the sub-parameters of extended colours (for example 38;5;4 or 48;2;r;g;4) would turn the underline flag on, and a trailing 0 would turn it off. Ratatui's current Cyan/BOLD output does not hit this, so the tests are correct today, but a palette change would cause false underline readings. 4:0 (underline off) is also read as on, and SGR 21 is not handled."},
+    {"severity": "minor", "location": "prototypes/rust/tools/__pycache__/inventory.cpython-314.pyc", "description": "A stray Python bytecode file is left in the prototype tree. It is a generated artifact that is not part of the change, and it is not ignored."},
+    {"severity": "minor", "location": "prototypes/rust/src/list_model.rs ListModel::refilter / scroll", "description": "The screen row kept by refilter comes from self.offset, which is updated only inside scroll() at render time. If several navigation keys and a filter edit arrive in one input batch (for example a paste), the row is computed from a stale offset. scroll() still restores visibility and a full window, so only the cosmetic 'same screen row' aim is lost. This coupling is undocumented."},
+    {"severity": "minor", "location": "prototypes/rust/src/list_model.rs refilter match expression", "description": "before.and_then(|(item,row)| Some((self.shown.binary_search(&item).ok()?, row))) is dense. It also depends on 'shown' being in ascending order, which holds only because 'shown' is built from 0..items.len(). There is a comment, but no debug_assert guards the invariant if filtering ever reorders."}
+  ],
+  "notes": [
+    "Part A: match_range lowercases the haystack with the same str::to_lowercase rule as the filter, which matches the pre-lowercased keys, and maps the hit back to whole source characters using per-character lowercase lengths. This is correct for ASCII and CJK and stays safe when lowercasing changes the length (İ). Final sigma has equal byte length, so it is safe too. Only the first occurrence is underlined. The alias and host are underlined independently. The host is underlined only at width >= 50, and the prefix, account, '@', ':' and port are never underlined. An empty needle gives None, and Esc clear empties the needle through refilter.",
+    "Part B: the help flag is checked before the filter/normal dispatch and after Ctrl-C, so the overlay ignores every key except '?' and Esc, Esc there does not touch the filter, and '?' in filter mode stays text. The overlay replaces the whole frame (Paragraph without wrap clips). The test-panic hook is disabled while help is open, which only affects a test feature.",
+    "Part C: the kept destination is found by binary search, the fallback is row 0, and an empty previous result falls back to row 0. scroll() clamps the window so it is full and contains the selection. The model writes ListState.offset explicitly, so Ratatui does not re-adjust it. This satisfies the K17 full-window predicate.",
+    "NO_COLOR: underline and bold are modifiers only, and the evaluator observed no colour SGR (hidden tests 17/17 on both platforms).",
+    "Tests: model unit tests and TestBackend cell-level render tests, plus pty cases for every part and K17 with the part-C predicate. The old K9 unit and pty tests were replaced as the task required.",
+    "This review was done by reading the code. I did not run any builds or tests. The evaluator's results were taken as given."
+  ]
+}

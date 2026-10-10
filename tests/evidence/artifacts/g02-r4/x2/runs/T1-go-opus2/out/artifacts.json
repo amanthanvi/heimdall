@@ -1,0 +1,20 @@
+{
+  "task_id": "T1-go-opus2",
+  "candidate": "go",
+  "build": "prototypes/go/build.sh (exit 0; all 4 targets built)",
+  "artifacts": [
+    {
+      "target": "darwin-arm64",
+      "path": "/tmp/x2ws-c8f87a99/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto",
+      "bytes": 5212000,
+      "sha256": "0faa680acce0ad4b97cc139238043026cbb9ff285c47a7573e8ddd620b94bbed"
+    },
+    {
+      "target": "linux-arm64",
+      "path": "/tmp/x2ws-c8f87a99/heimdall/prototypes/go/dist/linux-arm64/heimdall-proto",
+      "bytes": 5177504,
+      "sha256": "6e740de2a799749f57a4b3b328311013be9541c7906175348bda177cc8dfbb74"
+    }
+  ],
+  "manifest": "/tmp/x2ws-c8f87a99/heimdall/prototypes/go/dist/manifest.json"
+}

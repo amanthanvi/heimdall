@@ -1,0 +1,27 @@
+{
+  "cell": "T4-go-opus2",
+  "reviewer_task": "M00-T05-r4-x2-review-T4-go-opus2",
+  "reviewed": "implementer-out/diff.patch against TASK.md (T4) and prototypes/go surrounding code",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 5},
+  "verdict": "Correct, minimal root-cause fix (os.Lstat -> os.Stat in profile.Load); K14 safeguards intact (Stat regular check, O_NONBLOCK open, fstat + IsRegular + SameFile re-check). Both call sites (profile show, tui) go through Load. No defects of blocker or major severity.",
+  "probes_observed": {
+    "binary": "dist/darwin-arm64/heimdall-proto from the implementer workspace",
+    "results": [
+      "relative symlink to homelab.toml: exit 0 PROFILE_OK",
+      "symlink to FIFO: exit 2 USAGE_ERROR (no block, under a 5 s alarm)",
+      "symlink to /dev/tty: exit 2 USAGE_ERROR",
+      "dangling symlink: exit 2 USAGE_ERROR",
+      "symlink loop: exit 2 USAGE_ERROR"
+    ]
+  },
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/internal/profile/symlink_test.go TestLoadRetargetedSymlinkDoesNotBlock", "description": "Re-implements the Stat/open/fstat sequence instead of exercising Load's own re-check; the final Load(link) call is rejected by the up-front Stat, so removing the fstat/SameFile re-check from Load would not turn any test red. Also calls t.Errorf from a goroutine that can outlive the test after the 2 s t.Fatal timeout (would panic 'Log in goroutine after Test has completed')."},
+    {"severity": "minor", "location": "prototypes/go/internal/profile/k14_test.go links map", "description": "'symlink to symlink to fifo' targets filepath.Join(dir, \"link-symlink to fifo\"), silently coupling to the 'link-'+name naming of another map entry; it works only because dangling links can be created in any map order. Fragile for future edits."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/symlink_test.go TestTUISymlink FIFO case", "description": "The 2 s bound is measured around runTUIFile, which includes pty setup and 10 ms polling, and the case does not assert the USAGE_ERROR message; adequate but loose."}
+  ],
+  "notes": [
+    "O_NOCTTY addition is harmless defence in depth on darwin/linux; not required by the bug.",
+    "REPORT.md K14 row now contains both the old Lstat-era sentence and the post-round note; readable but slightly layered.",
+    "Spec items not applicable here: T2 ASCII case folding (this is T4)."
+  ]
+}

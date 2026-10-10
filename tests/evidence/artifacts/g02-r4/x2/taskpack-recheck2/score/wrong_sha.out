@@ -1,0 +1,40 @@
+{
+ "task": "T2",
+ "lang": "go",
+ "record_lang": "go",
+ "platform": "darwin",
+ "result_binary_sha256": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+ "baseline_subject": "base-go",
+ "baseline_binary_sha256": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+ "baseline_pinned": true,
+ "valid": false,
+ "problems": [
+  "result record is for another binary"
+ ],
+ "total": 12,
+ "pass": 1,
+ "all_pass": false,
+ "baseline_pass": 1,
+ "baseline_fail": 11,
+ "fixed": "0/11",
+ "fixed_checks": [],
+ "still_failing_checks": [
+  "T2.all_rules_exact",
+  "T2.ascii_fold_only",
+  "T2.clean_empty",
+  "T2.clean_homelab",
+  "T2.clean_near_miss",
+  "T2.flag_order",
+  "T2.invalid_same_as_show",
+  "T2.no_writes",
+  "T2.plain_exit_codes",
+  "T2.single_rules",
+  "T2.spaced_unicode_path"
+ ],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [],
+ "all_pass_excluding_unproven": false,
+ "fixed_excluding_unproven": "0/11"
+}

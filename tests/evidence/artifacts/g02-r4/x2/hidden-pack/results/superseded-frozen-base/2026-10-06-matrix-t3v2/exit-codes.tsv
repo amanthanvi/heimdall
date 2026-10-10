@@ -1,0 +1,7 @@
+platform	task	subject	expected	exit	started_utc
+darwin	T3	base-go	red	1	2026-10-06T06:54:31Z
+darwin	T3	base-rust	red	1	2026-10-06T06:56:12Z
+darwin	T3	pc	green	0	2026-10-06T06:57:51Z
+linux	T3	base-go	red	1	2026-10-06T06:58:11Z
+linux	T3	base-rust	red	1	2026-10-06T06:59:53Z
+linux	T3	pc	green	0	2026-10-06T07:01:32Z

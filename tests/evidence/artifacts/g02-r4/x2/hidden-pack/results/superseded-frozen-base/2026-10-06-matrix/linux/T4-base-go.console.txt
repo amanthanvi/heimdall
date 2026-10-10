@@ -1,0 +1,7 @@
+PASS  T4.repro_absolute_symlink (0.0s)
+PASS  T4.relative_and_chained (0.0s)
+PASS  T4.still_rejected_nonregular (0.0s)
+PASS  T4.symlink_bounds_and_errors (0.0s)
+PASS  T4.plain_mode_exit (0.0s)
+PASS  T4.tui_via_symlink (0.2s)
+SUMMARY T4 PASS platform=linux {"pass": 6, "fail": 0, "error": 0, "total": 6}

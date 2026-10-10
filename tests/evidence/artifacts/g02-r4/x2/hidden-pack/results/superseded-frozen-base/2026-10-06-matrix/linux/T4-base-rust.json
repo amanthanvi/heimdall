@@ -1,0 +1,275 @@
+{
+ "task": "T4",
+ "platform": "linux",
+ "started_at": "2026-10-06T06:48:22Z",
+ "finished_at": "2026-10-06T06:48:22Z",
+ "binary_sha256": "47160fdd0ee850db6fd4bbd5f5eea6b3359f5c4925b04c5c380f9fcde84d22c0",
+ "python": "3.13.16",
+ "verdict": "pass",
+ "summary": {
+  "pass": 6,
+  "fail": 0,
+  "error": 0,
+  "total": 6
+ },
+ "checks": [
+  {
+   "id": "T4.repro_absolute_symlink",
+   "title": "repro: profile show via an absolute symlink to a regular profile",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "[absolute symlink] exit code",
+     "ok": true,
+     "expected": "0",
+     "observed": "0"
+    },
+    {
+     "name": "[absolute symlink] code",
+     "ok": true,
+     "expected": "PROFILE_OK",
+     "observed": "PROFILE_OK"
+    },
+    {
+     "name": "[absolute symlink] stdout identical to the direct path's",
+     "ok": true,
+     "expected": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)",
+     "observed": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T4.relative_and_chained",
+   "title": "relative symlink, a chain of two links, spaces and non-ASCII names",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.01,
+   "assertions": [
+    {
+     "name": "[relative symlink] exit code",
+     "ok": true,
+     "expected": "0",
+     "observed": "0"
+    },
+    {
+     "name": "[relative symlink] code",
+     "ok": true,
+     "expected": "PROFILE_OK",
+     "observed": "PROFILE_OK"
+    },
+    {
+     "name": "[relative symlink] stdout identical to the direct path's",
+     "ok": true,
+     "expected": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)",
+     "observed": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)"
+    },
+    {
+     "name": "[chain of two symlinks] exit code",
+     "ok": true,
+     "expected": "0",
+     "observed": "0"
+    },
+    {
+     "name": "[chain of two symlinks] code",
+     "ok": true,
+     "expected": "PROFILE_OK",
+     "observed": "PROFILE_OK"
+    },
+    {
+     "name": "[chain of two symlinks] stdout identical to the direct path's",
+     "ok": true,
+     "expected": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)",
+     "observed": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)"
+    },
+    {
+     "name": "[symlinked parent directory] exit code",
+     "ok": true,
+     "expected": "0",
+     "observed": "0"
+    },
+    {
+     "name": "[symlinked parent directory] code",
+     "ok": true,
+     "expected": "PROFILE_OK",
+     "observed": "PROFILE_OK"
+    },
+    {
+     "name": "[symlinked parent directory] stdout identical to the direct path's",
+     "ok": true,
+     "expected": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)",
+     "observed": "\"b'{\\\"schema_version\\\":\\\"1\\\",\\\"state\\\":\\\"succeeded\\\",\\\"code\\\":\\\"PROFILE_OK\\\",\\\"data\\\":{\\\"profile\\\":{\\\"name\\\":\\\"homelab\\\",\\\"revision\\\":3,\\\"destinations\\\":[{\\\"id\\\":\\\"dst_lab_server\\\",\\\"alias\\\":\\\"lab-server\\\",\\\"host\\\":\\\"lab.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"aman\\\",\\\"labels\\\":[\\\"homelab\\\",\\\"fixed-auth\\\"]},{\\\"id\\\":\\\"dst_nas\\\",\\\"alias\\\":\\\"nas\\\",\\\"host\\\":\\\"nas.example.internal\\\",\\\"port\\\":22,\\\"account\\\":\\\"admin\\\",\\\"labels\\\":[\\\"homelab\\\"]},{\\\"id\\\":\\\"dst_vps_\\\\xc3\\\\xbcn\\\\xc3\\\\xafcode\\\",\\\"alias\\\":\\\"vps-\\\\xe6\\\\x9d\\\\xb1\\\\xe4\\\\xba\\\\xac\\\",\\\"host\\\":\\\"vps1.example.invalid\\\",\\\"port\\\":2222,\\\"account\\\"...(665 chars)"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T4.still_rejected_nonregular",
+   "title": "a symlink to a FIFO / directory / device, or a dangling symlink: USAGE_ERROR (exit 2) within 2 s, never blocks (K14)",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.01,
+   "assertions": [
+    {
+     "name": "[symlink to FIFO] returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[symlink to FIFO] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[symlink to FIFO] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[symlink to directory] returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[symlink to directory] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[symlink to directory] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[symlink to /dev/null] returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[symlink to /dev/null] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[symlink to /dev/null] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    },
+    {
+     "name": "[dangling symlink] returns within 2 s",
+     "ok": true,
+     "expected": "<= 2 s",
+     "observed": "0.00 s rc=2"
+    },
+    {
+     "name": "[dangling symlink] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[dangling symlink] code",
+     "ok": true,
+     "expected": "USAGE_ERROR",
+     "observed": "USAGE_ERROR"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T4.symlink_bounds_and_errors",
+   "title": "through a symlink: oversize -> INPUT_TOO_LARGE, invalid -> SCHEMA_INVALID with the same key path as the direct path",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.01,
+   "assertions": [
+    {
+     "name": "[oversize] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[oversize] code",
+     "ok": true,
+     "expected": "INPUT_TOO_LARGE",
+     "observed": "INPUT_TOO_LARGE"
+    },
+    {
+     "name": "[oversize] data.error.key_path equals the direct path's",
+     "ok": true,
+     "expected": "null",
+     "observed": "null"
+    },
+    {
+     "name": "[duplicate alias] exit code",
+     "ok": true,
+     "expected": "2",
+     "observed": "2"
+    },
+    {
+     "name": "[duplicate alias] code",
+     "ok": true,
+     "expected": "SCHEMA_INVALID",
+     "observed": "SCHEMA_INVALID"
+    },
+    {
+     "name": "[duplicate alias] data.error.key_path equals the direct path's",
+     "ok": true,
+     "expected": "destinations[1].alias",
+     "observed": "destinations[1].alias"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T4.plain_mode_exit",
+   "title": "without --json the symlinked profile also exits 0",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.0,
+   "assertions": [
+    {
+     "name": "exit code without --json",
+     "ok": true,
+     "expected": "0",
+     "observed": "0"
+    }
+   ],
+   "notes": []
+  },
+  {
+   "id": "T4.tui_via_symlink",
+   "title": "tui --file <symlink> shows the profile and q exits 0",
+   "status": "pass",
+   "error": null,
+   "seconds": 0.18,
+   "assertions": [
+    {
+     "name": "list with 3/3 shown within 10 s",
+     "ok": true,
+     "expected": "3 aliases and 3/3",
+     "observed": "screen='> lab-server  aman@lab.example.internal:22\\n  nas  admin@nas.example.internal:22\\n  vps-東京  deploy@vps1.example.invalid:2222\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n3/3' rc=None"
+    },
+    {
+     "name": "q exits 0",
+     "ok": true,
+     "expected": "0",
+     "observed": "0"
+    }
+   ],
+   "notes": []
+  }
+ ]
+}

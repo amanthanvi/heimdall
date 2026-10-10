@@ -1,0 +1,911 @@
+diff --git a/prototypes/go/REPORT.md b/prototypes/go/REPORT.md
+index fe8f37f..59322d6 100644
+--- a/prototypes/go/REPORT.md
++++ b/prototypes/go/REPORT.md
+@@ -643,3 +643,15 @@ Full row table (`windows-run/ROWS.md`; per-row observations in `windows-run/fix-
+ - **One host, one Windows build, non-elevated, pseudoconsoles only**, as in X1. The script changes from task M00-T05-x1b-script still have no independent review.
+ - The owner's cmd.exe AutoRun ran during the pre-fix test runs, as it did in the X1 baseline runs. It does not run after the fix, because cmd.exe is never started.
+ - **Cleanup:** both task scratch directories were removed. No heimdall-proto, argvdump or test-binary process, and no process with the task scratch in its command line, was left (counts 0/0/0).
++
++## X2 task T3 (2026-10-06): match highlight, help overlay, selection kept across filter edits
++
++Scope: `heimdall-proto tui` only, per the X2 task text (TASK.md). Part C replaces contract K9.
++
++- **Match highlight (A).** `internal/tui/tui.go` `matchSpan`/`highlight`: the first case-insensitive occurrence of the filter in the alias, and (at 50 columns or more) in the host, is wrapped in SGR 4 / SGR 24. The match uses the filter's own rule (`strings.ToLower`, rune for rune), so indexes are runes and `Sanitize` keeps them aligned. Nothing else in a row is underlined; an empty filter underlines nothing. Underline is an attribute, so it stays under `NO_COLOR` (the ASCII colour profile keeps attributes); `ansi.Truncate` keeps the SGR pair when a match is clipped.
++- **XTMODKEYS guard.** Bubble Tea writes `CSI > 4 ; 2 m` at start and `CSI > 4 m` at exit and cannot be told not to while it reads input. A terminal that ignores the `>` marker (pyte, the harness emulator) applies it as SGR 4, and the renderer never resets it, so the whole first frame looked underlined. `cmd/heimdall-proto/tui_output.go` `sgrSafeOutput` (the TUI's output writer) inserts `CSI m` after each such sequence. The renderer's pen is plain at those points, so this is a no-op on terminals that know XTMODKEYS. `runTUI` now takes the output terminal as a parameter.
++- **Help overlay (B).** `?` outside filter mode opens it (in filter mode `?` is filter text). It replaces the list rows with the nine help lines; the status line stays. `?` or `Esc` closes it (Esc does not clear the filter); `Ctrl-C` cancels (130); every other key is ignored. Clipped at small sizes.
++- **Selection (C).** `refilter` keeps the previously selected destination when it is still shown, else selects the first shown row. The existing scroll rule (selected row pinned to the bottom once past the first window) keeps it visible with a full window.
++- **Tests:** `TestSelectionKeptAcrossFilterEdits` (replaces `TestK9SelectionAfterFilterEdit`), `TestSelectionKeptFarDown`, `TestMatchHighlight`, `TestMatchHighlightTruncated`, `TestMatchSpan`, `TestHelpOverlay`, `TestHelpOverlayTinyAndResize` (cells parsed with ultraviolet, the cell model Bubble Tea draws from), `TestResetAfterXTMODKEYS`, `TestSGRSafeOutputWrite`, and the pty test `TestTUIUnderlineInPTY`. Red checks: with K9's reset restored three tui tests fail; without the guard the pty test fails.
++- **Harness 2.4.2:** 136/139 on darwin-arm64 and on linux-arm64. The three failures are the ones the task names as encoding K9 (`tui.filter_edit_resets_selection`, `tui.no_color` last step, `tui.large_100_filter_latency` update predicate); `tui.no_color`'s colour assertion passes. K17 measured separately with the part C predicate: 30/30 edits, p95 22.8 ms (darwin) and 23.2 ms (linux-arm64).
++- **Known gaps:** with `TERM` unset or `dumb` the colour profile is NoTTY and underline is dropped along with all styling (pre-existing behaviour for colour). The guard matches sequences within one `Write` call only; Bubble Tea writes each frame with one call. No help hint is shown in the status line (not requested; keeps the harness's status parsing unchanged).
+diff --git a/prototypes/go/cmd/heimdall-proto/k16_test.go b/prototypes/go/cmd/heimdall-proto/k16_test.go
+index f14087b..afcc1a5 100644
+--- a/prototypes/go/cmd/heimdall-proto/k16_test.go
++++ b/prototypes/go/cmd/heimdall-proto/k16_test.go
+@@ -8,8 +8,6 @@ import (
+ 	"path/filepath"
+ 	"testing"
+ 	"time"
+-
+-	tea "charm.land/bubbletea/v2"
+ )
+ 
+ // K16 (slice-contract §9.1): apart from the `run` child, heimdall-proto never
+@@ -46,7 +44,7 @@ func TestK16TUINoHelperProcesses(t *testing.T) {
+ 	}()
+ 	var stdout, stderr bytes.Buffer
+ 	res := make(chan int, 1)
+-	go func() { res <- runTUI(m, m, r.slave, &stdout, &stderr, tea.WithOutput(r.slave)) }()
++	go func() { res <- runTUI(m, m, r.slave, r.slave, &stdout, &stderr) }()
+ 	select {
+ 	case code := <-res:
+ 		if code != 0 {
+diff --git a/prototypes/go/cmd/heimdall-proto/main.go b/prototypes/go/cmd/heimdall-proto/main.go
+index d6b785e..17c8c13 100644
+--- a/prototypes/go/cmd/heimdall-proto/main.go
++++ b/prototypes/go/cmd/heimdall-proto/main.go
+@@ -300,7 +300,7 @@ func cmdTUI(args []string, stdout, stderr io.Writer) (code int) {
+ 	_ = os.Unsetenv("TEA_DEBUG")
+ 
+ 	m := tui.New(p.Destinations, os.Getenv("NO_COLOR") != "")
+-	return runTUI(m, m, os.Stdin, stdout, stderr)
++	return runTUI(m, m, os.Stdin, os.Stdout, stdout, stderr)
+ }
+ 
+ // hangupInput reports EOF/EIO on the terminal input (the terminal went away)
+@@ -323,10 +323,12 @@ func (h hangupInput) Read(p []byte) (int, error) {
+ 
+ // runTUI runs the picker and maps every exit path to the contract status
+ // (§5, K10). model is normally m itself; tests substitute a wrapper (for
+-// example one that panics), pass a pty as in, and add output options.
++// example one that panics), pass a pty as in and out, and add options.
++// out is the terminal Bubble Tea draws on (wrapped in sgrSafeOutput); stdout
++// receives only the SELECTED line, after Bubble Tea has restored the terminal.
+ // Bubble Tea restores the alternate screen, cursor and termios on every
+ // return path of Run, including a recovered panic.
+-func runTUI(model tea.Model, m *tui.Model, in *os.File, stdout, stderr io.Writer, opts ...tea.ProgramOption) int {
++func runTUI(model tea.Model, m *tui.Model, in, out *os.File, stdout, stderr io.Writer, opts ...tea.ProgramOption) int {
+ 	var hungUp atomic.Bool
+ 	var prog *tea.Program
+ 	input := hangupInput{File: in, onHangup: func() {
+@@ -334,7 +336,7 @@ func runTUI(model tea.Model, m *tui.Model, in *os.File, stdout, stderr io.Writer
+ 			go prog.Send(tui.HangupMsg{})
+ 		}
+ 	}}
+-	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithInput(input),
++	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithInput(input), tea.WithOutput(sgrSafeOutput{out}),
+ 		tea.WithColorProfile(colorProfileFromEnv(os.Environ()))}
+ 	tuiBeforeRun()
+ 	prog = tea.NewProgram(model, append(base, opts...)...)
+diff --git a/prototypes/go/cmd/heimdall-proto/tui_k10_test.go b/prototypes/go/cmd/heimdall-proto/tui_k10_test.go
+index 432d9df..528d996 100644
+--- a/prototypes/go/cmd/heimdall-proto/tui_k10_test.go
++++ b/prototypes/go/cmd/heimdall-proto/tui_k10_test.go
+@@ -76,8 +76,7 @@ func newModel() *tui.Model {
+ }
+ 
+ func teaOpts(r *ptyRun) []tea.ProgramOption {
+-	return []tea.ProgramOption{tea.WithOutput(r.slave),
+-		tea.WithEnvironment([]string{"TERM=xterm-256color", "NO_COLOR=1"})}
++	return []tea.ProgramOption{tea.WithEnvironment([]string{"TERM=xterm-256color", "NO_COLOR=1"})}
+ }
+ 
+ // K10 (slice-contract §9): an internal panic restores the terminal (alt
+@@ -92,7 +91,7 @@ func TestK10PanicRestoresAndExits1(t *testing.T) {
+ 		_, _ = r.master.Write([]byte("!"))
+ 	}()
+ 	var stdout, stderr bytes.Buffer
+-	code := runTUI(panicky{m}, m, r.slave, &stdout, &stderr, teaOpts(r)...)
++	code := runTUI(panicky{m}, m, r.slave, r.slave, &stdout, &stderr, teaOpts(r)...)
+ 	time.Sleep(200 * time.Millisecond)
+ 	after, err := unix.IoctlGetTermios(int(r.slave.Fd()), ioctlGetTermios)
+ 	if err != nil {
+@@ -124,7 +123,7 @@ func TestK10SIGHUPRestoresAndExits129(t *testing.T) {
+ 		_ = unix.Kill(os.Getpid(), unix.SIGHUP) // caught by runTUI's handler
+ 	}()
+ 	var stdout, stderr bytes.Buffer
+-	code := runTUI(m, m, r.slave, &stdout, &stderr, teaOpts(r)...)
++	code := runTUI(m, m, r.slave, r.slave, &stdout, &stderr, teaOpts(r)...)
+ 	time.Sleep(200 * time.Millisecond)
+ 	after, err := unix.IoctlGetTermios(int(r.slave.Fd()), ioctlGetTermios)
+ 	if err != nil {
+@@ -153,7 +152,7 @@ func TestK10TerminalHangupNoSignalExits129(t *testing.T) {
+ 	}()
+ 	var stdout, stderr bytes.Buffer
+ 	res := make(chan int, 1)
+-	go func() { res <- runTUI(m, m, r.slave, &stdout, &stderr, teaOpts(r)...) }()
++	go func() { res <- runTUI(m, m, r.slave, r.slave, &stdout, &stderr, teaOpts(r)...) }()
+ 	select {
+ 	case code := <-res:
+ 		if code != 129 || stdout.Len() != 0 {
+diff --git a/prototypes/go/cmd/heimdall-proto/tui_output.go b/prototypes/go/cmd/heimdall-proto/tui_output.go
+new file mode 100644
+index 0000000..5ed9ac9
+--- /dev/null
++++ b/prototypes/go/cmd/heimdall-proto/tui_output.go
+@@ -0,0 +1,59 @@
++package main
++
++import (
++	"bytes"
++	"io"
++	"os"
++	"regexp"
++)
++
++// sgrSafeOutput is the TUI's terminal output. It follows every XTMODKEYS
++// sequence (CSI > Pp [; Pv] m) with an SGR reset (CSI m).
++//
++// Bubble Tea writes CSI > 4 ; 2 m (modifyOtherKeys) when it starts and
++// CSI > 4 m when it stops, and cannot be told not to while it reads keyboard
++// input. A terminal that does not know XTMODKEYS and ignores the '>' marker
++// (the pyte emulator is one) reads them as SGR 4, underline, and the renderer,
++// which believes the pen is still plain, never turns it off: every cell it
++// draws until its first styled run comes out underlined. Underline marks the
++// filter match (TASK part A), so a stray underline would be misleading. The
++// renderer's pen is plain at both points, so the reset is a no-op on
++// terminals that understand XTMODKEYS.
++//
++// The type deliberately does not embed *os.File: a promoted WriteString or
++// ReadFrom would let io.WriteString or io.Copy bypass Write. It keeps Fd, so
++// Bubble Tea still recognizes the terminal (term.File) for raw mode and size.
++// Bubble Tea writes each frame with a single Write call, so a sequence is never
++// split across calls; a split one would merely miss its reset.
++type sgrSafeOutput struct{ f *os.File }
++
++func (o sgrSafeOutput) Read(p []byte) (int, error) { return o.f.Read(p) }
++func (o sgrSafeOutput) Close() error               { return o.f.Close() }
++func (o sgrSafeOutput) Fd() uintptr                { return o.f.Fd() }
++
++func (o sgrSafeOutput) Write(p []byte) (int, error) {
++	q := resetAfterXTMODKEYS(p)
++	n, err := o.f.Write(q)
++	if n == len(q) {
++		return len(p), err
++	}
++	// Short write: report at most len(p) bytes, and always an error.
++	if n > len(p) {
++		n = len(p)
++	}
++	if err == nil {
++		err = io.ErrShortWrite
++	}
++	return n, err
++}
++
++var xtmodkeysRE = regexp.MustCompile("\x1b\\[>[0-9;]*m")
++
++// resetAfterXTMODKEYS returns p with CSI m inserted after every XTMODKEYS
++// sequence; p itself when it contains none.
++func resetAfterXTMODKEYS(p []byte) []byte {
++	if !bytes.Contains(p, []byte("\x1b[>")) {
++		return p
++	}
++	return xtmodkeysRE.ReplaceAll(p, []byte("${0}\x1b[m"))
++}
+diff --git a/prototypes/go/cmd/heimdall-proto/tui_output_test.go b/prototypes/go/cmd/heimdall-proto/tui_output_test.go
+new file mode 100644
+index 0000000..c08c9ce
+--- /dev/null
++++ b/prototypes/go/cmd/heimdall-proto/tui_output_test.go
+@@ -0,0 +1,48 @@
++package main
++
++import (
++	"bytes"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestResetAfterXTMODKEYS(t *testing.T) {
++	for _, c := range []struct{ in, want string }{
++		{"", ""},
++		{"plain \x1b[4mtext\x1b[m", "plain \x1b[4mtext\x1b[m"},
++		{"\x1b[>4m\x1b[?1049h\x1b[>4;2m\x1b[>1u", "\x1b[>4m\x1b[m\x1b[?1049h\x1b[>4;2m\x1b[m\x1b[>1u"},
++		{"\x1b[>1u\x1b[?u", "\x1b[>1u\x1b[?u"}, // kitty keyboard, not SGR-like
++		{"\x1b[>c", "\x1b[>c"},                 // DA2 request
++		{"x\x1b[>4;2mx\x1b[>4m", "x\x1b[>4;2m\x1b[mx\x1b[>4m\x1b[m"},
++	} {
++		if got := string(resetAfterXTMODKEYS([]byte(c.in))); got != c.want {
++			t.Errorf("resetAfterXTMODKEYS(%q) = %q, want %q", c.in, got, c.want)
++		}
++	}
++}
++
++// Write reports the caller's byte count, not the expanded one, and passes
++// other bytes through unchanged.
++func TestSGRSafeOutputWrite(t *testing.T) {
++	path := filepath.Join(t.TempDir(), "out")
++	f, err := os.Create(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	o := sgrSafeOutput{f}
++	in := []byte("a\x1b[>4;2mb\x00\xff")
++	if n, err := o.Write(in); n != len(in) || err != nil {
++		t.Fatalf("Write = %d, %v", n, err)
++	}
++	if o.Fd() != f.Fd() {
++		t.Fatal("Fd")
++	}
++	if err := o.Close(); err != nil {
++		t.Fatal(err)
++	}
++	got, _ := os.ReadFile(path)
++	if want := []byte("a\x1b[>4;2m\x1b[mb\x00\xff"); !bytes.Equal(got, want) {
++		t.Fatalf("%q", got)
++	}
++}
+diff --git a/prototypes/go/cmd/heimdall-proto/tui_underline_pty_test.go b/prototypes/go/cmd/heimdall-proto/tui_underline_pty_test.go
+new file mode 100644
+index 0000000..da22e07
+--- /dev/null
++++ b/prototypes/go/cmd/heimdall-proto/tui_underline_pty_test.go
+@@ -0,0 +1,64 @@
++//go:build darwin || linux
++
++package main
++
++import (
++	"bytes"
++	"regexp"
++	"testing"
++	"time"
++)
++
++// TASK part A through the real program in a pty: the match is drawn with SGR
++// 4 (no colour SGR with NO_COLOR), and every XTMODKEYS sequence Bubble Tea
++// writes is followed by an SGR reset (sgrSafeOutput), so a terminal that
++// misreads it as SGR 4 does not underline the whole first frame.
++func TestTUIUnderlineInPTY(t *testing.T) {
++	// runTUI takes the colour profile from the process environment. NO_COLOR
++	// gives the ASCII profile, which keeps text attributes such as underline.
++	t.Setenv("TERM", "xterm-256color")
++	t.Setenv("NO_COLOR", "1")
++	t.Setenv("COLORTERM", "")
++	r := startPTY(t)
++	defer r.master.Close()
++	defer r.slave.Close()
++	m := newModel() // one destination "lab", NO_COLOR
++	go func() {
++		for _, k := range []string{"/", "a", "\r", "q"} {
++			time.Sleep(250 * time.Millisecond)
++			_, _ = r.master.Write([]byte(k))
++		}
++	}()
++	var stdout, stderr bytes.Buffer
++	res := make(chan int, 1)
++	go func() { res <- runTUI(m, m, r.slave, r.slave, &stdout, &stderr, teaOpts(r)...) }()
++	select {
++	case code := <-res:
++		if code != 0 || stdout.Len() != 0 {
++			t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
++		}
++	case <-time.After(8 * time.Second):
++		t.Fatal("tui did not exit")
++	}
++	time.Sleep(100 * time.Millisecond)
++	out := r.output()
++	mods := regexp.MustCompile("\x1b\\[>[0-9;]*m").FindAllIndex(out, -1)
++	if len(mods) == 0 {
++		t.Fatalf("no XTMODKEYS sequence seen; output %q", out)
++	}
++	for _, loc := range mods {
++		if !bytes.HasPrefix(out[loc[1]:], []byte("\x1b[m")) {
++			t.Fatalf("XTMODKEYS %q at %d not followed by an SGR reset", out[loc[0]:loc[1]], loc[0])
++		}
++	}
++	if !bytes.Contains(out, []byte("\x1b[4ma\x1b[m")) {
++		t.Fatalf("match 'a' in 'lab' not underlined: %q", out)
++	}
++	for _, sgr := range regexp.MustCompile("\x1b\\[([0-9;:]*)m").FindAllSubmatch(out, -1) {
++		switch string(sgr[1]) {
++		case "", "0", "4", "24":
++		default:
++			t.Fatalf("NO_COLOR: unexpected SGR %q", sgr[0])
++		}
++	}
++}
+diff --git a/prototypes/go/internal/tui/tui.go b/prototypes/go/internal/tui/tui.go
+index 62549dc..de6d2c3 100644
+--- a/prototypes/go/internal/tui/tui.go
++++ b/prototypes/go/internal/tui/tui.go
+@@ -39,6 +39,7 @@ type Model struct {
+ 	sel       int
+ 	filter    string
+ 	filtering bool
++	help      bool // help overlay open
+ 	width     int
+ 	height    int
+ 	noColor   bool
+@@ -56,9 +57,24 @@ func New(dests []profile.Destination, noColor bool) *Model {
+ 
+ func (m *Model) Init() tea.Cmd { return nil }
+ 
++// refilter recomputes the shown rows after a filter edit (an appended
++// character, Backspace, or the Esc clear). The destination selected before the
++// edit stays selected when it is still shown; otherwise the first shown row is
++// selected (TASK part C, which replaces contract K9). Render scrolls the list so
++// that the selected row is visible.
+ func (m *Model) refilter() {
++	prev := -1
++	if m.sel >= 0 && m.sel < len(m.shown) {
++		prev = m.shown[m.sel]
++	}
+ 	m.shown = profile.Filter(m.dests, m.filter)
+ 	m.sel = 0
++	for i, d := range m.shown {
++		if d == prev {
++			m.sel = i
++			break
++		}
++	}
+ }
+ 
+ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+@@ -85,6 +101,14 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+ 		m.Outcome = Cancelled
+ 		return m, tea.Quit
+ 	}
++	if m.help {
++		// The overlay swallows every key except Ctrl-C (above), `?` and Esc,
++		// which close it. Esc does not clear the filter here.
++		if isHelpKey(k) || (k.Code == tea.KeyEscape && k.Mod == 0) {
++			m.help = false
++		}
++		return m, nil
++	}
+ 	switch k.Code {
+ 	case tea.KeyUp:
+ 		m.move(-1)
+@@ -128,6 +152,8 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+ 		m.move(1)
+ 	case k.Text == "/":
+ 		m.filtering = true
++	case isHelpKey(k):
++		m.help = true
+ 	case k.Text == "q":
+ 		m.Outcome = Quit
+ 		return m, tea.Quit
+@@ -135,6 +161,12 @@ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+ 	return m, nil
+ }
+ 
++// isHelpKey reports whether k is a plain `?` (Shift is how most layouts type
++// it, so it is allowed; Ctrl/Alt/Super combinations are not).
++func isHelpKey(k tea.KeyPressMsg) bool {
++	return k.Text == "?" && k.Mod&^tea.ModShift == 0
++}
++
+ func printable(s string) bool {
+ 	for _, r := range s {
+ 		if !unicode.IsPrint(r) {
+@@ -163,15 +195,97 @@ func Sanitize(s string) string {
+ }
+ 
+ const (
+-	sgrSelected = "\x1b[1;36m" // bold cyan; never the only selection cue
+-	sgrReset    = "\x1b[0m"
++	sgrSelected     = "\x1b[1;36m" // bold cyan; never the only selection cue
++	sgrReset        = "\x1b[0m"
++	sgrUnderline    = "\x1b[4m" // an attribute, not a colour: also used with NO_COLOR
++	sgrUnderlineOff = "\x1b[24m"
+ )
+ 
++// helpLines is the help overlay text (TASK part B), top to bottom.
++var helpLines = []string{
++	"Keys",
++	"Up / k      move up",
++	"Down / j    move down",
++	"/           filter",
++	"Enter       select",
++	"Esc         clear filter",
++	"q           quit",
++	"?           close help",
++	"Ctrl-C      cancel",
++}
++
++// matchSpan returns the rune range [start, end) of the first case-insensitive
++// occurrence of query in s, or ok=false. It applies the rule of
++// profile.Filter (strings.ToLower, which maps rune by rune), so a row is
++// highlighted exactly where the filter matched it. Indexes are runes, which
++// Sanitize preserves one for one.
++func matchSpan(s, query string) (start, end int, ok bool) {
++	if query == "" {
++		return 0, 0, false
++	}
++	hay := []rune(strings.ToLower(s))
++	needle := []rune(strings.ToLower(query))
++	for i := 0; i+len(needle) <= len(hay); i++ {
++		j := 0
++		for j < len(needle) && hay[i+j] == needle[j] {
++			j++
++		}
++		if j == len(needle) {
++			return i, i + len(needle), true
++		}
++	}
++	return 0, 0, false
++}
++
++// highlight returns Sanitize(s) with the first case-insensitive occurrence of
++// query wrapped in underline on/off SGR sequences (TASK part A).
++func highlight(s, query string) string {
++	clean := Sanitize(s)
++	start, end, ok := matchSpan(s, query)
++	if !ok {
++		return clean
++	}
++	r := []rune(clean)
++	if end > len(r) { // defensive: Sanitize maps rune for rune, so this never happens
++		return clean
++	}
++	return string(r[:start]) + sgrUnderline + string(r[start:end]) + sgrUnderlineOff + string(r[end:])
++}
++
+ // Render is the pure layout function (exported for tests).
+ func (m *Model) Render() string {
+ 	w, h := max(m.width, 1), max(m.height, 1)
+ 	rows := h - 1 // last line is the status line
+ 	var b strings.Builder
++	if m.help {
++		m.renderHelp(&b, w, rows)
++	} else {
++		m.renderList(&b, w, rows)
++	}
++	status := fmt.Sprintf("%d/%d", len(m.shown), len(m.dests))
++	if m.filtering {
++		status += " /" + Sanitize(m.filter)
++	} else if m.filter != "" {
++		status += " filter:" + Sanitize(m.filter)
++	}
++	b.WriteString(ansi.Truncate(status, w, ""))
++	return b.String()
++}
++
++// renderHelp draws the help overlay in place of the list rows, clipped to the
++// list area at small sizes.
++func (m *Model) renderHelp(b *strings.Builder, w, rows int) {
++	for i := 0; i < rows; i++ {
++		if i < len(helpLines) {
++			b.WriteString(ansi.Truncate(helpLines[i], w, ""))
++		}
++		b.WriteString("\n")
++	}
++}
++
++// renderList draws the destination rows. Scrolling keeps the selected row
++// visible, with a full window of rows whenever enough rows are shown.
++func (m *Model) renderList(b *strings.Builder, w, rows int) {
+ 	start := 0
+ 	if rows > 0 && m.sel >= rows {
+ 		start = m.sel - rows + 1
+@@ -180,14 +294,18 @@ func (m *Model) Render() string {
+ 		idx := start + i
+ 		if idx < len(m.shown) {
+ 			d := m.dests[m.shown[idx]]
+-			text := Sanitize(d.Alias)
++			// Only the alias and host can match the filter, so only they are
++			// highlighted; the prefix, account, separators and port never are.
++			text := highlight(d.Alias, m.filter)
+ 			if w >= 50 {
+-				text = fmt.Sprintf("%s  %s@%s:%d", Sanitize(d.Alias), Sanitize(d.Account), Sanitize(d.Host), d.Port)
++				text = fmt.Sprintf("%s  %s@%s:%d", text, Sanitize(d.Account), highlight(d.Host, m.filter), d.Port)
+ 			}
+ 			prefix := "  "
+ 			if idx == m.sel {
+ 				prefix = "> "
+ 			}
++			// ansi.Truncate counts display cells only and keeps the SGR
++			// sequences, so a clipped match never leaves underline on.
+ 			line := ansi.Truncate(prefix+text, w, "")
+ 			if idx == m.sel && !m.noColor {
+ 				line = sgrSelected + line + sgrReset
+@@ -196,14 +314,6 @@ func (m *Model) Render() string {
+ 		}
+ 		b.WriteString("\n")
+ 	}
+-	status := fmt.Sprintf("%d/%d", len(m.shown), len(m.dests))
+-	if m.filtering {
+-		status += " /" + Sanitize(m.filter)
+-	} else if m.filter != "" {
+-		status += " filter:" + Sanitize(m.filter)
+-	}
+-	b.WriteString(ansi.Truncate(status, w, ""))
+-	return b.String()
+ }
+ 
+ func (m *Model) View() tea.View {
+diff --git a/prototypes/go/internal/tui/tui_test.go b/prototypes/go/internal/tui/tui_test.go
+index a787a73..1f3e53d 100644
+--- a/prototypes/go/internal/tui/tui_test.go
++++ b/prototypes/go/internal/tui/tui_test.go
+@@ -2,10 +2,12 @@ package tui
+ 
+ import (
+ 	"fmt"
++	"regexp"
+ 	"strings"
+ 	"testing"
+ 
+ 	tea "charm.land/bubbletea/v2"
++	uv "github.com/charmbracelet/ultraviolet"
+ 	"github.com/charmbracelet/x/ansi"
+ 
+ 	"github.com/heimdall-g02/proto-go/internal/profile"
+@@ -116,36 +118,352 @@ func TestSanitize(t *testing.T) {
+ 	}
+ }
+ 
+-// K9 (slice-contract §9): each filter change (appended character, Backspace,
+-// Esc clear) resets the selection to the first shown row; leaving filter mode
+-// with Enter keeps the selection.
+-func TestK9SelectionAfterFilterEdit(t *testing.T) {
++// TASK part C (replaces contract K9): after a filter edit (an appended
++// character, Backspace, or the Esc clear) the previously selected destination
++// stays selected when it is still shown, otherwise the first shown row is
++// selected; leaving filter mode with Enter keeps the selection.
++func TestSelectionKeptAcrossFilterEdits(t *testing.T) {
+ 	m := New(dests(30), true) // aliases host-000..host-029, vps-東京
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+ 	down := tea.KeyPressMsg{Code: tea.KeyDown}
++	bs := tea.KeyPressMsg{Code: tea.KeyBackspace}
+ 	sel := func() string { return m.dests[m.shown[m.sel]].Alias }
++	marked := func() string {
++		for _, l := range strings.Split(ansi.Strip(m.Render()), "\n") {
++			if strings.HasPrefix(l, "> ") {
++				return strings.Fields(l)[1]
++			}
++		}
++		return ""
++	}
++	check := func(step, want string) {
++		t.Helper()
++		if sel() != want || marked() != want {
++			t.Fatalf("%s: selected %q, marked %q, want %q\n%s", step, sel(), marked(), want, m.Render())
++		}
++	}
++
++	press(m, txt("/"))
++	for i := 0; i < 12; i++ {
++		press(m, down)
++	}
++	check("12 x Down", "host-012")
++	press(m, txt("2")) // shown: host-002, host-012, host-020..029
++	check("append, still shown", "host-012")
++	if m.sel != 1 {
++		t.Fatalf("append: row index %d, want 1", m.sel)
++	}
++	press(m, txt("9")) // shown: host-029 only
++	check("append, no longer shown -> first shown row", "host-029")
++	press(m, bs) // back to "2": host-029 is still shown, now as row 11
++	check("Backspace, still shown", "host-029")
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // clear: all 31 shown
++	if m.filter != "" || m.filtering || len(m.shown) != 31 {
++		t.Fatalf("esc: %q %v %d", m.filter, m.filtering, len(m.shown))
++	}
++	check("Esc clear, still shown (scrolled into view)", "host-029")
++
++	// Backspace that removes the destination's only match.
++	press(m, txt("/"), txt("0"), txt("2"), txt("9")) // host-029 still shown throughout
++	check("typing 029", "host-029")
++	press(m, txt("x")) // nothing shown
++	if len(m.shown) != 0 || marked() != "" {
++		t.Fatalf("no rows expected: %d %q", len(m.shown), marked())
++	}
++	press(m, bs) // nothing was shown before the edit -> first shown row
++	check("Backspace from an empty result", "host-029")
++	press(m, txt("x"), txt("x"), bs) // still empty after the edit
++	if len(m.shown) != 0 {
++		t.Fatal(len(m.shown))
++	}
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // empty before -> first shown row
++	check("Esc clear from an empty result", "host-000")
++
++	// Selection that the edit removes moves to the first shown row, not to the
++	// same row index.
++	press(m, txt("/"), down, down, down)
++	check("Down x3", "host-003")
++	press(m, txt("1")) // shown: host-001, host-010..019, host-021
++	check("append removes host-003", "host-001")
+ 
+-	press(m, txt("/"), txt("h"), down, down)
+-	if sel() != "host-002" {
+-		t.Fatal(sel())
++	// Enter keeps both the filter and the selection; Enter again selects it.
++	press(m, down, down, tea.KeyPressMsg{Code: tea.KeyEnter})
++	if m.filtering || m.filter != "1" {
++		t.Fatalf("enter: %v %q", m.filtering, m.filter)
++	}
++	check("Enter leaves filter mode", "host-011")
++	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || m.Outcome != Selected || m.Alias != "host-011" {
++		t.Fatalf("selected %q", m.Alias)
++	}
++}
++
++// A destination far down the 100-destination list stays selected and visible
++// through filter edits, and the window stays full.
++func TestSelectionKeptFarDown(t *testing.T) {
++	m := New(dests(100), true)
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	for i := 0; i < 90; i++ {
++		press(m, tea.KeyPressMsg{Code: tea.KeyDown})
+ 	}
+-	press(m, txt("o")) // append
+-	if m.sel != 0 || sel() != "host-000" {
+-		t.Fatalf("append: %d %s", m.sel, sel())
++	press(m, txt("/"), txt("H"), txt("0")) // every host matches "h0"
++	if got := m.dests[m.shown[m.sel]].Alias; got != "host-090" {
++		t.Fatal(got)
+ 	}
+-	press(m, down, down, tea.KeyPressMsg{Code: tea.KeyBackspace})
+-	if m.sel != 0 || m.filter != "h" {
+-		t.Fatalf("backspace: %d %q", m.sel, m.filter)
++	lines := strings.Split(ansi.Strip(m.Render()), "\n")
++	if len(lines) != 24 || lines[22] != "> host-090  aman@h090.example.internal:22" {
++		t.Fatalf("want host-090 marked on the last list row:\n%s", strings.Join(lines, "\n"))
+ 	}
+-	press(m, down, down, down, tea.KeyPressMsg{Code: tea.KeyEscape})
+-	if m.sel != 0 || m.filter != "" || m.filtering {
+-		t.Fatalf("esc: %d", m.sel)
++	if !strings.HasPrefix(lines[0], "  host-068 ") { // full window of 23 consecutive rows
++		t.Fatal(lines[0])
+ 	}
+-	press(m, txt("/"), txt("1"), down, down, tea.KeyPressMsg{Code: tea.KeyEnter})
+-	if m.filtering || m.filter != "1" || m.sel != 2 {
+-		t.Fatalf("enter must keep selection: %d", m.sel)
++	press(m, tea.KeyPressMsg{Code: tea.KeyBackspace}, tea.KeyPressMsg{Code: tea.KeyBackspace})
++	if got := m.dests[m.shown[m.sel]].Alias; got != "host-090" || len(m.shown) != 101 {
++		t.Fatal(got, len(m.shown))
++	}
++}
++
++// underlines renders m and returns, per screen line, the plain text with every
++// underlined cell wrapped in [ ]. It parses the frame with ultraviolet, the
++// cell model Bubble Tea's renderer draws from.
++func underlines(m *Model) []string {
++	w, h := max(m.width, 1), max(m.height, 1)
++	scr := uv.NewScreenBuffer(w, h)
++	scr.Method = ansi.GraphemeWidth
++	uv.NewStyledString(m.Render()).Draw(scr, uv.Rect(0, 0, w, h))
++	var out []string
++	for y := 0; y < h; y++ {
++		line := scr.Line(y)
++		var b strings.Builder
++		on := false
++		for _, c := range line {
++			if c.Width == 0 { // right half of a wide character
++				continue
++			}
++			u := c.Style.Underline != uv.UnderlineNone
++			if u != on {
++				if u {
++					b.WriteString("[")
++				} else {
++					b.WriteString("]")
++				}
++				on = u
++			}
++			b.WriteString(c.Content)
++		}
++		if on {
++			b.WriteString("]")
++		}
++		out = append(out, strings.TrimRight(b.String(), " "))
++	}
++	return out
++}
++
++func highlightDests() []profile.Destination {
++	return []profile.Destination{
++		{Alias: "Lab-Server", Host: "lab.example.net", Account: "aman", Port: 22},
++		{Alias: "router", Host: "gw.example.org", Account: "admin", Port: 2222},
++		{Alias: "vps-東京", Host: "vps1.example.invalid", Account: "deploy", Port: 22},
++		{Alias: "abab", Host: "abab.lan", Account: "ab", Port: 22},
++	}
++}
++
++func TestMatchHighlight(t *testing.T) {
++	for _, noColor := range []bool{true, false} {
++		m := New(highlightDests(), noColor)
++		m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
++		step := func(name string, want ...string) {
++			t.Helper()
++			got := underlines(m)
++			for i, w := range want {
++				if got[i] != w {
++					t.Fatalf("noColor=%v %s: line %d\n got %q\nwant %q\n%s", noColor, name, i, got[i], w, strings.Join(got, "\n"))
++				}
++			}
++			for _, l := range got[len(want):] {
++				if strings.Contains(l, "[") {
++					t.Fatalf("noColor=%v %s: unexpected underline in %q", noColor, name, l)
++				}
++			}
++		}
++		step("empty filter",
++			"> Lab-Server  aman@lab.example.net:22", "  router  admin@gw.example.org:2222",
++			"  vps-東京  deploy@vps1.example.invalid:22", "  abab  ab@abab.lan:22")
++		press(m, txt("/"), txt("a"))
++		// first occurrence only, in alias and host; never the account, '@', ':' or port
++		step("single character",
++			"> L[a]b-Server  aman@l[a]b.example.net:22", "  router  admin@gw.ex[a]mple.org:2222",
++			"  vps-東京  deploy@vps1.ex[a]mple.invalid:22", "  [a]bab  ab@[a]bab.lan:22")
++		press(m, txt("B"))
++		step("multi-character, mixed case",
++			"> L[ab]-Server  aman@l[ab].example.net:22", "  [ab]ab  ab@[ab]ab.lan:22")
++		if got := underlines(m); got[7] != "2/4 /aB" {
++			t.Fatalf("status %q", got[7])
++		}
++		press(m, tea.KeyPressMsg{Code: tea.KeyEscape}, txt("/"), txt("E"), txt("X"), txt("a"), txt("m"))
++		step("host-only matches",
++			"> Lab-Server  aman@lab.[exam]ple.net:22", "  router  admin@gw.[exam]ple.org:2222",
++			"  vps-東京  deploy@vps1.[exam]ple.invalid:22")
++		press(m, tea.KeyPressMsg{Code: tea.KeyEscape}, txt("/"), txt("東"), txt("京"))
++		step("CJK", "> vps-[東京]  deploy@vps1.example.invalid:22")
++		press(m, tea.KeyPressMsg{Code: tea.KeyEnter})
++		step("after Enter (filter kept)", "> vps-[東京]  deploy@vps1.example.invalid:22")
++		if got := underlines(m); got[7] != "1/4 filter:東京" {
++			t.Fatalf("status %q", got[7])
++		}
++		m.Update(tea.WindowSizeMsg{Width: 40, Height: 8})
++		step("below 50 columns: alias only", "> vps-[東京]")
++		m.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
++		press(m, txt("/"), tea.KeyPressMsg{Code: tea.KeyEscape})
++		step("after Esc (selection kept, part C)",
++			"  Lab-Server  aman@lab.example.net:22", "  router  admin@gw.example.org:2222",
++			"> vps-東京  deploy@vps1.example.invalid:22", "  abab  ab@abab.lan:22")
++
++		out := m.Render()
++		press(m, txt("/"), txt("s"))
++		out += m.Render()
++		for _, sgr := range regexp.MustCompile(`\x1b\[([0-9;:]*)m`).FindAllStringSubmatch(out, -1) {
++			if noColor && sgr[1] != "4" && sgr[1] != "24" {
++				t.Fatalf("NO_COLOR: SGR %q is not an underline on/off", sgr[0])
++			}
++		}
++		if !strings.Contains(out, sgrUnderline) {
++			t.Fatalf("noColor=%v: underline missing", noColor)
++		}
++	}
++}
++
++// A match clipped away by truncation must not leave the underline on.
++func TestMatchHighlightTruncated(t *testing.T) {
++	ds := []profile.Destination{
++		{Alias: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaZZ", Host: "z.lan", Account: "a", Port: 22},
++		{Alias: "bZZb", Host: "b.lan", Account: "b", Port: 22},
+ 	}
+-	keep := sel()
+-	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || m.Alias != keep {
+-		t.Fatalf("selected %q want %q", m.Alias, keep)
++	m := New(ds, true)
++	m.Update(tea.WindowSizeMsg{Width: 20, Height: 5})
++	press(m, txt("/"), txt("z"), txt("z"))
++	got := underlines(m)
++	if got[0] != "> aaaaaaaaaaaaaaaaaa" || got[1] != "  b[ZZ]b" || got[4] != "2/2 /zz" {
++		t.Fatalf("%q", got)
++	}
++}
++
++func TestMatchSpan(t *testing.T) {
++	for _, c := range []struct {
++		s, q       string
++		start, end int
++		ok         bool
++	}{
++		{"Lab-Server", "SERV", 4, 8, true},
++		{"vps-東京", "京", 5, 6, true},
++		{"abab", "ab", 0, 2, true},
++		{"abc", "", 0, 0, false},
++		{"abc", "abcd", 0, 0, false},
++		{"abc", "x", 0, 0, false},
++	} {
++		start, end, ok := matchSpan(c.s, c.q)
++		if start != c.start || end != c.end || ok != c.ok {
++			t.Errorf("matchSpan(%q,%q) = %d,%d,%v", c.s, c.q, start, end, ok)
++		}
++		// Same rule as the filter.
++		if want := len(profile.Filter([]profile.Destination{{Alias: c.s}}, c.q)) == 1; c.q != "" && ok != want {
++			t.Errorf("matchSpan(%q,%q) disagrees with profile.Filter", c.s, c.q)
++		}
++	}
++}
++
++func helpShown(m *Model) bool {
++	text := ansi.Strip(m.Render())
++	return strings.Contains(text, "Ctrl-C      cancel")
++}
++
++func TestHelpOverlay(t *testing.T) {
++	m := New(dests(30), true)
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	press(m, tea.KeyPressMsg{Code: tea.KeyDown}, txt("/"), txt("1"), tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyEnter})
++	before := m.Render()
++	selBefore := m.dests[m.shown[m.sel]].Alias
++
++	press(m, txt("?"))
++	if !m.help {
++		t.Fatal("? did not open help")
++	}
++	lines := strings.Split(ansi.Strip(m.Render()), "\n")
++	var got []string
++	for _, l := range lines {
++		if f := strings.Join(strings.Fields(l), " "); f != "" {
++			got = append(got, f)
++		}
++	}
++	want := []string{"Keys", "Up / k move up", "Down / j move down", "/ filter", "Enter select",
++		"Esc clear filter", "q quit", "? close help", "Ctrl-C cancel"}
++	if len(got) < len(want) || strings.Join(got[:len(want)], "|") != strings.Join(want, "|") {
++		t.Fatalf("help lines:\n%s", strings.Join(got, "\n"))
++	}
++	if strings.Contains(m.Render(), "\x1b[4m") {
++		t.Fatal("help overlay must not underline")
++	}
++
++	// Every other key is ignored.
++	for _, k := range []tea.KeyPressMsg{
++		txt("q"), txt("j"), txt("k"), txt("/"), txt("x"), txt("1"),
++		{Code: tea.KeyEnter}, {Code: tea.KeyUp}, {Code: tea.KeyDown}, {Code: tea.KeyBackspace},
++		{Code: tea.KeyEscape, Mod: tea.ModAlt},
++	} {
++		if _, cmd := m.Update(k); cmd != nil || !m.help {
++			t.Fatalf("key %q not ignored", k.Keystroke())
++		}
++	}
++	if m.Outcome != Quit || m.filtering || m.filter != "1" {
++		t.Fatal("state changed while help was open")
++	}
++
++	// Esc closes the overlay without clearing the filter.
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
++	if m.help || helpShown(m) || m.filter != "1" || m.dests[m.shown[m.sel]].Alias != selBefore || m.Render() != before {
++		t.Fatalf("after Esc:\n%s", m.Render())
++	}
++
++	// ? closes it too; filter mode survives an open/close cycle.
++	press(m, txt("?"), txt("?"))
++	if m.help || m.Render() != before {
++		t.Fatal("? did not close help")
++	}
++
++	// In filter mode ? is filter text.
++	press(m, txt("/"), txt("?"))
++	if m.help || m.filter != "1?" || !m.filtering {
++		t.Fatalf("? in filter mode: help=%v filter=%q", m.help, m.filter)
++	}
++
++	// Ctrl-C cancels while the overlay is open.
++	m = New(dests(3), true)
++	press(m, txt("?"))
++	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); cmd == nil || m.Outcome != Cancelled {
++		t.Fatal("ctrl-c in help")
++	}
++}
++
++func TestHelpOverlayTinyAndResize(t *testing.T) {
++	m := New(dests(3), true)
++	press(m, txt("?"))
++	for _, sz := range [][2]int{{20, 5}, {1, 1}, {0, 0}, {3, 2}, {49, 10}, {120, 40}, {20, 5}} {
++		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
++		out := m.Render()
++		if sz == [2]int{20, 5} {
++			lines := strings.Split(out, "\n")
++			if len(lines) != 5 || lines[0] != "Keys" {
++				t.Fatalf("20x5: %q", lines)
++			}
++			for _, l := range lines {
++				if ansi.StringWidth(l) > 20 {
++					t.Fatalf("overflow %q", l)
++				}
++			}
++		}
++	}
++	press(m, txt("?"))
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	if helpShown(m) || strings.Contains(m.Render(), "Keys") || !strings.Contains(m.Render(), "> host-000") {
++		t.Fatal(m.Render())
+ 	}
+ }

@@ -1,0 +1,13 @@
+{"cell":"T4-rust-opus2","task":"T4","lang":"rust","run":"opus2",
+ "pin_check":"exit 0; T4 seeded-* exit 1, base-* exit 0, seeded-rust sha256_12 66187b16db99 (darwin) / 25af8e125d8a (linux) as pinned",
+ "base_tree_digest":"dd09515d9be70c8ded304ca45000e201c02601894fc049d94492a636ef17bd59 (matches BASE.json)",
+ "build":{"exit":0,"targets":{"darwin-arm64":true,"linux-x64":true,"linux-arm64":true,"windows-x64":true},
+  "sha256":{"darwin-arm64":"1494e496db5d289bc9b95a37a5bd7194bc887f67c4fc08bbea0c6a40d4277219","linux-arm64":"9932ec08bf14ce34bed24dc0e4a63fcf27ef6de95e1d5c0f52519fff2e383fbf"},
+  "equal_to_implementer_build":true,
+  "note":"tools/gen_notices.py failed in the evaluator copy (cargo metadata --locked --offline cannot find redox_syscall v0.5.18 in the offline registry cache); non-fatal for build.sh (exit 0), unrelated to the implementer's change (Cargo.toml/Cargo.lock identical to the seeded base)"},
+ "hidden":{"darwin":"6/6 exit 0","linux":"6/6 exit 0","reruns":"none needed (no failures)"},
+ "score":{"darwin":{"valid":true,"all_pass":true,"fixed":"5/5","regressed":0},"linux":{"valid":true,"all_pass":true,"fixed":"5/5","regressed":0}},
+ "harness_2_4_2":{"darwin":"139/139 exit 0","linux":"139/139 exit 0"},
+ "unit_tests":"cargo test --locked exit 0 (50 lib + 4 main + 29 cli passed, 0 failed)",
+ "transcript_audit":"not run (no session transcript path was provided to this evaluator)",
+ "diff":"4 files, +245/-22: src/profile.rs (read_bounded pre-check symlink_metadata -> metadata, O_NOCTTY added, opened-descriptor check kept), tests/cli.rs, tests/pty_tui.py, REPORT.md"}

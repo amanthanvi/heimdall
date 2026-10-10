@@ -1,0 +1,9 @@
+hidden.sh: task=T4 platform=darwin lang=go sha256=c2c7c3043380ccbb3a13fbd63d36d706cff65b47775eb625282cd65951d4ff64 started=2026-10-09T02:49:20Z
+PASS  T4.repro_absolute_symlink (0.0s)
+PASS  T4.relative_and_chained (0.0s)
+PASS  T4.still_rejected_nonregular (0.0s)
+PASS  T4.symlink_bounds_and_errors (0.0s)
+PASS  T4.plain_mode_exit (0.0s)
+PASS  T4.tui_via_symlink (0.2s)
+SUMMARY T4 PASS platform=darwin lang=go {"pass": 6, "fail": 0, "error": 0, "total": 6}
+hidden.sh: exit=0 finished=2026-10-09T02:49:20Z

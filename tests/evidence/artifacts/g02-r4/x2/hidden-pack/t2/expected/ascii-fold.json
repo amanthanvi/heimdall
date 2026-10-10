@@ -1,0 +1,6 @@
+{"schema_version": "1", "state": "succeeded", "code": "LINT_FINDINGS", "warnings": [], "next": null,
+ "data": {"findings": [
+  {"rule": "label-case-variant",
+   "key_paths": ["destinations[2].labels[0]", "destinations[2].labels[1]"],
+   "destination_ids": ["f_c"],
+   "message": "labels differ only in letter case"}]}}

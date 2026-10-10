@@ -1,0 +1,3 @@
+SUMMARY T4 PASS platform=darwin lang=rust {"pass": 6, "fail": 0, "error": 0, "total": 6}
+hidden.sh: exit=0 finished=2026-10-09T05:16:43Z
+hidden.sh: results in /private/tmp/x2ws-4369ff85/eval/hidden-darwin

@@ -1,0 +1,3 @@
+support_commit=f4ecabb tests/g02=unchanged
+linux_image=sha256:5081bb560f9b
+pack_sha256=6265957050fa4340

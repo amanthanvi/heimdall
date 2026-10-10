@@ -1,0 +1,83 @@
+{
+ "pinned_utc": "2026-10-06",
+ "base": {
+  "go": {
+   "commit": "84c7665",
+   "tree": "prototypes/go",
+   "note": "post-X1b: 38b6b72 + Windows .bat/.cmd refusal",
+   "tree_digest": "9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af"
+  },
+  "rust": {
+   "commit": "001a791",
+   "tree": "prototypes/rust",
+   "note": "post-X1b: d8f0cbe + Windows GetFileType checks",
+   "tree_digest": "58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13"
+  }
+ },
+ "seed": {
+  "go": {
+   "patch": "seed/go-84c7665.patch",
+   "tree": "seeded-trees/go",
+   "tree_digest": "88598ffc2c8fedb6447eb7c92599f277d0b42e9413faa549eef00bbcda6396aa",
+   "tree_note": "relative to the hidden dir; moved from /tmp/hm-r4/seeded on 2026-10-06 by the orchestrator (digest unchanged; re-checked 2026-10-06 by M00-T05-r4-taskpack-fix2)"
+  },
+  "rust": {
+   "patch": "seed/rust-001a791.patch",
+   "tree": "seeded-trees/rust",
+   "tree_digest": "dd09515d9be70c8ded304ca45000e201c02601894fc049d94492a636ef17bd59",
+   "tree_note": "relative to the hidden dir; moved from /tmp/hm-r4/seeded on 2026-10-06 by the orchestrator (digest unchanged; re-checked 2026-10-06 by M00-T05-r4-taskpack-fix2)"
+  }
+ },
+ "tree_digest_method": "cd TREE && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256",
+ "binaries": {
+  "base-go": {
+   "darwin": {
+    "path": "bin/base-go/darwin-arm64/heimdall-proto",
+    "sha256": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214"
+   },
+   "linux": {
+    "path": "bin/base-go/linux-arm64/heimdall-proto",
+    "sha256": "18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96"
+   }
+  },
+  "base-rust": {
+   "darwin": {
+    "path": "bin/base-rust/darwin-arm64/heimdall-proto",
+    "sha256": "f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18"
+   },
+   "linux": {
+    "path": "bin/base-rust/linux-arm64/heimdall-proto",
+    "sha256": "85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d"
+   }
+  },
+  "seeded-go": {
+   "darwin": {
+    "path": "bin/seeded-go/darwin-arm64/heimdall-proto",
+    "sha256": "7ccf5a2bfe299541ecffbd8f5949f509c30fbbe9b67fd3e8002234260d61d05a"
+   },
+   "linux": {
+    "path": "bin/seeded-go/linux-arm64/heimdall-proto",
+    "sha256": "3e118cb903f983886bdaa742caa3ebb6e9e0f3554e9fd66cc39f90cfd7af9943"
+   }
+  },
+  "seeded-rust": {
+   "darwin": {
+    "path": "bin/seeded-rust/darwin-arm64/heimdall-proto",
+    "sha256": "66187b16db9938919cb6a7562a67f8e9db40c42e9de19d2b816f56d3a95de530"
+   },
+   "linux": {
+    "path": "bin/seeded-rust/linux-arm64/heimdall-proto",
+    "sha256": "25af8e125d8ab1149ed7301a5ddf8bc45427eeb9ae4dc4ff9d4fe8e3a7859c00"
+   }
+  }
+ },
+ "support_commit": "f4ecabb",
+ "support_note": "docs/g02/slice-contract.md (incl. section 9.6), schemas/g02, tests/g02 (harness 2.4.2), fixtures and record schema for implementer workspaces (make-workspace.sh)",
+ "rebuild_check": "2026-10-06 (fix round, second pass): git archive of each base commit, and each base tree plus its seed patch (patch -p1), rebuilt with the tree's own build.sh (Rust with CARGO_ZIGBUILD = the repository's pinned cargo-zigbuild); all 8 darwin-arm64/linux-arm64 binaries equal the sha256 values below, the base ones also equal prototypes/{go,rust}/dist/manifest.json, and both regenerated seeded trees equal seed.*.tree_digest (diff -r rc 0).",
+ "linux_image": {
+  "tag": "d0c8e448a3a7",
+  "id_observed_2026_10_06": "sha256:5081bb560f9b",
+  "note": "tag = first 12 hex of sha256(Dockerfile + Dockerfile.dockerignore + requirements.txt) of tests/g02 at support_commit, as tests/g02/linux/run.sh derives it; docker-run.sh refuses another tag"
+ },
+ "scratch_dir": "../r4-scratch (relative to the hidden dir; pack-author, reviewer and evaluator scratch from fix round 2 on; /tmp/hm-r4 no longer exists)"
+}

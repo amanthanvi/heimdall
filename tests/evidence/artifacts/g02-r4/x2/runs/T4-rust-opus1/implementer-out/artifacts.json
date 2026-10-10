@@ -1,0 +1,15 @@
+{
+  "task_id": "T4-rust-opus1",
+  "built_with": "prototypes/rust/build.sh (rustc 1.99.0, cargo-zigbuild 0.23.4, zig 0.17.0); build.sh exit 0, all four targets built",
+  "artifacts": [
+    {"target": "darwin-arm64", "path": "/tmp/x2ws-7ba23d34/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+     "sha256": "513c1520d63dd9ac73df2a22013b9c0948df4b426ee396573e47fbd4781bd30f"},
+    {"target": "linux-arm64", "path": "/tmp/x2ws-7ba23d34/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto",
+     "sha256": "98ddf571fdf1f308ed2cfb2ac5b946e9f77dd5feb29e26c677bdc43a3fd43355"}
+  ],
+  "other_targets_built": {
+    "linux-x64": "a73867b468fb1694b91a5c61af2ed8fc2b9a69a0f36294f1ff0b1b3f3d385fce",
+    "windows-x64": "a3d88b9e288a8c4f7c7af4a0e30bbcc68b55afd5aac01b823e06ea0d67aeaa9d"
+  },
+  "manifest": "/tmp/x2ws-7ba23d34/heimdall/prototypes/rust/dist/manifest.json"
+}

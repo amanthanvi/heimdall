@@ -1,0 +1,51 @@
+diff -ruN a/internal/profile/k14_test.go b/internal/profile/k14_test.go
+--- a/internal/profile/k14_test.go	2026-10-06 02:30:11
++++ b/internal/profile/k14_test.go	2026-10-06 02:30:11
+@@ -53,16 +53,20 @@
+ 			t.Errorf("%s: Load still blocked after 2 s", name)
+ 		}
+ 	}
+-	// A symlink to a regular file is still accepted.
++	// A symlink is refused even when it points to a regular file: the
++	// regular-file check does not follow links (see Load).
+ 	reg := filepath.Join(dir, "ok.toml")
+ 	if err := os.WriteFile(reg, []byte("schema_version = 1\nname = \"x\"\nrevision = 1\n"), 0o600); err != nil {
+ 		t.Fatal(err)
+ 	}
++	if _, e := Load(reg); e != nil {
++		t.Fatalf("regular file: %+v", e)
++	}
+ 	rl := filepath.Join(dir, "ok-link.toml")
+ 	if err := os.Symlink(reg, rl); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if _, e := Load(rl); e != nil {
+-		t.Fatalf("symlink to regular file: %+v", e)
++	if _, e := Load(rl); e == nil || e.Code != result.UsageError {
++		t.Fatalf("symlink to regular file: got %+v, want USAGE_ERROR", e)
+ 	}
+ }
+diff -ruN a/internal/profile/profile.go b/internal/profile/profile.go
+--- a/internal/profile/profile.go	2026-10-06 02:30:11
++++ b/internal/profile/profile.go	2026-10-06 02:30:11
+@@ -64,13 +64,15 @@
+ 
+ // Load reads and validates a profile file. Files larger than MaxBytes are
+ // rejected before parsing; the read itself is bounded too (no trust in stat).
+-// Anything that is not a regular file (FIFO, socket, device, directory) is a
+-// usage error and is never read or waited on (K14): the path is checked
+-// before opening, opened without blocking, and the open descriptor is checked
+-// again so a swap between the two checks cannot make Load block.
++// Anything that is not a regular file (FIFO, socket, device, symlink,
++// directory) is a usage error and is never read or waited on (K14): the path
++// is checked before opening, opened without blocking, and the open descriptor
++// is checked again so a swap between the two checks cannot make Load block.
++// The first check uses Lstat: following a symlink here would let its target be
++// retargeted to a FIFO or device between the check and the open.
+ func Load(path string) (*Profile, *Error) {
+ 	notRegular := &Error{Code: result.UsageError, Message: "profile path is not a regular file"}
+-	st, err := os.Stat(path)
++	st, err := os.Lstat(path)
+ 	if err != nil {
+ 		return nil, &Error{Code: result.UsageError, Message: "profile file cannot be opened"}
+ 	}

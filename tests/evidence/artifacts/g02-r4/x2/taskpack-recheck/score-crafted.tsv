@@ -1,0 +1,17 @@
+case	exit	observed
+T4 go darwin: seeded Go built inside the workspace (sha 7ccf5a2b = pin), hidden.sh exit 1	0	valid, all_pass false, fixed 0/5, regressed 0
+T4 go darwin: pinned base-go record vs seeded-go baseline, --expect-sha256 base-go pin	0	valid, all_pass true, fixed 5/5
+same record scored with --lang rust	0	accepted: valid, fixed 5/5 (record carries no language; lang mislabel not detected)
+same record without --expect-sha256	0	accepted (binding is optional)
+crafted: one baseline-fail fixed, one baseline-pass broken	0	fixed 1/5, regressed 1, all_pass false
+crafted: one check status error	2	refused: error checks
+crafted: verdict invalid	2	refused
+crafted: platform linux scored as darwin	2	refused
+crafted: a baseline check missing	2	refused
+crafted: all pass	0	all_pass true, fixed 5/5
+crafted: all pass plus extra failing check	0	all_pass false, fixed 5/5
+crafted: binary_sha256 removed, with --expect-sha256	2	refused: another binary
+crafted: binary_sha256 removed, no --expect-sha256	0	accepted
+tampered baseline dir (binary_sha256 not the pin)	2	refused
+truncated JSON result	2	cannot read a record: JSONDecodeError
+crafted T1 go darwin: all pass except nested_shell_{bash,zsh}	0	fixed 6/8, all_pass false, all_pass_excluding_unproven true, fixed_excluding_unproven 6/6

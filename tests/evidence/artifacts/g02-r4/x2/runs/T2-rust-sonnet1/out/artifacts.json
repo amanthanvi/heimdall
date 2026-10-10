@@ -1,0 +1,15 @@
+{
+ "task_id": "T2-rust-sonnet1",
+ "artifacts": {
+  "darwin-arm64": {
+   "path": "/tmp/x2ws-3aee40ae/heimdall/prototypes/rust/dist/darwin-arm64/heimdall-proto",
+   "sha256": "3ae21efee251e0ff1bb7066888021545ecca6606d605439faead521be354af54",
+   "bytes": 734624
+  },
+  "linux-arm64": {
+   "path": "/tmp/x2ws-3aee40ae/heimdall/prototypes/rust/dist/linux-arm64/heimdall-proto",
+   "sha256": "27d940703ae87d4f1a2cbfd23465efb96b317f3518d2642724e7f81a550bbc5b",
+   "bytes": 842936
+  }
+ }
+}

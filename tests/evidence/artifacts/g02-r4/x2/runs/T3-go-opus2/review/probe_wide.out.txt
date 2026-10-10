@@ -1,0 +1,65 @@
+== start
+|> lab-server        |
+|  nas               |
+|  vps-東京          |
+|                    |
+|3/3                 |
+== after '?'
+|  Keys              |
+|  Up / k      move u|
+|  Down / j    move d|
+|  /           filter|
+|3/3                 |
+== after '?'
+|> lab-server        |
+|  nas               |
+|  vps-東京          |
+|                    |
+|3/3                 |
+== after '/'
+|> lab-server        |
+|  nas               |
+|  vps-東京          |
+|                    |
+|3/3 /               |
+== after 'l'
+|> lab-server        |
+|  ^                 |
+|  nas               |
+|  vps-東京          |
+|                    |
+|3/3 /l              |
+== after 'a'
+|> lab-server        |
+|  ^^                |
+|                    |
+|                    |
+|                    |
+|1/3 /la             |
+== after '\\x7f'
+|> lab-server        |
+|  ^                 |
+|  nas               |
+|  vps-東京          |
+|                    |
+|3/3 /l              |
+== after '\\x7f'
+|> lab-server        |
+|  nas               |
+|  vps-東京          |
+|                    |
+|3/3 /               |
+== after '東'
+|> vps-東京          |
+|      ^^            |
+|                    |
+|                    |
+|                    |
+|1/3 /東             |
+== after '\\x7f'
+|  lab-server        |
+|  nas               |
+|> vps-東京          |
+|                    |
+|3/3 /               |
+exit 130

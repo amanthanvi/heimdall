@@ -1,0 +1,9 @@
+== darwin-arm64 (aarch64-apple-darwin, native)
+   built in 6s
+== linux-x64 (x86_64-unknown-linux-musl, zig)
+   built in 6s
+== linux-arm64 (aarch64-unknown-linux-musl, zig)
+   built in 5s
+== windows-x64 (x86_64-pc-windows-gnu, zig)
+   built in 7s
+{"darwin-arm64": true, "linux-x64": true, "linux-arm64": true, "windows-x64": true}

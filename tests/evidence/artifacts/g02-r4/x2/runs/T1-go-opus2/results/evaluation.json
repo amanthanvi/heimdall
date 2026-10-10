@@ -1,0 +1,13 @@
+{
+ "cell": "T1-go-opus2", "task": "T1", "lang": "go", "evaluator_task": "M00-T05-r4-x2-eval-T1-go-opus2",
+ "base_commit": "84c7665", "base_tree_digest_checked": "9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af",
+ "sha256": {"darwin-arm64": "0faa680acce0ad4b97cc139238043026cbb9ff285c47a7573e8ddd620b94bbed", "linux-arm64": "6e740de2a799749f57a4b3b328311013be9541c7906175348bda177cc8dfbb74"},
+ "implementer_digests_equal_evaluator_rebuild": true,
+ "built_all_four_targets": true,
+ "hidden": {"darwin": {"pass": 14, "total": 14, "exit": 0, "fixed": "8/8", "regressed": 0}, "linux": {"pass": 14, "total": 14, "exit": 0, "fixed": "6/6", "regressed": 0}},
+ "harness_2_4_2": {"darwin": "139/139", "linux": "139/139"},
+ "unit_tests": "go test -count=1 ./... exit 0 (cmd/heimdall-proto 130 s)",
+ "diff_stats": {"files": 8, "insertions": 1004, "deletions": 34, "note": "diffstat of change.patch against the base tree, including 3 new test files and REPORT.md"},
+ "transcript_audit": "not performed by this evaluator task (no session transcript supplied)",
+ "commands": "see evaluator-commands.json templates in the hidden pack; no expanded command lines recorded here"
+}

@@ -1,0 +1,1019 @@
+diff --color -ruN -x target -x dist base/prototypes/go/REPORT.md frozen/go/REPORT.md
+--- base/prototypes/go/REPORT.md	2026-10-06 04:41:29
++++ frozen/go/REPORT.md	2026-10-06 13:15:16
+@@ -643,3 +643,14 @@
+ - **One host, one Windows build, non-elevated, pseudoconsoles only**, as in X1. The script changes from task M00-T05-x1b-script still have no independent review.
+ - The owner's cmd.exe AutoRun ran during the pre-fix test runs, as it did in the X1 baseline runs. It does not run after the fix, because cmd.exe is never started.
+ - **Cleanup:** both task scratch directories were removed. No heimdall-proto, argvdump or test-binary process, and no process with the task scratch in its command line, was left (counts 0/0/0).
++
++## X2 task T2: `profile lint` (2026-10-06)
++
++`heimdall-proto profile lint --file <path> [--json]` (TASK.md T2).
++
++- **Structure.** `internal/lint` is a pure function, `Lint(*profile.Profile) []Finding`, with no I/O. `cmd/heimdall-proto` `cmdProfileLint` reuses `profile.Load` and the `profile show` error path, so exit status, `state`, `code`, `data.error.key_path`, K2, K14, K15 and K18 behave exactly as for `show`. `internal/result` gains `LINT_CLEAN` (exit 0) and `LINT_FINDINGS` (exit 3). `schemas/` is unchanged, as the task requires.
++- **Rules.** The five rules use ASCII-only lowercasing (`asciiLower`), not `strings.ToLower`, because Unicode case mapping would merge, for example, the Kelvin sign with `k`. Groups keep first-appearance order, so the required finding order follows from a single pass in file order.
++- **Value non-echo.** The JSON carries only key paths, rule ids, the fixed messages and destination ids. Plain mode (K12, unspecified) prints rule, message and key paths, and leaves out the ids too.
++- **One stricter usage rule.** `--file` followed directly by one of lint's own flags (`--json`, `-json`, `--json=…`, `--file`…) is a missing value, so `profile lint --file --json` is a `USAGE_ERROR` with JSON. `profile show` (unchanged) takes `--json` as the path there. `--file=--json` still names a file called `--json`.
++- **K12 closed stdout.** `profile lint` is covered by `exitByResultOnBrokenPipe` like `show`: the status is 0, 3 or 2 in both modes (`TestK12ClosedStdoutExitParity` has three new cases).
++- **Tests.** `internal/lint/lint_test.go` (every rule, near misses, ordering, ASCII-only lowering), `cmd/heimdall-proto/lint_test.go` (exact JSON, both option orders, `--file=`, spaced and non-ASCII paths, equivalence with `show` on every `invalid-*` fixture plus oversize, missing, directory and duplicate-id inputs, usage errors, value non-echo, no writes) and `lint_fifo_test.go` (K14 FIFO, 2 s bound).
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/k12_closed_stdout_test.go frozen/go/cmd/heimdall-proto/k12_closed_stdout_test.go
+--- base/prototypes/go/cmd/heimdall-proto/k12_closed_stdout_test.go	2026-10-06 04:41:29
++++ frozen/go/cmd/heimdall-proto/k12_closed_stdout_test.go	2026-10-06 13:15:16
+@@ -65,6 +65,9 @@
+ 		{"profile-schema-invalid", []string{"profile", "show", "--file", filepath.Join(fix, "invalid-forbidden-key.toml")}, "exit 2"},
+ 		{"agent-unavailable", []string{"agent", "list", "--socket", filepath.Join(d, "none.sock")}, "exit 5"},
+ 		{"usage-unknown-flag", []string{"version", "--no-such-flag"}, "exit 2"},
++		{"profile-lint-clean", []string{"profile", "lint", "--file", filepath.Join(fix, "homelab.toml")}, "exit 0"},
++		{"profile-lint-findings", []string{"profile", "lint", "--file", lintFindingsFile(t, d)}, "exit 3"},
++		{"profile-lint-schema-invalid", []string{"profile", "lint", "--file", filepath.Join(fix, "invalid-forbidden-key.toml")}, "exit 2"},
+ 	}
+ 	for _, c := range cases {
+ 		plain := closedStdoutStatus(t, c.args...)
+@@ -77,4 +80,15 @@
+ 		}
+ 		t.Logf("[%s] plain=%s json=%s", c.label, plain, js)
+ 	}
++}
++
++// lintFindingsFile writes a schema-valid profile with one lint finding.
++func lintFindingsFile(t *testing.T, dir string) string {
++	t.Helper()
++	p := filepath.Join(dir, "findings.toml")
++	body := "schema_version = 1\nname = \"n\"\nrevision = 1\n[[destinations]]\nid = \"i\"\nalias = \"a\"\nhost = \"h\"\naccount = \"root\"\n"
++	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	return p
+ }
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/lint_fifo_test.go frozen/go/cmd/heimdall-proto/lint_fifo_test.go
+--- base/prototypes/go/cmd/heimdall-proto/lint_fifo_test.go	1969-12-31 19:00:00
++++ frozen/go/cmd/heimdall-proto/lint_fifo_test.go	2026-10-06 13:15:16
+@@ -0,0 +1,44 @@
++//go:build !windows
++
++package main
++
++import (
++	"path/filepath"
++	"syscall"
++	"testing"
++	"time"
++)
++
++// K14: a FIFO without a writer given to lint is USAGE_ERROR, exactly as for
++// show, and never blocks (bound: 2 s).
++func TestProfileLintFIFO(t *testing.T) {
++	fifo := filepath.Join(t.TempDir(), "fifo ü")
++	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	// Bound each call without calling t.Fatal off the test goroutine.
++	bounded := func(args ...string) (int, string) {
++		type r struct {
++			code int
++			out  string
++		}
++		ch := make(chan r, 1)
++		go func() { c, o, _ := call(args...); ch <- r{c, o} }()
++		select {
++		case x := <-ch:
++			return x.code, x.out
++		case <-time.After(2 * time.Second):
++			t.Fatalf("%v blocked on a FIFO", args)
++			return 0, ""
++		}
++	}
++	lc, lo := bounded("profile", "lint", "--file", fifo, "--json")
++	sc, so := bounded("profile", "show", "--file", fifo, "--json")
++	lv, sv := viewOf(t, lc, lo), viewOf(t, sc, so)
++	if lv != sv || lv.code != "USAGE_ERROR" || lv.exit != 2 {
++		t.Fatalf("fifo: lint %+v, show %+v", lv, sv)
++	}
++	if pc, _ := bounded("profile", "lint", "--file", fifo); pc != 2 {
++		t.Fatalf("fifo plain exit %d", pc)
++	}
++}
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/lint_test.go frozen/go/cmd/heimdall-proto/lint_test.go
+--- base/prototypes/go/cmd/heimdall-proto/lint_test.go	1969-12-31 19:00:00
++++ frozen/go/cmd/heimdall-proto/lint_test.go	2026-10-06 13:15:16
+@@ -0,0 +1,317 @@
++package main
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/heimdall-g02/proto-go/internal/testfix"
++)
++
++// lintProfile triggers every lint rule. Every profile value except the ids
++// is a distinct marker, so the non-echo test can look for each one.
++const lintProfile = `schema_version = 1
++name = "NAMEVALUEzq"
++revision = 7
++
++[meta]
++note = "METAVALUEzq"
++nested = { inner = "METANESTEDzq" }
++
++[[destinations]]
++id = "idA"
++alias = "ALIASAzq"
++host = "HOSTVALUEzq.example"
++port = 80
++account = "root"
++labels = ["LabelAzq", "labelazq", "DUPLBLzq", "DUPLBLzq"]
++
++[[destinations]]
++id = "idB"
++alias = "ALIASBzq"
++host = "hostvaluezq.EXAMPLE"
++port = 80
++account = "ACCOUNTBzq"
++labels = ["SHAREDzq"]
++
++[[destinations]]
++id = "idC"
++alias = "ALIASCzq"
++host = "OTHERHOSTzq"
++account = "ACCOUNTCzq"
++labels = ["SHAREDzq", "LABELAZQ"]
++`
++
++const lintWantJSON = `{"schema_version":"1","state":"succeeded","code":"LINT_FINDINGS","data":{"findings":[` +
++	`{"rule":"duplicate-endpoint","key_paths":["destinations[0].host","destinations[1].host"],"destination_ids":["idA","idB"],"message":"destinations share the same host and port"},` +
++	`{"rule":"privileged-port","key_paths":["destinations[0].port"],"destination_ids":["idA"],"message":"port below 1024 other than 22"},` +
++	`{"rule":"privileged-port","key_paths":["destinations[1].port"],"destination_ids":["idB"],"message":"port below 1024 other than 22"},` +
++	`{"rule":"root-account","key_paths":["destinations[0].account"],"destination_ids":["idA"],"message":"account is root"},` +
++	`{"rule":"duplicate-label","key_paths":["destinations[0].labels[2]","destinations[0].labels[3]"],"destination_ids":["idA"],"message":"label repeated within a destination"},` +
++	`{"rule":"label-case-variant","key_paths":["destinations[0].labels[0]","destinations[0].labels[1]","destinations[2].labels[1]"],"destination_ids":["idA","idC"],"message":"labels differ only in letter case"}` +
++	`]},"warnings":[],"next":null}` + "\n"
++
++// lintValues are the profile values that must never be printed.
++var lintValues = []string{"NAMEVALUEzq", "METAVALUEzq", "METANESTEDzq", "ALIASAzq", "ALIASBzq", "ALIASCzq",
++	"HOSTVALUEzq", "hostvaluezq", "OTHERHOSTzq", "ACCOUNTBzq", "ACCOUNTCzq",
++	"LabelAzq", "labelazq", "LABELAZQ", "DUPLBLzq", "SHAREDzq"}
++
++func writeProfile(t *testing.T, dir, name, body string) string {
++	t.Helper()
++	p := filepath.Join(dir, name)
++	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	return p
++}
++
++// sameJSON compares two JSON documents ignoring member order.
++func sameJSON(t *testing.T, got, want string) {
++	t.Helper()
++	var g, w any
++	if err := json.Unmarshal([]byte(got), &g); err != nil {
++		t.Fatalf("stdout is not JSON: %q", got)
++	}
++	_ = json.Unmarshal([]byte(want), &w)
++	if !reflect.DeepEqual(g, w) {
++		t.Fatalf("JSON mismatch\n got: %s\nwant: %s", got, want)
++	}
++}
++
++func TestProfileLintFindingsExact(t *testing.T) {
++	dir := t.TempDir()
++	f := writeProfile(t, dir, "lint profile ü 東京.toml", lintProfile)
++	for _, args := range [][]string{
++		{"profile", "lint", "--file", f, "--json"},
++		{"profile", "lint", "--json", "--file", f},
++		{"profile", "lint", "--file=" + f, "--json"},
++	} {
++		code, out, errS := call(args...)
++		if code != 3 {
++			t.Fatalf("%v: exit %d, want 3", args, code)
++		}
++		envelope(t, out)
++		sameJSON(t, out, lintWantJSON)
++		if errS != "" {
++			t.Fatalf("%v: unexpected stderr %q", args, errS)
++		}
++	}
++	// Without --json: same exit status, output unspecified (K12).
++	if code, _, _ := call("profile", "lint", "--file", f); code != 3 {
++		t.Fatalf("plain exit %d, want 3", code)
++	}
++}
++
++func TestProfileLintClean(t *testing.T) {
++	f := filepath.Join(testfix.Dir(t), "homelab.toml")
++	want := `{"schema_version":"1","state":"succeeded","code":"LINT_CLEAN","data":{"findings":[]},"warnings":[],"next":null}` + "\n"
++	for _, args := range [][]string{
++		{"profile", "lint", "--file", f, "--json"},
++		{"profile", "lint", "--json", "--file", f},
++	} {
++		code, out, _ := call(args...)
++		if code != 0 || out != want {
++			t.Fatalf("%v: exit %d, out %q", args, code, out)
++		}
++	}
++	if code, _, _ := call("profile", "lint", "--file", f); code != 0 {
++		t.Fatalf("plain exit %d", code)
++	}
++	// Path with spaces and non-ASCII characters (shared fixture).
++	sp := filepath.Join(testfix.Dir(t), "spaced dir ü", "prøfile homelab.toml")
++	if code, out, _ := call("profile", "lint", "--json", "--file", sp); code != 0 || out != want {
++		t.Fatalf("spaced path: exit %d, out %q", code, out)
++	}
++	// A profile without destinations is clean.
++	dir := t.TempDir()
++	e := writeProfile(t, dir, "empty.toml", "schema_version = 1\nname = \"n\"\nrevision = 1\n")
++	if code, out, _ := call("profile", "lint", "--file", e, "--json"); code != 0 || out != want {
++		t.Fatalf("empty: exit %d, out %q", code, out)
++	}
++}
++
++// Profile values never reach stdout or stderr, with or without --json. The
++// destination ids appear only inside destination_ids in JSON mode.
++func TestProfileLintNoValueEcho(t *testing.T) {
++	dir := t.TempDir()
++	f := writeProfile(t, dir, "p.toml", lintProfile)
++	for _, args := range [][]string{
++		{"profile", "lint", "--file", f, "--json"},
++		{"profile", "lint", "--file", f},
++	} {
++		_, out, errS := call(args...)
++		for _, v := range lintValues {
++			if strings.Contains(strings.ToLower(out+errS), strings.ToLower(v)) {
++				t.Fatalf("%v: value %q echoed", args, v)
++			}
++		}
++		if len(args) == 4 {
++			for _, id := range []string{"idA", "idB", "idC"} {
++				if strings.Contains(out+errS, id) {
++					t.Fatalf("plain mode echoed id %q", id)
++				}
++			}
++		}
++	}
++	// A schema-invalid value (K2 control character, K18) is not echoed either.
++	bad := writeProfile(t, dir, "bad.toml", "schema_version = 1\nname = \"n\"\nrevision = 1\n"+
++		"[[destinations]]\nid = \"i\"\nalias = \"a\"\nhost = \"BADVALUEzq\\u001b\"\naccount = \"u\"\n")
++	for _, j := range []bool{true, false} {
++		args := []string{"profile", "lint", "--file", bad}
++		if j {
++			args = append(args, "--json")
++		}
++		code, out, errS := call(args...)
++		if code != 2 || strings.Contains(out+errS, "BADVALUEzq") {
++			t.Fatalf("invalid value: exit %d out %q err %q", code, out, errS)
++		}
++	}
++}
++
++// errorView is what lint must share with show on an input show rejects.
++type errorView struct {
++	exit    int
++	state   any
++	code    any
++	keyPath any
++}
++
++func viewOf(t *testing.T, code int, out string) errorView {
++	t.Helper()
++	m := envelope(t, out)
++	d, _ := m["data"].(map[string]any)
++	e, _ := d["error"].(map[string]any)
++	if e == nil {
++		t.Fatalf("no data.error in %q", out)
++	}
++	return errorView{code, m["state"], m["code"], e["key_path"]}
++}
++
++// assertSameAsShow checks that lint fails exactly like show for path, with
++// and without --json.
++func assertSameAsShow(t *testing.T, path string) errorView {
++	t.Helper()
++	sc, so, _ := call("profile", "show", "--file", path, "--json")
++	lc, lo, _ := call("profile", "lint", "--file", path, "--json")
++	sv, lv := viewOf(t, sc, so), viewOf(t, lc, lo)
++	if sv != lv {
++		t.Fatalf("%s: show %+v, lint %+v", filepath.Base(path), sv, lv)
++	}
++	if sc == 0 {
++		t.Fatalf("%s: show succeeded", filepath.Base(path))
++	}
++	if pc, pout, _ := call("profile", "lint", "--file", path); pc != lc || pout != "" {
++		t.Fatalf("%s: plain exit %d stdout %q, json exit %d", filepath.Base(path), pc, pout, lc)
++	}
++	return lv
++}
++
++func TestProfileLintInputHandlingMatchesShow(t *testing.T) {
++	fx := testfix.Dir(t)
++	ents, err := os.ReadDir(fx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	n := 0
++	for _, e := range ents {
++		if strings.HasPrefix(e.Name(), "invalid-") {
++			v := assertSameAsShow(t, filepath.Join(fx, e.Name()))
++			if v.code != "SCHEMA_INVALID" {
++				t.Fatalf("%s: %+v", e.Name(), v)
++			}
++			n++
++		}
++	}
++	if n < 5 {
++		t.Fatalf("only %d invalid fixtures found", n)
++	}
++	dir := t.TempDir()
++	big := writeProfile(t, dir, "big ü.toml", strings.Repeat("#", 1<<20+1))
++	if v := assertSameAsShow(t, big); v.code != "INPUT_TOO_LARGE" {
++		t.Fatalf("oversize: %+v", v)
++	}
++	if v := assertSameAsShow(t, filepath.Join(dir, "missing ü.toml")); v.code != "USAGE_ERROR" {
++		t.Fatalf("missing: %+v", v)
++	}
++	if v := assertSameAsShow(t, dir); v.code != "USAGE_ERROR" {
++		t.Fatalf("directory: %+v", v)
++	}
++	// Schema-valid for show, but with duplicate ids: rejected identically.
++	dup := writeProfile(t, dir, "dup.toml", "schema_version = 1\nname = \"n\"\nrevision = 1\n"+
++		"[[destinations]]\nid = \"i\"\nalias = \"a\"\nhost = \"h\"\naccount = \"u\"\n"+
++		"[[destinations]]\nid = \"i\"\nalias = \"b\"\nhost = \"h\"\naccount = \"u\"\n")
++	if v := assertSameAsShow(t, dup); v.keyPath != "destinations[1].id" {
++		t.Fatalf("duplicate id: %+v", v)
++	}
++}
++
++func TestProfileLintCanaryNeverEmitted(t *testing.T) {
++	for _, f := range []string{"invalid-forbidden-key.toml", "invalid-unknown-dest-key.toml"} {
++		for _, extra := range [][]string{{"--json"}, nil} {
++			args := append([]string{"profile", "lint", "--file", filepath.Join(testfix.Dir(t), f)}, extra...)
++			code, out, errS := call(args...)
++			if code != 2 || strings.Contains(out+errS, "HEIMDALL_CANARY_") {
++				t.Fatal(f, code, out, errS)
++			}
++		}
++	}
++}
++
++func TestProfileLintUsageErrors(t *testing.T) {
++	f := filepath.Join(testfix.Dir(t), "homelab.toml")
++	for _, args := range [][]string{
++		{},                        // missing --file
++		{"--file"},                // flag without value
++		{"--file", "--json"},      // value missing: the next token is a flag
++		{"--json", "--file"},      // flag without value
++		{"--file", f, "--bogus"},  // unknown flag
++		{"--file", f, "extra"},    // stray positional argument
++		{"--file", "-json", "x"},  // value missing (single-dash flag form)
++		{"--file", "--json=true"}, // value missing (flag with explicit value)
++	} {
++		withJSON := append(append([]string{"profile", "lint"}, args...), "--json")
++		code, out, errS := call(withJSON...)
++		if code != 2 || envelope(t, out)["code"] != "USAGE_ERROR" || errS == "" {
++			t.Fatalf("%v: exit %d out %q", withJSON, code, out)
++		}
++		plain := append([]string{"profile", "lint"}, args...)
++		hasJ := false
++		for _, a := range plain {
++			hasJ = hasJ || strings.HasPrefix(a, "--json") || a == "-json"
++		}
++		code, out, errS = call(plain...)
++		if code != 2 || errS == "" {
++			t.Fatalf("%v: exit %d", plain, code)
++		}
++		if !hasJ && out != "" {
++			t.Fatalf("%v: plain usage error wrote stdout %q", plain, out)
++		}
++	}
++	// --file=<value> names the file explicitly, even one called "--json".
++	code, out, _ := call("profile", "lint", "--file=--json", "--json")
++	if code != 2 || viewOf(t, code, out).code != "USAGE_ERROR" {
++		t.Fatalf("--file=--json: exit %d out %q", code, out)
++	}
++	// Unknown profile subcommand.
++	if code, out, _ := call("profile", "lnt", "--json"); code != 2 || envelope(t, out)["code"] != "USAGE_ERROR" {
++		t.Fatal(code, out)
++	}
++}
++
++// lint writes nothing to disk: the profile's directory is unchanged.
++func TestProfileLintWritesNothing(t *testing.T) {
++	dir := t.TempDir()
++	f := writeProfile(t, dir, "p.toml", lintProfile)
++	before, _ := os.ReadDir(dir)
++	st0, _ := os.Stat(f)
++	call("profile", "lint", "--file", f, "--json")
++	call("profile", "lint", "--file", f)
++	after, _ := os.ReadDir(dir)
++	st1, _ := os.Stat(f)
++	if len(before) != len(after) || len(after) != 1 || !st0.ModTime().Equal(st1.ModTime()) || st0.Size() != st1.Size() {
++		t.Fatal("lint changed the profile directory")
++	}
++}
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/main.go frozen/go/cmd/heimdall-proto/main.go
+--- base/prototypes/go/cmd/heimdall-proto/main.go	2026-10-06 04:41:29
++++ frozen/go/cmd/heimdall-proto/main.go	2026-10-06 13:15:16
+@@ -13,6 +13,7 @@
+ 	"runtime"
+ 	"runtime/debug"
+ 	"strconv"
++	"strings"
+ 	"sync/atomic"
+ 	"syscall"
+ 	"time"
+@@ -22,6 +23,7 @@
+ 	"github.com/charmbracelet/x/term"
+ 
+ 	"github.com/heimdall-g02/proto-go/internal/agent"
++	"github.com/heimdall-g02/proto-go/internal/lint"
+ 	"github.com/heimdall-g02/proto-go/internal/profile"
+ 	"github.com/heimdall-g02/proto-go/internal/result"
+ 	"github.com/heimdall-g02/proto-go/internal/run"
+@@ -33,6 +35,7 @@
+ 	teaModule    = "charm.land/bubbletea/v2"
+ 	usageText    = `usage:
+   heimdall-proto profile show --file <path> [--json]
++  heimdall-proto profile lint --file <path> [--json]
+   heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]
+   heimdall-proto run [--meta-file <path>] -- <argv...>
+   heimdall-proto tui --file <path>
+@@ -83,8 +86,11 @@
+ 	}
+ 	switch args[0] {
+ 	case "profile":
++		if len(args) >= 2 && args[1] == "lint" {
++			return cmdProfileLint(args[2:], stdout, stderr)
++		}
+ 		if len(args) < 2 || args[1] != "show" {
+-			return usage(stdout, stderr, jsonOut, "expected 'profile show'")
++			return usage(stdout, stderr, jsonOut, "expected 'profile show' or 'profile lint'")
+ 		}
+ 		return cmdProfileShow(args[2:], stdout, stderr)
+ 	case "agent":
+@@ -150,6 +156,80 @@
+ 		fmt.Fprintf(stdout, "%s  %s@%s:%d\n", tui.Sanitize(d.Alias), tui.Sanitize(d.Account), tui.Sanitize(d.Host), d.Port)
+ 	}
+ 	return result.ExitOK
++}
++
++// cmdProfileLint implements `profile lint --file <path> [--json]` (TASK.md
++// T2). Input handling is profile show's: the same flag parsing, the same
++// profile.Load (K14 non-regular files, INPUT_TOO_LARGE, SCHEMA_INVALID, K2,
++// K15) and the same error result, so a profile that show rejects is rejected
++// here with the same exit status, code and key_path. One stricter usage rule:
++// a --file immediately followed by one of this command's own flags is a
++// missing value, not a path named "--json". On a schema-valid profile the
++// findings are reported by key path and destination id only; no other
++// profile value is written to stdout or stderr, with or without --json.
++// Nothing is written to disk.
++func cmdProfileLint(args []string, stdout, stderr io.Writer) int {
++	fs := newFlags("profile lint")
++	file := fs.String("file", "", "")
++	jsonOut := fs.Bool("json", false, "")
++	if fileValueIsFlag(args) {
++		return usage(stdout, stderr, hasJSON(args), "flag --file needs a value")
++	}
++	if err := parseFlags(fs, args); err != nil {
++		return usage(stdout, stderr, hasJSON(args), err.Error())
++	}
++	if *file == "" {
++		return usage(stdout, stderr, *jsonOut, "--file is required")
++	}
++	p, perr := profile.Load(*file)
++	if perr != nil {
++		fmt.Fprintf(stderr, "heimdall-proto: %s\n", perr.Error())
++		if *jsonOut {
++			_ = result.Write(stdout, result.Fail(perr.Code, perr.KeyPath, perr.Message, perr.Warnings...))
++		}
++		return result.ExitCode(perr.Code)
++	}
++	findings := lint.Lint(p)
++	code := result.LintClean
++	if len(findings) > 0 {
++		code = result.LintFindings
++	}
++	if *jsonOut {
++		_ = result.Write(stdout, result.OK(code, map[string]any{"findings": findings}))
++		return result.ExitCode(code)
++	}
++	// Plain output (K12: unspecified, not judged): rule, message and key
++	// paths only. Destination ids are left out too, so plain mode echoes no
++	// profile value at all.
++	for _, f := range findings {
++		fmt.Fprintf(stdout, "%s: %s: %s\n", f.Rule, f.Message, strings.Join(f.KeyPaths, ", "))
++	}
++	fmt.Fprintf(stdout, "%d finding(s)\n", len(findings))
++	return result.ExitCode(code)
++}
++
++// fileValueIsFlag reports a --file (or -file) whose next argument is one of
++// profile lint's own flags, for example `--file --json`: the value is
++// missing. The Go flag package would otherwise take "--json" as the path.
++// The explicit form --file=--json still names a file called "--json".
++func fileValueIsFlag(args []string) bool {
++	for k, a := range args {
++		if a == "--" {
++			return false
++		}
++		if (a == "--file" || a == "-file") && k+1 < len(args) {
++			next := args[k+1]
++			name := strings.TrimLeft(next, "-")
++			dashes := len(next) - len(name)
++			if eq := strings.IndexByte(name, '='); eq >= 0 {
++				name = name[:eq]
++			}
++			if (dashes == 1 || dashes == 2) && (name == "json" || name == "file") {
++				return true
++			}
++		}
++	}
++	return false
+ }
+ 
+ func cmdAgentList(args []string, stdout, stderr io.Writer) int {
+diff --color -ruN -x target -x dist base/prototypes/go/internal/lint/lint.go frozen/go/internal/lint/lint.go
+--- base/prototypes/go/internal/lint/lint.go	1969-12-31 19:00:00
++++ frozen/go/internal/lint/lint.go	2026-10-06 13:15:16
+@@ -0,0 +1,217 @@
++// Package lint reports findings about a schema-valid profile
++// (`heimdall-proto profile lint`, TASK.md T2). It is a pure function of an
++// already validated *profile.Profile: no I/O, no file writes.
++//
++// Findings name places by key path only. The only profile values a finding
++// carries are destination ids (DestinationIDs); host, account, labels, alias,
++// name and [meta] are never copied into a finding.
++package lint
++
++import (
++	"fmt"
++
++	"github.com/heimdall-g02/proto-go/internal/profile"
++)
++
++// Rule ids, in reporting order (rule numbers 1 to 5).
++const (
++	RuleDuplicateEndpoint = "duplicate-endpoint"
++	RulePrivilegedPort    = "privileged-port"
++	RuleRootAccount       = "root-account"
++	RuleDuplicateLabel    = "duplicate-label"
++	RuleLabelCaseVariant  = "label-case-variant"
++)
++
++// Exact finding messages.
++const (
++	MsgDuplicateEndpoint = "destinations share the same host and port"
++	MsgPrivilegedPort    = "port below 1024 other than 22"
++	MsgRootAccount       = "account is root"
++	MsgDuplicateLabel    = "label repeated within a destination"
++	MsgLabelCaseVariant  = "labels differ only in letter case"
++)
++
++// Finding is one lint result. All four members are always present; the
++// slices are never nil, so they encode as JSON arrays.
++type Finding struct {
++	Rule           string   `json:"rule"`
++	KeyPaths       []string `json:"key_paths"`
++	DestinationIDs []string `json:"destination_ids"`
++	Message        string   `json:"message"`
++}
++
++// loc is one key-path target: destination index i, and label index j for
++// label rules (-1 otherwise).
++type loc struct{ i, j int }
++
++// Lint returns the findings for p, ordered by rule number and, within a
++// rule, as TASK.md specifies. The result is never nil.
++func Lint(p *profile.Profile) []Finding {
++	ds := p.Destinations
++	out := []Finding{}
++	out = append(out, duplicateEndpoints(ds)...)
++	out = append(out, privilegedPorts(ds)...)
++	out = append(out, rootAccounts(ds)...)
++	out = append(out, duplicateLabels(ds)...)
++	out = append(out, labelCaseVariants(ds)...)
++	return out
++}
++
++// asciiLower maps A-Z to a-z and leaves every other byte unchanged. Every
++// byte of a multi-byte UTF-8 sequence is >= 0x80, so non-ASCII characters
++// (and invalid bytes) are never altered. strings.ToLower is not used: it
++// applies Unicode case mapping (for example to "Ä" or the Kelvin sign).
++func asciiLower(s string) string {
++	b := []byte(s)
++	for k, c := range b {
++		if 'A' <= c && c <= 'Z' {
++			b[k] = c + ('a' - 'A')
++		}
++	}
++	return string(b)
++}
++
++// effectivePort is port, or 22 when omitted. profile.Parse already stores 22
++// for an omitted port; the zero check keeps Lint correct for a Profile built
++// by other code.
++func effectivePort(d profile.Destination) int64 {
++	if d.Port == 0 {
++		return 22
++	}
++	return d.Port
++}
++
++func hostPath(i int) string     { return fmt.Sprintf("destinations[%d].host", i) }
++func portPath(i int) string     { return fmt.Sprintf("destinations[%d].port", i) }
++func accountPath(i int) string  { return fmt.Sprintf("destinations[%d].account", i) }
++func labelPath(i, j int) string { return fmt.Sprintf("destinations[%d].labels[%d]", i, j) }
++func single(i int) []loc        { return []loc{{i, -1}} }
++
++// finding builds a Finding from locations already in the required order.
++// destination_ids lists each named destination once, in first-appearance
++// order.
++func finding(ds []profile.Destination, rule, msg string, locs []loc, path func(loc) string) Finding {
++	f := Finding{Rule: rule, Message: msg, KeyPaths: make([]string, 0, len(locs)), DestinationIDs: []string{}}
++	seen := map[int]bool{}
++	for _, l := range locs {
++		f.KeyPaths = append(f.KeyPaths, path(l))
++		if !seen[l.i] {
++			seen[l.i] = true
++			f.DestinationIDs = append(f.DestinationIDs, ds[l.i].ID)
++		}
++	}
++	return f
++}
++
++// groupInOrder groups keys in order of first appearance. order lists the
++// distinct keys by first appearance; members maps each key to its items in
++// insertion order.
++type groupInOrder[K comparable, V any] struct {
++	order   []K
++	members map[K][]V
++}
++
++func newGroups[K comparable, V any]() *groupInOrder[K, V] {
++	return &groupInOrder[K, V]{members: map[K][]V{}}
++}
++
++func (g *groupInOrder[K, V]) add(k K, v V) {
++	if _, ok := g.members[k]; !ok {
++		g.order = append(g.order, k)
++	}
++	g.members[k] = append(g.members[k], v)
++}
++
++// Rule 1: same ASCII-lowercased host and same effective port. One finding per
++// group of two or more, ordered by the group's first member.
++func duplicateEndpoints(ds []profile.Destination) []Finding {
++	type endpoint struct {
++		host string
++		port int64
++	}
++	g := newGroups[endpoint, loc]()
++	for i, d := range ds {
++		g.add(endpoint{asciiLower(d.Host), effectivePort(d)}, loc{i, -1})
++	}
++	out := []Finding{}
++	for _, k := range g.order {
++		if m := g.members[k]; len(m) >= 2 {
++			out = append(out, finding(ds, RuleDuplicateEndpoint, MsgDuplicateEndpoint, m, func(l loc) string { return hostPath(l.i) }))
++		}
++	}
++	return out
++}
++
++// Rule 2: effective port below 1024 and not 22. An omitted port is 22, so a
++// finding always names an explicit port key.
++func privilegedPorts(ds []profile.Destination) []Finding {
++	out := []Finding{}
++	for i, d := range ds {
++		if p := effectivePort(d); p < 1024 && p != 22 {
++			out = append(out, finding(ds, RulePrivilegedPort, MsgPrivilegedPort, single(i), func(l loc) string { return portPath(l.i) }))
++		}
++	}
++	return out
++}
++
++// Rule 3: account exactly "root" (case-sensitive).
++func rootAccounts(ds []profile.Destination) []Finding {
++	out := []Finding{}
++	for i, d := range ds {
++		if d.Account == "root" {
++			out = append(out, finding(ds, RuleRootAccount, MsgRootAccount, single(i), func(l loc) string { return accountPath(l.i) }))
++		}
++	}
++	return out
++}
++
++func labelLoc(l loc) string { return labelPath(l.i, l.j) }
++
++// Rule 4: within one destination, the same label string (exact comparison)
++// more than once. One finding per (destination, label string), ordered by
++// destination index, then by the string's first occurrence; key paths list
++// every occurrence ascending.
++func duplicateLabels(ds []profile.Destination) []Finding {
++	out := []Finding{}
++	for i, d := range ds {
++		g := newGroups[string, loc]()
++		for j, l := range d.Labels {
++			g.add(l, loc{i, j})
++		}
++		for _, k := range g.order {
++			if m := g.members[k]; len(m) >= 2 {
++				out = append(out, finding(ds, RuleDuplicateLabel, MsgDuplicateLabel, m, labelLoc))
++			}
++		}
++	}
++	return out
++}
++
++// Rule 5: across the profile, two or more different label strings equal
++// after ASCII-lowercasing. One finding per such set, naming every occurrence
++// of every spelling in (i, j) order; sets are ordered by their first
++// occurrence. Identical strings alone (in one or several destinations) are
++// not a finding.
++func labelCaseVariants(ds []profile.Destination) []Finding {
++	g := newGroups[string, loc]()
++	spell := map[string]map[string]bool{}
++	for i, d := range ds {
++		for j, l := range d.Labels {
++			k := asciiLower(l)
++			g.add(k, loc{i, j})
++			if spell[k] == nil {
++				spell[k] = map[string]bool{}
++			}
++			spell[k][l] = true
++		}
++	}
++	out := []Finding{}
++	// Occurrences were added in (i, j) order, so each group's members are
++	// already sorted and g.order is ordered by each set's first occurrence.
++	for _, k := range g.order {
++		if len(spell[k]) >= 2 {
++			out = append(out, finding(ds, RuleLabelCaseVariant, MsgLabelCaseVariant, g.members[k], labelLoc))
++		}
++	}
++	return out
++}
+diff --color -ruN -x target -x dist base/prototypes/go/internal/lint/lint_test.go frozen/go/internal/lint/lint_test.go
+--- base/prototypes/go/internal/lint/lint_test.go	1969-12-31 19:00:00
++++ frozen/go/internal/lint/lint_test.go	2026-10-06 13:15:16
+@@ -0,0 +1,225 @@
++package lint
++
++import (
++	"encoding/json"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/heimdall-g02/proto-go/internal/profile"
++)
++
++// dest is a compact destination spec for test profiles. port 0 means the
++// port key is omitted; labels nil means the labels key is omitted.
++type dest struct {
++	host    string
++	port    int
++	account string
++	labels  []string
++}
++
++// build renders a TOML profile and parses it with profile.Parse, so every
++// test input is a schema-valid profile exactly as the CLI would see it.
++func build(t *testing.T, ds ...dest) *profile.Profile {
++	t.Helper()
++	var b strings.Builder
++	b.WriteString("schema_version = 1\nname = \"n\"\nrevision = 1\n[meta]\nnote = \"m\"\n")
++	for i, d := range ds {
++		fmt.Fprintf(&b, "[[destinations]]\nid = \"id%d\"\nalias = \"a%d\"\nhost = %q\naccount = %q\n", i, i, d.host, d.account)
++		if d.port != 0 {
++			fmt.Fprintf(&b, "port = %d\n", d.port)
++		}
++		if d.labels != nil {
++			q := make([]string, len(d.labels))
++			for k, l := range d.labels {
++				q[k] = fmt.Sprintf("%q", l)
++			}
++			fmt.Fprintf(&b, "labels = [%s]\n", strings.Join(q, ", "))
++		}
++	}
++	p, err := profile.Parse([]byte(b.String()))
++	if err != nil {
++		t.Fatalf("test profile invalid: %v\n%s", err, b.String())
++	}
++	return p
++}
++
++func f(rule, msg string, ids []string, paths ...string) Finding {
++	return Finding{Rule: rule, KeyPaths: paths, DestinationIDs: ids, Message: msg}
++}
++
++func ids(s ...string) []string { return s }
++
++func check(t *testing.T, got []Finding, want ...Finding) {
++	t.Helper()
++	if want == nil {
++		want = []Finding{}
++	}
++	g, _ := json.Marshal(got)
++	w, _ := json.Marshal(want)
++	if string(g) != string(w) {
++		t.Fatalf("findings mismatch\n got: %s\nwant: %s", g, w)
++	}
++}
++
++func TestCleanAndEmpty(t *testing.T) {
++	check(t, Lint(build(t)))
++	check(t, Lint(build(t,
++		dest{host: "a.example", account: "u", labels: []string{"x", "y"}},
++		dest{host: "b.example", port: 2222, account: "Root", labels: []string{"x"}},
++	)))
++	// Never nil, so the JSON is [] rather than null.
++	if b, _ := json.Marshal(Lint(build(t))); string(b) != "[]" {
++		t.Fatalf("empty findings encode as %s", b)
++	}
++}
++
++func TestDuplicateEndpoint(t *testing.T) {
++	p := build(t,
++		dest{host: "Lab.Example", account: "u"},           // 0: port 22 (omitted)
++		dest{host: "other", account: "u"},                 // 1
++		dest{host: "lab.example", port: 22, account: "u"}, // 2: same as 0
++		dest{host: "other", port: 2222, account: "u"},     // 3: other host, different port: near miss
++		dest{host: "LAB.EXAMPLE", port: 23, account: "u"}, // 4: different port: near miss
++		dest{host: "OTHER", account: "u"},                 // 5: same as 1
++		dest{host: "lab.example", account: "u"},           // 6: same as 0
++	)
++	check(t, Lint(p),
++		f(RuleDuplicateEndpoint, MsgDuplicateEndpoint, ids("id0", "id2", "id6"),
++			"destinations[0].host", "destinations[2].host", "destinations[6].host"),
++		f(RuleDuplicateEndpoint, MsgDuplicateEndpoint, ids("id1", "id5"),
++			"destinations[1].host", "destinations[5].host"),
++		f(RulePrivilegedPort, MsgPrivilegedPort, ids("id4"), "destinations[4].port"),
++	)
++}
++
++func TestDuplicateEndpointASCIIOnlyLowercase(t *testing.T) {
++	// "Ä" and "ä" differ after ASCII-lowercasing; so do the Kelvin sign and
++	// "k", which Unicode case folding would equate.
++	p := build(t,
++		dest{host: "Äb.example", account: "u"},
++		dest{host: "äb.example", account: "u"},
++		dest{host: "K.example", account: "u"},
++		dest{host: "k.example", account: "u"},
++		dest{host: "ÄB.EXAMPLE", account: "u"},
++	)
++	check(t, Lint(p),
++		f(RuleDuplicateEndpoint, MsgDuplicateEndpoint, ids("id0", "id4"),
++			"destinations[0].host", "destinations[4].host"))
++}
++
++func TestPrivilegedPortAndRoot(t *testing.T) {
++	p := build(t,
++		dest{host: "h0", port: 1, account: "root"},     // both rules
++		dest{host: "h1", port: 22, account: "ROOT"},    // near misses
++		dest{host: "h2", port: 1023, account: " root"}, // port only
++		dest{host: "h3", port: 1024, account: "root"},  // root only
++		dest{host: "h4", account: "root "},             // nothing
++		dest{host: "h5", port: 80, account: "u"},       // port only
++	)
++	check(t, Lint(p),
++		f(RulePrivilegedPort, MsgPrivilegedPort, ids("id0"), "destinations[0].port"),
++		f(RulePrivilegedPort, MsgPrivilegedPort, ids("id2"), "destinations[2].port"),
++		f(RulePrivilegedPort, MsgPrivilegedPort, ids("id5"), "destinations[5].port"),
++		f(RuleRootAccount, MsgRootAccount, ids("id0"), "destinations[0].account"),
++		f(RuleRootAccount, MsgRootAccount, ids("id3"), "destinations[3].account"),
++	)
++}
++
++func TestDuplicateLabel(t *testing.T) {
++	p := build(t,
++		dest{host: "h0", account: "u", labels: []string{"b", "a", "b", "a", "c", "b"}},
++		dest{host: "h1", account: "u", labels: []string{"x"}},
++		dest{host: "h2", account: "u", labels: []string{"x", "x"}},
++		dest{host: "h3", account: "u", labels: []string{"", ""}},
++	)
++	check(t, Lint(p),
++		f(RuleDuplicateLabel, MsgDuplicateLabel, ids("id0"),
++			"destinations[0].labels[0]", "destinations[0].labels[2]", "destinations[0].labels[5]"),
++		f(RuleDuplicateLabel, MsgDuplicateLabel, ids("id0"),
++			"destinations[0].labels[1]", "destinations[0].labels[3]"),
++		f(RuleDuplicateLabel, MsgDuplicateLabel, ids("id2"),
++			"destinations[2].labels[0]", "destinations[2].labels[1]"),
++		f(RuleDuplicateLabel, MsgDuplicateLabel, ids("id3"),
++			"destinations[3].labels[0]", "destinations[3].labels[1]"),
++	)
++}
++
++func TestLabelCaseVariant(t *testing.T) {
++	p := build(t,
++		dest{host: "h0", account: "u", labels: []string{"keep", "Prod"}},
++		dest{host: "h1", account: "u", labels: []string{"prod", "keep", "Ünï"}},
++		dest{host: "h2", account: "u", labels: []string{"PROD", "Prod", "ünï"}},
++		dest{host: "h3", account: "u", labels: []string{"Dev", "dev"}},
++	)
++	check(t, Lint(p),
++		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id0", "id1", "id2"),
++			"destinations[0].labels[1]", "destinations[1].labels[0]",
++			"destinations[2].labels[0]", "destinations[2].labels[1]"),
++		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id3"),
++			"destinations[3].labels[0]", "destinations[3].labels[1]"),
++	)
++}
++
++func TestLabelCaseVariantOrderByFirstOccurrence(t *testing.T) {
++	p := build(t,
++		dest{host: "h0", account: "u", labels: []string{"x", "Y"}},
++		dest{host: "h1", account: "u", labels: []string{"y", "X"}},
++	)
++	check(t, Lint(p),
++		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id0", "id1"),
++			"destinations[0].labels[0]", "destinations[1].labels[1]"),
++		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id0", "id1"),
++			"destinations[0].labels[1]", "destinations[1].labels[0]"),
++	)
++}
++
++// Exact repeats plus a case variant in one destination: rule 4 for the
++// exact repeat, rule 5 for the variant set naming every occurrence. A label
++// identical across destinations alone is not a finding.
++func TestDuplicateAndCaseVariantTogether(t *testing.T) {
++	p := build(t,
++		dest{host: "h0", account: "u", labels: []string{"a", "a", "A"}},
++		dest{host: "h1", account: "u", labels: []string{"same", "a"}},
++		dest{host: "h2", account: "u", labels: []string{"same"}},
++	)
++	check(t, Lint(p),
++		f(RuleDuplicateLabel, MsgDuplicateLabel, ids("id0"),
++			"destinations[0].labels[0]", "destinations[0].labels[1]"),
++		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id0", "id1"),
++			"destinations[0].labels[0]", "destinations[0].labels[1]",
++			"destinations[0].labels[2]", "destinations[1].labels[1]"),
++	)
++}
++
++func TestAllRulesOrder(t *testing.T) {
++	p := build(t,
++		dest{host: "h", port: 443, account: "root", labels: []string{"L", "l", "l"}},
++		dest{host: "H", port: 443, account: "root"},
++	)
++	check(t, Lint(p),
++		f(RuleDuplicateEndpoint, MsgDuplicateEndpoint, ids("id0", "id1"), "destinations[0].host", "destinations[1].host"),
++		f(RulePrivilegedPort, MsgPrivilegedPort, ids("id0"), "destinations[0].port"),
++		f(RulePrivilegedPort, MsgPrivilegedPort, ids("id1"), "destinations[1].port"),
++		f(RuleRootAccount, MsgRootAccount, ids("id0"), "destinations[0].account"),
++		f(RuleRootAccount, MsgRootAccount, ids("id1"), "destinations[1].account"),
++		f(RuleDuplicateLabel, MsgDuplicateLabel, ids("id0"), "destinations[0].labels[1]", "destinations[0].labels[2]"),
++		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id0"),
++			"destinations[0].labels[0]", "destinations[0].labels[1]", "destinations[0].labels[2]"),
++	)
++}
++
++func TestASCIILower(t *testing.T) {
++	for in, want := range map[string]string{"": "", "AbZ@[`{": "abz@[`{", "ÄÖÜ": "ÄÖÜ", "\u212a": "\u212a", "xY\xff": "xy\xff"} {
++		if got := asciiLower(in); got != want {
++			t.Errorf("asciiLower(%q) = %q, want %q", in, got, want)
++		}
++	}
++}
++
++// A Destination built without Parse (Port 0) still gets effective port 22.
++func TestEffectivePortZero(t *testing.T) {
++	if effectivePort(profile.Destination{}) != 22 || effectivePort(profile.Destination{Port: 80}) != 80 {
++		t.Fatal("effective port")
++	}
++}
+diff --color -ruN -x target -x dist base/prototypes/go/internal/result/result.go frozen/go/internal/result/result.go
+--- base/prototypes/go/internal/result/result.go	2026-10-06 04:41:29
++++ frozen/go/internal/result/result.go	2026-10-06 13:15:16
+@@ -13,6 +13,8 @@
+ 	ProfileOK          = "PROFILE_OK"
+ 	AgentOK            = "AGENT_OK"
+ 	VersionOK          = "VERSION_OK"
++	LintClean          = "LINT_CLEAN"
++	LintFindings       = "LINT_FINDINGS"
+ 	ChildExited        = "CHILD_EXITED"
+ 	ChildLaunchFailed  = "CHILD_LAUNCH_FAILED"
+ 	UsageError         = "USAGE_ERROR"
+@@ -34,6 +36,7 @@
+ 	ExitOK          = 0
+ 	ExitInternal    = 1
+ 	ExitUsage       = 2
++	ExitFindings    = 3
+ 	ExitUnavailable = 5
+ 	ExitCancelled   = 130
+ )
+@@ -58,8 +61,10 @@
+ // ExitCode maps a code to the contract exit status (run is handled separately).
+ func ExitCode(code string) int {
+ 	switch code {
+-	case ProfileOK, AgentOK, VersionOK:
++	case ProfileOK, AgentOK, VersionOK, LintClean:
+ 		return ExitOK
++	case LintFindings:
++		return ExitFindings
+ 	case UsageError, SchemaInvalid, InputTooLarge:
+ 		return ExitUsage
+ 	case AgentUnavailable, AgentProtocolError, AgentRefused:

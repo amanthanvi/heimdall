@@ -1,0 +1,14 @@
+{
+ "cell": "T1-rust-opus2", "task": "T1", "lang": "rust", "built": true, "all_targets_build": true,
+ "artifact_digests": {"darwin-arm64": "02f0baa79c5a1f9a70940bd23d809ac8c27afb4e043643a9425079a3223b863d", "linux-arm64": "36986c356d3e2081a00a94173d8f74f439d94f2cf00dd753f225287c8b923aaf",
+   "linux-x64": "78759376d2a61146507eec24b1089cf416f57d0fa848df58617aae137dbcacf2", "windows-x64": "cd8c72dd397399f061cc3e47a86a94aac70fd1f3447946ba2cb0f2ceea1db698"},
+ "evaluator_build_equals_implementer_build": true,
+ "base_tree_digest_matches_BASE_json": true,
+ "pin_check": "exit 0; T4 seeded-* exit 1, base-* exit 0, digests equal pins",
+ "hidden": {"darwin": "14/14, hidden.sh exit 0", "linux": "14/14, hidden.sh exit 0", "reruns": "none needed"},
+ "score": {"darwin": {"all_pass": true, "fixed": "6/6", "regressed": 0, "unproven": ["T1.nested_shell_bash", "T1.nested_shell_zsh"], "fixed_excluding_unproven": "4/4"}, "linux": {"all_pass": true, "fixed": "6/6", "regressed": 0}},
+ "harness_2_4_2": {"darwin": "139/139 exit 0 verified/pass", "linux": "139/139 exit 0 verified/pass"},
+ "unit_tests": "cargo test --locked exit 0; lib 49, bin 4, cli 29 passed",
+ "transcript_audit": "not run by this evaluator (no transcript path supplied in the task)",
+ "diff": {"files": 4, "insertions": 723, "deletions": 42, "note": "src/runner.rs, tests/cli.rs, tests/pty_tui.py, REPORT.md; a build-generated tools/__pycache__ pyc was excluded from the frozen copy"}
+}

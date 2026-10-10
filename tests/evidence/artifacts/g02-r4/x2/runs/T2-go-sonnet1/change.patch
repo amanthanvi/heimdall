@@ -1,0 +1,611 @@
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/lint_test.go frozen/go/cmd/heimdall-proto/lint_test.go
+--- base/prototypes/go/cmd/heimdall-proto/lint_test.go	1969-12-31 19:00:00
++++ frozen/go/cmd/heimdall-proto/lint_test.go	2026-10-09 01:44:42
+@@ -0,0 +1,139 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/heimdall-g02/proto-go/internal/testfix"
++)
++
++const lintSecretProfile = `schema_version = 1
++name = "SECRETNAME"
++revision = 2
++[meta]
++note = "SECRETMETA"
++[[destinations]]
++id = "d_one"
++alias = "SECRETALIAS1"
++host = "SECRETHOST.example"
++port = 80
++account = "root"
++labels = ["SecretLabel", "secretlabel", "SecretLabel"]
++[[destinations]]
++id = "d_two"
++alias = "SECRETALIAS2"
++host = "secrethost.EXAMPLE"
++port = 80
++account = "SECRETACCOUNT"
++`
++
++func writeTemp(t *testing.T, name, body string) string {
++	t.Helper()
++	p := filepath.Join(t.TempDir(), name)
++	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	return p
++}
++
++func TestProfileLintFindingsAndNonEcho(t *testing.T) {
++	f := writeTemp(t, "prøfile sp ace.toml", lintSecretProfile)
++	for _, args := range [][]string{
++		{"profile", "lint", "--file", f, "--json"},
++		{"profile", "lint", "--json", "--file", f},
++		{"profile", "lint", "--file=" + f, "--json"},
++	} {
++		code, out, errS := call(args...)
++		if code != 3 {
++			t.Fatal(args, code, out, errS)
++		}
++		m := envelope(t, out)
++		if m["state"] != "succeeded" || m["code"] != "LINT_FINDINGS" || m["next"] != nil {
++			t.Fatal(out)
++		}
++		d := m["data"].(map[string]any)
++		if len(d) != 1 || len(d["findings"].([]any)) != 6 {
++			t.Fatal(out)
++		}
++		for _, bad := range []string{"SECRET", "secret"} {
++			if strings.Contains(out+errS, bad) {
++				t.Fatalf("value %q echoed: %s %s", bad, out, errS)
++			}
++		}
++	}
++	// Without --json: same exit status, no value echo, nothing on stderr.
++	code, out, errS := call("profile", "lint", "--file", f)
++	if code != 3 || errS != "" {
++		t.Fatal(code, out, errS)
++	}
++	for _, bad := range []string{"SECRET", "secret", "d_one"} {
++		if strings.Contains(out+errS, bad) {
++			t.Fatalf("value %q echoed without --json: %s", bad, out)
++		}
++	}
++}
++
++func TestProfileLintClean(t *testing.T) {
++	code, out, errS := call("profile", "lint", "--file", filepath.Join(testfix.Dir(t), "homelab.toml"), "--json")
++	m := envelope(t, out)
++	if code != 0 || errS != "" || m["code"] != "LINT_CLEAN" || m["state"] != "succeeded" {
++		t.Fatal(code, out, errS)
++	}
++	if !strings.Contains(out, `"data":{"findings":[]}`) {
++		t.Fatal(out)
++	}
++	if code, out, _ = call("profile", "lint", "--file", filepath.Join(testfix.Dir(t), "homelab.toml")); code != 0 || out != "" {
++		t.Fatal(code, out)
++	}
++}
++
++// Input handling must match `profile show` exactly (status, state, code,
++// key_path) for invalid and non-regular inputs and for usage errors.
++func TestProfileLintMatchesShowOnBadInput(t *testing.T) {
++	dir := t.TempDir()
++	big := filepath.Join(dir, "big.toml")
++	_ = os.WriteFile(big, make([]byte, 1<<20+1), 0o600)
++	var argsets [][]string
++	argsets = append(argsets, []string{"--file", big, "--json"}, []string{"--file", dir, "--json"},
++		[]string{"--file", filepath.Join(dir, "missing"), "--json"},
++		[]string{"--json"}, []string{"--file"}, []string{"--file", "--json"}, []string{"--bogus", "--json"},
++		[]string{"--file", "x", "extra", "--json"}, []string{"--file", ""}, []string{"--json", "--file"})
++	for _, n := range []string{"invalid-forbidden-key.toml", "invalid-unknown-dest-key.toml", "invalid-malformed.toml",
++		"invalid-schema-version.toml", "invalid-duplicate-alias.toml", "invalid-port.toml"} {
++		argsets = append(argsets, []string{"--file", filepath.Join(testfix.Dir(t), n), "--json"},
++			[]string{"--json", "--file", filepath.Join(testfix.Dir(t), n)})
++	}
++	for _, a := range argsets {
++		sc, so, _ := call(append([]string{"profile", "show"}, a...)...)
++		lc, lo, le := call(append([]string{"profile", "lint"}, a...)...)
++		if sc != lc || so != lo {
++			t.Errorf("%q: show=%d %q lint=%d %q", a, sc, so, lc, lo)
++		}
++		if strings.Contains(lo+le, "HEIMDALL_CANARY_") {
++			t.Errorf("canary echoed for %q", a)
++		}
++	}
++	// Usage error without --json: stderr only.
++	if code, out, errS := call("profile", "lint"); code != 2 || out != "" || errS == "" {
++		t.Fatal(code, out, errS)
++	}
++	if code, out, _ := call("profile", "lint", "--json"); code != 2 || envelope(t, out)["code"] != "USAGE_ERROR" {
++		t.Fatal(code, out)
++	}
++	if code, out, _ := call("profile", "bogus", "--json"); code != 2 || envelope(t, out)["code"] != "USAGE_ERROR" {
++		t.Fatal(code, out)
++	}
++}
++
++func TestProfileLintWritesNothing(t *testing.T) {
++	dir := t.TempDir()
++	f := filepath.Join(dir, "p.toml")
++	_ = os.WriteFile(f, []byte(lintSecretProfile), 0o600)
++	call("profile", "lint", "--file", f, "--json")
++	ents, _ := os.ReadDir(dir)
++	if len(ents) != 1 {
++		t.Fatalf("lint wrote files: %v", ents)
++	}
++}
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/main.go frozen/go/cmd/heimdall-proto/main.go
+--- base/prototypes/go/cmd/heimdall-proto/main.go	2026-10-06 04:41:29
++++ frozen/go/cmd/heimdall-proto/main.go	2026-10-09 01:44:42
+@@ -13,6 +13,7 @@
+ 	"runtime"
+ 	"runtime/debug"
+ 	"strconv"
++	"strings"
+ 	"sync/atomic"
+ 	"syscall"
+ 	"time"
+@@ -33,6 +34,7 @@
+ 	teaModule    = "charm.land/bubbletea/v2"
+ 	usageText    = `usage:
+   heimdall-proto profile show --file <path> [--json]
++  heimdall-proto profile lint --file <path> [--json]
+   heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]
+   heimdall-proto run [--meta-file <path>] -- <argv...>
+   heimdall-proto tui --file <path>
+@@ -83,8 +85,11 @@
+ 	}
+ 	switch args[0] {
+ 	case "profile":
++		if len(args) >= 2 && args[1] == "lint" {
++			return cmdProfileLint(args[2:], stdout, stderr)
++		}
+ 		if len(args) < 2 || args[1] != "show" {
+-			return usage(stdout, stderr, jsonOut, "expected 'profile show'")
++			return usage(stdout, stderr, jsonOut, "expected 'profile show' or 'profile lint'")
+ 		}
+ 		return cmdProfileShow(args[2:], stdout, stderr)
+ 	case "agent":
+@@ -123,25 +128,37 @@
+ 	return nil
+ }
+ 
+-func cmdProfileShow(args []string, stdout, stderr io.Writer) int {
+-	fs := newFlags("profile show")
++// loadProfileArgs is the input handling shared by `profile show` and
++// `profile lint`: flag parsing, usage errors and profile.Load failures are
++// reported identically. When ok is false the command is over and exit is its
++// exit status.
++func loadProfileArgs(name string, args []string, stdout, stderr io.Writer) (p *profile.Profile, jsonOut bool, exit int, ok bool) {
++	fs := newFlags(name)
+ 	file := fs.String("file", "", "")
+-	jsonOut := fs.Bool("json", false, "")
++	jsonFlag := fs.Bool("json", false, "")
+ 	if err := parseFlags(fs, args); err != nil {
+-		return usage(stdout, stderr, hasJSON(args), err.Error())
++		return nil, false, usage(stdout, stderr, hasJSON(args), err.Error()), false
+ 	}
+ 	if *file == "" {
+-		return usage(stdout, stderr, *jsonOut, "--file is required")
++		return nil, false, usage(stdout, stderr, *jsonFlag, "--file is required"), false
+ 	}
+ 	p, perr := profile.Load(*file)
+ 	if perr != nil {
+ 		fmt.Fprintf(stderr, "heimdall-proto: %s\n", perr.Error())
+-		if *jsonOut {
++		if *jsonFlag {
+ 			_ = result.Write(stdout, result.Fail(perr.Code, perr.KeyPath, perr.Message, perr.Warnings...))
+ 		}
+-		return result.ExitCode(perr.Code)
++		return nil, *jsonFlag, result.ExitCode(perr.Code), false
+ 	}
+-	if *jsonOut {
++	return p, *jsonFlag, 0, true
++}
++
++func cmdProfileShow(args []string, stdout, stderr io.Writer) int {
++	p, jsonOut, exit, ok := loadProfileArgs("profile show", args, stdout, stderr)
++	if !ok {
++		return exit
++	}
++	if jsonOut {
+ 		_ = result.Write(stdout, result.OK(result.ProfileOK, map[string]any{"profile": p}))
+ 		return result.ExitOK
+ 	}
+@@ -150,6 +167,29 @@
+ 		fmt.Fprintf(stdout, "%s  %s@%s:%d\n", tui.Sanitize(d.Alias), tui.Sanitize(d.Account), tui.Sanitize(d.Host), d.Port)
+ 	}
+ 	return result.ExitOK
++}
++
++// cmdProfileLint reports lint findings for a schema-valid profile. Output
++// names places by key path and destination id only; no other profile value is
++// printed, with or without --json.
++func cmdProfileLint(args []string, stdout, stderr io.Writer) int {
++	p, jsonOut, exit, ok := loadProfileArgs("profile lint", args, stdout, stderr)
++	if !ok {
++		return exit
++	}
++	findings := profile.Lint(p)
++	code := result.LintClean
++	if len(findings) > 0 {
++		code = result.LintFindings
++	}
++	if jsonOut {
++		_ = result.Write(stdout, result.OK(code, map[string]any{"findings": findings}))
++	} else {
++		for _, f := range findings {
++			fmt.Fprintf(stdout, "%s: %s\n", f.Rule, strings.Join(f.KeyPaths, ", "))
++		}
++	}
++	return result.ExitCode(code)
+ }
+ 
+ func cmdAgentList(args []string, stdout, stderr io.Writer) int {
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/lint.go frozen/go/internal/profile/lint.go
+--- base/prototypes/go/internal/profile/lint.go	1969-12-31 19:00:00
++++ frozen/go/internal/profile/lint.go	2026-10-09 01:44:42
+@@ -0,0 +1,178 @@
++package profile
++
++import (
++	"fmt"
++	"sort"
++)
++
++// Lint rule ids, in rule-number order (rule 1 to 5).
++const (
++	RuleDuplicateEndpoint = "duplicate-endpoint"
++	RulePrivilegedPort    = "privileged-port"
++	RuleRootAccount       = "root-account"
++	RuleDuplicateLabel    = "duplicate-label"
++	RuleLabelCaseVariant  = "label-case-variant"
++)
++
++// Lint messages (exact text).
++const (
++	msgDuplicateEndpoint = "destinations share the same host and port"
++	msgPrivilegedPort    = "port below 1024 other than 22"
++	msgRootAccount       = "account is root"
++	msgDuplicateLabel    = "label repeated within a destination"
++	msgLabelCaseVariant  = "labels differ only in letter case"
++)
++
++// Finding is one lint finding. KeyPaths name places, never values.
++// DestinationIDs are the ids of the destinations named in KeyPaths, in order
++// of first appearance without repeats. Both slices are never nil.
++type Finding struct {
++	Rule           string   `json:"rule"`
++	KeyPaths       []string `json:"key_paths"`
++	DestinationIDs []string `json:"destination_ids"`
++	Message        string   `json:"message"`
++}
++
++// asciiLower maps A-Z to a-z and leaves every other byte unchanged.
++func asciiLower(s string) string {
++	for i := 0; i < len(s); i++ {
++		if c := s[i]; c >= 'A' && c <= 'Z' {
++			b := []byte(s)
++			for j := i; j < len(b); j++ {
++				if b[j] >= 'A' && b[j] <= 'Z' {
++					b[j] += 'a' - 'A'
++				}
++			}
++			return string(b)
++		}
++	}
++	return s
++}
++
++// ref locates one label (or one destination when J is -1).
++type ref struct{ I, J int }
++
++func (r ref) less(o ref) bool { return r.I < o.I || (r.I == o.I && r.J < o.J) }
++
++// Lint reports findings for a schema-valid profile. It only looks at
++// destinations; name, revision and meta are never linted. Findings are
++// ordered by rule number, then by the per-rule order of the task contract.
++// The result is never nil. Pure function: no I/O.
++func Lint(p *Profile) []Finding {
++	out := []Finding{}
++	ds := p.Destinations
++	newFinding := func(rule, msg string, paths []string, idx []int) Finding {
++		ids := []string{}
++		seen := map[int]bool{}
++		for _, i := range idx {
++			if !seen[i] {
++				seen[i] = true
++				ids = append(ids, ds[i].ID)
++			}
++		}
++		return Finding{Rule: rule, KeyPaths: paths, DestinationIDs: ids, Message: msg}
++	}
++
++	// Rule 1: duplicate-endpoint. Groups are kept in order of first member.
++	type endpoint struct {
++		host string
++		port int64
++	}
++	groups := map[endpoint][]int{}
++	var order []endpoint
++	for i, d := range ds {
++		k := endpoint{asciiLower(d.Host), d.Port}
++		if _, ok := groups[k]; !ok {
++			order = append(order, k)
++		}
++		groups[k] = append(groups[k], i)
++	}
++	for _, k := range order {
++		m := groups[k]
++		if len(m) < 2 {
++			continue
++		}
++		paths := make([]string, len(m))
++		for n, i := range m {
++			paths[n] = fmt.Sprintf("destinations[%d].host", i)
++		}
++		out = append(out, newFinding(RuleDuplicateEndpoint, msgDuplicateEndpoint, paths, m))
++	}
++
++	// Rule 2: privileged-port.
++	for i, d := range ds {
++		if d.Port < 1024 && d.Port != 22 {
++			out = append(out, newFinding(RulePrivilegedPort, msgPrivilegedPort,
++				[]string{fmt.Sprintf("destinations[%d].port", i)}, []int{i}))
++		}
++	}
++
++	// Rule 3: root-account (case-sensitive).
++	for i, d := range ds {
++		if d.Account == "root" {
++			out = append(out, newFinding(RuleRootAccount, msgRootAccount,
++				[]string{fmt.Sprintf("destinations[%d].account", i)}, []int{i}))
++		}
++	}
++
++	// Rule 4: duplicate-label (exact string, within one destination).
++	for i, d := range ds {
++		pos := map[string][]int{}
++		var first []string
++		for j, l := range d.Labels {
++			if _, ok := pos[l]; !ok {
++				first = append(first, l)
++			}
++			pos[l] = append(pos[l], j)
++		}
++		for _, l := range first {
++			js := pos[l]
++			if len(js) < 2 {
++				continue
++			}
++			paths := make([]string, len(js))
++			idx := make([]int, len(js))
++			for n, j := range js {
++				paths[n] = fmt.Sprintf("destinations[%d].labels[%d]", i, j)
++				idx[n] = i
++			}
++			out = append(out, newFinding(RuleDuplicateLabel, msgDuplicateLabel, paths, idx))
++		}
++	}
++
++	// Rule 5: label-case-variant (across the whole profile).
++	type labelSet struct {
++		occ      []ref
++		spelling map[string]bool
++	}
++	sets := map[string]*labelSet{}
++	for i, d := range ds {
++		for j, l := range d.Labels {
++			k := asciiLower(l)
++			s := sets[k]
++			if s == nil {
++				s = &labelSet{spelling: map[string]bool{}}
++				sets[k] = s
++			}
++			s.occ = append(s.occ, ref{i, j}) // visited in (i, j) order
++			s.spelling[l] = true
++		}
++	}
++	var variants []*labelSet
++	for _, s := range sets {
++		if len(s.spelling) >= 2 {
++			variants = append(variants, s)
++		}
++	}
++	sort.Slice(variants, func(a, b int) bool { return variants[a].occ[0].less(variants[b].occ[0]) })
++	for _, s := range variants {
++		paths := make([]string, len(s.occ))
++		idx := make([]int, len(s.occ))
++		for n, r := range s.occ {
++			paths[n] = fmt.Sprintf("destinations[%d].labels[%d]", r.I, r.J)
++			idx[n] = r.I
++		}
++		out = append(out, newFinding(RuleLabelCaseVariant, msgLabelCaseVariant, paths, idx))
++	}
++	return out
++}
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/lint_test.go frozen/go/internal/profile/lint_test.go
+--- base/prototypes/go/internal/profile/lint_test.go	1969-12-31 19:00:00
++++ frozen/go/internal/profile/lint_test.go	2026-10-09 01:44:42
+@@ -0,0 +1,142 @@
++package profile
++
++import (
++	"encoding/json"
++	"reflect"
++	"strings"
++	"testing"
++)
++
++func mustParse(t *testing.T, toml string) *Profile {
++	t.Helper()
++	p, err := Parse([]byte("schema_version = 1\nname = \"n\"\nrevision = 1\n" + toml))
++	if err != nil {
++		t.Fatalf("parse: %v", err)
++	}
++	return p
++}
++
++func dest(id, host string, extra string) string {
++	return "[[destinations]]\nid = \"" + id + "\"\nalias = \"a-" + id + "\"\nhost = \"" + host + "\"\naccount = \"u\"\n" + extra + "\n"
++}
++
++func TestLintTable(t *testing.T) {
++	type f struct {
++		rule string
++		kp   []string
++		ids  []string
++		msg  string
++	}
++	cases := []struct {
++		name string
++		toml string
++		want []f
++	}{
++		{"empty profile", "", nil},
++		{"clean", dest("d0", "a.example", "port = 2222") + dest("d1", "b.example", "labels = [\"x\"]"), nil},
++		{"dup endpoint, case-insensitive, default port",
++			dest("d0", "Host.Example", "") + dest("d1", "other", "") + dest("d2", "host.EXAMPLE", "port = 22"),
++			[]f{{RuleDuplicateEndpoint, []string{"destinations[0].host", "destinations[2].host"}, []string{"d0", "d2"}, "destinations share the same host and port"}}},
++		{"dup endpoint near miss: different port",
++			dest("d0", "h", "") + dest("d1", "h", "port = 2222"), nil},
++		{"dup endpoint: non-ASCII case is not folded",
++			dest("d0", "É.example", "") + dest("d1", "é.example", ""), nil},
++		{"dup endpoint groups ordered by first member",
++			dest("d0", "a", "") + dest("d1", "b", "") + dest("d2", "b", "") + dest("d3", "a", ""),
++			[]f{
++				{RuleDuplicateEndpoint, []string{"destinations[0].host", "destinations[3].host"}, []string{"d0", "d3"}, "destinations share the same host and port"},
++				{RuleDuplicateEndpoint, []string{"destinations[1].host", "destinations[2].host"}, []string{"d1", "d2"}, "destinations share the same host and port"},
++			}},
++		{"privileged port",
++			dest("d0", "a", "port = 443") + dest("d1", "b", "port = 22") + dest("d2", "c", "port = 1023") + dest("d3", "d", "port = 1024") + dest("d4", "e", "port = 1"),
++			[]f{
++				{RulePrivilegedPort, []string{"destinations[0].port"}, []string{"d0"}, "port below 1024 other than 22"},
++				{RulePrivilegedPort, []string{"destinations[2].port"}, []string{"d2"}, "port below 1024 other than 22"},
++				{RulePrivilegedPort, []string{"destinations[4].port"}, []string{"d4"}, "port below 1024 other than 22"},
++			}},
++		{"root account is case sensitive",
++			"[[destinations]]\nid=\"d0\"\nalias=\"a0\"\nhost=\"h0\"\naccount=\"root\"\n[[destinations]]\nid=\"d1\"\nalias=\"a1\"\nhost=\"h1\"\naccount=\"Root\"\n[[destinations]]\nid=\"d2\"\nalias=\"a2\"\nhost=\"h2\"\naccount=\"root \"\n",
++			[]f{{RuleRootAccount, []string{"destinations[0].account"}, []string{"d0"}, "account is root"}}},
++		{"duplicate label",
++			dest("d0", "a", `labels = ["x", "y", "x", "y", "x", "z"]`),
++			[]f{
++				{RuleDuplicateLabel, []string{"destinations[0].labels[0]", "destinations[0].labels[2]", "destinations[0].labels[4]"}, []string{"d0"}, "label repeated within a destination"},
++				{RuleDuplicateLabel, []string{"destinations[0].labels[1]", "destinations[0].labels[3]"}, []string{"d0"}, "label repeated within a destination"},
++			}},
++		{"same label in two destinations is clean",
++			dest("d0", "a", `labels = ["x"]`) + dest("d1", "b", `labels = ["x"]`), nil},
++		{"case variants in one destination are rule 5 only",
++			dest("d0", "a", `labels = ["Ab", "aB"]`),
++			[]f{{RuleLabelCaseVariant, []string{"destinations[0].labels[0]", "destinations[0].labels[1]"}, []string{"d0"}, "labels differ only in letter case"}}},
++		{"case variants across destinations, all occurrences",
++			dest("d0", "a", `labels = ["Web"]`) + dest("d1", "b", `labels = ["web", "x"]`) + dest("d2", "c", `labels = ["WEB", "web"]`),
++			[]f{{RuleLabelCaseVariant,
++				[]string{"destinations[0].labels[0]", "destinations[1].labels[0]", "destinations[2].labels[0]", "destinations[2].labels[1]"},
++				[]string{"d0", "d1", "d2"}, "labels differ only in letter case"}}},
++		{"non-ASCII case is not a variant",
++			dest("d0", "a", `labels = ["É", "é"]`), nil},
++		{"duplicate and variant together: rule 4 then rule 5",
++			dest("d0", "a", `labels = ["A", "A", "a"]`),
++			[]f{
++				{RuleDuplicateLabel, []string{"destinations[0].labels[0]", "destinations[0].labels[1]"}, []string{"d0"}, "label repeated within a destination"},
++				{RuleLabelCaseVariant, []string{"destinations[0].labels[0]", "destinations[0].labels[1]", "destinations[0].labels[2]"}, []string{"d0"}, "labels differ only in letter case"},
++			}},
++		{"variant sets ordered by first occurrence",
++			dest("d0", "a", `labels = ["q", "B"]`) + dest("d1", "b", `labels = ["b", "Q"]`),
++			[]f{
++				{RuleLabelCaseVariant, []string{"destinations[0].labels[0]", "destinations[1].labels[1]"}, []string{"d0", "d1"}, "labels differ only in letter case"},
++				{RuleLabelCaseVariant, []string{"destinations[0].labels[1]", "destinations[1].labels[0]"}, []string{"d0", "d1"}, "labels differ only in letter case"},
++			}},
++		{"rule order across rules",
++			"[[destinations]]\nid=\"d0\"\nalias=\"a0\"\nhost=\"H\"\naccount=\"root\"\nport=80\nlabels=[\"l\",\"l\"]\n[[destinations]]\nid=\"d1\"\nalias=\"a1\"\nhost=\"h\"\naccount=\"u\"\nport=80\n",
++			[]f{
++				{RuleDuplicateEndpoint, []string{"destinations[0].host", "destinations[1].host"}, []string{"d0", "d1"}, "destinations share the same host and port"},
++				{RulePrivilegedPort, []string{"destinations[0].port"}, []string{"d0"}, "port below 1024 other than 22"},
++				{RulePrivilegedPort, []string{"destinations[1].port"}, []string{"d1"}, "port below 1024 other than 22"},
++				{RuleRootAccount, []string{"destinations[0].account"}, []string{"d0"}, "account is root"},
++				{RuleDuplicateLabel, []string{"destinations[0].labels[0]", "destinations[0].labels[1]"}, []string{"d0"}, "label repeated within a destination"},
++			}},
++	}
++	for _, c := range cases {
++		t.Run(c.name, func(t *testing.T) {
++			got := Lint(mustParse(t, c.toml))
++			if got == nil {
++				t.Fatal("Lint returned nil")
++			}
++			var want []Finding
++			for _, w := range c.want {
++				want = append(want, Finding{Rule: w.rule, KeyPaths: w.kp, DestinationIDs: w.ids, Message: w.msg})
++			}
++			if len(got) != len(want) || (len(want) > 0 && !reflect.DeepEqual(got, want)) {
++				gj, _ := json.Marshal(got)
++				wj, _ := json.Marshal(want)
++				t.Fatalf("got  %s\nwant %s", gj, wj)
++			}
++		})
++	}
++}
++
++func TestLintJSONShape(t *testing.T) {
++	b, _ := json.Marshal(Lint(mustParse(t, "")))
++	if string(b) != "[]" {
++		t.Fatalf("empty findings must marshal as [], got %s", b)
++	}
++	fs := Lint(mustParse(t, dest("d0", "a", "port = 80")))
++	b, _ = json.Marshal(fs[0])
++	if !strings.HasPrefix(string(b), `{"rule":`) {
++		t.Fatal(string(b))
++	}
++	var m map[string]any
++	_ = json.Unmarshal(b, &m)
++	if len(m) != 4 {
++		t.Fatalf("finding must have exactly four members: %s", b)
++	}
++}
++
++func TestAsciiLower(t *testing.T) {
++	for in, want := range map[string]string{"": "", "abc": "abc", "ABC-xyZ": "abc-xyz", "ÉÀ": "ÉÀ", "Éa|B": "Éa|b"} {
++		if got := asciiLower(in); got != want {
++			t.Errorf("asciiLower(%q)=%q want %q", in, got, want)
++		}
++	}
++}
+diff --color -ruN -x target -x dist base/prototypes/go/internal/result/result.go frozen/go/internal/result/result.go
+--- base/prototypes/go/internal/result/result.go	2026-10-06 04:41:29
++++ frozen/go/internal/result/result.go	2026-10-09 01:44:42
+@@ -13,6 +13,8 @@
+ 	ProfileOK          = "PROFILE_OK"
+ 	AgentOK            = "AGENT_OK"
+ 	VersionOK          = "VERSION_OK"
++	LintClean          = "LINT_CLEAN"
++	LintFindings       = "LINT_FINDINGS"
+ 	ChildExited        = "CHILD_EXITED"
+ 	ChildLaunchFailed  = "CHILD_LAUNCH_FAILED"
+ 	UsageError         = "USAGE_ERROR"
+@@ -34,6 +36,7 @@
+ 	ExitOK          = 0
+ 	ExitInternal    = 1
+ 	ExitUsage       = 2
++	ExitFindings    = 3
+ 	ExitUnavailable = 5
+ 	ExitCancelled   = 130
+ )
+@@ -58,8 +61,10 @@
+ // ExitCode maps a code to the contract exit status (run is handled separately).
+ func ExitCode(code string) int {
+ 	switch code {
+-	case ProfileOK, AgentOK, VersionOK:
++	case ProfileOK, AgentOK, VersionOK, LintClean:
+ 		return ExitOK
++	case LintFindings:
++		return ExitFindings
+ 	case UsageError, SchemaInvalid, InputTooLarge:
+ 		return ExitUsage
+ 	case AgentUnavailable, AgentProtocolError, AgentRefused:

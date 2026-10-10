@@ -1,0 +1,36 @@
+===== plain (bash)
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+PROMPT$ set +H; stty cols 400
+PROMPT$ /bin/sleep 30 </dev/null >/dev/null 2>&1 & J=$!; C=$J; echo J=$J
+[1] 79808
+J=79808
+PROMPT$ sleep 0.3; kill -STOP $C; sleep 0.7
+
+[1]+  Stopped                 /bin/sleep 30 < /dev/null > /dev/null 2>&1
+PROMPT$ ps -o pid=,stat= -p $C; ps -o pid=,stat= -p $J
+79808 T   
+79808 T   
+PROMPT$ jobs -l
+[1]+ 79808 Suspended (signal): 17  /bin/sleep 30 < /dev/null > /dev/null 2>&1
+PROMPT$ kill -KILL $C $J 2>/dev/null; wait; echo CLEANED
+CLEANED
+PROMPT$ 
+===== heimdall-proto (bash)
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+PROMPT$ set +H; stty cols 400
+PROMPT$ <ws>/review-scratch/hp-base run -- /bin/sleep 30 </dev/<review-scratch/hp-base run -- /bin/sleep 30 </dev/n                         ull >/dev/null 2>&1 & J=$< -- /bin/sleep 30 </dev/null >/dev/null 2>&1 & J=$!                         ; sleep 0.5; C=$(pgrep -P<ll >/dev/null 2>&1 & J=$!; sleep 0.5; C=$(pgrep -P                          $J); echo J=$J C=$C
+[1] 79906
+J=79906 C=79908
+PROMPT$ sleep 0.3; kill -STOP $C; sleep 0.7
+[1]+  Exit 255                <ws>/review-scratch/hp-base run -- /bin/sleep 30 < /dev/null > /dev/null 2>&1
+PROMPT$ ps -o pid=,stat= -p $C; ps -o pid=,stat= -p $J
+PROMPT$ jobs -l
+PROMPT$ kill -KILL $C $J 2>/dev/null; wait; echo CLEANED
+CLEANED
+PROMPT$ 

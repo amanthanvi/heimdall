@@ -1,0 +1,8 @@
+go linux rc=0
+go darwin rc=0
+rust linux rc=0
+rust darwin rc=0
+pc_t1 darwin run.* rc=0
+pc_t1 linux run.* rc=0
+pc_t3 darwin tui.* rc=1
+pc_t3 linux tui.* rc=1

@@ -1,0 +1,20 @@
+case	expected	observed	exit	reasons
+rel_dotdot_three	SUSPECT	SUSPECT	1	path-outside:root,raw-path-outside:root
+cd_chain_split	SUSPECT	SUSPECT	1	cwd-outside:tmp,path-outside:tmp
+glob_parent_star	SUSPECT	SUSPECT	1	glob-outside:tmp,raw-glob-outside:tmp
+glob_dot_component	SUSPECT	SUSPECT	1	glob-outside:tmp
+tilde_gitrepos_glob	SUSPECT	SUSPECT	1	glob-outside:home,raw-glob-outside:home
+home_brace_var	SUSPECT	SUSPECT	1	path-outside:home,raw-path-outside:home
+read_tool_rel_out	SUSPECT	SUSPECT	1	marker:round4-scratch
+grep_tool_home	SUSPECT	SUSPECT	1	path-outside:home
+glob_tool_rel_pattern	SUSPECT	SUSPECT	1	glob-outside:tmp
+repo_first_then_cd	SUSPECT	SUSPECT	1	cwd-outside:repository,marker:repository
+repo_cwd_find	SUSPECT	SUSPECT	1	cwd-outside:repository,marker:repository
+symlink_abs_out	SUSPECT	SUSPECT	1	path-outside:outside,raw-path-outside:outside
+symlink_tilde_out	SUSPECT	SUSPECT	1	path-outside:home,raw-path-outside:home
+pushd_out	SUSPECT	SUSPECT	1	cwd-outside:tmp,path-outside:tmp,raw-path-outside:tmp
+env_cd	SUSPECT	SUSPECT	1	cwd-unknown,unresolved-expansion
+redirect_out	SUSPECT	SUSPECT	1	marker:other-workspace
+bash_c_string	SUSPECT	SUSPECT	1	marker:round4-scratch
+clean_ws	CLEAN	CLEAN	0	
+mismatches 0

@@ -1,0 +1,13 @@
+Evaluator command templates (HM_REPO = repository root, HM_HIDDEN = hidden pack dir, E = evaluator scratch for the cell; SSH_AUTH_SOCK unset)
+pin-check:      cd $HM_REPO && TASKS=T4 sh $HM_HIDDEN/verify-matrix.sh $E/pin-check both
+freeze:         rsync -a --exclude=/target --exclude=/dist <ws>/prototypes/rust/ $E/frozen/rust/   (target/ and dist/ left out so the build is from clean)
+base:           git -C $HM_REPO archive 001a791 prototypes/rust | tar -x -C $E/base
+diff:           diff -ruN -x target -x dist $E/base/prototypes/rust $E/frozen/rust > $E/change.patch
+build:          cd $E/frozen/rust && CARGO_ZIGBUILD=$HM_REPO/prototypes/rust/target/tools/bin/cargo-zigbuild sh build.sh
+hidden-darwin:  cd $HM_REPO && sh $HM_HIDDEN/hidden.sh --task T3 --platform darwin --lang rust --bin $E/frozen/rust/dist/darwin-arm64/heimdall-proto --expect-sha256 <darwin sha> --out-dir $E/hidden-darwin
+hidden-linux:   cd $HM_REPO && sh $HM_HIDDEN/hidden.sh --task T3 --platform linux  --lang rust --bin $E/frozen/rust/dist/linux-arm64/heimdall-proto  --expect-sha256 <linux sha>  --out-dir $E/hidden-linux
+score:          python3 -I -B $HM_HIDDEN/score.py --task T3 --lang rust --platform <p> --expect-sha256 <sha> $E/hidden-<p>/T3-<p>.json
+harness-darwin: cd $HM_REPO && python3 -B tests/g02/conformance.py --bin $E/frozen/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out $E/harness-darwin.json
+harness-linux:  cd $HM_REPO && sh tests/g02/linux/run.sh --artifact-dir $E/frozen/rust/dist/linux-arm64 --candidate rust --out $E/harness-linux.json
+unit:           cd $E/frozen/rust && HEIMDALL_G02_FIXTURES=$HM_REPO/tests/fixtures/g02/profiles cargo test --locked
+cleanup:        HM_REPO=$HM_REPO sh $HM_HIDDEN/cleanup-cell.sh --lang rust --ws <ws> --eval $E

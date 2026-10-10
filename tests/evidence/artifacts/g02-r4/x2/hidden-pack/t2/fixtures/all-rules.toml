@@ -1,0 +1,76 @@
+# X2 T2 fixture: every lint rule fires at least once, plus near misses that must not fire.
+schema_version = 1
+name = "lintcase-qv"
+revision = 7
+
+[meta]
+note = "metaval-K2x9 port 80 account root"
+dup = { host = "metahost-K2x9.example.invalid", port = 23, labels = ["metalbl-K2x9", "METALBL-K2X9"] }
+
+[[destinations]]
+id = "d_alpha"
+alias = "alpha-aliaszq"
+host = "Shared-HostQ.example.invalid"
+account = "acctalpha"
+labels = ["lblzeta", "lblomega"]
+
+[[destinations]]
+id = "d_bravo"
+alias = "bravo-aliaszq"
+host = "shared-hostq.EXAMPLE.invalid"
+port = 22
+account = "root"
+labels = ["LblZeta", "lbldup", "lblpi", "lbldup", "lblpi"]
+
+[[destinations]]
+id = "d_charlie"
+alias = "charlie-aliaszq"
+host = "shared-hostq.example.invalid"
+port = 2222
+account = "Root"
+labels = ["lblomega"]
+
+[[destinations]]
+id = "d_delta"
+alias = "delta-aliaszq"
+host = "web-hostq.example.invalid"
+port = 80
+account = "acctdelta"
+labels = ["LBLZETA", "lblpi", "lblpi"]
+
+[[destinations]]
+id = "d_echo"
+alias = "echo-aliaszq"
+host = "SHARED-HOSTQ.example.invalid"
+port = 22
+account = "acctecho"
+
+[[destinations]]
+id = "d_foxtrot"
+alias = "foxtrot-aliaszq"
+host = "web-hostq.example.invalid"
+port = 1023
+account = "root"
+labels = ["lblkappa", "LBLKAPPA"]
+
+[[destinations]]
+id = "d_golf"
+alias = "golf-aliaszq"
+host = "web-hostq.example.invalid"
+port = 1024
+account = "acctgolf"
+labels = ["lblOmega"]
+
+[[destinations]]
+id = "d_hotel"
+alias = "hotel-aliaszq"
+host = "web-hostq.example.invalid"
+port = 80
+account = "accthotel"
+
+[[destinations]]
+id = "d_india"
+alias = "india-aliaszq"
+host = "höst-q.example.invalid"
+account = "acctindia"
+labels = []

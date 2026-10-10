@@ -1,0 +1,48 @@
+{
+ "case_id": "M00-T05-r4-taskpack-recheck",
+ "status": "verified",
+ "requirement_ids": [],
+ "build_commit": "repo HEAD 345c65e; pack BASE.json pins Go 84c7665, Rust 001a791, support f4ecabb",
+ "artifact_digest": "seeded-go darwin-arm64 rebuilt in workspace = pin 7ccf5a2bfe29...; seeded-go linux-arm64 = pin 3e118cb903f9...; verify-matrix pack_sha256 6265957050fa4340",
+ "environment": "darwin-arm64 host, Darwin 27.0.0; SSH_AUTH_SOCK unset; host disk 8.5 GiB free; workspace venv Python 3.14.8 with pyte 0.8.2 / wcwidth 0.9.1",
+ "provider_versions": [],
+ "started_at": "2026-10-06T15:52:00Z",
+ "finished_at": "2026-10-06T16:05:00Z",
+ "commands_or_harness": [
+  "HM_REPO=<repo> sh <hidden>/make-workspace.sh --task T4 --lang go --dest <scratch>/ws-t4go/heimdall --manifest <scratch>/man-t4go.json --test-build  (exit 0)",
+  "HM_REPO=<repo> sh <hidden>/make-workspace.sh --task T2 --lang rust --dest <scratch>/ws-t2rust/heimdall --manifest <scratch>/man-t2rust.json --test-build  (exit 0)",
+  "make-workspace.sh refusals: dest under /tmp/hm-r4 without --test-build, dest <repo>/../heimdall/tmpws, dest inside <hidden>  (exit 2 each, nothing created)",
+  "diff -r of git archive 84c7665 prototypes/go vs the T4 go workspace prototype (only internal/profile/{profile.go,k14_test.go} differ, = the seed patch files)",
+  "<ws-t4go>/prototypes/go: sh build.sh (exit 0, 4 targets); go test ./... (exit 0)",
+  "<ws-t4go>: tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go  (exit 0, 139/139 verified)",
+  "cd <repo> && HM_REPO=<repo> TASKS=T4 sh <hidden>/verify-matrix.sh <scratch>/vm-t4 darwin  (exit 0)",
+  "sh <hidden>/hidden.sh --task T4 --platform darwin --bin <ws-t4go built binary> --expect-sha256 <its sha>  (exit 1, 1/6 as seeded)",
+  "hidden.sh with a wrong --expect-sha256 (exit 2); hidden.sh with the workspace as HM_REPO (exit 2)",
+  "python3 -I <hidden>/score.py on real and crafted records (score-crafted.tsv)",
+  "python3 -I <hidden>/audit-transcript.py on 12 crafted Claude Code style JSONL transcripts (audit-crafted-cases.json, audit-crafted.tsv)",
+  "python3 -I <hidden>/scan-home.py on results/2026-10-06-pinned-base{,-2}, baseline/, evaluator-commands.json, README.md, BASE.json (exit 0) and on this directory (exit 0)"
+ ],
+ "observed_result": {
+  "workspaces": "Both contain only TASK.md, docs/g02/slice-contract.md, schemas/g02, tests/g02 (no selftest-results), tests/fixtures/{g02,fake-agent}, tests/evidence/record.schema.json and the one cell prototype; no other language, no .git, no dist, no patch/SEED files, no evidence tree, no hidden material (listings in workspace-listing-*.txt). Seeded files carry the same mtime as all other files (cp -R). Fresh venv names no repository path.",
+  "build_and_harness": "T4 go workspace: build.sh exit 0; darwin-arm64 and linux-arm64 binaries byte-identical to the seeded-go pins; go test exit 0; darwin harness 139/139 from the workspace root using the workspace venv (4 min 23 s). Linux harness inside the workspace not re-run here.",
+  "verify_matrix_T4_darwin": "seeded-go exit 1 (1/6), base-go exit 0 (6/6), seeded-rust exit 1 (1/6), base-rust exit 0 (6/6); digests equal BASE.json; inputs.txt support_commit f4ecabb, tests/g02 unchanged, image sha256:5081bb560f9b.",
+  "score": "Behaves as documented on every crafted case; refuses error checks, invalid verdicts, wrong platform, missing checks, unpinned baselines, wrong binary, unreadable JSON (exit 2). Accepts a record scored with the wrong --lang and accepts any record when --expect-sha256 is omitted.",
+  "audit": "Flags absolute, ~/, escaped and output-side references to the hidden dir, /tmp/hm-r4, repo prototypes and other workspaces. Reports CLEAN (exit 0) for relative or cd-based access: 'cd /tmp && diff -r hm-r4/seeded/go ...', 'diff -r ../../hm-r4/seeded/go prototypes/go', a /tmp/hm* glob, and '../../x2ws-<other>/...'. Workspaces under /tmp/x2ws-* are siblings of /tmp/hm-r4, which holds about 20 unseeded Go/Rust prototype copies (world-readable)."
+ },
+ "evidence_paths": [
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/verify-matrix-T4-darwin-exit-codes.tsv",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/verify-matrix-T4-darwin-inputs.txt",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/workspace-listing-ws-t4go.txt",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/workspace-listing-ws-t2rust.txt",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/audit-crafted-cases.json",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/audit-crafted.tsv",
+  "tests/evidence/artifacts/g02-r4/x2/taskpack-recheck/score-crafted.tsv"
+ ],
+ "limitations": [
+  "Only T4 was run through verify-matrix, darwin only; T1-T3 and linux rows were not re-run by this recheck (the fix round's two matrix runs were read, not repeated).",
+  "Only the T4 Go workspace was built and harness-tested; the T2 Rust workspace was built and listed but not compiled (host disk at 8.5 GiB free).",
+  "Linux harness from inside a workspace not re-run.",
+  "Crafted transcripts imitate the Claude Code JSONL shape; no real implementer session was audited.",
+  "Running verify-matrix regenerated __pycache__ in three pack directories (they embed the home path); this recheck removed exactly those three directories afterwards."
+ ]
+}

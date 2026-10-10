@@ -1,0 +1,15 @@
+Reviewer probes (M00-T05-r4-x2-review-T1-go-opus1), darwin-arm64 host, 2026-10-09.
+probe_bg_redirected.py: interactive bash --norc --noprofile -i on a pty; a background job
+with stdin/stdout/stderr redirected to /dev/null; a third party sends SIGSTOP or SIGTSTP to
+the job's process (plain exec) or to heimdall-proto's child; then `jobs -l`.
+Run as: python3 -I probe_bg_redirected.py <binary> [STOP|TSTP]; all runs exited 0.
+Binaries: "new" = the cell's dist/darwin-arm64/heimdall-proto; "base" = go build of the
+evaluator's base tree (eval/base/prototypes/go, ./cmd/heimdall-proto), build exit 0.
+Observed (see *.out.txt; workspace path replaced by <ws>):
+  STOP plain: "[1]+ Stopped", job T.   STOP new: job "Running", child T, launcher S.
+  STOP base: "Exit 255" (the darwin decode defect the change fixes).
+  TSTP plain: "[1]+ Stopped".  TSTP new: job "Running", child T, launcher S.
+  TSTP base: "[1]+ Stopped", child T, launcher T (matches plain exec).
+Conclusion: the S1 "no job-control shell is watching" heuristic misclassifies a
+background job with redirected stdio of an interactive shell; regression vs base for SIGTSTP.
+All probe processes were killed by exact PID inside the probe shell; none remained (ps exit 1).

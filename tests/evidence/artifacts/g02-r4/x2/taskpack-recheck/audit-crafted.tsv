@@ -1,0 +1,12 @@
+abs_hidden_home	1	hidden-dir tool-call: 1 line(s), first lines [1];
+abs_other_ws	1	other-workspace tool-call: 1 line(s), first lines [1];
+abs_scratch	1	round4-scratch tool-call: 1 line(s), first lines [1];
+cd_tmp_scratch	0	CLEAN;
+clean	0	CLEAN;
+escaped_json_out	1	round4-scratch tool-output: 1 line(s), first lines [2];
+find_output	1	round4-scratch tool-output: 1 line(s), first lines [2];
+glob_scratch	0	CLEAN;
+rel_other_ws	0	CLEAN;
+rel_scratch	1	task-pack tool-call: 1 line(s), first lines [1];
+rel_seeded	0	CLEAN;
+tilde_repo_proto	1	repo-prototypes tool-call: 1 line(s), first lines [1];

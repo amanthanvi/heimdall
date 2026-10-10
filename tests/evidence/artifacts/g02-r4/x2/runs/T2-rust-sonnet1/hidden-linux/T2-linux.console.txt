@@ -1,0 +1,15 @@
+hidden.sh: task=T2 platform=linux lang=rust sha256=27d940703ae87d4f1a2cbfd23465efb96b317f3518d2642724e7f81a550bbc5b started=2026-10-09T06:09:51Z
+PASS  T2.clean_homelab (0.0s)
+PASS  T2.clean_empty (0.0s)
+PASS  T2.clean_near_miss (0.0s)
+PASS  T2.all_rules_exact (0.0s)
+PASS  T2.flag_order (0.0s)
+PASS  T2.ascii_fold_only (0.0s)
+PASS  T2.spaced_unicode_path (0.0s)
+PASS  T2.plain_exit_codes (0.0s)
+PASS  T2.single_rules (0.0s)
+PASS  T2.invalid_same_as_show (0.0s)
+PASS  T2.usage_errors (0.0s)
+PASS  T2.no_writes (0.0s)
+SUMMARY T2 PASS platform=linux lang=rust {"pass": 12, "fail": 0, "error": 0, "total": 12}
+hidden.sh: exit=0 finished=2026-10-09T06:09:51Z

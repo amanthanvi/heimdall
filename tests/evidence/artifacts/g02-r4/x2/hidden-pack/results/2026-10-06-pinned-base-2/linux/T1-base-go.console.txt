@@ -1,0 +1,17 @@
+hidden.sh: task=T1 platform=linux sha256=18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96 started=2026-10-06T15:41:15Z
+PASS  T1.nonint_stop_cont_SIGSTOP (2.1s)
+PASS  T1.nonint_stop_cont_SIGTSTP (2.0s)
+FAIL  T1.pty_stop_cont_bash_SIGSTOP (15.5s) :: $? after the stop equals plain exec's (147)
+PASS  T1.pty_stop_cont_bash_SIGTSTP (15.5s)
+FAIL  T1.pty_stop_cont_zsh_SIGSTOP (15.4s) :: $? after the stop equals plain exec's (147)
+PASS  T1.pty_stop_cont_zsh_SIGTSTP (15.4s)
+PASS  T1.cont_launcher_only_bash (9.8s)
+PASS  T1.cont_launcher_only_zsh (9.8s)
+PASS  T1.nested_shell_bash (8.1s)
+PASS  T1.nested_shell_zsh (8.1s)
+FAIL  T1.sigstop_meta_bash_read (10.7s) :: $? after the stop equals plain exec's (147)
+FAIL  T1.sigstop_meta_bash_ext (10.7s) :: $? after the stop equals plain exec's (147)
+FAIL  T1.sigstop_meta_zsh_read (10.7s) :: $? after the stop equals plain exec's (147)
+FAIL  T1.sigstop_meta_zsh_ext (10.7s) :: $? after the stop equals plain exec's (147)
+SUMMARY T1 FAIL platform=linux {"pass": 8, "fail": 6, "error": 0, "total": 14}
+hidden.sh: exit=1 finished=2026-10-06T15:43:40Z

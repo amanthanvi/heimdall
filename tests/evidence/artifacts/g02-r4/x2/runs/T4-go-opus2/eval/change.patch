@@ -1,0 +1,481 @@
+diff --color -ruN -x target -x dist base/prototypes/go/REPORT.md frozen/go/REPORT.md
+--- base/prototypes/go/REPORT.md	2026-10-09 00:47:01
++++ frozen/go/REPORT.md	2026-10-09 00:47:01
+@@ -222,7 +222,7 @@
+ | K6a inherited-ignored **SIGQUIT** (also SIGTERM, SIGWINCH) | **stack limitation** | The Go runtime installs its own handler for these signals whatever the inherited disposition (`runtime/signal_unix.go` `sigInstallGoHandler` respects SIG_IGN only for SIGHUP and SIGINT). `clearSignalHandlers` then resets them to SIG_DFL in the exec'd child, and `os/signal.Ignored` reports false for them, so the original disposition cannot be read. Observed on darwin and Linux: the selftest OBSERVE line shows child `SIGQUIT=dfl`; in the informational shared-harness `run.k6a_inherited_ignore` [async-job], the child had SIGQUIT SIG_DFL and heimdall exited 131. Not routed around: guessing SIGQUIT from SIGINT is a heuristic, and `//go:linkname` to `runtime.fwdSig` is a private-API hack. A production option is a cgo constructor that reads the dispositions with `sigaction` before the runtime starts and restores SIG_IGN with `signal.Ignore`, at the cost of cgo and a dynamic libc. |
+ | K6a: controlling terminal not on stdio (round-1 known gap) | **fixed** | `controllingTTY` falls back to `/dev/tty` (O_RDONLY, O_NOCTTY, O_NONBLOCK). Because macOS answers TIOCGPGRP on pipes too, a descriptor counts as a terminal only if it is a tty and TIOCGPGRP succeeds. Proof: selftest `run.k6a_ctty_not_on_stdio_child_reads_tty`. Round 1: the child was stopped by SIGTTIN forever. After: it reads the line, exit 0. |
+ | K6 regression found during round 2 | **fixed** | The first round-2 build also treated a piped *stderr* as a pipeline, so an explicit SIGINT under the harness's pty shim (stderr piped) was not forwarded. Only stdin and stdout count now. New selftest `run.k6_foreground_explicit_sigint_once_stderr_piped` (red: red-round2-build1-stderr-piped-darwin-arm64.txt). |
+-| K14 non-regular `--file` | **fixed** | `internal/profile/profile.go` `Load` stats the path before opening, opens with O_NONBLOCK (`open_unix.go`), then checks fstat and SameFile. Proof: `TestK14NonRegularFiles` (FIFO, symlink to a FIFO, socket, directory, /dev/null). Red: the FIFO blocked for more than 2 s and /dev/null gave SCHEMA_INVALID. The TUI uses the same `Load`. |
++| K14 non-regular `--file` | **fixed** | `internal/profile/profile.go` `Load` stats the path before opening, opens with O_NONBLOCK (`open_unix.go`), then checks fstat and SameFile. Proof: `TestK14NonRegularFiles` (FIFO, symlink to a FIFO, socket, directory, /dev/null). Red: the FIFO blocked for more than 2 s and /dev/null gave SCHEMA_INVALID. The TUI uses the same `Load`. [Post-round bug fix] `Load` now checks the path with `Stat`, not `Lstat`, so a symlink (absolute, relative or chained) to a regular profile works like the file in `profile show` and `tui`; a link to a FIFO, socket, device or directory is still exit 2 within 2 s, and the O_NONBLOCK open plus fstat/SameFile re-check refuse a link retargeted between the checks. Proof: `internal/profile/symlink_test.go`, `cmd/heimdall-proto/symlink_test.go`, extended `TestK14NonRegularFiles`. |
+ | minor GODEBUG=execerrdot=0 re-enables `.` PATH matches | **fixed** | `internal/run/run.go` refuses a bare name that resolves to a relative path, whatever GODEBUG says. Proof: `TestDotPathRefusalNotEnvironmentControlled`, with PATH `.`, `:/usr/bin` and `/usr/bin::/bin` under three GODEBUG values; red: it ran. |
+ | minor FIFO `--meta-file` blocks forever | **fixed** | `cmd/heimdall-proto/meta_unix.go` opens with O_NONBLOCK: with no reader, the child's status is kept and stderr reports the lost side channel; with a reader, the JSON is delivered. Proof: `TestRunMetaFIFO`; red: blocked for more than 3 s. |
+ | minor DYLD_INSERT_LIBRARIES injects into the darwin artifact | **fixed** (local signing only) | `build.sh` runs `codesign --force --options runtime --sign -`, an ad-hoc signature with hardened runtime. Before: `INJECTED_DYLIB_LOADED`; after: not loaded (dyld-insert-darwin-arm64-*.txt). Not notarized; there is no Developer ID. The Linux artifacts are static, so LD_PRELOAD does not apply. |
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/symlink_test.go frozen/go/cmd/heimdall-proto/symlink_test.go
+--- base/prototypes/go/cmd/heimdall-proto/symlink_test.go	1969-12-31 19:00:00
++++ frozen/go/cmd/heimdall-proto/symlink_test.go	2026-10-09 00:47:01
+@@ -0,0 +1,136 @@
++//go:build darwin || linux
++
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/heimdall-g02/proto-go/internal/testfix"
++)
++
++// symlinkLayout reproduces the bug report: a profile in a dotfiles directory
++// linked into a config directory (GNU stow style), by an absolute link, a
++// relative link and a link to a link. It returns the regular file and the
++// links to it.
++func symlinkLayout(t *testing.T) (string, map[string]string) {
++	t.Helper()
++	root := t.TempDir()
++	dotfiles := filepath.Join(root, "dotfiles")
++	config := filepath.Join(root, "config ü")
++	for _, d := range []string{dotfiles, config} {
++		if err := os.MkdirAll(d, 0o700); err != nil {
++			t.Fatal(err)
++		}
++	}
++	src, err := os.ReadFile(filepath.Join(testfix.Dir(t), "homelab.toml"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	target := filepath.Join(dotfiles, "homelab.toml")
++	if err := os.WriteFile(target, src, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	links := map[string]string{
++		"absolute symlink":     filepath.Join(config, "profile.toml"),
++		"relative symlink":     filepath.Join(config, "relative.toml"),
++		"symlink to a symlink": filepath.Join(config, "chain.toml"),
++	}
++	for name, old := range map[string]string{
++		"absolute symlink":     target,
++		"relative symlink":     "../dotfiles/homelab.toml",
++		"symlink to a symlink": "relative.toml",
++	} {
++		if err := os.Symlink(old, links[name]); err != nil {
++			t.Fatal(err)
++		}
++	}
++	return target, links
++}
++
++// Bug report: `profile show --file <symlink>` exited 2 USAGE_ERROR "profile
++// path is not a regular file". A link to a regular profile must give exactly
++// the output of the file itself, with and without --json.
++func TestProfileShowSymlink(t *testing.T) {
++	target, links := symlinkLayout(t)
++	for _, jsonFlag := range [][]string{{"--json"}, nil} {
++		args := append([]string{"profile", "show", "--file", target}, jsonFlag...)
++		wantCode, wantOut, wantErr := call(args...)
++		if wantCode != 0 || wantOut == "" {
++			t.Fatalf("regular file %v: exit %d %q", jsonFlag, wantCode, wantOut)
++		}
++		if jsonFlag != nil && envelope(t, wantOut)["code"] != "PROFILE_OK" {
++			t.Fatalf("regular file: %q", wantOut)
++		}
++		for name, link := range links {
++			args := append([]string{"profile", "show", "--file", link}, jsonFlag...)
++			code, out, errS := call(args...)
++			if code != wantCode || out != wantOut || errS != wantErr {
++				t.Errorf("%s %v: exit %d stdout %q stderr %q; want exit %d stdout %q", name, jsonFlag, code, out, errS, wantCode, wantOut)
++			}
++		}
++	}
++}
++
++// K14 still holds through a link: a link to a FIFO, a directory or a device
++// is exit 2 USAGE_ERROR within 2 s; a dangling link is exit 2 USAGE_ERROR.
++func TestProfileShowSymlinkToNonRegular(t *testing.T) {
++	dir := t.TempDir()
++	fifo := filepath.Join(dir, "fifo")
++	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	for name, old := range map[string]string{
++		"fifo": fifo, "directory": dir, "char device": "/dev/null", "dangling": filepath.Join(dir, "missing.toml"),
++	} {
++		link := filepath.Join(dir, "link to "+name)
++		if err := os.Symlink(old, link); err != nil {
++			t.Fatal(err)
++		}
++		type res struct {
++			code int
++			out  string
++		}
++		done := make(chan res, 1)
++		go func() { c, o, _ := call("profile", "show", "--file", link, "--json"); done <- res{c, o} }()
++		select {
++		case r := <-done:
++			if r.code != 2 || envelope(t, r.out)["code"] != "USAGE_ERROR" {
++				t.Errorf("link to %s: exit %d %q, want 2 USAGE_ERROR", name, r.code, r.out)
++			}
++		case <-time.After(2 * time.Second):
++			t.Fatalf("link to %s: profile show still blocked after 2 s", name)
++		}
++	}
++}
++
++// Bug report: `tui --file <symlink>` exited 2 straight away. Through a link
++// the TUI must draw and quit on q with exit 0 like it does for the file, and
++// a link to a FIFO must still be refused (exit 2) without blocking.
++func TestTUISymlink(t *testing.T) {
++	dir := t.TempDir()
++	env := []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "USER=hp-test", "TERM=xterm-256color"}
++	_, links := symlinkLayout(t)
++	for name, link := range links {
++		res := runTUIFile(t, link, env)
++		if res.killed != "" || !res.drew || res.code != 0 || !res.stderrOK {
++			t.Errorf("%s: exit=%d drew=%v killed=%q no_panic_trace=%v; want a frame and exit 0", name, res.code, res.drew, res.killed, res.stderrOK)
++		}
++	}
++	fifo := filepath.Join(dir, "fifo")
++	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	link := filepath.Join(dir, "fifo-link.toml")
++	if err := os.Symlink(fifo, link); err != nil {
++		t.Fatal(err)
++	}
++	start := time.Now()
++	res := runTUIFile(t, link, env)
++	if el := time.Since(start); res.code != 2 || res.drew || el > 2*time.Second {
++		t.Errorf("symlink to FIFO: exit=%d drew=%v after %v; want exit 2 within 2 s without a frame", res.code, res.drew, el)
++	}
++}
+diff --color -ruN -x target -x dist base/prototypes/go/cmd/heimdall-proto/tui_terminfo_test.go frozen/go/cmd/heimdall-proto/tui_terminfo_test.go
+--- base/prototypes/go/cmd/heimdall-proto/tui_terminfo_test.go	2026-10-09 00:47:01
++++ frozen/go/cmd/heimdall-proto/tui_terminfo_test.go	2026-10-09 00:47:01
+@@ -35,9 +35,16 @@
+ 
+ func runTUIEnv(t *testing.T, env []string) tuiEnvRun {
+ 	t.Helper()
++	return runTUIFile(t, filepath.Join(testfix.Dir(t), "homelab.toml"), env)
++}
++
++// runTUIFile runs `tui --file file` like runTUIEnv; it presses q once the
++// first frame is drawn and kills the process only on the watchdog.
++func runTUIFile(t *testing.T, file string, env []string) tuiEnvRun {
++	t.Helper()
+ 	r := startPTY(t)
+ 	defer r.master.Close()
+-	cmd := exec.Command(os.Args[0], "tui", "--file", filepath.Join(testfix.Dir(t), "homelab.toml"))
++	cmd := exec.Command(os.Args[0], "tui", "--file", file)
+ 	cmd.Env = append([]string{"HP_AS_MAIN=1"}, env...)
+ 	cmd.Stdin, cmd.Stdout, cmd.Stderr = r.slave, r.slave, r.slave
+ 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/k14_test.go frozen/go/internal/profile/k14_test.go
+--- base/prototypes/go/internal/profile/k14_test.go	2026-10-09 00:47:01
++++ frozen/go/internal/profile/k14_test.go	2026-10-09 00:47:01
+@@ -31,13 +31,27 @@
+ 		t.Fatal(err)
+ 	}
+ 	defer l.Close()
+-	link := filepath.Join(dir, "link-to-fifo.toml")
+-	if err := os.Symlink(fifo, link); err != nil {
+-		t.Fatal(err)
++	// Load follows symlinks (see Load), so a link must be judged by its
++	// final target: a link to anything non-regular is still K14.
++	links := map[string]string{
++		"symlink to fifo":            fifo,
++		"relative symlink to fifo":   "fifo ü.toml",
++		"symlink to unix socket":     sock,
++		"symlink to directory":       dir,
++		"symlink to char device":     "/dev/null",
++		"symlink to symlink to fifo": filepath.Join(dir, "link-symlink to fifo"),
+ 	}
+-	for name, path := range map[string]string{
+-		"fifo": fifo, "symlink to fifo": link, "unix socket": sock, "directory": dir, "char device": "/dev/null",
+-	} {
++	cases := map[string]string{
++		"fifo": fifo, "unix socket": sock, "directory": dir, "char device": "/dev/null",
++	}
++	for name, target := range links {
++		link := filepath.Join(dir, "link-"+name)
++		if err := os.Symlink(target, link); err != nil {
++			t.Fatal(err)
++		}
++		cases[name] = link
++	}
++	for name, path := range cases {
+ 		done := make(chan *Error, 1)
+ 		start := time.Now()
+ 		go func() { _, e := Load(path); done <- e }()
+@@ -52,21 +66,5 @@
+ 		case <-time.After(2 * time.Second):
+ 			t.Errorf("%s: Load still blocked after 2 s", name)
+ 		}
+-	}
+-	// A symlink is refused even when it points to a regular file: the
+-	// regular-file check does not follow links (see Load).
+-	reg := filepath.Join(dir, "ok.toml")
+-	if err := os.WriteFile(reg, []byte("schema_version = 1\nname = \"x\"\nrevision = 1\n"), 0o600); err != nil {
+-		t.Fatal(err)
+-	}
+-	if _, e := Load(reg); e != nil {
+-		t.Fatalf("regular file: %+v", e)
+-	}
+-	rl := filepath.Join(dir, "ok-link.toml")
+-	if err := os.Symlink(reg, rl); err != nil {
+-		t.Fatal(err)
+-	}
+-	if _, e := Load(rl); e == nil || e.Code != result.UsageError {
+-		t.Fatalf("symlink to regular file: got %+v, want USAGE_ERROR", e)
+ 	}
+ }
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/open_unix.go frozen/go/internal/profile/open_unix.go
+--- base/prototypes/go/internal/profile/open_unix.go	2026-10-09 00:47:01
++++ frozen/go/internal/profile/open_unix.go	2026-10-09 00:47:01
+@@ -8,8 +8,11 @@
+ )
+ 
+ // openNoBlock opens read-only without blocking: O_NONBLOCK keeps open(2) of
+-// a FIFO without a writer from waiting (K14). It has no effect on reads of
+-// the regular file Load accepts.
++// a FIFO without a writer from waiting (K14), also when a symlink is
++// retargeted to one after Load's Stat check. O_NOCTTY keeps a path swapped to
++// a terminal device in that window from becoming the controlling terminal;
++// Load's fstat check then refuses it. Neither flag affects reads of the
++// regular file Load accepts.
+ func openNoBlock(path string) (*os.File, error) {
+-	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
++	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOCTTY, 0)
+ }
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/open_windows.go frozen/go/internal/profile/open_windows.go
+--- base/prototypes/go/internal/profile/open_windows.go	2026-10-09 00:47:01
++++ frozen/go/internal/profile/open_windows.go	2026-10-09 00:47:01
+@@ -4,7 +4,8 @@
+ 
+ import "os"
+ 
+-// openNoBlock: Load has already refused non-regular paths (named pipes,
+-// devices, directories) by Stat, so a plain open cannot block on Windows.
++// openNoBlock: Load has already refused non-regular targets (named pipes,
++// devices, directories, links to them) by Stat, and re-checks the open
++// handle with fstat and SameFile, so a plain open cannot block on Windows.
+ // COMPILE-CHECKED ONLY.
+ func openNoBlock(path string) (*os.File, error) { return os.Open(path) }
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/profile.go frozen/go/internal/profile/profile.go
+--- base/prototypes/go/internal/profile/profile.go	2026-10-09 00:47:01
++++ frozen/go/internal/profile/profile.go	2026-10-09 00:47:01
+@@ -64,15 +64,23 @@
+ 
+ // Load reads and validates a profile file. Files larger than MaxBytes are
+ // rejected before parsing; the read itself is bounded too (no trust in stat).
+-// Anything that is not a regular file (FIFO, socket, device, symlink,
+-// directory) is a usage error and is never read or waited on (K14): the path
+-// is checked before opening, opened without blocking, and the open descriptor
+-// is checked again so a swap between the two checks cannot make Load block.
+-// The first check uses Lstat: following a symlink here would let its target be
+-// retargeted to a FIFO or device between the check and the open.
++//
++// Symbolic links are followed, so a link (absolute or relative, or a chain
++// of links) to a regular file behaves exactly like that file; dotfile
++// managers such as GNU stow link profiles into place.
++//
++// Anything whose final target is not a regular file (FIFO, socket, device,
++// directory, including a link to one) is a usage error and is never read or
++// waited on (K14). A dangling or looping link cannot be opened and is a usage
++// error too. Following links does not weaken K14: the target is checked
++// before opening, then opened without blocking (open_unix.go: O_NONBLOCK, so
++// a link retargeted to a FIFO between the check and the open cannot block
++// it), and the open descriptor is checked again with fstat. It must still be
++// a regular file and the same file the first check saw, so a swap between
++// the checks is refused before any byte is read.
+ func Load(path string) (*Profile, *Error) {
+ 	notRegular := &Error{Code: result.UsageError, Message: "profile path is not a regular file"}
+-	st, err := os.Lstat(path)
++	st, err := os.Stat(path)
+ 	if err != nil {
+ 		return nil, &Error{Code: result.UsageError, Message: "profile file cannot be opened"}
+ 	}
+diff --color -ruN -x target -x dist base/prototypes/go/internal/profile/symlink_test.go frozen/go/internal/profile/symlink_test.go
+--- base/prototypes/go/internal/profile/symlink_test.go	1969-12-31 19:00:00
++++ frozen/go/internal/profile/symlink_test.go	2026-10-09 00:47:01
+@@ -0,0 +1,179 @@
++//go:build !windows
++
++package profile
++
++import (
++	"os"
++	"path/filepath"
++	"reflect"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/heimdall-g02/proto-go/internal/result"
++	"github.com/heimdall-g02/proto-go/internal/testfix"
++)
++
++// Bug report "profile show and tui reject my profile when the path is a
++// symlink": a symlink to a regular profile (dotfiles linked into place, GNU
++// stow style) must load exactly like the file it points to. Red before the
++// fix: every link case below was USAGE_ERROR "profile path is not a regular
++// file", because Load checked the path with Lstat.
++func TestLoadFollowsSymlinkToRegularFile(t *testing.T) {
++	root := t.TempDir()
++	dotfiles := filepath.Join(root, "dot files ü")
++	config := filepath.Join(root, "config")
++	nested := filepath.Join(config, "nested")
++	for _, d := range []string{dotfiles, nested} {
++		if err := os.MkdirAll(d, 0o700); err != nil {
++			t.Fatal(err)
++		}
++	}
++	src, err := os.ReadFile(filepath.Join(testfix.Dir(t), "homelab.toml"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	target := filepath.Join(dotfiles, "homelab.toml")
++	if err := os.WriteFile(target, src, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	want, e := Load(target)
++	if e != nil {
++		t.Fatalf("regular file: %+v", e)
++	}
++
++	symlink := func(oldname, newname string) string {
++		t.Helper()
++		if err := os.Symlink(oldname, newname); err != nil {
++			t.Fatal(err)
++		}
++		return newname
++	}
++	abs := symlink(target, filepath.Join(config, "profile.toml"))
++	rel := symlink("../dot files ü/homelab.toml", filepath.Join(config, "relative.toml"))
++	chain := symlink("../relative.toml", filepath.Join(nested, "chain.toml"))
++	dirLink := symlink(dotfiles, filepath.Join(config, "linked-dir"))
++	cases := map[string]string{
++		"absolute symlink":           abs,
++		"relative symlink":           rel,
++		"symlink to a symlink":       chain,
++		"path through a dir symlink": filepath.Join(dirLink, "homelab.toml"),
++	}
++	for name, path := range cases {
++		got, e := Load(path)
++		if e != nil {
++			t.Errorf("%s: got %+v, want the profile", name, e)
++			continue
++		}
++		if !reflect.DeepEqual(got, want) {
++			t.Errorf("%s: loaded %+v, want %+v", name, got, want)
++		}
++	}
++
++	// A link to a file that violates the schema reports the schema error
++	// of that file, exactly like the file itself.
++	bad := filepath.Join(dotfiles, "bad.toml")
++	if err := os.WriteFile(bad, []byte("schema_version = 2\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, wantErr := Load(bad)
++	_, gotErr := Load(symlink(bad, filepath.Join(config, "bad.toml")))
++	if wantErr == nil || gotErr == nil || !reflect.DeepEqual(gotErr, wantErr) {
++		t.Errorf("symlink to schema-invalid file: got %+v, want %+v", gotErr, wantErr)
++	}
++
++	// A link to an oversize regular file is INPUT_TOO_LARGE, like the file.
++	big := filepath.Join(dotfiles, "big.toml")
++	if err := os.WriteFile(big, make([]byte, MaxBytes+1), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, e := Load(symlink(big, filepath.Join(config, "big.toml"))); e == nil || e.Code != result.InputTooLarge {
++		t.Errorf("symlink to oversize file: got %+v, want INPUT_TOO_LARGE", e)
++	}
++}
++
++// Links that cannot be resolved to a file are usage errors, promptly.
++func TestLoadUnresolvableSymlinks(t *testing.T) {
++	dir := t.TempDir()
++	dangling := filepath.Join(dir, "dangling.toml")
++	if err := os.Symlink(filepath.Join(dir, "missing.toml"), dangling); err != nil {
++		t.Fatal(err)
++	}
++	loopA, loopB := filepath.Join(dir, "a.toml"), filepath.Join(dir, "b.toml")
++	if err := os.Symlink(loopB, loopA); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(loopA, loopB); err != nil {
++		t.Fatal(err)
++	}
++	for name, path := range map[string]string{"dangling symlink": dangling, "symlink loop": loopA} {
++		start := time.Now()
++		if _, e := Load(path); e == nil || e.Code != result.UsageError {
++			t.Errorf("%s: got %+v, want USAGE_ERROR", name, e)
++		}
++		if el := time.Since(start); el > 2*time.Second {
++			t.Errorf("%s: took %v", name, el)
++		}
++	}
++}
++
++// The open-time check still holds after following links: if the link is
++// retargeted to a FIFO after the Stat check, the non-blocking open does not
++// wait and the fstat/SameFile check refuses it. The race window cannot be
++// hit deterministically from outside, so this exercises the same sequence
++// Load performs (Stat a regular target, then open the retargeted link).
++func TestLoadRetargetedSymlinkDoesNotBlock(t *testing.T) {
++	dir := t.TempDir()
++	reg := filepath.Join(dir, "ok.toml")
++	if err := os.WriteFile(reg, []byte("schema_version = 1\nname = \"x\"\nrevision = 1\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	fifo := filepath.Join(dir, "fifo")
++	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	link := filepath.Join(dir, "link.toml")
++	if err := os.Symlink(reg, link); err != nil {
++		t.Fatal(err)
++	}
++	st, err := os.Stat(link)
++	if err != nil || !st.Mode().IsRegular() {
++		t.Fatalf("stat: %v %v", st, err)
++	}
++	tmp := filepath.Join(dir, "link.tmp")
++	if err := os.Symlink(fifo, tmp); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Rename(tmp, link); err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan error, 1)
++	go func() {
++		f, err := openNoBlock(link)
++		if err != nil {
++			done <- err
++			return
++		}
++		defer f.Close()
++		fst, err := f.Stat()
++		if err != nil {
++			done <- err
++			return
++		}
++		if fst.Mode().IsRegular() || os.SameFile(st, fst) {
++			t.Errorf("retargeted link passed the open-time check: %v", fst.Mode())
++		}
++		done <- nil
++	}()
++	select {
++	case err := <-done:
++		if err != nil {
++			t.Fatal(err)
++		}
++	case <-time.After(2 * time.Second):
++		t.Fatal("open of a symlink retargeted to a FIFO blocked")
++	}
++	if _, e := Load(link); e == nil || e.Code != result.UsageError {
++		t.Fatalf("symlink now pointing to a FIFO: got %+v, want USAGE_ERROR", e)
++	}
++}

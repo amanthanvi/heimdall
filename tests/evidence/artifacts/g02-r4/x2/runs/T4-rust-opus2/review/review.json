@@ -1,0 +1,21 @@
+{
+  "cell": "T4-rust-opus2",
+  "reviewer_task": "M00-T05-r4-x2-review-T4-rust-opus2",
+  "reviewed": "implementer-out/diff.patch against TASK.md (T4) and prototypes/rust/ in the frozen workspace",
+  "spec_conformance": 5,
+  "test_quality": 5,
+  "clarity": 5,
+  "defects": [
+    {"severity": "minor", "location": "prototypes/rust/src/profile.rs unit test symlink_to_regular_file_loads_like_the_file", "description": "Uses std::env::temp_dir()/hp-rs-link-<pid> with cleanup only on success, so a failing assertion leaks the directory (FIFO included). This copies the neighbouring test's pattern; a drop guard would be more robust. The name also undersells the case, because it asserts rejections (to-dir, to-fifo, dangling) too."},
+    {"severity": "minor", "location": "prototypes/rust/REPORT.md section 17", "description": "Windows symlink behaviour (pre-check via metadata, then GetFileType) is not exercised natively. The report says so; this is blocked on a Windows host, not a code fault. The red-proof claims (pre-fix failures) are the implementer's statements and the reviewer did not reproduce them; the unit test was admittedly not red-proved."}
+  ],
+  "observations": [
+    "Root cause correctly identified: the pre-open check used symlink_metadata, which rejects a final symlink. Fix: std::fs::metadata (follows links). The authoritative K14 check (O_NONBLOCK open plus fstat; GetFileType on Windows) is unchanged, so following links opens no K14 hole. This matches tests/g02/reference_impl.py load_profile_file (open, then fstat).",
+    "O_NOCTTY hardening is sound: a link swapped to a tty in the check-open window cannot become the controlling terminal before fstat rejects it.",
+    "A pre-check/open race to a non-FIFO device existed before for plain paths; it is not a regression.",
+    "Error paths: dangling link and loop fail metadata and fall through to open, giving USAGE_ERROR 'cannot open profile file: <kind>'. No path or content is echoed beyond the existing io kind.",
+    "Tests: the cli test gives byte-identical stdout/stderr/exit for absolute, relative, chained and via-symlinked-directory paths, valid and invalid profiles, with and without --json. K14 is extended to links to a FIFO, dir, /dev/null and socket, plus relative and chained FIFO links. The pty case covers tui through absolute and relative links, and a FIFO link at exit 2 under 2 s with no alternate screen. The old wrong assertion (link to regular file is exit 2) was removed.",
+    "Read-only probe (observed, darwin-arm64 dist binary, disposable temp dir): profile show --json gave PROFILE_OK for a relative link and for a file through a symlinked directory, and USAGE_ERROR for a link to a FIFO, a link to /dev/tty and a link to a directory. Per-command exit codes were not captured in this probe (zsh PIPESTATUS misuse); codes were read from the JSON envelope."
+  ],
+  "summary": "Minimal, correct fix with strong regression tests. It keeps K14 authoritative on the opened descriptor and adds sensible O_NOCTTY hardening. Only minor test hygiene and native-Windows coverage limits."
+}

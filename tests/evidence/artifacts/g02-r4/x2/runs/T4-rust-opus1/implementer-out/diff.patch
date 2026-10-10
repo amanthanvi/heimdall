@@ -1,0 +1,408 @@
+diff --git a/prototypes/rust/REPORT.md b/prototypes/rust/REPORT.md
+index dc43aa1..09fe1ba 100644
+--- a/prototypes/rust/REPORT.md
++++ b/prototypes/rust/REPORT.md
+@@ -761,3 +761,50 @@ reproduced exactly.
+   the round-3c bytes.
+ - Windows: see the tables above. The evidence directory contains no full canary value and no user name, host
+   name or home path. Placeholders are `<scratch>`, `<repo>`, `<home>` and `S-1-5-21-<redacted>`.
++
++## 17. Bug fix: symlinked `--file` refused (X2 T4)
++
++**Report:** `profile show --file <link>` and `tui --file <link>` exited 2 `USAGE_ERROR` "profile path is
++not a regular file" when the path was a symbolic link (absolute or relative) to a regular profile, as in a
++GNU stow dotfiles layout. Reproduced on the pre-fix darwin binary.
++
++**Cause:** `profile::read_bounded` ran a pre-open check with `std::fs::symlink_metadata`, which does not
++follow the final link, so a link to a regular file was classified as "not a regular file". The comment
++justified this as closing a check/open race, but it never did: `open` follows links anyway, and a plain
++path can be renamed between check and open just as well. K14 (§9.1) lists FIFO, socket, device and
++directory; it does not exclude links.
++
++**Fix (`src/profile.rs`):**
++- The pre-open check now uses `std::fs::metadata` (follows links). It is an advisory fast path that gives
++  the precise message ("is a directory" / "not a regular file", and refuses a socket, which cannot be
++  opened). A dangling link or a link loop falls through to the open and is `USAGE_ERROR`
++  "cannot open profile file: …".
++- The authoritative K14 check is unchanged: the open never blocks (`O_NONBLOCK`), then `fstat` on the
++  opened handle (Windows: `GetFileType` + handle metadata) refuses anything but a regular file. A link
++  retargeted to a FIFO or device after the pre-check is therefore still refused at once.
++- `O_NOCTTY` was added to the open: a terminal device that slips past the pre-check in such a race can no
++  longer become the controlling terminal before it is refused.
++- `tui` uses the same `profile::load_file`, so it is fixed by the same change.
++
++**Tests:**
++- `src/profile.rs` `symlinks_are_followed_but_k14_still_applies` (unit, Unix): absolute, relative and
++  chained links load the same `Profile` as the file; links to a directory and `/dev/null` keep their K14
++  messages; dangling link and loop are `USAGE_ERROR`.
++- `tests/cli.rs` `profile_show_follows_symlinks_to_regular_files`: absolute, relative, chained and
++  through-a-linked-directory links give byte-identical exit status, stdout and stderr to the file itself,
++  with and without `--json`; an invalid profile behind a link gives the same `SCHEMA_INVALID` output.
++  The old assertion that a link is refused was removed from `k14_non_regular_profile_files` (which now also
++  checks the non-`--json` form through the new `assert_k14_usage_error` helper).
++- `tests/cli.rs` `k14_symlinks_to_non_regular_files`: links (direct and chained) to a FIFO without a
++  writer, a socket, `/dev/null`, a directory (absolute and relative), a dangling link and a loop are exit 2
++  `USAGE_ERROR` within 2 s, with and without `--json`.
++- `tests/pty_tui.py` `tui-symlinked-profile` (absolute, relative, chained link: list drawn, `q` exits 0)
++  and `k14-tui-symlink-to-fifo-usage-error` (exit 2 within 2 s, no alternate screen).
++- Red on the pre-fix binary: `profile_show_follows_symlinks_to_regular_files` failed (exit 101) and
++  `tui-symlinked-profile` failed; the K14-through-links tests passed there too (the old code refused all
++  links).
++
++**Not covered:** Windows symlinks were not exercised (no Windows host in this task; creating them needs
++Developer Mode or the privilege). The Windows code path is the same `metadata` + `GetFileType` sequence and
++compiles (`cargo clippy --target x86_64-pc-windows-gnu`), but that is not native evidence. The check/open
++retarget race is argued from the code, not forced by a test.
+diff --git a/prototypes/rust/src/profile.rs b/prototypes/rust/src/profile.rs
+index ba7792b..474d664 100644
+--- a/prototypes/rust/src/profile.rs
++++ b/prototypes/rust/src/profile.rs
+@@ -85,28 +85,37 @@ impl Profile {
+ 
+ /// Open `path` for reading without ever blocking: on Unix with O_NONBLOCK, so a FIFO
+ /// without a writer (or a device) opens at once and is then rejected by the
+-/// regular-file check in [`read_bounded`] (contract §9.1 K14). On Windows, opening a
+-/// named pipe never waits (no free instance fails with ERROR_PIPE_BUSY); a pipe that
+-/// did open is rejected by the `GetFileType` check in [`read_bounded`] (§9.6).
++/// regular-file check in [`read_bounded`] (contract §9.1 K14). O_NOCTTY keeps a
++/// terminal device that slipped past the path check (e.g. a symlink retargeted after
++/// it) from becoming the controlling terminal before it is refused. On Windows,
++/// opening a named pipe never waits (no free instance fails with ERROR_PIPE_BUSY); a
++/// pipe that did open is rejected by the `GetFileType` check in [`read_bounded`] (§9.6).
+ fn open_nonblocking(path: &Path) -> std::io::Result<File> {
+     let mut o = std::fs::OpenOptions::new();
+     o.read(true);
+     #[cfg(unix)]
+     {
+         use std::os::unix::fs::OpenOptionsExt;
+-        o.custom_flags(libc::O_NONBLOCK);
++        o.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+     }
+     o.open(path)
+ }
+ 
+-/// Read a profile file with the size bound applied before parsing. Anything that is
+-/// not a regular file (FIFO, socket, device, symlink, directory) is a usage error (K14).
++/// Read a profile file with the size bound applied before parsing. Symbolic links are
++/// followed: a link (absolute or relative, possibly chained) to a regular file is
++/// that file. Anything whose final target is not a regular file (FIFO, socket,
++/// device, directory) is a usage error (K14).
+ pub fn read_bounded(path: &Path) -> Result<Vec<u8>, ProfileError> {
+-    // Check the path itself before opening it. `symlink_metadata` does not follow a
+-    // final symlink: following it here would let the link be retargeted to a FIFO or
+-    // device between this check and the open.
+-    if let Ok(m) = std::fs::symlink_metadata(path)
+-        && !m.file_type().is_file()
++    // Fast path before opening: follow links and refuse a target that is plainly not
++    // a regular file, with a precise message (a socket cannot even be opened). This
++    // check is advisory only: the path, or any link on it, can be retargeted between
++    // here and the open. The authoritative check is the one on the *opened handle*
++    // below (fstat on Unix, GetFileType + metadata on Windows), and the open itself
++    // never blocks (O_NONBLOCK), so a retarget to a FIFO or device is still refused
++    // at once. A dangling link or a link loop falls through to the open, which fails
++    // with a usage error.
++    if let Ok(m) = std::fs::metadata(path)
++        && !m.is_file()
+     {
+         return Err(ProfileError::new(
+             Code::UsageError,
+@@ -768,4 +777,54 @@ mod tests {
+         assert_eq!(load_file(&dir).unwrap_err().code, Code::UsageError);
+         std::fs::remove_dir_all(&dir).unwrap();
+     }
++
++    /// Bug report: a symlinked profile (dotfiles / GNU stow layout) was refused as
++    /// "not a regular file". A link to a regular file loads exactly like the file;
++    /// a link whose final target is not a regular file is still a usage error (K14).
++    #[cfg(unix)]
++    #[test]
++    fn symlinks_are_followed_but_k14_still_applies() {
++        use std::os::unix::fs::symlink;
++        let dir = std::env::temp_dir().join(format!("hp-rs-link-{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&dir);
++        std::fs::create_dir_all(dir.join("dotfiles")).unwrap();
++        std::fs::create_dir_all(dir.join("config")).unwrap();
++        let target = dir.join("dotfiles/homelab.toml");
++        std::fs::copy(fixtures().join("homelab.toml"), &target).unwrap();
++        let want = load_file(&target).unwrap();
++
++        let abs = dir.join("config/profile.toml");
++        symlink(&target, &abs).unwrap();
++        let rel = dir.join("config/relative.toml");
++        symlink("../dotfiles/homelab.toml", &rel).unwrap();
++        let chain = dir.join("config/chain.toml");
++        symlink("profile.toml", &chain).unwrap();
++        for link in [&abs, &rel, &chain] {
++            assert_eq!(load_file(link).as_ref(), Ok(&want), "{}", link.display());
++        }
++
++        let sub = dir.join("subdir");
++        std::fs::create_dir(&sub).unwrap();
++        let to_dir = dir.join("config/to-dir.toml");
++        symlink(&sub, &to_dir).unwrap();
++        let to_dev = dir.join("config/to-devnull.toml");
++        symlink("/dev/null", &to_dev).unwrap();
++        let dangling = dir.join("config/dangling.toml");
++        symlink("../dotfiles/missing.toml", &dangling).unwrap();
++        let loop_a = dir.join("config/loop-a.toml");
++        symlink("loop-b.toml", &loop_a).unwrap();
++        symlink("loop-a.toml", dir.join("config/loop-b.toml")).unwrap();
++        let e = load_file(&to_dir).unwrap_err();
++        assert_eq!(e.code, Code::UsageError);
++        assert_eq!(e.message, "profile path is a directory");
++        let e = load_file(&to_dev).unwrap_err();
++        assert_eq!(e.code, Code::UsageError);
++        assert_eq!(e.message, "profile path is not a regular file");
++        for p in [&dangling, &loop_a] {
++            let e = load_file(p).unwrap_err();
++            assert_eq!(e.code, Code::UsageError, "{}", p.display());
++            assert!(e.message.starts_with("cannot open profile file"), "{e:?}");
++        }
++        std::fs::remove_dir_all(&dir).unwrap();
++    }
+ }
+diff --git a/prototypes/rust/tests/cli.rs b/prototypes/rust/tests/cli.rs
+index 890343e..e329ec0 100644
+--- a/prototypes/rust/tests/cli.rs
++++ b/prototypes/rust/tests/cli.rs
+@@ -1153,6 +1153,47 @@ fn meta_file_fifo_never_blocks() {
+     assert_eq!(v["data"]["exit_code"], 5);
+ }
+ 
++/// `profile show --file <p>` (with or without `--json`), stdin closed. Panics if the
++/// process is still running after 2 s (K14: it must never block on the input).
++fn profile_show_within_2s(p: &Path, json: bool) -> Output {
++    let mut c = cmd();
++    c.args(["profile", "show", "--file"]).arg(p);
++    if json {
++        c.arg("--json");
++    }
++    let mut c = c
++        .stdin(Stdio::null())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .unwrap();
++    let t = Instant::now();
++    while c.try_wait().unwrap().is_none() && t.elapsed() < Duration::from_secs(2) {
++        std::thread::sleep(Duration::from_millis(10));
++    }
++    if c.try_wait().unwrap().is_none() {
++        let _ = c.kill();
++        let _ = c.wait();
++        panic!("{}: still running after 2 s", p.display());
++    }
++    c.wait_with_output().unwrap()
++}
++
++/// Asserts the K14 outcome: exit 2 `USAGE_ERROR` (one JSON document with `--json`,
++/// a stderr diagnostic and no stdout without it).
++fn assert_k14_usage_error(p: &Path) {
++    let o = profile_show_within_2s(p, true);
++    assert_eq!(o.status.code(), Some(2), "{} --json", p.display());
++    let v = one_json(&o);
++    assert_eq!(v["code"], "USAGE_ERROR", "{} --json", p.display());
++    assert_eq!(v["state"], "failed", "{} --json", p.display());
++    let o = profile_show_within_2s(p, false);
++    assert_eq!(o.status.code(), Some(2), "{}", p.display());
++    assert!(o.stdout.is_empty(), "{}: no stdout on failure", p.display());
++    let err = String::from_utf8_lossy(&o.stderr);
++    assert!(err.contains("USAGE_ERROR"), "{}: {err}", p.display());
++}
++
+ /// K14: a --file that is not a regular file is USAGE_ERROR within 2 s; the program
+ /// never blocks on it (FIFO without a writer, directory, character device, socket).
+ #[test]
+@@ -1170,39 +1211,94 @@ fn k14_non_regular_profile_files() {
+         Path::new("/dev/null"),
+         sock.as_path(),
+     ] {
+-        let mut c = cmd()
+-            .args(["profile", "show", "--json", "--file"])
+-            .arg(p)
+-            .stdout(Stdio::piped())
+-            .stderr(Stdio::piped())
+-            .spawn()
+-            .unwrap();
+-        let t = Instant::now();
+-        while c.try_wait().unwrap().is_none() && t.elapsed() < Duration::from_secs(2) {
+-            std::thread::sleep(Duration::from_millis(10));
++        assert_k14_usage_error(p);
++    }
++}
++
++/// Bug report "profile show and tui reject my profile when the path is a symlink":
++/// a symbolic link to a regular profile file (absolute, relative, a link to a link,
++/// a path through a linked directory) behaves exactly like the file itself, with
++/// and without `--json`: same exit status, same stdout, same stderr.
++#[test]
++fn profile_show_follows_symlinks_to_regular_files() {
++    let d = TempDir::new("plink");
++    let dot = d.path().join("dotfiles");
++    let cfg = d.path().join("config");
++    std::fs::create_dir(&dot).unwrap();
++    std::fs::create_dir(&cfg).unwrap();
++    let target = dot.join("homelab.toml");
++    std::fs::copy(fixtures().join("homelab.toml"), &target).unwrap();
++    let abs = cfg.join("profile.toml");
++    std::os::unix::fs::symlink(&target, &abs).unwrap();
++    let rel = cfg.join("relative.toml");
++    std::os::unix::fs::symlink("../dotfiles/homelab.toml", &rel).unwrap();
++    let chain = cfg.join("chain.toml");
++    std::os::unix::fs::symlink("profile.toml", &chain).unwrap();
++    std::os::unix::fs::symlink("../dotfiles", cfg.join("dotlink")).unwrap();
++    let via_dir = cfg.join("dotlink").join("homelab.toml");
++    // An invalid profile behind a link reports the same schema error as the file.
++    let bad = dot.join("bad.toml");
++    std::fs::copy(fixtures().join("invalid-port.toml"), &bad).unwrap();
++    let bad_link = cfg.join("bad.toml");
++    std::os::unix::fs::symlink(&bad, &bad_link).unwrap();
++
++    for json in [true, false] {
++        let want = profile_show_within_2s(&target, json);
++        assert_eq!(want.status.code(), Some(0), "regular file, json={json}");
++        if json {
++            assert_eq!(one_json(&want)["code"], "PROFILE_OK");
+         }
+-        if c.try_wait().unwrap().is_none() {
+-            let _ = c.kill();
+-            let _ = c.wait();
+-            panic!("{}: still running after 2 s", p.display());
++        for link in [&abs, &rel, &chain, &via_dir] {
++            let got = profile_show_within_2s(link, json);
++            let what = format!("{} json={json}", link.display());
++            assert_eq!(got.status.code(), want.status.code(), "{what}");
++            assert_eq!(got.stdout, want.stdout, "{what}: stdout");
++            assert_eq!(got.stderr, want.stderr, "{what}: stderr");
+         }
+-        let o = c.wait_with_output().unwrap();
+-        assert_eq!(o.status.code(), Some(2), "{}", p.display());
+-        assert_eq!(one_json(&o)["code"], "USAGE_ERROR", "{}", p.display());
++        let want = profile_show_within_2s(&bad, json);
++        let got = profile_show_within_2s(&bad_link, json);
++        assert_eq!(want.status.code(), Some(2), "invalid file, json={json}");
++        assert_eq!(
++            got.status.code(),
++            want.status.code(),
++            "bad link json={json}"
++        );
++        assert_eq!(got.stdout, want.stdout, "bad link json={json}: stdout");
++        assert_eq!(got.stderr, want.stderr, "bad link json={json}: stderr");
+     }
+-    // A symlink is refused even when it points to a regular file: the regular-file
+-    // check does not follow links (see profile::read_bounded).
+-    let reg = d.path().join("ok.toml");
+-    std::fs::write(&reg, "schema_version = 1\nname = \"x\"\nrevision = 1\n").unwrap();
+-    let link = d.path().join("ok-link.toml");
+-    std::os::unix::fs::symlink(&reg, &link).unwrap();
+-    for (p, want) in [(&reg, 0), (&link, 2)] {
+-        let o = cmd()
+-            .args(["profile", "show", "--json", "--file"])
+-            .arg(p)
+-            .output()
+-            .unwrap();
+-        assert_eq!(o.status.code(), Some(want), "{}", p.display());
++}
++
++/// K14 still holds through links: a link whose final target is not a regular file
++/// (FIFO without a writer, socket, device, directory; directly or via a chain), a
++/// dangling link and a link loop are exit 2 USAGE_ERROR within 2 s.
++#[test]
++fn k14_symlinks_to_non_regular_files() {
++    let d = TempDir::new("k14l");
++    let fifo = d.path().join("fifo");
++    mkfifo(&fifo);
++    let sock = d.path().join("p.sock");
++    let _l = UnixListener::bind(&sock).unwrap();
++    let dir = d.path().join("a dir");
++    std::fs::create_dir(&dir).unwrap();
++    let link = |name: &str, to: &Path| {
++        let l = d.path().join(name);
++        std::os::unix::fs::symlink(to, &l).unwrap();
++        l
++    };
++    let to_fifo = link("to-fifo.toml", &fifo);
++    let links = [
++        to_fifo.clone(),
++        link("to-fifo-chain.toml", &to_fifo),
++        link("to-sock.toml", &sock),
++        link("to-devnull.toml", Path::new("/dev/null")),
++        link("to-dir.toml", &dir),
++        link("to-dir-rel.toml", Path::new("a dir")),
++        link("dangling.toml", &d.path().join("missing.toml")),
++        link("loop-a.toml", &d.path().join("loop-b.toml")),
++        link("loop-b.toml", &d.path().join("loop-a.toml")),
++    ];
++    for l in &links {
++        assert_k14_usage_error(l);
+     }
+ }
+ 
+diff --git a/prototypes/rust/tests/pty_tui.py b/prototypes/rust/tests/pty_tui.py
+index 1031dc8..aff7a94 100644
+--- a/prototypes/rust/tests/pty_tui.py
++++ b/prototypes/rust/tests/pty_tui.py
+@@ -731,6 +731,54 @@ def t_k14_tui(b):
+     return f"tui --file <FIFO without writer> -> exit 2 in {dt:.2f}s, no alternate screen"
+ 
+ 
++def stow_layout():
++    """dotfiles/homelab.toml plus config/ links to it (absolute, relative, chained),
++    as a GNU stow style dotfiles setup has them. Returns the link paths."""
++    base = os.path.join(TMP, "stow layout")
++    dot, cfg = os.path.join(base, "dotfiles"), os.path.join(base, "config")
++    if not os.path.isdir(cfg):
++        os.makedirs(dot)
++        os.makedirs(cfg)
++        with open(FIX / "homelab.toml", "rb") as src, open(os.path.join(dot, "homelab.toml"), "wb") as dst:
++            dst.write(src.read())
++        os.symlink(os.path.join(dot, "homelab.toml"), os.path.join(cfg, "profile.toml"))
++        os.symlink("../dotfiles/homelab.toml", os.path.join(cfg, "relative.toml"))
++        os.symlink("profile.toml", os.path.join(cfg, "chain.toml"))
++    return [os.path.join(cfg, n) for n in ("profile.toml", "relative.toml", "chain.toml")]
++
++
++@case("tui-symlinked-profile")
++def t_tui_symlink(b):
++    for link in stow_layout():
++        s = Pty([b, "tui", "--file", link])
++        assert s.wait_text("3/3") is not None, f"{link}: status line 3/3 not drawn"
++        rows = s.screen.text().splitlines()
++        assert rows[0].startswith("> lab-server  aman@lab.example.internal:22"), (link, rows[:3])
++        assert rows[2].startswith("  vps-東京  deploy@vps1.example.invalid:2222"), (link, rows[:3])
++        s.write(b"q")
++        code, termios_ok = s.finish()
++        assert code == 0 and termios_ok and restored_screen(s.out), f"{link}: exit {code}"
++    return "tui --file <absolute, relative and chained symlink to a profile> -> list drawn, q exits 0"
++
++
++@case("k14-tui-symlink-to-fifo-usage-error")
++def t_k14_tui_link(b):
++    fifo = os.path.join(TMP, "k14 link target fifo")
++    os.mkfifo(fifo)
++    link = os.path.join(TMP, "k14 link.toml")
++    os.symlink(fifo, link)
++    t = time.monotonic()
++    s = Pty([b, "tui", "--file", link])
++    code, termios_ok = s.finish(timeout=3)
++    dt = time.monotonic() - t
++    assert code == 2, f"exit {code}"
++    assert dt < 2.0, f"took {dt:.2f}s"
++    assert b"\x1b[?1049h" not in s.out, "must not enter the alternate screen"
++    assert b"USAGE_ERROR" in s.out, "usage error diagnostic"
++    assert termios_ok
++    return f"tui --file <symlink to FIFO without writer> -> exit 2 in {dt:.2f}s, no alternate screen"
++
++
+ FAKEBIN = os.path.join(TMP, "fakebin")
+ EXECLOG = os.path.join(TMP, "helper-exec.log")
+ 
+@@ -1181,7 +1229,7 @@ def main():
+         panic_bin = os.path.abspath(args[args.index("--panic-binary") + 1])
+     for fn in [t_select, t_quit, t_ctrlc, t_term, t_filter, t_esc, t_resize, t_nocolor,
+                t_large, t_tiny, t_bad, t_hangup, t_run_sigint, t_run_ctrlz,
+-               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
++               t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_tui_symlink, t_k14_tui_link, t_k16, t_k16_split, t_run_leader_hup,
+                t_k6e, t_k6d, t_k6e_self_stop]:
+         fn(binary)
+     if panic_bin:

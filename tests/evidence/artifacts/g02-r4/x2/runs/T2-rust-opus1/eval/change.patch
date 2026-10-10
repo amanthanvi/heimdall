@@ -1,0 +1,1164 @@
+diff --color -ruN -x target -x dist prototypes/rust/REPORT.md /tmp/x2ws-2dd1a4d7/eval/frozen/rust/REPORT.md
+--- prototypes/rust/REPORT.md	2026-10-06 04:41:29
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/REPORT.md	2026-10-08 22:06:17
+@@ -761,3 +761,26 @@
+   the round-3c bytes.
+ - Windows: see the tables above. The evidence directory contains no full canary value and no user name, host
+   name or home path. Placeholders are `<scratch>`, `<repo>`, `<home>` and `S-1-5-21-<redacted>`.
++
++## 17. X2 task T2: `profile lint` (2026-10-06)
++
++- **Command:** `heimdall-proto profile lint --file <path> [--json]`, options in either order. Parsed by the same
++  `parse_opts` as `profile show`, so missing `--file`, a flag without its value, an unknown flag, a repeated flag
++  or a stray argument are exit 2 `USAGE_ERROR` (JSON on stdout only with `--json`).
++- **Input handling:** `profile::load_file`, the same loader and the same error branch as `profile show`. Every
++  failure (SCHEMA_INVALID, INPUT_TOO_LARGE, USAGE_ERROR for missing/directory/FIFO/socket/device, K2, K14, K15,
++  K18) therefore has the identical exit status, `state`, `code`, `data` and warnings.
++- **Rules:** `src/lint.rs` (library, pure function over the loaded `Profile`). Five rules, ordered by rule number
++  and then as TASK.md specifies; grouping is insertion-ordered (a `HashMap` key to group index plus a `Vec` of
++  groups), so the whole lint is linear in the number of destinations and labels. ASCII lowercasing is
++  `str::to_ascii_lowercase`. The effective port is the loader's `port` (default 22 already applied).
++- **Result:** `LINT_CLEAN` (exit 0) or `LINT_FINDINGS` (exit 3), `state: succeeded`, `data: {"findings": [...]}`.
++  Both codes are prototype-local additions to `envelope::Code`; `schemas/g02/result.schema.json` is unchanged.
++- **Value non-echo:** findings carry key paths, fixed messages and destination ids only. Plain output (K12, not
++  judged) prints the code, the count, and per finding the rule id, key paths and message; it prints no ids.
++- **No writes:** lint only reads the profile.
++- **Tests:** `lint::tests` (10 unit tests: each rule, near misses, ASCII-only folding, rule 4/5 split, global
++  order, envelope shape, non-echo); `cli::tests::parses_profile_lint_both_orders` and lint usage cases;
++  `tests/cli.rs` lint tests (exact JSON in both option orders on a spaced non-ASCII path, plain exit status, no
++  value on stdout/stderr, no file written, equivalence with `profile show` on every invalid and non-regular input
++  within 2 s, usage errors) and three lint cases added to `k12_closed_stdout_exit_parity`.
+diff --color -ruN -x target -x dist prototypes/rust/src/cli.rs /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/cli.rs
+--- prototypes/rust/src/cli.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/cli.rs	2026-10-08 22:06:20
+@@ -8,6 +8,7 @@
+ pub const USAGE: &str = "\
+ usage:
+   heimdall-proto profile show --file <path> [--json]
++  heimdall-proto profile lint --file <path> [--json]
+   heimdall-proto agent list --socket <path> [--timeout-ms N] [--json]
+   heimdall-proto run [--meta-file <path>] -- <argv...>
+   heimdall-proto tui --file <path>
+@@ -19,6 +20,11 @@
+         file: PathBuf,
+         json: bool,
+     },
++    /// TASK T2: same input handling as `profile show`, then lint findings.
++    ProfileLint {
++        file: PathBuf,
++        json: bool,
++    },
+     AgentList {
+         socket: PathBuf,
+         timeout_ms: u64,
+@@ -129,6 +135,13 @@
+                 json: o.json,
+             })
+         }
++        [Some("profile"), Some("lint"), ..] => {
++            let o = parse_opts(&args[2..], &["--file"], true)?;
++            Ok(Cmd::ProfileLint {
++                file: o.require("--file")?,
++                json: o.json,
++            })
++        }
+         [Some("agent"), Some("list"), ..] => {
+             let o = parse_opts(&args[2..], &["--socket", "--timeout-ms"], true)?;
+             let timeout_ms = match o.get("--timeout-ms") {
+@@ -235,6 +248,29 @@
+     }
+ 
+     #[test]
++    fn parses_profile_lint_both_orders() {
++        for args in [
++            ["profile", "lint", "--file", "x y/ü.toml", "--json"],
++            ["profile", "lint", "--json", "--file", "x y/ü.toml"],
++        ] {
++            assert_eq!(
++                parse(&a(&args)).unwrap(),
++                Cmd::ProfileLint {
++                    file: "x y/ü.toml".into(),
++                    json: true
++                }
++            );
++        }
++        assert_eq!(
++            parse(&a(&["profile", "lint", "--file", "f"])).unwrap(),
++            Cmd::ProfileLint {
++                file: "f".into(),
++                json: false
++            }
++        );
++    }
++
++    #[test]
+     fn run_argv_passthrough() {
+         let args = a(&[
+             "run",
+@@ -293,6 +329,22 @@
+                 true,
+             ),
+             (vec!["profile", "list", "--json"], true),
++            (vec!["profile", "lint"], false),
++            (vec!["profile", "lint", "--json"], true),
++            (vec!["profile", "lint", "--file"], false),
++            (vec!["profile", "lint", "--file", "--json"], true),
++            (vec!["profile", "lint", "--json", "--file"], true),
++            (vec!["profile", "lint", "--file", "a", "--bogus"], false),
++            (
++                vec!["profile", "lint", "--bogus", "--file", "a", "--json"],
++                true,
++            ),
++            (vec!["profile", "lint", "--file", "a", "--file", "b"], false),
++            (
++                vec!["profile", "lint", "--file", "a", "--json", "--json"],
++                true,
++            ),
++            (vec!["profile", "lint", "--file", "a", "extra"], false),
+             (
+                 vec![
+                     "agent",
+diff --color -ruN -x target -x dist prototypes/rust/src/envelope.rs /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/envelope.rs
+--- prototypes/rust/src/envelope.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/envelope.rs	2026-10-08 22:06:20
+@@ -22,6 +22,8 @@
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum Code {
+     ProfileOk,
++    LintClean,
++    LintFindings,
+     AgentOk,
+     VersionOk,
+     ChildExited,
+@@ -40,6 +42,8 @@
+     pub fn as_str(self) -> &'static str {
+         match self {
+             Code::ProfileOk => "PROFILE_OK",
++            Code::LintClean => "LINT_CLEAN",
++            Code::LintFindings => "LINT_FINDINGS",
+             Code::AgentOk => "AGENT_OK",
+             Code::VersionOk => "VERSION_OK",
+             Code::ChildExited => "CHILD_EXITED",
+@@ -59,7 +63,9 @@
+     /// use this mapping for child results (contract §4).
+     pub fn exit_code(self) -> i32 {
+         match self {
+-            Code::ProfileOk | Code::AgentOk | Code::VersionOk => 0,
++            Code::ProfileOk | Code::AgentOk | Code::VersionOk | Code::LintClean => 0,
++            // `profile lint` found something (TASK T2); prototype-local, not in §1's table.
++            Code::LintFindings => 3,
+             Code::UsageError | Code::SchemaInvalid | Code::InputTooLarge => 2,
+             Code::AgentUnavailable | Code::AgentProtocolError | Code::AgentRefused => 5,
+             Code::Cancelled => 130,
+diff --color -ruN -x target -x dist prototypes/rust/src/lib.rs /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/lib.rs
+--- prototypes/rust/src/lib.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/lib.rs	2026-10-08 22:06:20
+@@ -5,6 +5,7 @@
+ //!
+ //! - [`envelope`]: result envelope, semantic codes, exit-code mapping (contract §1)
+ //! - [`profile`]: bounded profile loading and validation (contract §2)
++//! - [`lint`]: `profile lint` findings over a loaded profile (TASK T2)
+ //! - [`agent`]: SSH-agent identity probe and bounded frame parser (contract §3)
+ //! - [`runner`]: shell-free child launch, signal forwarding, status mapping (contract §4)
+ //! - [`list_model`]: terminal-independent list/filter/selection state machine (contract §5)
+@@ -22,6 +23,7 @@
+ pub mod agent;
+ pub mod envelope;
+ pub mod keys;
++pub mod lint;
+ pub mod list_model;
+ pub mod profile;
+ pub mod runner;
+diff --color -ruN -x target -x dist prototypes/rust/src/lint.rs /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/lint.rs
+--- prototypes/rust/src/lint.rs	1969-12-31 19:00:00
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/lint.rs	2026-10-08 22:06:20
+@@ -0,0 +1,600 @@
++//! `profile lint` (TASK T2): findings about a schema-valid profile.
++//!
++//! Lint runs on the [`Profile`] that [`crate::profile::load_file`] returned, so every
++//! input-handling rule of `profile show` (size bound, K2, K14, K15, K18) applies
++//! unchanged. Only destinations are linted; `name`, `revision` and `[meta]` never are.
++//!
++//! Value non-echo: a [`Finding`] names places by key path only. The single kind of
++//! profile value it carries is a destination `id` (in `destination_ids`). Messages are
++//! fixed strings.
++
++use std::collections::HashMap;
++
++use serde_json::{Value as Json, json};
++
++use crate::envelope::{Code, Envelope};
++use crate::profile::{Destination, Profile};
++
++/// Lint rules in finding order (rule number 1 to 5).
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
++pub enum Rule {
++    DuplicateEndpoint,
++    PrivilegedPort,
++    RootAccount,
++    DuplicateLabel,
++    LabelCaseVariant,
++}
++
++impl Rule {
++    pub fn id(self) -> &'static str {
++        match self {
++            Rule::DuplicateEndpoint => "duplicate-endpoint",
++            Rule::PrivilegedPort => "privileged-port",
++            Rule::RootAccount => "root-account",
++            Rule::DuplicateLabel => "duplicate-label",
++            Rule::LabelCaseVariant => "label-case-variant",
++        }
++    }
++
++    pub fn message(self) -> &'static str {
++        match self {
++            Rule::DuplicateEndpoint => "destinations share the same host and port",
++            Rule::PrivilegedPort => "port below 1024 other than 22",
++            Rule::RootAccount => "account is root",
++            Rule::DuplicateLabel => "label repeated within a destination",
++            Rule::LabelCaseVariant => "labels differ only in letter case",
++        }
++    }
++}
++
++/// A place in the profile a finding points at.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Place {
++    Host(usize),
++    Port(usize),
++    Account(usize),
++    /// `destinations[i].labels[j]`
++    Label(usize, usize),
++}
++
++impl Place {
++    pub fn destination(self) -> usize {
++        match self {
++            Place::Host(i) | Place::Port(i) | Place::Account(i) | Place::Label(i, _) => i,
++        }
++    }
++
++    /// Key path in exactly the form `destinations[2].labels[0]`.
++    pub fn key_path(self) -> String {
++        match self {
++            Place::Host(i) => format!("destinations[{i}].host"),
++            Place::Port(i) => format!("destinations[{i}].port"),
++            Place::Account(i) => format!("destinations[{i}].account"),
++            Place::Label(i, j) => format!("destinations[{i}].labels[{j}]"),
++        }
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Finding {
++    pub rule: Rule,
++    /// In the order the rule defines; never empty.
++    pub places: Vec<Place>,
++}
++
++impl Finding {
++    /// Destination indexes named by `places`, first-appearance order, no repeats.
++    pub fn destination_indexes(&self) -> Vec<usize> {
++        let mut out: Vec<usize> = Vec::new();
++        for p in &self.places {
++            let i = p.destination();
++            if !out.contains(&i) {
++                out.push(i);
++            }
++        }
++        out
++    }
++
++    pub fn key_paths(&self) -> Vec<String> {
++        self.places.iter().map(|p| p.key_path()).collect()
++    }
++
++    pub fn to_json(&self, profile: &Profile) -> Json {
++        let ids: Vec<&str> = self
++            .destination_indexes()
++            .into_iter()
++            .map(|i| profile.destinations[i].id.as_str())
++            .collect();
++        json!({
++            "rule": self.rule.id(),
++            "key_paths": self.key_paths(),
++            "destination_ids": ids,
++            "message": self.rule.message(),
++        })
++    }
++}
++
++/// The effective port: `port`, or 22 when omitted. The loader already applies the
++/// default, so this is the stored value.
++fn effective_port(d: &Destination) -> u16 {
++    d.port
++}
++
++/// Insertion-ordered grouping: groups appear in the order of their first member.
++struct Groups<K> {
++    index: HashMap<K, usize>,
++    groups: Vec<Vec<Place>>,
++}
++
++impl<K: std::hash::Hash + Eq> Groups<K> {
++    fn new() -> Self {
++        Groups {
++            index: HashMap::new(),
++            groups: Vec::new(),
++        }
++    }
++
++    fn add(&mut self, key: K, place: Place) -> usize {
++        let n = self.groups.len();
++        let g = *self.index.entry(key).or_insert(n);
++        if g == n {
++            self.groups.push(Vec::new());
++        }
++        self.groups[g].push(place);
++        g
++    }
++}
++
++/// All findings, ordered by rule number and then by the rule's own order.
++pub fn lint(profile: &Profile) -> Vec<Finding> {
++    let dests = &profile.destinations;
++    let mut out = Vec::new();
++
++    // Rule 1: same ASCII-lowercased host and same effective port. Groups are created in
++    // file order, so they are ordered by their first member and members are in file order.
++    let mut endpoints: Groups<(String, u16)> = Groups::new();
++    for (i, d) in dests.iter().enumerate() {
++        endpoints.add(
++            (d.host.to_ascii_lowercase(), effective_port(d)),
++            Place::Host(i),
++        );
++    }
++    out.extend(
++        endpoints
++            .groups
++            .into_iter()
++            .filter(|g| g.len() >= 2)
++            .map(|places| Finding {
++                rule: Rule::DuplicateEndpoint,
++                places,
++            }),
++    );
++
++    // Rule 2: effective port below 1024 and not 22. An omitted port is 22, so the
++    // `port` key path always names a key that is present in the file.
++    for (i, d) in dests.iter().enumerate() {
++        let p = effective_port(d);
++        if p < 1024 && p != 22 {
++            out.push(Finding {
++                rule: Rule::PrivilegedPort,
++                places: vec![Place::Port(i)],
++            });
++        }
++    }
++
++    // Rule 3: account exactly "root" (case-sensitive).
++    for (i, d) in dests.iter().enumerate() {
++        if d.account == "root" {
++            out.push(Finding {
++                rule: Rule::RootAccount,
++                places: vec![Place::Account(i)],
++            });
++        }
++    }
++
++    // Rule 4: within one destination, the same label string (exact) more than once.
++    // Per destination, groups are ordered by the label's first occurrence.
++    for (i, d) in dests.iter().enumerate() {
++        let mut labels: Groups<&str> = Groups::new();
++        for (j, l) in d.labels.iter().enumerate() {
++            labels.add(l.as_str(), Place::Label(i, j));
++        }
++        out.extend(
++            labels
++                .groups
++                .into_iter()
++                .filter(|g| g.len() >= 2)
++                .map(|places| Finding {
++                    rule: Rule::DuplicateLabel,
++                    places,
++                }),
++        );
++    }
++
++    // Rule 5: across the profile, two or more *different* label strings that are equal
++    // after ASCII-lowercasing. Occurrences are visited in (i, j) order, so each set's
++    // members are in (i, j) order and sets are ordered by their first occurrence.
++    let mut folded: Groups<String> = Groups::new();
++    let mut first_spelling: Vec<&str> = Vec::new();
++    let mut variant: Vec<bool> = Vec::new();
++    for (i, d) in dests.iter().enumerate() {
++        for (j, l) in d.labels.iter().enumerate() {
++            let g = folded.add(l.to_ascii_lowercase(), Place::Label(i, j));
++            if g == first_spelling.len() {
++                first_spelling.push(l.as_str());
++                variant.push(false);
++            } else if first_spelling[g] != l.as_str() {
++                variant[g] = true;
++            }
++        }
++    }
++    out.extend(
++        folded
++            .groups
++            .into_iter()
++            .zip(variant)
++            .filter(|(_, v)| *v)
++            .map(|(places, _)| Finding {
++                rule: Rule::LabelCaseVariant,
++                places,
++            }),
++    );
++
++    // Each rule appended its findings in its own order, rules in number order.
++    debug_assert!(out.windows(2).all(|w| w[0].rule <= w[1].rule));
++    out
++}
++
++/// Result envelope: `LINT_CLEAN` (exit 0) or `LINT_FINDINGS` (exit 3), both
++/// `state: succeeded`, `data: {"findings": [...]}`.
++pub fn envelope(profile: &Profile, findings: &[Finding]) -> Envelope {
++    let code = if findings.is_empty() {
++        Code::LintClean
++    } else {
++        Code::LintFindings
++    };
++    let items: Vec<Json> = findings.iter().map(|f| f.to_json(profile)).collect();
++    Envelope::success(code, json!({ "findings": items }))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::profile::parse_bytes;
++
++    /// Destination spec: (id, host, port, account, labels).
++    type D<'a> = (&'a str, &'a str, Option<i64>, &'a str, &'a [&'a str]);
++
++    fn toml_str(s: &str) -> String {
++        serde_json::to_string(s).unwrap() // a JSON string literal is a TOML basic string here
++    }
++
++    fn profile(ds: &[D]) -> Profile {
++        let mut s =
++            String::from("schema_version = 1\nname = \"n\"\nrevision = 1\n[meta]\nnote = \"x\"\n");
++        for (k, (id, host, port, account, labels)) in ds.iter().enumerate() {
++            s.push_str("[[destinations]]\n");
++            s.push_str(&format!("id = {}\n", toml_str(id)));
++            s.push_str(&format!("alias = \"alias-{k}\"\n"));
++            s.push_str(&format!("host = {}\n", toml_str(host)));
++            if let Some(p) = port {
++                s.push_str(&format!("port = {p}\n"));
++            }
++            s.push_str(&format!("account = {}\n", toml_str(account)));
++            let ls: Vec<String> = labels.iter().map(|l| toml_str(l)).collect();
++            s.push_str(&format!("labels = [{}]\n", ls.join(", ")));
++        }
++        parse_bytes(s.as_bytes()).expect("test profile is schema-valid")
++    }
++
++    fn data(ds: &[D]) -> (Code, Json) {
++        let p = profile(ds);
++        let e = envelope(&p, &lint(&p));
++        (e.code, e.to_value()["data"].clone())
++    }
++
++    fn f(rule: &str, paths: &[&str], ids: &[&str], msg: &str) -> Json {
++        json!({"rule": rule, "key_paths": paths, "destination_ids": ids, "message": msg})
++    }
++
++    const EP: &str = "destinations share the same host and port";
++    const PP: &str = "port below 1024 other than 22";
++    const RA: &str = "account is root";
++    const DL: &str = "label repeated within a destination";
++    const LC: &str = "labels differ only in letter case";
++
++    #[test]
++    fn clean_profiles() {
++        assert_eq!(data(&[]), (Code::LintClean, json!({"findings": []})));
++        let (code, d) = data(&[
++            ("a", "h.example", None, "u", &["x", "y"]),
++            ("b", "h.example", Some(2222), "Root", &["x", "y"]),
++            ("c", "g.example", Some(22), "root ", &[]),
++            ("d", "h.example", Some(1024), "ROOT", &["z"]),
++        ]);
++        assert_eq!(code, Code::LintClean);
++        assert_eq!(d, json!({"findings": []}));
++        assert_eq!(Code::LintClean.exit_code(), 0);
++        assert_eq!(Code::LintFindings.exit_code(), 3);
++    }
++
++    #[test]
++    fn homelab_fixture_is_clean() {
++        let p = crate::profile::load_file(
++            &std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
++                .join("../../tests/fixtures/g02/profiles/homelab.toml"),
++        );
++        // Relocated test runs may not have the repository layout.
++        if let Ok(p) = p {
++            assert!(lint(&p).is_empty());
++        }
++    }
++
++    #[test]
++    fn rule1_duplicate_endpoint_groups_and_effective_port() {
++        let (code, d) = data(&[
++            ("a", "Lab.Example", None, "u", &[]),
++            ("b", "other", Some(22), "u", &[]),
++            ("c", "lab.example", Some(22), "u", &[]),
++            ("d", "OTHER", None, "u", &[]),
++            ("e", "lab.example", Some(2222), "u", &[]), // near miss: other port
++            ("f", "LAB.EXAMPLE", None, "u", &[]),
++        ]);
++        assert_eq!(code, Code::LintFindings);
++        assert_eq!(
++            d["findings"],
++            json!([
++                f(
++                    "duplicate-endpoint",
++                    &[
++                        "destinations[0].host",
++                        "destinations[2].host",
++                        "destinations[5].host"
++                    ],
++                    &["a", "c", "f"],
++                    EP
++                ),
++                f(
++                    "duplicate-endpoint",
++                    &["destinations[1].host", "destinations[3].host"],
++                    &["b", "d"],
++                    EP
++                ),
++            ])
++        );
++    }
++
++    #[test]
++    fn rule1_lowercasing_is_ascii_only() {
++        // 'Ü' and 'ü' differ outside ASCII: no finding. 'K' (Kelvin sign) is not 'k'.
++        let (code, _) = data(&[
++            ("a", "Ünï.example", None, "u", &[]),
++            ("b", "ünï.example", None, "u", &[]),
++            ("c", "\u{212a}.example", None, "u", &[]),
++            ("d", "k.example", None, "u", &[]),
++        ]);
++        assert_eq!(code, Code::LintClean);
++        let (_, d) = data(&[
++            ("a", "ÜNÏ.EXAMPLE", None, "u", &[]),
++            ("b", "Ünï.example", None, "u", &[]),
++        ]);
++        assert_eq!(d["findings"].as_array().unwrap().len(), 0);
++        let (_, d) = data(&[
++            ("a", "üX.example", None, "u", &[]),
++            ("b", "üx.EXAMPLE", None, "u", &[]),
++        ]);
++        assert_eq!(d["findings"][0]["destination_ids"], json!(["a", "b"]));
++    }
++
++    #[test]
++    fn rule2_privileged_port_bounds() {
++        let (_, d) = data(&[
++            ("p1", "a", Some(1), "u", &[]),
++            ("p22", "b", Some(22), "u", &[]),
++            ("pnone", "c", None, "u", &[]),
++            ("p21", "d", Some(21), "u", &[]),
++            ("p1023", "e", Some(1023), "u", &[]),
++            ("p1024", "f", Some(1024), "u", &[]),
++            ("p23", "g", Some(23), "u", &[]),
++        ]);
++        assert_eq!(
++            d["findings"],
++            json!([
++                f("privileged-port", &["destinations[0].port"], &["p1"], PP),
++                f("privileged-port", &["destinations[3].port"], &["p21"], PP),
++                f("privileged-port", &["destinations[4].port"], &["p1023"], PP),
++                f("privileged-port", &["destinations[6].port"], &["p23"], PP),
++            ])
++        );
++    }
++
++    #[test]
++    fn rule3_root_account_exact() {
++        let (_, d) = data(&[
++            ("a", "a", None, "Root", &[]),
++            ("b", "b", None, "root", &[]),
++            ("c", "c", None, "rooT", &[]),
++            ("d", "d", None, "root2", &[]),
++            ("e", "e", None, "root", &[]),
++        ]);
++        assert_eq!(
++            d["findings"],
++            json!([
++                f("root-account", &["destinations[1].account"], &["b"], RA),
++                f("root-account", &["destinations[4].account"], &["e"], RA),
++            ])
++        );
++    }
++
++    #[test]
++    fn rule4_duplicate_label_order_and_case_split() {
++        let (_, d) = data(&[
++            ("a", "a", None, "u", &["y", "x", "y", "x", "y", "z"]),
++            ("b", "b", None, "u", &["x"]), // identical across destinations: no finding
++            ("c", "c", None, "u", &["", "q", ""]),
++        ]);
++        assert_eq!(
++            d["findings"],
++            json!([
++                f(
++                    "duplicate-label",
++                    &[
++                        "destinations[0].labels[0]",
++                        "destinations[0].labels[2]",
++                        "destinations[0].labels[4]"
++                    ],
++                    &["a"],
++                    DL
++                ),
++                f(
++                    "duplicate-label",
++                    &["destinations[0].labels[1]", "destinations[0].labels[3]"],
++                    &["a"],
++                    DL
++                ),
++                f(
++                    "duplicate-label",
++                    &["destinations[2].labels[0]", "destinations[2].labels[2]"],
++                    &["c"],
++                    DL
++                ),
++            ])
++        );
++        // Same destination, differing only in case: rule 5, not rule 4.
++        let (_, d) = data(&[("a", "a", None, "u", &["Prod", "prod"])]);
++        assert_eq!(
++            d["findings"],
++            json!([f(
++                "label-case-variant",
++                &["destinations[0].labels[0]", "destinations[0].labels[1]"],
++                &["a"],
++                LC
++            )])
++        );
++    }
++
++    #[test]
++    fn rule5_label_case_variant_sets() {
++        let (_, d) = data(&[
++            ("a", "a", None, "u", &["web", "Db"]),
++            ("b", "b", None, "u", &["db", "web", "Edge"]),
++            ("c", "c", None, "u", &["WEB", "edge", "solo"]),
++            ("d", "d", None, "u", &["solo", "DB"]),
++        ]);
++        assert_eq!(
++            d["findings"],
++            json!([
++                f(
++                    "label-case-variant",
++                    &[
++                        "destinations[0].labels[0]",
++                        "destinations[1].labels[1]",
++                        "destinations[2].labels[0]"
++                    ],
++                    &["a", "b", "c"],
++                    LC
++                ),
++                f(
++                    "label-case-variant",
++                    &[
++                        "destinations[0].labels[1]",
++                        "destinations[1].labels[0]",
++                        "destinations[3].labels[1]"
++                    ],
++                    &["a", "b", "d"],
++                    LC
++                ),
++                f(
++                    "label-case-variant",
++                    &["destinations[1].labels[2]", "destinations[2].labels[1]"],
++                    &["b", "c"],
++                    LC
++                ),
++            ])
++        );
++        // Non-ASCII letters are not folded: no finding.
++        let (code, _) = data(&[("a", "a", None, "u", &["Ü"]), ("b", "b", None, "u", &["ü"])]);
++        assert_eq!(code, Code::LintClean);
++    }
++
++    #[test]
++    fn rules_4_and_5_together_and_global_order() {
++        // Destination order deliberately puts later-rule triggers first in the file.
++        let (code, d) = data(&[
++            ("d0", "h", None, "u", &["A", "A", "a"]),
++            ("d1", "H", Some(80), "root", &[]),
++            ("d2", "h", Some(80), "root", &[]),
++            ("d3", "x", None, "u", &[]),
++        ]);
++        assert_eq!(code, Code::LintFindings);
++        assert_eq!(
++            d["findings"],
++            json!([
++                f(
++                    "duplicate-endpoint",
++                    &["destinations[1].host", "destinations[2].host"],
++                    &["d1", "d2"],
++                    EP
++                ),
++                f("privileged-port", &["destinations[1].port"], &["d1"], PP),
++                f("privileged-port", &["destinations[2].port"], &["d2"], PP),
++                f("root-account", &["destinations[1].account"], &["d1"], RA),
++                f("root-account", &["destinations[2].account"], &["d2"], RA),
++                f(
++                    "duplicate-label",
++                    &["destinations[0].labels[0]", "destinations[0].labels[1]"],
++                    &["d0"],
++                    DL
++                ),
++                f(
++                    "label-case-variant",
++                    &[
++                        "destinations[0].labels[0]",
++                        "destinations[0].labels[1]",
++                        "destinations[0].labels[2]"
++                    ],
++                    &["d0"],
++                    LC
++                ),
++            ])
++        );
++    }
++
++    #[test]
++    fn envelope_shape_and_no_values() {
++        let p = profile(&[
++            (
++                "id-one",
++                "SECRETHOST",
++                Some(21),
++                "root",
++                &["SECRETLABEL", "secretlabel"],
++            ),
++            ("id-two", "secrethost", Some(21), "SECRETACCT", &[]),
++        ]);
++        let e = envelope(&p, &lint(&p));
++        let v = e.to_value();
++        assert_eq!(v["state"], "succeeded");
++        assert_eq!(v["code"], "LINT_FINDINGS");
++        assert_eq!(v["warnings"], json!([]));
++        assert_eq!(v["next"], Json::Null);
++        assert_eq!(
++            v["data"].as_object().unwrap().len(),
++            1,
++            "data has only findings"
++        );
++        for item in v["data"]["findings"].as_array().unwrap() {
++            let keys: Vec<_> = item.as_object().unwrap().keys().cloned().collect();
++            let mut keys = keys;
++            keys.sort();
++            assert_eq!(keys, ["destination_ids", "key_paths", "message", "rule"]);
++        }
++        let line = e.to_line();
++        assert!(line.ends_with("}\n") && line.matches('\n').count() == 1);
++        let lower = line.to_ascii_lowercase();
++        for value in ["secrethost", "secretlabel", "secretacct", "alias-", "\"n\""] {
++            assert!(!lower.contains(value), "value {value} echoed: {line}");
++        }
++        assert!(line.contains("id-one") && line.contains("id-two"));
++    }
++}
+diff --color -ruN -x target -x dist prototypes/rust/src/main.rs /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/main.rs
+--- prototypes/rust/src/main.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/src/main.rs	2026-10-08 22:06:20
+@@ -14,7 +14,7 @@
+ use cli::Cmd;
+ use heimdall_proto::agent::{self, ProbeOutcome};
+ use heimdall_proto::envelope::{Code, Envelope};
+-use heimdall_proto::{profile, runner};
++use heimdall_proto::{lint, profile, runner};
+ use serde_json::json;
+ 
+ fn emit(e: &Envelope) {
+@@ -95,7 +95,7 @@
+     };
+     if matches!(
+         cmd,
+-        Cmd::Help | Cmd::Version { .. } | Cmd::ProfileShow { .. }
++        Cmd::Help | Cmd::Version { .. } | Cmd::ProfileShow { .. } | Cmd::ProfileLint { .. }
+     ) {
+         default_signals();
+     }
+@@ -140,6 +140,40 @@
+                     }
+                 }
+                 0
++            }
++            Err(e) => {
++                eprintln!("heimdall-proto: {}: {}", e.code.as_str(), e.message);
++                if json {
++                    emit(&e.to_envelope());
++                }
++                e.code.exit_code()
++            }
++        },
++        // TASK T2. Input handling is `profile show`'s (same loader, same error path and
++        // exit codes). Output never carries a profile value: findings name key paths, and
++        // only destination ids appear (in `destination_ids`, JSON only). Writes nothing.
++        Cmd::ProfileLint { file, json } => match profile::load_file(&file) {
++            Ok(p) => {
++                let findings = lint::lint(&p);
++                let env = lint::envelope(&p, &findings);
++                if json {
++                    emit(&env);
++                } else {
++                    plain(format_args!(
++                        "{}: {} finding(s)",
++                        env.code.as_str(),
++                        findings.len()
++                    ));
++                    for f in &findings {
++                        plain(format_args!(
++                            "{} {}: {}",
++                            f.rule.id(),
++                            f.key_paths().join(", "),
++                            f.rule.message()
++                        ));
++                    }
++                }
++                env.exit_code()
+             }
+             Err(e) => {
+                 eprintln!("heimdall-proto: {}: {}", e.code.as_str(), e.message);
+diff --color -ruN -x target -x dist prototypes/rust/tests/cli.rs /tmp/x2ws-2dd1a4d7/eval/frozen/rust/tests/cli.rs
+--- prototypes/rust/tests/cli.rs	2026-10-06 04:41:29
++++ /tmp/x2ws-2dd1a4d7/eval/frozen/rust/tests/cli.rs	2026-10-08 22:06:20
+@@ -1388,6 +1388,21 @@
+             ),
+         ),
+         ("usage-unknown-flag", os(&["version", "--no-such-flag"])),
++        (
++            "profile-lint-clean",
++            with_path(&["profile", "lint", "--file"], &fx.join("homelab.toml")),
++        ),
++        (
++            "profile-lint-findings",
++            with_path(&["profile", "lint", "--file"], &fx.join("large-100.toml")),
++        ),
++        (
++            "profile-lint-schema-invalid",
++            with_path(
++                &["profile", "lint", "--file"],
++                &fx.join("invalid-port.toml"),
++            ),
++        ),
+     ];
+     // agent list with a normal one-key fake agent: one agent per invocation.
+     cases.push(("agent-list-normal", vec![]));
+@@ -1430,4 +1445,300 @@
+         "wait status without --json differs from with --json: {}",
+         bad.join("; ")
+     );
++}
++
++// ---------- profile lint (TASK T2) ----------
++
++/// A schema-valid profile whose values are all distinctive markers, so a leak of any
++/// of them on stdout or stderr is detectable. Destination order puts later-rule
++/// triggers first in the file. Returns (TOML text, values that must never be printed).
++fn lint_profile() -> (String, Vec<&'static str>) {
++    let text = r#"schema_version = 1
++name = "LVNAME-prøfile"
++revision = 7
++
++[meta]
++note = "LVMETA-note"
++nested = { k = "LVMETA-nested" }
++
++[[destinations]]
++id = "dst_zero"
++alias = "LVALIAS-zero"
++host = "LVHOST-one.example"
++account = "LVACCT-zero"
++labels = ["LVLAB-dup", "LVLAB-dup", "LVLAB-DUP", "LVLAB-solo"]
++
++[[destinations]]
++id = "dst_one_ü"
++alias = "LVALIAS-東京"
++host = "lvhost-ONE.example"
++port = 22
++account = "root"
++labels = ["LVLAB-solo"]
++
++[[destinations]]
++id = "dst_two"
++alias = "LVALIAS-two"
++host = "LVHOST-two.example"
++port = 80
++account = "Root"
++labels = ["LVLAB-Mixed"]
++
++[[destinations]]
++id = "dst_three"
++alias = "LVALIAS-three"
++host = "LVHOST-two.example"
++port = 8080
++account = "LVACCT-three"
++labels = ["lvlab-mixed", "LVLAB-mixed"]
++"#;
++    let values = vec![
++        "LVNAME", "LVMETA", "LVALIAS", "LVHOST", "lvhost", "LVACCT", "LVLAB", "lvlab", "Root",
++    ];
++    (text.to_string(), values)
++}
++
++fn lint_expected() -> Value {
++    let f = |rule: &str, paths: &[&str], ids: &[&str], msg: &str| serde_json::json!({"rule": rule, "key_paths": paths, "destination_ids": ids, "message": msg});
++    serde_json::json!({"findings": [
++        f("duplicate-endpoint", &["destinations[0].host", "destinations[1].host"],
++          &["dst_zero", "dst_one_ü"], "destinations share the same host and port"),
++        f("privileged-port", &["destinations[2].port"], &["dst_two"], "port below 1024 other than 22"),
++        f("root-account", &["destinations[1].account"], &["dst_one_ü"], "account is root"),
++        f("duplicate-label", &["destinations[0].labels[0]", "destinations[0].labels[1]"],
++          &["dst_zero"], "label repeated within a destination"),
++        f("label-case-variant",
++          &["destinations[0].labels[0]", "destinations[0].labels[1]", "destinations[0].labels[2]"],
++          &["dst_zero"], "labels differ only in letter case"),
++        f("label-case-variant",
++          &["destinations[2].labels[0]", "destinations[3].labels[0]", "destinations[3].labels[1]"],
++          &["dst_two", "dst_three"], "labels differ only in letter case"),
++    ]})
++}
++
++fn lint_cmd(path: &Path, json_first: Option<bool>, cwd: &Path) -> Output {
++    let mut c = cmd();
++    c.current_dir(cwd).args(["profile", "lint"]);
++    match json_first {
++        Some(true) => c.arg("--json").arg("--file").arg(path),
++        Some(false) => c.arg("--file").arg(path).arg("--json"),
++        None => c.arg("--file").arg(path),
++    };
++    c.stdin(Stdio::null()).output().unwrap()
++}
++
++fn assert_no_values(o: &Output, values: &[&str], what: &str) {
++    for (name, stream) in [("stdout", &o.stdout), ("stderr", &o.stderr)] {
++        let s = String::from_utf8_lossy(stream);
++        for v in values {
++            assert!(!s.contains(v), "{what}: profile value {v:?} on {name}");
++        }
++    }
++}
++
++/// Every file under `dir`, recursively (used to prove lint writes nothing).
++fn tree(dir: &Path) -> Vec<(PathBuf, u64)> {
++    let mut out = Vec::new();
++    for e in std::fs::read_dir(dir).unwrap() {
++        let e = e.unwrap();
++        let m = std::fs::symlink_metadata(e.path()).unwrap();
++        if m.is_dir() {
++            out.extend(tree(&e.path()));
++        }
++        out.push((e.path(), m.len()));
++    }
++    out.sort();
++    out
++}
++
++#[test]
++fn lint_findings_exact_json_both_orders_spaced_path_no_values_no_writes() {
++    let d = TempDir::new("lint");
++    let sub = d.path().join("spaced dir ü 東京");
++    std::fs::create_dir(&sub).unwrap();
++    let p = sub.join("prøfile lint.toml");
++    let (text, values) = lint_profile();
++    std::fs::write(&p, &text).unwrap();
++    let before = tree(d.path());
++    for json_first in [Some(true), Some(false)] {
++        let o = lint_cmd(&p, json_first, &sub);
++        assert_eq!(o.status.code(), Some(3), "{json_first:?}");
++        let v = one_json(&o);
++        assert_eq!(v["state"], "succeeded");
++        assert_eq!(v["code"], "LINT_FINDINGS");
++        assert_eq!(v["warnings"], serde_json::json!([]));
++        assert_eq!(v["next"], Value::Null);
++        assert_eq!(v["data"], lint_expected());
++        assert!(o.stderr.is_empty(), "no stderr on success");
++        assert_no_values(&o, &values, "lint --json");
++    }
++    let o = lint_cmd(&p, None, &sub);
++    assert_eq!(o.status.code(), Some(3), "same exit without --json");
++    assert_no_values(&o, &values, "lint plain");
++    assert_eq!(tree(d.path()), before, "lint wrote nothing");
++    assert_eq!(std::fs::read_to_string(&p).unwrap(), text);
++}
++
++#[test]
++fn lint_clean_fixtures_exit_0() {
++    let cwd = TempDir::new("lintc");
++    for name in ["homelab.toml", "spaced dir ü/prøfile homelab.toml"] {
++        let p = fixtures().join(name);
++        let o = lint_cmd(&p, Some(false), cwd.path());
++        assert_eq!(o.status.code(), Some(0), "{name}");
++        let v = one_json(&o);
++        assert_eq!(v["state"], "succeeded");
++        assert_eq!(v["code"], "LINT_CLEAN");
++        assert_eq!(v["data"], serde_json::json!({"findings": []}));
++        let o = lint_cmd(&p, None, cwd.path());
++        assert_eq!(o.status.code(), Some(0), "{name} plain");
++        assert_no_values(
++            &o,
++            &["homelab", "example.internal", "aman", "lab-server"],
++            name,
++        );
++    }
++    // large-100: 33 destinations use account "root" (counted independently with grep);
++    // nothing else fires (unique hosts, ports 22 or >= 2200, one label each).
++    let o = lint_cmd(&fixtures().join("large-100.toml"), Some(true), cwd.path());
++    assert_eq!(o.status.code(), Some(3));
++    let v = one_json(&o);
++    assert_eq!(v["code"], "LINT_FINDINGS");
++    let f = v["data"]["findings"].as_array().unwrap();
++    assert_eq!(f.len(), 33);
++    assert!(f.iter().all(|x| x["rule"] == "root-account"));
++    let idx: Vec<usize> = f
++        .iter()
++        .map(|x| {
++            let kp = x["key_paths"][0].as_str().unwrap();
++            kp["destinations[".len()..kp.find(']').unwrap()]
++                .parse()
++                .unwrap()
++        })
++        .collect();
++    assert!(idx.windows(2).all(|w| w[0] < w[1]), "destination order");
++    assert!(tree(cwd.path()).is_empty(), "lint wrote nothing");
++}
++
++/// Lint fails exactly like `profile show` on input it cannot accept: same exit
++/// status, state, code and data.error.key_path; plain runs exit the same way.
++#[test]
++fn lint_input_errors_match_profile_show() {
++    let d = TempDir::new("lintx");
++    let big = d.path().join("over size ü.toml");
++    let mut body = b"schema_version = 1\nname = \"x\"\nrevision = 1\n".to_vec();
++    body.resize(1_048_577, b'#');
++    std::fs::write(&big, body).unwrap();
++    let ctl = d.path().join("control value.toml");
++    std::fs::write(
++        &ctl,
++        "schema_version=1\nname=\"n\"\nrevision=1\n[[destinations]]\nid=\"i\"\nalias=\"a\"\nhost=\"LVHOST\\u001b\"\naccount=\"u\"\n",
++    )
++    .unwrap();
++    let dup = d.path().join("dup id.toml");
++    std::fs::write(
++        &dup,
++        "schema_version=1\nname=\"n\"\nrevision=1\n[[destinations]]\nid=\"x\"\nalias=\"a\"\nhost=\"h\"\naccount=\"u\"\n[[destinations]]\nid=\"x\"\nalias=\"b\"\nhost=\"h\"\naccount=\"u\"\n",
++    )
++    .unwrap();
++    let fifo = d.path().join("profile fifo");
++    mkfifo(&fifo);
++    let sock = d.path().join("p.sock");
++    let _l = UnixListener::bind(&sock).unwrap();
++    let dir = d.path().join("a dir");
++    std::fs::create_dir(&dir).unwrap();
++    let fx = fixtures();
++    let mut paths: Vec<PathBuf> = [
++        "invalid-forbidden-key.toml",
++        "invalid-unknown-dest-key.toml",
++        "invalid-malformed.toml",
++        "invalid-schema-version.toml",
++        "invalid-duplicate-alias.toml",
++        "invalid-port.toml",
++        "does-not-exist.toml",
++    ]
++    .iter()
++    .map(|n| fx.join(n))
++    .collect();
++    paths.extend([big, ctl, dup, fifo, sock, dir, PathBuf::from("/dev/null")]);
++    let run_bounded = |sub: &str, p: &Path, json: bool| -> Output {
++        let mut c = cmd();
++        c.args(["profile", sub, "--file"]).arg(p);
++        if json {
++            c.arg("--json");
++        }
++        let mut c = c
++            .stdin(Stdio::null())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped())
++            .spawn()
++            .unwrap();
++        let t = Instant::now();
++        while c.try_wait().unwrap().is_none() && t.elapsed() < Duration::from_secs(2) {
++            std::thread::sleep(Duration::from_millis(10));
++        }
++        if c.try_wait().unwrap().is_none() {
++            let _ = c.kill();
++            let _ = c.wait();
++            panic!("{sub} {}: still running after 2 s", p.display());
++        }
++        c.wait_with_output().unwrap()
++    };
++    for p in &paths {
++        let show = run_bounded("show", p, true);
++        let lint = run_bounded("lint", p, true);
++        let (vs, vl) = (one_json(&show), one_json(&lint));
++        assert_eq!(lint.status.code(), Some(2), "{}", p.display());
++        assert_eq!(lint.status.code(), show.status.code(), "{}", p.display());
++        for k in ["state", "code", "warnings"] {
++            assert_eq!(vl[k], vs[k], "{k} {}", p.display());
++        }
++        assert_eq!(
++            vl["data"]["error"]["key_path"],
++            vs["data"]["error"]["key_path"],
++            "{}",
++            p.display()
++        );
++        assert_eq!(vl["data"], vs["data"], "{}", p.display());
++        no_canary(&lint);
++        assert_no_values(&lint, &["LVHOST"], "lint error");
++        let plain = run_bounded("lint", p, false);
++        assert_eq!(plain.status.code(), Some(2), "plain {}", p.display());
++        assert!(plain.stdout.is_empty(), "plain error: no stdout");
++        no_canary(&plain);
++        assert_no_values(&plain, &["LVHOST"], "lint plain error");
++    }
++}
++
++#[test]
++fn lint_usage_errors() {
++    let f = fixtures().join("homelab.toml");
++    let f = f.to_str().unwrap();
++    for (args, json) in [
++        (vec!["profile", "lint"], false),
++        (vec!["profile", "lint", "--json"], true),
++        (vec!["profile", "lint", "--file"], false),
++        (vec!["profile", "lint", "--file", "--json"], true),
++        (vec!["profile", "lint", "--json", "--file"], true),
++        (vec!["profile", "lint", "--file", f, "--bogus"], false),
++        (
++            vec!["profile", "lint", "--bogus", "--file", f, "--json"],
++            true,
++        ),
++        (
++            vec!["profile", "lint", "--file", f, "--strict", "--json"],
++            true,
++        ),
++    ] {
++        let o = run(&args);
++        assert_eq!(o.status.code(), Some(2), "{args:?}");
++        assert!(!o.stderr.is_empty(), "{args:?}: stderr diagnostic");
++        if json {
++            let v = one_json(&o);
++            assert_eq!(v["code"], "USAGE_ERROR", "{args:?}");
++            assert_eq!(v["state"], "failed", "{args:?}");
++        } else {
++            assert!(o.stdout.is_empty(), "{args:?}: no stdout without --json");
++        }
++    }
+ }
+Binary files prototypes/rust/tools/__pycache__/inventory.cpython-314.pyc and /tmp/x2ws-2dd1a4d7/eval/frozen/rust/tools/__pycache__/inventory.cpython-314.pyc differ

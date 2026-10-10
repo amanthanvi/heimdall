@@ -1,0 +1,909 @@
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/REPORT.md /tmp/x2ws-65820374/eval/frozen/go/REPORT.md
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/REPORT.md	2026-10-06 04:41:29
++++ /tmp/x2ws-65820374/eval/frozen/go/REPORT.md	2026-10-09 01:01:59
+@@ -643,3 +643,13 @@
+ - **One host, one Windows build, non-elevated, pseudoconsoles only**, as in X1. The script changes from task M00-T05-x1b-script still have no independent review.
+ - The owner's cmd.exe AutoRun ran during the pre-fix test runs, as it did in the X1 baseline runs. It does not run after the fix, because cmd.exe is never started.
+ - **Cleanup:** both task scratch directories were removed. No heimdall-proto, argvdump or test-binary process, and no process with the task scratch in its command line, was left (counts 0/0/0).
++
++## X2 task T3 (2026-10-09): match underline, help overlay, selection kept across filter edits
++
++- **Match underline (internal/tui `row`, `underline`, `matchRunes`):** while the filter is non-empty, the first case-insensitive occurrence in the alias, and (at 50 columns or more) in the host, is wrapped in SGR 4 / SGR 24. Matching uses the same `strings.ToLower` rule as `profile.Filter`; positions are counted in runes, so they map onto the sanitized display text. Rows are truncated before the underline is inserted, so underline never stays open past a row. Underline is an attribute, so it is kept under `NO_COLOR`; no colour SGR is added.
++- **Help overlay:** `?` outside filter mode replaces the list area with the nine help lines (the status line stays). `?` or `Esc` closes it; `Esc` does not touch the filter. Every other key except `Ctrl-C` is ignored. Signals and resizes behave as before.
++- **Selection after a filter edit (replaces K9):** `refilter` keeps the previously selected destination when it is still shown, otherwise selects the first shown row. The window start is still derived from the selection, so a kept selection far down the list stays visible and the window stays full.
++- **Two renderer workarounds**, both found by checking underlined cells in the pty emulator:
++  - `cmd/heimdall-proto/tui_output.go`: Bubble Tea writes `CSI > 4 ; 2 m` / `CSI > 4 m` (xterm modifyOtherKeys). Emulators that ignore the `>` marker read it as SGR 4 and underline everything drawn afterwards; pyte 0.8.2 does. The TUI output writer appends SGR 0 after these two controls. The renderer's pen is the default style at those points, so this does nothing on a conforming terminal.
++  - `tui.Model.wideOnScreen`: ultraviolet's "overwrite" cursor optimisation (`relativeCursorMove`, unchanged in pseudo-version 20261001) produces an empty move when the cursor starts on a wide character's continuation cell. A redrawn cell then lands one column short (observed: `> vps- 京` at 20x5 after typing 東京). When a key changes the screen while a double-width character is visible, the model returns `tea.ClearScreen` so the frame is fully repainted. ASCII-only screens, including large-100 (K17), keep the cell diff. The repaint command is asynchronous, so in the rare case that a diff frame is flushed first, it can be wrong for one frame (about 16 ms) before the repaint corrects it.
++- Harness 2.4.2: 136/139 on darwin-arm64 and linux-arm64. The three failures are the K9-dependent checks named in the task (`tui.filter_edit_resets_selection`, `tui.no_color`'s last step, `tui.large_100_filter_latency`'s update predicate); their other assertions pass, including "no color SGR" and the K17 p95.
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/main.go /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/main.go
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/main.go	2026-10-06 04:41:29
++++ /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/main.go	2026-10-09 01:01:59
+@@ -335,6 +335,7 @@
+ 		}
+ 	}}
+ 	base := []tea.ProgramOption{tea.WithoutSignalHandler(), tea.WithInput(input),
++		tea.WithOutput(pinnedSGROutput{os.Stdout}),
+ 		tea.WithColorProfile(colorProfileFromEnv(os.Environ()))}
+ 	tuiBeforeRun()
+ 	prog = tea.NewProgram(model, append(base, opts...)...)
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/tui_output.go /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/tui_output.go
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/tui_output.go	1969-12-31 19:00:00
++++ /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/tui_output.go	2026-10-09 01:01:59
+@@ -0,0 +1,51 @@
++package main
++
++import (
++	"bytes"
++	"os"
++
++	"github.com/charmbracelet/x/ansi"
++)
++
++// pinnedSGROutput is the TUI's terminal output. Bubble Tea writes the xterm
++// modifyOtherKeys controls CSI > 4 ; 2 m and CSI > 4 m. Terminals and
++// emulators that do not know the '>' private marker read them as plain SGR,
++// i.e. "underline on" (SGR 4), and then show stale underline on cells the
++// renderer believes are unstyled (seen with pyte). Right after each of these
++// controls the renderer's pen is the default style, so appending SGR 0 there
++// changes nothing on a conforming terminal and pins the pen everywhere else.
++//
++// Embedding *os.File keeps Fd(), so Bubble Tea still detects a terminal and
++// queries its size. Bubble Tea writes each control whole within one Write
++// (Program.flush writes its whole output buffer at once), so a control is
++// never split across calls.
++type pinnedSGROutput struct {
++	*os.File
++}
++
++var modifyOtherKeysControls = [][]byte{[]byte(ansi.SetModifyOtherKeys2), []byte(ansi.ResetModifyOtherKeys)}
++
++// pinSGR returns b with SGR 0 appended after every modifyOtherKeys control.
++func pinSGR(b []byte) []byte {
++	if !bytes.Contains(b, []byte("\x1b[>4")) {
++		return b
++	}
++	out := b
++	for _, c := range modifyOtherKeysControls {
++		out = bytes.ReplaceAll(out, c, append(append([]byte(nil), c...), ansi.ResetStyle...))
++	}
++	return out
++}
++
++func (o pinnedSGROutput) Write(b []byte) (int, error) {
++	if _, err := o.File.Write(pinSGR(b)); err != nil {
++		return 0, err
++	}
++	return len(b), nil
++}
++
++// WriteString shadows (*os.File).WriteString so io.WriteString cannot bypass
++// Write.
++func (o pinnedSGROutput) WriteString(s string) (int, error) {
++	return o.Write([]byte(s))
++}
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/tui_output_test.go /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/tui_output_test.go
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/tui_output_test.go	1969-12-31 19:00:00
++++ /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/tui_output_test.go	2026-10-09 01:01:59
+@@ -0,0 +1,43 @@
++package main
++
++import (
++	"io"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestPinSGR(t *testing.T) {
++	for in, want := range map[string]string{
++		"":                                      "",
++		"plain \x1b[4mx\x1b[m":                  "plain \x1b[4mx\x1b[m",
++		"\x1b[>4m\x1b[?1049h\x1b[>4;2m\x1b[>1u": "\x1b[>4m\x1b[m\x1b[?1049h\x1b[>4;2m\x1b[m\x1b[>1u",
++		"a\x1b[>4;2mb\x1b[>4;2m":                "a\x1b[>4;2m\x1b[mb\x1b[>4;2m\x1b[m",
++		"\x1b[>4;1m":                            "\x1b[>4;1m", // not emitted by Bubble Tea; left alone
++	} {
++		if got := string(pinSGR([]byte(in))); got != want {
++			t.Errorf("pinSGR(%q) = %q, want %q", in, got, want)
++		}
++	}
++}
++
++func TestPinnedSGROutputWrite(t *testing.T) {
++	p := filepath.Join(t.TempDir(), "out")
++	f, err := os.Create(p)
++	if err != nil {
++		t.Fatal(err)
++	}
++	o := pinnedSGROutput{f}
++	in := "x\x1b[>4;2my"
++	if n, err := o.Write([]byte(in)); err != nil || n != len(in) {
++		t.Fatalf("Write = %d, %v", n, err)
++	}
++	if n, err := io.WriteString(o, in); err != nil || n != len(in) {
++		t.Fatalf("WriteString = %d, %v", n, err)
++	}
++	f.Close()
++	got, _ := os.ReadFile(p)
++	if want := "x\x1b[>4;2m\x1b[myx\x1b[>4;2m\x1b[my"; string(got) != want {
++		t.Fatalf("got %q want %q", got, want)
++	}
++}
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/tui_t3_test.go /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/tui_t3_test.go
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/cmd/heimdall-proto/tui_t3_test.go	1969-12-31 19:00:00
++++ /tmp/x2ws-65820374/eval/frozen/go/cmd/heimdall-proto/tui_t3_test.go	2026-10-09 01:01:59
+@@ -0,0 +1,78 @@
++//go:build darwin || linux
++
++package main
++
++import (
++	"bytes"
++	"regexp"
++	"testing"
++	"time"
++
++	tea "charm.land/bubbletea/v2"
++
++	"github.com/heimdall-g02/proto-go/internal/profile"
++	"github.com/heimdall-g02/proto-go/internal/tui"
++)
++
++var colourSGR = regexp.MustCompile(`\x1b\[[0-9;:]*(3[0-8]|4[0-8]|9[0-7]|10[0-7]|58)[;:m]`)
++
++// End to end through Bubble Tea in a pty with NO_COLOR: the filter match is
++// underlined (SGR 4), the modifyOtherKeys controls are followed by SGR 0, no
++// colour SGR is written, the help overlay opens and closes, and Enter after
++// a kept filter selects the kept destination.
++func TestTUIUnderlineHelpEndToEnd(t *testing.T) {
++	// runTUI picks the colour profile from the process environment. Without
++	// TERM it is NoTTY, which writes no SGR at all.
++	t.Setenv("TERM", "xterm-256color")
++	t.Setenv("NO_COLOR", "1")
++	r := startPTY(t)
++	defer r.master.Close()
++	defer r.slave.Close()
++	m := tui.New([]profile.Destination{
++		{ID: "a", Alias: "lab", Host: "lab.example", Account: "u", Port: 22},
++		{ID: "b", Alias: "nas", Host: "nas.example", Account: "u", Port: 22},
++	}, true)
++	// waitFor polls the pty output; it never fails the test itself (it runs
++	// off the test goroutine), it only reports whether cond was seen.
++	waitFor := func(cond func([]byte) bool) bool {
++		for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
++			if cond(r.output()) {
++				return true
++			}
++		}
++		return false
++	}
++	var sawUnderline, sawHelp bool
++	go func() {
++		send := func(s string) { _, _ = r.master.Write([]byte(s)); time.Sleep(150 * time.Millisecond) }
++		time.Sleep(400 * time.Millisecond)
++		send("/")
++		send("NA")
++		sawUnderline = waitFor(func(b []byte) bool { return bytes.Contains(b, []byte("\x1b[4m")) })
++		send("\r")
++		send("?")
++		sawHelp = waitFor(func(b []byte) bool { return bytes.Contains(b, []byte("close help")) })
++		send("j")
++		send("\x1b")
++		send("\r")
++	}()
++	// Safety net: never hang the test binary if a step is lost.
++	stop := time.AfterFunc(10*time.Second, func() { _, _ = r.master.Write([]byte{3}) })
++	defer stop.Stop()
++	var stdout, stderr bytes.Buffer
++	opts := append(teaOpts(r), tea.WithOutput(pinnedSGROutput{r.slave}))
++	code := runTUI(m, m, r.slave, &stdout, &stderr, opts...)
++	out := r.output()
++	if !sawUnderline || !sawHelp {
++		t.Fatalf("underline seen=%v help seen=%v out=%q", sawUnderline, sawHelp, out)
++	}
++	if code != 0 || stdout.String() != "SELECTED nas\n" {
++		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
++	}
++	if !bytes.Contains(out, []byte("\x1b[>4;2m\x1b[m")) {
++		t.Fatalf("modifyOtherKeys not followed by SGR 0: %q", out)
++	}
++	if hits := colourSGR.FindAll(out, -1); len(hits) > 0 {
++		t.Fatalf("colour SGR with NO_COLOR: %q", hits)
++	}
++}
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/internal/tui/tui.go /tmp/x2ws-65820374/eval/frozen/go/internal/tui/tui.go
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/internal/tui/tui.go	2026-10-06 04:41:29
++++ /tmp/x2ws-65820374/eval/frozen/go/internal/tui/tui.go	2026-10-09 01:01:59
+@@ -39,6 +39,7 @@
+ 	sel       int
+ 	filter    string
+ 	filtering bool
++	help      bool // help overlay open
+ 	width     int
+ 	height    int
+ 	noColor   bool
+@@ -56,9 +57,25 @@
+ 
+ func (m *Model) Init() tea.Cmd { return nil }
+ 
++// refilter applies a filter edit. The destination selected just before the
++// edit stays selected when it is still shown; otherwise the first shown row
++// is selected (TASK part C, replacing contract K9).
+ func (m *Model) refilter() {
++	prev := -1
++	if m.sel >= 0 && m.sel < len(m.shown) {
++		prev = m.shown[m.sel]
++	}
+ 	m.shown = profile.Filter(m.dests, m.filter)
+ 	m.sel = 0
++	if prev < 0 {
++		return
++	}
++	for i, d := range m.shown {
++		if d == prev {
++			m.sel = i
++			return
++		}
++	}
+ }
+ 
+ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+@@ -75,16 +92,77 @@
+ 		m.Outcome = HungUp
+ 		return m, tea.Quit
+ 	case tea.KeyPressMsg:
+-		return m.key(msg)
++		before := m.state()
++		_, cmd := m.key(msg)
++		if cmd == nil && m.state() != before && m.wideOnScreen() {
++			// Full repaint instead of a cell diff; see wideOnScreen.
++			cmd = tea.ClearScreen
++		}
++		return m, cmd
+ 	}
+ 	return m, nil
+ }
+ 
++// viewState is what a key can change on screen.
++type viewState struct {
++	filter          string
++	filtering, help bool
++	sel, shown      int
++}
++
++func (m *Model) state() viewState {
++	return viewState{m.filter, m.filtering, m.help, m.sel, len(m.shown)}
++}
++
++// wideOnScreen reports whether a double-width character is on screen (list
++// rows or the filter on the status line). Bubble Tea's cell-diff renderer
++// (ultraviolet, pinned pseudo-version) can then misplace a redrawn cell: its
++// "overwrite" cursor optimisation skips a wide character's continuation cell,
++// so a move that starts on one lands a column short (seen at 20x5 when a CJK
++// match is underlined). A full repaint starts from the home position and is
++// correct. ASCII-only screens, such as the 100-destination fixture, keep the
++// cheap diff.
++func (m *Model) wideOnScreen() bool {
++	if hasWide(m.filter) {
++		return true
++	}
++	if m.help {
++		return false
++	}
++	rows := max(m.height, 1) - 1
++	start := m.windowStart(rows)
++	for idx := start; idx < start+rows && idx < len(m.shown); idx++ {
++		d := m.dests[m.shown[idx]]
++		if hasWide(d.Alias) || (m.width >= 50 && (hasWide(d.Account) || hasWide(d.Host))) {
++			return true
++		}
++	}
++	return false
++}
++
++func hasWide(s string) bool {
++	for _, r := range s {
++		// No character below U+1100 is double-width.
++		if r >= 0x1100 && ansi.StringWidth(string(r)) > 1 {
++			return true
++		}
++	}
++	return false
++}
++
+ func (m *Model) key(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+ 	if k.Keystroke() == "ctrl+c" {
+ 		m.Outcome = Cancelled
+ 		return m, tea.Quit
+ 	}
++	if m.help {
++		// Only '?' and Esc close the overlay; every other key is ignored.
++		// Esc here never touches the filter.
++		if k.Code == tea.KeyEscape || k.Text == "?" {
++			m.help = false
++		}
++		return m, nil
++	}
+ 	switch k.Code {
+ 	case tea.KeyUp:
+ 		m.move(-1)
+@@ -128,6 +206,8 @@
+ 		m.move(1)
+ 	case k.Text == "/":
+ 		m.filtering = true
++	case k.Text == "?":
++		m.help = true
+ 	case k.Text == "q":
+ 		m.Outcome = Quit
+ 		return m, tea.Quit
+@@ -163,38 +243,131 @@
+ }
+ 
+ const (
+-	sgrSelected = "\x1b[1;36m" // bold cyan; never the only selection cue
+-	sgrReset    = "\x1b[0m"
++	sgrSelected    = "\x1b[1;36m" // bold cyan; never the only selection cue
++	sgrReset       = "\x1b[0m"
++	sgrUnderline   = "\x1b[4m" // attribute, not a colour: kept under NO_COLOR
++	sgrNoUnderline = "\x1b[24m"
+ )
+ 
++// helpLines is the help overlay content: key column, description column.
++var helpLines = [][2]string{
++	{"Up / k", "move up"},
++	{"Down / j", "move down"},
++	{"/", "filter"},
++	{"Enter", "select"},
++	{"Esc", "clear filter"},
++	{"q", "quit"},
++	{"?", "close help"},
++	{"Ctrl-C", "cancel"},
++}
++
++// matchRunes returns the rune range [start, end) of the first
++// case-insensitive occurrence of query in s, using the same per-rune
++// lowercasing as profile.Filter (strings.ToLower maps rune by rune, so rune
++// positions in the lowered string are rune positions in s).
++func matchRunes(s, query string) (start, end int, ok bool) {
++	if query == "" {
++		return 0, 0, false
++	}
++	ls, lq := strings.ToLower(s), strings.ToLower(query)
++	i := strings.Index(ls, lq)
++	if i < 0 {
++		return 0, 0, false
++	}
++	start = utf8.RuneCountInString(ls[:i])
++	return start, start + utf8.RuneCountInString(lq), true
++}
++
++// span is a half-open rune range of a row's plain text.
++type span struct{ start, end int }
++
++// underline truncates plain to width w and wraps the given rune spans in
++// underline on/off sequences. The spans are sorted and disjoint. Underline is
++// always closed before the end of the returned line.
++func underline(plain string, w int, spans []span) string {
++	line := ansi.Truncate(plain, w, "")
++	if len(spans) == 0 {
++		return line
++	}
++	var b strings.Builder
++	on := false
++	si, ri := 0, 0
++	for _, r := range line {
++		for si < len(spans) && ri >= spans[si].end {
++			si++
++		}
++		want := si < len(spans) && ri >= spans[si].start
++		if want != on {
++			if want {
++				b.WriteString(sgrUnderline)
++			} else {
++				b.WriteString(sgrNoUnderline)
++			}
++			on = want
++		}
++		b.WriteRune(r)
++		ri++
++	}
++	if on {
++		b.WriteString(sgrNoUnderline)
++	}
++	return b.String()
++}
++
++// row renders one list row (plain text plus match underline) for width w.
++func (m *Model) row(idx, w int) string {
++	d := m.dests[m.shown[idx]]
++	prefix := "  "
++	if idx == m.sel {
++		prefix = "> "
++	}
++	const prefixRunes = 2
++	alias := Sanitize(d.Alias)
++	text := prefix + alias
++	var spans []span
++	if s, e, ok := matchRunes(d.Alias, m.filter); ok {
++		spans = append(spans, span{prefixRunes + s, prefixRunes + e})
++	}
++	if w >= 50 {
++		head := prefix + alias + "  " + Sanitize(d.Account) + "@"
++		text = head + Sanitize(d.Host) + fmt.Sprintf(":%d", d.Port)
++		if s, e, ok := matchRunes(d.Host, m.filter); ok {
++			off := utf8.RuneCountInString(head)
++			spans = append(spans, span{off + s, off + e})
++		}
++	}
++	line := underline(text, w, spans)
++	if idx == m.sel && !m.noColor {
++		line = sgrSelected + line + sgrReset
++	}
++	return line
++}
++
++// windowStart is the index of the first shown row on screen when the list
++// area has rows lines: the list scrolls just enough to keep the selection
++// visible.
++func (m *Model) windowStart(rows int) int {
++	if rows > 0 && m.sel >= rows {
++		return m.sel - rows + 1
++	}
++	return 0
++}
++
+ // Render is the pure layout function (exported for tests).
+ func (m *Model) Render() string {
+ 	w, h := max(m.width, 1), max(m.height, 1)
+ 	rows := h - 1 // last line is the status line
+ 	var b strings.Builder
+-	start := 0
+-	if rows > 0 && m.sel >= rows {
+-		start = m.sel - rows + 1
+-	}
+-	for i := 0; i < rows; i++ {
+-		idx := start + i
+-		if idx < len(m.shown) {
+-			d := m.dests[m.shown[idx]]
+-			text := Sanitize(d.Alias)
+-			if w >= 50 {
+-				text = fmt.Sprintf("%s  %s@%s:%d", Sanitize(d.Alias), Sanitize(d.Account), Sanitize(d.Host), d.Port)
++	if m.help {
++		m.renderHelp(&b, w, rows)
++	} else {
++		start := m.windowStart(rows)
++		for i := 0; i < rows; i++ {
++			if idx := start + i; idx < len(m.shown) {
++				b.WriteString(m.row(idx, w))
+ 			}
+-			prefix := "  "
+-			if idx == m.sel {
+-				prefix = "> "
+-			}
+-			line := ansi.Truncate(prefix+text, w, "")
+-			if idx == m.sel && !m.noColor {
+-				line = sgrSelected + line + sgrReset
+-			}
+-			b.WriteString(line)
++			b.WriteString("\n")
+ 		}
+-		b.WriteString("\n")
+ 	}
+ 	status := fmt.Sprintf("%d/%d", len(m.shown), len(m.dests))
+ 	if m.filtering {
+@@ -204,6 +377,23 @@
+ 	}
+ 	b.WriteString(ansi.Truncate(status, w, ""))
+ 	return b.String()
++}
++
++// renderHelp fills the list area with the help overlay, clipped to rows
++// lines of width w. Each help line is on its own row and nothing else is on
++// that row, so the list never shows through.
++func (m *Model) renderHelp(b *strings.Builder, w, rows int) {
++	lines := make([]string, 0, len(helpLines)+1)
++	lines = append(lines, "  Keys")
++	for _, l := range helpLines {
++		lines = append(lines, fmt.Sprintf("  %-10s  %s", l[0], l[1]))
++	}
++	for i := 0; i < rows; i++ {
++		if i < len(lines) {
++			b.WriteString(ansi.Truncate(lines[i], w, ""))
++		}
++		b.WriteString("\n")
++	}
+ }
+ 
+ func (m *Model) View() tea.View {
+diff --color -ruN -x target -x dist /tmp/x2ws-65820374/eval/base/prototypes/go/internal/tui/tui_test.go /tmp/x2ws-65820374/eval/frozen/go/internal/tui/tui_test.go
+--- /tmp/x2ws-65820374/eval/base/prototypes/go/internal/tui/tui_test.go	2026-10-06 04:41:29
++++ /tmp/x2ws-65820374/eval/frozen/go/internal/tui/tui_test.go	2026-10-09 01:01:59
+@@ -116,10 +116,11 @@
+ 	}
+ }
+ 
+-// K9 (slice-contract §9): each filter change (appended character, Backspace,
+-// Esc clear) resets the selection to the first shown row; leaving filter mode
+-// with Enter keeps the selection.
+-func TestK9SelectionAfterFilterEdit(t *testing.T) {
++// TASK part C (replaces contract K9): after a filter edit (appended
++// character, Backspace, Esc clear) the previously selected destination stays
++// selected when still shown, else the first shown row is selected. Leaving
++// filter mode with Enter keeps the selection.
++func TestSelectionKeptAcrossFilterEdits(t *testing.T) {
+ 	m := New(dests(30), true) // aliases host-000..host-029, vps-東京
+ 	down := tea.KeyPressMsg{Code: tea.KeyDown}
+ 	sel := func() string { return m.dests[m.shown[m.sel]].Alias }
+@@ -128,24 +129,363 @@
+ 	if sel() != "host-002" {
+ 		t.Fatal(sel())
+ 	}
+-	press(m, txt("o")) // append
+-	if m.sel != 0 || sel() != "host-000" {
+-		t.Fatalf("append: %d %s", m.sel, sel())
++	press(m, txt("o")) // append; host-002 still shown
++	if sel() != "host-002" {
++		t.Fatalf("append keeps: %s", sel())
+ 	}
+-	press(m, down, down, tea.KeyPressMsg{Code: tea.KeyBackspace})
+-	if m.sel != 0 || m.filter != "h" {
+-		t.Fatalf("backspace: %d %q", m.sel, m.filter)
++	press(m, txt("s"), txt("t"), txt("-"), txt("0"), txt("1")) // host-002 no longer shown
++	if m.sel != 0 || sel() != "host-010" {
++		t.Fatalf("append drops selection -> first row: %d %s", m.sel, sel())
+ 	}
+-	press(m, down, down, down, tea.KeyPressMsg{Code: tea.KeyEscape})
+-	if m.sel != 0 || m.filter != "" || m.filtering {
+-		t.Fatalf("esc: %d", m.sel)
++	press(m, down, down)                              // host-012
++	press(m, tea.KeyPressMsg{Code: tea.KeyBackspace}) // "host-0": host-012 still shown
++	if m.filter != "host-0" || sel() != "host-012" {
++		t.Fatalf("backspace keeps: %q %s", m.filter, sel())
+ 	}
+-	press(m, txt("/"), txt("1"), down, down, tea.KeyPressMsg{Code: tea.KeyEnter})
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape}) // Esc clear keeps host-012
++	if m.filter != "" || m.filtering || sel() != "host-012" || len(m.shown) != 31 {
++		t.Fatalf("esc keeps: %q %v %s", m.filter, m.filtering, sel())
++	}
++	// No row shown before the edit: the first shown row is selected after it.
++	press(m, txt("/"), txt("z"))
++	if len(m.shown) != 0 {
++		t.Fatal("z should match nothing")
++	}
++	press(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
++	if m.sel != 0 || sel() != "host-000" {
++		t.Fatalf("empty -> first: %d %s", m.sel, sel())
++	}
++	press(m, txt("1"), down, down, tea.KeyPressMsg{Code: tea.KeyEnter})
+ 	if m.filtering || m.filter != "1" || m.sel != 2 {
+ 		t.Fatalf("enter must keep selection: %d", m.sel)
+ 	}
+ 	keep := sel()
+ 	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || m.Alias != keep {
+ 		t.Fatalf("selected %q want %q", m.Alias, keep)
++	}
++}
++
++// A destination far down a long list stays selected and visible (the list
++// scrolls to it) across filter edits, and the window stays full.
++func TestSelectionKeptFarDownScrolls(t *testing.T) {
++	m := New(dests(100), true)
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	for i := 0; i < 87; i++ {
++		press(m, txt("j"))
++	}
++	press(m, txt("/"), txt("H"), txt("o"))
++	check := func(what string) {
++		t.Helper()
++		if got := m.dests[m.shown[m.sel]].Alias; got != "host-087" {
++			t.Fatalf("%s: selected %s", what, got)
++		}
++		lines := strings.Split(ansi.Strip(m.Render()), "\n")
++		if !strings.HasPrefix(lines[22], "> host-087") {
++			t.Fatalf("%s: marker not on visible host-087: %q", what, lines[22])
++		}
++		if !strings.HasPrefix(lines[0], "  host-065") {
++			t.Fatalf("%s: window not full: %q", what, lines[0])
++		}
++	}
++	check("append")
++	press(m, tea.KeyPressMsg{Code: tea.KeyBackspace})
++	check("backspace")
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
++	check("esc")
++}
++
++// underlined decodes a rendered frame into, per line, the plain text and the
++// set of underlined rune indices. It understands the SGR forms Render emits
++// (and 0/empty reset); any colour parameter is reported via colour.
++func underlined(t *testing.T, frame string) (plain []string, ul []map[int]bool, colour bool) {
++	t.Helper()
++	for _, line := range strings.Split(frame, "\n") {
++		var p []rune
++		u := map[int]bool{}
++		on := false
++		rs := []rune(line)
++		for i := 0; i < len(rs); i++ {
++			if rs[i] == 0x1b {
++				j := i + 2
++				for j < len(rs) && rs[j] != 'm' {
++					j++
++				}
++				for _, f := range strings.FieldsFunc(string(rs[i+2:j]), func(r rune) bool { return r == ';' || r == ':' }) {
++					switch f {
++					case "4":
++						on = true
++					case "24", "0":
++						on = false
++					case "1", "22":
++					default:
++						colour = true
++					}
++				}
++				if j == i+2 { // ESC[m
++					on = false
++				}
++				i = j
++				continue
++			}
++			if on {
++				u[len(p)] = true
++			}
++			p = append(p, rs[i])
++		}
++		plain = append(plain, string(p))
++		ul = append(ul, u)
++	}
++	return
++}
++
++// marks renders the underlined runes of line i as the underlined substrings,
++// joined by "|", e.g. "nas|nas" for a match in alias and host.
++func marks(plain string, u map[int]bool) string {
++	var parts []string
++	var cur []rune
++	for i, r := range []rune(plain) {
++		if u[i] {
++			cur = append(cur, r)
++		} else if cur != nil {
++			parts = append(parts, string(cur))
++			cur = nil
++		}
++	}
++	if cur != nil {
++		parts = append(parts, string(cur))
++	}
++	return strings.Join(parts, "|")
++}
++
++func homelab() []profile.Destination {
++	return []profile.Destination{
++		{Alias: "lab-server", Host: "lab.example.internal", Account: "aman", Port: 22},
++		{Alias: "nas", Host: "nas.home.arpa", Account: "admin", Port: 2222},
++		{Alias: "vps-東京", Host: "vps1.example.invalid", Account: "deploy", Port: 22},
++		{Alias: "Router", Host: "gw.lan", Account: "root", Port: 22},
++	}
++}
++
++func TestMatchUnderline(t *testing.T) {
++	type tc struct {
++		name, filter string
++		width        int
++		enter        bool
++		want         map[string]string // alias -> marks ("" = row shown, nothing underlined)
++	}
++	cases := []tc{
++		{"single char wide", "a", 80, false, map[string]string{
++			"lab-server": "a|a", "nas": "a|a", "vps-東京": "a", "Router": "a"}},
++		{"multi char only first occurrence", "nas", 80, false, map[string]string{"nas": "nas|nas"}},
++		{"mixed case", "LaB", 80, true, map[string]string{"lab-server": "lab|lab"}},
++		{"mixed case alias upper", "rOU", 80, false, map[string]string{"Router": "Rou"}},
++		{"cjk", "東京", 80, false, map[string]string{"vps-東京": "東京"}},
++		{"host only", "example", 80, false, map[string]string{"lab-server": "example", "vps-東京": "example"}},
++		{"host only narrow", "example", 40, false, map[string]string{"lab-server": "", "vps-東京": ""}},
++		{"narrow alias", "s", 40, true, map[string]string{"lab-server": "s", "nas": "s", "vps-東京": "s"}},
++		{"host only, account not underlined", "home", 80, false, map[string]string{"nas": "home"}},
++		{"later occurrences not underlined", "e", 80, false, map[string]string{
++			"lab-server": "e|e", "nas": "e", "vps-東京": "e", "Router": "e"}},
++	}
++	for _, c := range cases {
++		for _, noColor := range []bool{true, false} {
++			t.Run(fmt.Sprintf("%s/nocolor=%v", c.name, noColor), func(t *testing.T) {
++				m := New(homelab(), noColor)
++				m.Update(tea.WindowSizeMsg{Width: c.width, Height: 24})
++				press(m, txt("/"))
++				for _, r := range c.filter {
++					press(m, txt(string(r)))
++				}
++				if c.enter {
++					press(m, tea.KeyPressMsg{Code: tea.KeyEnter})
++				}
++				plain, ul, colour := underlined(t, m.Render())
++				if colour != !noColor {
++					t.Fatalf("colour SGR present=%v with noColor=%v", colour, noColor)
++				}
++				got := map[string]string{}
++				for i, p := range plain[:len(plain)-1] {
++					if p == "" {
++						continue
++					}
++					if !strings.HasPrefix(p, "> ") && !strings.HasPrefix(p, "  ") {
++						t.Fatalf("row %q", p)
++					}
++					alias := strings.Fields(p[2:])[0]
++					got[alias] = marks(p, ul[i])
++					if ul[i][0] || ul[i][1] {
++						t.Fatalf("prefix underlined in %q", p)
++					}
++				}
++				if len(ul[len(ul)-1]) != 0 {
++					t.Fatal("status line underlined")
++				}
++				if fmt.Sprint(got) != fmt.Sprint(c.want) {
++					t.Fatalf("got %v want %v\n%s", got, c.want, strings.Join(plain, "\n"))
++				}
++			})
++		}
++	}
++}
++
++func TestNoUnderlineWhenFilterEmpty(t *testing.T) {
++	m := New(homelab(), true)
++	press(m, txt("/"), txt("a"))
++	if !strings.Contains(m.Render(), sgrUnderline) {
++		t.Fatal("expected underline with filter")
++	}
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
++	if strings.Contains(m.Render(), "\x1b[") {
++		t.Fatalf("after Esc: %q", m.Render())
++	}
++	press(m, txt("/"), txt("a"), tea.KeyPressMsg{Code: tea.KeyBackspace})
++	if strings.Contains(m.Render(), "\x1b[") {
++		t.Fatal("after Backspace to empty")
++	}
++}
++
++// Truncation at narrow widths never leaves underline open and never
++// overflows.
++func TestUnderlineTruncated(t *testing.T) {
++	m := New(homelab(), true)
++	press(m, txt("/"), txt("s"), txt("e"), txt("r"), txt("v"), txt("e"), txt("r"))
++	for _, w := range []int{1, 3, 5, 7, 8, 20, 49, 50, 55} {
++		m.Update(tea.WindowSizeMsg{Width: w, Height: 5})
++		for _, l := range strings.Split(m.Render(), "\n") {
++			if ansi.StringWidth(l) > w {
++				t.Fatalf("w=%d overflow %q", w, l)
++			}
++			if strings.Count(l, sgrUnderline) != strings.Count(l, sgrNoUnderline) {
++				t.Fatalf("w=%d unbalanced underline %q", w, l)
++			}
++		}
++	}
++}
++
++var helpWant = []string{
++	"Keys",
++	"Up / k move up",
++	"Down / j move down",
++	"/ filter",
++	"Enter select",
++	"Esc clear filter",
++	"q quit",
++	"? close help",
++	"Ctrl-C cancel",
++}
++
++func norm(s string) string { return strings.Join(strings.Fields(s), " ") }
++
++func TestHelpOverlay(t *testing.T) {
++	m := New(homelab(), true)
++	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	press(m, txt("/"), txt("a"), tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyEnter})
++	before, beforeSel, beforeShown := m.Render(), m.sel, len(m.shown)
++
++	press(m, txt("?"))
++	lines := strings.Split(m.Render(), "\n")
++	for i, w := range helpWant {
++		if norm(lines[i]) != w {
++			t.Fatalf("help line %d = %q want %q", i, lines[i], w)
++		}
++	}
++	// Every other key is ignored while the overlay is open.
++	_, cmd := m.Update(txt("q"))
++	press(m, txt("j"), txt("k"), txt("/"), txt("x"), tea.KeyPressMsg{Code: tea.KeyDown},
++		tea.KeyPressMsg{Code: tea.KeyUp}, tea.KeyPressMsg{Code: tea.KeyBackspace})
++	_, cmd2 := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
++	if cmd != nil || cmd2 != nil || !m.help || m.filtering || m.filter != "a" {
++		t.Fatalf("key leaked through overlay: help=%v filtering=%v filter=%q", m.help, m.filtering, m.filter)
++	}
++	// Esc only closes the overlay; the filter stays.
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape})
++	if m.help || m.filter != "a" || m.sel != beforeSel || len(m.shown) != beforeShown || m.Render() != before {
++		t.Fatalf("esc close changed state:\n%s\n---\n%s", m.Render(), before)
++	}
++	for _, w := range helpWant[1:] {
++		if strings.Contains(norm(m.Render()), w) {
++			t.Fatalf("help line %q remains", w)
++		}
++	}
++	// '?' closes too.
++	press(m, txt("?"), txt("?"))
++	if m.help || m.Render() != before {
++		t.Fatal("? close")
++	}
++	// Ctrl-C cancels while the overlay is open.
++	press(m, txt("?"))
++	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); cmd == nil || m.Outcome != Cancelled {
++		t.Fatal("ctrl-c in help")
++	}
++}
++
++func TestHelpQuestionMarkInFilterMode(t *testing.T) {
++	m := New(homelab(), true)
++	press(m, txt("/"), txt("?"))
++	if m.help || m.filter != "?" || !m.filtering {
++		t.Fatalf("help=%v filter=%q", m.help, m.filter)
++	}
++	// Closing filter mode with Esc, then '?' opens help.
++	press(m, tea.KeyPressMsg{Code: tea.KeyEscape}, txt("?"))
++	if !m.help {
++		t.Fatal("? outside filter mode")
++	}
++}
++
++func TestHelpOverlayTinySizes(t *testing.T) {
++	m := New(homelab(), false)
++	press(m, txt("?"))
++	for _, sz := range [][2]int{{20, 5}, {80, 24}, {1, 1}, {0, 0}, {3, 2}, {49, 10}, {20, 5}} {
++		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
++		lines := strings.Split(m.Render(), "\n")
++		if len(lines) != max(sz[1], 1) {
++			t.Fatalf("%v lines=%d", sz, len(lines))
++		}
++		for _, l := range lines {
++			if ansi.StringWidth(l) > max(sz[0], 1) {
++				t.Fatalf("%v overflow %q", sz, l)
++			}
++		}
++	}
++	press(m, txt("?"))
++	m.Update(tea.WindowSizeMsg{Width: 20, Height: 5})
++	if m.help || !strings.HasPrefix(ansi.Strip(m.Render()), "> lab-server") {
++		t.Fatal(m.Render())
++	}
++}
++
++// A key that changes the screen while a double-width character is visible
++// asks for a full repaint (works around the renderer's wide-cell cursor
++// optimisation); ASCII-only screens and ignored keys do not.
++func TestWideCharacterFullRepaint(t *testing.T) {
++	isClear := func(cmd tea.Cmd) bool { return cmd != nil && cmd() == tea.ClearScreen() }
++	m := New(homelab(), true) // vps-東京 is on screen
++	m.Update(tea.WindowSizeMsg{Width: 20, Height: 5})
++	if _, cmd := m.Update(txt("/")); !isClear(cmd) {
++		t.Fatal("state change with CJK on screen: want full repaint")
++	}
++	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyUp}); cmd != nil {
++		t.Fatal("no-op key (Up at top) must not repaint")
++	}
++	if _, cmd := m.Update(txt("東")); !isClear(cmd) {
++		t.Fatal("filter edit with CJK")
++	}
++	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); cmd == nil || isClear(cmd) {
++		t.Fatal("Ctrl-C must quit, not repaint")
++	}
++	a := New(dests(100)[:100], true) // ASCII only
++	for _, k := range []tea.KeyPressMsg{txt("j"), txt("/"), txt("7"), tea.KeyPressMsg{Code: tea.KeyBackspace}, txt("?")} {
++		if _, cmd := a.Update(k); cmd != nil {
++			t.Fatalf("ASCII screen: unexpected cmd for %v", k)
++		}
++	}
++	// The CJK destination scrolled off screen: no repaint needed.
++	b := New(dests(100), true) // vps-東京 is row 101
++	b.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
++	if _, cmd := b.Update(txt("j")); cmd != nil {
++		t.Fatal("wide character not on screen")
++	}
++	if !hasWide("vps-東京") || hasWide("host-001 é") {
++		t.Fatal("hasWide")
+ 	}
+ }

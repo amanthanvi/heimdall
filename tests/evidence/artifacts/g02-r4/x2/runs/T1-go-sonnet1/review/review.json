@@ -1,0 +1,28 @@
+{
+  "cell": "T1-go-sonnet1",
+  "reviewer_task": "M00-T05-r4-x2-review-T1-go-sonnet1",
+  "method": "Read the diff (out/diff.patch, 4 files +680/-13), TASK.md, all of internal/run/run_unix.go after the change, and the new tests. Checked Go 1.27.2 sources: syscall_bsd.go WaitStatus.Stopped/Continued and exec_libc2.go/exec_linux.go Foreground. No tests were rerun; the evaluator's results were taken as given.",
+  "scores": {"spec_conformance": 5, "test_quality": 4, "clarity": 4},
+  "defects": [
+    {"severity": "minor", "location": "prototypes/go/internal/run/run_unix.go:220 (engaged initializer)",
+     "description": "engaged is computed after cmd.Start(). When the launcher's group held the foreground, SysProcAttr.Foreground was set, and Go's forkAndExecInChild calls TIOCSPGRP in the child before exec. Start returns only after exec, so tcgetpgrp(ttyFD)==own is false at this point in every case where the check could matter. The initializer is therefore effectively stdioHasCtty(), and the code and comment ('at start') overstate it. The redirected-foreground case still works only because mirrorStop also tests fg==pid. Fix: compute the foreground part before Start, or drop it and document that mirrorStop covers it."},
+    {"severity": "minor", "location": "prototypes/go/internal/run/run_unix.go:357-363 (mirrorStop/stopSelf with SIGSTOP)",
+     "description": "SIGSTOP is now mirrored onto the launcher's own group. The old code avoided this deliberately. Protection now rests on the orphaned() check in stopSelf, which leaves a TOCTOU window: if the group becomes orphaned between that check and kill(0, SIGSTOP), the kernel does not discard SIGSTOP and does not send the orphan SIGHUP/SIGCONT, which it sends only at the moment a group with stopped members becomes orphaned. The launcher then stays stopped for good. The window is microseconds and the change is needed for $? parity, but the comment does not mention the residual race."},
+    {"severity": "minor", "location": "prototypes/go/internal/run/run_unix.go mirrorStop (engaged heuristic)",
+     "description": "Known and documented deviation: a fully redirected background job of an interactive shell (cmd </dev/null >o 2>&1 &) is never engaged, so a third-party stop of its child is not mirrored. The shell lists the job as Running while plain exec would show it Stopped. This is outside S1-S5 but is a behaviour change from the previous code."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/jobcontrol_test.go TestJobControlThirdPartyStopContinue",
+     "description": "The plain-exec control is run, but its notice text is never compared with the launcher's; only the presence of a notice and $? are checked. When the job is no longer listed (branch (a)), the child's exit status is not checked. The zsh '(signal)' wording is asserted only in the S5 test."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/jobcontrol_test.go TestJobControlNonInteractiveParentStopContinue",
+     "description": "The S1 'program that is not a shell' is /bin/sh -c with set -m (a job-control shell, dash on Linux and bash-posix on darwin). It does not cover pipes on stdio, although REPORT.md claims pipe coverage for the implementer's external driver."},
+    {"severity": "minor", "location": "prototypes/go/cmd/heimdall-proto/jobcontrol_test.go (startShell, all scenarios)",
+     "description": "Synchronisation uses many fixed sleeps (0.2-1 s), which makes the tests timing-dependent on a loaded host. The suite added about 58 s to cmd/heimdall-proto. The S4 test does not check for leftover launcher or child processes. Cleanup kills only the shell PID, so a failing subtest can leave the launcher and child running until the pty hangs up."}
+  ],
+  "positives": [
+    "Correct root cause on darwin, confirmed in Go sources: syscall_bsd.go Stopped() returns false for SIGSTOP and Continued() returns true, so the old loop treated a SIGSTOP stop as an exit (ExitStatus -1, exit 255). stopSignal decodes the raw 0x7f status correctly and excludes Linux's 0xffff. WCONTINUED is never requested, so BSD's 0x137f continued encoding cannot occur.",
+    "The change is small and contained: one function changed, two helpers added, no Windows or contract files touched. engaged is guarded by mu at every write after the goroutines start.",
+    "When not engaged, mirrorStop returns before the SIGCONT to -pid, so the stopped child is left alone as plain exec leaves it (S1), and the WUNTRACED wait loop cannot busy-loop.",
+    "The new unit test for status decoding and the pty tests compare against plain exec. The implementer reports a red check against the old code, and the hidden tests and the 139-check harness pass on both platforms."
+  ],
+  "security": "No new input parsing, no value echo, no new resource use beyond one bool. No secrets or canaries are touched.",
+  "t2_ascii_case_folding": "not applicable (T1)"
+}
