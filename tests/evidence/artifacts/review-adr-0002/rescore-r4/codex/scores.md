@@ -1,0 +1,207 @@
+# Codex independent scorer — M00-T05-r4-rescore-codex
+
+Go 3.75, Rust 3.80 on the original weights with D2 redefined. Conditional recommendation: Rust + Ratatui, low confidence; a 0.05 ordinal margin is fragile and a one-point change in any of the five largest rows flips it. Go release/supply-chain simplicity is a strong counterweight. Both pass the scoped child/IPC, viable Windows/WSL feasibility, inspected-dependency license-compatibility and shared-domain gates; security assumptions, strict clean-machine distribution and dependency-support judgments remain uncertain. This score is a candidate preference, not a declaration that G02 is verified or permission to bypass D4. The unknown Windows batch argv[0] boundary is explicitly escalated. TypeScript is not reopened.
+
+This review stayed blind to other scorers and the orchestrator score directories. It read repository evidence and source only; no build, test executable, native connection, package install or process probe was run. All runtime observations below are retained evidence, not this scorer’s reruns. A brief historical-memory registry check was used only to remind me to verify current records; no score rests on historical memory.
+
+Scores are ordinal judgments, not measurements: 1 poor, 2 substantial obstacles, 3 adequate with material work, 4 strong with bounded gaps, 5 unusually strong and well demonstrated. Iroh remains a V1 target with an explicit deferral route; the primary release row scores demonstrated core packaging, with Iroh scenarios below. D2 and D3 are applied as already decided.
+
+## Hard gates
+
+### Correctness of child/IPC behavior
+
+**Go — pass:** Pass for the accepted G02 slice only: original X1 linux-x64 139/139, post-X1b darwin/linux-arm64 139/139 and independently rebuilt native Windows 71/71. Commit 84c7665 refuses resolved .bat/.cmd targets with exit 127 before launch; review probes and a weakened-check mutation support it. Third-party stop/disposition/duplicate-signal cases remain non-gating under §9.4–§9.6, as D3 requires. Sources: tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/m00-wf8/x1b-review-go.json; docs/g02/slice-contract.md.
+
+**Rust — pass:** Pass for the accepted, currently tested G02 slice: same platform pass counts after 001a791 adds GetFileType checks before reading profile pipes or writing agent frames. Independent Windows review reproduces 71/71 and Unix 139/139. This is a scoped pass, not settlement of whether batch script argv[0] falls within §9.6: the reviewer demonstrated %NAME%-path command injection and escalated that ambiguity. Sources: tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/m00-wf8/x1b-review-rust.json; docs/g02/slice-contract.md.
+
+**Change since ADR:** Native Windows now executed; Go baseline under §9.6 67/71 and Rust 68/71 became 71/71 after one fix round each. The original X1 63/63 versus 60/63 uses a different gate set. Native linux-x64 added. X2 variants are experimental evidence, not proof the frozen production candidate now includes their job-control fixes.
+
+### A viable Windows/WSL path
+
+**Go — pass:** Feasibility pass: native candidate Windows IPC/process/TUI and native Linux-under-WSL evidence, plus G03 successful real client endpoint selection, Mode A argv/bytes/Git/cert-file behavior and Mode B fixture filtering/lifecycle mechanics. ASCII pipe names or tested config forms avoid the observed non-ASCII SSH_AUTH_SOCK failure. This is not a stable-V1 support pass. Cross-account, second-distribution/restart, host lock, real upstream coexistence and some interactive-console claims remain blocked. Sources: docs/research/g03-windows-wsl.md §0–§0.2; tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/m00-wf8/x1b-review-go.json.
+
+**Rust — pass:** Same feasibility basis and same G03 blockers as Go after X1b. The shared G03 bridge demonstrates an architecture available to either language, not an integrated Rust bridge. No claim is made that compiled targets alone establish platform support. Sources: docs/research/g03-windows-wsl.md §0–§0.2; tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/m00-wf8/x1b-review-rust.json.
+
+**Change since ADR:** Compile-only uncertainty becomes observed feasibility on the actual Windows 11 x64/WSL2 host. The host-availability blocker is removed; missing accounts/distribution, owner-authorized store tests and operator-attested lifecycle remain. D4 completion is not silently equated with full G03 closure.
+
+### No unsupported security assumption
+
+**Go — uncertain:** Native injection via ordinary batch targets is closed by refusal. Anonymous-level pipe client behavior is real, but X1 review identified it by the Win32-OpenSSH process-token method; anonymous impersonation does not imply total incompatibility. Five X4 server checks pass, including expected-SID mismatch and Anonymous refusal, but no actual foreign-account DACL test, remote peer rejection, secure-store/lock test or named-pipe server-identity design is established. Prospective untyped NCrypt calls are not natively executed. Sources: tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/g02-r4/x1-review/host-runs/rv-ps51-a/review-probes.json; tests/evidence/artifacts/g02-r4/x1/x4-windows-run/RESULTS.md; docs/research/g03-windows-wsl.md.
+
+**Rust — uncertain:** X1b closes regular-file corruption and blocking pipe reads, and X4 same-user server checks pass. However %NAME% in a batch script path produced an injected command in independent native review. Its root cause in cmd/std does not make it safe for Heimdall. argv[0] scope remains unresolved; product must refuse/escape it rather than rely on argument escaping. Server authentication, cross-user DACLs, DPAPI/CNG/TPM and lock continuity remain untested as for Go. Sources: tests/evidence/artifacts/m00-wf8/x1b-review-rust.json; tests/evidence/artifacts/g02-r4/x1/x4-windows-run/RESULTS.md; docs/research/g03-windows-wsl.md.
+
+**Change since ADR:** Windows security evidence now exists, including corrections to the Go impersonation claim and fixes to the Rust overwrite/pipe bugs. It still does not settle actual foreign-principal isolation or store/lock guarantees. Rust script-path injection is a new consequential counterexample; a blanket security pass is unwarranted.
+
+### Practical distribution
+
+**Go — uncertain:** Core artifacts ran under restricted/empty toolchain PATH on native Windows and Linux, with spaced/Unicode paths. X3 builds the four-target snapshot matrix and verifies sampled cross-host binary reproducibility. These prove executable/runtime feasibility, not the plan-required clean-machine release: Windows host is a configured developer/owner machine; SmartScreen/MOTW and AV were not tested; macOS Gatekeeper rejects the ad-hoc bundle; provisioned signing/notarization/install/uninstall are missing. Sources: tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/g02-r4/x3/RESULTS.md; tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md; plan.md §3 G02; spec.md §15.3.
+
+**Rust — uncertain:** Same core runtime feasibility on tested hosts. X3 verifies same-host binaries but not sampled cross-host equality; cargo-dist Windows path was not exercised after missing cargo-xwin. Artifact dependency metadata needs cargo-auditable. Notices generation can fail while build.sh exits 0. Signed/provisioned clean-machine bundle/release tests remain missing as for Go. Sources: tests/evidence/artifacts/g02-r4/x1/RESULTS.md; tests/evidence/artifacts/g02-r4/x3/RESULTS.md; tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md; tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md; prototypes/rust/build.sh:115–155.
+
+**Change since ADR:** Windows toolchain-free runtime feasibility is now observed and release tooling compared. The strict clean-machine/signing/distribution gate remains open; deleting PATH entries is not uninstalling development components or proving a signed installation.
+
+### Maintained dependencies
+
+**Go — uncertain:** X6 snapshots support active Bubble Tea and first-party tooling; X3 scans are clean for the pinned pre-X1b graph. They do not resolve every prior concern: ultraviolet pseudo-version, older cancelreader/terminfo and old tagged go-winio release. Lack of recent tags alone is not abandonment. Prospective macOS security bindings lack high-level coverage and would need explicit ownership. Sources: docs/decisions/0002-language-tui-distribution.md §3; tests/evidence/artifacts/g02-r4/x3/RESULTS.md; tests/evidence/artifacts/g02-r4/x6/RESULTS.md; tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md.
+
+**Rust — uncertain:** X6 supports active Ratatui/Iroh and X3 cargo-deny finds no known unmaintained/yanked advisory in the tested graph. This does not prove maintenance of crossterm 0.29 (18-month release gap with prior behavior bugs), old winapi, or prospective security-framework (looking-for-maintainer). Suitable ownership/replacement is plausible but not recorded. Sources: docs/decisions/0002-language-tui-distribution.md §3; tests/evidence/artifacts/g02-r4/x3/RESULTS.md; tests/evidence/artifacts/g02-r4/x6/RESULTS.md; tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md.
+
+**Change since ADR:** Concrete registry/activity and working security-tool evidence reduce uncertainty for primary frameworks. Neither a scanner zero nor commit activity by itself closes the dependency-support judgment. X4 adds an explicit prospective Rust wrapper-maintenance concern.
+
+### Compatible licensing
+
+**Go — pass:** Compatibility pass for inspected current dependencies: X3 go-licenses checks pass on three targets after excluding the unlicensed private root; third-party results are MIT/BSD. Release compliance remains incomplete: project license is UNLICENSED and notices/runtime attribution still need shipping. The Rust helper would require its own inventory if Iroh retained. Sources: docs/decisions/0002-language-tui-distribution.md §3; tests/evidence/artifacts/g02-r4/x3/RESULTS.md §4; tests/evidence/artifacts/g02-r4/x5/RESULTS.md.
+
+**Rust — pass:** Compatibility pass for inspected crate metadata: permissive choices, cargo-deny and cargo-about checks pass, baseline notices reproduced in X1b review, Iroh MIT/Apache. This is not completed release compliance: std/musl/mingw CRT are not covered by those scanners, the ADR mingw component question is unresolved, and later offline notices generation can fail silently. No evidence here demonstrates an incompatible linked component; absence of full inventory must remain a release blocker. Sources: docs/decisions/0002-language-tui-distribution.md §3; tests/evidence/artifacts/g02-r4/x3/RESULTS.md §4; tests/evidence/artifacts/m00-wf8/x1b-review-rust.json; tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md.
+
+**Change since ADR:** Actual license scanners and reproducible notice evidence added; no observed incompatible dependency. Windows CRT component-level accounting and project-license/notices delivery remain open. This scoped compatibility verdict must not be advertised as complete distribution compliance.
+
+### Ability to share domain operations across CLI/TUI
+
+**Go — pass:** The baseline CLI/TUI share profile/domain loading and results; native nonregular-file refusals cover both. X2 T2/T3 extend operations and presentation without a second policy implementation. Sources: docs/decisions/0002-language-tui-distribution.md §3; tests/evidence/artifacts/g02-r4/x2/RESULTS.md; tests/evidence/artifacts/g02-r4/x1/RESULTS.md.
+
+**Rust — pass:** Same baseline shared profile/domain operations; 001a791 changes the shared profile loader used by both CLI and TUI. X2 extensions show the separation remains workable. This is an architectural feasibility pass, not implementation of production policy semantics. Sources: docs/decisions/0002-language-tui-distribution.md §3; git show 001a791 -- prototypes/rust/src/profile.rs; tests/evidence/artifacts/g02-r4/x2/RESULTS.md.
+
+**Change since ADR:** No verdict change. More observed extension and native-platform evidence supports the prior pass.
+
+## Weighted comparison
+
+| Criterion | Weight | Go | Rust | Go contribution | Rust contribution | Confidence |
+|---|---:|---:|---:|---:|---:|---|
+| Cross-platform integration | 25% | 4 | 4 | 1.00 | 1.00 | medium |
+| Security-sensitive core correctness and maintainability | 25% | 4 | 4 | 1.00 | 1.00 | medium |
+| Release and runtime simplicity | 20% | 4 | 3 | 0.80 | 0.60 | medium |
+| Agentic and open-source maintainability | 15% | 3 | 4 | 0.45 | 0.60 | low |
+| TUI quality | 10% | 3 | 4 | 0.30 | 0.40 | medium |
+| Integration ecosystem | 5% | 4 | 4 | 0.20 | 0.20 | medium |
+| Total | 100% | **3.75** | **3.80** | **3.75** | **3.80** | Low confidence in the ranking |
+
+### Cross-platform integration: Go 4, Rust 4 (25%)
+
+Both have native Windows fixture IPC, argv, process I/O, console cancellation and TUI evidence after X1b, plus native WSL linux-x64 evidence on the frozen pre-X1b builds. G03 demonstrates both Windows-SSH Mode A and a scoped Linux Mode B fixture bridge. Go retains straightforward cgo-free cross-builds, including the observed purego macOS route, but complete macOS SecKey and Windows NCrypt coverage require hand-maintained FFI or cgo. Rust has better typed platform bindings and a smaller macOS adapter, but SDK-dependent macOS linking, zigbuild, thread-per-client Windows pipe work and wrapper-maintenance risks. These offset at 4 each. Neither has validated the full required platform lifecycle/isolation matrix.
+
+**Observation versus inference:** Observed in retained records: both Windows 71/71, both original linux-x64 139/139, macOS fixture storage/ephemeral SE parity, Linux fixture storage parity, and five Windows pipe checks per language. Inferred: comparative cost of carrying these adapters into production. The G03 bridge is feasibility evidence, not an implemented Go or Rust production bridge; DPAPI/CNG/TPM, cross-user access and lock/restart claims remain unverified.
+
+**Confidence:** medium.
+
+**Strongest counter:** Go can cross-build without a foreign toolchain on its purego route and has go-winio deadlines/overlapped I/O; that could warrant Go 5 versus Rust 4. Conversely, Rust avoids untyped NCrypt/CF calls and, if Iroh ships, can use one implementation language, which could warrant a Rust lead. The macOS Rust wrapper is explicitly looking for a maintainer and has an API that drops OSStatus.
+
+**Evidence:** `tests/evidence/artifacts/g02-r4/x1/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x1b/review-go/windows-run/rev-ps51-a/results.json`; `tests/evidence/artifacts/g02-r4/x1b/review-rust/windows/review-ps51-a/results.json`; `tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/linux/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/windows/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x1/x4-windows-run/RESULTS.md`; `docs/research/g03-windows-wsl.md`.
+
+### Security-sensitive core correctness and maintainability: Go 4, Rust 4 (25%)
+
+The common slice is conforming under the accepted rulings after symmetric Windows fixes; neither candidate demonstrates a production authorization/signing core. Rust has compile-time race/exhaustive-state checks in safe code, typed native API signatures and mutable secret buffers. Go has a substantially smaller independently versioned dependency graph, useful built-in binary dependency metadata, reachability scanning and stable native fuzzing. Known logic/signal bugs occur in both; Rust additionally has an observed batch-script-path injection outside the gating argument cases. These make a full-point Rust safety premium unjustified. The X2 recovery finding is assessed primarily under maintenance, not counted again as three security defects.
+
+**Observation versus inference:** Observed in evidence: no scanner findings in the tested baselines, equal gated conformance, localized Windows data-loss/injection fixes, and the later Rust script-path injection. Compiler guarantees concern specific bug classes, not authorization correctness; expected future benefit is inference. The Go plain Secret Service session is a transport/API fact, not observed unauthorized disclosure. Neither unsafe token counts nor advisory counts measure security incidence.
+
+**Confidence:** medium.
+
+**Strongest counter:** Rust type/race checks and typed platform FFI could justify a point lead for a future concurrent policy runtime. Against that, Rust has about 77–82 normal crates versus 17 Go modules, linked C runtimes, a reported RustSec coverage gap for prospective russh use, and a demonstrated Windows batch-path injection. These could justify a Go lead if production library/control choices do not mitigate them.
+
+**Evidence:** `docs/g02/slice-contract.md`; `tests/evidence/artifacts/m00-wf8/x1b-review-go.json`; `tests/evidence/artifacts/m00-wf8/x1b-review-rust.json`; `tests/evidence/artifacts/g02-r4/x3/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/linux/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/windows/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x2/t1-calibration/verify/README.md`; `tests/evidence/artifacts/g02-r4/x6/RESULTS.md`; `tests/evidence/artifacts/g02-parity-r3c/RESULTS.md`; `spec.md`.
+
+### Release and runtime simplicity: Go 4, Rust 3 (20%)
+
+Both tested core prototypes are one executable per target and run without a development toolchain on the tested hosts. X3 gives Go the stronger release path: standard cross-builds, same-host and sampled cross-host identical binaries, embedded dependency buildinfo, artifact SBOM/binary scanning without an extra build step, and a complete GoReleaser snapshot matrix. Rust reproduces on the same host but not across the sampled hosts, requires more linker/remap/toolchain configuration and cargo-auditable for useful binary inventories; cargo-dist Windows was blocked by missing cargo-xwin. T4 cross-review also found swallowed notices-generation failures, confirmed by reading build.sh. Rust remains viable at 3, not a failed distribution approach. Rust wins raw size/CPU, but both slices meet the relevant performance budgets and those small absolute differences do not buy a score point. This row scores the demonstrated core release path; Iroh-enabled architecture is a separate sensitivity case.
+
+**Observation versus inference:** Observed in records: build hashes, stripped sizes, benchmark samples, snapshot results and tool failures. Independently read here: build.sh only warns on failed notices generation and returns success when any target built. Future pinned-container reproducibility, tag archives, signed installers and native secure-store bundles are not demonstrated. Runtime-size differences for complete V1 are inferred from limited spikes, not measured.
+
+**Confidence:** medium.
+
+**Strongest counter:** A production Rust pipeline using pinned native runners/containers, cargo-auditable and explicit release checks could remove much of this gap. Rust embeds Iroh in one file, whereas Go needs a Rust helper; X5 confirms both build paths. Go archives were not reproducible in snapshot mode, signing/notarization were not executed, and macOS secure-store integration complicates the original SDK-free claim.
+
+**Evidence:** `tests/evidence/artifacts/g02-r4/x3/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x1/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md`; `prototypes/rust/build.sh`; `tests/evidence/artifacts/g02-r4/x5/RESULTS.md`; `tests/evidence/g02-measurements.json`; `spec.md`.
+
+### Agentic and open-source maintainability: Go 3, Rust 4 (15%)
+
+D2 removes personal taste. X2 directly tests comparable changes: all 24 cells pass their intended hidden/harness/unit checks, ordinary reviewers originally find one major in each language, and paired output-token/tool-call ratios are essentially equal. Calibrated review nevertheless finds two repeatable stack pitfalls agents and initial reviewers often miss: Go separate-group recovery in T1 and Bubble Tea wide-character restyling in T3. I give Rust a modest ordinal edge for the tested stack, with low confidence about generalization. T2/T4 and X6 do not justify a blanket Rust productivity or contributor advantage. The T3 finding also affects TUI quality; that correlation is explicit in sensitivity, not treated as another independent language experiment.
+
+**Observation versus inference:** Recomputed here from results.json: 12/12 cells per language all-build, hidden-all-pass and unit exit 0; 682/635 tool calls and 770583/668620 output tokens; original major totals 1/1. Independent retained probes reproduce the two major families. Inference: these pitfalls predict maintenance cost. T1 recovery is inherited architecture influenced by signal APIs, not better Rust agent implementation; all six introduce the same wrong Running state. The five affected cells are correlated observations from two causes.
+
+**Confidence:** low.
+
+**Strongest counter:** Equal hidden correctness, near-equal paired effort, equal original major counts, three repetitions per task and only Claude-family implementers support a tie. Calling any wrong job state major makes T1 3 versus 3; calling third-party background stops implausible removes the T1 major split. Go standard tooling and a smaller dependency graph benefit open-source maintenance. Assigning T3 wholly to TUI and discounting the prototype-specific T1 architecture warrants Go 4/Rust 4 and flips the total.
+
+**Evidence:** `progress.md`; `tests/evidence/artifacts/g02-r4/x2/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x2/results.json`; `tests/evidence/artifacts/g02-r4/x2/t1-calibration/README.md`; `tests/evidence/artifacts/g02-r4/x2/t1-calibration/verify/README.md`; `tests/evidence/artifacts/g02-r4/x2/cross-review/T2/README.md`; `tests/evidence/artifacts/g02-r4/x2/cross-review/T3/README.md`; `tests/evidence/artifacts/g02-r4/x2/cross-review/T3/verify/README.md`; `tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md`; `tests/evidence/artifacts/g02-r4/x6/RESULTS.md`.
+
+### TUI quality: Go 3, Rust 4 (10%)
+
+Both baseline TUIs meet the slice requirements on Unix and native Windows, and both are responsive. The original Bubble Tea out-of-box advantage is outweighed in the tested enhancement by a visible rendering defect: two of three Go T3 cells corrupt destination rows next to wide characters; all Rust cells and the Go full-repaint workaround render those cases correctly. Independent tmux and xterm.js checks reproduce the new defect. Ratatui styled spans avoid the inline-SGR path, so I score the currently evidenced stack Rust 4, Go 3. This is not a language-essential defect or proof of a generally superior UI. Rust still bears its hand-written Unix decoder and crossterm/Windows terminal-cleanup limitations.
+
+**Observation versus inference:** Observed in retained records: corrupted text in tmux live grids and xterm.js replay, correct controls, and faster Rust benchmark updates. GUI terminal pixels, accessibility/comprehension and operation under a full background workload were not tested. Portability to other terminal implementations is inferred from emitted cursor bytes. The pre-existing R4 status-line defect is terminal-dependent and distinct from the independently reproduced new defect.
+
+**Confidence:** medium.
+
+**Strongest counter:** Go-opus2 avoids the defect with a full repaint, Bubble Tea offers more input/event handling, and Rust required custom Unix decoding to bypass crossterm hazards. A fixed/upgraded renderer could justify equal scores or restoring the original Go lead. Rust Windows external CTRL_C_EVENT leaves the alternate screen active, and existing Rust bidi/zero-width rendering remains a display-spoofing concern.
+
+**Evidence:** `tests/evidence/artifacts/g02-r4/x2/cross-review/T3/README.md`; `tests/evidence/artifacts/g02-r4/x2/cross-review/T3/verify/README.md`; `tests/evidence/artifacts/g02-r4/x1/RESULTS.md`; `docs/decisions/0002-language-tui-distribution.md`; `tests/evidence/g02-measurements.json`; `spec.md`.
+
+### Integration ecosystem: Go 4, Rust 4 (5%)
+
+Go has the stronger first-party SSH/agent ecosystem and a useful Windows pipe library; Rust has upstream Iroh, typed broad Windows APIs, macOS security wrappers and a working DH Secret Service implementation. X5 closes ring/aws-lc cross-build feasibility and demonstrates a Go supervisor plus Rust helper, so Go is not vetoed by Iroh. X6 does not justify the old blanket 3 versus 5 split when the mandatory product is primarily SSH/agent/platform integration and Iroh may be deferred. Both ecosystems have suitable building blocks with different gaps; neither merits an unqualified 5.
+
+**Observation versus inference:** Observed in retained X5: all 12 Iroh crypto/target builds succeed, macOS and linux-arm64 loopback exchanges work, Go supervisor and helper lifecycle-on-EOF work. Published third-party maintenance/API/advisory information is snapshot desk research; its fitness for the final product is inference. No maintained adoptable pure-Go Iroh path was demonstrated. Native Windows Iroh, real SSH transport/relay lifecycle and G06 acceptance remain unverified.
+
+**Confidence:** medium.
+
+**Strongest counter:** If G06 retains embedded Iroh for V1, Rust deserves a lead because it removes a second language/artifact/protocol boundary. If Iroh is deferred and ordinary SSH-agent integration dominates, Go deserves a lead. First-party status is not a constraint-enforcement guarantee: X6 reports serious Go agent-constraint advisories, while Rust community agent libraries have a smaller maintainer base.
+
+**Evidence:** `tests/evidence/artifacts/g02-r4/x5/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x6/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/linux/RESULTS.md`; `tests/evidence/artifacts/g02-r4/x4/windows/RESULTS.md`; `plan.md`; `spec.md`.
+
+## Sensitivity
+
+Rust leads by 0.05, below one ordinal point in every criterion except ecosystem, where a point exactly ties. This is fragile, not a measured 0.05 productivity advantage. One change at a time: Go +1 or Rust -1 in cross-platform/security moves 0.25 and gives Go a 0.20 lead; in release moves 0.20 and gives Go +0.15; in maintenance moves 0.15 and gives Go +0.10; in TUI moves 0.10 and gives Go +0.05. Go ecosystem 4→5 or Rust 4→3 ties at 3.80 or 3.75 respectively; Rust ecosystem 4→2 flips to Go +0.05. Favorable Rust movements enlarge the lead. No available single whole-point adverse move in the other five rows merely ties.
+X2 rubric: excluding the third-party background-stop scenario or counting wrong Running states equally major removes the T1 severity split; T3 remains a reproduced independent defect family. Retaining a modest maintenance lead on T3 alone preserves the main scores, but scoring maintenance 4/4 instead makes Go 3.90 versus Rust 3.80. Treating T3 solely as a TUI/library finding and discounting T1 architecture gives exactly that Go result; the two row advantages must not be called independent corroboration. If only TUI is equalized by raising Go to 4, Go wins 3.85 versus 3.80. Equalizing both rows to 4/4 gives Go 4.00 versus Rust 3.80.
+Iroh: main release scores use the demonstrated core build path, while ecosystem weighs SSH and the optional Iroh target together. If Iroh is retained and Rust can ship it embedded, setting release 4/4 and ecosystem Go 4/Rust 5 gives Go 3.75 versus Rust 4.05; actual two-toolchain Go packaging could worsen its release score further. X5 only demonstrates build and loopback feasibility, not G06. If Iroh is deferred and ecosystem becomes Go 4/Rust 3, totals tie 3.75/3.75; equal maintenance then gives Go 3.90 versus Rust 3.75. A proven production Rust release pipeline removing the observed build/inventory gaps raises release 3→4 and Rust to 4.00. A demonstrated inability to meet a hard gate overrides all scores; the unresolved Windows script-path injection cannot be diluted by weighted preferences.
+
+## Recommendation
+
+**Rust, low confidence**, conditional on resolving the uncertain gates and the owner’s D4 boundary. This is a product/stack preference; it does not authorize implementation or change a gate ruling.
+
+1. For the tested Go+Bubble Tea versus Rust+Ratatui stacks, independently reproduced T1 recovery and T3 rendering pitfalls give Rust a modest maintenance/TUI preference under D2. This is two architecture/library causes, not five independent language failures.
+2. Rust supplies useful compiler checks and typed native platform APIs for an agent-maintained concurrent/security product; these are bounded safeguards, not proof of policy correctness. Both viable stacks still need adversarial tests and narrow native adapters.
+3. Rust preserves a native upstream Iroh integration option without a second implementation language/artifact; X5 has now demonstrated its cross-build feasibility. Go release/supply-chain simplicity nearly cancels this preference: the primary weighted margin is just 0.05.
+
+**Strongest case for Go:** Go is an equally viable close alternative with superior measured core release/rebuild/inventory ergonomics, fewer independently versioned dependencies, strong first-party SSH/agent tools, a good overlapped Windows pipe abstraction and cleaner baseline macOS terminal-signal delivery. X2 hidden success and paired effort tie. Scoring agentic maintenance equal makes Go win; Iroh deferral and a Bubble Tea renderer fix strengthen that choice.
+
+**Reverse the preference if:**
+
+- Count maintenance 4/4 after assigning T3 solely to TUI and discounting T1 baseline architecture: Go 3.90, Rust 3.80. Equalizing TUI alone also makes Go win.
+- Record Iroh deferral and prioritize the required SSH/agent ecosystem: the ecosystem alternative ties the totals even before maintenance adjustments.
+- Rust cannot demonstrably close the Windows batch-script-path injection or a native isolation/store gate while Go can; a hard-gate failure overrides preferences.
+- Production-shaped evidence shows Go avoiding the two X2 pitfall families without recurring review burden, or reveals comparable unmeasured Rust maintenance failures.
+
+## Evidence concerns
+
+1. Consequential Windows scope gap: tests/evidence/artifacts/m00-wf8/x1b-review-rust.json reports env-driven command injection through %NAME% in batch script argv[0] and wrong-file execution. X1b 71/71 tests ordinary argument escaping, not that path. The reviewer called it minor because pre-existing/outside the patch; causal provenance does not reduce product impact. D3 fixes existing rulings but does not supply the missing argv[0] interpretation. Security remains uncertain; do not describe Rust Windows launches as universally injection-safe.
+2. X2 attribution overreach: tests/evidence/artifacts/g02-r4/x2/RESULTS.md §5.3–§6 says both major families trace to the Go stack. tests/evidence/artifacts/g02-r4/x2/t1-calibration/verify/README.md shows all six implementers introduce the same Running-state regression and Rust recovery executes none of their new T1 logic. Go recovery was avoidably wrong within the standard-library model. This supports a tested-architecture pitfall, not a causal claim that Go agents code less reliably or Rust makes job control correct.
+3. X2 rubric sensitivity and dependence: five affected Go cells versus zero Rust are two correlated cause families, not twelve independent success/failure trials. The conditional Fisher p≈0.02 in tests/evidence/artifacts/g02-r4/x2/RESULTS.md is explicitly hypothetical and must not be promoted to significance. T1 severity depends on plausible third-party background stops and what counts as normal recovery; all six have wrong job states. New regressions and larger pre-existing Rust debt are accounted differently. TUI and maintenance row use of the same T3 finding is correlated; sensitivity quantifies removing it from maintenance.
+4. Probe correction matters: tests/evidence/artifacts/g02-r4/x2/t1-calibration/README.md correction and verify/README.md supersede claims that Darwin ^C does nothing. Default-disposition ^C kills the Go job (130); the earlier result inherited ignored SIGINT from the probe launcher. Linux no-normal-recovery and Rust ^Z+fg completion remain reproduced. Do not copy the stale appendices without the correction. A generic tests/evidence/artifacts/g02-r4/x2/RESULTS.md claim that both baselines match plain exec in P1 must be narrowed: base-Go Darwin SIGSTOP exits 255, whereas its SIGTSTP and Linux cases mirror stops.
+5. Status/provenance wording: tests/evidence/artifacts/g02-r4/x2/RESULTS.md marks the two major families verified, while individual cross-review/T3/verify/README.md and t1-calibration/verify/README.md label their own records implemented_unverified pending another rerun. There are genuinely separate retained reproduction runs, so the facts carry weight, but not every calibrated minor/pre-existing rating is independently verified. Go patch-version changes explain several nonidentical binaries; source-equivalent probes are not original-byte verification.
+6. Hidden-test ceiling and mutation gap: all 24 X2 cells pass intended hidden tests, and original reviewers have 1/1 majors. tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md shows mutants without the opened-file check pass hidden T4 despite SEED.md saying otherwise. Cross-review catches it, and actual fixes retain the check, but hidden-all-pass is not robust regression proof. T3 136/139 is deliberate replacement of three K9-coupled checks, not permission to ignore unrelated NO_COLOR/latency failures; the T3 pack separately checks these properties.
+7. Release false-green: tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md reports notices generation fails on every Rust rebuild while build.sh exits 0. Reading prototypes/rust/build.sh confirms notice failure only warns and the final exit condition requires any, not all, target to build. The recorded per-target manifests support these experiments actual four-target builds; shell exit 0 alone proves neither complete matrix nor release-compliant notices.
+8. Clean-machine and native-scope gap: tests/evidence/artifacts/g02-r4/x1/RESULTS.md uses restricted PATH on an owner/developer Windows host and env -i on existing hosts, not clean signed installations. macOS X4 ad-hoc bundles fail Gatekeeper; provisioned persistence/lock tests are blocked. docs/research/g03-windows-wsl.md §0 has 11 verified WSL records with remaining account/distribution/lock/UAC blockers, and native Windows has six fully verified records plus partial/blocked records. Native linux-x64 139/139 applies to the pre-X1b binaries; post-X1b review executed only darwin/linux-arm64. Do not relabel all G03 or every post-X1b architecture verified.
+9. Go Windows identity claim was overbroad and corrected: tests/evidence/artifacts/g02-r4/x1/RESULTS.md and x1-review/host-runs/rv-ps51-a/review-probes.json distinguish anonymous impersonation failure from successful process-token identification used by Win32-OpenSSH. This is not an observed test against the owners actual agent. X4 expected-foreign-SID refusal uses the same account against a deliberately mismatched expected SID; it does not establish DACL denial against an actual foreign account.
+10. X3 counting/tool limits: Go module counts and Rust crate counts differ in granularity; unsafe grep is target-filtered only for Go, Rust has whole-source upper bounds, and neither count includes its whole standard/runtime surface. Zero CVEs is DB/tool-specific, not a security pass. Rust cross-host hash differences are real but their cause remains undiagnosed; cargo-dist missing a tool/default configuration problems are remediable pipeline issues, not language impossibility. Archive/tag-release/signing checks were not completed for either candidate.
+11. X5 overclaim: tests/evidence/artifacts/g02-r4/x5/RESULTS.md says a real Go helper makes the measured payload gap at least this large. This is not a proven lower bound: Rust embedded production integration would also gain protocol/lifecycle code, features/profiles differ, and Go can redesign the core. 12 successful builds and loopback exchanges close only the build risk, not Windows Iroh runtime, native x64 networking, ordinary SSH, relay/discovery/restart or G06. X1 Windows prototype execution does not close X5 binaries.
+12. X6 evidence quality: tests/evidence/artifacts/g02-r4/x6/RESULTS.md compares different repositories/tasks per language, reuses Multilingual across studies, includes old/different models, and gets some facts through an LLM fetcher; PDFs are not retained. Its broad limitations claim of 22–43 tasks per language omits the much larger Multi-SWE-bench sample shown in its own table. Contributor/advisory counts and active release snapshots are not comparative maintainability/safety proof. The russh advisory gap concerns a prospective package absent from the current prototype; this review did not live-refresh the source snapshots.
+13. Scope and licensing: docs/decisions/0002-language-tui-distribution.md predates round 4 and contains stale no-host/open-decision language; its §10 D2 personal-ergonomics question is superseded by the recorded owner ruling. tests/evidence/g02-measurements.json is slice data, not full-runtime/72-hour-soak evidence. X3 license tools omit standard/CRT components and ignore the UNLICENSED root; Rust offline notice failure weakens blanket notice claims. X4 file-keychain deprecated APIs and ephemeral SE results do not establish persistent hardware custody or locked signing in either language.
+
+## Owner questions beyond D1
+
+1. D4 completion boundary: does the owner consider the executed native Windows/WSL feasibility sufficient to record D1, or must the already-listed G03 second-account/distribution/restart/host-lock and real-upstream tests finish first? The current records do not establish full G03/V1 support. This is an interpretation of the existing deferral, not a request to change D3.
+2. Windows authority/contract ambiguity for the orchestrator or owner: does §9.6 no argument byte include the batch script path argv[0]? Independent Rust review observed injection there. Record refusal/escaping and its required verification as a production boundary; do not resolve this ambiguity by calling the finding minor.
+3. Iroh release scope, when G06 reaches its decision: retain the V1 target (and compare embedded Rust with the actually supervised helper boundary) or explicitly record preview/deferral under spec §3? Neither choice is assumed made by this score.
+4. Existing open G03 E-3: confirm the upstream provider set (managed Heimdall credentials as enforced scope versus system agent/1Password as disclosed filtered convenience). This changes integration/verification scope for both languages, not personal ergonomics.
+
+## Review execution and limits
+
+**Changed files:** only `scores.json` and `scores.md` in `<home>/.local/share/heimdall-m00/r4-scratch/rescore-codex/`. No repository edits.
+
+**Commands run:** read-only `pwd`, `cat`, `rg`, `sed`, bounded `find`, `git status --short`, and path-filtered `git show 84c7665` / `git show 001a791`; `python3 -I` read/aggregate checks of X2 results, Windows review summaries and measurement tables. Output creation used `mkdir -p` for the assigned directory and one isolated Python writer. No repository scripts were executed.
+
+**Validation:** independently recomputed X2 aggregates and checked native review 71/71 summaries; checked build.sh notice/target exit semantics by source reading; generated Markdown from the same JSON object; output checks verify all required fields, score bounds, weights sum, arithmetic, listed evidence paths and repository status.
+
+**Not checked:** no fresh builds or runtime/native reruns, external source refresh, full raw-artifact/hash audit, GUI/accessibility/soak or release signing tests. No additional delegated scorer was launched: this is the assigned independent score, and retained independent reproductions are distinguished from my own read-only checks.
+
+**Risk:** the ranking is fragile; uncertain security/distribution/maintenance gates and the unresolved Windows batch-script-path boundary prevent an unconditional G02 closure.

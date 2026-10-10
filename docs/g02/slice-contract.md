@@ -451,3 +451,20 @@ the X1 Windows verdict. Each candidate gets one Windows fix round under them
     terminal.
   - The Go pipe client connects at the Anonymous impersonation level. This
     matters only to servers that rely on pipe impersonation.
+
+### 9.7 Batch script path on Windows (2026-10-10, escalated by the X1b Rust review)
+
+The X1b review of Rust (`tests/evidence/artifacts/m00-wf8/x1b-review-rust.json`) asked whether §9.6's
+"no argument byte may be run as a command" covers `argv[0]`, the batch file's own path. It found that
+Rust std puts the script path into the `cmd.exe /c` line without the `%`-escaping it applies to the
+arguments, so `cmd.exe` expands a `%NAME%` in the path: with an attacker-controlled variable and a
+directory named after it, a second command ran; with `os%OS%y\fwd.bat`, a different batch file ran.
+A direct `CreateProcessW` of the same path without heimdall-proto does the same.
+
+- **Ruling:** §9.6 covers `argv[1..]`. The script path is not gated for G02, because plain exec on
+  Windows behaves the same way and plain-exec equivalence is this slice's reference. Go is not
+  exposed only because it refuses batch targets.
+- **Recorded (M01 input):** the production launcher must refuse a batch target whose path contains
+  `%` or another character `cmd.exe` interprets in a command line, or must not start batch files
+  through `cmd.exe`, and must test it natively. This is listed among the rulings the owner can
+  overrule (ADR-0002 §10, D3).

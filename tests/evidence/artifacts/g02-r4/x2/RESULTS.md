@@ -2,8 +2,10 @@
 
 **Task:** M00-T05-r4-x2 (`docs/g02/round4-plan.md`, row X2). **Status:** `verified` for the cell
 results (§4: every number comes from an evaluator's or reviewer's structured result, or from the
-implementer transcripts, as listed in `results.json`) and for the two calibrated major families (§5:
-each reproduced independently). The remaining calibrated minor and pre-existing ratings are
+implementer transcripts, as listed in `results.json`) and for the facts behind the two calibrated
+major families (§5: each reproduced by a second, independent execution with its own probe and
+builds; the two reproduction records keep their own `implemented_unverified` label because no third
+run re-executed them). The remaining calibrated minor and pre-existing ratings are
 `implemented_unverified`. **Dates:** 2026-10-06 to 2026-10-10.
 **Feeds:** ADR-0002 §7, the row "agentic and
 open-source maintainability (15 %)"; secondarily "security-sensitive core (25 %)".
@@ -283,24 +285,39 @@ miss it), **minor** (unusual input, cosmetic, test or code quality, or left open
 | Cells with a major as the cell reviewers rated them | 1 | 1 |
 | Blockers | 0 | 0 |
 
-Both Go major families trace to the Go stack rather than to one implementer: T1's to the Go
-baseline's separate-process-group design, which `os/signal`'s missing `siginfo` motivated; T3's to
-Bubble Tea v2's inline-SGR model and a renderer bug next to wide characters. The hidden tests missed
-all five; the cell reviewers rated one of them major, two minor, and did not list the other two. If
-the cells were independent, 5 of 12 against 0 of 12 would be unlikely by chance (one-sided Fisher
-exact p ≈ 0.02), but they are not: the five majors come from two causes, and the T1 split depends on
-the rubric reading in §5.1.
+Both Go major families arise where the Go stack sets a trap: T1's in the Go baseline's
+separate-process-group design, which `os/signal`'s missing `siginfo` motivated; T3's in Bubble Tea
+v2's inline-SGR model and a renderer bug next to wide characters. Neither trap is unavoidable: in T1
+go-opus1 handles SIGCONT while running (so `kill -CONT %1` works) and the verification names fixes
+within the standard library; in T3 go-opus2 avoided the bug with a full repaint. So these are
+pitfalls of the stack that two or three of three implementers fell into, not limits of the stack. The hidden tests missed
+all five; the cell reviewers rated one of them major, two minor, and did not list the other two.
+The honest count is **two causes, each seen in two or three of three Go cells and in none of three
+Rust cells**, not five independent findings, and the T1 split depends on the rubric reading in §5.1.
+No significance test applies at this sample size.
+
+Caveats the re-scorers raised (2026-10-10), recorded here so the ADR does not miss them:
+- T3 bears on two ADR rows. Charge the undetected-defect pattern to agentic maintainability and the
+  library's rendering correctness to TUI quality, not the same fact twice.
+- The T3 bug is in a pinned, untagged ultraviolet version under Bubble Tea v2; whether a newer release
+  fixes it was not checked.
+- The T1 rubric counts only regressions against each baseline. The Rust cells keep more baseline
+  divergences (P3, P8, P9e); judged on end-state behaviour alone, the gap is narrower than 3 to 0.
+- T2 memory: two Rust cells peak at 190–205 MiB of the 256 MiB K15 limit on the worst 1 MiB profile
+  (§5.2), a headroom point against those cells.
 
 ## 6. Reading for ADR-0002 (inference, for the re-score)
 
 - **What the hidden tests measured: no difference.** All 24 cells pass every hidden check with no
   harness regression; effort is within 2 % in aggregate (geometric-mean Go/Rust ratios 1.02 for output
   tokens and 0.98 for tool calls), and each language was cheaper in half the pairs.
-- **What calibrated review found: a difference in the defects agents leave behind.** 5 of 12 Go
-  cells against 0 of 12 Rust cells carry a major the hidden tests miss (§5.3). Both causes sit in the
-  Go stack (the signal model `os/signal` pushes toward, and Bubble Tea v2's renderer) rather than in
-  the agents' skill: the T1 implementers did not do better in Rust, they inherited a more forgiving
-  design; T3's Rust cells never had to embed escape codes in text. For an agent-maintained product,
+- **What calibrated review found: a difference in the defects agents leave behind.** Two causes of
+  a major the hidden tests miss, each in two or three of three Go cells and no Rust cell (§5.3). Both causes are
+  pitfalls of the Go stack (the signal model `os/signal` pushes toward, and Bubble Tea v2's renderer)
+  that most Go implementers fell into and at least one avoided or partly avoided; they are not
+  evidence that agents write worse Go. The T1 Rust implementers did not do better: they inherited a
+  more forgiving design, and their own new code all shares the same Running-state regression. T3's
+  Rust cells never had to embed escape codes in text. For an agent-maintained product,
   stack pitfalls that agents and reviewers do not notice are exactly the maintainability cost the row
   is meant to capture.
 - **How strong:** two independent causes, three runs per cell, one task each. T1 depends on a rubric

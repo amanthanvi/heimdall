@@ -1,0 +1,747 @@
+{
+ "case_id": "G02-rust-x1b-windows",
+ "status": "verified",
+ "requirement_ids": [
+  "R-SS-04",
+  "R-SS-02",
+  "R-SE-05",
+  "R-QU-07"
+ ],
+ "build_commit": "001a791",
+ "artifact_digest": "sha256:ba80f914a225fd6dcd22767bfcf1b0ded48489ed88081538641a39013fedadac",
+ "environment": {
+  "platform": "windows-x64",
+  "host": "owner personal PC (authorized for X1), reached over SSH into WSL2 and Windows interop; non-elevated Windows user (same host as the baseline record)",
+  "os": "Microsoft Windows 11 Pro",
+  "build": "26300",
+  "ubr": 9550,
+  "display_version": "26H2",
+  "arch": "AMD64",
+  "powershell": [
+   "Windows PowerShell 5.1.26100.9549 (runs x1b-rust-ps51-a, x1b-rust-ps51-b)",
+   "PowerShell 7.6.6 (run x1b-rust-ps7-a)"
+  ],
+  "clr": "4.0.30319.42000 (Windows PowerShell); 10.0.12 (PowerShell 7)",
+  "elevated": false,
+  "path_for_artifacts": "C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\",
+  "path_entries_before_reduction": "75 (Windows PowerShell), 76 (PowerShell 7)",
+  "removed_env": [
+   "GOPATH"
+  ],
+  "ssh_auth_sock": "sentinel pipe name that does not exist (never unset, never the system agent pipe)",
+  "cmd_autorun_configured": true,
+  "console": "checks run under pseudoconsoles or with no console; no windows created",
+  "candidate": "rust",
+  "candidate_commit": "001a791",
+  "candidate_commit_full": "001a7911e8ef241eeb3b89724031333c31197e79",
+  "baseline_candidate_commit": "d8f0cbe",
+  "baseline_artifact_digest": "sha256:dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+  "artifact": "prototypes/rust/dist/windows-x64/heimdall-proto.exe",
+  "artifact_bytes": 841728,
+  "artifact_authenticode": "NotSigned",
+  "artifact_mark_of_the_web": false,
+  "artifact_check": "integrity.sha256_matches_manifest passed in all 5 runs: sha256 and size equal prototypes/rust/dist/manifest.json windows-x64 on the host; the staged exe sha256 equals the Mac value (tests/evidence/artifacts/g02-r4/x1b/rust/staged-root.sha256). Digest taken from the run artifacts (results.json integrity row), not from memory.",
+  "run_tree": "the runs executed on the working tree on top of HEAD e0ead9b with the Rust fix uncommitted (the darwin/linux harness records say e0ead9b...+dirty); the fix and these artifacts were committed afterwards as 001a791 (committer date 2026-10-06T04:41:29-04:00, after the latest run of this candidate, finished 2026-10-06T08:29:17.057725Z). That the committed tree builds the run digest is inferred, not rebuilt from the commit: the independent reviewer rebuilt from a clean copy of the working tree and reproduced the digest; no later commit touches prototypes/rust; the local prototypes/rust/dist/manifest.json windows-x64 digest equals the run digest (all three checked when this record was written).",
+  "harness": {
+   "path": "tests/native/windows-g02/Invoke-G02WindowsX1.ps1",
+   "sha256": "4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0",
+   "source_state": "tests/native/windows-g02 unchanged from the baseline run: the staged copies in tests/evidence/artifacts/g02-r4/x1b/rust/staged-root.sha256 carry the same sha256 values as the baseline record, and the repository files hash to the same values (checked when this record was written)",
+   "supporting_sha256": {
+    "tests/native/windows-g02/G02X1Native.cs": "394f66f44fa2926cca43ebfdb7162702f7846247b56f7696ab1eb4f0289e2273",
+    "tests/native/windows-g02/Send-ConsoleCtrl.ps1": "b9a19e7687525ae383bc70fd1aade8e0140449a2b63fd67cbaa083291cfe4b08",
+    "tests/native/windows-g02/StallPipe.ps1": "f075e88122495e00f999aa179cf8d3e8ac64bd7dbe8e73507c350293d48be32d",
+    "tests/native/windows-g02/expected-homelab.json": "b270a1fef407b6f81042a7ae28dc7c2e8503d3fc0e5bef937cf60dfdbb0781a4",
+    "tests/native/windows-g02/argvdump/main.go": "587cf44534b64d990ef63a13eaf7bfeef690b31bc1dfe62b4f22916aa03d287e",
+    "tests/native/windows/G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+    "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+    "tests/native/windows/fixtures/quoting-cases.json": "8c2e924f9eed2b93cf6e2713d08a55228b68c8be32c07a9a5225ca81e96858d5",
+    "schemas/g02/result.schema.json": "50a8d52163bb2e59748382b4a325aa18c028248a63713501d02101007e0e76ab"
+   },
+   "argvdump_exe_sha256": "678efbbc7856adcd3623fac6f39fd2505d4c72ae65c4381b4e181a4a8a870f2c",
+   "argvdump_build": "rebuilt on the Mac with the recorded command (go1.27.1, GOOS=windows GOARCH=amd64 CGO_ENABLED=0 -trimpath -buildvcs=false -ldflags=-s -w); byte-identical to the X1 helper"
+  }
+ },
+ "provider_versions": [
+  {
+   "name": "Windows PowerShell",
+   "version": "5.1.26100.9549"
+  },
+  {
+   "name": "PowerShell",
+   "version": "7.6.6"
+  },
+  {
+   "name": "go (argvdump cross-compile on the Mac)",
+   "version": "go1.27.1"
+  },
+  {
+   "name": "rustc (toolchain of the artifact, from version.json runtime)",
+   "version": "1.99.0 (b940084d7 2026-09-28)"
+  }
+ ],
+ "started_at": "2026-10-06T08:06:18.4750492Z",
+ "commands_or_harness": [
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <scratch>\\tools\\Invoke-G02WindowsX1.ps1 -Root <scratch> -OutDir <scratch>\\out\\x1b-rust-ps51-a -Candidates rust   (exit 0; rows=94 gating_not_pass=0)",
+  "pwsh.exe (same arguments) -OutDir <scratch>\\out\\x1b-rust-ps7-a   (exit 0; rows=94 gating_not_pass=0)",
+  "powershell.exe (same arguments) -OutDir <scratch>\\out\\x1b-rust-ps51-b   (exit 0; rows=94 gating_not_pass=0)",
+  "wrapper: tests/evidence/artifacts/g02-r4/x1b/rust/tools/winrun.sh <ps51|ps7> <outname> [-Candidates rust] (run inside WSL; <scratch> = %LOCALAPPDATA%\\hm-m00\\M00-T05-x1b-fix-rust\\root)",
+  "independent review, same script and arguments with the reviewer's own staging: review-ps51-a (Windows PowerShell 5.1; exit 0; rows=94 gating_not_pass=0) and review-ps7-a (PowerShell 7; exit 0; rows=94 gating_not_pass=0)",
+  "build: <repo>/prototypes/rust/build.sh (exit 0, four targets; windows-x64 sha256 ba80f914a225fd6dcd22767bfcf1b0ded48489ed88081538641a39013fedadac, 841728 bytes); reviewer: CARGO_NET_OFFLINE=true sh ./build.sh on a clean /tmp copy, all four artifacts equal by sha256 and cmp (exit 0)",
+  "native Rust tests on the Windows host (non-elevated, tests/windows.rs): wsl-tests.sh before -> exit 101 (2 passed, 3 failed against the baseline exe dde9662f); wsl-tests.sh after -> exit 0 (5 passed against the fixed exe); lib unit tests -> exit 0 (46 passed)",
+  "supplementary, not Windows: tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust ... (exit 0, 139/139); tests/g02/linux/run.sh --artifact-dir prototypes/rust/dist/linux-arm64 --candidate rust ... (exit 0, 139/139)",
+  "full command log with real exit codes: tests/evidence/artifacts/g02-r4/x1b/rust/commands.txt and tests/evidence/artifacts/g02-r4/x1b/review-rust/commands.txt"
+ ],
+ "observed_result": {
+  "verdict": "pass",
+  "criterion": "every gating row of tests/native/windows-g02/Invoke-G02WindowsX1.ps1 passes for this candidate on native Windows 11 x64 under docs/g02/slice-contract.md sections 1-9.6 (section 9.6 baseline), with every harness control row passing",
+  "verdict_basis": "derived from the data, not asserted: the stated criterion is that every gating row of the script passes for this candidate and every harness control row passes. In each of the 3 fix-round runs (Windows PowerShell 5.1 twice, PowerShell 7 once) the candidate has 71/71 gating rows passing and the host controls 4/4 (recounted from each results.json, equal to the script's own summary), the same in the 2 independent reviewer runs (run with an exe the reviewer built itself from a clean copy, same digest). The verdict refers to that criterion only: non-gating rows that do not pass are listed in summary.non_gating_not_pass, the checks are one host, and the record names requirement IDs without being by itself evidence that they are met (evidence README).",
+  "status_basis": "verified per tests/evidence/README.md gate-probe convention (status describes the evidence, verdict the criterion): the probe ran as designed on native Windows 11 x64, all 94 rows (89 candidate + 5 host) were executed in every run, all four host control rows passed (none missing), and the raw per-row output and consoles are preserved under tests/evidence/artifacts/g02-r4/x1b/rust/windows. No row is blocked, not_started or in_progress, so the lowest-row rule gives verified. The harness script itself has no independent review (see limitations); that does not change the status vocabulary use here.",
+  "round": "G02 round 4 X1b: one Windows fix round for Rust after the section 9.6 baseline (68/71 gating, verdict fail), then an independent review of the round",
+  "summary": {
+   "rows": 89,
+   "gating": 71,
+   "gating_pass": 71,
+   "gating_not_pass": [],
+   "host_rows": 5,
+   "host_gating": 4,
+   "host_gating_pass": 4,
+   "total_rows_per_run": 94,
+   "non_gating_not_pass": [
+    "tui.ctrl_c_event"
+   ],
+   "runs": {
+    "x1b-rust-ps51-a": {
+     "shell": "Windows PowerShell 5.1.26100.9549",
+     "first_row_at": "2026-10-06T08:06:18.4750492Z",
+     "finished_at": "2026-10-06T08:06:56.2879343Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     }
+    },
+    "x1b-rust-ps7-a": {
+     "shell": "PowerShell 7.6.6",
+     "first_row_at": "2026-10-06T08:07:04.2097188Z",
+     "finished_at": "2026-10-06T08:07:43.7030043Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     }
+    },
+    "x1b-rust-ps51-b": {
+     "shell": "Windows PowerShell 5.1.26100.9549",
+     "first_row_at": "2026-10-06T08:07:46.0094781Z",
+     "finished_at": "2026-10-06T08:08:24.5694469Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     }
+    }
+   },
+   "verdicts_identical_across_runs": true,
+   "verdicts_identical_across_runs_basis": "recounted from each results.json: all 94 (verdict, gating) pairs compared row by row across the 3 fix-round runs and the 2 reviewer runs",
+   "baseline_for_comparison": {
+    "record": "tests/evidence/g02-rust-x1-windows.json",
+    "artifact_digest": "sha256:dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd",
+    "candidate_commit": "d8f0cbe",
+    "verdict": "fail",
+    "gating": 71,
+    "gating_pass": 68,
+    "gating_not_pass": [
+     "profile.named_pipe_as_file",
+     "agent.regular_file_not_modified",
+     "tui.named_pipe_as_file"
+    ]
+   }
+  },
+  "changes_from_baseline": {
+   "compared_with": "tests/evidence/g02-rust-x1-windows.json (frozen d8f0cbe, artifact sha256:dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd)",
+   "rows_compared": 94,
+   "rows_with_changed_verdict": [
+    "profile.named_pipe_as_file",
+    "agent.regular_file_not_modified",
+    "tui.named_pipe_as_file"
+   ],
+   "rows_unchanged_verdict_and_gating_flag": 91,
+   "detail": [
+    {
+     "id": "profile.named_pipe_as_file",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "baseline_observed": {
+      "exit": null,
+      "code": null,
+      "ms": 10019,
+      "timed_out": true,
+      "pipe_connects": 1,
+      "pipe_connects_final": true,
+      "parse_error": "stdout does not end with a single LF"
+     },
+     "post_fix_observed_per_run": [
+      {
+       "exit": 2,
+       "code": "USAGE_ERROR",
+       "ms": 19,
+       "timed_out": false,
+       "pipe_connects": 1,
+       "pipe_connects_final": true,
+       "run": "x1b-rust-ps51-a"
+      },
+      {
+       "exit": 2,
+       "code": "USAGE_ERROR",
+       "ms": 21,
+       "timed_out": false,
+       "pipe_connects": 1,
+       "pipe_connects_final": true,
+       "run": "x1b-rust-ps7-a"
+      },
+      {
+       "exit": 2,
+       "code": "USAGE_ERROR",
+       "ms": 19,
+       "timed_out": false,
+       "pipe_connects": 1,
+       "pipe_connects_final": true,
+       "run": "x1b-rust-ps51-b"
+      }
+     ]
+    },
+    {
+     "id": "agent.regular_file_not_modified",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "baseline_observed": {
+      "exit": 5,
+      "code": "AGENT_PROTOCOL_ERROR",
+      "ms": 18,
+      "timed_out": false,
+      "unchanged": false,
+      "mtime_changed": true,
+      "first_changed_offset": 0,
+      "first_16_bytes_before_hex": "030a11181f262d343b424950575e656c",
+      "first_16_bytes_after_hex": "000000010b262d343b424950575e656c",
+      "refusal_result_ok": false
+     },
+     "post_fix_observed_per_run": [
+      {
+       "exit": 5,
+       "code": "AGENT_UNAVAILABLE",
+       "ms": 19,
+       "timed_out": false,
+       "unchanged": true,
+       "mtime_changed": false,
+       "first_changed_offset": -1,
+       "refusal_result_ok": true,
+       "run": "x1b-rust-ps51-a"
+      },
+      {
+       "exit": 5,
+       "code": "AGENT_UNAVAILABLE",
+       "ms": 19,
+       "timed_out": false,
+       "unchanged": true,
+       "mtime_changed": false,
+       "first_changed_offset": -1,
+       "refusal_result_ok": true,
+       "run": "x1b-rust-ps7-a"
+      },
+      {
+       "exit": 5,
+       "code": "AGENT_UNAVAILABLE",
+       "ms": 20,
+       "timed_out": false,
+       "unchanged": true,
+       "mtime_changed": false,
+       "first_changed_offset": -1,
+       "refusal_result_ok": true,
+       "run": "x1b-rust-ps51-b"
+      }
+     ]
+    },
+    {
+     "id": "tui.named_pipe_as_file",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "baseline_observed": {
+      "exit": null,
+      "ms_from_start": null,
+      "killed_by_harness": true,
+      "pipe_connects": 1,
+      "pipe_connects_final": true,
+      "alt_screen_active_after": false
+     },
+     "post_fix_observed_per_run": [
+      {
+       "exit": 2,
+       "ms_from_start": 22,
+       "killed_by_harness": false,
+       "pipe_connects": 1,
+       "pipe_connects_final": true,
+       "alt_screen_active_after": false,
+       "run": "x1b-rust-ps51-a"
+      },
+      {
+       "exit": 2,
+       "ms_from_start": 22,
+       "killed_by_harness": false,
+       "pipe_connects": 1,
+       "pipe_connects_final": true,
+       "alt_screen_active_after": false,
+       "run": "x1b-rust-ps7-a"
+      },
+      {
+       "exit": 2,
+       "ms_from_start": 21,
+       "killed_by_harness": false,
+       "pipe_connects": 1,
+       "pipe_connects_final": true,
+       "alt_screen_active_after": false,
+       "run": "x1b-rust-ps51-b"
+      }
+     ]
+    }
+   ]
+  },
+  "findings": [
+   "profile.named_pipe_as_file and tui.named_pipe_as_file (K14, section 9.6) went fail -> pass: baseline (round-3c exe dde9662f) did not exit within 10 s on a named pipe whose server never answers and was killed by the script; after the fix profile show exits 2 USAGE_ERROR in 19/21/19 ms (3 runs) and tui exits 2 in 22/22/21 ms (3 runs), alternate screen not left active, not killed. NUL and a directory were already refused with exit 2 at baseline (19 ms and 19 ms).",
+   "agent.regular_file_not_modified (section 9.6) went fail -> pass: baseline overwrote the first 5 bytes of the regular file with the request frame 00 00 00 01 0b (mtime changed) and exited 5 with AGENT_PROTOCOL_ERROR; after the fix the file is unchanged (unchanged true, mtime_changed false, first_changed_offset -1, the first 16 bytes equal before and after) and the result is exit 5 AGENT_UNAVAILABLE in all 3 runs (asserted from each run's row). The directory and non-existent-path rows passed before and still pass.",
+   "Mechanism (read from the committed diff of 001a791 when this record was written): a new Windows-only src/winfile.rs calls GetFileType on the open handle. read_bounded (shared by profile show and tui) refuses anything that is not FILE_TYPE_DISK with exit 2 USAGE_ERROR before any metadata query or read; the Windows agent connect refuses anything that is not FILE_TYPE_PIPE before the request frame is written. New direct dependency windows-sys =0.61.2 (already in the lock transitively); a second query-only unsafe FFI call under deny(unsafe_code). The causal claim that std is_file() is true for pipe handles, so the read blocked, is the fix round's inference from std semantics and the red/green tests, not traced.",
+   "Because the check runs after the handle is opened, Rust still connects to a named pipe given as --file once before refusing (pipe_connects 1, final count, in both the profile and tui rows); --socket opens a regular file read/write before refusing it, with content and mtime shown unchanged. Recorded, not gated under section 9.6.",
+   "run.batch_target.* (4 rows) passed in the baseline and pass unchanged: all 16 arguments reach the batch file exactly for .bat and .cmd, with and without a space in the path, exit 0, no injected command (Rust starts cmd.exe with /d, so AutoRun does not run). The fix round's REPORT.md section 16 attributes this to std refusing arguments it cannot escape; the independent reviewer refuted that mechanism: all 16 cases of each row have outcome received_exactly (none refused); std escapes the arguments and refuses only CR, LF and NUL. The outcome is right, the stated mechanism is not.",
+   "Every other row keeps its baseline verdict and gating flag (91 of 94 rows incl. the 5 host rows). Still not passing and non-gating: tui.ctrl_c_event (CTRL_C_EVENT from another process kills the TUI, exit 3221225786 = 0xC000013A, terminal not restored, alternate screen left active); recorded, not gated, under section 9.6. agent.client_identifiable_by_server passes for Rust (same user SID seen by the fixture agent)."
+  ],
+  "harness_controls": {
+   "env.no_toolchain_on_path": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "found": []
+    }
+   },
+   "harness.screen_model_unit": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "cup_and_text": true,
+     "pending_wrap_survives_sgr": true,
+     "wide_chars_two_cells": true,
+     "wide_char_at_last_column_wraps": true,
+     "erase_and_ech": true,
+     "alt_screen_leave_restores_main": true
+    }
+   },
+   "harness.ctrlc_control_direct": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "sender": "ok 639268707791241468",
+     "interrupts": 1,
+     "exit": 42
+    }
+   },
+   "harness.canary_scan": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "hits_before_redaction": 0
+    }
+   }
+  },
+  "non_gating_rows_not_passing": {
+   "tui.ctrl_c_event": {
+    "verdict": "fail",
+    "baseline_verdict": "fail",
+    "criterion": "recorded (Windows analog of an explicit SIGINT; tests/g02 gates the Ctrl-C key only): CTRL_C_EVENT raised on the TUI console by another process -> exit 130 with the terminal restored",
+    "observed": {
+     "started": true,
+     "sender": "ok 639268708135444046",
+     "exit": 3221225786,
+     "restored": false,
+     "alt_screen_still_active": true,
+     "killed_by_harness": false
+    }
+   }
+  },
+  "native_tests": {
+   "pre_fix": {
+    "test_binary": "tests/windows-before.exe sha256 08b563747038716916da44623f42ecf05bf6afd7f73a6f06f00f652c960043b3 run against tests/heimdall-proto.before.exe sha256 dde9662f0630bf555df1a94c319e6c463d9e0e81b29b059136ea181234071ccd (the baseline round-3c exe)",
+    "result_line": "test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.12s",
+    "exit": 101,
+    "failed": [
+     "k14_named_pipe_nul_and_dir_as_profile_file",
+     "k14_shared_loader_refuses_pipe_without_blocking",
+     "socket_non_pipe_paths_refused_without_modification"
+    ],
+    "log": "tests/evidence/artifacts/g02-r4/x1b/rust/native-tests/native-tests-before.txt"
+   },
+   "post_fix": {
+    "test_binary": "tests/windows-after.exe sha256 82e96b0e73a48023bf59e2e613a6dcbb48e9480d53a14f73e502439f8d0e3580 run against the fixed exe",
+    "result_line": "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
+    "exit": 0,
+    "log": "tests/evidence/artifacts/g02-r4/x1b/rust/native-tests/native-tests-after.txt"
+   },
+   "lib_unit_tests_native": {
+    "test_binary": "tests/lib-unit-after.exe sha256 f4f9e783cf452c6bfef13f12e8a3d6656bff0b43d7a38be47f8a2fe502d21ee4",
+    "result_line": "test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s",
+    "exit": 0,
+    "log": "tests/evidence/artifacts/g02-r4/x1b/rust/native-tests/native-lib-unit-after.txt"
+   },
+   "note": "the red/green pair was run twice (before and after cargo fmt): the same 2 passed / 3 failed (exit 101) and 5 passed (exit 0); the files above are the final build. The suite itself (tests/windows.rs) was written by the fix round, so red/green shows the fix changes behaviour on those cases; it is not independent of the fix author."
+  },
+  "supplementary_non_windows_harness": {
+   "source": "tests/evidence/artifacts/g02-r4/x1b/rust/harness/g02-rust-conformance-{darwin,linux}-arm64.json",
+   "note": "shared harness 2.4.2 (tests/g02) on the fixed artifacts of this candidate, not on the Windows exe",
+   "runs": {
+    "darwin-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "fail": 0,
+     "artifact_digest": "sha256:f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18",
+     "started_at": "2026-10-06T04:09:11-04:00",
+     "harness_build_commit_field": "e0ead9b41c306b277e10a5cd1425ea447df18cd8+dirty"
+    },
+    "linux-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "fail": 0,
+     "artifact_digest": "sha256:85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d",
+     "started_at": "2026-10-06T08:13:41+00:00",
+     "harness_build_commit_field": "e0ead9b41c306b277e10a5cd1425ea447df18cd8+dirty"
+    }
+   }
+  },
+  "independent_review": {
+   "report": "tests/evidence/artifacts/m00-wf8/x1b-review-rust.json",
+   "reviewer_task": "M00-T05-x1b-review-rust (a separate review task from the fix task M00-T05-x1b-fix-rust, whose report lists no independent review of its own)",
+   "outcome": "the fix round's claims hold and no regression was found (reviewer's words in its summary; no blocker or major defect); 4 minor defects, 1 refuted claim, 1 item escalated for an orchestrator ruling (now ruled, see needs_ruling)",
+   "reproduction": "clean-copy rebuild with build.sh: sha256 and byte-for-byte cmp of all four artifacts and THIRD-PARTY-NOTICES match prototypes/rust/dist/manifest.json (windows-x64 ba80f914a225fd6dcd22767bfcf1b0ded48489ed88081538641a39013fedadac, 841728 bytes)",
+   "windows_runs": {
+    "review-ps51-a": {
+     "shell": "Windows PowerShell 5.1.26100.9549",
+     "first_row_at": "2026-10-06T08:26:57.7214894Z",
+     "finished_at": "2026-10-06T08:27:36.2126814Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     },
+     "all_94_verdicts_and_gating_flags_identical_to_fix_round_runs": true,
+     "integrity_sha256": "ba80f914a225fd6dcd22767bfcf1b0ded48489ed88081538641a39013fedadac"
+    },
+    "review-ps7-a": {
+     "shell": "PowerShell 7.6.6",
+     "first_row_at": "2026-10-06T08:28:37.7393788Z",
+     "finished_at": "2026-10-06T08:29:17.0577256Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     },
+     "all_94_verdicts_and_gating_flags_identical_to_fix_round_runs": true,
+     "integrity_sha256": "ba80f914a225fd6dcd22767bfcf1b0ded48489ed88081538641a39013fedadac"
+    }
+   },
+   "windows_run_note": "the reviewer staged its own layout with the review-built exe (digest equal to the fix round's) and the unchanged script tools, verified with sha256sum -c (HASHES_OK), and ran with -Candidates rust: 94 rows, 0 gating rows not passing under Windows PowerShell 5.1 and PowerShell 7, every verdict equal to the fix round's",
+   "extra_probes": {
+    "file": "tests/evidence/artifacts/g02-r4/x1b/review-rust/probe/results.jsonl",
+    "probes": 129,
+    "verdicts": {
+     "PASS": 112,
+     "INFO": 5,
+     "FAIL": 12
+    },
+    "fail_by_section": {
+     "batch": 11,
+     "batch2": 1
+    },
+    "fail_case_count_by_class": {
+     "trailing_dot_batch_names": 9,
+     "percent_in_script_path": 3
+    }
+   },
+   "extra_probe_scope": "129 probes beyond the script, run natively: profile --file refusals (directory forms, NUL, CON, CONIN$, CONOUT$, \\\\.\\NUL, empty path, the pipe root, missing and busy and outbound-only and never-writing pipes served by another process, junction, FileShare.None and byte-range-locked files), legitimate files still loading (\\\\?\\ path, alternate data stream, ::$DATA, relative path), --socket non-pipe paths never modified or created (regular, empty, read-only, hidden files, ADS, directory, junction, devices), same-user pipe servers (byte and message mode answers, type-5 refusal, accept-and-close, outbound-only, never-writing), and batch targets with metacharacter arguments through full path, upper-case name, trailing-space path, \\\\?\\ path and bare-name PATH lookup",
+   "non_windows_harness_on_reviewer_build": {
+    "darwin-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "artifact_digest": "sha256:f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18"
+    },
+    "linux-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "artifact_digest": "sha256:85e038b4728fc4d183c17d5136792ff3625fba643542a1f6c149d954abefc51d"
+    }
+   },
+   "defects": [
+    {
+     "severity": "minor",
+     "what": "batch script path (argv[0]) %NAME% expanded by cmd.exe (env-driven injection, wrong file run); pre-existing std/cmd.exe behaviour outside the fix diff; needed an orchestrator ruling on scope"
+    },
+    {
+     "severity": "minor",
+     "what": "trailing-dot batch names exit 1 under cmd.exe instead of running or refusing 127; pre-existing std behaviour, no injection"
+    },
+    {
+     "severity": "minor",
+     "what": "documentation: REPORT.md section 16 misattributes the passing batch rows to std refusing arguments (std escapes them)"
+    },
+    {
+     "severity": "minor",
+     "what": "recorded, not gated: a pipe given as --file is connected to before GetFileType rejects it (no bytes read or written)"
+    }
+   ],
+   "refuted_claims": [
+    {
+     "claim": "REPORT.md section 16: Rust passed all four run.batch_target.* rows because std refuses .bat/.cmd arguments it cannot escape (CVE-2024-24576 fix)",
+     "outcome": "refuted as to mechanism: all 16 cases of each of the 4 rows are received_exactly, none refused; std escapes (quoting plus the %%cd:~,% hack) and refuses only CR/LF/NUL; the outcome (no injection) is right"
+    }
+   ],
+   "needs_ruling": [
+    {
+     "item": "does section 9.6 'no argument byte may be run as a command' cover argv[0], the batch file's own path (%NAME% in the path)?",
+     "ruling": "docs/g02/slice-contract.md section 9.7 (2026-10-10): section 9.6 covers argv[1..]; the script path is not gated for G02 (plain exec on Windows behaves the same; plain-exec equivalence is this slice's reference); M01 input: the production launcher must refuse a batch target whose path contains % or another cmd.exe-interpreted character, or must not start batch files through cmd.exe, and test it natively; listed among the rulings the owner can overrule (ADR-0002 section 10 D3)",
+     "effect_on_this_record": "the 4 run.batch_target.* rows stay gating on argv[1..] only and pass; the reviewer's batch.scriptpath.* probe FAILs are outside the gate by ruling, not hidden"
+    }
+   ],
+   "unverifiable_here_as_listed_by_reviewer": [
+    "Volume and raw-device paths (\\\\.\\C:, \\\\.\\PhysicalDrive0) and serial ports as --file or --socket. Non-admin access is denied and elevation is forbidden, so the code path that runs after a successful open of a FILE_TYPE_DISK volume handle was not exercised.",
+    "SMB/UNC paths (\\\\localhost\\c$\\..., \\\\host\\pipe\\...) as --file or --socket: not run because of the no-network/loopback-share rule. GetFileType reports FILE_TYPE_DISK for SMB files, so remote files would load (not tested).",
+    "Windows AF_UNIX socket reparse-point files as --socket or --file, and OneDrive/Cloud Files placeholders (whether opening a placeholder read/write hydrates it): not available or not safe to create on the owner's PC.",
+    "Windows on arm64 and other Windows builds: only Windows 11 Pro 26300 x64 was available.",
+    "linux-x64 artifact under the 2.4.2 harness: only linux-arm64 (container) and darwin-arm64 were run here. The linux-x64 digest is identical to the fix round's, but the artifact was not executed in this review.",
+    "tui K14 extras beyond the X1 rows (for example CON as tui --file on a pseudoconsole): not driven separately. tui uses the same profile::load_file that the probes exercised."
+   ]
+  },
+  "interpretations": [
+   "Gating follows docs/g02/slice-contract.md section 9.6 (2026-10-06), identically for both candidates and unchanged from the baseline record; the script (Invoke-G02WindowsX1.ps1 sha256 4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0) was not changed for the fix round: only the exe under test differs.",
+   "The script was run with -Candidates rust only. The baseline runs covered both candidates (183 rows per run) and the baseline record for this candidate lists 89 candidate rows plus the 5 shared host rows as harness_controls; each post-fix run has 89 candidate rows and 5 host rows, 94 rows in total.",
+   "Batch-file rows: 'received exactly' means the forwarded argument decodes to the original UTF-16 code units under CommandLineToArgvW or under the UCRT rules; 'refused' means exit 127, a stderr message and the child never ran (same interpretation as the baseline record)."
+  ],
+  "previous_record": {
+   "path": "tests/evidence/g02-rust-x1-windows.json",
+   "verdict": "fail",
+   "summary": {
+    "rows": 89,
+    "gating": 71,
+    "gating_pass": 68,
+    "gating_not_pass": [
+     "profile.named_pipe_as_file",
+     "agent.regular_file_not_modified",
+     "tui.named_pipe_as_file"
+    ]
+   },
+   "relation": "same host, same script, different exe: the frozen d8f0cbe artifact (sha256:dde9662f0630bf55...) versus the post-fix 001a791 artifact (sha256:ba80f914a225fd6d...); the baseline record is left unchanged apart from a pointer to this record in its limitations"
+  },
+  "row_verdicts_basis": "verdict and gating flag of each of the 94 rows of run x1b-rust-ps51-a; identical in all 5 runs (fix round and reviewer)",
+  "row_verdicts": {
+   "env.facts": "info (non-gating)",
+   "env.no_toolchain_on_path": "pass (gating)",
+   "integrity.sha256_matches_manifest": "pass (gating)",
+   "harness.screen_model_unit": "pass (gating)",
+   "harness.ctrlc_control_direct": "pass (gating)",
+   "version.json": "pass (gating)",
+   "version.plain_exit": "pass (gating)",
+   "profile.homelab_unicode_space_path": "pass (gating)",
+   "profile.homelab_fixture": "pass (gating)",
+   "profile.homelab_spaced_fixture": "pass (gating)",
+   "profile.large_100": "pass (gating)",
+   "profile.plain_exit": "pass (gating)",
+   "profile.invalid-forbidden-key": "pass (gating)",
+   "profile.invalid_plain_exit": "pass (gating)",
+   "profile.invalid-unknown-dest-key": "pass (gating)",
+   "profile.invalid-malformed": "pass (gating)",
+   "profile.invalid-schema-version": "pass (gating)",
+   "profile.invalid-duplicate-alias": "pass (gating)",
+   "profile.invalid-port": "pass (gating)",
+   "profile.missing_file": "pass (gating)",
+   "profile.directory": "pass (gating)",
+   "profile.nul_device": "pass (gating)",
+   "profile.named_pipe_as_file": "pass (gating)",
+   "profile.oversize": "pass (gating)",
+   "usage.unknown_subcommand_json": "pass (gating)",
+   "usage.unknown_subcommand_plain": "pass (gating)",
+   "usage.unknown_flag_json": "pass (gating)",
+   "usage.profile_missing_file_arg": "pass (gating)",
+   "usage.agent_missing_socket_arg": "pass (gating)",
+   "agent.list_fixture_agent": "pass (gating)",
+   "agent.client_identifiable_by_server": "pass (non-gating)",
+   "agent.list_unicode_space_pipe": "pass (gating)",
+   "agent.missing_pipe": "pass (gating)",
+   "agent.regular_file_not_modified": "pass (gating)",
+   "agent.regular_file_result": "pass (non-gating)",
+   "agent.directory_as_socket_refused": "pass (gating)",
+   "agent.nonexistent_path_as_socket_refused": "pass (gating)",
+   "agent.timeout_no_reply": "pass (gating)",
+   "run.argv_control_direct": "pass (gating)",
+   "run.argv_quoting_cases": "pass (gating)",
+   "run.argv_lone_surrogate": "pass (non-gating)",
+   "run.exit_code.0": "pass (gating)",
+   "run.exit_code.1": "pass (gating)",
+   "run.exit_code.2": "pass (gating)",
+   "run.exit_code.7": "pass (gating)",
+   "run.exit_code.42": "pass (gating)",
+   "run.exit_code.127": "pass (gating)",
+   "run.exit_code.128": "pass (gating)",
+   "run.exit_code.255": "pass (gating)",
+   "run.exit_code.256": "pass (non-gating)",
+   "run.exit_code.1000": "pass (non-gating)",
+   "run.exit_code.65536": "pass (non-gating)",
+   "run.exit_code.-1": "pass (non-gating)",
+   "run.exit_code.-1073741510": "pass (non-gating)",
+   "run.launch_failure_not_found": "pass (gating)",
+   "run.launch_failure_not_executable": "pass (gating)",
+   "run.usage_missing_separator": "pass (gating)",
+   "run.usage_empty_argv": "pass (gating)",
+   "run.stdout_binary_passthrough": "pass (gating)",
+   "run.stdin_binary_passthrough": "pass (gating)",
+   "run.env_inherited": "pass (gating)",
+   "run.cwd_inherited": "pass (gating)",
+   "run.cmd_metachar_argument": "pass (non-gating)",
+   "run.cmd_metachar_argument_nospace_path": "pass (non-gating)",
+   "run.batch_control": "pass (gating)",
+   "run.batch_target.cmd_space_path": "pass (gating)",
+   "run.batch_target.bat_space_path": "pass (gating)",
+   "run.batch_target.cmd_nospace_path": "pass (gating)",
+   "run.batch_target.bat_nospace_path": "pass (gating)",
+   "resolution.path_only": "pass (gating)",
+   "resolution.app_dir_vs_path": "info (non-gating)",
+   "resolution.cwd_vs_path": "info (non-gating)",
+   "resolution.cwd_only": "info (non-gating)",
+   "resolution.pathext_cmd": "info (non-gating)",
+   "resolution.system32_vs_earlier_path": "info (non-gating)",
+   "ctrlc.run_event": "pass (gating)",
+   "ctrlc.run_keystroke": "pass (gating)",
+   "ctrlc.run_break_event": "pass (non-gating)",
+   "ctrlc.agent_list_event": "pass (gating)",
+   "ctrlc.agent_list_keystroke": "pass (gating)",
+   "tui.no_tty_usage_error": "pass (gating)",
+   "tui.navigate_filter_select": "pass (gating)",
+   "tui.named_pipe_as_file": "pass (gating)",
+   "tui.nul_device_as_file": "pass (gating)",
+   "tui.directory_as_file": "pass (gating)",
+   "tui.quit": "pass (gating)",
+   "tui.ctrl_c_key": "pass (gating)",
+   "tui.ctrl_c_key_in_filter_mode": "pass (gating)",
+   "tui.ctrl_c_event": "fail (non-gating)",
+   "tui.resize": "pass (gating)",
+   "tui.resize_latency": "pass (non-gating)",
+   "tui.no_color": "pass (gating)",
+   "tui.large_100": "pass (gating)",
+   "harness.canary_scan": "pass (gating)"
+  }
+ },
+ "evidence_paths": [
+  "tests/evidence/artifacts/g02-r4/x1b/rust/commands.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/windows/x1b-rust-ps51-a",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/windows/x1b-rust-ps7-a",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/windows/x1b-rust-ps51-b",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/windows/x1b-rust-ps51-a.console.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/windows/x1b-rust-ps7-a.console.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/windows/x1b-rust-ps51-b.console.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/staged-root.sha256",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/tools",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/native-tests",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/build",
+  "tests/evidence/artifacts/g02-r4/x1b/rust/harness",
+  "tests/evidence/artifacts/g02-r4/x1b/review-rust/commands.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/review-rust/windows",
+  "tests/evidence/artifacts/g02-r4/x1b/review-rust/probe",
+  "tests/evidence/artifacts/g02-r4/x1b/review-rust/build",
+  "tests/evidence/artifacts/g02-r4/x1b/review-rust/harness",
+  "tests/evidence/artifacts/g02-r4/x1b/review-rust/staged-root.sha256",
+  "tests/evidence/artifacts/m00-wf8/x1b-fix-rust.json",
+  "tests/evidence/artifacts/m00-wf8/x1b-review-rust.json",
+  "tests/evidence/artifacts/m00-wf8/x1b-script.json",
+  "tests/native/windows-g02",
+  "prototypes/rust/REPORT.md",
+  "docs/g02/slice-contract.md",
+  "tests/evidence/g02-rust-x1-windows.json"
+ ],
+ "limitations": [
+  "Batch-file script path (argv[0]): the independent reviewer found that Rust std puts the batch file's own path into the cmd.exe /c line without the percent-escaping it applies to the arguments, so a %NAME% in the path is expanded by cmd.exe. Observed: with an attacker-controlled variable and a directory named after it a second command ran (INJECTED); <dir>\\os%OS%y\\fwd.bat ran a different batch file while the intended one never ran. A direct CreateProcessW of the same path without heimdall-proto does the same, so the root cause is cmd.exe. The orchestrator ruled on 2026-10-10 (docs/g02/slice-contract.md section 9.7, uncommitted in the working tree when this record was written): section 9.6 covers argv[1..]; the script path is not gated for G02 because plain exec on Windows behaves the same and plain-exec equivalence is the reference; the production launcher must refuse a batch target whose path contains % (or another character cmd.exe interprets) or not start batch files through cmd.exe, tested natively (M01 input; among the rulings the owner can overrule, ADR-0002 section 10 D3). This record's pass does not mean the script-path exposure is absent in Rust.",
+  "Trailing-dot batch names: for fwd.bat., fwd.cmd. and 'fwd.bat. . .' std detects the batch file but passes the un-normalized name to cmd.exe, which reports 'not recognized'; run exits 1 (CHILD_EXITED, launched) instead of running the file or refusing with 127. No injection. Pre-existing std behaviour outside the fix's diff; the reviewer's 9 trailing-dot probe FAILs. No ruling found in the contract; recorded as an M01 input by the reviewer.",
+  "Reviewer probe totals: 129 probes, {\"FAIL\": 12, \"INFO\": 5, \"PASS\": 112}. All 12 FAIL probes are in the batch section (9 trailing-dot names, 3 percent-in-script-path); profile, socket and agentpipe sections have 0 FAIL. The reviewer classed the batch items as minor, pre-existing and outside the fix round's diff.",
+  "Opening a pipe given as profile show or tui --file connects to the pipe server before GetFileType rejects it (the reviewer's separate-process server logged 2 connects for its 2 opens, no bytes read or written). Section 5 says tui makes no agent contact, and --file \\\\.\\pipe\\openssh-ssh-agent would make one connection to a real agent; a path-prefix pre-check cannot cover every pipe alias. M01 should decide whether a connection without traffic counts as contact. A device whose open has side effects (for example a COM port) given as --socket would still be opened briefly.",
+  "Build reproducibility: the independent reviewer's clean-copy rebuild reproduced all four dist artifacts and THIRD-PARTY-NOTICES byte for byte (sha256 and cmp), including windows-x64 ba80f914a225fd6dcd22767bfcf1b0ded48489ed88081538641a39013fedadac. The fix round's own artifacts disagree on the topic: prototypes/rust/REPORT.md section 6 (Known defects) says the windows-x64 digest is not reproducible between identical builds, while its section 13 (round 2) records a /Brepro fix with a repro-other-checkout step; and build/compare.txt shows a rebuild of unchanged HEAD source (windows-x64 a6d24fe7..., 841728 bytes) differing from the committed round-3c artifact dde9662f... at the same size, and Linux rebuilds of unchanged source no longer matching the committed bytes (environmental drift, not investigated). So the baseline exe dde9662f could not be rebuilt from its source in the fix round, while the post-fix exe ba80f914 was rebuilt once, by the reviewer, with an equal digest. Reproducibility of the Windows digest is not established by this record.",
+  "The rebuilt linux-x64 artifact (7b1b3fcf) did not get a fresh native harness run (the X1 linux-x64 139/139 applies to the round-3c bytes); darwin-arm64 and linux-arm64 were run (139/139 each, fix round and reviewer).",
+  "The native red/green test suite tests/windows.rs was written by the fix round; it demonstrates the behaviour change but is not independent of the fix author. The independent evidence is the unchanged script on a reviewer-built exe plus the reviewer's 129 probes.",
+  "One host: the owner's Windows 11 Pro 26300 x64 PC, non-elevated user (the same host as the baseline). Three fix-round runs (Windows PowerShell 5.1 twice, PowerShell 7.6.6 once) plus two reviewer runs (5.1 once, PowerShell 7 once; run with an exe the reviewer built itself from a clean copy, same digest); every row's verdict and gating flag is identical in all five runs. Timing values differ between runs.",
+  "Host sharing: the Go and Rust fix rounds used the same host. By row timestamps the runs overlapped once, for about 2.6 s (Go run fix-ps7-a and Rust run x1b-rust-ps51-b, in separate scratch directories); no other pair among the 10 Go and Rust fix-round and reviewer runs overlapped. Verdicts are identical in all runs, but timing-based rows (for example the 2 s K14 limits and tui.resize_latency) were not all measured on an otherwise idle host.",
+  "Console coverage is pseudoconsole only (CreatePseudoConsole driven by P/Invoke, judged on a small VT screen model; harness.screen_model_unit covers the model). A classic conhost window, Windows Terminal and the legacy console were not exercised; no window was created on the owner's desktop. CTRL_BREAK is recorded only; CTRL_CLOSE/LOGOFF/SHUTDOWN events were not tested.",
+  "The artifact ran with PATH reduced to %SystemRoot%\\System32 and its WindowsPowerShell directory: PATH is reduced, not a clean machine. The owner's cmd.exe AutoRun is configured on this host (cmd_autorun_configured true), DelayedExpansion state was not inspected, and the Python launcher lives in %SystemRoot% on this host; env.no_toolchain_on_path found no Go, Rust, C, Node, Bun, Deno, Python, zig or git.",
+  "Files were copied to the host through WSL and carry no Mark-of-the-Web (integrity row: mark_of_the_web false) and no Authenticode signature (NotSigned); SmartScreen, Defender behaviour and a downloaded-file launch were not exercised. Launching the .exe from WSL through interop was not tested.",
+  "Not covered: a second Windows account (pipe DACL from another user), remote (SMB) pipe clients, interop with the real Win32-OpenSSH ssh-agent (the owner's agent must not be contacted; the fixture agent stands in), ARM64 Windows, other Windows builds or editions, elevated sessions, paths longer than MAX_PATH, UNC working directories, console code pages other than the default.",
+  "Source state of the build under test: see environment.run_tree (runs on an uncommitted working tree, committed afterwards; the commit-to-digest link is inferred, not rebuilt from the commit).",
+  "The harness script (Invoke-G02WindowsX1.ps1 sha256 4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0) is unchanged from the baseline run and, as far as the artifacts show, has no independent review of its own: x1b-script.json lists, as a limitation, no independent review of the section 9.6 script changes yet (self-checks only). The review report of this candidate describes re-running the script unchanged and adding 129 probes beyond it, which is supporting evidence, not a review of the script. Two development runs before the baseline evidence runs found two harness defects that were fixed before those runs (see the baseline record).",
+  "Batch-file coverage under the script: 16 arguments, .bat and .cmd, one path with and one without a space, under the owner's cmd.exe configuration; arguments containing newlines, NUL, or non-ASCII and '!' arguments were not tested by the script. The batch file is resolved by full path; bare-name PATHEXT resolution is the info row resolution.pathext_cmd. K14 named-pipe rows use a server that accepts and never answers; a pipe server that sends a valid profile and closes was not tested by the script.",
+  "Recorded, not gated (section 9.6): executable resolution order (resolution.* info rows), tui.ctrl_c_event, agent.client_identifiable_by_server (Orchestrator 2026-10-06: tests only ImpersonateNamedPipeClient; Win32-OpenSSH's ssh-agent identifies clients by process token), lone-surrogate and out-of-range exit-code rows. These are M01 inputs, not contract verdicts here.",
+  "Scope of the verdict: it says the section 9.6 gating rows pass on one host for the post-fix build. It does not close gate G02 or the language decision (ADR-0002 D4 and the owner's rulings), and the requirement IDs on this record are not by themselves evidence that those requirements are met.",
+  "PowerShell 7 ConvertFrom-Json turns ISO-8601 strings into DateTime; the schema port treats DateTime as a string (no G02 result field holds such a string). original_path_entries is 75 under Windows PowerShell and 76 under PowerShell 7."
+ ]
+}

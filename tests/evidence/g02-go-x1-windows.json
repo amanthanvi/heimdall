@@ -2750,6 +2750,7 @@
   "The section 9.6 script changes have not had an independent review. Two development runs on the host preceded the three evidence runs; they exposed two harness defects that were fixed before the evidence runs: subdirectory mtimes read through the parent's enumeration change by themselves on NTFS (now read per path against a baseline stable for 200 ms), and the batch rows required exit 0 for an exact delivery (dropped: section 9.6 does not ask for it, and cmd.exe AutoRun on this host makes it exit 1).",
   "Batch-file coverage: 16 arguments, .bat and .cmd, one path with and one without a space, under the owner's cmd.exe configuration (AutoRun configured; DelayedExpansion state not inspected; `!` arguments not tested). Arguments containing newlines, NUL, or non-ASCII were not tested as batch arguments. The batch file is resolved by full path; PATHEXT resolution of a bare name stays the info row resolution.pathext_cmd.",
   "K14 named-pipe rows use a server that accepts and never answers; a pipe server that sends a valid profile and closes was not tested.",
-  "PowerShell 7 ConvertFrom-Json turns ISO-8601 strings into DateTime; the schema port treats DateTime as a string (no G02 result field holds such a string)."
+  "PowerShell 7 ConvertFrom-Json turns ISO-8601 strings into DateTime; the schema port treats DateTime as a string (no G02 result field holds such a string).",
+  "Superseded for the post-fix build by tests/evidence/g02-go-x1b-windows.json (Go 84c7665: 71/71 gating on native Windows 11 x64, verdict pass, artifact sha256:795c4826b07e...). This record describes the frozen 38b6b72 build (sha256:ca5145d16414...) only; its status, verdict and data are unchanged."
  ]
 }

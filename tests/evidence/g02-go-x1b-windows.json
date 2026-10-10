@@ -1,0 +1,777 @@
+{
+ "case_id": "G02-go-x1b-windows",
+ "status": "verified",
+ "requirement_ids": [
+  "R-SS-04",
+  "R-SS-02",
+  "R-SE-05",
+  "R-QU-07"
+ ],
+ "build_commit": "84c7665",
+ "artifact_digest": "sha256:795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a",
+ "environment": {
+  "platform": "windows-x64",
+  "host": "owner personal PC (authorized for X1), reached over SSH into WSL2 and Windows interop; non-elevated Windows user (same host as the baseline record)",
+  "os": "Microsoft Windows 11 Pro",
+  "build": "26300",
+  "ubr": 9550,
+  "display_version": "26H2",
+  "arch": "AMD64",
+  "powershell": [
+   "Windows PowerShell 5.1.26100.9549 (runs fix-ps51-a, fix-ps51-b)",
+   "PowerShell 7.6.6 (run fix-ps7-a)"
+  ],
+  "clr": "4.0.30319.42000 (Windows PowerShell); 10.0.12 (PowerShell 7)",
+  "elevated": false,
+  "path_for_artifacts": "C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\",
+  "path_entries_before_reduction": "75 (Windows PowerShell), 76 (PowerShell 7)",
+  "removed_env": [
+   "GOPATH"
+  ],
+  "ssh_auth_sock": "sentinel pipe name that does not exist (never unset, never the system agent pipe)",
+  "cmd_autorun_configured": true,
+  "console": "checks run under pseudoconsoles or with no console; no windows created",
+  "candidate": "go",
+  "candidate_commit": "84c7665",
+  "candidate_commit_full": "84c766530cf44044f7de7861c965042cc5567dca",
+  "baseline_candidate_commit": "38b6b72",
+  "baseline_artifact_digest": "sha256:ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed",
+  "artifact": "prototypes/go/dist/windows-x64/heimdall-proto.exe",
+  "artifact_bytes": 5100544,
+  "artifact_authenticode": "NotSigned",
+  "artifact_mark_of_the_web": false,
+  "artifact_check": "integrity.sha256_matches_manifest passed in all 5 runs: sha256 and size equal prototypes/go/dist/manifest.json windows-x64 on the host; the staged exe sha256 equals the Mac value (tests/evidence/artifacts/g02-r4/x1b/go/windows-run/staged-root.sha256). Digest taken from the run artifacts (results.json integrity row), not from memory.",
+  "run_tree": "the runs executed on the working tree on top of HEAD e0ead9b with the Go fix uncommitted (the darwin/linux harness records say e0ead9b...+dirty); the fix and these artifacts were committed afterwards as 84c7665 (committer date 2026-10-06T04:41:29-04:00, after the latest run of this candidate, finished 2026-10-06T08:20:56.396368Z). That the committed tree builds the run digest is inferred, not rebuilt from the commit: the independent reviewer rebuilt from a clean copy of the working tree and reproduced the digest; no later commit touches prototypes/go; the local prototypes/go/dist/manifest.json windows-x64 digest equals the run digest (all three checked when this record was written).",
+  "harness": {
+   "path": "tests/native/windows-g02/Invoke-G02WindowsX1.ps1",
+   "sha256": "4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0",
+   "source_state": "tests/native/windows-g02 unchanged from the baseline run: the staged copies in tests/evidence/artifacts/g02-r4/x1b/go/windows-run/staged-root.sha256 carry the same sha256 values as the baseline record, and the repository files hash to the same values (checked when this record was written)",
+   "supporting_sha256": {
+    "tests/native/windows-g02/G02X1Native.cs": "394f66f44fa2926cca43ebfdb7162702f7846247b56f7696ab1eb4f0289e2273",
+    "tests/native/windows-g02/Send-ConsoleCtrl.ps1": "b9a19e7687525ae383bc70fd1aade8e0140449a2b63fd67cbaa083291cfe4b08",
+    "tests/native/windows-g02/StallPipe.ps1": "f075e88122495e00f999aa179cf8d3e8ac64bd7dbe8e73507c350293d48be32d",
+    "tests/native/windows-g02/expected-homelab.json": "b270a1fef407b6f81042a7ae28dc7c2e8503d3fc0e5bef937cf60dfdbb0781a4",
+    "tests/native/windows-g02/argvdump/main.go": "587cf44534b64d990ef63a13eaf7bfeef690b31bc1dfe62b4f22916aa03d287e",
+    "tests/native/windows/G03Common.psm1": "e0bf3cc40c4e41e182684de15b9f8e75209817d863a1ea1e407380553c4c6581",
+    "tests/native/windows/InstrumentedAgent.ps1": "521100a012c71dae92bbfa38e6752f5886686c1cb66ad7178057ceebd2db7276",
+    "tests/native/windows/fixtures/quoting-cases.json": "8c2e924f9eed2b93cf6e2713d08a55228b68c8be32c07a9a5225ca81e96858d5",
+    "schemas/g02/result.schema.json": "50a8d52163bb2e59748382b4a325aa18c028248a63713501d02101007e0e76ab"
+   },
+   "argvdump_exe_sha256": "678efbbc7856adcd3623fac6f39fd2505d4c72ae65c4381b4e181a4a8a870f2c",
+   "argvdump_build": "rebuilt on the Mac with the recorded command (go1.27.1, GOOS=windows GOARCH=amd64 CGO_ENABLED=0 -trimpath -buildvcs=false -ldflags=-s -w); byte-identical to the X1 helper"
+  }
+ },
+ "provider_versions": [
+  {
+   "name": "Windows PowerShell",
+   "version": "5.1.26100.9549"
+  },
+  {
+   "name": "PowerShell",
+   "version": "7.6.6"
+  },
+  {
+   "name": "go (argvdump cross-compile on the Mac)",
+   "version": "go1.27.1"
+  },
+  {
+   "name": "go (toolchain of the artifact, from version.json runtime)",
+   "version": "go1.27.1"
+  }
+ ],
+ "started_at": "2026-10-06T08:03:45.9665400Z",
+ "commands_or_harness": [
+  "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <scratch>\\tools\\Invoke-G02WindowsX1.ps1 -Root <scratch> -OutDir <scratch>\\out\\fix-ps51-a -Candidates go   (exit 0; rows=94 gating_not_pass=0)",
+  "pwsh.exe (same arguments) -OutDir <scratch>\\out\\fix-ps7-a   (exit 0; rows=94 gating_not_pass=0)",
+  "powershell.exe (same arguments) -OutDir <scratch>\\out\\fix-ps51-b   (exit 0; rows=94 gating_not_pass=0)",
+  "wrapper: tests/evidence/artifacts/g02-r4/x1b/go/windows-run/winrun.sh <ps51|ps7> <outname> [-Candidates go] (run inside WSL; <scratch> = %LOCALAPPDATA%\\hm-m00\\M00-T05-x1b-fix-go)",
+  "independent review, same script and arguments with the reviewer's own staging: rev-ps51-a (Windows PowerShell 5.1; exit 0; rows=94 gating_not_pass=0) and rev-ps7-a (PowerShell 7; exit 0; rows=94 gating_not_pass=0)",
+  "build: cd / && sh <repo>/prototypes/go/build.sh (twice, exit 0 each, manifests byte-identical; windows-x64 sha256 795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a, 5100544 bytes); reviewer: same build.sh on a clean /tmp copy, manifest identical (exit 0)",
+  "native Go tests on the Windows host (non-elevated): runtest.sh run-prefix.test.exe -test.v -test.count=1 -> exit 1 (TestBatchTargetRefused FAIL, 90 'cmd.exe ran' lines); runtest.sh run-postfix.test.exe -test.v -test.count=1 -> exit 0 (3 PASS)",
+  "supplementary, not Windows: tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go ... (exit 0, 139/139); sh tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go ... (exit 0, 139/139)",
+  "full command log with real exit codes: tests/evidence/artifacts/g02-r4/x1b/go/commands.txt and tests/evidence/artifacts/g02-r4/x1b/review-go/commands.txt"
+ ],
+ "observed_result": {
+  "verdict": "pass",
+  "criterion": "every gating row of tests/native/windows-g02/Invoke-G02WindowsX1.ps1 passes for this candidate on native Windows 11 x64 under docs/g02/slice-contract.md sections 1-9.6 (section 9.6 baseline), with every harness control row passing",
+  "verdict_basis": "derived from the data, not asserted: the stated criterion is that every gating row of the script passes for this candidate and every harness control row passes. In each of the 3 fix-round runs (Windows PowerShell 5.1 twice, PowerShell 7 once) the candidate has 71/71 gating rows passing and the host controls 4/4 (recounted from each results.json, equal to the script's own summary), the same in the 2 independent reviewer runs (run with the reviewer's own staging, hash-equal to the fix round's staging and so the same exe digest; the reviewer's clean rebuild also produced that digest). The verdict refers to that criterion only: non-gating rows that do not pass are listed in summary.non_gating_not_pass, the checks are one host, and the record names requirement IDs without being by itself evidence that they are met (evidence README).",
+  "status_basis": "verified per tests/evidence/README.md gate-probe convention (status describes the evidence, verdict the criterion): the probe ran as designed on native Windows 11 x64, all 94 rows (89 candidate + 5 host) were executed in every run, all four host control rows passed (none missing), and the raw per-row output and consoles are preserved under tests/evidence/artifacts/g02-r4/x1b/go/windows-run. No row is blocked, not_started or in_progress, so the lowest-row rule gives verified. The harness script itself has no independent review (see limitations); that does not change the status vocabulary use here.",
+  "round": "G02 round 4 X1b: one Windows fix round for Go after the section 9.6 baseline (67/71 gating, verdict fail), then an independent review of the round",
+  "summary": {
+   "rows": 89,
+   "gating": 71,
+   "gating_pass": 71,
+   "gating_not_pass": [],
+   "host_rows": 5,
+   "host_gating": 4,
+   "host_gating_pass": 4,
+   "total_rows_per_run": 94,
+   "non_gating_not_pass": [
+    "agent.client_identifiable_by_server",
+    "tui.ctrl_c_event"
+   ],
+   "runs": {
+    "fix-ps51-a": {
+     "shell": "Windows PowerShell 5.1.26100.9549",
+     "first_row_at": "2026-10-06T08:03:45.9665400Z",
+     "finished_at": "2026-10-06T08:04:22.8450956Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "agent.client_identifiable_by_server",
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     }
+    },
+    "fix-ps7-a": {
+     "shell": "PowerShell 7.6.6",
+     "first_row_at": "2026-10-06T08:08:21.9332721Z",
+     "finished_at": "2026-10-06T08:09:00.4007820Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "agent.client_identifiable_by_server",
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     }
+    },
+    "fix-ps51-b": {
+     "shell": "Windows PowerShell 5.1.26100.9549",
+     "first_row_at": "2026-10-06T08:09:02.2627118Z",
+     "finished_at": "2026-10-06T08:09:38.9131304Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "agent.client_identifiable_by_server",
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     }
+    }
+   },
+   "verdicts_identical_across_runs": true,
+   "verdicts_identical_across_runs_basis": "recounted from each results.json: all 94 (verdict, gating) pairs compared row by row across the 3 fix-round runs and the 2 reviewer runs",
+   "baseline_for_comparison": {
+    "record": "tests/evidence/g02-go-x1-windows.json",
+    "artifact_digest": "sha256:ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed",
+    "candidate_commit": "38b6b72",
+    "verdict": "fail",
+    "gating": 71,
+    "gating_pass": 67,
+    "gating_not_pass": [
+     "run.batch_target.cmd_space_path",
+     "run.batch_target.bat_space_path",
+     "run.batch_target.cmd_nospace_path",
+     "run.batch_target.bat_nospace_path"
+    ]
+   }
+  },
+  "changes_from_baseline": {
+   "compared_with": "tests/evidence/g02-go-x1-windows.json (frozen 38b6b72, artifact sha256:ca5145d16414125d54dbeb6c9bc6e10a8d18a9b38345b0b80a07fbfe906504ed)",
+   "rows_compared": 94,
+   "rows_with_changed_verdict": [
+    "run.cmd_metachar_argument",
+    "run.batch_target.cmd_space_path",
+    "run.batch_target.bat_space_path",
+    "run.batch_target.cmd_nospace_path",
+    "run.batch_target.bat_nospace_path"
+   ],
+   "rows_unchanged_verdict_and_gating_flag": 89,
+   "detail": [
+    {
+     "id": "run.cmd_metachar_argument",
+     "gating": false,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "baseline_observed": {
+      "exit": 1,
+      "injected": true,
+      "cmd_script_ran": false,
+      "script_saw_args": [],
+      "stderr_lines": 4,
+      "stderr_says_not_recognized": 2,
+      "cmd_autorun_configured": true
+     },
+     "post_fix_observed": {
+      "exit": 127,
+      "injected": false,
+      "cmd_script_ran": false,
+      "script_saw_args": [],
+      "stderr_lines": 1,
+      "stderr_says_not_recognized": 0,
+      "cmd_autorun_configured": true
+     }
+    },
+    {
+     "id": "run.batch_target.cmd_space_path",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "path_has_space": true,
+     "baseline_case_outcomes": {
+      "received_exactly": 1,
+      "other": 5,
+      "INJECTED": 8,
+      "argument_changed": 2
+     },
+     "baseline_cases_with_injected_file": 8,
+     "post_fix_case_outcomes": {
+      "refused": 16
+     },
+     "post_fix_case_exit_codes": {
+      "127": 16
+     },
+     "post_fix_cases_child_ran": 0,
+     "post_fix_cases_with_created_file": 0
+    },
+    {
+     "id": "run.batch_target.bat_space_path",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "path_has_space": true,
+     "baseline_case_outcomes": {
+      "received_exactly": 1,
+      "other": 5,
+      "INJECTED": 8,
+      "argument_changed": 2
+     },
+     "baseline_cases_with_injected_file": 8,
+     "post_fix_case_outcomes": {
+      "refused": 16
+     },
+     "post_fix_case_exit_codes": {
+      "127": 16
+     },
+     "post_fix_cases_child_ran": 0,
+     "post_fix_cases_with_created_file": 0
+    },
+    {
+     "id": "run.batch_target.cmd_nospace_path",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "path_has_space": false,
+     "baseline_case_outcomes": {
+      "received_exactly": 6,
+      "INJECTED": 8,
+      "argument_changed": 2
+     },
+     "baseline_cases_with_injected_file": 8,
+     "post_fix_case_outcomes": {
+      "refused": 16
+     },
+     "post_fix_case_exit_codes": {
+      "127": 16
+     },
+     "post_fix_cases_child_ran": 0,
+     "post_fix_cases_with_created_file": 0
+    },
+    {
+     "id": "run.batch_target.bat_nospace_path",
+     "gating": true,
+     "baseline": "fail",
+     "post_fix": "pass",
+     "path_has_space": false,
+     "baseline_case_outcomes": {
+      "received_exactly": 6,
+      "INJECTED": 8,
+      "argument_changed": 2
+     },
+     "baseline_cases_with_injected_file": 8,
+     "post_fix_case_outcomes": {
+      "refused": 16
+     },
+     "post_fix_case_exit_codes": {
+      "127": 16
+     },
+     "post_fix_cases_child_ran": 0,
+     "post_fix_cases_with_created_file": 0
+    },
+    {
+     "id": "run.cmd_metachar_argument_nospace_path",
+     "gating": false,
+     "baseline": "pass",
+     "post_fix": "pass",
+     "verdict_unchanged": true,
+     "baseline_observed": {
+      "exit": 1,
+      "injected": false,
+      "cmd_script_ran": true,
+      "script_saw_args": [
+       "ARGS:\"a&echo INJECTED_X1\""
+      ],
+      "stderr_lines": 2,
+      "stderr_says_not_recognized": 1,
+      "cmd_autorun_configured": true
+     },
+     "post_fix_observed": {
+      "exit": 127,
+      "injected": false,
+      "cmd_script_ran": false,
+      "script_saw_args": [],
+      "stderr_lines": 1,
+      "stderr_says_not_recognized": 0,
+      "cmd_autorun_configured": true
+     }
+    },
+    {
+     "id": "resolution.pathext_cmd",
+     "gating": false,
+     "baseline": "info",
+     "post_fix": "info",
+     "verdict_unchanged": true,
+     "baseline_observed": {
+      "exit": 1,
+      "cmd_ran": true,
+      "stderr_lines": 2
+     },
+     "post_fix_observed": {
+      "exit": 127,
+      "cmd_ran": false,
+      "stderr_lines": 1
+     }
+    }
+   ]
+  },
+  "findings": [
+   "run.batch_target.* (4 rows, section 9.6): Go now passes all four by refusing the launch. In each row and in each of the 5 fix-round and reviewer runs, all 16 arguments were refused (exit 127, child never ran, no file created): 16 of 16 per row, 64 of 64 across the four rows per run. Baseline of the frozen build (38b6b72), per row: path with a space {\"INJECTED\": 8, \"argument_changed\": 2, \"other\": 5, \"received_exactly\": 1}; path without a space {\"INJECTED\": 8, \"argument_changed\": 2, \"received_exactly\": 6}; every baseline case exited 1.",
+   "Mechanism (read from the committed diff of 84c7665 when this record was written): run.Run calls refuseTarget(path) on the path resolved by PATH lookup, before exec.Command. On Windows refuseTarget trims trailing dots and spaces from the last path component, lowercases the extension and refuses .bat and .cmd with exit 127, a stderr message and meta CHILD_LAUNCH_FAILED; on Unix it returns no refusal. Go therefore does not escape batch arguments at all: it cannot launch batch files (the section 9.6 text allows escaping or refusal).",
+   "Non-gating run.cmd_metachar_argument went fail -> pass (baseline: injected=true; now exit 127, cmd_script_ran=false, injected=false). run.cmd_metachar_argument_nospace_path stays pass but its observation changed from the batch file running (exit 1) to a refusal (exit 127). The info row resolution.pathext_cmd changed from cmd.exe running (exit 1) to a refusal (exit 127, cmd_ran=false): a bare name resolved through PATHEXT to a .cmd is refused as well.",
+   "Because cmd.exe is no longer started by heimdall-proto, the owner's cmd.exe AutoRun no longer runs in the batch rows. The harness control run.batch_control still records a plain cmd.exe /c (no /d, no heimdall-proto) exiting 1 with 94 stderr bytes on this host.",
+   "Every other row keeps its baseline verdict and gating flag (89 of 94 rows incl. the 5 host rows). Still not passing and non-gating: agent.client_identifiable_by_server (fixture agent gets error 1347, ERROR_CANT_OPEN_ANONYMOUS, i.e. the client connected at SecurityAnonymous) and tui.ctrl_c_event (exit 1 instead of 130; terminal restored, alternate screen not left active). Both are recorded, not gated, under section 9.6.",
+   "K14 on Windows (unchanged from the baseline, Go passed first time): profile show and tui exit 2 within 20-49 ms (profile rows) and 22-28 ms (tui named-pipe row) across the 3 runs for the named pipe, NUL and a directory; Go still opens the named pipe once (pipe_connects 1, final count) before refusing. The three --socket non-endpoints (regular file, directory, non-existent path) give exit 5 AGENT_UNAVAILABLE with nothing modified or created (all asserted from the rows of each run)."
+  ],
+  "harness_controls": {
+   "env.no_toolchain_on_path": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "found": []
+    }
+   },
+   "harness.screen_model_unit": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "cup_and_text": true,
+     "pending_wrap_survives_sgr": true,
+     "wide_chars_two_cells": true,
+     "wide_char_at_last_column_wraps": true,
+     "erase_and_ech": true,
+     "alt_screen_leave_restores_main": true
+    }
+   },
+   "harness.ctrlc_control_direct": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "sender": "ok 639268706267321768",
+     "interrupts": 1,
+     "exit": 42
+    }
+   },
+   "harness.canary_scan": {
+    "verdict": "pass",
+    "gating": true,
+    "observed": {
+     "hits_before_redaction": 0
+    }
+   }
+  },
+  "non_gating_rows_not_passing": {
+   "agent.client_identifiable_by_server": {
+    "verdict": "fail",
+    "baseline_verdict": "fail",
+    "criterion": "recorded (not in the contract; interop input for G03): the fixture agent can identify the client (ImpersonateNamedPipeClient + OpenThreadToken yields the same user SID). error 1347 (ERROR_CANT_OPEN_ANONYMOUS) means the client connected at SecurityAnonymous, so a server that checks its client (as Win32-OpenSSH ssh-agent does) cannot",
+    "observed": {
+     "seen": [
+      "error:openthreadtoken:1347",
+      "error:openthreadtoken:1347"
+     ]
+    }
+   },
+   "tui.ctrl_c_event": {
+    "verdict": "fail",
+    "baseline_verdict": "fail",
+    "criterion": "recorded (Windows analog of an explicit SIGINT; tests/g02 gates the Ctrl-C key only): CTRL_C_EVENT raised on the TUI console by another process -> exit 130 with the terminal restored",
+    "observed": {
+     "started": true,
+     "sender": "ok 639268706599423405",
+     "exit": 1,
+     "restored": true,
+     "alt_screen_still_active": false,
+     "killed_by_harness": false
+    }
+   }
+  },
+  "native_tests": {
+   "pre_fix": {
+    "test_binary": "run-prefix.test.exe sha256 7c423559a7de910a99f29561b6c0567ebbc6379d68d0bcf5de3176b3d1fd573f (pre-fix sources plus the new batch_windows_test.go)",
+    "exit": 1,
+    "tests": {
+     "TestBatchTargetRefused": "FAIL",
+     "TestBatchPrefixExtensionNotRun": "PASS",
+     "TestExeTargetStillLaunches": "PASS"
+    },
+    "cmd_exe_ran_lines": 90,
+    "log": "tests/evidence/artifacts/g02-r4/x1b/go/native-tests/run-prefix.test.log",
+    "note": "an earlier attempt exited 2 because PowerShell split the -test.v flag (runner fixed); a first build lacked TestBatchPrefixExtensionNotRun"
+   },
+   "post_fix": {
+    "test_binary": "run-postfix.test.exe sha256 7b79270de95c237f212678656f9f302a2e10fd62d1f0418551785d1d081920be",
+    "exit": 0,
+    "tests": {
+     "TestBatchTargetRefused": "PASS",
+     "TestBatchPrefixExtensionNotRun": "PASS",
+     "TestExeTargetStillLaunches": "PASS"
+    },
+    "cmd_exe_ran_lines": 0,
+    "log": "tests/evidence/artifacts/g02-r4/x1b/go/native-tests/run-postfix.test.log"
+   },
+   "reviewer_rebuild_of_test_binary": "run.test.exe sha256 7b79270de95c237f212678656f9f302a2e10fd62d1f0418551785d1d081920be (byte-identical to run-postfix.test.exe: yes); reviewer's run on the host: 3 PASS, exit 0 (tests/evidence/artifacts/g02-r4/x1b/review-go/native-tests/run.test.log)",
+   "reviewer_mutant": {
+    "change": "strings.TrimRight and strings.ToLower removed from refuseTarget (review-go/native-tests/mutant.diff); mutant test binary 403a79395b03fa4de4af41c70ff373d8f084a3ea6ca0c77a60a05fe16487e947",
+    "exit": 1,
+    "cmd_exe_ran_lines": 72,
+    "log": "tests/evidence/artifacts/g02-r4/x1b/review-go/native-tests/mutant-notrim-nolower.test.log"
+   },
+   "darwin_go_test": "go test -count=1 ./... exit 0, every package with tests ok (tests/evidence/artifacts/g02-r4/x1b/go/native-tests/darwin-go-test.txt)"
+  },
+  "supplementary_non_windows_harness": {
+   "source": "tests/evidence/artifacts/g02-r4/x1b/go/harness/harness-summary.json (per-check summary only; the full harness records stay outside the repository because they hold Mac paths)",
+   "note": "shared harness 2.4.2 (tests/g02) on the fixed artifacts of this candidate, not on the Windows exe",
+   "runs": {
+    "darwin-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "fail": 0,
+     "artifact_digest": "sha256:bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+     "started_at": "2026-10-06T04:03:55-04:00",
+     "harness_build_commit_field": "e0ead9b41c306b277e10a5cd1425ea447df18cd8+dirty"
+    },
+    "linux-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "fail": 0,
+     "artifact_digest": "sha256:18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96",
+     "started_at": "2026-10-06T08:08:19+00:00",
+     "harness_build_commit_field": "e0ead9b41c306b277e10a5cd1425ea447df18cd8+dirty"
+    }
+   }
+  },
+  "independent_review": {
+   "report": "tests/evidence/artifacts/m00-wf8/x1b-review-go.json",
+   "reviewer_task": "M00-T05-x1b-review-go (a separate review task from the fix task M00-T05-x1b-fix-go, whose report says no delegation was used)",
+   "outcome": "the Go Windows fix holds; no blocker or major defect found (reviewer's words in its summary); 3 minor defects, 1 refuted claim that was a report coverage gap, nothing escalated for a ruling",
+   "reproduction": "clean-copy rebuild with build.sh: the rebuilt manifest is identical to prototypes/go/dist/manifest.json for all 4 targets (windows-x64 795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a, 5100544 bytes); the Windows test binary rebuilt by the reviewer is byte-identical to the fix round's",
+   "windows_runs": {
+    "rev-ps51-a": {
+     "shell": "Windows PowerShell 5.1.26100.9549",
+     "first_row_at": "2026-10-06T08:18:51.7255049Z",
+     "finished_at": "2026-10-06T08:19:28.4421248Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "agent.client_identifiable_by_server",
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     },
+     "all_94_verdicts_and_gating_flags_identical_to_fix_round_runs": true,
+     "integrity_sha256": "795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a"
+    },
+    "rev-ps7-a": {
+     "shell": "PowerShell 7.6.6",
+     "first_row_at": "2026-10-06T08:20:18.3901670Z",
+     "finished_at": "2026-10-06T08:20:56.3963681Z",
+     "wrapper_exit": 0,
+     "console_summary_line": "rows=94 gating_not_pass=0",
+     "summary": {
+      "candidate_rows": 89,
+      "candidate_gating": 71,
+      "candidate_gating_pass": 71,
+      "candidate_gating_not_pass": [],
+      "host_rows": 5,
+      "host_gating": 4,
+      "host_gating_pass": 4,
+      "host_gating_not_pass": [],
+      "non_gating_not_pass": [
+       "agent.client_identifiable_by_server",
+       "tui.ctrl_c_event"
+      ],
+      "total_rows": 94
+     },
+     "all_94_verdicts_and_gating_flags_identical_to_fix_round_runs": true,
+     "integrity_sha256": "795c4826b07e1318876920b1d09fd0de3416d054360d331f829159fbfd72734a"
+    }
+   },
+   "windows_run_note": "the reviewer staged its own layout (hash-equal on the Mac, on the host and to the fix round's staging) and ran the unchanged script with -Candidates go; 94 rows, 0 gating rows not passing under Windows PowerShell 5.1 and PowerShell 7, every verdict equal to the fix round's",
+   "reviewer_native_go_tests": {
+    "test_binary": "run.test.exe sha256 7b79270de95c237f212678656f9f302a2e10fd62d1f0418551785d1d081920be (byte-identical to run-postfix.test.exe: yes); reviewer's run on the host: 3 PASS, exit 0 (tests/evidence/artifacts/g02-r4/x1b/review-go/native-tests/run.test.log)",
+    "mutant": {
+     "change": "strings.TrimRight and strings.ToLower removed from refuseTarget (review-go/native-tests/mutant.diff); mutant test binary 403a79395b03fa4de4af41c70ff373d8f084a3ea6ca0c77a60a05fe16487e947",
+     "exit": 1,
+     "cmd_exe_ran_lines": 72,
+     "log": "tests/evidence/artifacts/g02-r4/x1b/review-go/native-tests/mutant-notrim-nolower.test.log"
+    }
+   },
+   "extra_probes": {
+    "file": "tests/evidence/artifacts/g02-r4/x1b/review-go/probes/probe2.jsonl",
+    "probes": 76,
+    "verdicts": {
+     "pass": 74,
+     "info": 2
+    },
+    "superseded_first_run": "probe1 also exited 0 but is superseded: a probe bug made one pipe case target a pipe that had already been stopped; probe2 is the evidence"
+   },
+   "extra_probe_scope": "76 probes beyond the script: 30 batch-target run spellings, 33 non-regular --file paths for profile and tui (NUL, CON, CONIN$, CONOUT$, COM1, LPT1, GLOBALROOT, a volume path, the pipe root, a silent pipe, a junction), \\\\.\\pipe\\.. path tricks against --socket (victim file unmodified), and same-user non-agent pipes (silent, garbage reply, close on accept, busy) which all fail closed with exit 5; controls: an ordinary exe still launches with exact argv",
+   "non_windows_harness_on_reviewer_build": {
+    "darwin-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "artifact_digest": "sha256:bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214"
+    },
+    "linux-arm64": {
+     "verdict": "pass",
+     "pass": 139,
+     "total": 139,
+     "artifact_digest": "sha256:18d96a07a553bc960d7295558d7b0e4c312806084b564ba6bc07650092cfee96"
+    }
+   },
+   "defects": [
+    {
+     "severity": "minor",
+     "what": "stale 'COMPILE-CHECKED ONLY' comments in four Windows files (documentation only)"
+    },
+    {
+     "severity": "minor",
+     "what": "over-refusal by file name: a real PE named x.cmd, 8.3 aliases ending .BAT/.CMD and literal 'x.bat.' files are refused; allowed by section 9.6, recorded for M01"
+    },
+    {
+     "severity": "minor",
+     "what": "pre-existing and not gated: a named pipe given as --file is opened once by os.Stat (server sees a connection, 0 bytes read)"
+    }
+   ],
+   "refuted_claims": [
+    {
+     "claim": "REPORT.md 'Limits': a symlink whose name differs from its batch target is 'not tested'",
+     "outcome": "a coverage gap in the report, not a wrong result: the reviewer tested it (symlink and hard link named .exe pointing at a .bat: 127, cmd.exe did not run; 8.3 names refused by name)"
+    }
+   ],
+   "needs_ruling": [],
+   "unverifiable_here_as_listed_by_reviewer": [
+    "Behaviour on other Windows builds or editions, on elevated sessions, on volumes without 8.3 names, on ReFS or with per-directory case sensitivity, and on real (non-pseudo) consoles. Only one host was used: Windows 11 x64, non-elevated, reached through WSL interop.",
+    "Whether CreateProcess's batch-extension check could match some non-ASCII case-fold variant of .bat/.cmd that Go's strings.ToLower does not fold. Not probed; inference says it is unlikely.",
+    "The linux-x64 artifact was built and its digest matched, but it was not executed. The Linux harness ran linux-arm64 in a container.",
+    "The pre-fix baseline numbers in REPORT.md (for example 8 of 16 arguments injected without a space) were not re-run. I checked only that the pre-fix log has 90 'cmd.exe ran' lines and exit 1."
+   ]
+  },
+  "interpretations": [
+   "Gating follows docs/g02/slice-contract.md section 9.6 (2026-10-06), identically for both candidates and unchanged from the baseline record; the script (Invoke-G02WindowsX1.ps1 sha256 4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0) was not changed for the fix round: only the exe under test differs.",
+   "The script was run with -Candidates go only. The baseline runs covered both candidates (183 rows per run) and the baseline record for this candidate lists 89 candidate rows plus the 5 shared host rows as harness_controls; each post-fix run has 89 candidate rows and 5 host rows, 94 rows in total.",
+   "Batch-file rows: 'received exactly' means the forwarded argument decodes to the original UTF-16 code units under CommandLineToArgvW or under the UCRT rules; 'refused' means exit 127, a stderr message and the child never ran (same interpretation as the baseline record)."
+  ],
+  "previous_record": {
+   "path": "tests/evidence/g02-go-x1-windows.json",
+   "verdict": "fail",
+   "summary": {
+    "rows": 89,
+    "gating": 71,
+    "gating_pass": 67,
+    "gating_not_pass": [
+     "run.batch_target.cmd_space_path",
+     "run.batch_target.bat_space_path",
+     "run.batch_target.cmd_nospace_path",
+     "run.batch_target.bat_nospace_path"
+    ]
+   },
+   "relation": "same host, same script, different exe: the frozen 38b6b72 artifact (sha256:ca5145d16414125d...) versus the post-fix 84c7665 artifact (sha256:795c4826b07e1318...); the baseline record is left unchanged apart from a pointer to this record in its limitations"
+  },
+  "row_verdicts_basis": "verdict and gating flag of each of the 94 rows of run fix-ps51-a; identical in all 5 runs (fix round and reviewer)",
+  "row_verdicts": {
+   "env.facts": "info (non-gating)",
+   "env.no_toolchain_on_path": "pass (gating)",
+   "integrity.sha256_matches_manifest": "pass (gating)",
+   "harness.screen_model_unit": "pass (gating)",
+   "harness.ctrlc_control_direct": "pass (gating)",
+   "version.json": "pass (gating)",
+   "version.plain_exit": "pass (gating)",
+   "profile.homelab_unicode_space_path": "pass (gating)",
+   "profile.homelab_fixture": "pass (gating)",
+   "profile.homelab_spaced_fixture": "pass (gating)",
+   "profile.large_100": "pass (gating)",
+   "profile.plain_exit": "pass (gating)",
+   "profile.invalid-forbidden-key": "pass (gating)",
+   "profile.invalid_plain_exit": "pass (gating)",
+   "profile.invalid-unknown-dest-key": "pass (gating)",
+   "profile.invalid-malformed": "pass (gating)",
+   "profile.invalid-schema-version": "pass (gating)",
+   "profile.invalid-duplicate-alias": "pass (gating)",
+   "profile.invalid-port": "pass (gating)",
+   "profile.missing_file": "pass (gating)",
+   "profile.directory": "pass (gating)",
+   "profile.nul_device": "pass (gating)",
+   "profile.named_pipe_as_file": "pass (gating)",
+   "profile.oversize": "pass (gating)",
+   "usage.unknown_subcommand_json": "pass (gating)",
+   "usage.unknown_subcommand_plain": "pass (gating)",
+   "usage.unknown_flag_json": "pass (gating)",
+   "usage.profile_missing_file_arg": "pass (gating)",
+   "usage.agent_missing_socket_arg": "pass (gating)",
+   "agent.list_fixture_agent": "pass (gating)",
+   "agent.client_identifiable_by_server": "fail (non-gating)",
+   "agent.list_unicode_space_pipe": "pass (gating)",
+   "agent.missing_pipe": "pass (gating)",
+   "agent.regular_file_not_modified": "pass (gating)",
+   "agent.regular_file_result": "pass (non-gating)",
+   "agent.directory_as_socket_refused": "pass (gating)",
+   "agent.nonexistent_path_as_socket_refused": "pass (gating)",
+   "agent.timeout_no_reply": "pass (gating)",
+   "run.argv_control_direct": "pass (gating)",
+   "run.argv_quoting_cases": "pass (gating)",
+   "run.argv_lone_surrogate": "pass (non-gating)",
+   "run.exit_code.0": "pass (gating)",
+   "run.exit_code.1": "pass (gating)",
+   "run.exit_code.2": "pass (gating)",
+   "run.exit_code.7": "pass (gating)",
+   "run.exit_code.42": "pass (gating)",
+   "run.exit_code.127": "pass (gating)",
+   "run.exit_code.128": "pass (gating)",
+   "run.exit_code.255": "pass (gating)",
+   "run.exit_code.256": "pass (non-gating)",
+   "run.exit_code.1000": "pass (non-gating)",
+   "run.exit_code.65536": "pass (non-gating)",
+   "run.exit_code.-1": "pass (non-gating)",
+   "run.exit_code.-1073741510": "pass (non-gating)",
+   "run.launch_failure_not_found": "pass (gating)",
+   "run.launch_failure_not_executable": "pass (gating)",
+   "run.usage_missing_separator": "pass (gating)",
+   "run.usage_empty_argv": "pass (gating)",
+   "run.stdout_binary_passthrough": "pass (gating)",
+   "run.stdin_binary_passthrough": "pass (gating)",
+   "run.env_inherited": "pass (gating)",
+   "run.cwd_inherited": "pass (gating)",
+   "run.cmd_metachar_argument": "pass (non-gating)",
+   "run.cmd_metachar_argument_nospace_path": "pass (non-gating)",
+   "run.batch_control": "pass (gating)",
+   "run.batch_target.cmd_space_path": "pass (gating)",
+   "run.batch_target.bat_space_path": "pass (gating)",
+   "run.batch_target.cmd_nospace_path": "pass (gating)",
+   "run.batch_target.bat_nospace_path": "pass (gating)",
+   "resolution.path_only": "pass (gating)",
+   "resolution.app_dir_vs_path": "info (non-gating)",
+   "resolution.cwd_vs_path": "info (non-gating)",
+   "resolution.cwd_only": "info (non-gating)",
+   "resolution.pathext_cmd": "info (non-gating)",
+   "resolution.system32_vs_earlier_path": "info (non-gating)",
+   "ctrlc.run_event": "pass (gating)",
+   "ctrlc.run_keystroke": "pass (gating)",
+   "ctrlc.run_break_event": "pass (non-gating)",
+   "ctrlc.agent_list_event": "pass (gating)",
+   "ctrlc.agent_list_keystroke": "pass (gating)",
+   "tui.no_tty_usage_error": "pass (gating)",
+   "tui.navigate_filter_select": "pass (gating)",
+   "tui.named_pipe_as_file": "pass (gating)",
+   "tui.nul_device_as_file": "pass (gating)",
+   "tui.directory_as_file": "pass (gating)",
+   "tui.quit": "pass (gating)",
+   "tui.ctrl_c_key": "pass (gating)",
+   "tui.ctrl_c_key_in_filter_mode": "pass (gating)",
+   "tui.ctrl_c_event": "fail (non-gating)",
+   "tui.resize": "pass (gating)",
+   "tui.resize_latency": "pass (non-gating)",
+   "tui.no_color": "pass (gating)",
+   "tui.large_100": "pass (gating)",
+   "harness.canary_scan": "pass (gating)"
+  }
+ },
+ "evidence_paths": [
+  "tests/evidence/artifacts/g02-r4/x1b/go/commands.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/ROWS.md",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/fix-ps51-a",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/fix-ps7-a",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/fix-ps51-b",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/fix-ps51-a.console.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/fix-ps7-a.console.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/fix-ps51-b.console.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/staged-root.sha256",
+  "tests/evidence/artifacts/g02-r4/x1b/go/windows-run/winrun.sh",
+  "tests/evidence/artifacts/g02-r4/x1b/go/native-tests",
+  "tests/evidence/artifacts/g02-r4/x1b/go/harness/harness-summary.json",
+  "tests/evidence/artifacts/g02-r4/x1b/review-go/commands.txt",
+  "tests/evidence/artifacts/g02-r4/x1b/review-go/windows-run",
+  "tests/evidence/artifacts/g02-r4/x1b/review-go/probes",
+  "tests/evidence/artifacts/g02-r4/x1b/review-go/native-tests",
+  "tests/evidence/artifacts/g02-r4/x1b/review-go/build",
+  "tests/evidence/artifacts/g02-r4/x1b/review-go/harness/harness-summary.json",
+  "tests/evidence/artifacts/m00-wf8/x1b-fix-go.json",
+  "tests/evidence/artifacts/m00-wf8/x1b-review-go.json",
+  "tests/evidence/artifacts/m00-wf8/x1b-script.json",
+  "tests/native/windows-g02",
+  "prototypes/go/REPORT.md",
+  "docs/g02/slice-contract.md",
+  "tests/evidence/g02-go-x1-windows.json"
+ ],
+ "limitations": [
+  "Pass by refusal: the Go prototype can no longer launch ANY .bat or .cmd target, including a bare name resolved through PATHEXT (resolution.pathext_cmd now exit 127). npm-style .cmd shims cannot be run through it. Production remedy (explicit cmd.exe /d /c with a dedicated escaper) is recorded in prototypes/go/REPORT.md as an M01 input. The independent reviewer also showed over-refusal: a real PE image named x.cmd is refused (exit 127), as are 8.3 aliases ending .BAT/.CMD and a literal 'x.bat.' file reached through the \\\\?\\ prefix. Section 9.6 allows refusal.",
+  "The refusal is name-based on the path passed to CreateProcess. The reviewer's 30 batch-target probes (ADS spellings, 8.3 names, \\\\?\\ and \\\\.\\ prefixes, hard link and symlink named .exe pointing at a .bat, PATH/PATHEXT bare names, current-directory case) either got the batch refusal or failed to start (127); no argument byte reached cmd.exe. Not probed: whether CreateProcess could match a non-ASCII case-fold variant of .bat/.cmd that Go's strings.ToLower does not fold (reviewer: unlikely, not tested).",
+  "Go still opens a named pipe given as --file once (os.Stat before the regular-file check): pipe_connects is 1 in the script rows and the reviewer saw 4 such connections over its profile and tui pipe probes. Pre-existing, not gated under section 9.6, a possible section 5 'no agent contact' question for M01.",
+  "Stale comments 'COMPILE-CHECKED ONLY (no native Windows host)' remain in four Windows files (agent/dial_windows.go, agent/reset_windows.go, profile/open_windows.go, cmd/heimdall-proto/meta_windows.go); documentation only (reviewer minor).",
+  "The fix round states its own coverage gap that the reviewer closed: REPORT.md called a symlink named differently from its batch target 'not tested'; the reviewer tested a symlink and a hard link (launch fails 127, cmd.exe did not run). The pre-fix numbers in REPORT.md were not re-run by the reviewer; the baseline record is the pre-fix evidence.",
+  "Supplementary non-Windows evidence (darwin-arm64 and linux-arm64 harness 139/139) is on different artifacts than the Windows exe, and the full harness records stay outside the repository (only harness-summary.json is kept). The linux-x64 artifact was rebuilt (digest matched the reviewer's) but not executed in this round.",
+  "One host: the owner's Windows 11 Pro 26300 x64 PC, non-elevated user (the same host as the baseline). Three fix-round runs (Windows PowerShell 5.1 twice, PowerShell 7.6.6 once) plus two reviewer runs (5.1 once, PowerShell 7 once; run with the reviewer's own staging, hash-equal to the fix round's staging and so the same exe digest; the reviewer's clean rebuild also produced that digest); every row's verdict and gating flag is identical in all five runs. Timing values differ between runs.",
+  "Host sharing: the Go and Rust fix rounds used the same host. By row timestamps the runs overlapped once, for about 2.6 s (Go run fix-ps7-a and Rust run x1b-rust-ps51-b, in separate scratch directories); no other pair among the 10 Go and Rust fix-round and reviewer runs overlapped. Verdicts are identical in all runs, but timing-based rows (for example the 2 s K14 limits and tui.resize_latency) were not all measured on an otherwise idle host.",
+  "Console coverage is pseudoconsole only (CreatePseudoConsole driven by P/Invoke, judged on a small VT screen model; harness.screen_model_unit covers the model). A classic conhost window, Windows Terminal and the legacy console were not exercised; no window was created on the owner's desktop. CTRL_BREAK is recorded only; CTRL_CLOSE/LOGOFF/SHUTDOWN events were not tested.",
+  "The artifact ran with PATH reduced to %SystemRoot%\\System32 and its WindowsPowerShell directory: PATH is reduced, not a clean machine. The owner's cmd.exe AutoRun is configured on this host (cmd_autorun_configured true), DelayedExpansion state was not inspected, and the Python launcher lives in %SystemRoot% on this host; env.no_toolchain_on_path found no Go, Rust, C, Node, Bun, Deno, Python, zig or git.",
+  "Files were copied to the host through WSL and carry no Mark-of-the-Web (integrity row: mark_of_the_web false) and no Authenticode signature (NotSigned); SmartScreen, Defender behaviour and a downloaded-file launch were not exercised. Launching the .exe from WSL through interop was not tested.",
+  "Not covered: a second Windows account (pipe DACL from another user), remote (SMB) pipe clients, interop with the real Win32-OpenSSH ssh-agent (the owner's agent must not be contacted; the fixture agent stands in), ARM64 Windows, other Windows builds or editions, elevated sessions, paths longer than MAX_PATH, UNC working directories, console code pages other than the default.",
+  "Source state of the build under test: see environment.run_tree (runs on an uncommitted working tree, committed afterwards; the commit-to-digest link is inferred, not rebuilt from the commit).",
+  "The harness script (Invoke-G02WindowsX1.ps1 sha256 4b05649fd364384d0f312a64d4e43f4360a08d52d27d1f55c18e4725c7bbc9c0) is unchanged from the baseline run and, as far as the artifacts show, has no independent review of its own: x1b-script.json lists, as a limitation, no independent review of the section 9.6 script changes yet (self-checks only) and the Go fix report repeats it. The review report of this candidate describes re-running the script unchanged and adding 76 probes beyond it, which is supporting evidence, not a review of the script. Two development runs before the baseline evidence runs found two harness defects that were fixed before those runs (see the baseline record).",
+  "Batch-file coverage under the script: 16 arguments, .bat and .cmd, one path with and one without a space, under the owner's cmd.exe configuration; arguments containing newlines, NUL, or non-ASCII and '!' arguments were not tested by the script. The batch file is resolved by full path; bare-name PATHEXT resolution is the info row resolution.pathext_cmd. K14 named-pipe rows use a server that accepts and never answers; a pipe server that sends a valid profile and closes was not tested by the script.",
+  "Recorded, not gated (section 9.6): executable resolution order (resolution.* info rows), tui.ctrl_c_event, agent.client_identifiable_by_server (Orchestrator 2026-10-06: tests only ImpersonateNamedPipeClient; Win32-OpenSSH's ssh-agent identifies clients by process token), lone-surrogate and out-of-range exit-code rows. These are M01 inputs, not contract verdicts here.",
+  "Scope of the verdict: it says the section 9.6 gating rows pass on one host for the post-fix build. It does not close gate G02 or the language decision (ADR-0002 D4 and the owner's rulings), and the requirement IDs on this record are not by themselves evidence that those requirements are met.",
+  "PowerShell 7 ConvertFrom-Json turns ISO-8601 strings into DateTime; the schema port treats DateTime as a string (no G02 result field holds such a string). original_path_entries is 75 under Windows PowerShell and 76 under PowerShell 7."
+ ]
+}

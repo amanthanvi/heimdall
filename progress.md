@@ -76,33 +76,11 @@
 
 ## Next actions
 
-1. G02 round 4:
-   - X3–X6 studies are done and committed. The X2 fairness review found 3 majors (baseline drift, implementer isolation, T1 scoring).
-   - The task-pack fix died on a 429 rate limit partway through; its partial work is in `~/.local/share/heimdall-m00/r4-hidden/`, pinned to post-X1b base 84c7665/001a791.
-   - Workflow `wf_55ae5a9c-4b4` finished the pack fix, but its recheck found a new major: the transcript audit missed relative/cd/glob access and commands run from the repo root. The run correctly stopped before any implementation.
-   - The host disk was full (8.5 GB free). The orchestrator moved the seeded trees into `r4-hidden/seeded-trees/` and deleted `/tmp/hm-r4` (25 GB). About 33 GB is now free.
-   - Second attempt `wf_21d21205-c96`:
-     - fix2 and recheck2 were clean (minors only), and 24 workspaces were built in `/tmp/x2ws-*`.
-     - API 429 rate limits then killed 58 of 68 agents. Six implementations completed (T2/T3/T4 × go/rust, opus1) plus one evaluation (T2-go-opus1: 12/12 hidden, 139/139).
-     - Manual audit triage of the 6 completed transcripts: all are SUSPECT by the conservative audit, but every flag is benign. They are polls of background-task output, tool/version checks, docker runs, and the cells' own scratch; nothing read the repo prototypes, the hidden dir or another workspace. Triage list: `r4-scratch/x2-triage.txt`.
-     - The Write tool refused `out/REPORT.md` for implementers, so the orchestrator wrote those files from the structured reports.
-   - Third attempt `wf_0c100051-5bd` (script `heimdall-m00-g02-round4-x2c.js`):
-     - The completed results are passed via `args`, so there is no cache dependence.
-     - 3-chain worker pool, with T4 implementers serialized.
-     - After the 2026-10-09 compaction the harness reported it stopped, but it is still running inside the earlier claude process (pid 39190, started 2026-10-08 22:01:26). Do not relaunch while that process lives. `/tmp/x2c-watch.sh` watches for the completion record `workflows/wf_0c100051-5bd.json`.
-     - If it is interrupted again, rebuild `args` from both journals (`/tmp/x2c-args.min.json` has the format) and relaunch. Before relaunching, reset every workspace whose implementer made tool calls but did not finish: run `make-workspace.sh` on a fresh directory, and move the old manifest aside.
-     - By 2026-10-09 01:10, 16 of 24 implementations were done. Every scored cell passes all its hidden tests on darwin and Linux, and the harness at 139/139. T3 is 136/139, with exactly the 3 checks its spec expects to fail. The reviewers found no blocker or major.
-   - **Contamination found and fixed:**
-     - The T1 opus1 cells of the third attempt continued interrupted second-attempt work: Go after 47 tool calls, Rust after 31. Their workspaces were never reset.
-     - Both results are kept in `x2/runs-excluded/` (see its NOTE.md) and not scored.
-     - Both cells are being rerun in fresh workspaces by `wf_9661f31f-f4b` (`heimdall-m00-g02-round4-x2d.js`, same prompts, one chain).
-     - 2026-10-09 23:25: the host rebooted and killed `wf_9661f31f-f4b`. T1-go-opus1 was done (impl, eval, review); T1-rust-opus1 was not. **Session heimdall-83 owns the rest of round 4.** Other sessions must not relaunch x2d or rerun cells.
-     - T1-rust-opus1 rerun: `wf_749c87d4-6a5` (x2d script, args name only this cell), fresh workspace `/tmp/x2ws-0e729f8e` (manifest digest = BASE.json; the reboot-killed attempt's manifest is `workspaces/T1-rust-opus1.attempt-x2d-reboot.json`). If it dies, rebuild the workspace again before relaunching.
-     - Done meanwhile: the last five sonnet1 transcripts triaged clean (TRIAGE.md); 23 cells, specs, rechecks and the hidden-pack copy committed in 46d8b68. Next: X2 RESULTS.md, blind re-score of ADR-0002 §7 (orchestrator scores pre-registered in `r4-scratch/rescore/`), adversarial review, owner decision package.
-     - 2026-10-10: T1-rust-opus1 rerun done (14/14 both, 139/139, review 0 major), audit clean; `x2/results.json` holds all 24 cells. T1 severity calibration (`x2/t1-calibration/`, implemented_unverified): one probe set and rubric on all six T1 builds gives Go 3 majors, Rust 0 (same P1 regression everywhere; only Go's has no normal recovery); rubric-sensitive. Running: an independent re-run of P1 with its own probe (`t1-calibration/verify/`), and cross-cell reviews of T2, T3, T4 (`x2/cross-review/T{2,3,4}/`). X2 RESULTS.md draft is in `r4-scratch/x2-results-draft/` (head + body) until those report.
-     - Every other implementer started fresh: either it finished its own fresh workspace, or its second-attempt predecessor failed with 0 tool calls.
-   - Audit triage, metrics and helper scripts: `r4-scratch/x2c-audit/` (TRIAGE.md, triage.py, evals.py, reviews.py, metrics.py). The 6 fresh third-attempt cells triaged so far are clean.
-   - Afterwards: triage the remaining transcripts, compute final metrics, and commit the specs, runs and the hidden pack copy.
+1. G02 round 4 (owned by session heimdall-83 since the 2026-10-09 reboot):
+   - **X2 done** (101aeeb; `tests/evidence/artifacts/g02-r4/x2/RESULTS.md`). 24 cells, all hidden checks pass, effort equal. Calibrated cross-cell reviews (`t1-calibration/`, `cross-review/T{2,3,4}/`): two causes of an untested major, each in 2–3 of 3 Go cells and no Rust cell (T1 job-control recovery; T3 Bubble Tea wide-character renderer bug), each reproduced independently (`t1-calibration/verify/`, `cross-review/T3/verify/`). History of the three attempts, the excluded contaminated cells and the reruns: RESULTS.md §3 and `runs-excluded/NOTE.md`. Scratch: `~/.local/share/heimdall-m00/r4-scratch/` (x2c-audit, rescore*, review3-*).
+   - **Re-score done:** three blind scorers (Codex GPT-6.1 Sol 3.75/3.80, Claude Fable 5.1 3.70/3.90, Claude Opus 5.5 3.50/4.00, Go/Rust) and the orchestrator's pre-registered 3.50/3.90 all lean Rust (`tests/evidence/artifacts/review-adr-0002/rescore-r4/`).
+   - **ADR-0002 revision 3** (uncommitted until review-3 is integrated): gates updated with native Windows/linux-x64, §7 re-scored, Iroh section from X5, owner questions Q-A–Q-D, D3 (k) §9.7 batch path and (l) X2 rubric. New: `slice-contract.md` §9.7; `tests/evidence/g02-{go,rust}-x1b-windows.json` (verified/pass, 71/71) with pointers from the x1-windows records.
+   - **Running:** review-3 of the ADR, two lenses: evidence fidelity (Codex, T3 task `heimdall-m00-adr0002-review3-fidelity-r1`) and decision logic (Claude Fable). Then fix, commit, and present D1 with Q-A–Q-D to the owner.
 2. X1 is done:
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
    - G02 native: commit 48f854a. linux-x64 139/139 for both; windows-x64 Go 63/63, Rust 60/63 gating before §9.6.
@@ -118,7 +96,7 @@
    - a disposable host (P-W11);
    - an operator at the console (P-W07 Ctrl-C, P-A06 UAC, P-B07 lock);
    - X4 Windows DPAPI/CNG/TPM, which write to the user key store and the TPM.
-4. Re-score ADR-0002 §7 with X1–X6 and get an independent review. Then present the decision (owner D4: after Windows testing).
+4. ADR-0002 re-score: see item 1 (review-3 running).
 5. G04 follow-ups:
    - P5 ran once (unlocked, v1) on 2026-10-09: commits 34ffe3e and 26fed81. Record: blocked / fail.
      - Load and sign: the CTK key loads and signs only through `ssh-add -K -S`.
