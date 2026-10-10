@@ -461,9 +461,15 @@ arguments, so `cmd.exe` expands a `%NAME%` in the path: with an attacker-control
 directory named after it, a second command ran; with `os%OS%y\fwd.bat`, a different batch file ran.
 A direct `CreateProcessW` of the same path without heimdall-proto does the same.
 
-- **Ruling:** §9.6 covers `argv[1..]`. The script path is not gated for G02, because plain exec on
-  Windows behaves the same way and plain-exec equivalence is this slice's reference. Go is not
-  exposed only because it refuses batch targets.
+- **Ruling:** §9.6 covers `argv[1..]`; the script path is not gated for G02. Plain exec on Windows
+  misreads both arguments and the path, so that alone does not separate them; the ruling rests on
+  the threat model. Arguments routinely carry data from elsewhere (host names, file names, prompts)
+  that the launcher promises to pass verbatim (§4, K8), so their injection is a launcher defect and
+  §9.6 gates it. Exploiting the path needs the ability to name or create directories on the batch
+  file's path: the command injection also needed an attacker-chosen environment variable, while running
+  a different batch file needed only an existing one (`%OS%`) and a directory created at the expanded
+  name. Go is not exposed only because it refuses batch targets. The owner can overrule this
+  (ADR-0002 §10, D3 (k)); Rust would then fail that row until it refuses such paths.
 - **Recorded (M01 input):** the production launcher must refuse a batch target whose path contains
   `%` or another character `cmd.exe` interprets in a command line, or must not start batch files
   through `cmd.exe`, and must test it natively. This is listed among the rulings the owner can

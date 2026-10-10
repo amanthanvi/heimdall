@@ -1,0 +1,161 @@
+{
+  "lens": "Decision logic and fairness: do the scores, sensitivity and recommendation follow from the cited evidence; are Go and Rust held to the same standard; is any fact counted twice or omitted; are the three re-scorings used selectively; does the stated confidence match the evidence; does section 10 give the owner the decision and questions in answerable form; are the new rulings (slice-contract 9.7 and the X2 rubric, D3 k and l) fairly framed.",
+  "reviewed": {
+    "adr": "docs/decisions/0002-language-tui-distribution.md, revision 3, uncommitted working tree (diff against HEAD ca3ef37f; ca3ef37f did not touch the ADR). HEAD advanced from 101aeeb5 to ca3ef37f during the review; ca3ef37f committed the companion files below, so they are no longer uncommitted.",
+    "companions": [
+      "tests/evidence/artifacts/g02-r4/x2/RESULTS.md",
+      "docs/g02/slice-contract.md section 9.7",
+      "tests/evidence/g02-go-x1b-windows.json",
+      "tests/evidence/g02-rust-x1b-windows.json",
+      "tests/evidence/artifacts/review-adr-0002/rescore-r4/ (SCORER-BRIEF.md, orchestrator-prereg.md, codex/, fable/, opus/)"
+    ],
+    "read_only": true,
+    "written": ["review.json", "review.md"]
+  },
+  "findings": [
+    {
+      "id": "M1",
+      "severity": "major",
+      "location": "Section 7.1 release row (\"4/4 is the midpoint while that is open\") versus section 7.3 second bullet (\"Spec section 3 makes Iroh a V1 target that only a recorded scope decision can defer, so the scores above assume it stays\"); headline \"Totals: Go 3.50, Rust 3.90\"; section 9 \"the lead ... nearly disappears if Iroh is deferred\".",
+      "claim": "The headline totals assume Iroh stays in V1, and Rust's lead under that assumption is 0.40.",
+      "evidence": "The release row's own basis says the V1 reading is \"about Go 3 / Rust 4\" and the deferred reading \"about Go 5 / Rust 3\", and that 4/4 is the midpoint of the two. A midpoint is not the V1 reading. Under the stated V1 assumption the totals are Go 3.30 / Rust 3.90 (0.25*3+0.25*4+0.20*3+0.15*3+0.10*3+0.05*4 = 3.30), a 0.60 lead; the deferred case stays Go 3.70 / Rust 3.65 as section 7.3 reports. The headline 3.50/3.90 corresponds to neither scenario; it embeds a 50/50 hedge on Q-A, which the ADR asks the owner to decide. Opus scored the same midpoint but said so (\"probability-weighted midpoint ... about 0.6 likelihood\"); Codex and Fable scored the demonstrated release path and put Iroh in sensitivity. The direction is unaffected, but the size of the swing the owner is told Q-A produces (0.40 to a 0.05 Go lead) understates the real swing (0.60 to a 0.05 Go lead).",
+      "fix": "Pick one base and say so. Either (a) score the release row under the spec section 3 default (Iroh in V1: Go 3 / Rust 4), report Go 3.30 / Rust 3.90, and show the deferred table as the alternative; or (b) keep two complete tables, one per Q-A answer, and no midpoint. Make section 9's headline conditional: \"Rust by about 0.6 if Iroh ships in V1; a tie (Go by 0.05) if it is deferred\"."
+    },
+    {
+      "id": "M2",
+      "severity": "major",
+      "location": "Section 7.1, agentic and open-source maintainability row (Go 3 / Rust 4, \"two Go-stack pitfalls (the separate-group job-control design that os/signal pushes toward ...)\"); cross-platform row (\"Against Go: ... the standard library's darwin SIGSTOP misdecode\"); section 9 \"the Go stack set two traps\". No scored row in 7.1 mentions K6b, double delivery, or macOS terminal signals (grep of 7.1 for twice/double/K6b/duplicate/macOS/darwin hits only the Go SIGSTOP misdecode).",
+      "claim": "The X2 T1 recovery difference is a Go-stack pitfall and costs Go a point; Rust's signal model carries no scored cost.",
+      "evidence": "The T1 difference is, per t1-calibration/verify/README.md (\"Language constraint or design choice\"), \"a consequence of the two baselines' process-group models, not of anything the six T1 implementers wrote\"; the Go baseline isolates the child to avoid double delivery (prototypes/go/internal/run/run_unix.go header comment at 84c7665: \"Go's os/signal reports no siginfo ... A terminal signal then reaches only the child's group\"), and the Rust baseline shares the group and accepts double delivery on macOS (prototypes/rust/src/runner.rs header at 001a791: \"with a terminal, Ctrl-C, Ctrl-\\ and resize reach the child twice on macOS\"). The ADR's own section 5 calls that Rust behaviour user-visible (\"A child that counts SIGINT behaves differently on macOS\") and section 6.1 called the two designs' failures \"of comparable weight\". Revision 2's security-core row counted both (\"Signal origin favours Rust on Linux; terminal-signal duplication favours Go on macOS\", HEAD line 336) as offsetting. Revision 3 removed both from that row, then counted the Go design's cost once more in maintainability (T1) and the darwin SIGSTOP misdecode in cross-platform, while the Rust design's macOS cost appears only in the unscored section 9 rejection list. The same standard is not applied: one architecture's downside is scored, the other's is not. X2 did not probe the Rust design's downside because T1 targeted the section 6.1 parity failures, not duplicate delivery.",
+      "fix": "Either count both signal-model costs in the scored rows (e.g. keep the T1 pitfall in maintainability and restore \"terminal-signal duplication favours Go on macOS\" to the security-core or cross-platform basis, with whatever net effect the orchestrator judges), or count neither and let the maintainability row rest on the undetected-defect pattern alone (which section 6.2 states correctly). In section 7.1 and section 9, replace \"Go-stack pitfall\"/\"the Go stack set two traps\" for T1 with the X2 record's own wording: an architecture effect that each language's signal API shaped, avoidable within the Go standard library, with none of the Rust cells' new code producing the recovery."
+    },
+    {
+      "id": "M3",
+      "severity": "major",
+      "location": "Section 10, D3 (l) (\"a third-party stop of a background job counts as plausible ..., and ending the job is not a normal recovery. Overruling it removes the three Go T1 majors\"); section 7.3 bullet \"X2 rubric readings (section 10, D3 k)\"; section 6.2 \"The 3-to-0 count depends on two rubric readings\".",
+      "claim": "The owner's choice on the X2 rubric is binary (accept: 3-0 for Rust; overrule: T1 drops out), and the rubric is part of the X2 design.",
+      "evidence": "(1) x2/RESULTS.md section 5.1 \"Sensitivity\" gives three readings, not two: as applied (3 Go majors, 0 Rust); third-party stops implausible (0-0, tie); \"if a wrong job state counts as major whatever the recovery, all six cells get a major\" (3-3, tie). The ADR offers the owner only the lenient alternative; the strict reading, under which every cell including all three Rust cells carries a major for the same Running-state regression, also removes the split. The 3-0 result exists only in the middle reading. (2) The rubric and the cross-cell review were not pre-registered outcomes: docs/g02/round4-plan.md row X2 lists \"hidden-test pass rate, full-harness regressions ..., defects found by an independent reviewer, plus tokens, tool calls and duration\"; all of those tied (24/24 pass, 0 regressions, per-cell majors 1/1, effort GM 1.02/0.98). x2/RESULTS.md section 5 says the calibrated review was added \"because per-cell reviewers were inconsistent\", and orchestrator-prereg.md shows the maintainability row moving from 4/4 (interim X2, pre-registered 2026-10-09 23:35) to 3/4 after the calibrated results. Opus concern 3 raised this (\"the thresholds were chosen with the outcome visible\"); the ADR does not carry it. The mitigations are real (a blind re-classification reached the same majors; P1 was independently re-run on byte-identical binaries; T3 N1 reproduced in tmux and xterm.js) and should be stated alongside. (3) The ADR does not say what the maintainability score becomes under each reading; section 7.3 says only \"would still lean Rust on T3 and X6, more weakly\". (4) Section 7.3 cites \"D3 k\" for the X2 rubric; the X2 rubric is D3 (l); (k) is the section 9.7 batch-path ruling.",
+      "fix": "In D3 (l), list all three readings with their T1 count and the resulting maintainability score and totals (e.g. as applied 3/4; implausible 3/4 or 4/4 on T3+X6, state which; strict 4/4 or 3/3, state which). Add one sentence that the calibrated rubric and cross-cell review were introduced after the pre-registered X2 outcomes tied, and name the independent re-run and blind re-classification that mitigate it. Correct \"D3 k\" to \"D3 l\" in section 7.3."
+    },
+    {
+      "id": "M4",
+      "severity": "major",
+      "location": "Section 7.2 (\"Three re-scorers then worked blind to each other and to the orchestrator, from the same brief and evidence\"); section 7.1 confidence cells (\"medium: all four scorings agree\"; \"medium for direction, low for size: all four scorings gave 3/4\"); section 9 (\"All four scorings in section 7.2 lean the same way\").",
+      "claim": "Four independent scorings converge on Rust and on the maintainability 3/4, which supports medium confidence in direction.",
+      "evidence": "The timestamps hold: orchestrator-prereg.md last written 04:58:15, first re-scorer file 05:04:05 (stat on ~/.local/share/heimdall-m00/r4-scratch/rescore*/), so the re-scorers did not see the round-4 scores. But they were not blind to the orchestrator's reading. rescore-r4/SCORER-BRIEF.md told them the prior was \"a 3.80 vs 3.80 tie with a low-confidence lean to Rust\", and the X2 record they were directed to read first (x2/RESULTS.md at HEAD 101aeeb5, the version live during the re-score) contained section 6 \"Reading for ADR-0002 (inference, for the re-score)\" asserting \"5 of 12 Go cells against 0 of 12 Rust cells carry a major ... Both causes sit in the Go stack\" with \"one-sided Fisher exact p approximately 0.02\" in section 5.3. All three re-scorers adopted the 3/4 that this reading implies; all three also rejected the Fisher claim and two rejected the attribution (Codex concern 2, Fable concern 4, Opus concern 4), which shows they were adversarial but also that they were primed. Agreement among four readers of one inference section is weaker evidence of direction than the ADR's wording implies. Three of four scorings rate the maintainability row \"low\" confidence (Codex, Opus) or the recommendation \"low\" (Codex, Opus); only Fable is \"medium\".",
+      "fix": "In section 7.2 say precisely what the re-scorers were blind to (each other's and the orchestrator's round-4 scores) and what they were given (the revision-2 lean and the X2 record's section 6 reading), and that they nonetheless rejected the Fisher statistic and the single-cause attribution. Set the maintainability row's direction confidence to low, or state why medium survives the shared reading. In section 9, say \"all four scorings, working from the same X2 reading, lean the same way\"."
+    },
+    {
+      "id": "M5",
+      "severity": "major",
+      "location": "Section 10, D3 (k) (\"a batch file's own path is not gated, because plain exec on Windows expands %NAME% in it the same way\"); slice-contract.md section 9.7 ruling; section 9 reason 1 (\"its standard library launches Windows batch files with correct escaping\"); section 3 security gate for Rust (\"pass for the slice ... [Codex re-scorer: uncertain]\").",
+      "claim": "The argv[0] expansion is fairly excluded from the section 9.6 gate because plain exec behaves the same way, and Rust's batch launch is correctly escaped.",
+      "evidence": "The facts are correctly recorded (tests/evidence/artifacts/m00-wf8/x1b-review-rust.json defect 1: INJECTED with an attacker-controlled variable and a matching directory; a different batch file ran for os%OS%y\\fwd.bat; the .NET Process.Start control reproduced it). The fairness problem is the rationale. Section 9.6 gated Go's argument injection under \"section 4 'without a shell' also covers batch files\" even though a plain CreateProcessW of a .bat target also hands the arguments to cmd.exe (that is what BatBadBut is); plain-exec equivalence was set aside for arguments. Section 9.7 then invokes plain-exec equivalence to exclude the path. Both are cmd.exe interpreting bytes the launcher put on its command line; the defensible distinction (arguments are more often attacker-influenced than a configured target path) is not stated anywhere, so the owner is asked to ratify (k) without seeing the tension with (j). Codex rated the security gate uncertain for both until argv[0] is ruled, and asked for it as an owner question (Q2); the ADR carries that only as a bracket. Section 9 reason 1 says \"correct escaping\" without the argv[0] qualification that section 3, 3.1, 7.1 and 9.7 all carry; the counter sits 30 lines later in the rejection list.",
+      "fix": "In D3 (k), add: why the path is treated differently from the arguments (threat model: who controls each byte), that the same plain-exec argument would have excused the Go argument injection section 9.6 gated, and that Codex read the gate as uncertain pending this ruling. Qualify section 9 reason 1: \"escapes batch arguments correctly (16/16); the script path is not escaped (section 9.7), so a product must refuse % in batch paths\"."
+    },
+    {
+      "id": "m1",
+      "severity": "minor",
+      "location": "Section 7.2 text under the table: \"they differ on cross-platform, release and TUI by one point each\".",
+      "claim": "The four scorings differ only on those three rows.",
+      "evidence": "rescore-r4/fable/scores.json scores integration ecosystem Go 3 / Rust 4; the other three give 4/4. The ecosystem row also differs.",
+      "fix": "Add \"and Fable gave Go 3 on ecosystem\" (or \"and one scorer on ecosystem\")."
+    },
+    {
+      "id": "m2",
+      "severity": "minor",
+      "location": "Section 7.2 table header \"Codex GPT-6.1 Sol\".",
+      "claim": "The Codex re-scorer ran on GPT-6.1 Sol.",
+      "evidence": "rescore-r4/codex/scores.json \"scorer\" is \"Codex independent scorer - M00-T05-r4-rescore-codex\"; neither scores.json nor scores.md names a model. The Fable and Opus records do name theirs.",
+      "fix": "Cite the launch or workflow record that fixes the Codex model, or label the column \"Codex (model per launch record)\"."
+    },
+    {
+      "id": "m3",
+      "severity": "minor",
+      "location": "Section 7.3 bullet \"TUI library: ... the TUI row then ties and the maintainability row rests on T1 alone\"; section 10 (no owner question on TUI-library binding).",
+      "claim": "Charging T3 to the library changes the TUI row to a tie.",
+      "evidence": "The TUI row is already 3/3 in section 7.1, so \"then ties\" changes nothing; the bullet also does not say what the maintainability row becomes when it rests on T1 alone (3/4 or 4/4), and the combined effect with D3 (l) overruled (both X2 causes removed from the row) is never computed. Fable's owner question 4 (\"is the choice 'Go + Bubble Tea' and 'Rust + Ratatui' as the plan names them, or may the chosen language pick another TUI library later?\") is the question that decides whether T3 weighs on the language; section 10 does not ask it.",
+      "fix": "Rewrite the bullet: \"the TUI row is unchanged (3/3); the maintainability row rests on T1 alone and stays 3/4 [or becomes 4/4, state which]; with D3 (l) also overruled the row is 4/4 and the totals are Go 3.65 / Rust 3.90 with Iroh in V1\". Add the TUI-library-binding question to section 10."
+    },
+    {
+      "id": "m4",
+      "severity": "minor",
+      "location": "Section 10, Q-B (\"If yes, a Go product needs its own cmd.exe escaping layer, a security-sensitive component; if no, Go's refusal is acceptable\").",
+      "claim": "Only the Go product bears a cost if batch targets are required.",
+      "evidence": "Section 9.7's recorded M01 input applies to whichever stack launches batch files: \"the production launcher must refuse a batch target whose path contains % or another character cmd.exe interprets ..., or must not start batch files through cmd.exe\". A Rust product that launches batch targets also needs that component (std does not supply it). Section 11 lists it stack-neutrally; Q-B does not.",
+      "fix": "Add to Q-B: \"if yes, a Rust product needs the section 9.7 path refusal or escaping as well; Go's component is larger (arguments and path), Rust's smaller (path only)\"."
+    },
+    {
+      "id": "m5",
+      "severity": "minor",
+      "location": "Section 7.1 release row (\"its X1b rebuild also drifted\"); section 9 (\"drifting over time in X1b\"); section 2.4 last paragraph (\"The host's Go toolchain moved from 1.27.1 to 1.27.2 ... rebuilds after that date differ in bytes ..., with identical sources and behaviour\").",
+      "claim": "Rust's builds drift over time; Go's rebuild differences are benign.",
+      "evidence": "Both are supported: tests/evidence/artifacts/g02-r4/x1b/rust/build/compare.txt shows a same-day rebuild of unchanged d8f0cbe differing from the committed round-3c artifacts on linux-x64 (876,464 to 887,072 B), linux-arm64 and windows-x64, darwin reproducing; Rust REPORT section 16 says the cause \"is environmental (builder toolchain) and was not investigated\". The Go drift is explained (toolchain patch version). The asymmetry is in presentation: Rust's drift is a scored negative and a rejection reason, Go's is a footnote. Rust's is undiagnosed and therefore worse, but the owner should see both side by side, and the likely cause class is the same (an unpinned host component; X3 records zig 0.16.0, the T1 verification records zig 0.17.0 on the same host).",
+      "fix": "In the release row, write \"both prototypes' rebuilds drifted with host toolchain updates during round 4; Go's is explained by go 1.27.1 to 1.27.2, Rust's was not diagnosed (build.sh pins rustc but not zig)\"."
+    },
+    {
+      "id": "m6",
+      "severity": "minor",
+      "location": "Section 3 licensing row for Rust (\"a full notices file ships\"); section 11 \"If Rust is chosen\".",
+      "claim": "The Rust notices file ships reliably.",
+      "evidence": "tests/evidence/artifacts/g02-r4/x2/cross-review/T4/README.md section 2: \"gen_notices.py failed inside build.sh in every Rust build because cargo metadata --offline was missing a crate ... build.sh still exits 0\". Codex concern 7 confirmed by reading build.sh that a notices failure only warns. The X1b review did reproduce THIRD-PARTY-NOTICES byte for byte (online, full cache), so the file ships when generation succeeds; the false-green on failure is not carried anywhere in the ADR.",
+      "fix": "Add to section 11 \"If Rust is chosen\": make notices generation failure fatal in the release build. Optionally qualify the licensing row."
+    },
+    {
+      "id": "m7",
+      "severity": "minor",
+      "location": "Section 9, Go paragraph: \"Choose Go if Iroh is deferred or dropped (section 7.3), if launching batch files on Windows is not required, and if supply-chain size and release simplicity weigh most for you.\"",
+      "claim": "Reads as three conditions that must all hold.",
+      "evidence": "Section 7.3 says Iroh deferral alone produces a tie, and any one further pro-Go reading gives Go a clear lead. The conjunction understates how little it takes.",
+      "fix": "\"Choose Go if Iroh is deferred (that alone makes it a tie), and especially if ...\"."
+    },
+    {
+      "id": "m8",
+      "severity": "minor",
+      "location": "Section 7.1 security-core row (\"17 linked modules against Rust's 77-82 crates ... many more crates contain unsafe\"); section 9 (\"77-82 crates against 17 Go modules, many with unsafe\").",
+      "claim": "A like-for-like supply-chain comparison.",
+      "evidence": "x3/RESULTS.md section 1 and 2 state that the two languages count at different granularity and that the Rust unsafe count is \"an upper bound, not cfg-filtered\" (cargo-geiger: 42 of 82 crates use unsafe in the build). All three re-scorers raised this (Codex 10, Fable 7, Opus 15). The ADR carries the numbers without the caveat.",
+      "fix": "Add \"(different granularity: a Go module often bundles several crates' worth; the Rust unsafe count is an upper bound, cargo-geiger gives 42 crates)\"."
+    },
+    {
+      "id": "m9",
+      "severity": "minor",
+      "location": "Section 6.2 (\"Both were reproduced by an independent second execution\").",
+      "claim": "The X2 T1 calibration is independently verified.",
+      "evidence": "True for P1, the scenario behind the three Go majors (t1-calibration/verify/README.md), and for T3 N1 (T3/verify). t1-calibration/README.md: \"the other scenarios remain implemented_unverified\"; the Rust baseline divergences the ADR cites (P3, P8, P9e) were measured once. Fable concern 3.",
+      "fix": "Add \"(P1 and N1; the other calibration scenarios, including the Rust P3/P8/P9e divergences, are implemented_unverified)\"."
+    },
+    {
+      "id": "m10",
+      "severity": "minor",
+      "location": "Section 7.1 cross-platform row (\"Against Rust: darwin builds that link frameworks need the macOS SDK\"; \"For Go: cross-compiles every target with its own toolchain and no SDK\"); section 10.",
+      "claim": "SDK-free darwin cross-builds are a live advantage for Go and a cost for Rust.",
+      "evidence": "Both points are moot if darwin release artifacts are built and signed on a macOS runner, which section 11 already requires (Developer-ID signing and notarization). Fable's owner question 7 asks exactly this; section 10 does not. x4/macos/RESULTS.md section 4 makes the same point (\"That narrows purego's cross-build advantage\").",
+      "fix": "Either add the question to section 10 or note in the row that the point matters only if Linux-hosted darwin builds are required."
+    }
+  ],
+  "checked_ok": [
+    "Arithmetic: all six totals (orchestrator 3.50/3.90; Codex 3.75/3.80; Fable 3.70/3.90; Opus 3.50/4.00; prereg 3.75/3.90 and 3.50/3.90) recompute from the row scores and plan weights; every section 7.3 figure (3.70/3.65 deferred; 3.95/3.65 with cross-platform 4/4; 3.90/3.90 tie; 4.00/3.90 with TUI for Go) recomputes.",
+    "Pre-registration: orchestrator-prereg.md mtime 04:58:15, first re-scorer file (opus/scores.json) 05:04:05, SCORER-BRIEF.md 04:30:32, in ~/.local/share/heimdall-m00/r4-scratch/; the section 7.2 claim about ordering is correct.",
+    "plan.md section 3 G02: seven hard gates and weights 25/25/20/15/10/5 match; the 15 % relabel to agentic and open-source maintainability follows the owner's D2 in progress.md (2026-10-06).",
+    "spec.md: section 15.1 idle CPU < 0.5 % of one core (section 4 and section 9 reason 4 cite it correctly); section 3 makes the Iroh flow a V1 target deferrable only by a recorded scope decision (line 147).",
+    "X1 (x1/RESULTS.md): Go 67/71 and Rust 68/71 under section 9.6; 8 of 16 batch arguments injected for Go; Rust 16/16 exact; Rust 5-byte overwrite of a regular file given as --socket; Rust named-pipe --file hang; Go refusal in 21-25 ms; linux-x64 139/139 both; TUI first frame 40.2/20.2 ms; K17 p95 17.7/2.7 ms.",
+    "X1b records: both status verified, build_commit 84c7665 / 001a791, digests 795c4826... / ba80f914... match the supersession notes added to the X1 records; both independent reviews list minors only; the Go review killed a weakened-check mutant; the Rust review's 129 probes had 12 FAIL (9 trailing-dot batch names exit 1, 3 %VAR%-in-path), and the ADR carries the %NAME% case (the trailing-dot case is a non-security omission).",
+    "Slice-contract section 9.7 restates x1b-review-rust.json defect 1 accurately, including the .NET Process.Start control and the M01 input; D3 (k) and (l) are listed as overrulable.",
+    "X2 (x2/RESULTS.md, t1-calibration/, cross-review/T2, T3, T3/verify): 24/24 hidden pass, 0 regressions, effort GM 1.02/0.98; calibrated majors Go 5 (T1x3, T3x2) / Rust 0 from two causes; Fisher p removed from the record; the darwin ^C correction is carried (\"on darwin ^C kills it\"); go-opus1 partial avoidance (kill -CONT works) and go-opus2 full repaint are correctly described; Rust cells' P3/P8/P9e baseline divergences and the T2 190-205 MiB peaks are carried; T3 N1 reproduced in tmux 3.8 and xterm.js 6.0 (6/6 runs each) on byte-identical builds; all three Go T1 cells decode the raw wait status (verify README).",
+    "The Go baseline's own header comment (run_unix.go at 84c7665) states the siginfo rationale, so section 6.2's \"a design its author chose because os/signal gives no siginfo without cgo\" is the author's stated reason, not an inference.",
+    "X3: 17 modules vs 77-82 crates; Go cross-host reproducible for linux-x64/arm64/windows-x64 (darwin only after the same ad-hoc codesign); Go PIE + full RELRO on stable; no static-musl PIE for Rust on stable; GoReleaser matrix first try; cargo-dist windows-gnu failed (cargo-xwin) and leaked builder paths; cargo auditable needed for binary SBOMs; govulncheck reachability vs lockfile-level cargo-audit.",
+    "X4: typed windows-sys vs untyped LazyProc.Call (30 unsafe sites, pointer-lifetime pitfall go vet missed); purego Linux-built darwin binary ran on the Mac; no usable Go Keychain/SecKey library (go-keychain v0.0.1); security-framework looking-for-maintainer and one dropped OSStatus; go-keyring plain Secret Service session vs Rust DH; Windows pipe checks 5/5 per language; DPAPI/CNG/TPM blocked on owner authorization. The ADR says so wherever it relies on them.",
+    "X5: 12/12 iroh builds (ring and aws-lc, four targets); 6-8x growth (0.72 to 4.5 MB darwin); 226-line Go supervisor; helpers gone within 1.5 s; iroh-go experimental/Linux-only/cgo; pure-Go port with about 51k forked lines; Windows built not run; linux-x64 under Rosetta; the ADR marks X5's \"at least\" as an inference.",
+    "X6: RustSec lists 1 of 20 russh advisories; benchmarks lean slightly Rust and are uncontrolled; \"tie or at most +/-1\"; the darwin SIGSTOP misdecode traced to syscall_bsd.go Stopped(), now carried in section 6 as the ADR requested.",
+    "G03 (docs/research/g03-windows-wsl.md section 0): 17 records verified, 11 blocked or in progress, so \"most rows are verified\" in Q-C is fair; the blockers listed in Q-C match the table.",
+    "No double counting in the security-core row: it explicitly excludes the X2 job-control finding. The T3 split (undetected-defect pattern to maintainability, rendering correctness to TUI) follows the X2 record's caveat, and both rows disclose the shared source.",
+    "Re-scorer owner questions carried: Codex Q1-Q3 (Q-C, D3 k, Q-A), Fable Q1-Q3, Q6, Q8 (Q-A, Q-B, D3 l, Q-C, record supersession done), Opus Q1-Q5 (Q-A, Q-B, Q-C, Q-D, section 7.3 helper bullet). Not carried: Fable Q4 (TUI library binding) and Q7 (macOS release shape), Codex Q4 (G03 E-3 upstream provider set; language-neutral).",
+    "Re-scorer evidence concerns carried: Fisher removal; probe correction; X1 record supersession; T2 memory headroom; security-framework and Go Keychain gaps in the gate table; Go batch refusal as a product gap (Q-B); X5 lower-bound inference; Rust reproducibility drift; SIGSTOP root cause; TUI row re-derived from observations; G03 status; clean-machine and signing gaps; practical distribution and maintained dependencies kept uncertain for both with Fable's dissent bracketed; Codex's uncertain security gate bracketed.",
+    "Section 3.2's \"neither uncertain gate separates the two\" agrees with all three re-scorers.",
+    "Section 10 gives D1 as a choice, the four questions in answerable yes/no or either/or form, and Q-A is correctly identified as the largest lever."
+  ],
+  "would_i_reach_the_same_recommendation": "Same direction, lower confidence, and conditional. With Iroh in V1 (the spec section 3 default) the evidence leans Rust: the X2 undetected-defect pattern is real and reproduced, the typed platform bindings are a structural difference even though DPAPI/CNG/TPM never ran, and a Go product carries a Rust helper. With Iroh deferred the scores do not support a decision between them (a 0.05 Go lead is a tie). I would state confidence as low, not low-to-medium: the four scorings share one X2 reading (M4); the T1 half of the maintainability signal is a baseline-architecture effect whose Rust-side counterpart is not scored (M2); and the 3-0 split exists in only one of three rubric readings (M3). None of M1-M5 flips the direction; M1 changes the size of the lead the owner is shown and M2/M3 change how much of it rests on contestable readings.",
+  "verdict": "ready after fixes",
+  "summary": "No blocker: every fact the ADR relies on checks against its record, the arithmetic is right, and the recommendation's direction follows from the evidence under the spec default for Iroh. Five majors: the headline total is a midpoint on Q-A while section 7.3 says it assumes Iroh in V1 (under that assumption Rust leads 3.90 to 3.30, not 3.50); the Go signal model's cost is scored while the Rust model's macOS double delivery, counted as offsetting in revision 2, is scored nowhere; D3 (l) omits the strict rubric reading (all six cells major, a tie), the post-hoc provenance of the calibrated review, and the row's value under each reading, and section 7.3 mislabels it as D3 k; the re-scorers were blind to the orchestrator's scores but primed by its X2 reading, so \"all four scorings agree\" overstates independence; D3 (k) does not show the owner that its plain-exec rationale would have excused the Go argument injection that section 9.6 gated. Ten minors on wording, cross-references, symmetric presentation of build drift and supply-chain counts, two re-scorer owner questions not carried, and the Rust notices false-green."
+}

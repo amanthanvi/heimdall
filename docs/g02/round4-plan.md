@@ -1,6 +1,7 @@
 # G02 round 4: decision experiments (Go vs Rust)
 
-**Status:** in_progress. **Date:** 2026-10-06.
+**Status:** experiments done (2026-10-10); ADR-0002 revision 3 re-scored, reviewed and waiting
+for the owner's decision D1. **Date:** 2026-10-06 (plan), 2026-10-10 (status).
 **Why:** the owner deferred D1 and asked for more research and experiments.
 Round 3c left Go and Rust tied (ADR-0002 §7). The owner then ruled that
 personal ergonomics do not count: the project will be developed and

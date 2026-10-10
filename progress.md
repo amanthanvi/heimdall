@@ -1,7 +1,7 @@
 # Progress
 
 **Current milestone:** M00 — evidence baseline and gate experiments
-**Owner decision pending:** G02 D1, deferred by the owner until round 4 and the Windows/WSL tests (see below).
+**Owner decision pending:** G02 D1. Round 4 and the native Windows/WSL tests are done; ADR-0002 revision 3 recommends Rust + Ratatui (low confidence, conditional on Iroh in V1) and asks Q-A–Q-F (§10).
 
 | Task | Status | Notes |
 |---|---|---|
@@ -10,7 +10,7 @@
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
 | M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Two review rounds resolved. Every native record is blocked (no Windows 11/WSL2 host) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
-| M00-T05 G02 language/TUI + ADR | blocked | Decision package complete: ADR-0002 proposed, re-reviewed, parity-probed. Blocked on owner decision D1 (with D2–D4) |
+| M00-T05 G02 language/TUI + ADR | blocked | Round 4 done (X1–X6). ADR-0002 revision 3: re-scored by three blind scorers plus the orchestrator, two adversarial reviews in two rounds. Blocked on owner decision D1 and Q-A–Q-F |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 
 ## Owner decisions and inputs (2026-10-06)
@@ -79,8 +79,8 @@
 1. G02 round 4 (owned by session heimdall-83 since the 2026-10-09 reboot):
    - **X2 done** (101aeeb; `tests/evidence/artifacts/g02-r4/x2/RESULTS.md`). 24 cells, all hidden checks pass, effort equal. Calibrated cross-cell reviews (`t1-calibration/`, `cross-review/T{2,3,4}/`): two causes of an untested major, each in 2–3 of 3 Go cells and no Rust cell (T1 job-control recovery; T3 Bubble Tea wide-character renderer bug), each reproduced independently (`t1-calibration/verify/`, `cross-review/T3/verify/`). History of the three attempts, the excluded contaminated cells and the reruns: RESULTS.md §3 and `runs-excluded/NOTE.md`. Scratch: `~/.local/share/heimdall-m00/r4-scratch/` (x2c-audit, rescore*, review3-*).
    - **Re-score done:** three blind scorers (Codex GPT-6.1 Sol 3.75/3.80, Claude Fable 5.1 3.70/3.90, Claude Opus 5.5 3.50/4.00, Go/Rust) and the orchestrator's pre-registered 3.50/3.90 all lean Rust (`tests/evidence/artifacts/review-adr-0002/rescore-r4/`).
-   - **ADR-0002 revision 3** (uncommitted until review-3 is integrated): gates updated with native Windows/linux-x64, §7 re-scored, Iroh section from X5, owner questions Q-A–Q-D, D3 (k) §9.7 batch path and (l) X2 rubric. New: `slice-contract.md` §9.7; `tests/evidence/g02-{go,rust}-x1b-windows.json` (verified/pass, 71/71) with pointers from the x1-windows records.
-   - **Running:** review-3 of the ADR, two lenses: evidence fidelity (Codex, T3 task `heimdall-m00-adr0002-review3-fidelity-r1`) and decision logic (Claude Fable). Then fix, commit, and present D1 with Q-A–Q-D to the owner.
+   - **ADR-0002 revision 3 done:** gates updated with native Windows/linux-x64, §7 re-scored (Go 3.50, Rust 3.90; provisional until Q-D), Iroh section from X5, owner questions Q-A–Q-F with a default path, D3 (k) §9.7 batch path and (l) X2 rubric. Review-3: evidence fidelity (Codex GPT-6.1 Sol) and decision logic (Claude Fable 5.1), two rounds each, every finding applied (§13; `tests/evidence/artifacts/review-adr-0002/review-3/`). Also `slice-contract.md` §9.7 and `tests/evidence/g02-{go,rust}-x1b-windows.json` (verified/pass, 71/71).
+   - **Next:** the owner answers D1 and Q-A–Q-F. No M01 work before D1 is recorded in ADR-0002 §10.
 2. X1 is done:
    - G03: commit 36a8751. Windows 9/12 executed; WSL 11 pass, 2 in_progress, 5 blocked.
    - G02 native: commit 48f854a. linux-x64 139/139 for both; windows-x64 Go 63/63, Rust 60/63 gating before §9.6.
@@ -96,7 +96,7 @@
    - a disposable host (P-W11);
    - an operator at the console (P-W07 Ctrl-C, P-A06 UAC, P-B07 lock);
    - X4 Windows DPAPI/CNG/TPM, which write to the user key store and the TPM.
-4. ADR-0002 re-score: see item 1 (review-3 running).
+4. ADR-0002 re-score: done (item 1).
 5. G04 follow-ups:
    - P5 ran once (unlocked, v1) on 2026-10-09: commits 34ffe3e and 26fed81. Record: blocked / fail.
      - Load and sign: the CTK key loads and signs only through `ssh-add -K -S`.

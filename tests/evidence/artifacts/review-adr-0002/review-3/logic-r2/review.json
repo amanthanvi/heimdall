@@ -1,0 +1,187 @@
+{
+  "lens": "logic-recheck",
+  "reviewed": {
+    "adr": "docs/decisions/0002-language-tui-distribution.md, revision 3 after the round-1 fixes, uncommitted working tree against HEAD ca3ef37f (git diff HEAD shows the fixes; ca3ef37f did not touch the ADR)",
+    "companions": [
+      "docs/g02/slice-contract.md section 9.7 (uncommitted ruling text)",
+      "tests/evidence/artifacts/g02-r4/x2/RESULTS.md sections 5, 5.1, 5.3, 6 (and the 101aeeb5 version of section 6)",
+      "tests/evidence/artifacts/g02-r4/x2/t1-calibration/README.md (method, uniform classification, independent check)",
+      "tests/evidence/artifacts/g02-r4/x2/cross-review/T3/README.md",
+      "tests/evidence/artifacts/g02-r4/x4/windows/RESULTS.md (unsafe counts)",
+      "tests/evidence/artifacts/m00-wf8/x1b-review-rust.json (defects[0], reexecuted_commands[6])",
+      "tests/evidence/artifacts/review-adr-0002/rescore-r4/ (orchestrator-prereg.md; codex, fable, opus scores.json and scores.md release rows and sensitivity)",
+      "tests/evidence/artifacts/review-adr-0002/review-3/{logic,fidelity}/review.json (round-1 findings)",
+      "progress.md line 81 (Codex re-scorer model)"
+    ],
+    "read_only": true,
+    "written": ["review.json", "review.md"]
+  },
+  "resolution": [
+    {
+      "finding": "M1 (headline total was a midpoint on Q-A while 7.3 assumed Iroh in V1)",
+      "status": "resolved",
+      "note": "The release row now states one base: Iroh in V1, 4/4 as an offsetting judgment (Go's pipeline against its second toolchain), with the deferred case (about Go 5 / Rust 3) given separately in 7.3. The contradiction is gone and the arithmetic (3.50/3.90; deferred 3.70/3.65) holds. The chosen base is, however, the minority reading among the re-scorers and the draft's own earlier V1 reading was 3/4; see new finding N1 for the range the owner should also see."
+    },
+    {
+      "finding": "M2 (Go's signal-model cost scored, Rust's macOS double delivery scored nowhere)",
+      "status": "resolved",
+      "note": "The security-core row now lists both baselines' costs (Go: darwin SIGSTOP misdecode, fails harder on a bad stop; Rust: double delivery on macOS, stop-mirror liveness bug) and nets them to 4/4; the SIGSTOP misdecode moved there from cross-platform. 7.1 and 9 now carry the baseline-inheritance caveat next to 'two traps' (the X2 record's own 5.3 wording). One residual: the row cites 6.2 (X2) for 'fails harder' while saying X2 is not counted there; see N4 (minor)."
+    },
+    {
+      "finding": "M3 (D3 l framed as binary, calibration provenance undisclosed, 'D3 k' mis-cite)",
+      "status": "partly",
+      "note": "All three rubric readings are in 7.3 and D3 (l) with their T1 counts; 6.2 and 7.1 disclose that the calibration was added after the planned X2 measures tied and that the interim prereg had the row at 4/4; the independent re-run of P1 and N1 is stated; the cross-reference now reads D3 (l). The mitigation clause added to D3 (l), 'applied by agents that did not know which cell's reviewer had rated what', is contradicted by the calibration record (see N2, major). My round-1 wording 'blind re-classification' was itself imprecise: the record supports 'blind to the first classification', not blind to the reviewers' ratings. The row score under the two alternative readings is given as a bound (unchanged 3/4 or even 4/4: 3.65/3.90) rather than a commitment, which is acceptable because both ends are shown; see N8 for the asymmetry with the Q-E bullet."
+    },
+    {
+      "finding": "M4 (re-scorers not blind to the orchestrator's framing; 'all four agree' overstated)",
+      "status": "resolved",
+      "note": "7.2 now says what they were blind to (each other's and the orchestrator's scores) and what they saw (revision 2's lean; x2/RESULTS.md at 101aeeb with the Fisher figure and the 'traces to the Go stack' attribution, both confirmed removed in ca3ef37f by diff). The maintainability confidence is 'low' with the reason; the security-core 'medium' carries the 7.2 caveat; 9 says the four scorings are not fully independent; the recommendation confidence is 'low'."
+    },
+    {
+      "finding": "M5 (D3 k rationale hid the tension with D3 j; 9 reason 1 unqualified)",
+      "status": "resolved",
+      "note": "D3 (k) and contract 9.7 (identical text) now say plain exec misreads both arguments and path, rest the ruling on the threat model (who controls each byte), name the Codex uncertain rating, and state what overruling means for Rust's Windows row. 9 reason 1 is qualified ('not the batch file's own path, 9.7'). One precision point on the attacker prerequisites in the new text: N6 (minor)."
+    },
+    {
+      "finding": "m1 (7.2 omitted the ecosystem-row disagreement)",
+      "status": "resolved",
+      "note": "'they differ on cross-platform, release, TUI and ecosystem by one point each' matches the four score files."
+    },
+    {
+      "finding": "m2 (Codex model not in its file)",
+      "status": "partly",
+      "note": "7.2 now discloses that the Codex scorer's model 'is recorded in its delegation, not in its file', but cites no path. No launch record exists in the repository or in ~/.local/share/heimdall-m00/r4-scratch/rescore-codex/; the only record naming GPT-6.1 Sol is progress.md line 81, the orchestrator's own log. Fix: cite progress.md and say the attribution is the orchestrator's, or drop the model name from the column header."
+    },
+    {
+      "finding": "m3 (TUI-library bullet said 'then ties' on an already-tied row; no Q on library binding)",
+      "status": "resolved",
+      "note": "The 7.3 bullet now gives the row under T1 alone (3/4, 3.50/3.90) and with D3 (l) also overruled (4/4, 3.65/3.90; recomputed); Q-E added to 10."
+    },
+    {
+      "finding": "m4 (Q-B gave only Go's cost)",
+      "status": "resolved",
+      "note": "Q-B now says a Rust product must still refuse batch paths that cmd.exe expands (9.7), and what 'no' means for both."
+    },
+    {
+      "finding": "m5 (Rust's build drift a scored negative, Go's a footnote)",
+      "status": "partly",
+      "note": "9 now presents both ('an X1b rebuild of unchanged source also differed ..., cause not investigated; Go's bytes change only with its toolchain version') and 2.4 explains the Go drift. The 7.1 release row still names only Rust's drift ('its X1b rebuild also drifted') next to 'stock flags give byte-identical builds across hosts' for Go; a reader of the row alone still sees one side. Residual is small."
+    },
+    {
+      "finding": "m6 (Rust notices false-green not carried)",
+      "status": "resolved",
+      "note": "9 rejection list carries the build.sh false-green (notices failure and any-one-target), and 11 'If Rust is chosen' requires a release build that fails on either."
+    },
+    {
+      "finding": "m7 ('Choose Go if' read as a three-way conjunction)",
+      "status": "resolved",
+      "note": "Now: deferral alone makes it a tie; the owner's weighting is the tiebreaker; Q-B removes one more Rust argument. Logically right."
+    },
+    {
+      "finding": "m8 (17 modules vs 77-82 crates without the granularity caveat)",
+      "status": "partly",
+      "note": "7.1 security-core carries the granularity caveat and the cargo-geiger 42 figure. The 9 rejection bullet still repeats '77-82 crates against 17 Go modules, many with unsafe' without it. Low weight: 9 is a summary and 7.1 is where the score is justified."
+    },
+    {
+      "finding": "m9 ('both were reproduced' overstated what was re-run)",
+      "status": "resolved",
+      "note": "6.2: 'Only the facts behind these two majors (T1's P1 scenario and T3's rendering case) were re-run independently; the other calibrated ratings come from one reviewer per task.' Matches x2/RESULTS.md 5.1 and the calibration README status."
+    },
+    {
+      "finding": "m10 (SDK-free darwin cross-build moot on a macOS runner; question not asked)",
+      "status": "resolved",
+      "note": "Q-F added to 10 with the consequence for both sides."
+    }
+  ],
+  "new_findings": [
+    {
+      "id": "N1",
+      "severity": "major",
+      "location": "7.1 release row ('This row assumes Iroh in V1 ... so 4/4'); 7.3 bullets 1-2 ('Rust's lead is 0.40'; 'Go 3.70, Rust 3.65, a tie'); 9 ('if Iroh is deferred the comparison is a tie'); 10 Q-A ('Deferral makes the comparison a tie').",
+      "claim": "With Iroh in V1 Rust leads by 0.40; with Iroh deferred the comparison is a tie.",
+      "evidence": "Each anchor uses the re-scorer reading most favourable to Go, and neither range is shown. In V1: rescore-r4/fable/scores.md line 128 ('If Iroh is in V1, Go 3 / Rust 4') and opus/scores.json release basis ('With Iroh: Go 3, Rust 4. The 4/4 is the probability-weighted midpoint') read the row as 3/4; only Codex scores 4/4 with Iroh ('setting release 4/4', codex/scores.md line 155); the round-1 draft of this revision also said 'in V1 about Go 3 / Rust 4'; orchestrator-prereg.md describes its 4/4 as 'Offsetting; Go leads without Iroh, Rust with it', i.e. a cross-scenario judgment, not a V1 one. Under 3/4 the totals are Go 3.30 / Rust 3.90, a 0.60 lead. Deferred: Codex (demonstrated path) and Fable read the row as Go 4 / Rust 3; only Opus gives Go 5 / Rust 3, the value 7.3 adopts. Under Go 4 / Rust 3 with ecosystem 4/3 the deferred totals are Go 3.50 / Rust 3.65 (Rust by 0.15); with cross-platform also 4/4, Go 3.75 / Rust 3.65. The direction is unchanged and the selection is conservative against the recommendation, but the owner is told the largest lever produces '0.40 to a tie' when the four scorings' readings span '0.40-0.60 to between Rust +0.15 and Go +0.05'. The change of the orchestrator's own V1 judgment from 3/4 (draft) to 4/4 (now) is not explained anywhere.",
+      "fix": "In 7.3, add the ranges: 'Release row Go 3 / Rust 4 in V1 (two re-scorers and the draft of this revision): Go 3.30, Rust 3.90, a 0.60 lead' and 'Deferred with release Go 4 / Rust 3 (two re-scorers): Go 3.50, Rust 3.65; with Go 5 / Rust 3: 3.70 / 3.65'. Reword Q-A and 9: 'Deferral narrows the lead to between a 0.15 Rust lead and a 0.05 Go lead, a tie within the precision of these judgments.' In the 7.1 release row, say the 4/4 V1 reading is the Codex reading and that the two Claude re-scorers read V1 as 3/4."
+    },
+    {
+      "id": "N2",
+      "severity": "major",
+      "location": "10 D3 (l), last sentence: 'The rubric was set by the orchestrator after the per-cell reviews disagreed, and applied by agents that did not know which cell's reviewer had rated what.'",
+      "claim": "The calibrated rubric was applied blind to the per-cell reviewers' ratings.",
+      "evidence": "tests/evidence/artifacts/g02-r4/x2/t1-calibration/README.md: the uniform classification is 'one row per (cell, defect): every defect the cell's reviewer listed (D1 = first defect in results.json ...)', each table has a 'reviewer' column holding the cell reviewer's severity next to the calibrated 'class', and a section 'Where this contradicts a reviewer' lists 'go-opus2 D1 (reviewer minor -> major)', 'rust-sonnet1 D1 (reviewer major -> minor)'. The 'Independent check' was 'given the same rubric, results.json, the scripts, matrix.md, extra.md and raw/, but not this classification', and results.json carries the cell reviews (x2/RESULTS.md section 8: 'per cell, the implementer report, evaluation, review and usage'). cross-review/T3/README.md likewise 'confirms or refutes each reviewer-listed defect'. So both classifiers knew the reviewers' ratings; what the second was blind to is the first classification. The sentence is in the ruling text the owner is asked to ratify and overstates the independence of the pro-Rust T1 count on exactly the provenance point M3 raised. (My round-1 'blind re-classification' was the imprecise source; the record supports 'blind to the first classification'.)",
+      "fix": "Replace with: 'applied by one agent per task that re-rated every defect the cell reviewers had listed, with the reviewers' ratings in view; for T1 a second agent, given the same evidence but not the first classification, reached the same three majors and no Rust major.'"
+    },
+    {
+      "id": "N3",
+      "severity": "minor",
+      "location": "2.4 X4 row: Rust 'typed but unsafe windows-sys FFI (20 unsafe sites in the spike)'; Go: 'typed x/sys DPAPI but untyped uintptr calls for the 10 NCrypt functions and one impersonation call'.",
+      "claim": "Rust's Windows spike has 20 unsafe sites (Go's count not given).",
+      "evidence": "x4/windows/RESULTS.md line 66: Go 'unsafe.Pointer/unsafe.Slice at 30 sites in 3 files (cng 24, dpapi 5, pipe 1)'; Rust 'unsafe { at 20 sites: cng.rs 7, pipe.rs 11, dpapi.rs 2'; line 71: the counts are mechanical and the two styles differ. The fidelity fix (F2) introduced a one-sided count.",
+      "fix": "'(20 unsafe sites against Go's 30; mechanical counts, not like-for-like, X4)' or drop both numbers."
+    },
+    {
+      "id": "N4",
+      "severity": "minor",
+      "location": "7.1 security-core row: 'the design fails harder when a stop goes wrong (6.2)' alongside 'The X2 finding ... is counted in the maintainability row, not here'.",
+      "claim": "X2 is not counted in the security-core row.",
+      "evidence": "The row cites 6.2 (the X2 T1 finding) as the Go design's cost that offsets Rust's double delivery, then says X2 is counted elsewhere. The same point is supported by pre-X2 evidence: 6.1 probes 3 and 4 (darwin: launcher exits 255, the nested shell case ends the user's terminal session). Net score unaffected (4/4, all four scorings).",
+      "fix": "Cite 6.1 (probes 3-4) instead of 6.2 for 'fails harder', or say the design cost appears in both rows under different criteria."
+    },
+    {
+      "id": "N5",
+      "severity": "minor",
+      "location": "7.2 table, 'Recommendation' row: 'Orchestrator: Rust, low to medium' versus 9: 'with low confidence' and 13: 'the recommendation's confidence is now low'.",
+      "claim": "The orchestrator's confidence is low to medium.",
+      "evidence": "The cell reproduces orchestrator-prereg.md ('lean Rust, low-to-medium confidence'); the ADR's recommendation is now 'low'. Two confidence levels from the same author on one page.",
+      "fix": "Label the column 'Orchestrator (pre-registered)' or change the cell to 'Rust, low (pre-registered as low to medium)'."
+    },
+    {
+      "id": "N6",
+      "severity": "minor",
+      "location": "10 D3 (k) and contract 9.7: 'Exploiting the path needs control of both a directory name on it and an environment variable.'",
+      "claim": "Both prerequisites are needed to exploit the batch-path expansion.",
+      "evidence": "x1b-review-rust.json defects[0]: (a) the injected command needed an attacker-controlled variable plus a directory named pct%HMRDIRVAR%x; (b) 'os%OS%y\\fwd.bat ran a different batch file' using the standard %OS% variable, so wrong-file execution needs only a %-bearing path and an existing directory. The threat-model conclusion survives (whoever controls the path can already name any file), but the sentence states the prerequisites for the injection case only.",
+      "fix": "'Command injection through the path needs an attacker-controlled environment variable and a matching directory; wrong-file execution needs only a % in the path and a directory, which control of the path already gives.'"
+    },
+    {
+      "id": "N7",
+      "severity": "minor",
+      "location": "9, Go paragraph: 'All are fixable or avoidable, as one implementer in each X2 task showed.'",
+      "claim": "One Go implementer in each of T1 and T3 avoided the defect.",
+      "evidence": "t1-calibration/README.md T1-go-opus1 D1: major ('fg hangs, ^Z and ^C ignored'; 'kill -CONT %1 before fg resumes the child'); the independent check keeps it major under both recovery definitions. No Go T1 cell avoided the major; 6.2 correctly says 'one Go cell partly avoided the trap'. The T1 fixes are named by the verification, not shown by an implementer.",
+      "fix": "'All are fixable (the T1 verification names standard-library fixes) or avoidable (one T3 implementer repainted around wide text).'"
+    },
+    {
+      "id": "N8",
+      "severity": "minor",
+      "location": "7.3 'X2 rubric readings' bullet ('the maintainability lean narrows to T3 alone ...; scoring the row even gives Go 3.65, Rust 3.90') versus 'TUI library' bullet ('rests on T1 alone ... and stays 3/4').",
+      "claim": "T1 alone holds the full maintainability point; T3 alone may not.",
+      "evidence": "The ADR commits to 3/4 when the row rests on T1 (the half it calls rubric-dependent and inherited from the baseline) and leaves the score open when it rests on T3 (the half reproduced in three emulators). Codex's sensitivity ('Retaining a modest maintenance lead on T3 alone preserves the main scores') treats T3 alone as 3/4. The owner cannot tell whether overruling (l) alone changes the total.",
+      "fix": "State the row under T3 alone (3/4 or 4/4) and, if T1 alone keeps 3/4, say why the weaker half carries a point on its own."
+    },
+    {
+      "id": "N9",
+      "severity": "minor",
+      "location": "7.1 cross-platform row: 'std escaping of batch-file arguments, so run can launch batch files (X4)'.",
+      "claim": "Citation.",
+      "evidence": "The batch-argument escaping is X1/X1b evidence (x1/RESULTS.md 16/16; x1b-review-rust.json), not X4.",
+      "fix": "'(X1b)'."
+    }
+  ],
+  "checked_ok": [
+    "Totals recompute: base 3.50/3.90; deferred as published 3.70/3.65; cross-platform 4/4 after deferral 3.95/3.65; maintainability even 3.65/3.90; Q-E with (l) overruled 3.65/3.90; cross-platform 4/4 plus maintainability 4/4 3.90/3.90; plus TUI for Go 4.00/3.90. All figures N1 adds (3.30/3.90; 3.50/3.65; 3.75/3.65) recompute from the plan weights.",
+    "7.2 claims about what the re-scorers saw: SCORER-BRIEF.md names revision 2's lean; x2/RESULTS.md at 101aeeb5 section 6 says '5 of 12 Go cells against 0 of 12 Rust cells ... Both causes sit in the Go stack'; git diff 101aeeb5..ca3ef37f removes the Fisher p and 'trace to the Go stack' and replaces them with 'arise where the Go stack sets a trap' and 'No significance test applies'. The ADR's description is accurate.",
+    "7.1 confidence cells: cross-platform 'two of three re-scorers gave 4/4' (Codex, Fable; Opus 3/4); TUI 'two scorers gave Rust a point more' (Codex, Opus); maintainability 'all four gave 3/4'; the interim prereg had maintainability 4/4 and TUI 4/3, as 7.1 says.",
+    "6.2 and 7.1 provenance statements match x2/RESULTS.md section 5 ('Per-cell reviewers were inconsistent (T1 showed it first), so every task got a second review') and section 7; the independent re-run claims match 5.1 (P1 verified, other scenarios implemented_unverified) and T3/verify.",
+    "'5 of 12 Go cells, concentrated in T1 (3 of 3) and T3 (2 of 3)' and '5 of the 6 Go implementers of those two tasks' and 'most of their reviewers missed' (cell reviewers: one major, two minor, two unlisted) match x2/RESULTS.md 5.3.",
+    "D3 (l)'s three readings and counts (3-0, 0-0, 3-3) match x2/RESULTS.md 5.1 Sensitivity; the 7.3 cross-reference now reads D3 (l).",
+    "D3 (k) and contract 9.7 are word-for-word the same ruling; 9.7 still records the M01 input (refuse % in batch paths or do not launch through cmd.exe) and 11 carries it stack-neutrally; the injection and wrong-file facts match x1b-review-rust.json defects[0] including the .NET Process.Start control.",
+    "3.2, 7 intro and 9 consistently call the scores provisional until Q-D; Q-D states what 'no' means (D1 waits for clean machines and signing identities).",
+    "Q-C now lists the second Linux account with sudo and the in-progress rows; 3.1 says 'blocked or in progress (inconclusive)'.",
+    "Licensing row: 17 third-party modules with the unlicensed main module excluded, per X3; release row: PIE/full RELRO as a dynamic glibc build, static defaults non-PIE for both, per X3.",
+    "Section 13's summary of the two round-1 reviews is accurate (verdicts, no blocker, arithmetic confirmed, the logic reviewer's position)."
+  ],
+  "section_10_answerable": "Yes, in one sitting. D1 is a three-way choice; Q-A to Q-F are yes/no or either/or, each with its consequence stated; D3 (a)-(l) default to 'stand', so the owner only flags exceptions. Two improvements, neither blocking: order the questions by dependency rather than effect (Q-D and Q-C first: may D1 be recorded now; then Q-A: which scenario; then D3 (k), (l), Q-E, Q-F: which readings; then D1), and add one line stating the default path ('answering every default, Iroh in V1, rulings stand, decide now, gives Rust by 0.40 with low confidence; the ranges in 7.3 bound it'). After N1, Q-A's consequence should read 'narrows to a tie within precision' rather than 'makes it a tie'.",
+  "same_recommendation_and_confidence": "Yes. Rust + Ratatui, low confidence, conditional on Iroh staying in V1. With Iroh in V1 every scoring and every V1 reading of the release row (4/4 or 3/4) leaves Rust ahead by 0.40-0.60; with Iroh deferred the readings span Rust +0.15 to Go +0.05, which is a tie within the precision these judgments have. The two new majors do not move the direction: N1 widens the shown range (in Rust's favour under V1, toward Rust under deferral), and N2 corrects an independence claim about the T1 count without changing the count. Confidence stays low for the round-1 reasons, now disclosed in the ADR: the four scorings share one X2 reading, the T1 half of the maintainability signal is an inherited architecture effect, and the 3-0 split exists in one of three rubric readings.",
+  "verdict": "ready after fixes",
+  "summary": "Of the 15 round-1 findings, 11 are resolved and 4 partly (M3: the added mitigation clause overclaims; m2: no path for the Codex model; m5 and m8: 7.1 or 9 still carry one side of a pair). No finding is unresolved in substance, and the fidelity fixes introduced no new asymmetry except a one-sided unsafe count (N3). Two new majors, both one-paragraph fixes and neither changing the direction: N1, the sensitivity anchors (0.40 lead; deferral is a tie) each adopt the re-scorer reading most favourable to Go without showing the range (V1 read as 3/4 by two re-scorers and the draft gives 0.60; deferral read as Go 4 / Rust 3 by two re-scorers leaves Rust 0.15 ahead), and the orchestrator's own V1 judgment moved from 3/4 to 4/4 unexplained; N2, D3 (l) says the rubric was applied by agents who did not know the cell reviewers' ratings, while the calibration record re-rates every reviewer-listed defect with the reviewer's rating in a column and the independent check was blind only to the first classification. Seven minors: Go's 30 unsafe sites omitted next to Rust's 20; the security-core row citing 6.2 while disclaiming X2; 'low to medium' in the 7.2 table against 'low' in 9; the D3 (k) attacker prerequisites stated for the injection case only; 'avoidable, as one implementer in each X2 task showed' false for T1; T1-alone committed to 3/4 while T3-alone is left open; an X4 citation that should be X1b. Section 10 is answerable in one sitting. Same recommendation and confidence as round 1."
+}
