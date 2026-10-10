@@ -1,0 +1,76 @@
+{
+ "verdict": "SUSPECT",
+ "transcript_files": 1,
+ "tool_calls": 23,
+ "offending_calls": [
+  {
+   "index": 8,
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 50,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 19,
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 117,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "path-outside:outside",
+    "raw-path-outside:outside",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 21,
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 129,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 22,
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 135,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "marker:repository",
+    "output-marker:other-workspace",
+    "unresolved-expansion"
+   ]
+  }
+ ],
+ "entries": [],
+ "notes": [
+  {
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 3,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 6,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-adcd96ced96655b52.jsonl",
+   "line": 7,
+   "place": "prompt",
+   "reasons": [
+    "marker:task-pack"
+   ]
+  }
+ ]
+}

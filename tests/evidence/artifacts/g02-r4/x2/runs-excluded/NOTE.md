@@ -32,7 +32,9 @@ that every cell starts from identical inputs.
 **Remedy.** Both cells were rerun in fresh workspaces built by
 `make-workspace.sh`, whose tree digests match `BASE.json`. The rerun used the
 same prompts in a separate workflow (`heimdall-m00-g02-round4-x2d`). Its
-results are in `../runs/T1-go-opus1/` and `../runs/T1-rust-opus1/`.
+results are in `../runs/T1-go-opus1/` and `../runs/T1-rust-opus1/`. A host reboot killed the
+first T1-rust-opus1 rerun before it was evaluated (its `/tmp` workspace was lost); the cell ran again
+in another fresh workspace (`wf_749c87d4-6a5`), and only that run is scored.
 
 **Checked.** Every other implementer that the second attempt started either
 finished in its own fresh workspace (the T2, T3 and T4 opus1 cells) or failed on

@@ -1,0 +1,392 @@
+[
+ {
+  "build": "base-go",
+  "binary": "bin/base-go/darwin-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:38:18Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nbash: fg: current: no such job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 68915,
+      "ppid": 68913,
+      "pgid": 68915,
+      "sid": "0",
+      "tpgid": 68915,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 68915,
+  "job_line": "bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/d\r<arm64/heimdall-proto run -- sleep 3 </dev/null >/de                         \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\bv/null 2>&1 &\r\n[1] 68917",
+  "job_pid": 68917,
+  "launcher_children": [
+   68919
+  ],
+  "program_pid": 68919,
+  "before_signal": {
+   "launcher": {
+    "pid": 68917,
+    "ppid": 68915,
+    "pgid": 68917,
+    "sid": "0",
+    "tpgid": 68915,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 68919,
+    "ppid": 68917,
+    "pgid": 68919,
+    "sid": "0",
+    "tpgid": 68915,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 68915,
+    "ppid": 68913,
+    "pgid": 68915,
+    "sid": "0",
+    "tpgid": 68915,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 68919,
+  "after_signal": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 68915,
+    "ppid": 68913,
+    "pgid": 68915,
+    "sid": "0",
+    "tpgid": 68915,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 68917 Exit 255                bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 68915,
+    "ppid": 68913,
+    "pgid": 68915,
+    "sid": "0",
+    "tpgid": 68915,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 68915,
+    "ppid": 68913,
+    "pgid": 68915,
+    "sid": "0",
+    "tpgid": 68915,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 68919,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 68917,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "base-go",
+  "binary": "bin/base-go/darwin-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:38:19Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nbash: fg: current: no such job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 69085,
+      "ppid": 68913,
+      "pgid": 69085,
+      "sid": "0",
+      "tpgid": 69085,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 69085,
+  "job_line": "bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/d\r<arm64/heimdall-proto run -- sleep 3 </dev/null >/de                         \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\bv/null 2>&1 &\r\n[1] 69090",
+  "job_pid": 69090,
+  "launcher_children": [
+   69091
+  ],
+  "program_pid": 69091,
+  "before_signal": {
+   "launcher": {
+    "pid": 69090,
+    "ppid": 69085,
+    "pgid": 69090,
+    "sid": "0",
+    "tpgid": 69085,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 69091,
+    "ppid": 69090,
+    "pgid": 69091,
+    "sid": "0",
+    "tpgid": 69085,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 69085,
+    "ppid": 68913,
+    "pgid": 69085,
+    "sid": "0",
+    "tpgid": 69085,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 69091,
+  "after_signal": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 69085,
+    "ppid": 68913,
+    "pgid": 69085,
+    "sid": "0",
+    "tpgid": 69085,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 69090 Exit 255                bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 69085,
+    "ppid": 68913,
+    "pgid": 69085,
+    "sid": "0",
+    "tpgid": 69085,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 69085,
+    "ppid": 68913,
+    "pgid": 69085,
+    "sid": "0",
+    "tpgid": 69085,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 69091,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 69090,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "base-go",
+  "binary": "bin/base-go/darwin-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:38:20Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nbash: fg: current: no such job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 69159,
+      "ppid": 68913,
+      "pgid": 69159,
+      "sid": "0",
+      "tpgid": 69159,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 69159,
+  "job_line": "bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/d\r<arm64/heimdall-proto run -- sleep 3 </dev/null >/de                         \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\bv/null 2>&1 &\r\n[1] 69161",
+  "job_pid": 69161,
+  "launcher_children": [
+   69162
+  ],
+  "program_pid": 69162,
+  "before_signal": {
+   "launcher": {
+    "pid": 69161,
+    "ppid": 69159,
+    "pgid": 69161,
+    "sid": "0",
+    "tpgid": 69159,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 69162,
+    "ppid": 69161,
+    "pgid": 69162,
+    "sid": "0",
+    "tpgid": 69159,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 69159,
+    "ppid": 68913,
+    "pgid": 69159,
+    "sid": "0",
+    "tpgid": 69159,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 69162,
+  "after_signal": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 69159,
+    "ppid": 68913,
+    "pgid": 69159,
+    "sid": "0",
+    "tpgid": 69159,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 69161 Exit 255                bin/base-go/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 69159,
+    "ppid": 68913,
+    "pgid": 69159,
+    "sid": "0",
+    "tpgid": 69159,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 69159,
+    "ppid": 68913,
+    "pgid": 69159,
+    "sid": "0",
+    "tpgid": 69159,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 69162,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 69161,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

@@ -1,0 +1,644 @@
+[
+ {
+  "build": "base-rust",
+  "binary": "bin/base-rust/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:39:21Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 219,
+      "ppid": 218,
+      "pgid": 219,
+      "sid": 218,
+      "tpgid": 218,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 221,
+      "ppid": 219,
+      "pgid": 219,
+      "sid": 218,
+      "tpgid": 218,
+      "state": "S",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 218,
+      "ppid": 217,
+      "pgid": 218,
+      "sid": 218,
+      "tpgid": 218,
+      "state": "S",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 218,
+      "ppid": 217,
+      "pgid": 218,
+      "sid": 218,
+      "tpgid": 218,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "[1]  + done       bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 218,
+      "ppid": 217,
+      "pgid": 218,
+      "sid": 218,
+      "tpgid": 218,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 218,
+  "job_line": "bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 219",
+  "job_pid": 219,
+  "launcher_children": [
+   221
+  ],
+  "program_pid": 221,
+  "before_signal": {
+   "launcher": {
+    "pid": 219,
+    "ppid": 218,
+    "pgid": 219,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 221,
+    "ppid": 219,
+    "pgid": 219,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 218,
+    "ppid": 217,
+    "pgid": 218,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 221,
+  "after_signal": {
+   "launcher": {
+    "pid": 219,
+    "ppid": 218,
+    "pgid": 219,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 221,
+    "ppid": 219,
+    "pgid": 219,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 218,
+    "ppid": 217,
+    "pgid": 218,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "[1]  + suspended (signal)  bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1\r\njobs -l\r\n[1]  + 219 suspended (signal)  bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1",
+  "after_jobs": {
+   "launcher": {
+    "pid": 219,
+    "ppid": 218,
+    "pgid": 219,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 221,
+    "ppid": 219,
+    "pgid": 219,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 218,
+    "ppid": 217,
+    "pgid": 218,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 218,
+    "ppid": 217,
+    "pgid": 218,
+    "sid": 218,
+    "tpgid": 218,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 221,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 219,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "base-rust",
+  "binary": "bin/base-rust/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:39:26Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 223,
+      "ppid": 222,
+      "pgid": 223,
+      "sid": 222,
+      "tpgid": 222,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 225,
+      "ppid": 223,
+      "pgid": 223,
+      "sid": 222,
+      "tpgid": 222,
+      "state": "S",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 222,
+      "ppid": 217,
+      "pgid": 222,
+      "sid": 222,
+      "tpgid": 222,
+      "state": "S",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 222,
+      "ppid": 217,
+      "pgid": 222,
+      "sid": 222,
+      "tpgid": 222,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "[1]  + done       bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 222,
+      "ppid": 217,
+      "pgid": 222,
+      "sid": 222,
+      "tpgid": 222,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 222,
+  "job_line": "bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 223",
+  "job_pid": 223,
+  "launcher_children": [
+   225
+  ],
+  "program_pid": 225,
+  "before_signal": {
+   "launcher": {
+    "pid": 223,
+    "ppid": 222,
+    "pgid": 223,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 225,
+    "ppid": 223,
+    "pgid": 223,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 222,
+    "ppid": 217,
+    "pgid": 222,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 225,
+  "after_signal": {
+   "launcher": {
+    "pid": 223,
+    "ppid": 222,
+    "pgid": 223,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 225,
+    "ppid": 223,
+    "pgid": 223,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 222,
+    "ppid": 217,
+    "pgid": 222,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "[1]  + suspended (signal)  bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1\r\njobs -l\r\n[1]  + 223 suspended (signal)  bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1",
+  "after_jobs": {
+   "launcher": {
+    "pid": 223,
+    "ppid": 222,
+    "pgid": 223,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 225,
+    "ppid": 223,
+    "pgid": 223,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 222,
+    "ppid": 217,
+    "pgid": 222,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 222,
+    "ppid": 217,
+    "pgid": 222,
+    "sid": 222,
+    "tpgid": 222,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 225,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 223,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "base-rust",
+  "binary": "bin/base-rust/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:39:32Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 227,
+      "ppid": 226,
+      "pgid": 227,
+      "sid": 226,
+      "tpgid": 226,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 229,
+      "ppid": 227,
+      "pgid": 227,
+      "sid": 226,
+      "tpgid": 226,
+      "state": "S",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 226,
+      "ppid": 217,
+      "pgid": 226,
+      "sid": 226,
+      "tpgid": 226,
+      "state": "S",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 226,
+      "ppid": 217,
+      "pgid": 226,
+      "sid": 226,
+      "tpgid": 226,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "[1]  + done       bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 226,
+      "ppid": 217,
+      "pgid": 226,
+      "sid": 226,
+      "tpgid": 226,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 226,
+  "job_line": "bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 227",
+  "job_pid": 227,
+  "launcher_children": [
+   229
+  ],
+  "program_pid": 229,
+  "before_signal": {
+   "launcher": {
+    "pid": 227,
+    "ppid": 226,
+    "pgid": 227,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 229,
+    "ppid": 227,
+    "pgid": 227,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 226,
+    "ppid": 217,
+    "pgid": 226,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 229,
+  "after_signal": {
+   "launcher": {
+    "pid": 227,
+    "ppid": 226,
+    "pgid": 227,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 229,
+    "ppid": 227,
+    "pgid": 227,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 226,
+    "ppid": 217,
+    "pgid": 226,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "[1]  + suspended (signal)  bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1\r\njobs -l\r\n[1]  + 227 suspended (signal)  bin/base-rust/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&1",
+  "after_jobs": {
+   "launcher": {
+    "pid": 227,
+    "ppid": 226,
+    "pgid": 227,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 229,
+    "ppid": 227,
+    "pgid": 227,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 226,
+    "ppid": 217,
+    "pgid": 226,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 226,
+    "ppid": 217,
+    "pgid": 226,
+    "sid": 226,
+    "tpgid": 226,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 229,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 227,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

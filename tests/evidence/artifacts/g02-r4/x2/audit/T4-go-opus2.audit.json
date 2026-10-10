@@ -1,0 +1,135 @@
+{
+ "verdict": "SUSPECT",
+ "transcript_files": 1,
+ "tool_calls": 29,
+ "offending_calls": [
+  {
+   "index": 2,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 18,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:outside",
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 6,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 38,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:outside",
+    "raw-path-outside:outside",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 11,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 67,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 13,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 79,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 15,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 91,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 19,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 114,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "raw-path-outside:home"
+   ]
+  },
+  {
+   "index": 20,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 120,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "marker:repository"
+   ]
+  },
+  {
+   "index": 24,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 141,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:outside",
+    "path-outside:tmp",
+    "raw-path-outside:outside",
+    "raw-path-outside:tmp",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 25,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 147,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "raw-path-outside:tmp"
+   ]
+  },
+  {
+   "index": 28,
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 165,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "raw-path-outside:outside"
+   ]
+  }
+ ],
+ "entries": [],
+ "notes": [
+  {
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 3,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 6,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-a846c89a688f5aa96.jsonl",
+   "line": 7,
+   "place": "prompt",
+   "reasons": [
+    "marker:task-pack"
+   ]
+  }
+ ]
+}

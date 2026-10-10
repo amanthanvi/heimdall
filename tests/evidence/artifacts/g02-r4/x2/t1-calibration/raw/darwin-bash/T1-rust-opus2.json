@@ -1,0 +1,2886 @@
+{
+ "label": "T1-rust-opus2",
+ "platform": "darwin-arm64",
+ "shell": "bash",
+ "pid1": false,
+ "runs": [
+  {
+   "scenario": "P0-STOP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "rc": 7,
+   "exit_after_cont_s": 0.7,
+   "child_completed": true,
+   "child_after": "gone",
+   "cmp": {
+    "rc": 7,
+    "child_completed": true,
+    "child_reaped": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P0-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "rc": 7,
+   "exit_after_cont_s": 0.7,
+   "child_completed": true,
+   "child_after": "gone",
+   "cmp": {
+    "rc": 7,
+    "child_completed": true,
+    "child_reaped": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P1-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "jobs": "running",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 68971 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "R"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "running",
+    "child_state": "T",
+    "job_stopped_consistent": false,
+    "recovery": "ctrlz+fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 68971\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 68971 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\nfg\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 19.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P1-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "jobs": "running",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 69042 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "R"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "running",
+    "child_state": "T",
+    "job_stopped_consistent": false,
+    "recovery": "ctrlz+fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 69042\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 69042 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\nfg\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 19.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 69126 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 69126\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 69126 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 69579 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 69579\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 69579 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P1k-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "jobs": "running",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 70096 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "R"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R",
+    "L": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "running",
+    "child_state": "T",
+    "job_stopped_consistent": false,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 70096\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 70096 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n@JB3@\n@P@ kill -CONT %1\n@P@ jobs -l; echo \"@J\"\"B4@\"\n[1]+ 70096 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n@JB4@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2k-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 70792 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R",
+    "L": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 70792\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 70792 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@JB3@\n@P@ kill -CONT %1\n@P@ jobs -l; echo \"@J\"\"B4@\"\n[1]+ 70792 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n@JB4@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2n-TTIN",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_ttin": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 70867 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 read 4\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=4 out=True"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Stopped (tty input): 21]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 read 4 &\n[1] 70867\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 read 4\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 70867 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 read 4\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 read 4\nhello\nGOT=hello\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=4@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.2,
+   "rep": 1
+  },
+  {
+   "scenario": "P3-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ],
+    "inner_rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "recovery": "ctrlz+fg",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/bash --norc --noprofile -c \"<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n^Z\n[1]+  Stopped                 /bin/bash --norc --noprofile -c \"<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n@P@ fg\n/bin/bash --norc --noprofile -c \"<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n@RC3=7@\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 7.5,
+   "rep": 1
+  },
+  {
+   "scenario": "P3-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ],
+    "inner_rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "recovery": "ctrlz+fg",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/bash --norc --noprofile -c \"<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n^Z\n[1]+  Stopped                 /bin/bash --norc --noprofile -c \"<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n@P@ fg\n/bin/bash --norc --noprofile -c \"<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n@RC3=7@\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 7.5,
+   "rep": 1
+  },
+  {
+   "scenario": "P4-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71036 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 </dev/null >/dev/null 2>&1\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71036 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P4-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71076 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 </dev/null >/dev/null 2>&1\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=146@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71076 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P4t-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71205 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71205 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P4t-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71299 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=146@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 71299 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P5-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "Stopped",
+   "after_bg": {
+    "C": "R",
+    "L": "R"
+   },
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]+ 71822 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n@P@ jobs -l; echo \"@J\"\"B2@\"\n[1]+ 71822 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@JB2@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ echo \"@R\"\"C3=$?@\"\n@RC3=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P5-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "Stopped",
+   "after_bg": {
+    "C": "R",
+    "L": "R"
+   },
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]+ 71878 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n@P@ jobs -l; echo \"@J\"\"B2@\"\n[1]+ 71878 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@JB2@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n@P@ echo \"@R\"\"C3=$?@\"\n@RC3=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P6-STOP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.9,
+   "rep": 1
+  },
+  {
+   "scenario": "P6-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.9,
+   "rep": 1
+  },
+  {
+   "scenario": "P7-TTOU",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 150,
+   "jobs": "stopped[Stopped (tty output): 22]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72165 Stopped (tty output): 22<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 150,
+    "jobs": "stopped[Stopped (tty output): 22]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=150@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72165 Stopped (tty output): 22<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P7-TTIN",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 149,
+   "jobs": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72227 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 149,
+    "jobs": "stopped[Stopped (tty input): 21]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=149@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72227 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P7n-TTOU",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_ttou": {
+    "C": "T",
+    "L": "T"
+   },
+   "child_completed_in_bg": false,
+   "jobs": "stopped[Stopped (tty output): 22]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72281 Stopped (tty output): 22<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 3,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=3"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Stopped (tty output): 22]",
+    "child_state": "T",
+    "completed_in_bg": false,
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 3
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3 &\n[1] 72281\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72281 Stopped (tty output): 22<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.7,
+   "rep": 1
+  },
+  {
+   "scenario": "P8",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "Stopped",
+   "after_ctrlz": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_cont_1s": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs_1s": "stopped[Suspended: 18]",
+   "after_cont_5s": {
+    "C": "T",
+    "L": "T"
+   },
+   "child_completed_by_5s": false,
+   "jobs_5s": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72310 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "cmp": {
+    "child_1s": "T",
+    "jobs_1s": "stopped[Suspended: 18]",
+    "completed_by_5s": false,
+    "jobs_5s": "stopped[Suspended: 18]",
+    "recovery": "fg"
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n@P@ jobs -l; echo \"@J\"\"B2@\"\n[1]+ 72310 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n@JB2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72310 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.1,
+   "rep": 1
+  },
+  {
+   "scenario": "P9",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "nested_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "Stopped",
+   "after_suspend": {
+    "N": "T",
+    "L": "T"
+   },
+   "after_bg": {
+    "N": "gone",
+    "L": "gone"
+   },
+   "who_after_bg": null,
+   "jobs_after_bg": null,
+   "who_after_fg": null,
+   "rc_after_exit": null,
+   "outer_shell_alive_at_end": false,
+   "cmp": {
+    "suspend_notice": true,
+    "who_after_bg": null,
+    "jobs_after_bg": null,
+    "who_after_fg": null,
+    "rc_after_exit": null,
+    "outer_shell_alive_at_end": false
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- /bin/bash --norc --noprofile -i\n@P@ echo $$ > <tmp>/pf1; echo \"@N\"\"1@\"\n@N1@\n@P@ suspend\n\n[1]+  Stopped                 <bin> run -- /bin/bash --norc --noprofile -i\n@P@ bg\n[1]+ <bin> run -- /bin/bash --norc --noprofile -i &\n@P@ @P@ exit\nexit\n<<PTY EOF>>",
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.0,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e0",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "Stopped",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_fg": {
+    "C": "R",
+    "L": "R"
+   },
+   "child_answers_after_fg": true,
+   "rc_after_exit": 3,
+   "recovery": {
+    "how": "none-needed"
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": null,
+    "child_after_bg": null,
+    "child_answers_after_fg": true,
+    "rc_after_exit": 3,
+    "recovery": "none-needed"
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 2\nPONG-2\nexit 3\n@P@ echo \"@R\"\"C3=$?@\"\n@RC3=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.1,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e-bg",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "Stopped",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_bg": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs_after_bg": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72477 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n",
+   "after_fg": {
+    "C": "T",
+    "L": "T"
+   },
+   "child_answers_after_fg": false,
+   "rc_after_exit": null,
+   "recovery": {
+    "how": "ctrlc",
+    "rc": 1,
+    "steps": [
+     [
+      "ctrlz",
+      "no-prompt"
+     ],
+     [
+      "ctrlc",
+      "prompt"
+     ]
+    ]
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": "stopped[Stopped (tty input): 21]",
+    "child_after_bg": "T",
+    "child_answers_after_fg": false,
+    "rc_after_exit": null,
+    "recovery": "ctrlc"
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh &\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 72477 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n@P@ xq-ping 2\nbash: xq-ping: command not found\n@P@ \n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=1@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 9.3,
+   "rep": 1
+  },
+  {
+   "scenario": "P10",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "jobs": "stopped[Stopped (tty input): 21]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "jobs": "stopped[Stopped (tty input): 21]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "jobs": "stopped[Stopped (tty input): 21]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     }
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "jobs": [
+     "stopped[Stopped (tty input): 21]",
+     "stopped[Stopped (tty input): 21]",
+     "stopped[Stopped (tty input): 21]"
+    ],
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ],
+    "consistent": true,
+    "child_after_fg": [
+     "R",
+     "R",
+     "R"
+    ],
+    "echoed": true,
+    "rc": 0
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat &\n@P@ jobs -l; echo \"@J\"\"B2@\"\n[1]+ 73359 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@JB2@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat &\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 73359 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat &\n@P@ jobs -l; echo \"@J\"\"B4@\"\n[1]+ 73359 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@JB4@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\nhello-cat\nhello-cat\n^D\b\b@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P11",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R",
+      "L": "R"
+     }
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "after_arm_fg": {
+    "C": "R",
+    "L": "R"
+   },
+   "finished": true,
+   "rc": 0,
+   "elapsed_s": 10.2,
+   "cmp": {
+    "arm_notice": true,
+    "child_after_arm_fg": "R",
+    "cycle_notices": [
+     true,
+     true,
+     true
+    ],
+    "running_after_each_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n^Z\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 10.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P12-S3",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt": true,
+   "notice": "Stopped",
+   "rc_at_prompt": 146,
+   "before_cont": {
+    "C": "T",
+    "L": "T"
+   },
+   "transitions_ms": [
+    [
+     0.2,
+     "T",
+     "R"
+    ],
+    [
+     0.3,
+     "T",
+     "T"
+    ]
+   ],
+   "launcher_running_child_stopped_ms": 0.1,
+   "after_1s": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 73615 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 6,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=6 out=True"
+     ]
+    ]
+   },
+   "cmp": {
+    "rc_at_prompt": 146,
+    "child_after_1s": "T",
+    "job_stopped_consistent": true,
+    "jobs": "stopped[Stopped (tty input): 21]",
+    "recovery": "fg",
+    "rc": 6,
+    "out_ok": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\n\n[1]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=146@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+ 73615 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\nhi-s3\nGOT=hi-s3\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=6@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P13-STOP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "child_completed": true,
+   "end_states": {
+    "C": "gone",
+    "L": "gone"
+   },
+   "all_gone": true,
+   "cmp": {
+    "child_completed": true,
+    "all_gone": true,
+    "launcher_rc": null
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.6,
+   "rep": 1
+  },
+  {
+   "scenario": "P13-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "R",
+    "L": "R"
+   },
+   "child_completed": true,
+   "end_states": {
+    "C": "gone",
+    "L": "gone"
+   },
+   "all_gone": true,
+   "cmp": {
+    "child_completed": true,
+    "all_gone": true,
+    "launcher_rc": null
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.6,
+   "rep": 1
+  },
+  {
+   "scenario": "P14",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt": true,
+   "notice": "Stopped",
+   "after_selfstop": {
+    "C": "T",
+    "L": "T",
+    "B": "T"
+   },
+   "after_cont": {
+    "C": "R",
+    "L": "R",
+    "B": "T"
+   },
+   "other_job_left_stopped": true,
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "cmp": {
+    "notice": true,
+    "other_job_left_stopped": true
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/sleep 30 & echo \"@B\"\"2=$!@\"\n[1] 73707\n@B2=73707@\n@P@ echo \"@M\"\"K3@\"\n@MK3@\n@P@ echo \"@M\"\"K4@\"\n@MK4@\n\n[1]+  Stopped                 /bin/sleep 30\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 joingrp 73707 1.5 0\n\n[2]+  Stopped                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 joingrp 73707 1.5 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 joingrp 73707 1.5 0\n[1]   Killed: 9               /bin/sleep 30\n@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P0-STOP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "rc": 7,
+   "exit_after_cont_s": 0.7,
+   "child_completed": true,
+   "child_after": "gone",
+   "cmp": {
+    "rc": 7,
+    "child_completed": true,
+    "child_reaped": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.8,
+   "rep": 2
+  },
+  {
+   "scenario": "P0-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "rc": 7,
+   "exit_after_cont_s": 0.7,
+   "child_completed": true,
+   "child_after": "gone",
+   "cmp": {
+    "rc": 7,
+    "child_completed": true,
+    "child_reaped": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.8,
+   "rep": 2
+  },
+  {
+   "scenario": "P1-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "jobs": "running",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 73779 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "R"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "running",
+    "child_state": "T",
+    "job_stopped_consistent": false,
+    "recovery": "ctrlz+fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 19.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P1-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "jobs": "running",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 73937 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "R"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "fg",
+      "hung"
+     ],
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "running",
+    "child_state": "T",
+    "job_stopped_consistent": false,
+    "recovery": "ctrlz+fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 19.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 74466 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 74521 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P1k-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "jobs": "running",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 74568 Running                 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "R"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R",
+    "L": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "running",
+    "child_state": "T",
+    "job_stopped_consistent": false,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2k-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 74683 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R",
+    "L": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2n-TTIN",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_ttin": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 74777 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 read 4\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=4 out=True"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Stopped (tty input): 21]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.2,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P3-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ],
+    "inner_rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "recovery": "ctrlz+fg",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 7.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P3-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "ctrlz+fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "ctrlz",
+      "prompt"
+     ],
+     [
+      "ctrlz+fg",
+      "done rc=0"
+     ]
+    ],
+    "inner_rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "recovery": "ctrlz+fg",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 7.5,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 75067 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 75629 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 < /dev/null > /dev/null 2>&1\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4t-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 75682 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4t-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 75765 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P5-STOP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "Stopped",
+   "after_bg": {
+    "C": "R",
+    "L": "R"
+   },
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended (signal): 17]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]+ 75840 Suspended (signal): 17  <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended (signal): 17]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P5-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "Stopped",
+   "after_bg": {
+    "C": "R",
+    "L": "R"
+   },
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]+ 76012 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n",
+   "after_jobs": {
+    "C": "T",
+    "L": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Suspended: 18]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P6-STOP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.9,
+   "rep": 2
+  },
+  {
+   "scenario": "P6-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc": "hung",
+   "hung_states": {
+    "C": "Z",
+    "L": "T"
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": "hung",
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.9,
+   "rep": 2
+  },
+  {
+   "scenario": "P7-TTOU",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 150,
+   "jobs": "stopped[Stopped (tty output): 22]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 76265 Stopped (tty output): 22<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 150,
+    "jobs": "stopped[Stopped (tty output): 22]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P7-TTIN",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt_returned": true,
+   "notice": "Stopped",
+   "after_stop": {
+    "C": "T",
+    "L": "T"
+   },
+   "rc_at_prompt": 149,
+   "jobs": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 76344 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "Stopped",
+    "rc_at_prompt": 149,
+    "jobs": "stopped[Stopped (tty input): 21]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P7n-TTOU",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "after_ttou": {
+    "C": "T",
+    "L": "T"
+   },
+   "child_completed_in_bg": false,
+   "jobs": "stopped[Stopped (tty output): 22]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 76401 Stopped (tty output): 22<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 3,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=3"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[Stopped (tty output): 22]",
+    "child_state": "T",
+    "completed_in_bg": false,
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 3
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.7,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P8",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "Stopped",
+   "after_ctrlz": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_cont_1s": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs_1s": "stopped[Suspended: 18]",
+   "after_cont_5s": {
+    "C": "T",
+    "L": "T"
+   },
+   "child_completed_by_5s": false,
+   "jobs_5s": "stopped[Suspended: 18]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 76443 Suspended: 18           <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "cmp": {
+    "child_1s": "T",
+    "jobs_1s": "stopped[Suspended: 18]",
+    "completed_by_5s": false,
+    "jobs_5s": "stopped[Suspended: 18]",
+    "recovery": "fg"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.1,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "nested_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "Stopped",
+   "after_suspend": {
+    "N": "T",
+    "L": "T"
+   },
+   "after_bg": {
+    "N": "gone",
+    "L": "gone"
+   },
+   "who_after_bg": null,
+   "jobs_after_bg": null,
+   "who_after_fg": null,
+   "rc_after_exit": null,
+   "outer_shell_alive_at_end": false,
+   "cmp": {
+    "suspend_notice": true,
+    "who_after_bg": null,
+    "jobs_after_bg": null,
+    "who_after_fg": null,
+    "rc_after_exit": null,
+    "outer_shell_alive_at_end": false
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.0,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9e0",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "Stopped",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_fg": {
+    "C": "R",
+    "L": "R"
+   },
+   "child_answers_after_fg": true,
+   "rc_after_exit": 3,
+   "recovery": {
+    "how": "none-needed"
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": null,
+    "child_after_bg": null,
+    "child_answers_after_fg": true,
+    "rc_after_exit": 3,
+    "recovery": "none-needed"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.1,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9e-bg",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "Stopped",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T",
+    "L": "T"
+   },
+   "after_bg": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs_after_bg": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 77067 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\n",
+   "after_fg": {
+    "C": "T",
+    "L": "T"
+   },
+   "child_answers_after_fg": false,
+   "rc_after_exit": null,
+   "recovery": {
+    "how": "ctrlc",
+    "rc": 1,
+    "steps": [
+     [
+      "ctrlz",
+      "no-prompt"
+     ],
+     [
+      "ctrlc",
+      "prompt"
+     ]
+    ]
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": "stopped[Stopped (tty input): 21]",
+    "child_after_bg": "T",
+    "child_answers_after_fg": false,
+    "rc_after_exit": null,
+    "recovery": "ctrlc"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 9.3,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "jobs": "stopped[Stopped (tty input): 21]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "jobs": "stopped[Stopped (tty input): 21]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "jobs": "stopped[Stopped (tty input): 21]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     }
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "jobs": [
+     "stopped[Stopped (tty input): 21]",
+     "stopped[Stopped (tty input): 21]",
+     "stopped[Stopped (tty input): 21]"
+    ],
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ],
+    "consistent": true,
+    "child_after_fg": [
+     "R",
+     "R",
+     "R"
+    ],
+    "echoed": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.8,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R",
+      "L": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R",
+      "L": "R"
+     }
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "after_arm_fg": {
+    "C": "R",
+    "L": "R"
+   },
+   "finished": true,
+   "rc": 0,
+   "elapsed_s": 10.2,
+   "cmp": {
+    "arm_notice": true,
+    "child_after_arm_fg": "R",
+    "cycle_notices": [
+     true,
+     true,
+     true
+    ],
+    "running_after_each_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 10.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P12-S3",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt": true,
+   "notice": "Stopped",
+   "rc_at_prompt": 146,
+   "before_cont": {
+    "C": "T",
+    "L": "T"
+   },
+   "transitions_ms": [
+    [
+     0.1,
+     "T",
+     "R"
+    ],
+    [
+     0.2,
+     "T",
+     "T"
+    ]
+   ],
+   "launcher_running_child_stopped_ms": 0.1,
+   "after_1s": {
+    "C": "T",
+    "L": "T"
+   },
+   "jobs": "stopped[Stopped (tty input): 21]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]+ 77502 Stopped (tty input): 21 <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 6,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=6 out=True"
+     ]
+    ]
+   },
+   "cmp": {
+    "rc_at_prompt": 146,
+    "child_after_1s": "T",
+    "job_stopped_consistent": true,
+    "jobs": "stopped[Stopped (tty input): 21]",
+    "recovery": "fg",
+    "rc": 6,
+    "out_ok": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.8,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P13-STOP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "T",
+    "L": "R"
+   },
+   "child_completed": true,
+   "end_states": {
+    "C": "gone",
+    "L": "gone"
+   },
+   "all_gone": true,
+   "cmp": {
+    "child_completed": true,
+    "all_gone": true,
+    "launcher_rc": null
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.6,
+   "rep": 2
+  },
+  {
+   "scenario": "P13-TSTP",
+   "via": "T1-rust-opus2",
+   "shell": null,
+   "after_stop": {
+    "C": "R",
+    "L": "R"
+   },
+   "child_completed": true,
+   "end_states": {
+    "C": "gone",
+    "L": "gone"
+   },
+   "all_gone": true,
+   "cmp": {
+    "child_completed": true,
+    "all_gone": true,
+    "launcher_rc": null
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.6,
+   "rep": 2
+  },
+  {
+   "scenario": "P14",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "prompt": true,
+   "notice": "Stopped",
+   "after_selfstop": {
+    "C": "T",
+    "L": "T",
+    "B": "T"
+   },
+   "after_cont": {
+    "C": "R",
+    "L": "R",
+    "B": "T"
+   },
+   "other_job_left_stopped": true,
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "cmp": {
+    "notice": true,
+    "other_job_left_stopped": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.8,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  }
+ ]
+}

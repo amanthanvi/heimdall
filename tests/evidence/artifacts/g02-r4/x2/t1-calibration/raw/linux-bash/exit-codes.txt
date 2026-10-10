@@ -1,0 +1,10 @@
+plain exit=0
+base-go-pinned exit=0
+base-go exit=0
+T1-go-opus1 exit=0
+base-rust exit=0
+T1-rust-opus2 exit=0
+T1-rust-opus1 exit=0
+T1-go-sonnet1 exit=0
+T1-rust-sonnet1 exit=0
+T1-go-opus2 exit=0

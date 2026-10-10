@@ -1,0 +1,4 @@
+plain rep1 P1x-TSTP {"jobs": "stopped[Suspended: 18]", "fg": "prompt", "prompt_back_by": "fg", "child_completed": true} 6.7s
+plain rep1 P2x-TSTP {"jobs": "stopped[Suspended: 18]", "fg": "prompt", "prompt_back_by": "fg", "child_completed": true} 6.7s
+plain rep2 P1x-TSTP {"jobs": "stopped[Suspended: 18]", "fg": "prompt", "prompt_back_by": "fg", "child_completed": true} 6.7s
+plain rep2 P2x-TSTP {"jobs": "stopped[Suspended: 18]", "fg": "prompt", "prompt_back_by": "fg", "child_completed": true} 6.7s

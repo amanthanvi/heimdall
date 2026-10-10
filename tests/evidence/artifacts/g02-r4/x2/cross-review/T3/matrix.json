@@ -1,0 +1,7416 @@
+{
+ "builds": {
+  "base-go-pinned": "bdfd64a2f5a09402a604e20bb79e69788c2f4998808dcf03e96ff7701c19a214",
+  "base-go": "f812084ff36d8f04d5f279ad466b1207b23fa20a1b39d0e57f56fa16a7bf9a5d",
+  "T3-go-opus1": "3cb494cec404002ecf27556353351c9c1b2df6cda5e6c3b19cf0a349dbb68dad",
+  "T3-go-opus2": "87f81fb90346f26007c629acc9f95e9cab47d360a537c74f494d778859a463cc",
+  "T3-go-sonnet1": "9eb467768617e4e923c4f9e8485be4b6c8345eb644bd419dc01d650cc3dffbf9",
+  "base-rust": "f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18",
+  "T3-rust-opus1": "9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc",
+  "T3-rust-opus2": "7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590",
+  "T3-rust-sonnet1": "a49cc5b0a44307468befd92efe9e0db6d8d05ecb3817b53c331c6a1562e67477"
+ },
+ "rows": [
+  {
+   "probe": "P01",
+   "variant": "homelab 80x24",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P01",
+   "variant": "homelab 50x8",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P01",
+   "variant": "homelab 49x8",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P01",
+   "variant": "homelab 30x6",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P01",
+   "variant": "homelab 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 80x24",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 60x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 50x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 40x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 30x8",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 21x6",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東 -サ ーバー-本番', '  lab-server', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東 -サ ーバー-本番', '  lab-server', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P02",
+   "variant": "wide 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東 --サーバー-本番', '  la-sserver', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東 --サーバー-本番', '  la-sserver', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 80x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 60x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 50x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 49x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 33x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 21x6",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P03",
+   "variant": "long 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P04",
+   "variant": "help behaviour",
+   "results": {
+    "base-go-pinned": {
+     "v": "skip",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "skip",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "skip",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P04",
+   "variant": "help behaviour 80x24",
+   "results": {
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P05",
+   "variant": "tiny sizes and resize, homelab from 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P05",
+   "variant": "tiny sizes and resize, wide from 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '2/5 /', expected '2/5 /東'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '2/5 /', expected '2/5 /東'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '2/5 /', expected '2/5 /東'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '2/5 /', expected '2/5 /東'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help open + SIGTERM",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help open + SIGHUP",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help open + SIGINT (kill)",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "signal SIGINT",
+      "issues": null,
+      "rc": 1,
+      "restore": {
+       "alt_left": true,
+       "cursor_shown": true,
+       "termios_restored": true,
+       "bad_tail": []
+      },
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "signal SIGINT",
+      "issues": null,
+      "rc": 1,
+      "restore": {
+       "alt_left": true,
+       "cursor_shown": true,
+       "termios_restored": true,
+       "bad_tail": []
+      },
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "signal SIGINT",
+      "issues": null,
+      "rc": 1,
+      "restore": {
+       "alt_left": true,
+       "cursor_shown": true,
+       "termios_restored": true,
+       "bad_tail": []
+      },
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "signal SIGINT",
+      "issues": null,
+      "rc": 1,
+      "restore": {
+       "alt_left": true,
+       "cursor_shown": true,
+       "termios_restored": true,
+       "bad_tail": []
+      },
+      "hits": null
+     }
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "signal SIGINT",
+      "issues": null,
+      "rc": 1,
+      "restore": {
+       "alt_left": true,
+       "cursor_shown": true,
+       "termios_restored": true,
+       "bad_tail": []
+      },
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help open + terminal hangup",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help open + Ctrl-C",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "filter mode + SIGTERM",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help: q ignored, then ? closes, q quits",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "help: Esc closes, Down, Enter selects",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P06",
+   "variant": "wide filter + help + SIGTERM at 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P07",
+   "variant": "NO_COLOR homelab 80x24",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P07",
+   "variant": "NO_COLOR homelab 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/3 /', expected '1/3 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P07",
+   "variant": "NO_COLOR wide 40x10",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=xterm-256color",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=xterm",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=xterm-color",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=screen",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=screen-256color",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=tmux-256color",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=linux",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=vt100",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=vt220",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=ansi",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=rxvt-unicode-256color",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=alacritty",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=xterm-kitty",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=xterm-ghostty",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=dumb",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'a'",
+      "issues": [
+       "row 0 '> lab-server  aman@lab.example.internal:22' underline cols [], expected [3, 20]",
+       "row 1 '  nas  admin@nas.example.internal:22' underline cols [], expected [3, 14]",
+       "row 2 '  vps-東京  deploy@vps1.example.invalid:2222' underline cols [], expected [26]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'a'",
+      "issues": [
+       "row 0 '> lab-server  aman@lab.example.internal:22' underline cols [], expected [3, 20]",
+       "row 1 '  nas  admin@nas.example.internal:22' underline cols [], expected [3, 14]",
+       "row 2 '  vps-東京  deploy@vps1.example.invalid:2222' underline cols [], expected [26]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'a'",
+      "issues": [
+       "row 0 '> lab-server  aman@lab.example.internal:22' underline cols [], expected [3, 20]",
+       "row 1 '  nas  admin@nas.example.internal:22' underline cols [], expected [3, 14]",
+       "row 2 '  vps-東京  deploy@vps1.example.invalid:2222' underline cols [], expected [26]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P08",
+   "variant": "TERM=(unset)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'a'",
+      "issues": [
+       "row 0 '> lab-server  aman@lab.example.internal:22' underline cols [], expected [3, 20]",
+       "row 1 '  nas  admin@nas.example.internal:22' underline cols [], expected [3, 14]",
+       "row 2 '  vps-東京  deploy@vps1.example.invalid:2222' underline cols [], expected [26]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'a'",
+      "issues": [
+       "row 0 '> lab-server  aman@lab.example.internal:22' underline cols [], expected [3, 20]",
+       "row 1 '  nas  admin@nas.example.internal:22' underline cols [], expected [3, 14]",
+       "row 2 '  vps-東京  deploy@vps1.example.invalid:2222' underline cols [], expected [26]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'a'",
+      "issues": [
+       "row 0 '> lab-server  aman@lab.example.internal:22' underline cols [], expected [3, 20]",
+       "row 1 '  nas  admin@nas.example.internal:22' underline cols [], expected [3, 14]",
+       "row 2 '  vps-東京  deploy@vps1.example.invalid:2222' underline cols [], expected [26]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P09",
+   "variant": "rapid batches homelab 80x24",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P09",
+   "variant": "rapid batches large-100 80x8",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P10",
+   "variant": "large-100 scroll 80x24",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P10",
+   "variant": "large-100 scroll 80x8",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P10",
+   "variant": "large-100 scroll 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P11",
+   "variant": "unicode case/combining 80x24 (combining marks ignored)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key 'Ｕ'",
+      "issues": [
+       "status '1/5 / Ｕ', expected '1/5 /ＦＵ'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key 'Ｕ'",
+      "issues": [
+       "status '1/5 / Ｕ', expected '1/5 /ＦＵ'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key 'ς'",
+      "issues": [
+       "row 0 '> ΟΔΟΣ  u@greek.example:22' underline cols [], expected [5]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    }
+   }
+  },
+  {
+   "probe": "P11",
+   "variant": "unicode case/combining 40x12 (combining marks ignored)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key 'Ｕ'",
+      "issues": [
+       "status '1/5 / Ｕ', expected '1/5 /ＦＵ'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key 'Ｕ'",
+      "issues": [
+       "status '1/5 / Ｕ', expected '1/5 /ＦＵ'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key 'ς'",
+      "issues": [
+       "row 0 '> ΟΔΟΣ' underline cols [], expected [5]"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    }
+   }
+  },
+  {
+   "probe": "P12",
+   "variant": "zero-width and bidi aliases 80x24 (process state, raw bytes)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P13",
+   "variant": "help residue after resize",
+   "results": {
+    "base-go-pinned": {
+     "v": "skip",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "skip",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "skip",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P13",
+   "variant": "help open, resize 30x6, close; reopen, resize 80x24, Esc",
+   "results": {
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P13",
+   "variant": "wide: CJK filter kept, help, resize 20x5, Esc, resize 40x10",
+   "results": {
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P14",
+   "variant": "disappear/reappear, empty results 80x24",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P14",
+   "variant": "disappear/reappear, empty results 20x5",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P15",
+   "variant": "combining accent through highlight split (observation)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P16",
+   "variant": "random walk wide seed 1 (120 keys, start 60x10)",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/5 /', expected '1/5 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 1",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '1/5 /', expected '1/5 /京'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P16",
+   "variant": "random walk wide seed 2 (120 keys, start 50x10)",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 10",
+     "first_failure": {
+      "step": "key 'bs'",
+      "issues": [
+       "status '0/5 /s京京b-京x -', expected '0/5 /s京京b-京x大-'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 10",
+     "first_failure": {
+      "step": "key 'bs'",
+      "issues": [
+       "status '0/5 /s京京b-京x -', expected '0/5 /s京京b-京x大-'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 10",
+     "first_failure": {
+      "step": "key 'bs'",
+      "issues": [
+       "status '0/5 /s京京b-京x -', expected '0/5 /s京京b-京x大-'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 10",
+     "first_failure": {
+      "step": "key 'bs'",
+      "issues": [
+       "status '0/5 /s京京b-京x -', expected '0/5 /s京京b-京x大-'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P16",
+   "variant": "random walk wide seed 3 (120 keys, start 49x10)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 4",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/5 / 大e東', expected '0/5 /大大e東'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 4",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/5 / 大e東', expected '0/5 /大大e東'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P16",
+   "variant": "random walk homelab seed 1 (120 keys, start 60x10)",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P16",
+   "variant": "random walk homelab seed 2 (120 keys, start 50x10)",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 11",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/3 / a', expected '0/3 /東a'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 11",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/3 / a', expected '0/3 /東a'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 13",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/3 / a', expected '0/3 /東a'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 13",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/3 / a', expected '0/3 /東a'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P16",
+   "variant": "random walk homelab seed 3 (120 keys, start 49x10)",
+   "results": {
+    "base-go-pinned": {
+     "v": "FAIL 4",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/3 /x?be京東東xb大xb-e', expected '0/3 /x?be京東東xb大xb-e大'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-go": {
+     "v": "FAIL 4",
+     "first_failure": {
+      "step": "key '/'",
+      "issues": [
+       "status '0/3 /x?be京東東xb大xb-e', expected '0/3 /x?be京東東xb大xb-e大'"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/-' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 3",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 3",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/a' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/e' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/b' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/k' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/p' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/s' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/r' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/.' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/x' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/東' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/京' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/サ' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/大' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 80x24 '/屋' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/-' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 3",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 3",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番', '  lab-server', '  名古 -bbackup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/a' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/e' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/b' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/k' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/p' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/s' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/r' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/.' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/x' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/東' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/京' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/サ' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/大' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 40x10 '/屋' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'bs'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['  東京-サーバー-本番', '  lab-server', '  大阪']; expected e.g. ['  東京-サーバー-本番', '  lab-server', '  大阪']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 2",
+     "first_failure": {
+      "step": "key 'bs'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['  東京-サーバー-本番', '  lab-server', '  大阪']; expected e.g. ['  東京-サーバー-本番', '  lab-server', '  大阪']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/-' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "FAIL 3",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東 --サーバー-本番', '  la-sserver', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "FAIL 3",
+     "first_failure": {
+      "step": "key '-'",
+      "issues": [
+       "rows do not match any contiguous window of the expected rows; first rows ['> 東 --サーバー-本番', '  la-sserver', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"
+      ],
+      "rc": null,
+      "restore": null,
+      "hits": null
+     }
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/a' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/e' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/b' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/k' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/p' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/s' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/r' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/.' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/x' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/東' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/京' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/サ' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/大' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "wide 20x5 '/屋' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/-' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/a' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/e' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/b' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/k' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/p' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/s' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/r' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/.' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/x' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/東' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/京' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/サ' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/大' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 80x24 '/屋' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/-' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/a' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/e' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/b' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/k' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/p' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/s' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/r' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/.' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/x' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/東' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/京' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/サ' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/大' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 40x10 '/屋' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/-' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/a' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/e' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/b' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/k' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/p' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/s' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/r' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/.' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/x' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/東' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/京' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/サ' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/大' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  },
+  {
+   "probe": "P17",
+   "variant": "homelab 20x5 '/屋' then Backspace",
+   "results": {
+    "base-go-pinned": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-go": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-go-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "base-rust": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus1": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-opus2": {
+     "v": "pass",
+     "first_failure": null
+    },
+    "T3-rust-sonnet1": {
+     "v": "pass",
+     "first_failure": null
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+# git archive tree digests (BASE.json tree_digest_method) and darwin-arm64 binary sizes
+go 84c7665 tree_digest=9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af
+rust 001a791 tree_digest=58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13
+base-go bytes=5212224 toolchain=go1.27.2
+T3-go-opus1 bytes=5228816 toolchain=go1.27.2
+T3-go-opus2 bytes=5245312 toolchain=go1.27.2
+T3-go-sonnet1 bytes=5212288 toolchain=go1.27.2
+base-go-pinned (repository prototypes/go/dist) bytes=5212000 toolchain=go1.27.1
+base-rust bytes=718080 toolchain=rustc 1.99.0 (build.sh pin)
+T3-rust-opus1 bytes=734528 toolchain=rustc 1.99.0 (build.sh pin)
+T3-rust-opus2 bytes=718112 toolchain=rustc 1.99.0 (build.sh pin)
+T3-rust-sonnet1 bytes=734528 toolchain=rustc 1.99.0 (build.sh pin)
+evaluated T3-go-opus1 darwin-arm64: bytes=5228592 (runs/T3-go-opus1/eval/build.txt), sha256 9ad3ce9cda53be94acb294977a14b3b6f3ddec37d7eb3fadc69a273371875b79 (runs/T3-go-opus1/eval/SHA256SUMS)

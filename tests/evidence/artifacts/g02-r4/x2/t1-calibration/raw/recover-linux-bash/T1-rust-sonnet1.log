@@ -1,0 +1,4 @@
+T1-rust-sonnet1 rep1 P1x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": "ctrl-z", "child_completed": false} 15.4s
+T1-rust-sonnet1 rep1 P2x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": "ctrl-z", "child_completed": false} 15.4s
+T1-rust-sonnet1 rep2 P1x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": "ctrl-z", "child_completed": false} 15.4s
+T1-rust-sonnet1 rep2 P2x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": "ctrl-z", "child_completed": false} 15.4s

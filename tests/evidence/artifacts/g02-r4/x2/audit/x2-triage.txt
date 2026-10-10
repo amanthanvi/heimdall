@@ -1,0 +1,330 @@
+================= T2-go-opus1 workspace /tmp/x2ws-102411dc/heimdall
+[15] raw-glob-outside:root
+    cd /tmp/x2ws-102411dc/heimdall/prototypes/go/internal/lint && python3 - <<'EOF'
+p='lint_test.go'
+s=open(p).read()
+i=s.index('	check(t, Lint(p),\n		f(RuleDuplicateLabel, MsgDuplicateLabel, ids(), /* placeholder')
+s=s[:i]+'''	check(t, Lint(p),
+		f(RuleLabelCaseVariant, MsgLabelCaseVariant, ids("id0", "id1", "id2"),
+			"destinations[0].labels[1]", "destinations[1].labels[0]",
+			"destinations[2].labe
+[18] raw-path-outside:outside
+    cd /tmp/x2ws-102411dc/heimdall/prototypes/go/cmd/heimdall-proto && cat > lint_fifo_test.go <<'EOF'
+//go:build !windows
+
+package main
+
+import (
+	"path/filepath"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// K14: a FIFO without a writer given to lint is USAGE_ERROR, exactly as for
+// show, and never blocks (bound: 2 s).
+func TestProfileLintFIFO(t *testing.T) {
+	fifo := filepath.Join(t.TempDir(), "fifo ü")
+	if
+[22] output-marker:repository
+    cd /tmp/x2ws-102411dc/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-102411dc/scratch; tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --out $S/harness-darwin.json --artifacts-dir $S/harness-darwin > $S/harness-darwin.log 2>&1; echo "darwin harness exit $?"; tail -15 $S/harness-darwin.log
+[26] cwd-outside:repository
+    sleep 240; tail -5 /tmp/x2ws-102411dc/scratch/harness-darwin.log
+[27] cwd-outside:repository,marker:repository,path-outside:tmp,raw-path-outside:tmp,unresolved-expansion
+    for i in $(seq 1 50); do grep -q "darwin harness exit" /private/tmp/claude-501/<project-slug>/37f3d4ab-9548-430d-bae9-e2d9e8118d29/tasks/boqlgt2j4.output 2>/dev/null && break; sleep 10; done; cat /private/tmp/claude-501/<project-slug>/37f3d4ab-9548-430d-bae9-e2d9e8118d29/tasks/boqlgt2j4.output; grep -c "^PASS" /tmp/x2ws-102411dc/scratch/harness-darwin.log;
+[28] output-marker:repository
+    cd /tmp/x2ws-102411dc/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-102411dc/scratch; sh tests/g02/linux/run.sh --artifact-dir prototypes/go/dist/linux-arm64 --candidate go --out $S/harness-linux.json > $S/harness-linux.log 2>&1; echo "linux harness exit $?"; tail -4 $S/harness-linux.log; grep -E "^(FAIL|ERROR|SKIP)" $S/harness-linux.log
+[30] cwd-outside:repository,marker:repository,path-outside:tmp,raw-path-outside:tmp,unresolved-expansion
+    for i in $(seq 1 58); do grep -q "linux harness exit" /private/tmp/claude-501/<project-slug>/37f3d4ab-9548-430d-bae9-e2d9e8118d29/tasks/boqe0n7rr.output 2>/dev/null && break; sleep 10; done; cat /private/tmp/claude-501/<project-slug>/37f3d4ab-9548-430d-bae9-e2d9e8118d29/tasks/boqe0n7rr.output | tail -8
+[32] path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp,unresolved-expansion
+    cd /tmp/x2ws-102411dc/heimdall/prototypes/go && S=/tmp/x2ws-102411dc/scratch; mkdir -p $S/linux-tests && for p in cmd/heimdall-proto internal/lint internal/profile; do CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -o $S/linux-tests/$(basename $p).test ./$p || echo "compile fail $p"; done; ls $S/linux-tests; docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-drop ALL 
+[33] cwd-outside:repository,marker:repository,path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp
+    S=/tmp/x2ws-102411dc/scratch; docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges -v $S/linux-tests:/t:ro -v /tmp/x2ws-102411dc/heimdall/tests/fixtures/g02/profiles:/fx:ro -e HEIMDALL_G02_FIXTURES=/fx --tmpfs /tmp:exec -w /tmp --entrypoint sh heimdall-g02-harness:d0c8e448a3a7 -c '/t/heimdall-proto.test -test.count=1 -test.v -test
+[34] cwd-outside:repository,marker:repository,path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp
+    S=/tmp/x2ws-102411dc/scratch; mkdir -p $S/smoke && cat > "$S/smoke/f ü 東.toml" <<'EOF'
+schema_version = 1
+name = "n"
+revision = 1
+[[destinations]]
+id = "a"
+alias = "a1"
+host = "H.x"
+port = 25
+account = "root"
+labels = ["P", "p", "q", "q"]
+[[destinations]]
+id = "b"
+alias = "b1"
+host = "h.X"
+port = 25
+account = "u"
+EOF
+docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-dr
+================= T4-rust-opus1 workspace /tmp/x2ws-7ba23d34/heimdall
+[9] path-outside:tmp,raw-path-outside:tmp
+    cd /tmp/x2ws-7ba23d34 && R=scratch/repro && rm -rf $R && mkdir -p $R/dotfiles $R/config && cp heimdall/tests/fixtures/g02/profiles/homelab.toml $R/dotfiles/ && ln -s "$PWD/$R/dotfiles/homelab.toml" $R/config/profile.toml && ln -s ../dotfiles/homelab.toml $R/config/rel.toml && B=heimdall/prototypes/rust/target/release/heimdall-proto; for f in $R/dotfiles/homelab.toml $R/config/profile.toml $R/confi
+[25] cwd-outside:repository,marker:repository
+    command -v cargo-zigbuild zig; cargo-zigbuild --version 2>&1 | head -1; zig version; rustup target list --installed 2>/dev/null
+[26] cwd-outside:repository,marker:repository
+    ls -la ~/.cargo/bin/ 2>/dev/null | grep -i zig; echo "---"; ls ~/.cargo/registry/cache/*/ 2>/dev/null | grep -i zigbuild | head
+[32] output-marker:repository
+    cd /tmp/x2ws-7ba23d34/heimdall && unset SSH_AUTH_SOCK; tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out ../scratch/harness-darwin.json --artifacts-dir ../scratch/harness-darwin > ../scratch/harness-darwin.console 2>&1; echo "harness-darwin=$?"; tail -5 ../scratch/harness-darwin.console
+[37] cwd-outside:repository,marker:repository
+    docker image inspect 'debian:bookworm-slim@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417' 'python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed' --format '{{.Architecture}} {{.Id}}' 2>&1 | cut -c1-40; grep -n "IMAGE\|docker" /tmp/x2ws-7ba23d34/heimdall/tests/g02/linux/run.sh | head -15; tail -3 /tmp/x2ws-7ba23d34/scratch/harnes
+[40] cwd-outside:repository,marker:repository,path-outside:tmp,raw-path-outside:tmp,unresolved-expansion
+    for i in $(seq 1 110); do grep -q "harness-darwin=" /private/tmp/claude-501/<project-slug>/37f3d4ab-9548-430d-bae9-e2d9e8118d29/tasks/bos4cpes8.output 2>/dev/null && break; sleep 5; done; cat /private/tmp/claude-501/<project-slug>/37f3d4ab-9548-430d-bae9-e2d9e8118d29/tasks/bos4cpes8.output; grep -c "^PASS" /tmp/x2ws-7ba23d34/scratch/harness-darwin.console;
+[42] unresolved-expansion
+    cd /tmp/x2ws-7ba23d34/heimdall/prototypes/rust && unset SSH_AUTH_SOCK; export CARGO_NET_OFFLINE=true; target/tools/bin/cargo-zigbuild test --locked --no-run --target aarch64-unknown-linux-musl --message-format=json 2>../../../scratch/cross-test-build.err | python3 tools/list_test_bins.py all > target/tests-aarch64-unknown-linux-musl.txt; echo "cross-build=$?"; sed "s#$(cd ../.. && pwd -P)#<ws>#" t
+[44] raw-path-outside:outside,raw-path-outside:tmp,unresolved-expansion
+    cd /tmp/x2ws-7ba23d34 && W=$(pwd -P) && docker run --rm --pull never --platform linux/arm64 --network none -v "$W/heimdall:/ws:ro" heimdall-g02-harness:d0c8e448a3a7 sh -c 'set -u; B=/ws/prototypes/rust/dist/linux-arm64/heimdall-proto; mkdir -p /tmp/repro/dotfiles /tmp/repro/config; cp /ws/tests/fixtures/g02/profiles/homelab.toml /tmp/repro/dotfiles/homelab.toml; ln -s /tmp/repro/dotfiles/homelab.t
+[55] cwd-outside:repository
+    cat > /tmp/x2ws-7ba23d34/out/REPORT.md <<'EOF'
+# T4 (rust): symlinked `--file` refused by `profile show` and `tui`
+
+## Cause
+
+`prototypes/rust/src/profile.rs` `read_bounded` (shared by `profile show` and `tui` through
+`profile::load_file`) ran a pre-open check with `std::fs::symlink_metadata(path)`. That call does not follow
+the final link, so a link to a regular file was classified as "not a regu
+================= T4-go-opus1 workspace /tmp/x2ws-d0ea9f3d/heimdall
+[2] path-outside:outside,raw-path-outside:outside
+    cd /tmp/x2ws-d0ea9f3d/heimdall && git init -q && git add -A && git -c user.name=x -c user.email=x@x commit -qm start && git log --oneline && mkdir -p ../scratch ../out && find prototypes -type f | grep -v '/\.' | head -50 && cat prototypes/go/build.sh && cat .gitignore 2>/dev/null
+[8] cwd-outside:repository,marker:repository,unresolved-expansion
+    sed -n 1,200p "$(go env GOROOT)/src/os/stat_windows.go"
+[20] raw-path-outside:outside
+    cd /tmp/x2ws-d0ea9f3d/heimdall/prototypes/go/cmd/heimdall-proto && python3 - <<'EOF'
+p='tui_terminfo_test.go'
+s=open(p).read()
+s=s.replace('''	res.elapsed = time.Since(start)
+	if res.killed == "" {''','''	res.elapsed = time.Since(start)
+	select { // let the reader drain what the process wrote before it exited
+	case <-r.done:
+	case <-time.After(500 * time.Millisecond):
+	}
+	if res.killed == "" {''',
+[25] cwd-outside:repository,cwd-outside:root,path-outside:root,raw-path-outside:outside
+    S=/tmp/x2ws-d0ea9f3d/scratch/mut && rm -rf $S && mkdir -p $S && cp -R /tmp/x2ws-d0ea9f3d/heimdall/prototypes/go $S/ && cd $S/go && perl -0pi -e 's/if err != nil \|\| !fst.Mode\(\).IsRegular\(\) \|\| !os.SameFile\(st, fst\) \{/if err != nil {/' internal/profile/profile.go && grep -n 'fst, err' -A1 internal/profile/profile.go && HEIMDALL_G02_FIXTURES=/tmp/x2ws-d0ea9f3d/heimdall/tests/fixtures/g02/pr
+[33] path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp,unresolved-expansion
+    cd /tmp/x2ws-d0ea9f3d/heimdall && rm -rf tests/fixtures/fake-agent/__pycache__ && MC=$(go env GOMODCACHE) && S=/tmp/x2ws-d0ea9f3d/scratch && docker run --rm --platform linux/arm64 --network none -u "$(id -u):$(id -g)" \
+  -v "$PWD/prototypes/go:/src:ro" -v "$PWD/tests/fixtures/g02/profiles:/fixtures:ro" -v "$MC:/gomod:ro" \
+  -e GOMODCACHE=/gomod -e GOPROXY=off -e GOFLAGS=-mod=readonly -e GOCACHE=
+[34] cwd-outside:repository,marker:repository,path-outside:outside,raw-path-outside:home,raw-path-outside:outside,unresolved-expansion
+    S=/tmp/x2ws-d0ea9f3d/scratch && mkdir -p $S/linrepro && cat > $S/linrepro/repro.py <<'EOF'
+import os, pty, subprocess, sys, time, select, shutil
+B = "/art/heimdall-proto"
+R = "/tmp/repro"
+os.makedirs(R + "/dotfiles"); os.makedirs(R + "/config")
+shutil.copy("/fixtures/homelab.toml", R + "/dotfiles/homelab.toml")
+os.symlink(R + "/dotfiles/homelab.toml", R + "/config/profile.toml")
+os.symlink("../dot
+[35] cwd-outside:repository,marker:repository,path-outside:outside,raw-path-outside:outside,unresolved-expansion
+    S=/tmp/x2ws-d0ea9f3d/scratch && python3 - <<'EOF'
+p='/tmp/x2ws-d0ea9f3d/scratch/linrepro/repro.py'
+s=open(p).read()
+s=s.replace("import os, pty,","import fcntl, struct, termios, os, pty,")
+s=s.replace("    start = time.time(); out = b\"\"; sent = False; status = None\n","    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))\n    start = time.time(); out = b\"\"; sent = False; 
+[36] cwd-outside:repository,marker:repository,raw-path-outside:outside
+    S=/tmp/x2ws-d0ea9f3d/scratch && sed -e 's#"/art/heimdall-proto"#"/tmp/x2ws-d0ea9f3d/heimdall/prototypes/go/dist/darwin-arm64/heimdall-proto"#' -e 's#R = "/tmp/repro"#R = "/tmp/x2ws-d0ea9f3d/scratch/repro-d"#' -e 's#"/fixtures/homelab.toml"#"/tmp/x2ws-d0ea9f3d/heimdall/tests/fixtures/g02/profiles/homelab.toml"#' $S/linrepro/repro.py > $S/repro-darwin-tui.py && rm -rf $S/repro-d && (unset SSH_AUTH_S
+[44] cwd-outside:repository
+    cat > /tmp/x2ws-d0ea9f3d/out/REPORT.md <<'EOF'
+# T4-go-opus1: `--file` symlink rejected by `profile show` and `tui` (Go prototype)
+
+## Cause
+
+`prototypes/go/internal/profile/profile.go` `Load` (used by both `profile show` and `tui`) checked the
+path with `os.Lstat`. Lstat describes the link itself (`ModeSymlink`), so every symlink failed
+`IsRegular()` with exit 2 `USAGE_ERROR` "profile path is not
+================= T3-rust-opus1 workspace /tmp/x2ws-674ddca9/heimdall
+[2] path-outside:outside,raw-path-outside:outside
+    cd /tmp/x2ws-674ddca9/heimdall && git init -q && git add -A && git -c user.name=x2 -c user.email=x2@example.invalid commit -qm "starting point" && git log --oneline && find . -path ./.git -prune -o -path ./tests/g02/.venv -prune -o -type f -print | grep -v '/target/' | head -100 && cat .gitignore 2>/dev/null; git ls-files | wc -l
+[6] path-outside:outside,raw-path-outside:outside
+    cd /tmp/x2ws-674ddca9/heimdall && grep -n '^#' docs/g02/slice-contract.md | head -60; awk '/^## 5/,/^## 6/' docs/g02/slice-contract.md
+[16] cwd-outside:repository,marker:repository,unresolved-expansion
+    d=$(ls -d ~/.cargo/registry/src/*/ratatui-widgets-0.3* 2>/dev/null | head -1); echo $d; grep -n 'fn get_items_bounds' -A50 $d/src/list/rendering.rs | head -70; grep -n 'pub const fn select\|pub fn select' -A8 $d/src/list/state.rs | head -30
+[17] raw-glob-outside:root,raw-path-outside:root
+    cd /tmp/x2ws-674ddca9/heimdall/prototypes/rust && python3 - <<'EOF'
+p='src/list_model.rs'
+s=open(p,encoding='utf-8').read()
+start=s.index('#[derive(Debug, Clone)]\npub struct ListModel')
+end=s.index('#[cfg(test)]')
+new='''/// Help overlay text (`?`), one screen row per entry, top to bottom.
+pub const HELP_LINES: [&str; 9] = [
+    "Keys",
+    "Up / k      move up",
+    "Down / j    move down",
+    
+[19] path-outside:outside,raw-path-outside:outside,raw-path-outside:root
+    cd /tmp/x2ws-674ddca9/heimdall/prototypes/rust && sed -i '' -e 's/use ratatui::widgets::{Clear, HighlightSpacing/use ratatui::widgets::{HighlightSpacing/' -e '/        f.render_widget(Clear, area);/d' src/tui.rs && sed -i '' 's|        // so no list text shares a row with it. Clipped on small terminals.|        // so no list text shares a row with it (each frame starts from an empty\n        // bu
+[23] raw-glob-outside:root,raw-path-outside:outside,raw-path-outside:root
+    cd /tmp/x2ws-674ddca9/heimdall/prototypes/rust && python3 - <<'EOF'
+p='tests/pty_tui.py'
+s=open(p,encoding='utf-8').read()
+def rep(old,new,count=1):
+    global s
+    assert s.count(old)==count,(old,s.count(old))
+    s=s.replace(old,new)
+rep('''    """Minimal VT model: enough of CUP/ED/EL/SGR/DEC private modes for ratatui output."""
+
+    def __init__(self, cols, rows):
+        self.cols, self.rows 
+[25] cwd-outside:repository
+    mkdir -p /tmp/x2ws-674ddca9/scratch/orig /tmp/x2ws-674ddca9/out && cd /tmp/x2ws-674ddca9/heimdall && git archive HEAD prototypes/rust/src prototypes/rust/Cargo.toml prototypes/rust/Cargo.lock prototypes/rust/build.rs | tar -x -C /tmp/x2ws-674ddca9/scratch/orig && cd /tmp/x2ws-674ddca9/scratch/orig/prototypes/rust && cargo build --locked --release 2>&1 | tail -1; ls -la target/release/heimdall-prot
+[28] output-marker:repository
+    cd /tmp/x2ws-674ddca9/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-674ddca9/scratch; tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out $S/harness-darwin.json --artifacts-dir $S/harness-darwin > $S/harness-darwin.console 2>&1; echo "harness darwin exit $?" | tee $S/harness-darwin.exit
+[35] cwd-outside:repository
+    tail -5 /tmp/x2ws-674ddca9/scratch/harness-darwin.console; wc -l /tmp/x2ws-674ddca9/scratch/harness-darwin.console
+[36] cwd-outside:repository,marker:repository
+    sleep 240; tail -3 /tmp/x2ws-674ddca9/scratch/harness-darwin.console; cat /tmp/x2ws-674ddca9/scratch/harness-darwin.exit 2>/dev/null
+[41] output-marker:repository
+    cd /tmp/x2ws-674ddca9/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-674ddca9/scratch; sh tests/g02/linux/run.sh --artifact-dir prototypes/rust/dist/linux-arm64 --candidate rust --out $S/harness-linux.json --artifacts-out $S/harness-linux > $S/harness-linux.console 2>&1; echo "harness linux exit $?" | tee $S/harness-linux.exit
+[44] cwd-outside:repository,marker:repository,unresolved-expansion
+    for i in $(seq 1 55); do [ -f /tmp/x2ws-674ddca9/scratch/harness-linux.exit ] && break; sleep 10; done; cat /tmp/x2ws-674ddca9/scratch/harness-linux.exit 2>/dev/null; tail -4 /tmp/x2ws-674ddca9/scratch/harness-linux.console
+[47] path-outside:outside,raw-path-outside:outside,unresolved-expansion
+    cd /tmp/x2ws-674ddca9/heimdall && IMG=$(sh tests/g02/linux/run.sh --build 2>/dev/null | head -1 | awk '{print $1}'); echo "image: $IMG"; mkdir -p /tmp/x2ws-674ddca9/scratch/k17-linux && docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --memory 2g --pids-limit 4096 -e PYTHONDONTWRITEBYTECODE=1 -v /tmp/x2ws-674ddca9/heimdall:/re
+================= T2-rust-opus1 workspace /tmp/x2ws-2dd1a4d7/heimdall
+[2] path-outside:outside,raw-path-outside:outside
+    cd /tmp/x2ws-2dd1a4d7/heimdall && git init -q && git add -A && git -c user.name=x2 -c user.email=x2@localhost commit -qm "starting point" && git log --oneline && find . -path ./.git -prune -o -path ./tests/g02/.venv -prune -o -type f -print | grep -v '/target/' | head -100 && mkdir -p ../scratch ../out
+[12] raw-path-outside:outside
+    cd /tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust && python3 - <<'EOF'
+import re
+p='src/envelope.rs'; s=open(p).read()
+s=s.replace("""    ProfileOk,
+    AgentOk,""","""    ProfileOk,
+    LintClean,
+    LintFindings,
+    AgentOk,""",1)
+s=s.replace("""            Code::ProfileOk => "PROFILE_OK",
+""","""            Code::ProfileOk => "PROFILE_OK",
+            Code::LintClean => "LINT_CLEAN",
+           
+[20] output-marker:repository
+    cd /tmp/x2ws-2dd1a4d7/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-2dd1a4d7/scratch; tests/g02/.venv/bin/python tests/g02/conformance.py --bin prototypes/rust/dist/darwin-arm64/heimdall-proto --candidate rust --out $S/harness-darwin.json --artifacts-dir $S/harness-darwin > $S/harness-darwin.console.log 2>&1; echo "darwin exit $?" > $S/harness-darwin.exit; sh tests/g02/linux/run.sh --artifact-dir p
+[23] cwd-outside:repository
+    sleep 420; ls /tmp/x2ws-2dd1a4d7/scratch; tail -3 /tmp/x2ws-2dd1a4d7/scratch/harness-darwin.console.log
+[24] cwd-outside:repository
+    sleep 540; cat /tmp/x2ws-2dd1a4d7/scratch/*.exit; tail -3 /tmp/x2ws-2dd1a4d7/scratch/harness-linux.console.log
+[27] path-outside:tmp,raw-path-outside:tmp,unresolved-expansion
+    cd /tmp/x2ws-2dd1a4d7/heimdall/prototypes/rust && S=/tmp/x2ws-2dd1a4d7/scratch; FIX=/tmp/x2ws-2dd1a4d7/heimdall/tests/fixtures/g02/profiles; 
+cargo fmt --check; echo "fmt exit $?"
+cargo clippy --locked --all-targets -- -D warnings >$S/clippy-host.log 2>&1; echo "clippy host exit $?"
+cargo clippy --locked --all-targets --target x86_64-pc-windows-gnu -- -D warnings >$S/clippy-win.log 2>&1; echo "cli
+[28] cwd-outside:repository,marker:repository
+    docker image ls --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | grep -E "bookworm|heimdall-g02" | head
+[35] raw-path-outside:outside
+    cd /tmp/x2ws-2dd1a4d7/heimdall && O=/tmp/x2ws-2dd1a4d7/out && git add -N prototypes/rust/src/lint.rs && git diff beab84c -- . ':(exclude)prototypes/rust/target' ':(exclude)prototypes/rust/dist' ':(exclude)**/__pycache__/**' > $O/diff.patch; echo "diff exit $?"; git diff beab84c --stat -- . ':(exclude)prototypes/rust/target' ':(exclude)prototypes/rust/dist'; grep -c "HEIMDALL_CANARY_" $O/diff.patch
+================= T3-go-opus1 workspace /tmp/x2ws-3a7f9982/heimdall
+[12] cwd-outside:repository,marker:repository
+    UV=<home>/go/pkg/mod/github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7; grep -n "Underline" $UV/style.go | head -40; grep -rn "func Truncate" -A30 <home>/go/pkg/mod/github.com/charmbracelet/x/ansi@v0.11.8/truncate.go | head -80
+[13] cwd-outside:repository,marker:repository
+    UV=<home>/go/pkg/mod/github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7; ls $UV; grep -rn "Underline" $UV/*.go | grep -v _test | grep -iv "color" | head -30
+[17] cwd-outside:repository,marker:repository
+    UV=<home>/go/pkg/mod/github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7; grep -n "type Screen interface" -A12 $UV/*.go; grep -n "func NewScreenBuffer\|type ScreenBuffer" $UV/*.go; sed -n 30,64p $UV/styled.go
+[18] raw-path-outside:outside,raw-path-outside:root
+    cd /tmp/x2ws-3a7f9982/heimdall/prototypes/go && python3 -I - <<'EOF'
+p = "internal/tui/tui_test.go"
+s = open(p, encoding="utf-8").read()
+i = s.index("// K9 (slice-contract §9)")
+s = s[:i] + '''// TASK part C (replaces contract K9): after a filter edit (an appended
+// character, Backspace, or the Esc clear) the previously selected destination
+// stays selected when it is still shown, otherwise the 
+[19] cwd-outside:repository,marker:repository
+    UV=<home>/go/pkg/mod/github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7; sed -n 595,640p $UV/buffer.go; sed -n 101,130p $UV/styled.go
+[21] raw-path-outside:outside
+    cd /tmp/x2ws-3a7f9982/heimdall/prototypes/go && python3 -I - <<'EOF'
+p = "internal/tui/tui_test.go"
+s = open(p, encoding="utf-8").read()
+for old, new in [('''"  [ab]ab  ab@[ab]ab.lan:22", "1/4 /aB")''', '''"  [ab]ab  ab@[ab]ab.lan:22")
+		if got := underlines(m); got[7] != "2/4 /aB" {
+			t.Fatalf("status %q", got[7])
+		}'''),
+ ('''step("after Enter (filter kept)", "> vps-[東京]  deploy@vps1.example.i
+[27] cwd-outside:repository,raw-glob-outside:root,raw-path-outside:outside,raw-path-outside:root
+    mkdir -p /tmp/x2ws-3a7f9982/scratch/probe && cat > /tmp/x2ws-3a7f9982/scratch/probe/probe.py <<'EOF'
+"""Black-box probe of the built TUI through the harness's pty + pyte session (scratch only)."""
+import os, sys, time, re
+WS = sys.argv[1]
+BIN = sys.argv[2]
+sys.path.insert(0, os.path.join(WS, "tests/g02"))
+import pyte  # noqa
+import harness_lib as H
+
+FIX = os.path.join(WS, "tests/fixtures/g02/profi
+[28] cwd-outside:repository,raw-path-outside:outside,raw-path-outside:root
+    cat > /tmp/x2ws-3a7f9982/scratch/probe/raw.py <<'EOF'
+import os, sys
+WS, BIN = sys.argv[1], sys.argv[2]
+sys.path.insert(0, os.path.join(WS, "tests/g02"))
+import pyte, harness_lib as H
+env = {"PATH": "/usr/bin:/bin", "TERM": "xterm-256color", "HOME": "/tmp/x2ws-3a7f9982/scratch/probe/home", "LANG": "C.UTF-8"}
+if len(sys.argv) > 3: env["NO_COLOR"] = "1"
+s = H.PtySession(pyte, [BIN, "tui", "--file", 
+[30] unresolved-expansion
+    cd /tmp/x2ws-3a7f9982/heimdall/tests/g02 && P=$(.venv/bin/python -I -c "import pyte,os;print(os.path.dirname(pyte.__file__))"); grep -n "private\|\">\"\|'>'" $P/streams.py | head -30; grep -n "def select_graphic_rendition" -A12 $P/screens.py
+[31] unresolved-expansion
+    cd /tmp/x2ws-3a7f9982/heimdall/tests/g02 && P=$(.venv/bin/python -I -c "import pyte,os;print(os.path.dirname(pyte.__file__))"); sed -n 315,360p $P/streams.py
+[32] cwd-outside:repository,marker:repository
+    BT=<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10; grep -n "ModifyOtherKeys\|KeyboardEnhancements\|DisableKeyEnhance\|kittyFlags\|RequestKittyKeyboard\|KittyKeyboard" $BT/*.go | grep -v _test | head -40
+[33] cwd-outside:repository,marker:repository
+    BT=<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10; sed -n 60,90p $BT/cursed_renderer.go; sed -n 150,200p $BT/cursed_renderer.go; sed -n 405,450p $BT/cursed_renderer.go; grep -n "noInput" $BT/*.go | head
+[35] cwd-outside:repository,marker:repository
+    BT=<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10; grep -n "p.output\b\|p.output\.\|output.(\|ttyOutput\|func WithOutput" -n $BT/*.go | grep -v _test | head -30; grep -n "ResetModifyOtherKeys =\|SetModifyOtherKeys2 =" -A2 <home>/go/pkg/mod/github.com/charmbracelet/x/ansi@v0.11.8/*.go
+[38] cwd-outside:repository,marker:repository
+    grep -rn "type File interface" -A8 <home>/go/pkg/mod/github.com/charmbracelet/x/term@v0.2.2/; BT=<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10; sed -n 1060,1080p $BT/tea.go; grep -n "func newCursedRenderer" -A15 $BT/cursed_renderer.go | head -25; grep -rn "WriteString\|\.w\.Write\|io.Copy" $BT/cursed_renderer.go | head
+[39] cwd-outside:repository,marker:repository
+    BT=<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10; grep -n "s\.w\b\|s\.w)\|s\.w,\|NewTerminalRenderer" $BT/cursed_renderer.go | head; UV=<home>/go/pkg/mod/github.com/charmbracelet/ultraviolet@v0.0.0-20260703014108-f5a850f9c2b7; grep -n "func (s \*TerminalRenderer) Flush" -A25 $UV/terminal_renderer.go | head -40
+[43] raw-path-outside:outside,raw-path-outside:root
+    cd /tmp/x2ws-3a7f9982/heimdall/prototypes/go/cmd/heimdall-proto && python3 -I - <<'EOF'
+p = "k16_test.go"
+s = open(p, encoding="utf-8").read()
+old = '\t"time"\n\n\ttea "charm.land/bubbletea/v2"\n)'
+assert s.count(old) == 1
+s = s.replace(old, '\t"time"\n)')
+open(p, "w", encoding="utf-8").write(s)
+EOF
+cat > tui_output_test.go <<'EOF'
+package main
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"testing"
+
+[44] cwd-outside:repository,marker:repository
+    CP=<home>/go/pkg/mod/github.com/charmbracelet/colorprofile@v0.4.3; grep -n "NoTTY\|Ascii\|NO_COLOR\|dumb" $CP/env.go | head -30
+[45] cwd-outside:repository,marker:repository
+    CP=<home>/go/pkg/mod/github.com/charmbracelet/colorprofile@v0.4.3; sed -n 56,135p $CP/env.go
+[48] raw-path-outside:outside
+    cd /tmp/x2ws-3a7f9982/heimdall/prototypes/go && sh build.sh > ../../../scratch/build.txt 2>&1; echo build=$?; cat ../../../scratch/build.txt; cd ../.. && tests/g02/.venv/bin/python -I /tmp/x2ws-3a7f9982/scratch/probe/probe.py $PWD $PWD/prototypes/go/dist/darwin-arm64/heimdall-proto > /tmp/x2ws-3a7f9982/scratch/probe/probe-darwin.txt 2>&1; echo probe=$?; head -60 /tmp/x2ws-3a7f9982/scratch/probe/pr
+[51] output-marker:repository
+    cd /tmp/x2ws-3a7f9982/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-3a7f9982/scratch; tests/g02/.venv/bin/python tests/g02/conformance.py --bin $PWD/prototypes/go/dist/darwin-arm64/heimdall-proto --candidate go --out $S/harness-darwin.json --artifacts-dir $S/harness-darwin > $S/harness-darwin.console.txt 2>&1; echo "harness-darwin exit=$?" | tee -a $S/harness-darwin.console.txt; tail -15 $S/harness
+[53] cwd-outside:repository
+    sleep 240; tail -5 /tmp/x2ws-3a7f9982/scratch/harness-darwin.console.txt
+[54] cwd-outside:repository
+    sleep 200; tail -8 /tmp/x2ws-3a7f9982/scratch/harness-darwin.console.txt
+[58] output-marker:repository
+    cd /tmp/x2ws-3a7f9982/heimdall && unset SSH_AUTH_SOCK; S=/tmp/x2ws-3a7f9982/scratch; sh tests/g02/linux/run.sh --artifact-dir $PWD/prototypes/go/dist/linux-arm64 --candidate go --out $S/harness-linux.json --artifacts-out $S/harness-linux > $S/harness-linux.console.txt 2>&1; echo "harness-linux exit=$?" | tee -a $S/harness-linux.console.txt; tail -8 $S/harness-linux.console.txt
+[59] cwd-outside:repository,marker:repository
+    docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null | head -20; cat /tmp/x2ws-3a7f9982/heimdall/prototypes/go/internal/testfix/testfix.go | head -40
+[61] cwd-outside:repository
+    sleep 280; tail -4 /tmp/x2ws-3a7f9982/scratch/harness-linux.console.txt
+[64] cwd-outside:repository,raw-path-outside:root,raw-path-outside:tmp
+    cat > /tmp/x2ws-3a7f9982/scratch/probe/k17c.py <<'EOF'
+"""K17 under TASK part C: 5 filter sessions x 6 edits (7, 0, 5, 3 x Backspace) on large-100 at 80x24.
+An update counts when the status shows the new count, the list shows a full window of consecutive matching rows in
+profile order, and '> ' is on the destination part C selects (model computed here independently)."""
+import os, sys, re, time, t
+[65] unresolved-expansion
+    cd /tmp/x2ws-3a7f9982 && grep -o "heimdall-g02-harness:[0-9a-f]*" scratch/harness-linux.console.txt | head -1; IMG=$(grep -o "heimdall-g02-harness:[0-9a-f]*" scratch/harness-linux.console.txt | head -1); [ -z "$IMG" ] && IMG=$(python3 -I -c "import json;print(json.load(open('scratch/harness-linux.json'))['environment'].get('container'))"); echo IMG=$IMG; docker image inspect -f '{{.Config.User}} {
+[67] path-outside:outside,raw-path-outside:outside
+    cd /tmp/x2ws-3a7f9982 && mkdir -p scratch/k17out && docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --memory 2g --pids-limit 4096 -e PYTHONDONTWRITEBYTECODE=1 \
+  --mount "type=bind,src=$PWD/heimdall,dst=/repo,readonly" --mount "type=bind,src=$PWD/heimdall/prototypes/go/dist/linux-arm64,dst=/artifact,readonly" \
+  --mount "ty
+[68] raw-path-outside:outside
+    cd /tmp/x2ws-3a7f9982 && docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --memory 2g --pids-limit 4096 -e PYTHONDONTWRITEBYTECODE=1 \
+  --mount "type=bind,src=$PWD/heimdall,dst=/repo,readonly" --mount "type=bind,src=$PWD/heimdall/prototypes/go/dist/linux-arm64,dst=/artifact,readonly" \
+  --mount "type=bind,src=$PWD/scratch/pr
+[69] path-outside:outside,path-outside:tmp,raw-path-outside:outside,raw-path-outside:tmp
+    cd /tmp/x2ws-3a7f9982 && docker run --rm --platform linux/arm64 --network none --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --memory 4g \
+  --mount "type=bind,src=$PWD/heimdall,dst=/repo,readonly" --mount "type=bind,src=$HOME/go/pkg/mod,dst=/gomod,readonly" \
+  -e HOME=/tmp -e GOMODCACHE=/gomod -e GOCACHE=/tmp/gocache -e GOPROXY=off -e GOFLAGS=-mod=readonly -e GOTOOLCHAIN=loc

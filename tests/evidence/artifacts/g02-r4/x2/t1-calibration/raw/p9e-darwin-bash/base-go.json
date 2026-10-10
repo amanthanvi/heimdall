@@ -1,0 +1,232 @@
+{
+ "label": "base-go",
+ "platform": "darwin-arm64",
+ "shell": "bash",
+ "pid1": false,
+ "runs": [
+  {
+   "scenario": "P9e0-fg3",
+   "via": "base-go",
+   "shell": "bash",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 2,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 3,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": null,
+   "answered_after_fg_number": 0,
+   "cmp": {
+    "answered_after_fg_number": 0,
+    "ping_destinations": [
+     "shell",
+     "shell",
+     "shell"
+    ],
+    "rc_after_exit": null
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\n@P@ fg\nbash: fg: current: no such job\n@P@ xq-ping 2\nbash: xq-ping: command not found\n@P@ fg\nbash: fg: current: no such job\n@P@ xq-ping 3\nbash: xq-ping: command not found\n@P@ fg\nbash: fg: current: no such job\n@P@ xq-ping 4\nbash: xq-ping: command not found\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.6,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e-bg-fg3",
+   "via": "base-go",
+   "shell": "bash",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 2,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 3,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": null,
+   "answered_after_fg_number": 0,
+   "cmp": {
+    "answered_after_fg_number": 0,
+    "ping_destinations": [
+     "shell",
+     "shell",
+     "shell"
+    ],
+    "rc_after_exit": null
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\n@P@ bg\nbash: bg: current: no such job\n@P@ fg\nbash: fg: current: no such job\n@P@ xq-ping 2\nbash: xq-ping: command not found\n@P@ fg\nbash: fg: current: no such job\n@P@ xq-ping 3\nbash: xq-ping: command not found\n@P@ fg\nbash: fg: current: no such job\n@P@ xq-ping 4\nbash: xq-ping: command not found\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 4.7,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e0-fg3",
+   "via": "base-go",
+   "shell": "bash",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 2,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 3,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": null,
+   "answered_after_fg_number": 0,
+   "cmp": {
+    "answered_after_fg_number": 0,
+    "ping_destinations": [
+     "shell",
+     "shell",
+     "shell"
+    ],
+    "rc_after_exit": null
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.6,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9e-bg-fg3",
+   "via": "base-go",
+   "shell": "bash",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 2,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    },
+    {
+     "fg": 3,
+     "states_after_fg": {
+      "C": "gone",
+      "L": "gone"
+     },
+     "ping_went_to": "shell",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": null,
+   "answered_after_fg_number": 0,
+   "cmp": {
+    "answered_after_fg_number": 0,
+    "ping_destinations": [
+     "shell",
+     "shell",
+     "shell"
+    ],
+    "rc_after_exit": null
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 4.7,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  }
+ ]
+}

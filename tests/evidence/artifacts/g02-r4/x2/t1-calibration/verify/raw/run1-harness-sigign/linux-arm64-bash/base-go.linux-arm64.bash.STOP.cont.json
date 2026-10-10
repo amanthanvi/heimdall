@@ -1,0 +1,644 @@
+[
+ {
+  "build": "base-go",
+  "binary": "bin/base-go/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:38:26Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 143,
+      "ppid": 142,
+      "pgid": 143,
+      "sid": 142,
+      "tpgid": 142,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 151,
+      "ppid": 143,
+      "pgid": 151,
+      "sid": 142,
+      "tpgid": 142,
+      "state": "S",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 142,
+      "ppid": 141,
+      "pgid": 142,
+      "sid": 142,
+      "tpgid": 142,
+      "state": "S",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 142,
+      "ppid": 141,
+      "pgid": 142,
+      "sid": 142,
+      "tpgid": 142,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+   143 Done                    bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nbash: fg: current: no such job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 142,
+      "ppid": 141,
+      "pgid": 142,
+      "sid": 142,
+      "tpgid": 142,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 142,
+  "job_line": "bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 143",
+  "job_pid": 143,
+  "launcher_children": [
+   151
+  ],
+  "program_pid": 151,
+  "before_signal": {
+   "launcher": {
+    "pid": 143,
+    "ppid": 142,
+    "pgid": 143,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 151,
+    "ppid": 143,
+    "pgid": 151,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 142,
+    "ppid": 141,
+    "pgid": 142,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 151,
+  "after_signal": {
+   "launcher": {
+    "pid": 143,
+    "ppid": 142,
+    "pgid": 143,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 151,
+    "ppid": 143,
+    "pgid": 151,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 142,
+    "ppid": 141,
+    "pgid": 142,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   143 Stopped                 bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": {
+    "pid": 143,
+    "ppid": 142,
+    "pgid": 143,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 151,
+    "ppid": 143,
+    "pgid": 151,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 142,
+    "ppid": 141,
+    "pgid": 142,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 142,
+    "ppid": 141,
+    "pgid": 142,
+    "sid": 142,
+    "tpgid": 142,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 151,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 143,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "base-go",
+  "binary": "bin/base-go/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:38:32Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 155,
+      "ppid": 154,
+      "pgid": 155,
+      "sid": 154,
+      "tpgid": 154,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 163,
+      "ppid": 155,
+      "pgid": 163,
+      "sid": 154,
+      "tpgid": 154,
+      "state": "S",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 154,
+      "ppid": 141,
+      "pgid": 154,
+      "sid": 154,
+      "tpgid": 154,
+      "state": "S",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 154,
+      "ppid": 141,
+      "pgid": 154,
+      "sid": 154,
+      "tpgid": 154,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+   155 Done                    bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nbash: fg: current: no such job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 154,
+      "ppid": 141,
+      "pgid": 154,
+      "sid": 154,
+      "tpgid": 154,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 154,
+  "job_line": "bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 155",
+  "job_pid": 155,
+  "launcher_children": [
+   163
+  ],
+  "program_pid": 163,
+  "before_signal": {
+   "launcher": {
+    "pid": 155,
+    "ppid": 154,
+    "pgid": 155,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 163,
+    "ppid": 155,
+    "pgid": 163,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 154,
+    "ppid": 141,
+    "pgid": 154,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 163,
+  "after_signal": {
+   "launcher": {
+    "pid": 155,
+    "ppid": 154,
+    "pgid": 155,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 163,
+    "ppid": 155,
+    "pgid": 163,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 154,
+    "ppid": 141,
+    "pgid": 154,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   155 Stopped                 bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": {
+    "pid": 155,
+    "ppid": 154,
+    "pgid": 155,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 163,
+    "ppid": 155,
+    "pgid": 163,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 154,
+    "ppid": 141,
+    "pgid": 154,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 154,
+    "ppid": 141,
+    "pgid": 154,
+    "sid": 154,
+    "tpgid": 154,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 163,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 155,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "base-go",
+  "binary": "bin/base-go/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:38:38Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 167,
+      "ppid": 166,
+      "pgid": 167,
+      "sid": 166,
+      "tpgid": 166,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 175,
+      "ppid": 167,
+      "pgid": 175,
+      "sid": 166,
+      "tpgid": 166,
+      "state": "S",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 166,
+      "ppid": 141,
+      "pgid": 166,
+      "sid": 166,
+      "tpgid": 166,
+      "state": "S",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 166,
+      "ppid": 141,
+      "pgid": 166,
+      "sid": 166,
+      "tpgid": 166,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+   167 Done                    bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nbash: fg: current: no such job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 166,
+      "ppid": 141,
+      "pgid": 166,
+      "sid": 166,
+      "tpgid": 166,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 166,
+  "job_line": "bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 167",
+  "job_pid": 167,
+  "launcher_children": [
+   175
+  ],
+  "program_pid": 175,
+  "before_signal": {
+   "launcher": {
+    "pid": 167,
+    "ppid": 166,
+    "pgid": 167,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 175,
+    "ppid": 167,
+    "pgid": 175,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 166,
+    "ppid": 141,
+    "pgid": 166,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 175,
+  "after_signal": {
+   "launcher": {
+    "pid": 167,
+    "ppid": 166,
+    "pgid": 167,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 175,
+    "ppid": 167,
+    "pgid": 175,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 166,
+    "ppid": 141,
+    "pgid": 166,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   167 Stopped                 bin/base-go/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": {
+    "pid": 167,
+    "ppid": 166,
+    "pgid": 167,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "T",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 175,
+    "ppid": 167,
+    "pgid": 175,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 166,
+    "ppid": 141,
+    "pgid": 166,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 166,
+    "ppid": 141,
+    "pgid": 166,
+    "sid": 166,
+    "tpgid": 166,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 175,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 167,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

@@ -1,0 +1,40 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/T3-rust-opus2/heimdall-proto",
+ "sha256": "7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590",
+ "size": "80x24",
+ "term": "xterm-256color",
+ "profile": "wide.toml",
+ "keys": [
+  "/",
+  "-"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 504,
+   "n": 468,
+   "b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4g5p2xG1sxOzVI5LqsG1sxOzdILeOCtRtbMTsxMEjjg7wbWzE7MTJI44OQG1sxOzE0SOODvBtbMTsxNkgt5pysG1sxOzE5SOeVqhtbMTsyMUggIGRlcGxveUBkYi7mnbEbWzE7MzVI5LqsG1sxOzM3SC5leGFtcGxlOjIyICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syOzNIG1syMm0bWzM5OzQ5bWxhYi1zZXJ2ZXIbWzI7MTVIYW1hbkBsYWIuZXhhbXBsZS5pbnRlcm5hbDoyMhtbMzszSOWkpxtbMzs1SOmYqhtbMzs5SG9wc0Bvc2FrYS5leGFtcGxlLmpwOjIyMDAbWzQ7M0huYXMbWzQ7OEhhZG1pbkBuYXMuZXhhbXBsZS5pbnRlcm5hbDoyMhtbNTszSOWQjRtbNTs1SOWPpBtbNTs3SOWxixtbNTs5SC1iYWNrdXAt5p2xG1s1OzIxSHJvb3RAbmd5LmV4YW1wbGUuaW52YWxpZDoyMhtbMjQ7MUg1LzUbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[?1049h\\x1b[?25l\\x1b[2J\\x1b[1;1H\\x1b[1m\\x1b[38;5;6;49m> \\u6771\\x1b[1;5H\\u4eac\\x1b[1;7H-\\u30b5\\x1b[1;10H\\u30fc\\x1b[1;12H\\u30d0\\x1b[1;14H\\u30fc\\x1b[1;16H-\\u672c\\x1b[1;19H\\u756a\\x1b[1;21H  deploy@db.\\u6771\\x1b[1;35H\\u4eac\\x1b[1;37H.example:22                                 \\x1b[2;3H\\x1b[22m\\x1b[39;49mlab-server\\x1b[2;15Haman@lab.example.internal:22\\x1b[3;3H\\u5927\\x1b[3;5H\\u962a\\x1b[3;9Hops@osaka.example.jp:2200\\x1b[4;3Hnas\\x1b[4;8Hadmin@nas.example.internal:22\\x1b[5;3H\\u540d\\x1b[5;5H\\u53e4\\x1b[5;7H\\u5c4b\\x1b[5;9H-backup-\\u6771\\x1b[5;21Hroot@ngy.example.invalid:22\\x1b[24;1H5/5\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 411,
+   "n": 33,
+   "b64": "G1syNDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[24;6H/\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "-",
+   "sent": "-",
+   "ms": 423,
+   "n": 296,
+   "b64": "G1sxOzdIG1sxbRtbNG0bWzM4OzU7Njs0OW0tG1syOzZIG1syMm0bWzM5OzQ5bS0bWzM7M0gbWzI0beWQjRtbMzs1SOWPpBtbMzs3SOWxixtbMzs5SBtbNG0tG1syNG1iYWNrdXAt5p2xG1szOzE5SCAgcm9vdEBuZ3kuZXhhbXBsZS5pbnZhbGlkOjIyG1s0OzNIICAgG1s0OzhIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzU7M0ggG1s1OzVIIBtbNTs3SCAbWzU7OUggICAgICAgICAbWzU7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSDMbWzI0OzdILRtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWw=",
+   "esc": "\\x1b[1;7H\\x1b[1m\\x1b[4m\\x1b[38;5;6;49m-\\x1b[2;6H\\x1b[22m\\x1b[39;49m-\\x1b[3;3H\\x1b[24m\\u540d\\x1b[3;5H\\u53e4\\x1b[3;7H\\u5c4b\\x1b[3;9H\\x1b[4m-\\x1b[24mbackup-\\u6771\\x1b[3;19H  root@ngy.example.invalid:22\\x1b[4;3H   \\x1b[4;8H                             \\x1b[5;3H \\x1b[5;5H \\x1b[5;7H \\x1b[5;9H         \\x1b[5;21H                           \\x1b[24;1H3\\x1b[24;7H-\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  }
+ ],
+ "full_b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4g5p2xG1sxOzVI5LqsG1sxOzdILeOCtRtbMTsxMEjjg7wbWzE7MTJI44OQG1sxOzE0SOODvBtbMTsxNkgt5pysG1sxOzE5SOeVqhtbMTsyMUggIGRlcGxveUBkYi7mnbEbWzE7MzVI5LqsG1sxOzM3SC5leGFtcGxlOjIyICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syOzNIG1syMm0bWzM5OzQ5bWxhYi1zZXJ2ZXIbWzI7MTVIYW1hbkBsYWIuZXhhbXBsZS5pbnRlcm5hbDoyMhtbMzszSOWkpxtbMzs1SOmYqhtbMzs5SG9wc0Bvc2FrYS5leGFtcGxlLmpwOjIyMDAbWzQ7M0huYXMbWzQ7OEhhZG1pbkBuYXMuZXhhbXBsZS5pbnRlcm5hbDoyMhtbNTszSOWQjRtbNTs1SOWPpBtbNTs3SOWxixtbNTs5SC1iYWNrdXAt5p2xG1s1OzIxSHJvb3RAbmd5LmV4YW1wbGUuaW52YWxpZDoyMhtbMjQ7MUg1LzUbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1syNDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1sxOzdIG1sxbRtbNG0bWzM4OzU7Njs0OW0tG1syOzZIG1syMm0bWzM5OzQ5bS0bWzM7M0gbWzI0beWQjRtbMzs1SOWPpBtbMzs3SOWxixtbMzs5SBtbNG0tG1syNG1iYWNrdXAt5p2xG1szOzE5SCAgcm9vdEBuZ3kuZXhhbXBsZS5pbnZhbGlkOjIyG1s0OzNIICAgG1s0OzhIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzU7M0ggG1s1OzVIIBtbNTs3SCAbWzU7OUggICAgICAgICAbWzU7MjFIICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNDsxSDMbWzI0OzdILRtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWz8yNWgbWz8xMDQ5bBtbPzI1aA==",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[?25h\\x1b[?1049l\\x1b[?25h",
+ "stderr_tail": ""
+}

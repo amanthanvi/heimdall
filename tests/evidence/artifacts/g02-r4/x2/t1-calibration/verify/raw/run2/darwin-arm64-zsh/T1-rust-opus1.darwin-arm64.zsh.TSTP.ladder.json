@@ -1,0 +1,1061 @@
+[
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:46:08Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 94798,
+      "ppid": 94797,
+      "pgid": 94798,
+      "sid": "0",
+      "tpgid": 94798,
+      "state": "SN+",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 94820,
+      "ppid": 94798,
+      "pgid": 94798,
+      "sid": "0",
+      "tpgid": 94798,
+      "state": "TN+",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 94797,
+      "ppid": 94795,
+      "pgid": 94797,
+      "sid": "0",
+      "tpgid": 94798,
+      "state": "Ss",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 94798,
+      "ppid": 94797,
+      "pgid": 94798,
+      "sid": "0",
+      "tpgid": 94798,
+      "state": "SN+",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 94820,
+      "ppid": 94798,
+      "pgid": 94798,
+      "sid": "0",
+      "tpgid": 94798,
+      "state": "TN+",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2\r\n^Z\r\nzsh: suspended  bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+    "procs": {
+     "launcher": {
+      "pid": 94798,
+      "ppid": 94797,
+      "pgid": 94798,
+      "sid": "0",
+      "tpgid": 94797,
+      "state": "TN",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 94820,
+      "ppid": 94798,
+      "pgid": 94798,
+      "sid": "0",
+      "tpgid": 94797,
+      "state": "TN",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 94797,
+      "ppid": 94795,
+      "pgid": 94797,
+      "sid": "0",
+      "tpgid": 94797,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 94797,
+      "ppid": 94795,
+      "pgid": 94797,
+      "sid": "0",
+      "tpgid": 94797,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 94797,
+  "job_line": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 94798",
+  "job_pid": 94798,
+  "launcher_children": [
+   94820
+  ],
+  "program_pid": 94820,
+  "before_signal": {
+   "launcher": {
+    "pid": 94798,
+    "ppid": 94797,
+    "pgid": 94798,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 94820,
+    "ppid": 94798,
+    "pgid": 94798,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "SN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 94797,
+    "ppid": 94795,
+    "pgid": 94797,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 94820,
+  "after_signal": {
+   "launcher": {
+    "pid": 94798,
+    "ppid": 94797,
+    "pgid": 94798,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 94820,
+    "ppid": 94798,
+    "pgid": 94798,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 94797,
+    "ppid": 94795,
+    "pgid": 94797,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 94798 running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+  "after_jobs": {
+   "launcher": {
+    "pid": 94798,
+    "ppid": 94797,
+    "pgid": 94798,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 94820,
+    "ppid": 94798,
+    "pgid": 94798,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 94797,
+    "ppid": 94795,
+    "pgid": 94797,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 94797,
+    "ppid": 94795,
+    "pgid": 94797,
+    "sid": "0",
+    "tpgid": 94797,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 94820,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 94798,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:46:19Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 95015,
+      "ppid": 95013,
+      "pgid": 95015,
+      "sid": "0",
+      "tpgid": 95015,
+      "state": "SN+",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 95037,
+      "ppid": 95015,
+      "pgid": 95015,
+      "sid": "0",
+      "tpgid": 95015,
+      "state": "TN+",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 95013,
+      "ppid": 94795,
+      "pgid": 95013,
+      "sid": "0",
+      "tpgid": 95015,
+      "state": "Ss",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 95015,
+      "ppid": 95013,
+      "pgid": 95015,
+      "sid": "0",
+      "tpgid": 95015,
+      "state": "SN+",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 95037,
+      "ppid": 95015,
+      "pgid": 95015,
+      "sid": "0",
+      "tpgid": 95015,
+      "state": "TN+",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2\r\n^Z\r\nzsh: suspended  bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+    "procs": {
+     "launcher": {
+      "pid": 95015,
+      "ppid": 95013,
+      "pgid": 95015,
+      "sid": "0",
+      "tpgid": 95013,
+      "state": "TN",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 95037,
+      "ppid": 95015,
+      "pgid": 95015,
+      "sid": "0",
+      "tpgid": 95013,
+      "state": "TN",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 95013,
+      "ppid": 94795,
+      "pgid": 95013,
+      "sid": "0",
+      "tpgid": 95013,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 95013,
+      "ppid": 94795,
+      "pgid": 95013,
+      "sid": "0",
+      "tpgid": 95013,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 95013,
+  "job_line": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 95015",
+  "job_pid": 95015,
+  "launcher_children": [
+   95037
+  ],
+  "program_pid": 95037,
+  "before_signal": {
+   "launcher": {
+    "pid": 95015,
+    "ppid": 95013,
+    "pgid": 95015,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 95037,
+    "ppid": 95015,
+    "pgid": 95015,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "SN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 95013,
+    "ppid": 94795,
+    "pgid": 95013,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 95037,
+  "after_signal": {
+   "launcher": {
+    "pid": 95015,
+    "ppid": 95013,
+    "pgid": 95015,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 95037,
+    "ppid": 95015,
+    "pgid": 95015,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 95013,
+    "ppid": 94795,
+    "pgid": 95013,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 95015 running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+  "after_jobs": {
+   "launcher": {
+    "pid": 95015,
+    "ppid": 95013,
+    "pgid": 95015,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 95037,
+    "ppid": 95015,
+    "pgid": 95015,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 95013,
+    "ppid": 94795,
+    "pgid": 95013,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 95013,
+    "ppid": 94795,
+    "pgid": 95013,
+    "sid": "0",
+    "tpgid": 95013,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 95037,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 95015,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:46:29Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 95231,
+      "ppid": 95227,
+      "pgid": 95231,
+      "sid": "0",
+      "tpgid": 95231,
+      "state": "SN+",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 95243,
+      "ppid": 95231,
+      "pgid": 95231,
+      "sid": "0",
+      "tpgid": 95231,
+      "state": "TN+",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 95227,
+      "ppid": 94795,
+      "pgid": 95227,
+      "sid": "0",
+      "tpgid": 95231,
+      "state": "Ss",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 95231,
+      "ppid": 95227,
+      "pgid": 95231,
+      "sid": "0",
+      "tpgid": 95231,
+      "state": "SN+",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 95243,
+      "ppid": 95231,
+      "pgid": 95231,
+      "sid": "0",
+      "tpgid": 95231,
+      "state": "TN+",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2\r\n^Z\r\nzsh: suspended  bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+    "procs": {
+     "launcher": {
+      "pid": 95231,
+      "ppid": 95227,
+      "pgid": 95231,
+      "sid": "0",
+      "tpgid": 95227,
+      "state": "TN",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 95243,
+      "ppid": 95231,
+      "pgid": 95231,
+      "sid": "0",
+      "tpgid": 95227,
+      "state": "TN",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 95227,
+      "ppid": 94795,
+      "pgid": 95227,
+      "sid": "0",
+      "tpgid": 95227,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 95227,
+      "ppid": 94795,
+      "pgid": 95227,
+      "sid": "0",
+      "tpgid": 95227,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 95227,
+  "job_line": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 95231",
+  "job_pid": 95231,
+  "launcher_children": [
+   95243
+  ],
+  "program_pid": 95243,
+  "before_signal": {
+   "launcher": {
+    "pid": 95231,
+    "ppid": 95227,
+    "pgid": 95231,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 95243,
+    "ppid": 95231,
+    "pgid": 95231,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "SN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 95227,
+    "ppid": 94795,
+    "pgid": 95227,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 95243,
+  "after_signal": {
+   "launcher": {
+    "pid": 95231,
+    "ppid": 95227,
+    "pgid": 95231,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 95243,
+    "ppid": 95231,
+    "pgid": 95231,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 95227,
+    "ppid": 94795,
+    "pgid": 95227,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 95231 running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+  "after_jobs": {
+   "launcher": {
+    "pid": 95231,
+    "ppid": 95227,
+    "pgid": 95231,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "SN",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 95243,
+    "ppid": 95231,
+    "pgid": 95231,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 95227,
+    "ppid": 94795,
+    "pgid": 95227,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 95227,
+    "ppid": 94795,
+    "pgid": 95227,
+    "sid": "0",
+    "tpgid": 95227,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 95243,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 95231,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

@@ -1,0 +1,4 @@
+base-go lang=go patch=- applied=base build_exit=0 secs=1 darwin-arm64=f812084ff36d8f04d5f279ad466b1207b23fa20a1b39d0e57f56fa16a7bf9a5d
+T3-go-opus1 lang=go patch=tests/evidence/artifacts/g02-r4/x2/runs/T3-go-opus1/out/diff.patch applied=yes build_exit=0 secs=1 darwin-arm64=3cb494cec404002ecf27556353351c9c1b2df6cda5e6c3b19cf0a349dbb68dad
+T3-go-opus2 lang=go patch=tests/evidence/artifacts/g02-r4/x2/runs/T3-go-opus2/out/diff.patch applied=yes build_exit=0 secs=1 darwin-arm64=87f81fb90346f26007c629acc9f95e9cab47d360a537c74f494d778859a463cc
+T3-go-sonnet1 lang=go patch=tests/evidence/artifacts/g02-r4/x2/runs/T3-go-sonnet1/implementer/diff.patch applied=yes build_exit=0 secs=1 darwin-arm64=9eb467768617e4e923c4f9e8485be4b6c8345eb644bd419dc01d650cc3dffbf9

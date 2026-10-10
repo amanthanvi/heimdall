@@ -1,0 +1,23 @@
+[base] base tree digest (excl. target) 9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af
+[base] build.sh rc=0 in 1s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[base] darwin-arm64 sha256 f812084ff36d8f04d5f279ad466b1207b23fa20a1b39d0e57f56fa16a7bf9a5d
+[T2-go-opus1] base tree digest (excl. target) 9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af
+[T2-go-opus1] git apply tests/evidence/artifacts/g02-r4/x2/runs/T2-go-opus1/implementer-out/diff.patch rc=0
+[T2-go-opus1] build.sh rc=0 in 1s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[T2-go-opus1] darwin-arm64 sha256 5cdb5876e5f8b5f8c137a0b82af1561f387512ef14e077f4459965cf05fc6b7c
+[T2-go-opus2] base tree digest (excl. target) 9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af
+[T2-go-opus2] git apply tests/evidence/artifacts/g02-r4/x2/runs/T2-go-opus2/implementer-out/diff.patch rc=0
+[T2-go-opus2] build.sh rc=0 in 1s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[T2-go-opus2] darwin-arm64 sha256 4eca9220c24aaba9b0626700dba6482f03cd425d5ad2986ab5c43536933c220b
+[T2-go-sonnet1] base tree digest (excl. target) 9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af
+[T2-go-sonnet1] git apply tests/evidence/artifacts/g02-r4/x2/runs/T2-go-sonnet1/implementer-out/diff.patch rc=0
+[T2-go-sonnet1] build.sh rc=0 in 1s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[T2-go-sonnet1] darwin-arm64 sha256 4ec6e11c045333f6f4079293883e4bb749d94d792e48a387395a0ab6a6c6345e
+[base] base tree digest (excl. target) 9ee4b91634616c0917059aa34a85b46cac8238c6da6b8af5bec675bdf58ad1af
+[base] build.sh rc=0 in 0s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[base] darwin-arm64 sha256 f812084ff36d8f04d5f279ad466b1207b23fa20a1b39d0e57f56fa16a7bf9a5d

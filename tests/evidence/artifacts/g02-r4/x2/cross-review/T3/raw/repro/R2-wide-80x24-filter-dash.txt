@@ -1,0 +1,57 @@
+# repro_bytes.py wide 24x80 "/,-" (screen and the bytes written for the LAST key; TERM=xterm-256color)
+=== base-go-pinned  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|
+   1 |  lab-server  aman@lab.example.internal:22|
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|
+  23 |3/5 /-|
+  bytes: \x1b[3;23r\x1b[23;1H\x1b[2S\x1b[1;24r\x1b[24;1H3/5 /-
+=== base-go  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|
+   1 |  lab-server  aman@lab.example.internal:22|
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|
+  23 |3/5 /-|
+  bytes: \x1b[3;23r\x1b[23;1H\x1b[2S\x1b[1;24r\x1b[24;1H3/5 /-
+=== T3-go-opus1  last key '-'  oracle ok=False
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|  ul=[6]
+   1 |  lab-server  aman@lab.example.internal:22|  ul=[5]
+   2 |  名古 -bbackup-東  root@ngy.example.invalid:22|  ul=[7]
+  23 |3/5 /-|
+  issues: ["rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"]
+  bytes: \x1b[3;23r\x1b[23;1H\x1b[2S\x1b[1;24r\x1b[1;7H\x1b[36;1;4m-\x1b[24m\u30b5\x1b[10G\x1b[m\n\x1b[6G\x1b[4m-\x1b[ms\n\x1b[4m-\x1b[mb\r\x1b[24d3/5 /-
+=== T3-go-opus2  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|  ul=[6]
+   1 |  lab-server  aman@lab.example.internal:22|  ul=[5]
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|  ul=[8]
+  23 |3/5 /-|
+  bytes: \x1b[H\x1b[H\x1b[2J\x1b[36;1m> \u6771\u4eac\x1b[4m-\x1b[24m\u30b5\u30fc\u30d0\u30fc-\u672c\u756a  deploy@db.\u6771\u4eac.example:22\x1b[48G\x1b[m\r\n  lab\x1b[4m-\x1b[mserver  aman@lab.example.internal:22\r\n  \u540d\u53e4\u5c4b\x1b[4m-\x1b[mbackup-\u6771  root@ngy.example.invalid:22\x1b[48G\r\x1b[24d3/5 /-
+=== T3-go-sonnet1  last key '-'  oracle ok=False
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|  ul=[6]
+   1 |  lab-server  aman@lab.example.internal:22|  ul=[5]
+   2 |  名古 -bbackup-東  root@ngy.example.invalid:22|  ul=[7]
+  23 |3/5 /-|
+  issues: ["rows do not match any contiguous window of the expected rows; first rows ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古 -bbackup-東  root@ngy.example.invalid:22']; expected e.g. ['> 東京-サーバー-本番  deploy@db.東京.example:22', '  lab-server  aman@lab.example.internal:22', '  名古屋-backup-東  root@ngy.example.invalid:22']"]
+  bytes: \x1b[3;23r\x1b[23;1H\x1b[2S\x1b[1;24r\x1b[1;7H\x1b[36;1;4m-\x1b[24m\u30b5\x1b[10G\x1b[m\n\x1b[6G\x1b[4m-\x1b[ms\n\x1b[4m-\x1b[mb\r\x1b[24d3/5 /-
+=== base-rust  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|
+   1 |  lab-server  aman@lab.example.internal:22|
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|
+  23 |3/5  /-|
+  bytes: \x1b[3;3H\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H-backup-\u6771\x1b[3;19H  root@ngy.example.invalid:22\x1b[4;3H   \x1b[4;8H                             \x1b[5;3H \x1b[5;5H \x1b[5;7H \x1b[5;9H         \x1b[5;21H                           \x1b[24;1H3\x1b[24;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-opus1  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|  ul=[6]
+   1 |  lab-server  aman@lab.example.internal:22|  ul=[5]
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|  ul=[8]
+  23 |3/5  /-|
+  bytes: \x1b[1;7H\x1b[1m\x1b[4m\x1b[38;5;6;49m-\x1b[2;6H\x1b[22m\x1b[39;49m-\x1b[3;3H\x1b[24m\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H\x1b[4m-\x1b[24mbackup-\u6771\x1b[3;19H  root@ngy.example.invalid:22\x1b[4;3H   \x1b[4;8H                             \x1b[5;3H \x1b[5;5H \x1b[5;7H \x1b[5;9H         \x1b[5;21H                           \x1b[24;1H3\x1b[24;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-opus2  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|  ul=[6]
+   1 |  lab-server  aman@lab.example.internal:22|  ul=[5]
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|  ul=[8]
+  23 |3/5  /-|
+  bytes: \x1b[1;7H\x1b[1m\x1b[4m\x1b[38;5;6;49m-\x1b[2;6H\x1b[22m\x1b[39;49m-\x1b[3;3H\x1b[24m\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H\x1b[4m-\x1b[24mbackup-\u6771\x1b[3;19H  root@ngy.example.invalid:22\x1b[4;3H   \x1b[4;8H                             \x1b[5;3H \x1b[5;5H \x1b[5;7H \x1b[5;9H         \x1b[5;21H                           \x1b[24;1H3\x1b[24;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-sonnet1  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番  deploy@db.東京.example:22|  ul=[6]
+   1 |  lab-server  aman@lab.example.internal:22|  ul=[5]
+   2 |  名古屋-backup-東  root@ngy.example.invalid:22|  ul=[8]
+  23 |3/5  /-|
+  bytes: \x1b[1;7H\x1b[1m\x1b[4m\x1b[38;5;6;49m-\x1b[2;6H\x1b[22m\x1b[39;49m-\x1b[3;3H\x1b[24m\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H\x1b[4m-\x1b[24mbackup-\u6771\x1b[3;19H  root@ngy.example.invalid:22\x1b[4;3H   \x1b[4;8H                             \x1b[5;3H \x1b[5;5H \x1b[5;7H \x1b[5;9H         \x1b[5;21H                           \x1b[24;1H3\x1b[24;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l

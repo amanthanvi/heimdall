@@ -1,0 +1,4 @@
+T1-rust-opus2 rep1 P9e0-fg3 {"answered_after_fg_number": 1, "ping_destinations": ["child"], "rc_after_exit": 3} 2.0s
+T1-rust-opus2 rep1 P9e-bg-fg3 {"answered_after_fg_number": 0, "ping_destinations": ["shell", "shell", "shell"], "rc_after_exit": null} 4.8s
+T1-rust-opus2 rep2 P9e0-fg3 {"answered_after_fg_number": 1, "ping_destinations": ["child"], "rc_after_exit": 3} 1.9s
+T1-rust-opus2 rep2 P9e-bg-fg3 {"answered_after_fg_number": 0, "ping_destinations": ["shell", "shell", "shell"], "rc_after_exit": null} 4.8s

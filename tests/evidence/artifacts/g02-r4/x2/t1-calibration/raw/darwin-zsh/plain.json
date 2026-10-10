@@ -1,0 +1,2337 @@
+{
+ "label": "plain",
+ "platform": "darwin-arm64",
+ "shell": "zsh",
+ "pid1": false,
+ "runs": [
+  {
+   "scenario": "P1-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 82242 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 82242\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ [1]  + suspended (signal)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 82242 suspended (signal)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P1-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 82520 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 82520\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ [1]  + suspended  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 82520 suspended  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 82758 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 82758\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ [1]  + suspended (signal)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 82758 suspended (signal)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83022 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 83022\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ [1]  + suspended  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 83022 suspended  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P1k-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83195 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 83195\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ [1]  + suspended  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 83195 suspended  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ kill -CONT %1\n@P@ jobs -l; echo \"@J\"\"B4@\"\n[1]  + 83195 running    <py> -I -B <tmp>/child.py\n@JB4@\n@P@ fg\n[1]  + running    <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2k-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83396 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 83396\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ [1]  + suspended  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 83396 suspended  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ kill -CONT %1\n@P@ jobs -l; echo \"@J\"\"B4@\"\n[1]  + 83396 running    <py> -I -B <tmp>/child.py\n@JB4@\n@P@ fg\n[1]  + running    <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P2n-TTIN",
+   "via": "plain",
+   "shell": "zsh",
+   "after_ttin": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83654 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=4 out=True"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (tty input)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 read 4 &\n[1] 83654\n@P@ [1]  + suspended (tty input)  <py> -I -B <tmp>/child.py\necho \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83654 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\nhello\nGOT=hello\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=4@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.2,
+   "rep": 1
+  },
+  {
+   "scenario": "P3-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc": 7,
+   "after_cont_s": 1.2,
+   "recovery": {
+    "how": "none-needed",
+    "rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": 7,
+    "recovery": "none-needed",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/bash --norc --noprofile -c \"<py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n@RC3=7@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.3,
+   "rep": 1
+  },
+  {
+   "scenario": "P3-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc": 7,
+   "after_cont_s": 1.2,
+   "recovery": {
+    "how": "none-needed",
+    "rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": 7,
+    "recovery": "none-needed",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/bash --norc --noprofile -c \"<py> -I -B <tmp>/child.py <tmp>/pf1 sleep 2 7; echo @R''C3=\\$?@\"\n@RC3=7@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.3,
+   "rep": 1
+  },
+  {
+   "scenario": "P4-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (signal)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83928 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (signal)",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 </dev/null >/dev/null 2>&1\nzsh: suspended (signal)  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 83928 suspended (signal)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P4-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 84036 suspended  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0 </dev/null >/dev/null 2>&1\n\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=146@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 84036 suspended  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P4t-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (signal)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 84769 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (signal)",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\nzsh: suspended (signal)  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 84769 suspended (signal)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P4t-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 84880 suspended  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\n\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=146@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 84880 suspended  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P5-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "suspended",
+   "after_bg": {
+    "C": "R"
+   },
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]  + 85034 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ bg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ [1]  + suspended (signal)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B2@\"\n[1]  + 85034 suspended (signal)  <py> -I -B <tmp>/child.py\n@JB2@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C3=$?@\"\n@RC3=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P5-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "suspended",
+   "after_bg": {
+    "C": "R"
+   },
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]  + 85146 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ bg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ [1]  + suspended  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B2@\"\n[1]  + 85146 suspended  <py> -I -B <tmp>/child.py\n@JB2@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C3=$?@\"\n@RC3=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P7-TTOU",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (tty output)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 150,
+   "jobs": "stopped[suspended (tty output)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85294 suspended (tty output)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (tty output)",
+    "rc_at_prompt": 150,
+    "jobs": "stopped[suspended (tty output)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\nzsh: suspended (tty output)  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=150@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85294 suspended (tty output)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P7-TTIN",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (tty input)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 149,
+   "jobs": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85459 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (tty input)",
+    "rc_at_prompt": 149,
+    "jobs": "stopped[suspended (tty input)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 5 0\nzsh: suspended (tty input)  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=149@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85459 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P7n-TTOU",
+   "via": "plain",
+   "shell": "zsh",
+   "after_ttou": {
+    "C": "T"
+   },
+   "child_completed_in_bg": false,
+   "jobs": "stopped[suspended (tty output)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85536 suspended (tty output)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 3,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=3"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (tty output)]",
+    "child_state": "T",
+    "completed_in_bg": false,
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 3
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 ttou 3 &\n[1] 85536\n@P@ [1]  + suspended (tty output)  <py> -I -B <tmp>/child.py\necho \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85536 suspended (tty output)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P8",
+   "via": "plain",
+   "shell": "zsh",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "suspended",
+   "after_ctrlz": {
+    "C": "T"
+   },
+   "after_cont_1s": {
+    "C": "R"
+   },
+   "jobs_1s": "running",
+   "after_cont_5s": {
+    "C": "gone"
+   },
+   "child_completed_by_5s": true,
+   "jobs_5s": "none",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n",
+   "recovery": {
+    "how": "none-needed",
+    "rc": null,
+    "steps": [
+     [
+      "fg",
+      "no-job"
+     ]
+    ]
+   },
+   "cmp": {
+    "child_1s": "R",
+    "jobs_1s": "running",
+    "completed_by_5s": true,
+    "jobs_5s": "none",
+    "recovery": "none-needed"
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 4 0\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ jobs -l; echo \"@J\"\"B2@\"\n[1]  + 85594 running    <py> -I -B <tmp>/child.py\n@JB2@\n@P@ [1]  + done       <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n@JB3@\n@P@ fg\nfg: no current job\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.0,
+   "rep": 1
+  },
+  {
+   "scenario": "P9",
+   "via": "plain",
+   "shell": "zsh",
+   "nested_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "after_suspend": {
+    "N": "T"
+   },
+   "after_bg": {
+    "N": "gone"
+   },
+   "who_after_bg": null,
+   "jobs_after_bg": null,
+   "who_after_fg": null,
+   "rc_after_exit": null,
+   "outer_shell_alive_at_end": false,
+   "cmp": {
+    "suspend_notice": true,
+    "who_after_bg": null,
+    "jobs_after_bg": null,
+    "who_after_fg": null,
+    "rc_after_exit": null,
+    "outer_shell_alive_at_end": false
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/bash --norc --noprofile -i\n@P@ echo $$ > <tmp>/pf1; echo \"@N\"\"1@\"\n@N1@\n@P@ suspend\nzsh: suspended (signal)  /bin/bash --norc --noprofile -i\n@P@ bg\n[1]  + continued  /bin/bash --norc --noprofile -i\n@P@ @P@ zsh: you have running jobs.\n@P@ exit\nzsh: warning: 1 jobs SIGHUPed\n<<PTY EOF>>",
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e0",
+   "via": "plain",
+   "shell": "zsh",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T"
+   },
+   "after_fg": {
+    "C": "R"
+   },
+   "child_answers_after_fg": true,
+   "rc_after_exit": 3,
+   "recovery": {
+    "how": "none-needed"
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": null,
+    "child_after_bg": null,
+    "child_answers_after_fg": true,
+    "rc_after_exit": 3,
+    "recovery": "none-needed"
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\nzsh: suspended (signal)  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\nxq-ping 2\nPONG-2\nexit 3\n@P@ echo \"@R\"\"C3=$?@\"\n@RC3=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.9,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e-bg",
+   "via": "plain",
+   "shell": "zsh",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T"
+   },
+   "after_bg": {
+    "C": "T"
+   },
+   "jobs_after_bg": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 85764 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "after_fg": {
+    "C": "R"
+   },
+   "child_answers_after_fg": true,
+   "rc_after_exit": 3,
+   "recovery": {
+    "how": "none-needed"
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": "stopped[suspended (tty input)]",
+    "child_after_bg": "T",
+    "child_answers_after_fg": true,
+    "rc_after_exit": 3,
+    "recovery": "none-needed"
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\nzsh: suspended (signal)  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=145@\n@P@ bg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ [1]  + suspended (tty input)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 85764 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\nxq-ping 2\nPONG-2\nexit 3\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.1,
+   "rep": 1
+  },
+  {
+   "scenario": "P10",
+   "via": "plain",
+   "shell": "zsh",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_bg": {
+      "C": "T"
+     },
+     "jobs": "stopped[suspended (tty input)]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_bg": {
+      "C": "T"
+     },
+     "jobs": "stopped[suspended (tty input)]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_bg": {
+      "C": "T"
+     },
+     "jobs": "stopped[suspended (tty input)]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R"
+     }
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "jobs": [
+     "stopped[suspended (tty input)]",
+     "stopped[suspended (tty input)]",
+     "stopped[suspended (tty input)]"
+    ],
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ],
+    "consistent": true,
+    "child_after_fg": [
+     "R",
+     "R",
+     "R"
+    ],
+    "echoed": true,
+    "rc": 0
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ bg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ [1]  + suspended (tty input)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B2@\"\n[1]  + 85814 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB2@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ bg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ [1]  + suspended (tty input)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B3@\"\n[1]  + 85814 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ bg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ [1]  + suspended (tty input)  <py> -I -B <tmp>/child.py\njobs -l; echo \"@J\"\"B4@\"\n[1]  + 85814 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB4@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\nhello-cat\nhello-cat\n^D\b\b@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.8,
+   "rep": 1
+  },
+  {
+   "scenario": "P11",
+   "via": "plain",
+   "shell": "zsh",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_fg": {
+      "C": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_fg": {
+      "C": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_fg": {
+      "C": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R"
+     }
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "suspended",
+   "after_arm_fg": {
+    "C": "R"
+   },
+   "finished": true,
+   "rc": 0,
+   "elapsed_s": 10.2,
+   "cmp": {
+    "arm_notice": true,
+    "child_after_arm_fg": "R",
+    "cycle_notices": [
+     true,
+     true,
+     true
+    ],
+    "running_after_each_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 10 0\n\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n^Z\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 10.5,
+   "rep": 1
+  },
+  {
+   "scenario": "P12-S3",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt": true,
+   "notice": "suspended",
+   "rc_at_prompt": 146,
+   "before_cont": {
+    "C": "T"
+   },
+   "transitions_ms": [
+    [
+     0.1,
+     "T",
+     null
+    ]
+   ],
+   "launcher_running_child_stopped_ms": 0.0,
+   "after_1s": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 86561 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 6,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=6 out=True"
+     ]
+    ]
+   },
+   "cmp": {
+    "rc_at_prompt": 146,
+    "child_after_1s": "T",
+    "job_stopped_consistent": true,
+    "jobs": "stopped[suspended (tty input)]",
+    "recovery": "fg",
+    "rc": 6,
+    "out_ok": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 selftstp 6\n\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=146@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]  + 86561 suspended (tty input)  <py> -I -B <tmp>/child.py\n@JB3@\n@P@ fg\n[1]  + continued  <py> -I -B <tmp>/child.py\nhi-s3\nGOT=hi-s3\n@P@ echo \"@R\"\"C4=$?@\"\n@RC4=6@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.6,
+   "rep": 1
+  },
+  {
+   "scenario": "P1-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 86695 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P1-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 86773 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 86856 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.5,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 86945 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P1k-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 87032 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2k-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 87191 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "after_kill_cont_jobspec": {
+    "C": "R"
+   },
+   "jobs_after_kill_cont": "running",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true,
+    "child_after_kill_cont_jobspec": "R"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2n-TTIN",
+   "via": "plain",
+   "shell": "zsh",
+   "after_ttin": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 87733 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=4 out=True"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (tty input)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 4,
+    "out_ok": true,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.2,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P3-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc": 7,
+   "after_cont_s": 1.2,
+   "recovery": {
+    "how": "none-needed",
+    "rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": 7,
+    "recovery": "none-needed",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.3,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P3-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc": 7,
+   "after_cont_s": 1.2,
+   "recovery": {
+    "how": "none-needed",
+    "rc": 7
+   },
+   "child_completed": true,
+   "cmp": {
+    "rc": 7,
+    "recovery": "none-needed",
+    "inner_rc_after_recovery": 7,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (signal)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 87936 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (signal)",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 88019 suspended  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4t-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (signal)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 145,
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 88055 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (signal)",
+    "rc_at_prompt": 145,
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P4t-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 146,
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 88140 suspended  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended",
+    "rc_at_prompt": 146,
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P5-STOP",
+   "via": "plain",
+   "shell": "zsh",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "suspended",
+   "after_bg": {
+    "C": "R"
+   },
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (signal)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]  + 88209 suspended (signal)  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (signal)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.5,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P5-TSTP",
+   "via": "plain",
+   "shell": "zsh",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "suspended",
+   "after_bg": {
+    "C": "R"
+   },
+   "after_stop": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B2@\"\n[1]  + 88273 suspended  <py> -I -B <tmp>/child.py\n",
+   "after_jobs": {
+    "C": "T"
+   },
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P7-TTOU",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (tty output)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 150,
+   "jobs": "stopped[suspended (tty output)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 88357 suspended (tty output)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (tty output)",
+    "rc_at_prompt": 150,
+    "jobs": "stopped[suspended (tty output)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P7-TTIN",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt_returned": true,
+   "notice": "suspended (tty input)",
+   "after_stop": {
+    "C": "T"
+   },
+   "rc_at_prompt": 149,
+   "jobs": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 88396 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "prompt_returned": true,
+    "notice": "suspended (tty input)",
+    "rc_at_prompt": 149,
+    "jobs": "stopped[suspended (tty input)]",
+    "child_state": "T",
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 0,
+    "child_completed": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 5.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P7n-TTOU",
+   "via": "plain",
+   "shell": "zsh",
+   "after_ttou": {
+    "C": "T"
+   },
+   "child_completed_in_bg": false,
+   "jobs": "stopped[suspended (tty output)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 88468 suspended (tty output)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 3,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=3"
+     ]
+    ]
+   },
+   "child_completed": true,
+   "cmp": {
+    "jobs": "stopped[suspended (tty output)]",
+    "child_state": "T",
+    "completed_in_bg": false,
+    "job_stopped_consistent": true,
+    "recovery": "fg",
+    "rc": 3
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.7,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P8",
+   "via": "plain",
+   "shell": "zsh",
+   "ctrlz_prompt": true,
+   "ctrlz_notice": "suspended",
+   "after_ctrlz": {
+    "C": "T"
+   },
+   "after_cont_1s": {
+    "C": "R"
+   },
+   "jobs_1s": "running",
+   "after_cont_5s": {
+    "C": "gone"
+   },
+   "child_completed_by_5s": true,
+   "jobs_5s": "none",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n",
+   "recovery": {
+    "how": "none-needed",
+    "rc": null,
+    "steps": [
+     [
+      "fg",
+      "no-job"
+     ]
+    ]
+   },
+   "cmp": {
+    "child_1s": "R",
+    "jobs_1s": "running",
+    "completed_by_5s": true,
+    "jobs_5s": "none",
+    "recovery": "none-needed"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 6.0,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9",
+   "via": "plain",
+   "shell": "zsh",
+   "nested_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "after_suspend": {
+    "N": "T"
+   },
+   "after_bg": {
+    "N": "gone"
+   },
+   "who_after_bg": null,
+   "jobs_after_bg": null,
+   "who_after_fg": null,
+   "rc_after_exit": null,
+   "outer_shell_alive_at_end": false,
+   "cmp": {
+    "suspend_notice": true,
+    "who_after_bg": null,
+    "jobs_after_bg": null,
+    "who_after_fg": null,
+    "rc_after_exit": null,
+    "outer_shell_alive_at_end": false
+   },
+   "cleanup": {
+    "killed_by_probe": [],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.9,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9e0",
+   "via": "plain",
+   "shell": "zsh",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T"
+   },
+   "after_fg": {
+    "C": "R"
+   },
+   "child_answers_after_fg": true,
+   "rc_after_exit": 3,
+   "recovery": {
+    "how": "none-needed"
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": null,
+    "child_after_bg": null,
+    "child_answers_after_fg": true,
+    "rc_after_exit": 3,
+    "recovery": "none-needed"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.0,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9e-bg",
+   "via": "plain",
+   "shell": "zsh",
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "rc_at_prompt": 145,
+   "after_suspend": {
+    "C": "T"
+   },
+   "after_bg": {
+    "C": "T"
+   },
+   "jobs_after_bg": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 89154 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "after_fg": {
+    "C": "R"
+   },
+   "child_answers_after_fg": true,
+   "rc_after_exit": 3,
+   "recovery": {
+    "how": "none-needed"
+   },
+   "cmp": {
+    "suspend_notice": true,
+    "rc_at_prompt": 145,
+    "jobs_after_bg": "stopped[suspended (tty input)]",
+    "child_after_bg": "T",
+    "child_answers_after_fg": true,
+    "rc_after_exit": 3,
+    "recovery": "none-needed"
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 3.1,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10",
+   "via": "plain",
+   "shell": "zsh",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_bg": {
+      "C": "T"
+     },
+     "jobs": "stopped[suspended (tty input)]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_bg": {
+      "C": "T"
+     },
+     "jobs": "stopped[suspended (tty input)]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_bg": {
+      "C": "T"
+     },
+     "jobs": "stopped[suspended (tty input)]",
+     "consistent": true,
+     "after_fg": {
+      "C": "R"
+     }
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "jobs": [
+     "stopped[suspended (tty input)]",
+     "stopped[suspended (tty input)]",
+     "stopped[suspended (tty input)]"
+    ],
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ],
+    "consistent": true,
+    "child_after_fg": [
+     "R",
+     "R",
+     "R"
+    ],
+    "echoed": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.8,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11",
+   "via": "plain",
+   "shell": "zsh",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_fg": {
+      "C": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_fg": {
+      "C": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R"
+     }
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "suspended",
+     "after_fg": {
+      "C": "R"
+     },
+     "after_fg_0_8s": {
+      "C": "R"
+     }
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "suspended",
+   "after_arm_fg": {
+    "C": "R"
+   },
+   "finished": true,
+   "rc": 0,
+   "elapsed_s": 10.2,
+   "cmp": {
+    "arm_notice": true,
+    "child_after_arm_fg": "R",
+    "cycle_notices": [
+     true,
+     true,
+     true
+    ],
+    "running_after_each_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 10.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P12-S3",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt": true,
+   "notice": "suspended",
+   "rc_at_prompt": 146,
+   "before_cont": {
+    "C": "T"
+   },
+   "transitions_ms": [
+    [
+     0.0,
+     "R",
+     null
+    ],
+    [
+     0.1,
+     "T",
+     null
+    ]
+   ],
+   "launcher_running_child_stopped_ms": 0.0,
+   "after_1s": {
+    "C": "T"
+   },
+   "jobs": "stopped[suspended (tty input)]",
+   "jobs_text": "jobs -l; echo \"@J\"\"B3@\"\n[1]  + 89581 suspended (tty input)  <py> -I -B <tmp>/child.py\n",
+   "recovery": {
+    "how": "fg",
+    "rc": 6,
+    "out_ok": true,
+    "steps": [
+     [
+      "fg",
+      "done rc=6 out=True"
+     ]
+    ]
+   },
+   "cmp": {
+    "rc_at_prompt": 146,
+    "child_after_1s": "T",
+    "job_stopped_consistent": true,
+    "jobs": "stopped[suspended (tty input)]",
+    "recovery": "fg",
+    "rc": 6,
+    "out_ok": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.6,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P14",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt": true,
+   "notice": "suspended",
+   "after_selfstop": {
+    "C": "T",
+    "B": "T"
+   },
+   "after_cont": {
+    "C": "R",
+    "B": "T"
+   },
+   "other_job_left_stopped": true,
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "cmp": {
+    "notice": true,
+    "other_job_left_stopped": true
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr bang_hist; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ /bin/sleep 30 & echo \"@B\"\"2=$!@\"\n[1] 14646\n@B2=14646@\n@P@ echo \"@M\"\"K3@\"\n@MK3@\n@P@ [1]  + suspended (signal)  /bin/sleep 30\necho \"@M\"\"K4@\"\n@MK4@\n@P@ <py> -I -B <tmp>/child.py <tmp>/pf1 joingrp 14646 1.5 0\n\nzsh: suspended  <py> -I -B <tmp>/child.py\n@P@ [1]  - killed     /bin/sleep 30\nfg\n[2]  + continued  <py> -I -B <tmp>/child.py\n@P@ echo \"@R\"\"C5=$?@\"\n@RC5=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.6,
+   "rep": 1,
+   "probe_rerun": "first zsh pass of P14 failed in the probe itself (zsh history expansion); rerun after `unsetopt bang_hist`"
+  },
+  {
+   "scenario": "P14",
+   "via": "plain",
+   "shell": "zsh",
+   "prompt": true,
+   "notice": "suspended",
+   "after_selfstop": {
+    "C": "T",
+    "B": "T"
+   },
+   "after_cont": {
+    "C": "R",
+    "B": "T"
+   },
+   "other_job_left_stopped": true,
+   "recovery": {
+    "how": "fg",
+    "rc": 0,
+    "out_ok": null,
+    "steps": [
+     [
+      "fg",
+      "done rc=0"
+     ]
+    ]
+   },
+   "cmp": {
+    "notice": true,
+    "other_job_left_stopped": true
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.6,
+   "rep": 2,
+   "probe_rerun": "first zsh pass of P14 failed in the probe itself (zsh history expansion); rerun after `unsetopt bang_hist`",
+   "transcript_omitted": "same cmp as rep 1"
+  }
+ ]
+}

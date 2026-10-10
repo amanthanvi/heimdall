@@ -1,0 +1,17 @@
+{
+ "cell": "T1-rust-opus1", "task": "T1", "lang": "rust", "built": true, "all_targets_build": true,
+ "artifact_digests": {"darwin-arm64": "b82bd9600a762776cadebf3ae84e6f8292f2db8ae6d1e59f6bad376b4526fa19", "linux-arm64": "657e9d1e3b48eed03c1ba94f73310fe622a8ac2b73f6d2b72163217ad0ea827c",
+   "linux-x64": "e3a569e77ec8cf2f14aa52a8d61832c7611f4be0b74392f2730aa0c118cf8349", "windows-x64": "8a7f654775445469da1ccb799e837897575c153d73a97477811c39a43291818a"},
+ "evaluator_build_equals_implementer_build": true,
+ "build_note": "evaluator removed the copied target/ (except target/tools) and rebuilt from the frozen copy; all four targets built, exit 0; darwin-arm64 and linux-arm64 digests equal artifacts.json; dist-frozen and dist-workspace digests equal for all four targets. build.sh printed 'notices generation failed' (gen_notices.py traceback, offline cargo metadata); the implementer reported the same on the baseline.",
+ "base_tree_digest_matches_BASE_json": true,
+ "pin_check": "exit 0; T4 seeded-* exit 1, base-* exit 0, sha256_12 equal to pins (darwin and linux)",
+ "hidden": {"darwin": "14/14, hidden.sh exit 0", "linux": "14/14, hidden.sh exit 0", "reruns": "none needed; no failing check, no flakiness observed (each platform ran once)"},
+ "score": {"darwin": {"valid": true, "all_pass": true, "fixed": "6/6", "regressed": 0, "unproven": ["T1.nested_shell_bash", "T1.nested_shell_zsh"], "fixed_excluding_unproven": "4/4"}, "linux": {"valid": true, "all_pass": true, "fixed": "6/6", "regressed": 0}},
+ "harness_2_4_2": {"darwin": "139/139 exit 0 status verified verdict pass", "linux": "139/139 exit 0 status verified verdict pass"},
+ "unit_tests": "cargo test --locked exit 0 (HEIMDALL_G02_FIXTURES set); lib 49, bin 4, cli 29, windows 0 passed, 0 failed",
+ "transcript_audit": "not run by this evaluator (no transcript path supplied in the task)",
+ "diff": {"files": 4, "insertions": 826, "deletions": 44, "note": "src/runner.rs, tests/cli.rs, tests/pty_tui.py, REPORT.md (diffstat of change.patch, base 001a791); no build-generated files in the frozen copy"},
+ "cleanup": "cleanup-cell.sh exit 0; dist-frozen and dist-workspace copied with SHA256SUMS; Rust target/ (except target/tools) removed in the workspace and the frozen copy",
+ "scrub": "scan-home.py exit 0 on this directory; home path, workspace path and hidden-directory path replaced by placeholders (<home>, <x2ws>, <hidden>); hidden-darwin record paths were already <home>-scrubbed by the runner, hidden dir part replaced after"
+}

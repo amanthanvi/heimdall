@@ -1,0 +1,4 @@
+base-rust lang=rust patch=- applied=base build_exit=0 secs=25 darwin-arm64=f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18
+T3-rust-opus1 lang=rust patch=tests/evidence/artifacts/g02-r4/x2/runs/T3-rust-opus1/out/diff.patch applied=yes build_exit=0 secs=16 darwin-arm64=9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc
+T3-rust-opus2 lang=rust patch=tests/evidence/artifacts/g02-r4/x2/runs/T3-rust-opus2/implementer-out/diff.patch applied=yes build_exit=0 secs=16 darwin-arm64=7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590
+T3-rust-sonnet1 lang=rust patch=tests/evidence/artifacts/g02-r4/x2/runs/T3-rust-sonnet1/implementer/diff.patch applied=yes build_exit=0 secs=16 darwin-arm64=a49cc5b0a44307468befd92efe9e0db6d8d05ecb3817b53c331c6a1562e67477

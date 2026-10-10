@@ -1,0 +1,90 @@
+{
+ "verdict": "SUSPECT",
+ "transcript_files": 1,
+ "tool_calls": 23,
+ "offending_calls": [
+  {
+   "index": 15,
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 88,
+   "tool": "Bash",
+   "reasons": [
+    "output-marker:repository"
+   ]
+  },
+  {
+   "index": 17,
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 99,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "path-outside:tmp",
+    "raw-path-outside:tmp"
+   ]
+  },
+  {
+   "index": 18,
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 104,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 19,
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 111,
+   "tool": "Bash",
+   "reasons": [
+    "output-marker:repository"
+   ]
+  },
+  {
+   "index": 20,
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 116,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 22,
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 129,
+   "tool": "Bash",
+   "reasons": [
+    "unresolved-expansion"
+   ]
+  }
+ ],
+ "entries": [],
+ "notes": [
+  {
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 3,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 6,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-a5eb56f77916b7bca.jsonl",
+   "line": 7,
+   "place": "prompt",
+   "reasons": [
+    "marker:task-pack"
+   ]
+  }
+ ]
+}

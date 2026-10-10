@@ -1,0 +1,22 @@
+{
+ "control": {
+  "inner_prompt": true,
+  "inner": 28836,
+  "launcher": null,
+  "notice1": true,
+  "jobs_after_bg": "<<write error OSError(5, 'Input/output error')>>",
+  "inner_answers_after_bg_fg": false,
+  "tail": "HPS1$ PS1=\"INNER> \" /bin/bash --norc --noprofile -i\r\nINNER> echo INPID=$$\r\nINPID=28836\r\nINNER> suspend\r\n\r\n[1]+  Stopped                 PS1=\"INNER> \" /bin/bash --norc --noprofile -i\r\nHPS1$ bg\r\n[1]+ PS1=\"INNER> \" /bin/bash --norc --noprofile -i &\r\nHPS1$ INNER> exit\r\nexit\r\n<<write error OSError(5, 'Input/output error')>><<write error OSError(5, 'Input/output error')>><<write error OSError(5, 'Input/output error')>>",
+  "outer_alive": false
+ },
+ "hp": {
+  "inner_prompt": true,
+  "inner": 29391,
+  "launcher": 29390,
+  "notice1": true,
+  "jobs_after_bg": "<<write error OSError(5, 'Input/output error')>>",
+  "inner_answers_after_bg_fg": false,
+  "tail": "HPS1$ PS1=\"INNER> \" \"$P\" run -- /bin/bash --norc --noprofile -i\r\nINNER> echo INPID=$$\r\nINPID=29391\r\nINNER> suspend\r\n\r\n[1]+  Stopped                 PS1=\"INNER> \" \"$P\" run -- /bin/bash --norc --noprofile -i\r\nHPS1$ bg\r\n[1]+ PS1=\"INNER> \" \"$P\" run -- /bin/bash --norc --noprofile -i &\r\nHPS1$ INNER> exit\r\nexit\r\n<<write error OSError(5, 'Input/output error')>><<write error OSError(5, 'Input/output error')>><<write error OSError(5, 'Input/output error')>>",
+  "outer_alive": false
+ }
+}

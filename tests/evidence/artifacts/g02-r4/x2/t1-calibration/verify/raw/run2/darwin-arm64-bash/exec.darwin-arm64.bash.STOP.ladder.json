@@ -1,0 +1,575 @@
+[
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:33:18Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nsleep 3 < /dev/null > /dev/null 2>&1",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78761,
+      "ppid": 78760,
+      "pgid": 78761,
+      "sid": "0",
+      "tpgid": 78761,
+      "state": "Ss+",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 78761,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 78763",
+  "job_pid": 78763,
+  "program_pid": 78763,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78763,
+    "ppid": 78761,
+    "pgid": 78763,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78761,
+    "ppid": 78760,
+    "pgid": 78761,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 78763,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78763,
+    "ppid": 78761,
+    "pgid": 78763,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78761,
+    "ppid": 78760,
+    "pgid": 78761,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 78763 Suspended (signal): 17  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 78763,
+    "ppid": 78761,
+    "pgid": 78763,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78761,
+    "ppid": 78760,
+    "pgid": 78761,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 78761,
+    "ppid": 78760,
+    "pgid": 78761,
+    "sid": "0",
+    "tpgid": 78761,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 78763,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:33:21Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nsleep 3 < /dev/null > /dev/null 2>&1",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78806,
+      "ppid": 78760,
+      "pgid": 78806,
+      "sid": "0",
+      "tpgid": 78806,
+      "state": "Ss+",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 78806,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 78808",
+  "job_pid": 78808,
+  "program_pid": 78808,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78808,
+    "ppid": 78806,
+    "pgid": 78808,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78806,
+    "ppid": 78760,
+    "pgid": 78806,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 78808,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78808,
+    "ppid": 78806,
+    "pgid": 78808,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78806,
+    "ppid": 78760,
+    "pgid": 78806,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 78808 Suspended (signal): 17  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 78808,
+    "ppid": 78806,
+    "pgid": 78808,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78806,
+    "ppid": 78760,
+    "pgid": 78806,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 78806,
+    "ppid": 78760,
+    "pgid": 78806,
+    "sid": "0",
+    "tpgid": 78806,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 78808,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:33:24Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nsleep 3 < /dev/null > /dev/null 2>&1",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78862,
+      "ppid": 78760,
+      "pgid": 78862,
+      "sid": "0",
+      "tpgid": 78862,
+      "state": "Ss+",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 78862,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 78865",
+  "job_pid": 78865,
+  "program_pid": 78865,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78865,
+    "ppid": 78862,
+    "pgid": 78865,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78862,
+    "ppid": 78760,
+    "pgid": 78862,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 78865,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78865,
+    "ppid": 78862,
+    "pgid": 78865,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78862,
+    "ppid": 78760,
+    "pgid": 78862,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 78865 Suspended (signal): 17  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 78865,
+    "ppid": 78862,
+    "pgid": 78865,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78862,
+    "ppid": 78760,
+    "pgid": 78862,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 78862,
+    "ppid": 78760,
+    "pgid": 78862,
+    "sid": "0",
+    "tpgid": 78862,
+    "state": "Ss+",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 78865,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

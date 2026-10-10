@@ -1,0 +1,8 @@
+base-go darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+T3-go-opus1 darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+T3-go-opus2 darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+T3-go-sonnet1 darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+base-rust darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+T3-rust-opus1 darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+T3-rust-opus2 darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built
+T3-rust-sonnet1 darwin-arm64=built linux-x64=built linux-arm64=built windows-x64=built

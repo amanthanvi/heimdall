@@ -1,0 +1,10 @@
+done T4-rust-opus1 rc=0
+done T4-rust-opus1.seed rc=101
+done T4-rust-opus1.nocheck rc=0
+done T4-rust-opus2 rc=0
+done T4-rust-opus2.seed rc=101
+done T4-rust-opus2.nocheck rc=0
+done T4-rust-sonnet1 rc=0
+done T4-rust-sonnet1.seed rc=101
+done T4-rust-sonnet1.nocheck rc=0
+exit=0

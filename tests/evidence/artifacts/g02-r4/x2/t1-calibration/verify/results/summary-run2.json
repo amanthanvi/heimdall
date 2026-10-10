@@ -1,0 +1,6914 @@
+[
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "other",
+   "other",
+   "other"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "other",
+   "other",
+   "other"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "none",
+   "none",
+   "none"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "none",
+   "none",
+   "none"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "c",
+   "c",
+   "c"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "130",
+   "130",
+   "130"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "darwin-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "stopped",
+   "stopped",
+   "stopped"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "bash",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "exec",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "-",
+   "-",
+   "-"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   null,
+   null,
+   null
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-go",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "base-rust",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "a",
+   "a",
+   "a"
+  ],
+  "jobs_after_signal": [
+   "suspended",
+   "suspended",
+   "suspended"
+  ],
+  "launcher_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-go-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "none",
+   "none",
+   "none"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "-",
+   "-",
+   "-"
+  ],
+  "child_in_launcher_group": [
+   false,
+   false,
+   false
+  ],
+  "leftover_at_end": [
+   true,
+   true,
+   true
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-opus2",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "STOP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "cont",
+  "reps": 3,
+  "worked": [
+   "cont-alone",
+   "cont-alone",
+   "cont-alone"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "1",
+   "1",
+   "1"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ },
+ {
+  "platform": "linux-arm64",
+  "shell": "zsh",
+  "build": "T1-rust-sonnet1",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "reps": 3,
+  "worked": [
+   "b",
+   "b",
+   "b"
+  ],
+  "jobs_after_signal": [
+   "running",
+   "running",
+   "running"
+  ],
+  "launcher_state": [
+   "S",
+   "S",
+   "S"
+  ],
+  "program_state": [
+   "T",
+   "T",
+   "T"
+  ],
+  "rc_at_recovery": [
+   "0",
+   "0",
+   "0"
+  ],
+  "child_in_launcher_group": [
+   true,
+   true,
+   true
+  ],
+  "leftover_at_end": [
+   false,
+   false,
+   false
+  ],
+  "leftover_after_cleanup": [
+   false,
+   false,
+   false
+  ]
+ }
+]

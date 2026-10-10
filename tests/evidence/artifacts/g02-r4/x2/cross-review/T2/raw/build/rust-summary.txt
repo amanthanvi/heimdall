@@ -1,0 +1,19 @@
+[base] base tree digest (excl. target) 58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13
+[base] build.sh rc=0 in 26s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[base] darwin-arm64 sha256 f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18
+[T2-rust-opus1] base tree digest (excl. target) 58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13
+[T2-rust-opus1] git apply tests/evidence/artifacts/g02-r4/x2/runs/T2-rust-opus1/implementer-out/diff.patch rc=0
+[T2-rust-opus1] build.sh rc=0 in 16s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[T2-rust-opus1] darwin-arm64 sha256 e73c91bdd257d2df3d1019889a690f47db2f08b4e2c78a6a151f98510622cb62
+[T2-rust-opus2] base tree digest (excl. target) 58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13
+[T2-rust-opus2] git apply tests/evidence/artifacts/g02-r4/x2/runs/T2-rust-opus2/implementer-out/diff.patch rc=0
+[T2-rust-opus2] build.sh rc=0 in 16s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[T2-rust-opus2] darwin-arm64 sha256 e21a23ef2e30452ece36c43e501cad873c2f38f69dfe1ed2fb31a44ee8c1b42f
+[T2-rust-sonnet1] base tree digest (excl. target) 58c9fef5ef9f163f73ef0a8f71616494d583cf21fff741bebf5588fb7b8c7b13
+[T2-rust-sonnet1] git apply tests/evidence/artifacts/g02-r4/x2/runs/T2-rust-sonnet1/out/diff.patch rc=0
+[T2-rust-sonnet1] build.sh rc=0 in 16s
+  manifest: {'darwin-arm64': True, 'linux-x64': True, 'linux-arm64': True, 'windows-x64': True}
+[T2-rust-sonnet1] darwin-arm64 sha256 3ae21efee251e0ff1bb7066888021545ecca6606d605439faead521be354af54

@@ -1,0 +1,49 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/T3-go-opus2/heimdall-proto",
+ "sha256": "87f81fb90346f26007c629acc9f95e9cab47d360a537c74f494d778859a463cc",
+ "size": "40x10",
+ "term": "xterm-256color",
+ "profile": "homelab.toml",
+ "keys": [
+  "/",
+  "東",
+  "京"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 523,
+   "n": 135,
+   "b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bW20bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1ttG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0bWzdCMy8z",
+   "esc": "\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server\\x1b[m\\r\\n  nas\\r\\n  vps-\\u6771\\u4eac\\x1b[11G\\r\\x1b[7B3/3"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 424,
+   "n": 68,
+   "b64": "G1tIG1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0bWzdCMy8zIC8=",
+   "esc": "\\x1b[H\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server\\x1b[m\\r\\n  nas\\r\\n  vps-\\u6771\\u4eac\\x1b[11G\\r\\x1b[7B3/3 /"
+  },
+  {
+   "key": "東",
+   "sent": "\\u6771",
+   "ms": 414,
+   "n": 63,
+   "b64": "G1tIG1tIG1syShtbMzY7MW0+IHZwcy0bWzRt5p2xG1syNG3kuqwbWzExRxtbbQ0bWzlCMS8zIC/mnbEbWzhH",
+   "esc": "\\x1b[H\\x1b[H\\x1b[2J\\x1b[36;1m> vps-\\x1b[4m\\u6771\\x1b[24m\\u4eac\\x1b[11G\\x1b[m\\r\\x1b[9B1/3 /\\u6771\\x1b[8G"
+  },
+  {
+   "key": "京",
+   "sent": "\\u4eac",
+   "ms": 423,
+   "n": 62,
+   "b64": "G1tIG1tIG1syShtbMzY7MW0+IHZwcy0bWzRt5p2x5LqsG1sxMUcbW20NG1s5QjEvMyAv5p2x5LqsG1sxMEc=",
+   "esc": "\\x1b[H\\x1b[H\\x1b[2J\\x1b[36;1m> vps-\\x1b[4m\\u6771\\u4eac\\x1b[11G\\x1b[m\\r\\x1b[9B1/3 /\\u6771\\u4eac\\x1b[10G"
+  }
+ ],
+ "full_b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bW20bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1ttG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0bWzdCMy8zG1tIG1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0bWzdCMy8zIC8bW0gbW0gbWzJKG1szNjsxbT4gdnBzLRtbNG3mnbEbWzI0beS6rBtbMTFHG1ttDRtbOUIxLzMgL+adsRtbOEcbW0gbW0gbWzJKG1szNjsxbT4gdnBzLRtbNG3mnbHkuqwbWzExRxtbbQ0bWzlCMS8zIC/mnbHkuqwbWzEwRxtbPjRtG1ttG1s8MXUNG1s/MTA0OWwbWz8yNWgbWz8yMDA0bA==",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[>4m\\x1b[m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l",
+ "stderr_tail": ""
+}

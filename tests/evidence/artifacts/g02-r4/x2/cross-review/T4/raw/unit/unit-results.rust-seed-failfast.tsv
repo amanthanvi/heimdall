@@ -1,0 +1,3 @@
+T4-rust-opus1.seed	101	1	profile::tests::symlinks_are_followed_but_k14_still_applies 
+T4-rust-opus2.seed	101	0	profile::tests::symlink_to_regular_file_loads_like_the_file 
+T4-rust-sonnet1.seed	101	1	profile::tests::oversize_not_parsed_and_missing_is_usage 

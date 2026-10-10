@@ -1,0 +1,644 @@
+[
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:50:40Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 36316,
+      "ppid": 36315,
+      "pgid": 36316,
+      "sid": "0",
+      "tpgid": 36315,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 36327,
+      "ppid": 36316,
+      "pgid": 36316,
+      "sid": "0",
+      "tpgid": 36315,
+      "state": "SN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 36315,
+      "ppid": 36314,
+      "pgid": 36315,
+      "sid": "0",
+      "tpgid": 36315,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 36315,
+      "ppid": 36314,
+      "pgid": 36315,
+      "sid": "0",
+      "tpgid": 36315,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "[1]  + done       bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 36315,
+      "ppid": 36314,
+      "pgid": 36315,
+      "sid": "0",
+      "tpgid": 36315,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 36315,
+  "job_line": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 36316",
+  "job_pid": 36316,
+  "launcher_children": [
+   36327
+  ],
+  "program_pid": 36327,
+  "before_signal": {
+   "launcher": {
+    "pid": 36316,
+    "ppid": 36315,
+    "pgid": 36316,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36327,
+    "ppid": 36316,
+    "pgid": 36316,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "SN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36315,
+    "ppid": 36314,
+    "pgid": 36315,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 36327,
+  "after_signal": {
+   "launcher": {
+    "pid": 36316,
+    "ppid": 36315,
+    "pgid": 36316,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36327,
+    "ppid": 36316,
+    "pgid": 36316,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36315,
+    "ppid": 36314,
+    "pgid": 36315,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 36316 running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+  "after_jobs": {
+   "launcher": {
+    "pid": 36316,
+    "ppid": 36315,
+    "pgid": 36316,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36327,
+    "ppid": 36316,
+    "pgid": 36316,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36315,
+    "ppid": 36314,
+    "pgid": 36315,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 36315,
+    "ppid": 36314,
+    "pgid": 36315,
+    "sid": "0",
+    "tpgid": 36315,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 36327,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 36316,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:50:46Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 36401,
+      "ppid": 36400,
+      "pgid": 36401,
+      "sid": "0",
+      "tpgid": 36400,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 36412,
+      "ppid": 36401,
+      "pgid": 36401,
+      "sid": "0",
+      "tpgid": 36400,
+      "state": "SN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 36400,
+      "ppid": 36314,
+      "pgid": 36400,
+      "sid": "0",
+      "tpgid": 36400,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 36400,
+      "ppid": 36314,
+      "pgid": 36400,
+      "sid": "0",
+      "tpgid": 36400,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "[1]  + done       bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 36400,
+      "ppid": 36314,
+      "pgid": 36400,
+      "sid": "0",
+      "tpgid": 36400,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 36400,
+  "job_line": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 36401",
+  "job_pid": 36401,
+  "launcher_children": [
+   36412
+  ],
+  "program_pid": 36412,
+  "before_signal": {
+   "launcher": {
+    "pid": 36401,
+    "ppid": 36400,
+    "pgid": 36401,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36412,
+    "ppid": 36401,
+    "pgid": 36401,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "SN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36400,
+    "ppid": 36314,
+    "pgid": 36400,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 36412,
+  "after_signal": {
+   "launcher": {
+    "pid": 36401,
+    "ppid": 36400,
+    "pgid": 36401,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36412,
+    "ppid": 36401,
+    "pgid": 36401,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36400,
+    "ppid": 36314,
+    "pgid": 36400,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 36401 running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+  "after_jobs": {
+   "launcher": {
+    "pid": 36401,
+    "ppid": 36400,
+    "pgid": 36401,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36412,
+    "ppid": 36401,
+    "pgid": 36401,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36400,
+    "ppid": 36314,
+    "pgid": 36400,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 36400,
+    "ppid": 36314,
+    "pgid": 36400,
+    "sid": "0",
+    "tpgid": 36400,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 36412,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 36401,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:50:52Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 36529,
+      "ppid": 36528,
+      "pgid": 36529,
+      "sid": "0",
+      "tpgid": 36528,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 36540,
+      "ppid": 36529,
+      "pgid": 36529,
+      "sid": "0",
+      "tpgid": 36528,
+      "state": "SN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 36528,
+      "ppid": 36314,
+      "pgid": 36528,
+      "sid": "0",
+      "tpgid": 36528,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 36528,
+      "ppid": 36314,
+      "pgid": 36528,
+      "sid": "0",
+      "tpgid": 36528,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "[1]  + done       bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 36528,
+      "ppid": 36314,
+      "pgid": 36528,
+      "sid": "0",
+      "tpgid": 36528,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 36528,
+  "job_line": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 36529",
+  "job_pid": 36529,
+  "launcher_children": [
+   36540
+  ],
+  "program_pid": 36540,
+  "before_signal": {
+   "launcher": {
+    "pid": 36529,
+    "ppid": 36528,
+    "pgid": 36529,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36540,
+    "ppid": 36529,
+    "pgid": 36529,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "SN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36528,
+    "ppid": 36314,
+    "pgid": 36528,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 36540,
+  "after_signal": {
+   "launcher": {
+    "pid": 36529,
+    "ppid": 36528,
+    "pgid": 36529,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36540,
+    "ppid": 36529,
+    "pgid": 36529,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36528,
+    "ppid": 36314,
+    "pgid": 36528,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 36529 running    bin/T1-rust-opus1/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2",
+  "after_jobs": {
+   "launcher": {
+    "pid": 36529,
+    "ppid": 36528,
+    "pgid": 36529,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 36540,
+    "ppid": 36529,
+    "pgid": 36529,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 36528,
+    "ppid": 36314,
+    "pgid": 36528,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 36528,
+    "ppid": 36314,
+    "pgid": 36528,
+    "sid": "0",
+    "tpgid": 36528,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 36540,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 36529,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

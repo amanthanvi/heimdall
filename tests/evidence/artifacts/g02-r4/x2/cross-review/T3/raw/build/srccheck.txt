@@ -1,0 +1,6 @@
+T3-go-opus1 git_apply_impl=0 patch_change=0 diff_r_exit=0 diff_lines=0
+T3-go-opus2 git_apply_impl=0 patch_change=0 diff_r_exit=0 diff_lines=0
+T3-go-sonnet1 git_apply_impl=0 patch_change=0 diff_r_exit=0 diff_lines=0
+T3-rust-opus1 git_apply_impl=0 patch_change=0 diff_r_exit=0 diff_lines=0
+T3-rust-opus2 git_apply_impl=0 patch_change=0 diff_r_exit=0 diff_lines=0
+T3-rust-sonnet1 git_apply_impl=0 patch_change=0 diff_r_exit=0 diff_lines=0

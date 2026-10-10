@@ -1,0 +1,1025 @@
+[
+ {
+  "build": "T1-rust-sonnet1",
+  "binary": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:52:52Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 753,
+      "ppid": 752,
+      "pgid": 753,
+      "sid": 752,
+      "tpgid": 753,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 755,
+      "ppid": 753,
+      "pgid": 753,
+      "sid": 752,
+      "tpgid": 753,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 752,
+      "ppid": 751,
+      "pgid": 752,
+      "sid": 752,
+      "tpgid": 753,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 753,
+      "ppid": 752,
+      "pgid": 753,
+      "sid": 752,
+      "tpgid": 753,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 755,
+      "ppid": 753,
+      "pgid": 753,
+      "sid": 752,
+      "tpgid": 753,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  \r\n^Z\r\nzsh: suspended  bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+    "procs": {
+     "launcher": {
+      "pid": 753,
+      "ppid": 752,
+      "pgid": 753,
+      "sid": 752,
+      "tpgid": 752,
+      "state": "T",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 755,
+      "ppid": 753,
+      "pgid": 753,
+      "sid": 752,
+      "tpgid": 752,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 752,
+      "ppid": 751,
+      "pgid": 752,
+      "sid": 752,
+      "tpgid": 752,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 752,
+      "ppid": 751,
+      "pgid": 752,
+      "sid": 752,
+      "tpgid": 752,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "handler",
+   "SIGQUIT": "DFL",
+   "SIGHUP": "DFL",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 752,
+  "job_line": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 753",
+  "job_pid": 753,
+  "launcher_children": [
+   755
+  ],
+  "program_pid": 755,
+  "before_signal": {
+   "launcher": {
+    "pid": 753,
+    "ppid": 752,
+    "pgid": 753,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 755,
+    "ppid": 753,
+    "pgid": 753,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 752,
+    "ppid": 751,
+    "pgid": 752,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 755,
+  "after_signal": {
+   "launcher": {
+    "pid": 753,
+    "ppid": 752,
+    "pgid": 753,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 755,
+    "ppid": 753,
+    "pgid": 753,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 752,
+    "ppid": 751,
+    "pgid": 752,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 753 running    bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+  "after_jobs": {
+   "launcher": {
+    "pid": 753,
+    "ppid": 752,
+    "pgid": 753,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 755,
+    "ppid": 753,
+    "pgid": 753,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 752,
+    "ppid": 751,
+    "pgid": 752,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 752,
+    "ppid": 751,
+    "pgid": 752,
+    "sid": 752,
+    "tpgid": 752,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 755,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 753,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-sonnet1",
+  "binary": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:53:02Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 757,
+      "ppid": 756,
+      "pgid": 757,
+      "sid": 756,
+      "tpgid": 757,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 759,
+      "ppid": 757,
+      "pgid": 757,
+      "sid": 756,
+      "tpgid": 757,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 756,
+      "ppid": 751,
+      "pgid": 756,
+      "sid": 756,
+      "tpgid": 757,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 757,
+      "ppid": 756,
+      "pgid": 757,
+      "sid": 756,
+      "tpgid": 757,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 759,
+      "ppid": 757,
+      "pgid": 757,
+      "sid": 756,
+      "tpgid": 757,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  \r\n^Z\r\nzsh: suspended  bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+    "procs": {
+     "launcher": {
+      "pid": 757,
+      "ppid": 756,
+      "pgid": 757,
+      "sid": 756,
+      "tpgid": 756,
+      "state": "T",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 759,
+      "ppid": 757,
+      "pgid": 757,
+      "sid": 756,
+      "tpgid": 756,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 756,
+      "ppid": 751,
+      "pgid": 756,
+      "sid": 756,
+      "tpgid": 756,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 756,
+      "ppid": 751,
+      "pgid": 756,
+      "sid": 756,
+      "tpgid": 756,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "handler",
+   "SIGQUIT": "DFL",
+   "SIGHUP": "DFL",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 756,
+  "job_line": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 757",
+  "job_pid": 757,
+  "launcher_children": [
+   759
+  ],
+  "program_pid": 759,
+  "before_signal": {
+   "launcher": {
+    "pid": 757,
+    "ppid": 756,
+    "pgid": 757,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 759,
+    "ppid": 757,
+    "pgid": 757,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 756,
+    "ppid": 751,
+    "pgid": 756,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 759,
+  "after_signal": {
+   "launcher": {
+    "pid": 757,
+    "ppid": 756,
+    "pgid": 757,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 759,
+    "ppid": 757,
+    "pgid": 757,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 756,
+    "ppid": 751,
+    "pgid": 756,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 757 running    bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+  "after_jobs": {
+   "launcher": {
+    "pid": 757,
+    "ppid": 756,
+    "pgid": 757,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 759,
+    "ppid": 757,
+    "pgid": 757,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 756,
+    "ppid": 751,
+    "pgid": 756,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 756,
+    "ppid": 751,
+    "pgid": 756,
+    "sid": 756,
+    "tpgid": 756,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 759,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 757,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-sonnet1",
+  "binary": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:53:12Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 761,
+      "ppid": 760,
+      "pgid": 761,
+      "sid": 760,
+      "tpgid": 761,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 763,
+      "ppid": 761,
+      "pgid": 761,
+      "sid": 760,
+      "tpgid": 761,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 760,
+      "ppid": 751,
+      "pgid": 760,
+      "sid": 760,
+      "tpgid": 761,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 761,
+      "ppid": 760,
+      "pgid": 761,
+      "sid": 760,
+      "tpgid": 761,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 763,
+      "ppid": 761,
+      "pgid": 761,
+      "sid": 760,
+      "tpgid": 761,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  \r\n^Z\r\nzsh: suspended  bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+    "procs": {
+     "launcher": {
+      "pid": 761,
+      "ppid": 760,
+      "pgid": 761,
+      "sid": 760,
+      "tpgid": 760,
+      "state": "T",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGPIPE"
+      ]
+     },
+     "program": {
+      "pid": 763,
+      "ppid": 761,
+      "pgid": 761,
+      "sid": 760,
+      "tpgid": 760,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 760,
+      "ppid": 751,
+      "pgid": 760,
+      "sid": 760,
+      "tpgid": 760,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 760,
+      "ppid": 751,
+      "pgid": 760,
+      "sid": 760,
+      "tpgid": 760,
+      "state": "S",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "handler",
+   "SIGQUIT": "DFL",
+   "SIGHUP": "DFL",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 760,
+  "job_line": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 761",
+  "job_pid": 761,
+  "launcher_children": [
+   763
+  ],
+  "program_pid": 763,
+  "before_signal": {
+   "launcher": {
+    "pid": 761,
+    "ppid": 760,
+    "pgid": 761,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 763,
+    "ppid": 761,
+    "pgid": 761,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 760,
+    "ppid": 751,
+    "pgid": 760,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 763,
+  "after_signal": {
+   "launcher": {
+    "pid": 761,
+    "ppid": 760,
+    "pgid": 761,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 763,
+    "ppid": 761,
+    "pgid": 761,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 760,
+    "ppid": 751,
+    "pgid": 760,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 761 running    bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >",
+  "after_jobs": {
+   "launcher": {
+    "pid": 761,
+    "ppid": 760,
+    "pgid": 761,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGPIPE"
+    ]
+   },
+   "program": {
+    "pid": 763,
+    "ppid": 761,
+    "pgid": 761,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 760,
+    "ppid": 751,
+    "pgid": 760,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 760,
+    "ppid": 751,
+    "pgid": 760,
+    "sid": 760,
+    "tpgid": 760,
+    "state": "S",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 763,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 761,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

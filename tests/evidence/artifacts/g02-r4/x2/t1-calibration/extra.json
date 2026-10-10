@@ -1,0 +1,756 @@
+{
+ "p9e_fg3": {
+  "T1-go-opus1": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  },
+  "T1-go-opus2": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  },
+  "T1-go-sonnet1": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  },
+  "T1-rust-opus1": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  },
+  "T1-rust-opus2": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  },
+  "T1-rust-sonnet1": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "0; shell,shell,shell"
+   ]
+  },
+  "base-go": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "0; shell,shell,shell"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  },
+  "base-rust": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "0; nowhere"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "0; nowhere"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "0; nowhere"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "0; nowhere"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "0; nowhere"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "0; nowhere"
+   ]
+  },
+  "plain": {
+   "p9e-darwin-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-bash-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-darwin-zsh-P9e0-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e-bg-fg3": [
+    "1; child"
+   ],
+   "p9e-linux-bash-P9e0-fg3": [
+    "1; child"
+   ]
+  }
+ },
+ "race": {
+  "T1-go-opus1": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 2,
+    "runs": 10,
+    "runs_with_restop": 2
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "T1-go-opus2": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "T1-go-sonnet1": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "T1-rust-opus1": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "T1-rust-opus2": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "T1-rust-sonnet1": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 1,
+    "runs": 10,
+    "runs_with_restop": 1
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "base-go": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "base-go-pinned": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  },
+  "base-rust": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 2,
+    "runs": 10,
+    "runs_with_restop": 1
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": false,
+    "errors": 0,
+    "restops": 10,
+    "runs": 10,
+    "runs_with_restop": 10
+   }
+  },
+  "plain": {
+   "darwin-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "darwin-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P10r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   },
+   "linux-P11r": {
+    "all_recovered_by_second_fg": true,
+    "errors": 0,
+    "restops": 0,
+    "runs": 10,
+    "runs_with_restop": 0
+   }
+  }
+ },
+ "recovery": {
+  "T1-go-opus1": {
+   "darwin-P1x-TSTP": [
+    "running -> ctrl-backslash"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "running -> none"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "T1-go-opus2": {
+   "darwin-P1x-TSTP": [
+    "running -> ctrl-backslash"
+   ],
+   "darwin-P2x-TSTP": [
+    "running -> ctrl-backslash"
+   ],
+   "linux-P1x-TSTP": [
+    "running -> none"
+   ],
+   "linux-P2x-TSTP": [
+    "running -> none"
+   ]
+  },
+  "T1-go-sonnet1": {
+   "darwin-P1x-TSTP": [
+    "running -> ctrl-backslash"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "running -> none"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "T1-rust-opus1": {
+   "darwin-P1x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "T1-rust-opus2": {
+   "darwin-P1x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "T1-rust-sonnet1": {
+   "darwin-P1x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "darwin-P2x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "linux-P1x-TSTP": [
+    "running -> ctrl-z"
+   ],
+   "linux-P2x-TSTP": [
+    "running -> ctrl-z"
+   ]
+  },
+  "base-go": {
+   "darwin-P1x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "base-go-pinned": {
+   "darwin-P1x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "base-rust": {
+   "darwin-P1x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  },
+  "plain": {
+   "darwin-P1x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "darwin-P2x-TSTP": [
+    "stopped[Suspended: 18] -> fg"
+   ],
+   "linux-P1x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ],
+   "linux-P2x-TSTP": [
+    "stopped[Stopped] -> fg"
+   ]
+  }
+ },
+ "s3_window_ms": {
+  "T1-go-opus1": {
+   "darwin-bash": [
+    0.5,
+    0.4
+   ],
+   "darwin-zsh": [
+    0.3,
+    0.6
+   ],
+   "linux-bash": [
+    0.9,
+    0.5
+   ]
+  },
+  "T1-go-opus2": {
+   "darwin-bash": [
+    0.1,
+    0.2
+   ],
+   "darwin-zsh": [
+    0.3,
+    0.1
+   ],
+   "linux-bash": [
+    0.1,
+    1.2
+   ]
+  },
+  "T1-go-sonnet1": {
+   "darwin-bash": [
+    0.3,
+    0.1
+   ],
+   "darwin-zsh": [
+    0.4,
+    0.3
+   ],
+   "linux-bash": [
+    0.1,
+    0.1
+   ]
+  },
+  "T1-rust-opus1": {
+   "darwin-bash": [
+    10.0,
+    10.4
+   ],
+   "darwin-zsh": [
+    10.4,
+    10.2
+   ],
+   "linux-bash": [
+    11.2,
+    10.7
+   ]
+  },
+  "T1-rust-opus2": {
+   "darwin-bash": [
+    0.1,
+    0.1
+   ],
+   "darwin-zsh": [
+    0.1,
+    0.1
+   ],
+   "linux-bash": [
+    0.9,
+    0.1
+   ]
+  },
+  "T1-rust-sonnet1": {
+   "darwin-bash": [
+    32.2,
+    31.5
+   ],
+   "darwin-zsh": [
+    30.1,
+    30.3
+   ],
+   "linux-bash": [
+    31.3,
+    31.3
+   ]
+  },
+  "base-go": {
+   "darwin-bash": [
+    0.3,
+    0.3
+   ],
+   "darwin-zsh": [
+    0.2,
+    0.2
+   ],
+   "linux-bash": [
+    3.3,
+    0.1
+   ]
+  },
+  "base-go-pinned": {
+   "darwin-bash": [
+    0.3,
+    0.1
+   ],
+   "darwin-zsh": [
+    0.6,
+    0.6
+   ],
+   "linux-bash": [
+    0.2,
+    0.6
+   ]
+  },
+  "base-rust": {
+   "darwin-bash": [
+    999.9,
+    999.8
+   ],
+   "darwin-zsh": [
+    999.8,
+    999.9
+   ],
+   "linux-bash": [
+    999.9,
+    999.9
+   ]
+  }
+ }
+}

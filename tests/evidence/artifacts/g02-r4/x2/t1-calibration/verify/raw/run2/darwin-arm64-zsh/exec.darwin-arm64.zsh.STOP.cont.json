@@ -1,0 +1,758 @@
+[
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:33:28Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": null,
+     "program": {
+      "pid": 78916,
+      "ppid": 78914,
+      "pgid": 78916,
+      "sid": "0",
+      "tpgid": 78914,
+      "state": "SN",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 78914,
+      "ppid": 78912,
+      "pgid": 78914,
+      "sid": "0",
+      "tpgid": 78914,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78914,
+      "ppid": 78912,
+      "pgid": 78914,
+      "sid": "0",
+      "tpgid": 78914,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "jobs": "[1]  + done       sleep 3 < /dev/null > /dev/null 2>&1\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78914,
+      "ppid": 78912,
+      "pgid": 78914,
+      "sid": "0",
+      "tpgid": 78914,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 78914,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 78916",
+  "job_pid": 78916,
+  "program_pid": 78916,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78916,
+    "ppid": 78914,
+    "pgid": 78916,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "SN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78914,
+    "ppid": 78912,
+    "pgid": 78914,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 78916,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78916,
+    "ppid": 78914,
+    "pgid": 78916,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78914,
+    "ppid": 78912,
+    "pgid": 78914,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "[1]  + suspended (signal)  sleep 3 < /dev/null > /dev/null 2>&1\r\njobs -l\r\n[1]  + 78916 suspended (signal)  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 78916,
+    "ppid": 78914,
+    "pgid": 78916,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78914,
+    "ppid": 78912,
+    "pgid": 78914,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 78914,
+    "ppid": 78912,
+    "pgid": 78914,
+    "sid": "0",
+    "tpgid": 78914,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 78916,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:33:33Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": null,
+     "program": {
+      "pid": 78977,
+      "ppid": 78975,
+      "pgid": 78977,
+      "sid": "0",
+      "tpgid": 78975,
+      "state": "SN",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 78975,
+      "ppid": 78912,
+      "pgid": 78975,
+      "sid": "0",
+      "tpgid": 78975,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78975,
+      "ppid": 78912,
+      "pgid": 78975,
+      "sid": "0",
+      "tpgid": 78975,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "jobs": "[1]  + done       sleep 3 < /dev/null > /dev/null 2>&1\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 78975,
+      "ppid": 78912,
+      "pgid": 78975,
+      "sid": "0",
+      "tpgid": 78975,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 78975,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 78977",
+  "job_pid": 78977,
+  "program_pid": 78977,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78977,
+    "ppid": 78975,
+    "pgid": 78977,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "SN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78975,
+    "ppid": 78912,
+    "pgid": 78975,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 78977,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 78977,
+    "ppid": 78975,
+    "pgid": 78977,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78975,
+    "ppid": 78912,
+    "pgid": 78975,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "[1]  + suspended (signal)  sleep 3 < /dev/null > /dev/null 2>&1\r\njobs -l\r\n[1]  + 78977 suspended (signal)  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 78977,
+    "ppid": 78975,
+    "pgid": 78977,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 78975,
+    "ppid": 78912,
+    "pgid": 78975,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 78975,
+    "ppid": 78912,
+    "pgid": 78975,
+    "sid": "0",
+    "tpgid": 78975,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 78977,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:33:39Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": null,
+     "program": {
+      "pid": 79040,
+      "ppid": 79038,
+      "pgid": 79040,
+      "sid": "0",
+      "tpgid": 79038,
+      "state": "SN",
+      "comm": "sleep",
+      "sigign": [
+       "SIGWINCH"
+      ]
+     },
+     "shell": {
+      "pid": 79038,
+      "ppid": 78912,
+      "pgid": 79038,
+      "sid": "0",
+      "tpgid": 79038,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 79038,
+      "ppid": 78912,
+      "pgid": 79038,
+      "sid": "0",
+      "tpgid": 79038,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "jobs": "[1]  + done       sleep 3 < /dev/null > /dev/null 2>&1\r\njobs -l",
+    "job_listed": false
+   },
+   {
+    "step": "fg",
+    "prompt_returned": true,
+    "output": "fg\r\nfg: no current job",
+    "rc": "1",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 79038,
+      "ppid": 78912,
+      "pgid": 79038,
+      "sid": "0",
+      "tpgid": 79038,
+      "state": "Ss+",
+      "comm": "zsh",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "IGN",
+   "SIGQUIT": "IGN",
+   "SIGHUP": "IGN",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 79038,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 79040",
+  "job_pid": 79040,
+  "program_pid": 79040,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 79040,
+    "ppid": 79038,
+    "pgid": 79040,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "SN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 79038,
+    "ppid": 78912,
+    "pgid": 79038,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 79040,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 79040,
+    "ppid": 79038,
+    "pgid": 79040,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 79038,
+    "ppid": 78912,
+    "pgid": 79038,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "[1]  + suspended (signal)  sleep 3 < /dev/null > /dev/null 2>&1\r\njobs -l\r\n[1]  + 79040 suspended (signal)  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 79040,
+    "ppid": 79038,
+    "pgid": 79040,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "TN",
+    "comm": "sleep",
+    "sigign": [
+     "SIGWINCH"
+    ]
+   },
+   "shell": {
+    "pid": 79038,
+    "ppid": 78912,
+    "pgid": 79038,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "cont-alone",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 79038,
+    "ppid": 78912,
+    "pgid": 79038,
+    "sid": "0",
+    "tpgid": 79038,
+    "state": "Ss+",
+    "comm": "zsh",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 79040,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

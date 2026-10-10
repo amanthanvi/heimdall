@@ -1,0 +1,147 @@
+   Compiling heimdall-proto v0.0.0-g02 (<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.72s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_proto-d7bc56532cd80e18)
+
+running 50 tests
+test agent::tests::request_is_exactly_type_11 ... ok
+test agent::tests::zero_keys_ok ... ok
+test agent::tests::wrong_type_and_failure ... ok
+test agent::tests::truncated_rejected ... ok
+test agent::tests::k4_failure_with_payload_is_protocol_error ... ok
+test keys::tests::contract_keys ... ok
+test keys::tests::garbage_is_bounded_and_invalid_utf8_is_other ... ok
+test keys::tests::lone_escape_needs_flush ... ok
+test agent::tests::control_chars_in_comment_replaced ... ok
+test keys::tests::split_sequences_and_utf8_across_reads ... ok
+test agent::tests::k1_all_control_classes_replaced_in_comment_and_key_type ... ok
+test agent::tests::parses_identities_and_fingerprint ... ok
+test agent::tests::oversize_length_rejected_without_reading_body ... ok
+test agent::tests::trailing_bytes_rejected ... ok
+test agent::tests::string_length_exceeding_frame_rejected ... ok
+test agent::tests::huge_nkeys_rejected ... ok
+test agent::tests::k3a_reset_classified_like_eof ... ok
+test agent::tests::envelope_shapes ... ok
+test envelope::tests::envelope_shape ... ok
+test list_model::tests::k9_filter_edit_resets_selection_enter_keeps_it ... ok
+test list_model::tests::filter_mode ... ok
+test list_model::tests::narrow_rows ... ok
+test list_model::tests::navigate_and_select ... ok
+test profile::tests::invalid_utf8_is_schema_invalid ... ok
+test list_model::tests::q_in_filter_mode_is_text_and_empty_enter_noop ... ok
+test profile::tests::duplicate_alias_and_id ... ok
+test profile::tests::forbidden_key_no_canary ... ok
+test profile::tests::example_json_matches_contract_shape ... ok
+test profile::tests::malformed ... ok
+test profile::tests::malformed_with_canary_not_quoted ... ok
+test profile::tests::homelab_ok ... ok
+test profile::tests::meta_content_tolerated_including_unknown_nested_keys ... ok
+test agent::tests::max_length_frame_accepted_by_reader ... ok
+test profile::tests::schema_version_unsupported ... ok
+test profile::tests::k2_control_chars_in_values_rejected_outside_meta ... ok
+test runner::tests::meta_shapes ... ok
+test profile::tests::unknown_dest_key ... ok
+test profile::tests::port_out_of_range ... ok
+test profile::tests::required_and_types ... ok
+test text::tests::controls_replaced ... ok
+test sigdisp::tests::default_disposition_is_not_ignored ... ok
+test text::tests::key_segments ... ok
+test profile::tests::spaced_unicode_path_identical ... ok
+test profile::tests::symlink_to_regular_file_loads_like_the_file ... FAILED
+test runner::tests::launch_failure_is_127 ... ok
+test agent::tests::exactly_1024_keys_ok ... ok
+test list_model::tests::large_filter_immediate ... ok
+test profile::tests::large_100 ... ok
+test runner::tests::exit_code_and_signal_mapping ... ok
+test profile::tests::oversize_not_parsed_and_missing_is_usage ... ok
+
+failures:
+
+---- profile::tests::symlink_to_regular_file_loads_like_the_file stdout ----
+
+thread 'profile::tests::symlink_to_regular_file_loads_like_the_file' (1064556) panicked at src/profile.rs:807:30:
+called `Result::unwrap()` on an `Err` value: ProfileError { code: UsageError, key_path: None, message: "profile path is not a regular file", warnings: [] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    profile::tests::symlink_to_regular_file_loads_like_the_file
+
+test result: FAILED. 49 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--lib`
+     Running unittests src/main.rs (target/debug/deps/heimdall_proto-e09c1a025266e25d)
+
+running 4 tests
+test cli::tests::run_argv_non_utf8 ... ok
+test cli::tests::parses_commands ... ok
+test cli::tests::run_argv_passthrough ... ok
+test cli::tests::usage_errors ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli.rs (target/debug/deps/cli-aab126e0c1f784db)
+
+running 29 tests
+test k6a_limitation_sigpipe_ignore_not_preserved_by_rust_std ... ok
+test agent_ok_and_request_bytes ... ok
+test profile_oversize ... ok
+test run_argv_bytes_passthrough ... ok
+test k6a_inherited_ignored_dispositions_reach_child ... ok
+test k6a_group_sigkill_leaves_no_orphan ... ok
+test run_binary_stdio_passthrough ... ok
+test k5_meta_state ... ok
+test run_inherits_env_and_cwd ... ok
+test symlinked_profile_reads_like_its_target ... FAILED
+test profile_fixtures ... ok
+test k12_closed_stdout_exit_parity ... ok
+test version_json ... ok
+test run_status_and_meta ... ok
+test run_untrapped_term_maps_to_143_and_no_zombie ... ok
+test usage_errors_json_only_with_flag ... ok
+test agent_crafted_frames ... ok
+test k14_non_regular_profile_files ... ok
+test meta_file_fifo_never_blocks ... ok
+test k3_k4_eof_and_failure_frame_shape ... ok
+heimdall-proto: CANCELLED
+test k3a_reset_before_and_after_partial_frame ... ok
+test k6a_inherited_ignored_signals_are_not_forwarded ... ok
+test k1_agent_strings_have_no_control_code_points ... ok
+test agent_unavailable_and_timeout ... ok
+test run_thread_spawn_failure_never_orphans_child ... ok
+test k15_parser_resource_bound ... ok
+test k6_explicit_signal_to_pid_reaches_child_exactly_once ... ok
+test run_forwards_signals_and_waits ... ok
+test agent_cancel_sigint_within_500ms ... ok
+
+failures:
+
+---- symlinked_profile_reads_like_its_target stdout ----
+
+thread 'symlinked_profile_reads_like_its_target' (1065141) panicked at tests/cli.rs:1250:17:
+assertion `left == right` failed: homelab.toml json=true via /tmp/hmx4u-nHsDjQ/hp-symlink-26875-648578868/config/abs-homelab.toml
+  left: Some(2)
+ right: Some(0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    symlinked_profile_reads_like_its_target
+
+test result: FAILED. 28 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.01s
+
+error: test failed, to rerun pass `--test cli`
+     Running tests/windows.rs (target/debug/deps/windows-aa07e0b696c73144)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests heimdall_proto
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 2 targets failed:
+    `--lib`
+    `--test cli`

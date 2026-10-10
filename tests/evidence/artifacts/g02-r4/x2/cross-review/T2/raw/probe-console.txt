@@ -1,0 +1,10 @@
+done P1 8.3
+done P2 0.8
+done P3 0.4
+done P4 0.1
+done P5 2.8
+done P6 1.0
+done P7 60.3
+done P8 1.9
+done P9 0.1
+done P12 0.5

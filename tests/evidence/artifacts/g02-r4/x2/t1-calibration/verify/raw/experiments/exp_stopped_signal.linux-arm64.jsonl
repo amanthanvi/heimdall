@@ -1,0 +1,10 @@
+{"platform": "linux", "case": "kill", "stop": "SIGTSTP", "then": "SIGINT", "state_stopped": "T", "state_after_signal": "T", "wait_after_signal": null, "state_after_CONT": "Z", "wait_after_CONT": 2}
+{"platform": "linux", "case": "kill", "stop": "SIGTSTP", "then": "SIGQUIT", "state_stopped": "T", "state_after_signal": "T", "wait_after_signal": null, "state_after_CONT": "Z", "wait_after_CONT": 3}
+{"platform": "linux", "case": "kill", "stop": "SIGTSTP", "then": "SIGTERM", "state_stopped": "T", "state_after_signal": "T", "wait_after_signal": null, "state_after_CONT": "Z", "wait_after_CONT": 15}
+{"platform": "linux", "case": "tty", "stop": "SIGTSTP", "then": "^C", "isig": true, "state_stopped": "S", "state_after_key": "Z", "wait_after_key": 2, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "linux", "case": "tty", "stop": "SIGTSTP", "then": "^\\", "isig": true, "state_stopped": "S", "state_after_key": "Z", "wait_after_key": 3, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "linux", "case": "kill", "stop": "SIGSTOP", "then": "SIGINT", "state_stopped": "T", "state_after_signal": "T", "wait_after_signal": null, "state_after_CONT": "Z", "wait_after_CONT": 2}
+{"platform": "linux", "case": "kill", "stop": "SIGSTOP", "then": "SIGQUIT", "state_stopped": "T", "state_after_signal": "T", "wait_after_signal": null, "state_after_CONT": "Z", "wait_after_CONT": 3}
+{"platform": "linux", "case": "kill", "stop": "SIGSTOP", "then": "SIGTERM", "state_stopped": "T", "state_after_signal": "T", "wait_after_signal": null, "state_after_CONT": "Z", "wait_after_CONT": 15}
+{"platform": "linux", "case": "tty", "stop": "SIGSTOP", "then": "^C", "isig": true, "state_stopped": "T", "state_after_key": "T", "wait_after_key": null, "state_after_CONT": "Z", "wait_after_CONT": 2}
+{"platform": "linux", "case": "tty", "stop": "SIGSTOP", "then": "^\\", "isig": true, "state_stopped": "T", "state_after_key": "T", "wait_after_key": null, "state_after_CONT": "Z", "wait_after_CONT": 3}

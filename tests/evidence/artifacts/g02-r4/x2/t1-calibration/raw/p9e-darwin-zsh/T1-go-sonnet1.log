@@ -1,0 +1,4 @@
+T1-go-sonnet1 rep1 P9e0-fg3 {"answered_after_fg_number": 1, "ping_destinations": ["child"], "rc_after_exit": 3} 1.9s
+T1-go-sonnet1 rep1 P9e-bg-fg3 {"answered_after_fg_number": 1, "ping_destinations": ["child"], "rc_after_exit": 3} 2.9s
+T1-go-sonnet1 rep2 P9e0-fg3 {"answered_after_fg_number": 1, "ping_destinations": ["child"], "rc_after_exit": 3} 1.8s
+T1-go-sonnet1 rep2 P9e-bg-fg3 {"answered_after_fg_number": 1, "ping_destinations": ["child"], "rc_after_exit": 3} 2.9s

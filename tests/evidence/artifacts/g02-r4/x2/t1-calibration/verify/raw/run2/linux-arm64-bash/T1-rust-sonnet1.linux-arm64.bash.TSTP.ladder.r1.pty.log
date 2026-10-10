@@ -1,0 +1,40 @@
+
+<<SEND "PS1='__PS''1__ '; PS2=''; unset PROMPT_COMMAND; set +H\n">>
+PS1='__PS''1__ '; PS2=''; unset PROMPT_COMMAND; set +H
+bash-5.2$ PS1='__PS''1__ '; PS2=''; unset PROMPT_COMMAND; set +H
+__PS1__ 
+<<SEND 'bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\n'>>
+<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &
+[1] 757
+__PS1__ 
+<<SEND 'echo "__PID""__ $!"\n'>>
+echo "__PID""__ $!"
+__PID__ 757
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+[1]+   757 Running                 bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1
+
+<<SEND '\x1a'>>
+^Z
+[1]+  Stopped                 bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+bin/T1-rust-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1
+__PS1__ 
+<<SEND 'echo "__RC""__ $?"\n'>>
+echo "__RC""__ $?"
+__RC__ 0
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+__PS1__ 
+<<SEND '\nexit\n'>>
+
+__PS1__ exit
+exit

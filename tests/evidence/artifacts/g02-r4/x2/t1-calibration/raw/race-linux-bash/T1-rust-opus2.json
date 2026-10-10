@@ -1,0 +1,1278 @@
+{
+ "label": "T1-rust-opus2",
+ "platform": "linux-arm64",
+ "shell": "bash",
+ "pid1": true,
+ "runs": [
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat &\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat &\n\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n^Z\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ bg\n[1]+ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat &\n\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 cat\nhello-cat\nhello-cat\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n^Z\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n^Z\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n^Z\n[1]+  Stopped    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 12 0\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=0@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 1
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.3,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.4,
+   "rep": 3,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 3,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.3,
+   "rep": 4,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 4,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.3,
+   "rep": 5,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 5,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.4,
+   "rep": 6,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 6,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.4,
+   "rep": 7,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.3,
+   "rep": 7,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.4,
+   "rep": 8,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 8,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.3,
+   "rep": 9,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 9,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P10r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_bg": {
+      "C": "T",
+      "L": "T"
+     },
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "echoed": true,
+   "prompt_after_eof": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "child_after_bg": [
+     "T",
+     "T",
+     "T"
+    ]
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 11.3,
+   "rep": 10,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P11r",
+   "via": "T1-rust-opus2",
+   "shell": "bash",
+   "cycles": [
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    },
+    {
+     "ctrlz_prompt": true,
+     "notice": "Stopped",
+     "after_fg": {
+      "C": "S",
+      "L": "S"
+     },
+     "restopped": false
+    }
+   ],
+   "arm_prompt": true,
+   "arm_notice": "Stopped",
+   "arm": {
+    "after_fg": {
+     "C": "S",
+     "L": "S"
+    },
+    "restopped": false
+   },
+   "finished": true,
+   "rc": 0,
+   "cmp": {
+    "restops": 0,
+    "restop_recovered_by_second_fg": true,
+    "finished": true,
+    "rc": 0
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 12.4,
+   "rep": 10,
+   "transcript_omitted": "same cmp as rep 1"
+  }
+ ]
+}

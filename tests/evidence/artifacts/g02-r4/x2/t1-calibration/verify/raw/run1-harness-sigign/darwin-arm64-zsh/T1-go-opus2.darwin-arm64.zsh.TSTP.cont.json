@@ -1,0 +1,923 @@
+[
+ {
+  "build": "T1-go-opus2",
+  "binary": "bin/T1-go-opus2/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:43:39Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 2587,
+      "ppid": 2578,
+      "pgid": 2587,
+      "sid": "0",
+      "tpgid": 2578,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 2588,
+      "ppid": 2587,
+      "pgid": 2588,
+      "sid": "0",
+      "tpgid": 2578,
+      "state": "TN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 2578,
+      "ppid": 2574,
+      "pgid": 2578,
+      "sid": "0",
+      "tpgid": 2578,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 2587,
+      "ppid": 2578,
+      "pgid": 2587,
+      "sid": "0",
+      "tpgid": 2578,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 2588,
+      "ppid": 2587,
+      "pgid": 2588,
+      "sid": "0",
+      "tpgid": 2578,
+      "state": "TN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 2578,
+      "ppid": 2574,
+      "pgid": 2578,
+      "sid": "0",
+      "tpgid": 2578,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]  + 2587 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 2587,
+      "ppid": 2578,
+      "pgid": 2587,
+      "sid": "0",
+      "tpgid": 2588,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 2588,
+      "ppid": 2587,
+      "pgid": 2588,
+      "sid": "0",
+      "tpgid": 2588,
+      "state": "TN+",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 2578,
+      "ppid": 2574,
+      "pgid": 2578,
+      "sid": "0",
+      "tpgid": 2588,
+      "state": "Ss",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 2587,
+      "ppid": 2578,
+      "pgid": 2587,
+      "sid": "0",
+      "tpgid": 2588,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 2588,
+      "ppid": 2587,
+      "pgid": 2588,
+      "sid": "0",
+      "tpgid": 2588,
+      "state": "TN+",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 2578,
+  "job_line": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 2587",
+  "job_pid": 2587,
+  "launcher_children": [
+   2588
+  ],
+  "program_pid": 2588,
+  "before_signal": {
+   "launcher": {
+    "pid": 2587,
+    "ppid": 2578,
+    "pgid": 2587,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 2588,
+    "ppid": 2587,
+    "pgid": 2588,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "SN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 2578,
+    "ppid": 2574,
+    "pgid": 2578,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 2588,
+  "after_signal": {
+   "launcher": {
+    "pid": 2587,
+    "ppid": 2578,
+    "pgid": 2587,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 2588,
+    "ppid": 2587,
+    "pgid": 2588,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 2578,
+    "ppid": 2574,
+    "pgid": 2578,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 2587 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&",
+  "after_jobs": {
+   "launcher": {
+    "pid": 2587,
+    "ppid": 2578,
+    "pgid": 2587,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 2588,
+    "ppid": 2587,
+    "pgid": 2588,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 2578,
+    "ppid": 2574,
+    "pgid": 2578,
+    "sid": "0",
+    "tpgid": 2578,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 2587,
+    "ppid": 2578,
+    "pgid": 2587,
+    "sid": "0",
+    "tpgid": 2588,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 2588,
+    "ppid": 2587,
+    "pgid": 2588,
+    "sid": "0",
+    "tpgid": 2588,
+    "state": "TN+",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 2587,
+    "ppid": 2578,
+    "pgid": 2587,
+    "sid": "0",
+    "tpgid": 2588,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 2588,
+    "ppid": 2587,
+    "pgid": 2588,
+    "sid": "0",
+    "tpgid": 2588,
+    "state": "TN+",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 2578,
+    "ppid": 2574,
+    "pgid": 2578,
+    "sid": "0",
+    "tpgid": 2588,
+    "state": "Ss",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 2588,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 2588,
+     "ppid": 2587,
+     "pgid": 2588,
+     "sid": "0",
+     "tpgid": 2588,
+     "state": "TN+",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 2587,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-opus2",
+  "binary": "bin/T1-go-opus2/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:43:54Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 6441,
+      "ppid": 6440,
+      "pgid": 6441,
+      "sid": "0",
+      "tpgid": 6440,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 6443,
+      "ppid": 6441,
+      "pgid": 6443,
+      "sid": "0",
+      "tpgid": 6440,
+      "state": "TN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 6440,
+      "ppid": 2574,
+      "pgid": 6440,
+      "sid": "0",
+      "tpgid": 6440,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 6441,
+      "ppid": 6440,
+      "pgid": 6441,
+      "sid": "0",
+      "tpgid": 6440,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 6443,
+      "ppid": 6441,
+      "pgid": 6443,
+      "sid": "0",
+      "tpgid": 6440,
+      "state": "TN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 6440,
+      "ppid": 2574,
+      "pgid": 6440,
+      "sid": "0",
+      "tpgid": 6440,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]  + 6441 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 6441,
+      "ppid": 6440,
+      "pgid": 6441,
+      "sid": "0",
+      "tpgid": 6443,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 6443,
+      "ppid": 6441,
+      "pgid": 6443,
+      "sid": "0",
+      "tpgid": 6443,
+      "state": "TN+",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 6440,
+      "ppid": 2574,
+      "pgid": 6440,
+      "sid": "0",
+      "tpgid": 6443,
+      "state": "Ss",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 6441,
+      "ppid": 6440,
+      "pgid": 6441,
+      "sid": "0",
+      "tpgid": 6443,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 6443,
+      "ppid": 6441,
+      "pgid": 6443,
+      "sid": "0",
+      "tpgid": 6443,
+      "state": "TN+",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 6440,
+  "job_line": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 6441",
+  "job_pid": 6441,
+  "launcher_children": [
+   6443
+  ],
+  "program_pid": 6443,
+  "before_signal": {
+   "launcher": {
+    "pid": 6441,
+    "ppid": 6440,
+    "pgid": 6441,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 6443,
+    "ppid": 6441,
+    "pgid": 6443,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "SN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 6440,
+    "ppid": 2574,
+    "pgid": 6440,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 6443,
+  "after_signal": {
+   "launcher": {
+    "pid": 6441,
+    "ppid": 6440,
+    "pgid": 6441,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 6443,
+    "ppid": 6441,
+    "pgid": 6443,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 6440,
+    "ppid": 2574,
+    "pgid": 6440,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 6441 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&",
+  "after_jobs": {
+   "launcher": {
+    "pid": 6441,
+    "ppid": 6440,
+    "pgid": 6441,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 6443,
+    "ppid": 6441,
+    "pgid": 6443,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 6440,
+    "ppid": 2574,
+    "pgid": 6440,
+    "sid": "0",
+    "tpgid": 6440,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 6441,
+    "ppid": 6440,
+    "pgid": 6441,
+    "sid": "0",
+    "tpgid": 6443,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 6443,
+    "ppid": 6441,
+    "pgid": 6443,
+    "sid": "0",
+    "tpgid": 6443,
+    "state": "TN+",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 6441,
+    "ppid": 6440,
+    "pgid": 6441,
+    "sid": "0",
+    "tpgid": 6443,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 6443,
+    "ppid": 6441,
+    "pgid": 6443,
+    "sid": "0",
+    "tpgid": 6443,
+    "state": "TN+",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 6440,
+    "ppid": 2574,
+    "pgid": 6440,
+    "sid": "0",
+    "tpgid": 6443,
+    "state": "Ss",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 6443,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 6443,
+     "ppid": 6441,
+     "pgid": 6443,
+     "sid": "0",
+     "tpgid": 6443,
+     "state": "TN+",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 6441,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-opus2",
+  "binary": "bin/T1-go-opus2/darwin-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:44:09Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 7374,
+      "ppid": 7373,
+      "pgid": 7374,
+      "sid": "0",
+      "tpgid": 7373,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7375,
+      "ppid": 7374,
+      "pgid": 7375,
+      "sid": "0",
+      "tpgid": 7373,
+      "state": "TN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 7373,
+      "ppid": 2574,
+      "pgid": 7373,
+      "sid": "0",
+      "tpgid": 7373,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 7374,
+      "ppid": 7373,
+      "pgid": 7374,
+      "sid": "0",
+      "tpgid": 7373,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7375,
+      "ppid": 7374,
+      "pgid": 7375,
+      "sid": "0",
+      "tpgid": 7373,
+      "state": "TN",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 7373,
+      "ppid": 2574,
+      "pgid": 7373,
+      "sid": "0",
+      "tpgid": 7373,
+      "state": "Ss+",
+      "comm": "zsh"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]  + 7374 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 7374,
+      "ppid": 7373,
+      "pgid": 7374,
+      "sid": "0",
+      "tpgid": 7375,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7375,
+      "ppid": 7374,
+      "pgid": 7375,
+      "sid": "0",
+      "tpgid": 7375,
+      "state": "TN+",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 7373,
+      "ppid": 2574,
+      "pgid": 7373,
+      "sid": "0",
+      "tpgid": 7375,
+      "state": "Ss",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 7374,
+      "ppid": 7373,
+      "pgid": 7374,
+      "sid": "0",
+      "tpgid": 7375,
+      "state": "SN",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7375,
+      "ppid": 7374,
+      "pgid": 7375,
+      "sid": "0",
+      "tpgid": 7375,
+      "state": "TN+",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 7373,
+  "job_line": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 7374",
+  "job_pid": 7374,
+  "launcher_children": [
+   7375
+  ],
+  "program_pid": 7375,
+  "before_signal": {
+   "launcher": {
+    "pid": 7374,
+    "ppid": 7373,
+    "pgid": 7374,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7375,
+    "ppid": 7374,
+    "pgid": 7375,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "SN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7373,
+    "ppid": 2574,
+    "pgid": 7373,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 7375,
+  "after_signal": {
+   "launcher": {
+    "pid": 7374,
+    "ppid": 7373,
+    "pgid": 7374,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7375,
+    "ppid": 7374,
+    "pgid": 7375,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7373,
+    "ppid": 2574,
+    "pgid": 7373,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 7374 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&",
+  "after_jobs": {
+   "launcher": {
+    "pid": 7374,
+    "ppid": 7373,
+    "pgid": 7374,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7375,
+    "ppid": 7374,
+    "pgid": 7375,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "TN",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7373,
+    "ppid": 2574,
+    "pgid": 7373,
+    "sid": "0",
+    "tpgid": 7373,
+    "state": "Ss+",
+    "comm": "zsh"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 7374,
+    "ppid": 7373,
+    "pgid": 7374,
+    "sid": "0",
+    "tpgid": 7375,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7375,
+    "ppid": 7374,
+    "pgid": 7375,
+    "sid": "0",
+    "tpgid": 7375,
+    "state": "TN+",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 7374,
+    "ppid": 7373,
+    "pgid": 7374,
+    "sid": "0",
+    "tpgid": 7375,
+    "state": "SN",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7375,
+    "ppid": 7374,
+    "pgid": 7375,
+    "sid": "0",
+    "tpgid": 7375,
+    "state": "TN+",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7373,
+    "ppid": 2574,
+    "pgid": 7373,
+    "sid": "0",
+    "tpgid": 7375,
+    "state": "Ss",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 7375,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 7375,
+     "ppid": 7374,
+     "pgid": 7375,
+     "sid": "0",
+     "tpgid": 7375,
+     "state": "TN+",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 7374,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

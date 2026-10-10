@@ -1,0 +1,38 @@
+schema_version = 1
+name = "wide"
+revision = 1
+
+[[destinations]]
+id = "dst_000"
+alias = "東京-サーバー-本番"
+host = "db.東京.example"
+port = 22
+account = "deploy"
+
+[[destinations]]
+id = "dst_001"
+alias = "lab-server"
+host = "lab.example.internal"
+port = 22
+account = "aman"
+
+[[destinations]]
+id = "dst_002"
+alias = "大阪"
+host = "osaka.example.jp"
+port = 2200
+account = "ops"
+
+[[destinations]]
+id = "dst_003"
+alias = "nas"
+host = "nas.example.internal"
+port = 22
+account = "admin"
+
+[[destinations]]
+id = "dst_004"
+alias = "名古屋-backup-東"
+host = "ngy.example.invalid"
+port = 22
+account = "root"

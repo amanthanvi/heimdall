@@ -1,0 +1,36 @@
+{
+ "task": "T1",
+ "lang": "rust",
+ "record_lang": "rust",
+ "platform": "darwin",
+ "result_binary_sha256": "b82bd9600a762776cadebf3ae84e6f8292f2db8ae6d1e59f6bad376b4526fa19",
+ "baseline_subject": "base-rust",
+ "baseline_binary_sha256": "f9a3ec8b46832bc76a7ea33489634e5316568c7d350d269a66b39bf65d5a8b18",
+ "baseline_pinned": true,
+ "valid": true,
+ "problems": [],
+ "total": 14,
+ "pass": 14,
+ "all_pass": true,
+ "baseline_pass": 8,
+ "baseline_fail": 6,
+ "fixed": "6/6",
+ "fixed_checks": [
+  "T1.cont_launcher_only_bash",
+  "T1.cont_launcher_only_zsh",
+  "T1.nested_shell_bash",
+  "T1.nested_shell_zsh",
+  "T1.nonint_stop_cont_SIGSTOP",
+  "T1.nonint_stop_cont_SIGTSTP"
+ ],
+ "still_failing_checks": [],
+ "regressed": 0,
+ "regressed_checks": [],
+ "checks_not_in_baseline": [],
+ "unproven_checks": [
+  "T1.nested_shell_bash",
+  "T1.nested_shell_zsh"
+ ],
+ "all_pass_excluding_unproven": true,
+ "fixed_excluding_unproven": "4/4"
+}

@@ -1,0 +1,10 @@
+{"platform": "darwin", "case": "kill", "stop": "SIGTSTP", "then": "SIGINT", "state_stopped": "T", "state_after_signal": "Z", "wait_after_signal": 2, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "darwin", "case": "kill", "stop": "SIGTSTP", "then": "SIGQUIT", "state_stopped": "T", "state_after_signal": "Z", "wait_after_signal": 3, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "darwin", "case": "kill", "stop": "SIGTSTP", "then": "SIGTERM", "state_stopped": "T", "state_after_signal": "Z", "wait_after_signal": 15, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "darwin", "case": "tty", "stop": "SIGTSTP", "then": "^C", "isig": true, "state_stopped": "Ss+", "state_after_key": "?Es", "wait_after_key": null, "state_after_CONT": "Z", "wait_after_CONT": 2}
+{"platform": "darwin", "case": "tty", "stop": "SIGTSTP", "then": "^\\", "isig": true, "state_stopped": "Ss+", "state_after_key": "?Es", "wait_after_key": null, "state_after_CONT": "Z", "wait_after_CONT": 3}
+{"platform": "darwin", "case": "kill", "stop": "SIGSTOP", "then": "SIGINT", "state_stopped": "T", "state_after_signal": "Z", "wait_after_signal": 2, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "darwin", "case": "kill", "stop": "SIGSTOP", "then": "SIGQUIT", "state_stopped": "T", "state_after_signal": "Z", "wait_after_signal": 3, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "darwin", "case": "kill", "stop": "SIGSTOP", "then": "SIGTERM", "state_stopped": "T", "state_after_signal": "Z", "wait_after_signal": 15, "state_after_CONT": null, "wait_after_CONT": "nochild"}
+{"platform": "darwin", "case": "tty", "stop": "SIGSTOP", "then": "^C", "isig": true, "state_stopped": "Ts+", "state_after_key": "?Es", "wait_after_key": null, "state_after_CONT": "Z", "wait_after_CONT": 2}
+{"platform": "darwin", "case": "tty", "stop": "SIGSTOP", "then": "^\\", "isig": true, "state_stopped": "Ts+", "state_after_key": "?Es", "wait_after_key": null, "state_after_CONT": "Z", "wait_after_CONT": 3}

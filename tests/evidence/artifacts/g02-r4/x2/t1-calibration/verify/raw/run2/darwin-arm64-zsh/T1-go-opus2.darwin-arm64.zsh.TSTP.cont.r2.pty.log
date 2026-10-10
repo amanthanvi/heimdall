@@ -1,0 +1,32 @@
+
+<<SEND "unsetopt zle promptsp promptcr banghist beep; PROMPT='__PS''1__ '; PS2=''\n">>
+unsetopt zle promptsp promptcr banghist beep; PROMPT='__PS''1__ '; PS2=''
+%                                                                               Mac% [?2004hunsetopt zle promptsp promptcr banghist beep; PROMPT='__PS''1__ '; PS2=''[?2004l
+__PS1__ 
+<<SEND 'bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\n'>>
+bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &
+[1] 87558
+__PS1__ 
+<<SEND 'echo "__PID""__ $!"\n'>>
+echo "__PID""__ $!"
+__PID__ 87558
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+[1]  + 87558 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&
+__PS1__ 
+<<SEND 'kill -CONT %1\n'>>
+kill -CONT %1
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+[1]  + 87558 running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+[1]  + running    bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>&
+
+<<SEND '\nexit\n'>>
+__PS1__ 
+exit
+__PS1__ 

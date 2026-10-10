@@ -1,0 +1,232 @@
+{
+ "label": "T1-go-opus2",
+ "platform": "linux-arm64",
+ "shell": "bash",
+ "pid1": true,
+ "runs": [
+  {
+   "scenario": "P1x-TSTP",
+   "via": "T1-go-opus2",
+   "shell": "bash",
+   "steps": [
+    {
+     "key": "ctrl-c",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-z",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-backslash",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    }
+   ],
+   "jobs": "running",
+   "fg": "hung",
+   "prompt_back_by": null,
+   "child_completed": false,
+   "end_states": {
+    "C": "T",
+    "L": "S"
+   },
+   "cmp": {
+    "jobs": "running",
+    "fg": "hung",
+    "prompt_back_by": null,
+    "child_completed": false
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 </dev/null >/dev/null 2>&1 &\n[1] 8\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+     8 Running    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1 &\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 < /dev/null > /dev/null 2>&1\n^C^Z^\\",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell",
+     "child",
+     "launcher"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 25.0,
+   "rep": 1
+  },
+  {
+   "scenario": "P2x-TSTP",
+   "via": "T1-go-opus2",
+   "shell": "bash",
+   "steps": [
+    {
+     "key": "ctrl-c",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-z",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-backslash",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    }
+   ],
+   "jobs": "running",
+   "fg": "hung",
+   "prompt_back_by": null,
+   "child_completed": false,
+   "end_states": {
+    "C": "T",
+    "L": "S"
+   },
+   "cmp": {
+    "jobs": "running",
+    "fg": "hung",
+    "prompt_back_by": null,
+    "child_completed": false
+   },
+   "transcript": "@P@ set +H; bind 'set enable-bracketed-paste off' 2>/dev/null; PS1='@P@ '\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n[1] 19\n@P@ echo \"@M\"\"K2@\"\n@MK2@\n@P@ jobs -l; echo \"@J\"\"B3@\"\n[1]+    19 Running    <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0 &\n@JB3@\n@P@ fg\n<bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 sleep 6 0\n^C^Z^\\",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell",
+     "child",
+     "launcher"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 25.0,
+   "rep": 1
+  },
+  {
+   "scenario": "P1x-TSTP",
+   "via": "T1-go-opus2",
+   "shell": "bash",
+   "steps": [
+    {
+     "key": "ctrl-c",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-z",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-backslash",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    }
+   ],
+   "jobs": "running",
+   "fg": "hung",
+   "prompt_back_by": null,
+   "child_completed": false,
+   "end_states": {
+    "C": "T",
+    "L": "S"
+   },
+   "cmp": {
+    "jobs": "running",
+    "fg": "hung",
+    "prompt_back_by": null,
+    "child_completed": false
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell",
+     "child",
+     "launcher"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 25.1,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P2x-TSTP",
+   "via": "T1-go-opus2",
+   "shell": "bash",
+   "steps": [
+    {
+     "key": "ctrl-c",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-z",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    },
+    {
+     "key": "ctrl-backslash",
+     "prompt": false,
+     "states": {
+      "C": "T",
+      "L": "S"
+     }
+    }
+   ],
+   "jobs": "running",
+   "fg": "hung",
+   "prompt_back_by": null,
+   "child_completed": false,
+   "end_states": {
+    "C": "T",
+    "L": "S"
+   },
+   "cmp": {
+    "jobs": "running",
+    "fg": "hung",
+    "prompt_back_by": null,
+    "child_completed": false
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell",
+     "child",
+     "launcher"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 25.0,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  }
+ ]
+}

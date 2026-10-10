@@ -1,0 +1,107 @@
+{
+ "build": "T3-go-opus2",
+ "case": "R2-20x5",
+ "variant": "xterm",
+ "rep": 1,
+ "size": "20x5",
+ "keys": [
+  "/",
+  "-"
+ ],
+ "tmux_session": "v1-T3-go-opus2-R2-20x5-xterm",
+ "screens": [
+  {
+   "label": "start",
+   "lines": [
+    "> 東京-サーバー-本番",
+    "  lab-server",
+    "  大阪",
+    "  nas",
+    "5/5"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> 東京-サーバー-本番",
+    "\u001b[0m  lab-server",
+    "  大阪",
+    "  nas",
+    "5/5"
+   ],
+   "cursor": [
+    3,
+    4
+   ],
+   "pane": "20x5"
+  },
+  {
+   "label": "/",
+   "lines": [
+    "> 東京-サーバー-本番",
+    "  lab-server",
+    "  大阪",
+    "  nas",
+    "5/5 /"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> 東京-サーバー-本番",
+    "\u001b[0m  lab-server",
+    "  大阪",
+    "  nas",
+    "5/5 /"
+   ],
+   "cursor": [
+    5,
+    4
+   ],
+   "pane": "20x5"
+  },
+  {
+   "label": "-",
+   "lines": [
+    "> 東京-サーバー-本番",
+    "  lab-server",
+    "  名古屋-backup-東",
+    "",
+    "3/5 /-"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> 東京\u001b[4m-\u001b[0;1m\u001b[36mサーバー-本番",
+    "\u001b[0m  lab\u001b[4m-\u001b[0mserver",
+    "  名古屋\u001b[4m-\u001b[0mbackup-東",
+    "",
+    "3/5 /-"
+   ],
+   "cursor": [
+    6,
+    4
+   ],
+   "pane": "20x5"
+  }
+ ],
+ "pane_id": "%64",
+ "pane_size": "20x5",
+ "tmux_version": "3.8",
+ "default_terminal": "tmux-256color",
+ "exited_by_itself": true,
+ "chunks": [
+  {
+   "key": "start",
+   "n": 157,
+   "esc": "\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> \\u6771\\u4eac-\\u30b5\\u30fc\\u30d0\\u30fc-\\u672c\\u756a\\x1b[m\\r\\n  lab-server\\r\\n  \\u5927\\u962a\\x1b[7G\\r\\n  nas\\r\\n5/5",
+   "b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bW20bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1ttG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IOadseS6rC3jgrXjg7zjg5Djg7wt5pys55WqG1ttDQogIGxhYi1zZXJ2ZXINCiAg5aSn6ZiqG1s3Rw0KICBuYXMNCjUvNQ=="
+  },
+  {
+   "key": "/",
+   "n": 106,
+   "esc": "\\x1b[?2026h\\x1b[H\\x1b[H\\x1b[2J\\x1b[36;1m> \\u6771\\u4eac-\\u30b5\\u30fc\\u30d0\\u30fc-\\u672c\\u756a\\x1b[m\\r\\n  lab-server\\r\\n  \\u5927\\u962a\\x1b[7G\\r\\n  nas\\r\\n5/5 /\\x1b[?2026l",
+   "b64": "G1s/MjAyNmgbW0gbW0gbWzJKG1szNjsxbT4g5p2x5LqsLeOCteODvOODkOODvC3mnKznlaobW20NCiAgbGFiLXNlcnZlcg0KICDlpKfpmKobWzdHDQogIG5hcw0KNS81IC8bWz8yMDI2bA=="
+  },
+  {
+   "key": "-",
+   "n": 139,
+   "esc": "\\x1b[?2026h\\x1b[H\\x1b[H\\x1b[2J\\x1b[36;1m> \\u6771\\u4eac\\x1b[4m-\\x1b[24m\\u30b5\\u30fc\\u30d0\\u30fc-\\u672c\\u756a\\x1b[m\\r\\n  lab\\x1b[4m-\\x1b[mserver\\r\\n  \\u540d\\u53e4\\u5c4b\\x1b[4m-\\x1b[mbackup-\\u6771\\x1b[19G\\r\\n\\n3/5 /-\\x1b[?2026l",
+   "b64": "G1s/MjAyNmgbW0gbW0gbWzJKG1szNjsxbT4g5p2x5LqsG1s0bS0bWzI0beOCteODvOODkOODvC3mnKznlaobW20NCiAgbGFiG1s0bS0bW21zZXJ2ZXINCiAg5ZCN5Y+k5bGLG1s0bS0bW21iYWNrdXAt5p2xG1sxOUcNCgozLzUgLy0bWz8yMDI2bA=="
+  }
+ ],
+ "tail_after_last_key_esc": "\\x1b[>4m\\x1b[m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l",
+ "program_env": "PATH=/usr/bin:/bin HOME=<sandbox>/home LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 TMPDIR=<sandbox>/tmp TERM=xterm-256color"
+}

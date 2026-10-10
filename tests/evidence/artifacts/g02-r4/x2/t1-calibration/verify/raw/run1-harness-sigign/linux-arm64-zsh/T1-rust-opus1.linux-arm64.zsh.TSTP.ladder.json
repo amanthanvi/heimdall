@@ -1,0 +1,755 @@
+[
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:53:46Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 656,
+      "ppid": 655,
+      "pgid": 656,
+      "sid": 655,
+      "tpgid": 656,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 658,
+      "ppid": 656,
+      "pgid": 656,
+      "sid": 655,
+      "tpgid": 656,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 655,
+      "ppid": 654,
+      "pgid": 655,
+      "sid": 655,
+      "tpgid": 656,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 656,
+      "ppid": 655,
+      "pgid": 656,
+      "sid": 655,
+      "tpgid": 656,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 658,
+      "ppid": 656,
+      "pgid": 656,
+      "sid": 655,
+      "tpgid": 656,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>\r\n^Z\r\nzsh: suspended  bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+    "procs": {
+     "launcher": {
+      "pid": 656,
+      "ppid": 655,
+      "pgid": 656,
+      "sid": 655,
+      "tpgid": 655,
+      "state": "T",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 658,
+      "ppid": 656,
+      "pgid": 656,
+      "sid": 655,
+      "tpgid": 655,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 655,
+      "ppid": 654,
+      "pgid": 655,
+      "sid": 655,
+      "tpgid": 655,
+      "state": "S",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 655,
+      "ppid": 654,
+      "pgid": 655,
+      "sid": 655,
+      "tpgid": 655,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 655,
+  "job_line": "bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 656",
+  "job_pid": 656,
+  "launcher_children": [
+   658
+  ],
+  "program_pid": 658,
+  "before_signal": {
+   "launcher": {
+    "pid": 656,
+    "ppid": 655,
+    "pgid": 656,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 658,
+    "ppid": 656,
+    "pgid": 656,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 655,
+    "ppid": 654,
+    "pgid": 655,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 658,
+  "after_signal": {
+   "launcher": {
+    "pid": 656,
+    "ppid": 655,
+    "pgid": 656,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 658,
+    "ppid": 656,
+    "pgid": 656,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 655,
+    "ppid": 654,
+    "pgid": 655,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 656 running    bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+  "after_jobs": {
+   "launcher": {
+    "pid": 656,
+    "ppid": 655,
+    "pgid": 656,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 658,
+    "ppid": 656,
+    "pgid": 656,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 655,
+    "ppid": 654,
+    "pgid": 655,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 655,
+    "ppid": 654,
+    "pgid": 655,
+    "sid": 655,
+    "tpgid": 655,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 658,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 656,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:53:56Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 660,
+      "ppid": 659,
+      "pgid": 660,
+      "sid": 659,
+      "tpgid": 660,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 662,
+      "ppid": 660,
+      "pgid": 660,
+      "sid": 659,
+      "tpgid": 660,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 659,
+      "ppid": 654,
+      "pgid": 659,
+      "sid": 659,
+      "tpgid": 660,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 660,
+      "ppid": 659,
+      "pgid": 660,
+      "sid": 659,
+      "tpgid": 660,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 662,
+      "ppid": 660,
+      "pgid": 660,
+      "sid": 659,
+      "tpgid": 660,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>\r\n^Z\r\nzsh: suspended  bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+    "procs": {
+     "launcher": {
+      "pid": 660,
+      "ppid": 659,
+      "pgid": 660,
+      "sid": 659,
+      "tpgid": 659,
+      "state": "T",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 662,
+      "ppid": 660,
+      "pgid": 660,
+      "sid": 659,
+      "tpgid": 659,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 659,
+      "ppid": 654,
+      "pgid": 659,
+      "sid": 659,
+      "tpgid": 659,
+      "state": "S",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 659,
+      "ppid": 654,
+      "pgid": 659,
+      "sid": 659,
+      "tpgid": 659,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 659,
+  "job_line": "bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 660",
+  "job_pid": 660,
+  "launcher_children": [
+   662
+  ],
+  "program_pid": 662,
+  "before_signal": {
+   "launcher": {
+    "pid": 660,
+    "ppid": 659,
+    "pgid": 660,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 662,
+    "ppid": 660,
+    "pgid": 660,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 659,
+    "ppid": 654,
+    "pgid": 659,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 662,
+  "after_signal": {
+   "launcher": {
+    "pid": 660,
+    "ppid": 659,
+    "pgid": 660,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 662,
+    "ppid": 660,
+    "pgid": 660,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 659,
+    "ppid": 654,
+    "pgid": 659,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 660 running    bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+  "after_jobs": {
+   "launcher": {
+    "pid": 660,
+    "ppid": 659,
+    "pgid": 660,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 662,
+    "ppid": 660,
+    "pgid": 660,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 659,
+    "ppid": 654,
+    "pgid": 659,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 659,
+    "ppid": 654,
+    "pgid": 659,
+    "sid": 659,
+    "tpgid": 659,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 662,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 660,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-rust-opus1",
+  "binary": "bin/T1-rust-opus1/linux-arm64/heimdall-proto",
+  "shell": "zsh",
+  "platform": "linux-arm64",
+  "signal": "TSTP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:54:06Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 664,
+      "ppid": 663,
+      "pgid": 664,
+      "sid": 663,
+      "tpgid": 664,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 666,
+      "ppid": 664,
+      "pgid": 664,
+      "sid": 663,
+      "tpgid": 664,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 663,
+      "ppid": 654,
+      "pgid": 663,
+      "sid": 663,
+      "tpgid": 664,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 664,
+      "ppid": 663,
+      "pgid": 664,
+      "sid": 663,
+      "tpgid": 664,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 666,
+      "ppid": 664,
+      "pgid": 664,
+      "sid": 663,
+      "tpgid": 664,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + running    bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>\r\n^Z\r\nzsh: suspended  bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+    "procs": {
+     "launcher": {
+      "pid": 664,
+      "ppid": 663,
+      "pgid": 664,
+      "sid": 663,
+      "tpgid": 663,
+      "state": "T",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 666,
+      "ppid": 664,
+      "pgid": 664,
+      "sid": 663,
+      "tpgid": 663,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 663,
+      "ppid": 654,
+      "pgid": 663,
+      "sid": 663,
+      "tpgid": 663,
+      "state": "S",
+      "comm": "zsh"
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": true,
+    "output": "fg\r\n[1]  + continued  bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 663,
+      "ppid": 654,
+      "pgid": 663,
+      "sid": 663,
+      "tpgid": 663,
+      "state": "S",
+      "comm": "zsh"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 663,
+  "job_line": "bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 664",
+  "job_pid": 664,
+  "launcher_children": [
+   666
+  ],
+  "program_pid": 666,
+  "before_signal": {
+   "launcher": {
+    "pid": 664,
+    "ppid": 663,
+    "pgid": 664,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 666,
+    "ppid": 664,
+    "pgid": 664,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 663,
+    "ppid": 654,
+    "pgid": 663,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "signal_sent_to": 666,
+  "after_signal": {
+   "launcher": {
+    "pid": 664,
+    "ppid": 663,
+    "pgid": 664,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 666,
+    "ppid": 664,
+    "pgid": 664,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 663,
+    "ppid": 654,
+    "pgid": 663,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]  + 664 running    bin/T1-rust-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>",
+  "after_jobs": {
+   "launcher": {
+    "pid": 664,
+    "ppid": 663,
+    "pgid": 664,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 666,
+    "ppid": 664,
+    "pgid": 664,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 663,
+    "ppid": 654,
+    "pgid": 663,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "worked": "b",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 663,
+    "ppid": 654,
+    "pgid": 663,
+    "sid": 663,
+    "tpgid": 663,
+    "state": "S",
+    "comm": "zsh"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 666,
+    "action": "none",
+    "reason": "gone"
+   },
+   {
+    "pid": 664,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

@@ -1,0 +1,1232 @@
+[
+ {
+  "build": "T1-go-sonnet1",
+  "binary": "bin/T1-go-sonnet1/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:48:56Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 619,
+      "ppid": 618,
+      "pgid": 619,
+      "sid": 618,
+      "tpgid": 618,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 627,
+      "ppid": 619,
+      "pgid": 627,
+      "sid": 618,
+      "tpgid": 618,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 618,
+      "ppid": 617,
+      "pgid": 618,
+      "sid": 618,
+      "tpgid": 618,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 619,
+      "ppid": 618,
+      "pgid": 619,
+      "sid": 618,
+      "tpgid": 618,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 627,
+      "ppid": 619,
+      "pgid": 627,
+      "sid": 618,
+      "tpgid": 618,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 618,
+      "ppid": 617,
+      "pgid": 618,
+      "sid": 618,
+      "tpgid": 618,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+   619 Running                 bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 619,
+      "ppid": 618,
+      "pgid": 619,
+      "sid": 618,
+      "tpgid": 627,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 627,
+      "ppid": 619,
+      "pgid": 627,
+      "sid": 618,
+      "tpgid": 627,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 618,
+      "ppid": 617,
+      "pgid": 618,
+      "sid": 618,
+      "tpgid": 627,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 619,
+      "ppid": 618,
+      "pgid": 619,
+      "sid": 618,
+      "tpgid": 627,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 627,
+      "ppid": 619,
+      "pgid": 627,
+      "sid": 618,
+      "tpgid": 627,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     }
+    }
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "handler",
+   "SIGQUIT": "DFL",
+   "SIGHUP": "DFL",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 618,
+  "job_line": "bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 619",
+  "job_pid": 619,
+  "launcher_children": [
+   627
+  ],
+  "program_pid": 627,
+  "before_signal": {
+   "launcher": {
+    "pid": 619,
+    "ppid": 618,
+    "pgid": 619,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 627,
+    "ppid": 619,
+    "pgid": 627,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 618,
+    "ppid": 617,
+    "pgid": 618,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 627,
+  "after_signal": {
+   "launcher": {
+    "pid": 619,
+    "ppid": 618,
+    "pgid": 619,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 627,
+    "ppid": 619,
+    "pgid": 627,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 618,
+    "ppid": 617,
+    "pgid": 618,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   619 Running                 bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 619,
+    "ppid": 618,
+    "pgid": 619,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 627,
+    "ppid": 619,
+    "pgid": 627,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 618,
+    "ppid": 617,
+    "pgid": 618,
+    "sid": 618,
+    "tpgid": 618,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 619,
+    "ppid": 618,
+    "pgid": 619,
+    "sid": 618,
+    "tpgid": 627,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 627,
+    "ppid": 619,
+    "pgid": 627,
+    "sid": 618,
+    "tpgid": 627,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 619,
+    "ppid": 618,
+    "pgid": 619,
+    "sid": 618,
+    "tpgid": 627,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 627,
+    "ppid": 619,
+    "pgid": 627,
+    "sid": 618,
+    "tpgid": 627,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 618,
+    "ppid": 617,
+    "pgid": 618,
+    "sid": 618,
+    "tpgid": 627,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 627,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 627,
+     "ppid": 619,
+     "pgid": 627,
+     "sid": 618,
+     "tpgid": 627,
+     "state": "T",
+     "comm": "sleep",
+     "sigign": []
+    },
+    "after": null
+   },
+   {
+    "pid": 619,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-sonnet1",
+  "binary": "bin/T1-go-sonnet1/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:49:11Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 630,
+      "ppid": 629,
+      "pgid": 630,
+      "sid": 629,
+      "tpgid": 629,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 638,
+      "ppid": 630,
+      "pgid": 638,
+      "sid": 629,
+      "tpgid": 629,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 629,
+      "ppid": 617,
+      "pgid": 629,
+      "sid": 629,
+      "tpgid": 629,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 630,
+      "ppid": 629,
+      "pgid": 630,
+      "sid": 629,
+      "tpgid": 629,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 638,
+      "ppid": 630,
+      "pgid": 638,
+      "sid": 629,
+      "tpgid": 629,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 629,
+      "ppid": 617,
+      "pgid": 629,
+      "sid": 629,
+      "tpgid": 629,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+   630 Running                 bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 630,
+      "ppid": 629,
+      "pgid": 630,
+      "sid": 629,
+      "tpgid": 638,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 638,
+      "ppid": 630,
+      "pgid": 638,
+      "sid": 629,
+      "tpgid": 638,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 629,
+      "ppid": 617,
+      "pgid": 629,
+      "sid": 629,
+      "tpgid": 638,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 630,
+      "ppid": 629,
+      "pgid": 630,
+      "sid": 629,
+      "tpgid": 638,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 638,
+      "ppid": 630,
+      "pgid": 638,
+      "sid": 629,
+      "tpgid": 638,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     }
+    }
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "handler",
+   "SIGQUIT": "DFL",
+   "SIGHUP": "DFL",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 629,
+  "job_line": "bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 630",
+  "job_pid": 630,
+  "launcher_children": [
+   638
+  ],
+  "program_pid": 638,
+  "before_signal": {
+   "launcher": {
+    "pid": 630,
+    "ppid": 629,
+    "pgid": 630,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 638,
+    "ppid": 630,
+    "pgid": 638,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 629,
+    "ppid": 617,
+    "pgid": 629,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 638,
+  "after_signal": {
+   "launcher": {
+    "pid": 630,
+    "ppid": 629,
+    "pgid": 630,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 638,
+    "ppid": 630,
+    "pgid": 638,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 629,
+    "ppid": 617,
+    "pgid": 629,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   630 Running                 bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 630,
+    "ppid": 629,
+    "pgid": 630,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 638,
+    "ppid": 630,
+    "pgid": 638,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 629,
+    "ppid": 617,
+    "pgid": 629,
+    "sid": 629,
+    "tpgid": 629,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 630,
+    "ppid": 629,
+    "pgid": 630,
+    "sid": 629,
+    "tpgid": 638,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 638,
+    "ppid": 630,
+    "pgid": 638,
+    "sid": 629,
+    "tpgid": 638,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 630,
+    "ppid": 629,
+    "pgid": 630,
+    "sid": 629,
+    "tpgid": 638,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 638,
+    "ppid": 630,
+    "pgid": 638,
+    "sid": 629,
+    "tpgid": 638,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 629,
+    "ppid": 617,
+    "pgid": 629,
+    "sid": 629,
+    "tpgid": 638,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 638,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 638,
+     "ppid": 630,
+     "pgid": 638,
+     "sid": 629,
+     "tpgid": 638,
+     "state": "T",
+     "comm": "sleep",
+     "sigign": []
+    },
+    "after": null
+   },
+   {
+    "pid": 630,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-sonnet1",
+  "binary": "bin/T1-go-sonnet1/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T07:49:26Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 641,
+      "ppid": 640,
+      "pgid": 641,
+      "sid": 640,
+      "tpgid": 640,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 649,
+      "ppid": 641,
+      "pgid": 649,
+      "sid": 640,
+      "tpgid": 640,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 640,
+      "ppid": 617,
+      "pgid": 640,
+      "sid": 640,
+      "tpgid": 640,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 641,
+      "ppid": 640,
+      "pgid": 641,
+      "sid": 640,
+      "tpgid": 640,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 649,
+      "ppid": 641,
+      "pgid": 649,
+      "sid": 640,
+      "tpgid": 640,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 640,
+      "ppid": 617,
+      "pgid": 640,
+      "sid": 640,
+      "tpgid": 640,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+   641 Running                 bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 641,
+      "ppid": 640,
+      "pgid": 641,
+      "sid": 640,
+      "tpgid": 649,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 649,
+      "ppid": 641,
+      "pgid": 649,
+      "sid": 640,
+      "tpgid": 649,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     },
+     "shell": {
+      "pid": 640,
+      "ppid": 617,
+      "pgid": 640,
+      "sid": 640,
+      "tpgid": 649,
+      "state": "S",
+      "comm": "bash",
+      "sigign": [
+       "SIGQUIT",
+       "SIGTERM",
+       "SIGTSTP",
+       "SIGTTIN",
+       "SIGTTOU"
+      ]
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 641,
+      "ppid": 640,
+      "pgid": 641,
+      "sid": 640,
+      "tpgid": 649,
+      "state": "S",
+      "comm": "heimdall-proto",
+      "sigign": [
+       "SIGTTOU"
+      ]
+     },
+     "program": {
+      "pid": 649,
+      "ppid": 641,
+      "pgid": 649,
+      "sid": 640,
+      "tpgid": 649,
+      "state": "T",
+      "comm": "sleep",
+      "sigign": []
+     }
+    }
+   }
+  ],
+  "harness_dispositions": {
+   "SIGINT": "handler",
+   "SIGQUIT": "DFL",
+   "SIGHUP": "DFL",
+   "SIGTERM": "DFL",
+   "SIGPIPE": "IGN",
+   "SIGTSTP": "DFL",
+   "SIGTTIN": "DFL",
+   "SIGTTOU": "DFL",
+   "SIGCONT": "DFL",
+   "SIGCHLD": "DFL",
+   "SIGUSR1": "DFL",
+   "SIGUSR2": "DFL",
+   "SIGALRM": "DFL",
+   "SIGWINCH": "DFL"
+  },
+  "shell_started_with_default_dispositions": true,
+  "shell_pid": 640,
+  "job_line": "bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 641",
+  "job_pid": 641,
+  "launcher_children": [
+   649
+  ],
+  "program_pid": 649,
+  "before_signal": {
+   "launcher": {
+    "pid": 641,
+    "ppid": 640,
+    "pgid": 641,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 649,
+    "ppid": 641,
+    "pgid": 649,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 640,
+    "ppid": 617,
+    "pgid": 640,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "signal_sent_to": 649,
+  "after_signal": {
+   "launcher": {
+    "pid": 641,
+    "ppid": 640,
+    "pgid": 641,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 649,
+    "ppid": 641,
+    "pgid": 649,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 640,
+    "ppid": 617,
+    "pgid": 640,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   641 Running                 bin/T1-go-sonnet1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 641,
+    "ppid": 640,
+    "pgid": 641,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 649,
+    "ppid": 641,
+    "pgid": 649,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 640,
+    "ppid": 617,
+    "pgid": 640,
+    "sid": 640,
+    "tpgid": 640,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 641,
+    "ppid": 640,
+    "pgid": 641,
+    "sid": 640,
+    "tpgid": 649,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 649,
+    "ppid": 641,
+    "pgid": 649,
+    "sid": 640,
+    "tpgid": 649,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 641,
+    "ppid": 640,
+    "pgid": 641,
+    "sid": 640,
+    "tpgid": 649,
+    "state": "S",
+    "comm": "heimdall-proto",
+    "sigign": [
+     "SIGTTOU"
+    ]
+   },
+   "program": {
+    "pid": 649,
+    "ppid": 641,
+    "pgid": 649,
+    "sid": 640,
+    "tpgid": 649,
+    "state": "T",
+    "comm": "sleep",
+    "sigign": []
+   },
+   "shell": {
+    "pid": 640,
+    "ppid": 617,
+    "pgid": 640,
+    "sid": 640,
+    "tpgid": 649,
+    "state": "S",
+    "comm": "bash",
+    "sigign": [
+     "SIGQUIT",
+     "SIGTERM",
+     "SIGTSTP",
+     "SIGTTIN",
+     "SIGTTOU"
+    ]
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 649,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 649,
+     "ppid": 641,
+     "pgid": 649,
+     "sid": 640,
+     "tpgid": 649,
+     "state": "T",
+     "comm": "sleep",
+     "sigign": []
+    },
+    "after": null
+   },
+   {
+    "pid": 641,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

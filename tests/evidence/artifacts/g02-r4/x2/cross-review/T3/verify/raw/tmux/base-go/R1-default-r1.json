@@ -1,0 +1,136 @@
+{
+ "build": "base-go",
+ "case": "R1",
+ "variant": "default",
+ "rep": 1,
+ "size": "20x5",
+ "keys": [
+  "/",
+  "東",
+  "京"
+ ],
+ "tmux_session": "v1-base-go-R1-default",
+ "screens": [
+  {
+   "label": "start",
+   "lines": [
+    "> lab-server",
+    "  nas",
+    "  vps-東京",
+    "",
+    "3/3"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> lab-server\u001b[0m",
+    "  nas",
+    "  vps-東京",
+    "",
+    "3/3"
+   ],
+   "cursor": [
+    3,
+    4
+   ],
+   "pane": "20x5"
+  },
+  {
+   "label": "/",
+   "lines": [
+    "> lab-server",
+    "  nas",
+    "  vps-東京",
+    "",
+    "3/3 /"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> lab-server\u001b[0m",
+    "  nas",
+    "  vps-東京",
+    "",
+    "3/3 /"
+   ],
+   "cursor": [
+    5,
+    4
+   ],
+   "pane": "20x5"
+  },
+  {
+   "label": "東",
+   "lines": [
+    "> vps-東京",
+    "",
+    "",
+    "",
+    "1/3 /東"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> vps-東京\u001b[0m",
+    "",
+    "",
+    "",
+    "1/3 /東"
+   ],
+   "cursor": [
+    7,
+    4
+   ],
+   "pane": "20x5"
+  },
+  {
+   "label": "京",
+   "lines": [
+    "> vps-東京",
+    "",
+    "",
+    "",
+    "1/3 /東京"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[36m> vps-東京\u001b[0m",
+    "",
+    "",
+    "",
+    "1/3 /東京"
+   ],
+   "cursor": [
+    9,
+    4
+   ],
+   "pane": "20x5"
+  }
+ ],
+ "pane_id": "%46",
+ "pane_size": "20x5",
+ "tmux_version": "3.8",
+ "default_terminal": "tmux-256color",
+ "exited_by_itself": true,
+ "chunks": [
+  {
+   "key": "start",
+   "n": 127,
+   "esc": "\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server\\x1b[m\\r\\n  nas\\r\\n  vps-\\u6771\\u4eac\\x1b[11G\\r\\n\\n3/3",
+   "b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0KCjMvMw=="
+  },
+  {
+   "key": "/",
+   "n": 18,
+   "esc": "\\x1b[?2026h /\\x1b[?2026l",
+   "b64": "G1s/MjAyNmggLxtbPzIwMjZs"
+  },
+  {
+   "key": "東",
+   "n": 73,
+   "esc": "\\x1b[?2026h\\x1b[1;3H\\x1b[36;1mvps-\\u6771\\u4eac\\x1b[m\\x1b[K\\x1b[11G\\r\\n\\x1b[K\\n\\x1b[K\\n\\n1/3 /\\u6771\\x1b[8G\\x1b[?2026l",
+   "b64": "G1s/MjAyNmgbWzE7M0gbWzM2OzFtdnBzLeadseS6rBtbbRtbSxtbMTFHDQobW0sKG1tLCgoxLzMgL+adsRtbOEcbWz8yMDI2bA=="
+  },
+  {
+   "key": "京",
+   "n": 24,
+   "esc": "\\x1b[?2026h\\u4eac\\x1b[10G\\x1b[?2026l",
+   "b64": "G1s/MjAyNmjkuqwbWzEwRxtbPzIwMjZs"
+  }
+ ],
+ "tail_after_last_key_esc": "\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l",
+ "program_env": "PATH=/usr/bin:/bin HOME=<sandbox>/home LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 TMPDIR=<sandbox>/tmp TERM=tmux-256color TMUX=<private-socket>,<server-pid>,<idx> TMUX_PANE=%46 TERM_PROGRAM=tmux TERM_PROGRAM_VERSION=3.8"
+}

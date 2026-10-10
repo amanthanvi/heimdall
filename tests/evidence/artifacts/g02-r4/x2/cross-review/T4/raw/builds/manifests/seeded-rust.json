@@ -1,0 +1,42 @@
+{
+ "candidate": "rust",
+ "rustc": "1.99.0",
+ "targets": [
+  {
+   "target": "darwin-arm64",
+   "path": "darwin-arm64/heimdall-proto",
+   "bytes": 718128,
+   "sha256": "66187b16db9938919cb6a7562a67f8e9db40c42e9de19d2b816f56d3a95de530",
+   "built": true,
+   "error": null,
+   "build_seconds": 3
+  },
+  {
+   "target": "linux-x64",
+   "path": "linux-x64/heimdall-proto",
+   "bytes": 888808,
+   "sha256": "128bff30f833e127c35ce7d81eb4d6b23055fc69c8a8a191e871d4101ca9bdb2",
+   "built": true,
+   "error": null,
+   "build_seconds": 4
+  },
+  {
+   "target": "linux-arm64",
+   "path": "linux-arm64/heimdall-proto",
+   "bytes": 826672,
+   "sha256": "25af8e125d8ab1149ed7301a5ddf8bc45427eeb9ae4dc4ff9d4fe8e3a7859c00",
+   "built": true,
+   "error": null,
+   "build_seconds": 5
+  },
+  {
+   "target": "windows-x64",
+   "path": "windows-x64/heimdall-proto.exe",
+   "bytes": 842752,
+   "sha256": "3d2d871d175bed2b6a54503503a20f0b298cbd9338c7a4de3c574b402ce9e5b7",
+   "built": true,
+   "error": null,
+   "build_seconds": 3
+  }
+ ]
+}

@@ -1,0 +1,1316 @@
+[
+ {
+  "build": "T1-go-opus1",
+  "binary": "bin/T1-go-opus1/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:41:41Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 302,
+      "ppid": 301,
+      "pgid": 302,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 302,
+      "ppid": 301,
+      "pgid": 302,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 302,
+      "ppid": 301,
+      "pgid": 302,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "c:^C",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 302,
+      "ppid": 301,
+      "pgid": 302,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "d:^\\",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 302,
+      "ppid": 301,
+      "pgid": 302,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 303,
+      "ppid": 302,
+      "pgid": 303,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 311,
+      "ppid": 303,
+      "pgid": 311,
+      "sid": 302,
+      "tpgid": 311,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 302,
+  "job_line": "bin/T1-go-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 303",
+  "job_pid": 303,
+  "launcher_children": [
+   311
+  ],
+  "program_pid": 311,
+  "before_signal": {
+   "launcher": {
+    "pid": 303,
+    "ppid": 302,
+    "pgid": 303,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 311,
+    "ppid": 303,
+    "pgid": 311,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 302,
+    "ppid": 301,
+    "pgid": 302,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 311,
+  "after_signal": {
+   "launcher": {
+    "pid": 303,
+    "ppid": 302,
+    "pgid": 303,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 311,
+    "ppid": 303,
+    "pgid": 311,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 302,
+    "ppid": 301,
+    "pgid": 302,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   303 Running                 bin/T1-go-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 303,
+    "ppid": 302,
+    "pgid": 303,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 311,
+    "ppid": 303,
+    "pgid": 311,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 302,
+    "ppid": 301,
+    "pgid": 302,
+    "sid": 302,
+    "tpgid": 302,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 303,
+    "ppid": 302,
+    "pgid": 303,
+    "sid": 302,
+    "tpgid": 311,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 311,
+    "ppid": 303,
+    "pgid": 311,
+    "sid": 302,
+    "tpgid": 311,
+    "state": "T",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 303,
+    "ppid": 302,
+    "pgid": 303,
+    "sid": 302,
+    "tpgid": 311,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 311,
+    "ppid": 303,
+    "pgid": 311,
+    "sid": 302,
+    "tpgid": 311,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 302,
+    "ppid": 301,
+    "pgid": 302,
+    "sid": 302,
+    "tpgid": 311,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 311,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 311,
+     "ppid": 303,
+     "pgid": 311,
+     "sid": 302,
+     "tpgid": 311,
+     "state": "T",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 303,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-opus1",
+  "binary": "bin/T1-go-opus1/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:42:16Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 313,
+      "ppid": 301,
+      "pgid": 313,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 313,
+      "ppid": 301,
+      "pgid": 313,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 313,
+      "ppid": 301,
+      "pgid": 313,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "c:^C",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 313,
+      "ppid": 301,
+      "pgid": 313,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "d:^\\",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 313,
+      "ppid": 301,
+      "pgid": 313,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 314,
+      "ppid": 313,
+      "pgid": 314,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 322,
+      "ppid": 314,
+      "pgid": 322,
+      "sid": 313,
+      "tpgid": 322,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 313,
+  "job_line": "bin/T1-go-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 314",
+  "job_pid": 314,
+  "launcher_children": [
+   322
+  ],
+  "program_pid": 322,
+  "before_signal": {
+   "launcher": {
+    "pid": 314,
+    "ppid": 313,
+    "pgid": 314,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 322,
+    "ppid": 314,
+    "pgid": 322,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 313,
+    "ppid": 301,
+    "pgid": 313,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 322,
+  "after_signal": {
+   "launcher": {
+    "pid": 314,
+    "ppid": 313,
+    "pgid": 314,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 322,
+    "ppid": 314,
+    "pgid": 322,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 313,
+    "ppid": 301,
+    "pgid": 313,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   314 Running                 bin/T1-go-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 314,
+    "ppid": 313,
+    "pgid": 314,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 322,
+    "ppid": 314,
+    "pgid": 322,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 313,
+    "ppid": 301,
+    "pgid": 313,
+    "sid": 313,
+    "tpgid": 313,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 314,
+    "ppid": 313,
+    "pgid": 314,
+    "sid": 313,
+    "tpgid": 322,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 322,
+    "ppid": 314,
+    "pgid": 322,
+    "sid": 313,
+    "tpgid": 322,
+    "state": "T",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 314,
+    "ppid": 313,
+    "pgid": 314,
+    "sid": 313,
+    "tpgid": 322,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 322,
+    "ppid": 314,
+    "pgid": 322,
+    "sid": 313,
+    "tpgid": 322,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 313,
+    "ppid": 301,
+    "pgid": 313,
+    "sid": 313,
+    "tpgid": 322,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 322,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 322,
+     "ppid": 314,
+     "pgid": 322,
+     "sid": 313,
+     "tpgid": 322,
+     "state": "T",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 314,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-opus1",
+  "binary": "bin/T1-go-opus1/linux-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "linux-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:42:51Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 324,
+      "ppid": 301,
+      "pgid": 324,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "b:^Z",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 324,
+      "ppid": 301,
+      "pgid": 324,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "b:fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 324,
+      "ppid": 301,
+      "pgid": 324,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "c:^C",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 324,
+      "ppid": 301,
+      "pgid": 324,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   },
+   {
+    "step": "d:^\\",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 324,
+      "ppid": 301,
+      "pgid": 324,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 325,
+      "ppid": 324,
+      "pgid": 325,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 334,
+      "ppid": 325,
+      "pgid": 334,
+      "sid": 324,
+      "tpgid": 334,
+      "state": "T",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 324,
+  "job_line": "bin/T1-go-opus1/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "<l-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 325",
+  "job_pid": 325,
+  "launcher_children": [
+   334
+  ],
+  "program_pid": 334,
+  "before_signal": {
+   "launcher": {
+    "pid": 325,
+    "ppid": 324,
+    "pgid": 325,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 334,
+    "ppid": 325,
+    "pgid": 334,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 324,
+    "ppid": 301,
+    "pgid": 324,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 334,
+  "after_signal": {
+   "launcher": {
+    "pid": 325,
+    "ppid": 324,
+    "pgid": 325,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 334,
+    "ppid": 325,
+    "pgid": 334,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 324,
+    "ppid": 301,
+    "pgid": 324,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+   325 Running                 bin/T1-go-opus1/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 325,
+    "ppid": 324,
+    "pgid": 325,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 334,
+    "ppid": 325,
+    "pgid": 334,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 324,
+    "ppid": 301,
+    "pgid": 324,
+    "sid": 324,
+    "tpgid": 324,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 325,
+    "ppid": 324,
+    "pgid": 325,
+    "sid": 324,
+    "tpgid": 334,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 334,
+    "ppid": 325,
+    "pgid": 334,
+    "sid": 324,
+    "tpgid": 334,
+    "state": "T",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 325,
+    "ppid": 324,
+    "pgid": 325,
+    "sid": 324,
+    "tpgid": 334,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 334,
+    "ppid": 325,
+    "pgid": 334,
+    "sid": 324,
+    "tpgid": 334,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 324,
+    "ppid": 301,
+    "pgid": 324,
+    "sid": 324,
+    "tpgid": 334,
+    "state": "S",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 334,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 334,
+     "ppid": 325,
+     "pgid": 334,
+     "sid": 324,
+     "tpgid": 334,
+     "state": "T",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 325,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

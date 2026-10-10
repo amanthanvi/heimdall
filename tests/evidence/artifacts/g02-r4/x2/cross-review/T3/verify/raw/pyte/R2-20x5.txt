@@ -1,0 +1,57 @@
+# repro_bytes.py (cross-review script, this task's binaries) wide 5x20 "/,-" TERM=xterm-256color
+=== base-go-pinned  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|
+   1 |  lab-server|
+   2 |  名古屋-backup-東|
+   4 |3/5 /-|
+  bytes: \x1b[3;3H\u540d\u53e4\u5c4b-backup-\u6771\x1b[19G\r\n\x1b[K\n3/5 /-
+=== base-go  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|
+   1 |  lab-server|
+   2 |  名古屋-backup-東|
+   4 |3/5 /-|
+  bytes: \x1b[3;3H\u540d\u53e4\u5c4b-backup-\u6771\x1b[19G\r\n\x1b[K\n3/5 /-
+=== T3-go-opus1  last key '-'  oracle ok=False
+   0 |> 東 --サーバー-本番|  ul=[5]
+   1 |  la-sserver|  ul=[4]
+   2 |  名古屋-backup-東|  ul=[8]
+   4 |3/5 /-|
+  issues: ["rows do not match any contiguous window of the expected rows; first rows ['> 東 --サーバー-本番', '  la-sserver', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"]
+  bytes: \x1b[1d\x1b[36;1;4m-\x1b[m\n\x08\x08\x1b[4m-\x1b[ms\r\n  \u540d\u53e4\u5c4b\x1b[4m-\x1b[mbackup-\u6771\x1b[19G\r\n\x1b[K\n3/5 /-
+=== T3-go-opus2  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|  ul=[6]
+   1 |  lab-server|  ul=[5]
+   2 |  名古屋-backup-東|  ul=[8]
+   4 |3/5 /-|
+  bytes: \x1b[H\x1b[H\x1b[2J\x1b[36;1m> \u6771\u4eac\x1b[4m-\x1b[24m\u30b5\u30fc\u30d0\u30fc-\u672c\u756a\x1b[m\r\n  lab\x1b[4m-\x1b[mserver\r\n  \u540d\u53e4\u5c4b\x1b[4m-\x1b[mbackup-\u6771\x1b[19G\r\n\n3/5 /-
+=== T3-go-sonnet1  last key '-'  oracle ok=False
+   0 |> 東 --サーバー-本番|  ul=[5]
+   1 |  la-sserver|  ul=[4]
+   2 |  名古屋-backup-東|  ul=[8]
+   4 |3/5 /-|
+  issues: ["rows do not match any contiguous window of the expected rows; first rows ['> 東 --サーバー-本番', '  la-sserver', '  名古屋-backup-東']; expected e.g. ['> 東京-サーバー-本番', '  lab-server', '  名古屋-backup-東']"]
+  bytes: \x1b[1d\x1b[36;1;4m-\x1b[m\n\x08\x08\x1b[4m-\x1b[ms\r\n  \u540d\u53e4\u5c4b\x1b[4m-\x1b[mbackup-\u6771\x1b[19G\r\n\x1b[K\n3/5 /-
+=== base-rust  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|
+   1 |  lab-server|
+   2 |  名古屋-backup-東|
+   4 |3/5  /-|
+  bytes: \x1b[3;3H\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H-backup-\u6771\x1b[4;3H   \x1b[5;1H3\x1b[5;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-opus1  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|  ul=[6]
+   1 |  lab-server|  ul=[5]
+   2 |  名古屋-backup-東|  ul=[8]
+   4 |3/5  /-|
+  bytes: \x1b[1;7H\x1b[1m\x1b[4m\x1b[38;5;6;49m-\x1b[2;6H\x1b[22m\x1b[39;49m-\x1b[3;3H\x1b[24m\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H\x1b[4m-\x1b[24mbackup-\u6771\x1b[4;3H   \x1b[5;1H3\x1b[5;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-opus2  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|  ul=[6]
+   1 |  lab-server|  ul=[5]
+   2 |  名古屋-backup-東|  ul=[8]
+   4 |3/5  /-|
+  bytes: \x1b[1;7H\x1b[1m\x1b[4m\x1b[38;5;6;49m-\x1b[2;6H\x1b[22m\x1b[39;49m-\x1b[3;3H\x1b[24m\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H\x1b[4m-\x1b[24mbackup-\u6771\x1b[4;3H   \x1b[5;1H3\x1b[5;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-sonnet1  last key '-'  oracle ok=True
+   0 |> 東京-サーバー-本番|  ul=[6]
+   1 |  lab-server|  ul=[5]
+   2 |  名古屋-backup-東|  ul=[8]
+   4 |3/5  /-|
+  bytes: \x1b[1;7H\x1b[1m\x1b[4m\x1b[38;5;6;49m-\x1b[2;6H\x1b[22m\x1b[39;49m-\x1b[3;3H\x1b[24m\u540d\x1b[3;5H\u53e4\x1b[3;7H\u5c4b\x1b[3;9H\x1b[4m-\x1b[24mbackup-\u6771\x1b[4;3H   \x1b[5;1H3\x1b[5;7H-\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l

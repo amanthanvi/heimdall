@@ -1,0 +1,1025 @@
+diff --color -ruN -x target -x dist <x2ws>/eval/base/prototypes/rust/REPORT.md <x2ws>/eval/frozen/rust/REPORT.md
+--- <x2ws>/eval/base/prototypes/rust/REPORT.md	2026-10-06 04:41:29
++++ <x2ws>/eval/frozen/rust/REPORT.md	2026-10-10 00:23:20
+@@ -2,7 +2,7 @@
+ 
+ # REPORT.md content — G02 prototype: Rust + Ratatui (M00-T05-rust)
+ 
+-> **Current state:** §15 "Round 3c (2026-10-04)" is the current mechanism and evidence. It supersedes §14's statements that heimdall-proto "never stops itself or anything else" (it now mirrors a child's stop onto its own PID). §14 "Round 3b (2026-10-04)" is otherwise still current. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
++> **Current state:** §17 "X2 T1: exec-equivalent job control" changes when and how a child stop is mirrored (§15) and adds the continue/terminal handling after a mirrored stop; read it together with §15. §15 "Round 3c (2026-10-04)" is otherwise the current mechanism and evidence. It supersedes §14's statements that heimdall-proto "never stops itself or anything else" (it now mirrors a child's stop onto its own PID). §14 "Round 3b (2026-10-04)" is otherwise still current. §4 and §6 describe the round-1 job-control design (child in its own foreground group, self-SIGSTOP, terminal Ctrl-C delivered once on every OS); round 2 replaced it and those statements are superseded. §14 also lists corrections to earlier sections.
+ 
+ **Evidence:** `tests/evidence/g02-rust-selftest.json`, plus `tests/evidence/artifacts/g02-rust/selftest/` (`summary.json` with the real exit code of every step, one log per step). Re-run everything with `prototypes/rust/selftest.sh`.
+ 
+@@ -761,3 +761,72 @@
+   the round-3c bytes.
+ - Windows: see the tables above. The evidence directory contains no full canary value and no user name, host
+   name or home path. Placeholders are `<scratch>`, `<repo>`, `<home>` and `S-1-5-21-<redacted>`.
++
++## 17. X2 T1: exec-equivalent job control for `run` (2026-10-10)
++
++Task X2 T1 (`TASK.md`): in five situations `heimdall-proto run -- cmd` behaved differently from running `cmd`
++directly (plain exec) under a job-control shell or a third party's stops. Only `src/runner.rs` (Unix `run`)
++changed; Windows `run`, the forwarding rules, the exit-status mapping and the meta file are unchanged.
++
++### Baseline → outcome (both checked against a plain-exec control in the same environment)
++
++| Scenario | Before (round-3c code) | Cause | Now |
++|---|---|---|---|
++| S1 non-shell parent, no tty on stdio, own non-orphaned group; third party SIGSTOP/SIGTSTP to the child, 0.5 s, SIGCONT to the child | heimdall-proto never exits (the §9.5 Rust deviation): it mirrored the stop onto itself, and a stopped process cannot see the child being continued | the stop was mirrored whether or not any job-control shell was watching | mirrored only when a job-control shell can be watching; here heimdall-proto keeps waiting, the child completes, exit 7 about 1.2 s after SIGCONT, child reaped |
++| S2 foreground job; third party stops then continues the child | already conformed, deviation (b): notice, `$?` 128+N, job listed stopped until `fg`, `fg` ends it with the child's status | — | unchanged (b) |
++| S3 child stops itself (SIGTSTP); third party SIGCONT to the launcher PID only | child stayed stopped; bash 5.2/zsh then listed the job as running (the §15 "unprobed residual") and on Linux bash `fg` did not finish it | after its mirrored stop, heimdall-proto never continued the child | after a mirrored stop, if no continue reached the child within 10 ms, heimdall-proto sends it SIGCONT; the child's background read then stops it with SIGTTIN, which is mirrored as SIGTTIN (the job is listed stopped, "tty input"); `fg` → the child reads the line, `$?` 9 |
++| S4 nested `bash -i` under `run`, `suspend`, `fg`, `exit 3` | after `fg` the nested bash never answered | the nested bash runs in its own process group and held the terminal; `fg` gave the terminal to heimdall-proto's group and continued only that group | on resume heimdall-proto gives the terminal back to the child's group (only when its own group holds it and the child's group held it before the stop) and continues that group; the nested bash answers, `$?` 3 |
++| S5 `--meta-file`, SIGSTOP (self or third party) | already conformed | — | unchanged: notice, `$?` 128+SIGSTOP, child and launcher stay stopped until `fg`, `$?` 0, meta `CHILD_EXITED` `{"launched": true, "exit_code": 0, "signal": null}` |
++
++### Mechanism (`src/runner.rs`: `job_terminal`, `handle_child_stop`, `resume_child`)
++- **When to mirror.** On a child stop report, heimdall-proto consumes the report and opens `/dev/tty`
++  (read-only, `O_NOCTTY|O_NONBLOCK`, query only). It mirrors only if that succeeds and stdin, stdout or stderr is
++  that terminal (`tcgetsid` = own session) or heimdall-proto's group is the terminal's foreground group. Otherwise
++  no job-control shell reports heimdall-proto's stops, so it just keeps waiting (S1). The §15 grace (200 ms with no
++  continue/exit report, Q18) and the choice of signal (same signal; SIGSTOP when not TSTP/TTIN/TTOU or inherited
++  as ignored) are unchanged. Only heimdall-proto's own PID is stopped (K6a).
++- **After the mirrored stop.** `kill(getpid(), sig)` returns once heimdall-proto has been continued. It then waits
++  up to 10 ms for the continue that `fg`/`bg` sends to the whole group to show up for the child. Then:
++  if the child's group differs from heimdall-proto's, held the terminal before the stop, and heimdall-proto's group
++  holds it now, `tcsetpgrp` gives it back to the child's group (S4); if no continue reached the child, heimdall-proto
++  continues it (`kill(child, SIGCONT)`, or `killpg` of the child's own group when the child left heimdall-proto's
++  group) (S3, S4). With `fg`/`bg` on the shared group nothing extra is sent.
++- **Fresh stops.** A stop within 1 s after heimdall-proto itself continued the child is mirrored after 20 ms
++  instead of 200 ms: heimdall-proto kept running since that SIGCONT, so the report cannot be stale in the Q18 way,
++  and the time in which the shell lists the job as running while the child is stopped stays short (S3).
++
++### Tests (prototype framework)
++- `tests/cli.rs` `x2_s1_third_party_stop_cont_without_terminal` (SIGSTOP and SIGTSTP; stdio null/pipe, own group).
++  Red on the round-3c-code build of this workspace (`HEIMDALL_PROTO_BIN` = baseline darwin artifact): exit 101,
++  "SIGSTOP: heimdall-proto must exit with the child's status". Green now on darwin and in the Linux arm64 container.
++- `tests/pty_tui.py` cases `x2-s1-third-party-stop-cont-no-tty` (also from a driver that owns a controlling tty),
++  `x2-s2-…`, `x2-s3-…`, `x2-s4-…`, `x2-s5-…` for `bash` and `zsh`. Each runs the scenario first as plain exec (the
++  control must behave as TASK.md describes, else the case fails with "control:"), then through heimdall-proto, with
++  the same assertions. `Shell` takes the shell name; a missing zsh is reported as `blocked`, not as a pass.
++  Baseline build: S1, S3 and S4 fail under both shells on darwin (bash 3.2, zsh 5.9) and Linux arm64 (bash 5.2,
++  zsh 5.9, G02 harness image); S2 and S5 pass. New build: 9/9 on both, and 3 more repeats each (plus 3 repeats of
++  the two K6e cases) all pass.
++- Linux pty runs used `HP_LINUX_PTY_IMAGE=heimdall-g02-harness:<tag>` (the G02 harness image, which has zsh); the
++  default python-slim image has no zsh, so the zsh cases are `blocked` there.
++
++### Results (2026-10-10; real exit codes)
++- fmt, clippy `-D warnings` (host and `x86_64-pc-windows-gnu`): 0. `cargo test`: lib 49, bin 4, cli 29 passed.
++  darwin dist CLI tests 29/29. build.sh: all four targets built.
++- pty: darwin dist 36 cases, 35 pass + the known `run-terminal-sigint-not-doubled` limitation; Linux arm64 36/36.
++  Linux arm64 native tests: 49 + 4 + 29 (1 ignored, run separately as uid 10001: `linux_nproc`, passed).
++- Shared harness 2.4.2, read-only: darwin-arm64 exit 0, 139/139; linux-arm64 (`tests/g02/linux/run.sh`) exit 0,
++  139/139. No assertion false in either record, gating or not (k6e zsh and SIGSTOP observations all ok).
++
++### Remaining gaps
++- **S2 uses deviation (b):** a stopped launcher cannot see a third party continue the child, so the shell lists
++  the job as stopped until `fg`.
++- **Not handled (from code reading, not probed):** after a terminal Ctrl-Z (both stopped by the kernel, no
++  mirror), a SIGCONT to the launcher PID only re-stops the launcher after the 200 ms grace instead of continuing
++  the child; an explicit
++  SIGTSTP/SIGSTOP to the launcher PID still stops only the launcher (§9.4, recorded).
++- **Heuristic:** the "job-control shell can be watching" test is a terminal check. With every stdio stream
++  redirected and the launcher in a background group of its terminal, a child stop is not mirrored, so a shell
++  would list such a background job as running while the child is stopped.
++- `tools/gen_notices.py` fails offline in this workspace (`cargo metadata --offline` needs crate sources not in
++  the local cache); build.sh reports it and still builds every target. The same happens on the unchanged code.
++- No independent review of this change was available in this run.
+diff --color -ruN -x target -x dist <x2ws>/eval/base/prototypes/rust/src/runner.rs <x2ws>/eval/frozen/rust/src/runner.rs
+--- <x2ws>/eval/base/prototypes/rust/src/runner.rs	2026-10-06 04:41:29
++++ <x2ws>/eval/frozen/rust/src/runner.rs	2026-10-10 00:23:22
+@@ -30,6 +30,16 @@
+ //!   PID-directed signals.
+ //! * The child is reaped only after the forwarder is disarmed (`waitid(WNOWAIT)`), so
+ //!   a forwarded signal can never hit a recycled PID.
++//! * Job control (round 3c, X2 "exec-equivalent job control"): the shell waits for
++//!   heimdall-proto, not for the child, so a stop of the child is mirrored onto
++//!   heimdall-proto's own PID with the same signal, but only when a job-control shell can
++//!   be watching (heimdall-proto's stdio is the controlling terminal, or its group is the
++//!   terminal's foreground group). Otherwise heimdall-proto just keeps waiting, so a child
++//!   that a third party stops and continues runs to completion (X2 S1). When
++//!   heimdall-proto runs again after a mirrored stop and nothing continued the child
++//!   (SIGCONT to heimdall-proto's PID only, X2 S3; a child in its own process group, X2
++//!   S4), heimdall-proto continues it, and gives the terminal back to the child's group
++//!   if that group held it before the stop. See `handle_child_stop` and `resume_child`.
+ //! * Known stack limitation: Rust std sets SIGPIPE to `SIG_IGN` before `main` and
+ //!   resets it to `SIG_DFL` in every spawned child; stable Rust has no opt-out
+ //!   (`-Zon-broken-pipe=inherit` is nightly-only). An inherited ignored SIGPIPE is
+@@ -41,6 +51,8 @@
+ //! shares the console, so the parent installs a no-op handler and keeps waiting.
+ 
+ use std::ffi::OsString;
++#[cfg(unix)]
++use std::time::{Duration, Instant};
+ 
+ use serde_json::json;
+ 
+@@ -170,32 +182,64 @@
+ /// and read the child's stop report before the child itself has been continued.
+ /// Mirroring that report would re-stop the job right after `fg` (K6e).
+ #[cfg(unix)]
+-const STOP_GRACE: std::time::Duration = std::time::Duration::from_millis(200);
++const STOP_GRACE: Duration = Duration::from_millis(200);
+ 
+-/// Round 3c (§9.4 K6e child-initiated stop). The child reported a stop (for example it
+-/// stopped itself with `kill(getpid(), SIGTSTP)`, as OpenSSH's `~^Z` does). The shell
+-/// waits only for heimdall-proto, so heimdall-proto stops itself with the same signal,
+-/// as the program would have under plain exec, and the shell reports the job stopped.
+-/// Only heimdall-proto's own PID is signalled (K6a: never stop another job member).
+-/// The child shares heimdall-proto's process group, so the shell's `fg`/`bg` (SIGCONT
+-/// to the group) continues both. The stop is mirrored only if it still holds after
+-/// [`STOP_GRACE`] with no continue or exit report.
++/// Grace for a stop that follows heimdall-proto's own SIGCONT to the child (X2 S3: the
++/// continued child reads the terminal in the background and SIGTTIN stops it again).
++/// heimdall-proto kept running since that SIGCONT, so the report cannot be stale in the
++/// way [`STOP_GRACE`] guards against; mirroring it quickly keeps the time in which the
++/// shell lists the job as running while the child is stopped short.
+ #[cfg(unix)]
+-fn mirror_child_stop(pid: rustix::process::Pid) {
+-    use rustix::process::{Signal, WaitId, WaitIdOptions, getpid, kill_process, waitid};
+-    // Consume the stop report (no WEXITED: cannot reap). None: the child was continued
+-    // in between, and its continue report is handled by the caller's loop.
+-    let sig = match waitid(
+-        WaitId::Pid(pid),
+-        WaitIdOptions::STOPPED | WaitIdOptions::NOHANG,
+-    ) {
+-        Ok(Some(st)) => match st.stopping_signal() {
+-            Some(sig) => sig,
+-            None => return,
+-        },
+-        _ => return,
+-    };
+-    let end = std::time::Instant::now() + STOP_GRACE;
++const FRESH_STOP_GRACE: Duration = Duration::from_millis(20);
++
++/// How long after heimdall-proto continued the child a stop counts as fresh.
++#[cfg(unix)]
++const FRESH_WINDOW: Duration = Duration::from_secs(1);
++
++/// After heimdall-proto's own mirrored stop ends, how long to wait for the continue
++/// that the shell's `fg`/`bg` sends to the whole process group to reach the child, before
++/// heimdall-proto concludes that it was continued alone and continues the child itself.
++/// Within one `killpg` the members are continued microseconds apart.
++#[cfg(unix)]
++const RESUME_SETTLE: Duration = Duration::from_millis(10);
++
++/// The controlling terminal, when a job-control shell can be watching heimdall-proto's
++/// stops (X2): `/dev/tty` opens, and stdin, stdout or stderr is that terminal, or
++/// heimdall-proto's process group is its foreground group. `None` otherwise, for example a
++/// non-shell parent that gave heimdall-proto no terminal (X2 S1): nobody reports
++/// heimdall-proto's stops there, and a mirrored stop would only leave heimdall-proto
++/// stopped, unable to see the child being continued. The terminal is opened read-only,
++/// without becoming the controlling terminal, and only queried (and, in
++/// [`resume_child`], handed back to the child's group).
++#[cfg(unix)]
++fn job_terminal() -> Option<std::fs::File> {
++    use rustix::termios::{isatty, tcgetpgrp, tcgetsid};
++    use std::os::fd::AsFd;
++    use std::os::unix::fs::OpenOptionsExt;
++    let tty = std::fs::OpenOptions::new()
++        .read(true)
++        .custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK)
++        .open("/dev/tty")
++        .ok()?;
++    let sid = rustix::process::getsid(None).ok()?;
++    let stdio_on_tty = [
++        std::io::stdin().as_fd(),
++        std::io::stdout().as_fd(),
++        std::io::stderr().as_fd(),
++    ]
++    .into_iter()
++    .any(|fd| isatty(fd) && tcgetsid(fd).ok() == Some(sid));
++    let foreground = tcgetpgrp(&tty).ok() == Some(rustix::process::getpgrp());
++    (stdio_on_tty || foreground).then_some(tty)
++}
++
++/// Poll the child for a continue or exit report (not consumed) for up to `within`.
++/// `Some(true)`: it exited; `Some(false)`: it was continued; `None`: neither (it is
++/// still stopped, or waitid failed).
++#[cfg(unix)]
++fn continued_or_exited(pid: rustix::process::Pid, within: Duration) -> Option<bool> {
++    use rustix::process::{WaitId, WaitIdOptions, waitid};
++    let end = Instant::now() + within;
+     loop {
+         match waitid(
+             WaitId::Pid(pid),
+@@ -204,14 +248,55 @@
+                 | WaitIdOptions::NOWAIT
+                 | WaitIdOptions::NOHANG,
+         ) {
++            Ok(Some(st)) => return Some(!st.continued()),
+             Ok(None) | Err(rustix::io::Errno::INTR) => {}
+-            _ => return, // continued or exited (stale stop), or an error: do not stop
++            Err(_) => return None,
+         }
+-        if std::time::Instant::now() >= end {
+-            break;
++        if Instant::now() >= end {
++            return None;
+         }
+-        std::thread::sleep(std::time::Duration::from_millis(5));
++        std::thread::sleep(Duration::from_millis(1).min(within));
+     }
++}
++
++/// The child reported a stop. Round 3c (§9.4 K6e child-initiated stop) and X2
++/// (exec-equivalent job control).
++///
++/// The stop report is consumed (a `waitid` without `WEXITED`, so the child is never
++/// reaped here). Then:
++/// * No job-control terminal ([`job_terminal`], X2 S1): nothing else. heimdall-proto keeps
++///   waiting, so when a third party continues the child, the child runs to completion and
++///   heimdall-proto exits with its status, as with plain exec.
++/// * Otherwise, if the stop still holds after `grace` with no continue or exit report,
++///   heimdall-proto stops **its own PID** with the same signal (SIGSTOP when the signal is
++///   not TSTP/TTIN/TTOU or was inherited as ignored). The shell waits only for
++///   heimdall-proto, so it now reports the job stopped with the signal that stopped the
++///   child, as under plain exec. Only heimdall-proto's PID is signalled (K6a).
++/// * When heimdall-proto runs again, [`resume_child`] makes sure the child is continued
++///   too and holds the terminal it held before.
++///
++/// Returns true if heimdall-proto continued the child itself.
++#[cfg(unix)]
++fn handle_child_stop(pid: rustix::process::Pid, grace: Duration) -> bool {
++    use rustix::process::{Signal, WaitId, WaitIdOptions, getpid, kill_process, waitid};
++    // Consume the stop report. None: the child was continued in between, and its continue
++    // report is handled by the caller's loop.
++    let sig = match waitid(
++        WaitId::Pid(pid),
++        WaitIdOptions::STOPPED | WaitIdOptions::NOHANG,
++    ) {
++        Ok(Some(st)) => match st.stopping_signal() {
++            Some(sig) => sig,
++            None => return false,
++        },
++        _ => return false,
++    };
++    let Some(tty) = job_terminal() else {
++        return false;
++    };
++    if continued_or_exited(pid, grace).is_some() {
++        return false; // continued or exited (a stale stop): do not stop
++    }
+     // The same stop signal, so the shell names the same stop. SIGTSTP/SIGTTIN/SIGTTOU
+     // are ignored when heimdall-proto inherited them as ignored; SIGSTOP then (and for
+     // SIGSTOP or any other stop) cannot be ignored.
+@@ -223,10 +308,58 @@
+         Some(s) if keep => s,
+         _ => Signal::STOP,
+     };
++    let foreground_before = rustix::termios::tcgetpgrp(&tty).ok();
++    // An unblocked stop signal sent to the calling process takes effect before kill()
++    // returns, so the next line runs once heimdall-proto has been continued (or the kernel
++    // discarded the signal: TSTP/TTIN/TTOU in an orphaned process group).
+     let _ = kill_process(getpid(), own);
++    resume_child(pid, &tty, foreground_before)
+ }
+ 
++/// X2: heimdall-proto runs again after its mirrored stop. Under plain exec, whatever
++/// continued the job continued the child, and `fg` gave the terminal to the child's
++/// process group. Make that hold here:
++/// * S4 (a nested job-control shell): the child had moved into its own process group and
++///   held the terminal; the shell's `fg` gave the terminal to heimdall-proto's group and
++///   continued only that group. Give the terminal back to the child's group (only while
++///   heimdall-proto's group holds it, so no other job loses it, K6a) and continue it.
++/// * S3 (SIGCONT to heimdall-proto's PID only): no continue reached the child, so
++///   heimdall-proto continues it, as the SIGCONT would have under plain exec.
++/// * `fg`/`bg` to the shared group: the child was continued with heimdall-proto; nothing
++///   more is sent.
++///
++/// Returns true if heimdall-proto continued the child.
+ #[cfg(unix)]
++fn resume_child(
++    pid: rustix::process::Pid,
++    tty: &std::fs::File,
++    foreground_before: Option<rustix::process::Pid>,
++) -> bool {
++    use rustix::process::{Signal, getpgid, getpgrp, kill_process, kill_process_group};
++    let report = continued_or_exited(pid, RESUME_SETTLE);
++    if report == Some(true) {
++        return false; // exited: the caller's loop reaps it
++    }
++    let ours = getpgrp();
++    let child_group = getpgid(Some(pid)).ok();
++    if let (Some(cg), Some(fg)) = (child_group, foreground_before)
++        && cg == fg
++        && cg != ours
++        && rustix::termios::tcgetpgrp(tty).ok() == Some(ours)
++    {
++        let _ = rustix::termios::tcsetpgrp(tty, cg);
++    }
++    if report.is_some() {
++        return false; // already continued
++    }
++    let _ = match child_group {
++        Some(cg) if cg != ours => kill_process_group(cg, Signal::CONT),
++        _ => kill_process(pid, Signal::CONT),
++    };
++    true
++}
++
++#[cfg(unix)]
+ pub fn run(argv: &[OsString]) -> RunOutcome {
+     use rustix::io::Errno;
+     use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, kill_process, waitid};
+@@ -309,8 +442,11 @@
+     // Wait for termination without reaping, so the PID stays valid while the
+     // forwarder may still signal it. Round 3c (§9.4 K6e child-initiated stop): stop
+     // and continue reports are read too, and a stop of the child is mirrored onto
+-    // heimdall-proto (see `mirror_child_stop`). Stop/continue reports are consumed with
++    // heimdall-proto (see `handle_child_stop`). Stop/continue reports are consumed with
+     // waitid calls that lack WEXITED, so the child is never reaped here.
++    // X2: a stop that follows heimdall-proto's own SIGCONT to the child is mirrored after
++    // FRESH_STOP_GRACE instead of STOP_GRACE (see `handle_child_stop`).
++    let mut fresh_until: Option<Instant> = None;
+     loop {
+         match waitid(
+             WaitId::Pid(pid),
+@@ -319,7 +455,13 @@
+                 | WaitIdOptions::CONTINUED
+                 | WaitIdOptions::NOWAIT,
+         ) {
+-            Ok(Some(st)) if st.stopped() => mirror_child_stop(pid),
++            Ok(Some(st)) if st.stopped() => {
++                let fresh = fresh_until.take().is_some_and(|t| Instant::now() < t);
++                let grace = if fresh { FRESH_STOP_GRACE } else { STOP_GRACE };
++                if handle_child_stop(pid, grace) {
++                    fresh_until = Some(Instant::now() + FRESH_WINDOW);
++                }
++            }
+             Ok(Some(st)) if st.continued() => {
+                 let _ = waitid(
+                     WaitId::Pid(pid),
+diff --color -ruN -x target -x dist <x2ws>/eval/base/prototypes/rust/tests/cli.rs <x2ws>/eval/frozen/rust/tests/cli.rs
+--- <x2ws>/eval/base/prototypes/rust/tests/cli.rs	2026-10-06 04:41:29
++++ <x2ws>/eval/frozen/rust/tests/cli.rs	2026-10-10 00:23:22
+@@ -923,6 +923,88 @@
+     );
+ }
+ 
++/// True if `pid` is in the stopped state ('T'): /proc on Linux, `ps` elsewhere.
++fn pid_stopped(pid: i32) -> bool {
++    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
++        return stat
++            .rsplit_once(')')
++            .map(|(_, rest)| rest.trim_start().starts_with('T'))
++            .unwrap_or(false);
++    }
++    Command::new("/bin/ps")
++        .args(["-o", "stat=", "-p", &pid.to_string()])
++        .output()
++        .map(|o| o.stdout.trim_ascii_start().starts_with(b"T"))
++        .unwrap_or(false)
++}
++
++/// X2 S1: a parent that is not a shell (this test) starts `run` with no terminal on
++/// stdin, stdout or stderr, in a process group of its own that is not orphaned (this
++/// process, its parent, is in another group of the same session). A third party stops
++/// the child (SIGSTOP; then the same with SIGTSTP), waits 0.5 s and continues the
++/// child's PID only. As with plain exec, the command runs to completion, heimdall-proto
++/// exits with the child's status within 6 s of the SIGCONT, and the child is reaped.
++/// Round 3c mirrored the stop onto heimdall-proto, which then stayed stopped for ever
++/// (contract §9.5): nothing continues it, and a stopped process cannot see the child
++/// being continued. Without a job-control terminal heimdall-proto no longer mirrors.
++#[test]
++fn x2_s1_third_party_stop_cont_without_terminal() {
++    use std::os::unix::process::CommandExt;
++    for sig in ["STOP", "TSTP"] {
++        let d = TempDir::new("x2s1");
++        let done = d.path().join("done");
++        let script = format!(
++            "echo $$; i=0; while [ $i -lt 15 ]; do sleep 0.1; i=$((i+1)); done; : > '{}'; exit 7",
++            done.display()
++        );
++        let mut hp = cmd()
++            .args(["run", "--", "sh", "-c", &script])
++            .process_group(0)
++            .stdin(Stdio::null())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .spawn()
++            .unwrap();
++        let mut r = BufReader::new(hp.stdout.take().unwrap());
++        let mut line = String::new();
++        r.read_line(&mut line).unwrap();
++        let child: i32 = line.trim().parse().unwrap();
++        std::thread::sleep(Duration::from_millis(300));
++        assert!(shell_kill(&format!("-{sig}"), &child.to_string()));
++        std::thread::sleep(Duration::from_millis(500));
++        let was_stopped = pid_stopped(child);
++        assert!(shell_kill("-CONT", &child.to_string()));
++        let t = Instant::now();
++        let status = loop {
++            if let Some(st) = hp.try_wait().unwrap() {
++                break Some(st);
++            }
++            if t.elapsed() > Duration::from_secs(8) {
++                break None;
++            }
++            std::thread::sleep(Duration::from_millis(20));
++        };
++        let waited = t.elapsed();
++        if status.is_none() {
++            shell_kill("-KILL", &hp.id().to_string());
++            shell_kill("-KILL", &child.to_string());
++            let _ = hp.wait();
++        }
++        assert!(was_stopped, "SIG{sig}: precondition: the child was stopped");
++        assert_eq!(
++            status.and_then(|s| s.code()),
++            Some(7),
++            "SIG{sig}: heimdall-proto must exit with the child's status after the child is continued"
++        );
++        assert!(
++            waited <= Duration::from_secs(6),
++            "SIG{sig}: exit {waited:?} after SIGCONT"
++        );
++        assert!(done.exists(), "SIG{sig}: the command ran to completion");
++        assert!(!pid_running(child), "SIG{sig}: the child was reaped");
++    }
++}
++
+ /// Round 3b (round-2 review defect 1; contract §4 "waits for the child and does not
+ /// exit first"): a failure to create the signal-forwarding thread must never leave the
+ /// child running after heimdall-proto has exited. A huge RUST_MIN_STACK (read by std at
+diff --color -ruN -x target -x dist <x2ws>/eval/base/prototypes/rust/tests/pty_tui.py <x2ws>/eval/frozen/rust/tests/pty_tui.py
+--- <x2ws>/eval/base/prototypes/rust/tests/pty_tui.py	2026-10-06 04:41:29
++++ <x2ws>/eval/frozen/rust/tests/pty_tui.py	2026-10-10 00:23:22
+@@ -4,8 +4,10 @@
+ Usage: pty_tui.py <heimdall-proto binary> [--panic-binary <binary built with --features test-panic>]
+ 
+ Stdlib only. Creates a pseudo-terminal per case, makes it the child's controlling
+-terminal, and checks contract §5 behavior plus termios restoration. Prints one JSON
+-summary line; exit status 0 only if every executed case passed.
++terminal, and checks contract §5 behavior plus termios restoration, and the job-control
++behaviour of `run` (K6e; X2 S1-S5 against a plain-exec control under bash and zsh).
++Prints one JSON summary line; exit status 0 only if every executed case passed. A case
++that cannot run here (zsh not installed) is listed under "blocked", not as a pass.
+ """
+ import fcntl
+ import json
+@@ -292,6 +294,11 @@
+     """A documented limitation was observed (reported, not counted as a pass)."""
+ 
+ 
++class Blocked(Exception):
++    """The case cannot run here (for example zsh is not installed): reported as blocked,
++    neither a pass nor a failure."""
++
++
+ def case(name):
+     def deco(fn):
+         def wrapped(*a):
+@@ -299,12 +306,14 @@
+                 return  # case filter for focused runs (selftest always runs every case)
+             t = time.monotonic()
+             print(f"[pty_tui] {name} ...", file=sys.stderr, flush=True)
+-            limitation = False
++            limitation = blocked = False
+             try:
+                 detail = fn(*a)
+                 ok = True
+             except KnownLimitation as e:
+                 ok, limitation, detail = False, True, f"known limitation: {e}"
++            except Blocked as e:
++                ok, blocked, detail = False, True, f"blocked: {e}"
+             except AssertionError as e:
+                 ok, detail = False, f"assertion: {e}"
+             except Exception as e:  # noqa: BLE001
+@@ -313,6 +322,8 @@
+                  "seconds": round(time.monotonic() - t, 3)}
+             if limitation:
+                 r["known_limitation"] = True
++            if blocked:
++                r["blocked"] = True
+             results.append(r)
+         return wrapped
+     return deco
+@@ -893,17 +904,25 @@
+     return int(r.stdout.strip() or 0)
+ 
+ 
++# Interactive job-control shells: argv and the word of the shell's stop notice.
++SHELLS = {
++    "bash": (["/bin/bash", "--norc", "--noprofile", "-i"], b"Stopped"),
++    "zsh": (["/bin/zsh", "-f", "-i"], b"suspended"),
++}
++
++
+ class Shell:
+-    """Interactive bash (job control on) as session leader of a fresh pty."""
++    """Interactive bash (or zsh -f; job control on) as session leader of a fresh pty."""
+ 
+-    def __init__(self):
++    def __init__(self, shell="bash", env=None):
+         self.master, slave = os.openpty()
+         fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
+-        env = {k: v for k, v in os.environ.items() if k != "SSH_AUTH_SOCK"}
+-        env.update({"PS1": "HPS1$ ", "TERM": "dumb", "BASH_SILENCE_DEPRECATION_WARNING": "1",
+-                    "HISTFILE": "/dev/null"})
+-        self.p = subprocess.Popen(["/bin/bash", "--norc", "--noprofile", "-i"], stdin=slave, stdout=slave,
+-                                  stderr=slave, start_new_session=True, env=env,
++        e = {k: v for k, v in os.environ.items() if k != "SSH_AUTH_SOCK"}
++        e.update({"PS1": "HPS1$ ", "TERM": "dumb", "BASH_SILENCE_DEPRECATION_WARNING": "1",
++                  "HISTFILE": "/dev/null"})
++        e.update(env or {})
++        self.p = subprocess.Popen(SHELLS[shell][0], stdin=slave, stdout=slave,
++                                  stderr=slave, start_new_session=True, env=e,
+                                   preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
+         os.close(slave)
+         self.out = b""
+@@ -1153,6 +1172,475 @@
+         sh.close()
+ 
+ 
++# ---------- X2 T1: exec-equivalent job control for `run` (scenarios S1-S5) ----------
++# Every scenario runs twice in the same environment: as plain exec (the control: the same
++# command without the `heimdall-proto run [--meta-file M] --` prefix) and through
++# heimdall-proto. The control must show the plain-exec behaviour the scenario expects (if it
++# does not, the environment is at fault and the case fails with "control:"); heimdall-proto
++# must then match it.
++
++X2_CHILD = r"""
++import os, signal, sys, time
++mode, d = sys.argv[1], sys.argv[2]
++def put(name, text=""):
++    p = os.path.join(d, name)
++    with open(p + ".part", "w") as f:
++        f.write(text)
++    os.replace(p + ".part", p)
++put("pid", "%d %d" % (os.getpid(), os.getppid()))
++if mode == "run":  # S1/S2: run for argv[3] s of wall time, then exit 7
++    end = time.monotonic() + float(sys.argv[3])
++    while time.monotonic() < end:
++        time.sleep(0.02)
++    put("done")
++    sys.exit(7)
++if mode == "selfstop":  # stop ITSELF with argv[3], as OpenSSH's ~^Z does
++    os.kill(os.getpid(), getattr(signal, sys.argv[3]))
++elif mode == "wait":  # stopped by a third party: wait until the driver says so
++    while not os.path.exists(os.path.join(d, "go")):
++        time.sleep(0.02)
++put("resumed")
++line = sys.stdin.readline()  # in the background this read stops the child (SIGTTIN)
++put("got", line.strip())
++sys.exit(int(sys.argv[4]))
++"""
++
++X2_STOPPED = (b"Stopped", b"suspended")  # bash / zsh job-state words in `jobs`
++X2_RUNNING = (b"Running", b"running")
++
++
++def x2_dir(tag):
++    d = tempfile.mkdtemp(prefix=f"x2-{tag}-", dir=TMP)
++    open(os.path.join(d, "c.py"), "w").write(X2_CHILD)
++    return d
++
++
++def x2_wait_file(path, timeout, pump=None):
++    end = time.monotonic() + timeout
++    while time.monotonic() < end:
++        if os.path.exists(path):
++            return True
++        (pump or time.sleep)(0.02)
++    return os.path.exists(path)
++
++
++def x2_pids(d):
++    child, parent = (int(x) for x in open(os.path.join(d, "pid")).read().split())
++    return child, parent
++
++
++def x2_gone(pid):
++    """Neither running nor an unreaped zombie."""
++    return proc_state(pid) in ("", None)
++
++
++def x2_kill(pids):
++    for pid in pids:
++        if pid:
++            try:
++                os.kill(pid, signal.SIGKILL)
++            except (ProcessLookupError, PermissionError):
++                pass
++
++
++class X2Shell(Shell):
++    def __init__(self, shell, d, b):
++        if not os.access(SHELLS[shell][0][0], os.X_OK):
++            raise Blocked(f"{SHELLS[shell][0][0]} is not installed")
++        super().__init__(shell, env={"P": b, "Y": sys.executable, "D": d, "C": os.path.join(d, "c.py")})
++        self.stopw = SHELLS[shell][1]
++        self.d = d
++        assert self.wait_count(b"HPS1$ ", 1, 10.0), f"{shell}: no prompt: {self.out[-200:]!r}"
++        assert b"no job control" not in self.out, f"{shell}: no job control: {self.out[-200:]!r}"
++
++    def line(self, text):
++        self.send(text.encode() + b"\n")
++
++    def wait_since(self, mark, needle, timeout=4.0):
++        end = time.monotonic() + timeout
++        while time.monotonic() < end:
++            if needle in self.out[mark:]:
++                return True
++            self.read_for(0.02)
++        return needle in self.out[mark:]
++
++    def value(self, name, expr="$?", timeout=4.0):
++        """Echo `expr` at the prompt; return its integer value or None."""
++        m = len(self.out)
++        self.line(f'echo "{name}={expr}"')
++        pat = re.compile(name.encode() + rb"=(\d+)")
++        end = time.monotonic() + timeout
++        while time.monotonic() < end:
++            mm = pat.search(self.out[m:])
++            if mm:
++                return int(mm.group(1))
++            self.read_for(0.02)
++        return None
++
++    def jobs(self):
++        """'stopped', 'running' or 'none' from the shell's `jobs` builtin."""
++        m = len(self.out)
++        self.line('jobs; echo "JOBS""-END"')
++        if not self.wait_since(m, b"JOBS-END"):
++            return "no-answer"
++        tail = self.out[m:self.out.find(b"JOBS-END", m)]
++        if any(w in tail for w in X2_STOPPED):
++            return "stopped"
++        if any(w in tail for w in X2_RUNNING):
++            return "running"
++        return "none"
++
++    def pump(self, seconds):
++        self.read_for(seconds)
++
++
++def x2_check(label, ctl, hp, expect):
++    """expect: list of (description, predicate(result) -> bool). The control must satisfy every
++    predicate (else the environment is at fault), then heimdall-proto must."""
++    for desc, pred in expect:
++        assert pred(ctl), f"control (plain exec) {label}: {desc}: {ctl}"
++    for desc, pred in expect:
++        assert pred(hp), f"heimdall-proto {label}: {desc}: {hp} (control {ctl})"
++
++
++def x2_s1_once(b, sig, via):
++    """S1: a non-shell parent; stdio not a terminal; the launcher in its own, non-orphaned process
++    group. A third party stops the child, waits 0.5 s, continues the child PID only."""
++    d = x2_dir("s1")
++    cmd = [sys.executable, os.path.join(d, "c.py"), "run", d, "2.0"]
++    if via:
++        cmd = [b, "run", "--"] + cmd
++    log = open(os.path.join(d, "out"), "wb")
++    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=log, preexec_fn=os.setpgrp)
++    child = None
++    try:
++        assert x2_wait_file(os.path.join(d, "pid"), 10), "child did not start"
++        child, _ = x2_pids(d)
++        time.sleep(0.3)
++        os.kill(child, sig)
++        time.sleep(0.5)
++        stopped = proc_state(child).startswith("T")
++        os.kill(child, signal.SIGCONT)
++        t0 = time.monotonic()
++        try:
++            rc = p.wait(timeout=8)
++        except subprocess.TimeoutExpired:
++            rc = "no exit within 8 s"
++        return {"rc": rc, "exit_s": round(time.monotonic() - t0, 2), "child_stopped": stopped,
++                "completed": os.path.exists(os.path.join(d, "done")), "child_reaped": x2_gone(child)}
++    finally:
++        if p.poll() is None:
++            x2_kill([p.pid, child])
++            p.wait()
++        log.close()
++
++
++def x2_s1_ctty(b, sig, via):
++    """S1 from a driver that has a controlling terminal (the launcher's group is then a
++    background group of that terminal; its stdio is still not a terminal)."""
++    res = os.path.join(TMP, f"s1-ctty-{os.getpid()}-{time.monotonic_ns()}.json")
++    master, slave = os.openpty()
++    pid = os.fork()
++    if pid == 0:
++        code = 1
++        try:
++            os.setsid()
++            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
++            r = x2_s1_once(b, sig, via)
++            json.dump(r, open(res, "w"))
++            code = 0
++        except BaseException as e:  # noqa: BLE001
++            json.dump({"error": repr(e)}, open(res, "w"))
++        os._exit(code)
++    os.close(slave)
++    while True:
++        r, _, _ = select.select([master], [], [], 0.05)
++        if r:
++            try:
++                os.read(master, 65536)
++            except OSError:
++                pass
++        done, _ = os.waitpid(pid, os.WNOHANG)
++        if done:
++            break
++    os.close(master)
++    return json.load(open(res))
++
++
++S1_EXPECT = [
++    ("the child was stopped by the third party", lambda r: r["child_stopped"]),
++    ("the command ran to completion", lambda r: r["completed"]),
++    ("exit status 7 (the child's) within 6 s of SIGCONT", lambda r: r["rc"] == 7 and r["exit_s"] <= 6.0),
++    ("the child was reaped", lambda r: r["child_reaped"]),
++]
++
++
++@case("x2-s1-third-party-stop-cont-no-tty")
++def t_x2_s1(b):
++    got = []
++    for ctty in (False, True):
++        for sig in (signal.SIGSTOP, signal.SIGTSTP):
++            run = x2_s1_ctty if ctty else x2_s1_once
++            ctl, hp = run(b, sig, False), run(b, sig, True)
++            label = f"[{sig.name}{', driver with a controlling tty' if ctty else ''}]"
++            x2_check(label, ctl, hp, S1_EXPECT)
++            got.append(f"{label} rc {hp['rc']} {hp['exit_s']} s after SIGCONT")
++    return "plain exec and heimdall-proto: child stopped, continued, completed, reaped; " + "; ".join(got)
++
++
++def x2_s2_once(b, shell, sig, via):
++    """S2: foreground job; a third party stops the child, waits 0.5 s, continues the child PID only."""
++    d = x2_dir("s2")
++    sh = X2Shell(shell, d, b)
++    child = parent = None
++    try:
++        cmd = '"$Y" "$C" run "$D" 2.5'
++        if via:
++            cmd = '"$P" run -- ' + cmd
++        m = len(sh.out)
++        sh.line(cmd)
++        assert x2_wait_file(os.path.join(d, "pid"), 10, sh.pump), "child did not start"
++        child, parent = x2_pids(d)
++        sh.pump(0.3)
++        os.kill(child, sig)
++        t_stop = time.monotonic()
++        notice = sh.wait_since(m, sh.stopw, 3.0)
++        sh.pump(0.05)
++        st = sh.value("ST") if notice else None
++        sh.pump(max(0.0, t_stop + 0.5 - time.monotonic()))
++        os.kill(child, signal.SIGCONT)
++        completed = x2_wait_file(os.path.join(d, "done"), 6, sh.pump)
++        sh.pump(0.5)
++        r = {"notice": notice, "status": st, "completed": completed, "jobs": sh.jobs()}
++        if r["jobs"] == "stopped":  # permitted deviation (b): `fg` ends the job with the child's status
++            sh.line("fg")
++            sh.pump(0.5)
++            r["fg_status"] = sh.value("FG")
++            r["jobs_after_fg"] = sh.jobs()
++        sh.pump(0.2)
++        r["left_behind"] = [x for x in (child, parent if via else None) if x and not x2_gone(x)]
++        r["shell_alive"] = sh.p.poll() is None
++        return r
++    finally:
++        x2_kill([child, parent if via else None])
++        sh.close()
++
++
++def x2_s2_ok(r):
++    return r["jobs"] == "none" or (r["jobs"] == "stopped" and r.get("fg_status") == 7
++                                   and r.get("jobs_after_fg") == "none")
++
++
++def t_x2_s2(shell):
++    @case(f"x2-s2-third-party-stop-cont-{shell}")
++    def inner(b):
++        got = []
++        for sig in (signal.SIGSTOP, signal.SIGTSTP):
++            ctl, hp = x2_s2_once(b, shell, sig, False), x2_s2_once(b, shell, sig, True)
++            x2_check(f"[{shell} {sig.name}]", ctl, hp, [
++                ("stop notice", lambda r: r["notice"]),
++                (f"$? is 128+{sig.name} ({128 + sig})", lambda r: r["status"] == 128 + sig),
++                ("the child ran to completion", lambda r: r["completed"]),
++                ("the job finished, or stayed stopped until `fg` ended it with status 7", x2_s2_ok),
++                ("no launcher or child left behind", lambda r: r["left_behind"] == []),
++                ("the shell keeps running", lambda r: r["shell_alive"]),
++            ])
++            got.append(f"{sig.name}: $?={hp['status']}, jobs {hp['jobs']}"
++                       + (f", fg -> {hp['fg_status']}" if "fg_status" in hp else ""))
++        return f"{shell}: " + "; ".join(got)
++    return inner
++
++
++def x2_s3_once(b, shell, via):
++    """S3: the child stops itself with SIGTSTP; a third party continues the LAUNCHER PID only
++    (with plain exec, the job's only process: the child)."""
++    d = x2_dir("s3")
++    sh = X2Shell(shell, d, b)
++    child = parent = None
++    try:
++        cmd = '"$Y" "$C" selfstop "$D" SIGTSTP 9'
++        if via:
++            cmd = '"$P" run -- ' + cmd
++        m = len(sh.out)
++        sh.line(cmd)
++        assert x2_wait_file(os.path.join(d, "pid"), 10, sh.pump), "child did not start"
++        child, parent = x2_pids(d)
++        notice = sh.wait_since(m, sh.stopw, 4.0)
++        sh.pump(0.05)
++        r = {"notice": notice, "status": sh.value("ST") if notice else None}
++        sh.pump(0.3)
++        os.kill(parent if via else child, signal.SIGCONT)
++        r["resumed"] = x2_wait_file(os.path.join(d, "resumed"), 3, sh.pump)
++        # the resumed child reads the terminal in the background: SIGTTIN stops it again
++        samples = []
++        for _ in range(8):  # from about 0.1 s after the resume on
++            sh.pump(0.1)
++            cst = proc_state(child)
++            samples.append((cst, sh.jobs()))
++        r["samples"] = samples
++        r["listed_running_while_child_stopped"] = any(c.startswith("T") and j == "running" for c, j in samples)
++        r["child_stopped_at_end"] = samples[-1][0].startswith("T")
++        r["jobs_at_end"] = samples[-1][1]
++        sh.line("fg")
++        sh.pump(0.5)
++        sh.line("X2-S3-TOKEN")
++        r["read_after_fg"] = (x2_wait_file(os.path.join(d, "got"), 3, sh.pump)
++                              and open(os.path.join(d, "got")).read() == "X2-S3-TOKEN")
++        sh.pump(0.3)
++        r["fg_status"] = sh.value("RC")
++        r["jobs_after"] = sh.jobs()
++        r["left_behind"] = [x for x in (child, parent if via else None) if x and not x2_gone(x)]
++        return r
++    finally:
++        x2_kill([child, parent if via else None])
++        sh.close()
++
++
++def t_x2_s3(shell):
++    @case(f"x2-s3-self-stop-launcher-continued-{shell}")
++    def inner(b):
++        ctl, hp = x2_s3_once(b, shell, False), x2_s3_once(b, shell, True)
++        x2_check(f"[{shell}]", ctl, hp, [
++            ("stop notice", lambda r: r["notice"]),
++            ("$? is 128+SIGTSTP", lambda r: r["status"] == 128 + signal.SIGTSTP),
++            ("the child resumed after SIGCONT", lambda r: r["resumed"]),
++            ("the background read stopped the child and the job is listed stopped",
++             lambda r: r["child_stopped_at_end"] and r["jobs_at_end"] == "stopped"),
++            ("the job is never listed running while the child is stopped",
++             lambda r: not r["listed_running_while_child_stopped"]),
++            ("after `fg` the child reads the typed line", lambda r: r["read_after_fg"]),
++            ("$? is the child's status 9", lambda r: r["fg_status"] == 9),
++            ("no job left", lambda r: r["jobs_after"] == "none"),
++            ("no launcher or child left behind", lambda r: r["left_behind"] == []),
++        ])
++        return f"{shell}: {hp['samples']}, fg -> {hp['fg_status']}"
++    return inner
++
++
++def x2_s4_once(b, shell, via):
++    """S4: a nested interactive bash is suspended (`suspend`) and brought back with `fg`."""
++    d = x2_dir("s4")
++    sh = X2Shell(shell, d, b)
++    pids = []
++    try:
++        cmd = 'PS1="INNER> " /bin/bash --norc --noprofile -i'
++        if via:
++            cmd = 'PS1="INNER> " "$P" run -- /bin/bash --norc --noprofile -i'
++        m = len(sh.out)
++        sh.line(cmd)
++        r = {"inner_prompt": sh.wait_since(m, b"INNER> ", 5.0)}
++        inner = sh.value("INNERPID", "$$")
++        if inner:  # the nested bash and (via heimdall-proto) its launcher, for cleanup
++            pids = [inner] + ([ppid_of(inner)] if via else [])
++        r["inner_answers"] = sh.value("IN", "$((20+1))") == 21
++        m = len(sh.out)
++        sh.line("suspend")
++        r["notice"] = sh.wait_since(m, sh.stopw, 4.0)
++        sh.pump(0.3)
++        r["outer_answers"] = sh.value("OUT", "$((40+2))") == 42
++        sh.line("fg")
++        sh.pump(0.5)
++        r["inner_answers_after_fg"] = sh.value("BACK", "$((60+3))") == 63
++        sh.line("exit 3")
++        sh.pump(0.5)
++        r["status"] = sh.value("RC")
++        r["jobs_after"] = sh.jobs()
++        r["left_behind"] = [x for x in pids if not x2_gone(x)]
++        return r
++    finally:
++        x2_kill(pids)
++        sh.close()
++
++
++def t_x2_s4(shell):
++    @case(f"x2-s4-nested-shell-suspend-fg-{shell}")
++    def inner(b):
++        ctl, hp = x2_s4_once(b, shell, False), x2_s4_once(b, shell, True)
++        x2_check(f"[{shell}]", ctl, hp, [
++            ("the nested bash prompted and answered", lambda r: r["inner_prompt"] and r["inner_answers"]),
++            ("`suspend`: the outer shell prints a stop notice", lambda r: r["notice"]),
++            ("the outer shell answers after the stop", lambda r: r["outer_answers"]),
++            ("after `fg` the nested bash answers typed commands", lambda r: r["inner_answers_after_fg"]),
++            ("`exit 3` gives the outer shell $? = 3", lambda r: r["status"] == 3),
++            ("no job left", lambda r: r["jobs_after"] == "none"),
++            ("no launcher or nested shell left behind", lambda r: r["left_behind"] == []),
++        ])
++        return f"{shell}: suspend/fg/exit 3 as with plain exec"
++    return inner
++
++
++def x2_s5_once(b, shell, trigger, via):
++    """S5: --meta-file; the child is stopped by SIGSTOP (by itself or by a third party)."""
++    d = x2_dir("s5")
++    sh = X2Shell(shell, d, b)
++    child = parent = None
++    meta = os.path.join(d, "meta.json")
++    try:
++        cmd = ('"$Y" "$C" selfstop "$D" SIGSTOP 0' if trigger == "self" else '"$Y" "$C" wait "$D" - 0')
++        if via:
++            cmd = '"$P" run --meta-file "$D/meta.json" -- ' + cmd
++        m = len(sh.out)
++        sh.line(cmd)
++        assert x2_wait_file(os.path.join(d, "pid"), 10, sh.pump), "child did not start"
++        child, parent = x2_pids(d)
++        if trigger == "third":
++            sh.pump(0.3)
++            os.kill(child, signal.SIGSTOP)
++            open(os.path.join(d, "go"), "w").close()
++        notice = sh.wait_since(m, sh.stopw, 4.0)
++        sh.pump(0.05)
++        r = {"notice": notice, "status": sh.value("ST") if notice else None}
++        sh.pump(1.0)
++        r["child_state"] = proc_state(child)
++        r["launcher_alive"] = (not via) or not x2_gone(parent)
++        r["stayed_stopped"] = r["child_state"].startswith("T") and not os.path.exists(os.path.join(d, "resumed"))
++        sh.line("fg")
++        sh.pump(0.5)
++        sh.line("X2-S5-TOKEN")
++        r["read_after_fg"] = (x2_wait_file(os.path.join(d, "got"), 3, sh.pump)
++                              and open(os.path.join(d, "got")).read() == "X2-S5-TOKEN")
++        sh.pump(0.3)
++        r["fg_status"] = sh.value("RC")
++        r["jobs_after"] = sh.jobs()
++        if via:
++            try:
++                r["meta"] = json.load(open(meta))
++            except (OSError, ValueError) as e:
++                r["meta"] = repr(e)
++        r["left_behind"] = [x for x in (child, parent if via else None) if x and not x2_gone(x)]
++        return r
++    finally:
++        x2_kill([child, parent if via else None])
++        sh.close()
++
++
++def t_x2_s5(shell):
++    @case(f"x2-s5-sigstop-meta-file-{shell}")
++    def inner(b):
++        got = []
++        for trigger in ("self", "third"):
++            ctl, hp = x2_s5_once(b, shell, trigger, False), x2_s5_once(b, shell, trigger, True)
++            x2_check(f"[{shell} {trigger}]", ctl, hp, [
++                ("stop notice", lambda r: r["notice"]),
++                ("$? is 128+SIGSTOP", lambda r: r["status"] == 128 + signal.SIGSTOP),
++                ("the child stays stopped and the launcher alive until `fg`",
++                 lambda r: r["stayed_stopped"] and r["launcher_alive"]),
++                ("after `fg` the child reads the typed line", lambda r: r["read_after_fg"]),
++                ("$? is 0", lambda r: r["fg_status"] == 0),
++                ("no job left", lambda r: r["jobs_after"] == "none"),
++                ("no launcher or child left behind", lambda r: r["left_behind"] == []),
++            ])
++            m = hp.get("meta")
++            assert isinstance(m, dict) and m.get("code") == "CHILD_EXITED" and m.get("data") == {
++                "launched": True, "exit_code": 0, "signal": None}, f"[{shell} {trigger}] meta file: {m}"
++            got.append(f"{trigger}: $?={hp['status']} then 0, meta CHILD_EXITED")
++        return f"{shell}: " + "; ".join(got)
++    return inner
++
++
++X2_CASES = [t_x2_s1] + [f(sh) for sh in ("bash", "zsh") for f in (t_x2_s2, t_x2_s3, t_x2_s4, t_x2_s5)]
++
++
+ def t_panic(pb):
+     @case("tui-panic-restores")
+     def inner(b):
+@@ -1182,16 +1670,17 @@
+     for fn in [t_select, t_quit, t_ctrlc, t_term, t_filter, t_esc, t_resize, t_nocolor,
+                t_large, t_tiny, t_bad, t_hangup, t_run_sigint, t_run_ctrlz,
+                t_k6, t_k9, t_k10, t_k6a_amp, t_k6a_pipe, t_k14_tui, t_k16, t_k16_split, t_run_leader_hup,
+-               t_k6e, t_k6d, t_k6e_self_stop]:
++               t_k6e, t_k6d, t_k6e_self_stop, *X2_CASES]:
+         fn(binary)
+     if panic_bin:
+         t_panic(panic_bin)
+     import shutil
+     shutil.rmtree(TMP, ignore_errors=True)
+-    ok = all(r["passed"] or r.get("known_limitation") for r in results)
++    ok = all(r["passed"] or r.get("known_limitation") or r.get("blocked") for r in results)
+     limits = [r["case"] for r in results if r.get("known_limitation")]
++    blocked = [r["case"] for r in results if r.get("blocked")]
+     print(json.dumps({"binary": binary, "platform": sys.platform, "passed": ok,
+-                      "known_limitations": limits, "results": results}, ensure_ascii=False))
++                      "known_limitations": limits, "blocked": blocked, "results": results}, ensure_ascii=False))
+     return 0 if ok else 1
+ 
+ 

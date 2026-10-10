@@ -1,0 +1,4 @@
+T1-go-sonnet1 rep1 P1x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": null, "child_completed": false} 25.1s
+T1-go-sonnet1 rep1 P2x-TSTP {"jobs": "stopped[Stopped]", "fg": "prompt", "prompt_back_by": "fg", "child_completed": true} 6.7s
+T1-go-sonnet1 rep2 P1x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": null, "child_completed": false} 25.0s
+T1-go-sonnet1 rep2 P2x-TSTP {"jobs": "stopped[Stopped]", "fg": "prompt", "prompt_back_by": "fg", "child_completed": true} 6.7s

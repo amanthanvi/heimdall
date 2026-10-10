@@ -1,0 +1,52 @@
+base-go rep1 P1-STOP {"jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 2.1s
+base-go rep1 P1-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-go rep1 P2-STOP {"jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 2.0s
+base-go rep1 P2-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-go rep1 P1k-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "R"} 6.4s
+base-go rep1 P2k-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "R"} 6.4s
+base-go rep1 P2n-TTIN {"jobs": "stopped[suspended (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 4, "out_ok": true, "child_completed": true} 3.3s
+base-go rep1 P3-STOP {"rc": 7, "recovery": "none-needed", "inner_rc_after_recovery": 7, "child_completed": true} 2.3s
+base-go rep1 P3-TSTP {"rc": 7, "recovery": "none-needed", "inner_rc_after_recovery": 7, "child_completed": true} 2.3s
+base-go rep1 P4-STOP {"prompt_returned": true, "notice": null, "rc_at_prompt": 255, "jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 1.0s
+base-go rep1 P4-TSTP {"prompt_returned": true, "notice": "suspended", "rc_at_prompt": 146, "jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-go rep1 P4t-STOP {"prompt_returned": true, "notice": null, "rc_at_prompt": 255, "jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 1.0s
+base-go rep1 P4t-TSTP {"prompt_returned": true, "notice": "suspended", "rc_at_prompt": 146, "jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-go rep1 P5-STOP {"jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 2.7s
+base-go rep1 P5-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-go rep1 P7-TTOU {"prompt_returned": true, "notice": "suspended", "rc_at_prompt": 146, "jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-go rep1 P7-TTIN {"prompt_returned": true, "notice": "suspended (tty input)", "rc_at_prompt": 149, "jobs": "stopped[suspended (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.5s
+base-go rep1 P7n-TTOU {"jobs": "stopped[suspended]", "child_state": "T", "completed_in_bg": false, "job_stopped_consistent": true, "recovery": "fg", "rc": 3} 2.8s
+base-go rep1 P8 {"child_1s": "R", "jobs_1s": "running", "completed_by_5s": true, "jobs_5s": "none", "recovery": "none-needed"} 6.0s
+base-go rep1 P9 {"suspend_notice": false, "who_after_bg": null, "jobs_after_bg": null, "who_after_fg": null, "rc_after_exit": null, "outer_shell_alive_at_end": false} 2.8s
+base-go rep1 P9e0 {"suspend_notice": false, "rc_at_prompt": 255, "jobs_after_bg": null, "child_after_bg": null, "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 10.9s
+base-go rep1 P9e-bg {"suspend_notice": false, "rc_at_prompt": 255, "jobs_after_bg": "none", "child_after_bg": "gone", "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 12.0s
+base-go rep1 P10 {"jobs": ["stopped[suspended (tty input)]", "stopped[suspended (tty input)]", "stopped[suspended (tty input)]"], "child_after_bg": ["T", "T", "T"], "consistent": true, "child_after_fg": ["R", "R", "R"], "echoed": true, "rc": 0} 11.8s
+base-go rep1 P11 {"arm_notice": true, "child_after_arm_fg": "R", "cycle_notices": [true, true, true], "running_after_each_fg": true, "finished": true, "rc": 0} 10.5s
+base-go rep1 P12-S3 {"rc_at_prompt": 146, "child_after_1s": "T", "job_stopped_consistent": true, "jobs": "stopped[suspended (tty input)]", "recovery": "fg", "rc": 6, "out_ok": true} 2.5s
+base-go rep1 P14 null 5.3s ERROR no B pid
+base-go rep2 P1-STOP {"jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 2.0s
+base-go rep2 P1-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-go rep2 P2-STOP {"jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 2.0s
+base-go rep2 P2-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-go rep2 P1k-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "R"} 6.5s
+base-go rep2 P2k-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "R"} 6.4s
+base-go rep2 P2n-TTIN {"jobs": "stopped[suspended (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 4, "out_ok": true, "child_completed": true} 3.3s
+base-go rep2 P3-STOP {"rc": 7, "recovery": "none-needed", "inner_rc_after_recovery": 7, "child_completed": true} 2.3s
+base-go rep2 P3-TSTP {"rc": 7, "recovery": "none-needed", "inner_rc_after_recovery": 7, "child_completed": true} 2.3s
+base-go rep2 P4-STOP {"prompt_returned": true, "notice": null, "rc_at_prompt": 255, "jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 1.0s
+base-go rep2 P4-TSTP {"prompt_returned": true, "notice": "suspended", "rc_at_prompt": 146, "jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.5s
+base-go rep2 P4t-STOP {"prompt_returned": true, "notice": null, "rc_at_prompt": 255, "jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 1.0s
+base-go rep2 P4t-TSTP {"prompt_returned": true, "notice": "suspended", "rc_at_prompt": 146, "jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.5s
+base-go rep2 P5-STOP {"jobs": "none", "child_state": "gone", "job_stopped_consistent": true, "recovery": "none-needed", "rc": null, "child_completed": false} 2.6s
+base-go rep2 P5-TSTP {"jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.5s
+base-go rep2 P7-TTOU {"prompt_returned": true, "notice": "suspended", "rc_at_prompt": 146, "jobs": "stopped[suspended]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-go rep2 P7-TTIN {"prompt_returned": true, "notice": "suspended (tty input)", "rc_at_prompt": 149, "jobs": "stopped[suspended (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-go rep2 P7n-TTOU {"jobs": "stopped[suspended]", "child_state": "T", "completed_in_bg": false, "job_stopped_consistent": true, "recovery": "fg", "rc": 3} 2.8s
+base-go rep2 P8 {"child_1s": "R", "jobs_1s": "running", "completed_by_5s": true, "jobs_5s": "none", "recovery": "none-needed"} 6.0s
+base-go rep2 P9 {"suspend_notice": false, "who_after_bg": null, "jobs_after_bg": null, "who_after_fg": null, "rc_after_exit": null, "outer_shell_alive_at_end": false} 2.8s
+base-go rep2 P9e0 {"suspend_notice": false, "rc_at_prompt": 255, "jobs_after_bg": null, "child_after_bg": null, "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 10.9s
+base-go rep2 P9e-bg {"suspend_notice": false, "rc_at_prompt": 255, "jobs_after_bg": "none", "child_after_bg": "gone", "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 12.0s
+base-go rep2 P10 {"jobs": ["stopped[suspended (tty input)]", "stopped[suspended (tty input)]", "stopped[suspended (tty input)]"], "child_after_bg": ["T", "T", "T"], "consistent": true, "child_after_fg": ["R", "R", "R"], "echoed": true, "rc": 0} 11.8s
+base-go rep2 P11 {"arm_notice": true, "child_after_arm_fg": "R", "cycle_notices": [true, true, true], "running_after_each_fg": true, "finished": true, "rc": 0} 10.4s
+base-go rep2 P12-S3 {"rc_at_prompt": 146, "child_after_1s": "T", "job_stopped_consistent": true, "jobs": "stopped[suspended (tty input)]", "recovery": "fg", "rc": 6, "out_ok": true} 2.6s
+base-go rep2 P14 null 5.3s ERROR no B pid

@@ -1,0 +1,12 @@
+ok  	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	12.002s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.119s
+--- FAIL: TestLoadSymlinkRetargetedBeforeOpen (0.00s)
+    symlink_test.go:209: link retargeted to fifo: got SCHEMA_INVALID: schema_version: required key is missing, want USAGE_ERROR
+    symlink_test.go:209: link target replaced by another regular file: got <nil>, want USAGE_ERROR
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	0.048s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.297s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.007s
+FAIL

@@ -1,0 +1,5 @@
+subject	go_vet_windows_rc	go_test_c_windows_rc
+base-go	0	0
+T4-go-opus1	0	0
+T4-go-opus2	0	0
+T4-go-sonnet1	0	0

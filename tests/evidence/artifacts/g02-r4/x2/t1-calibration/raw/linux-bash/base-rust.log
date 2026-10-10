@@ -1,0 +1,64 @@
+base-rust rep1 P0-STOP {"rc": "hung", "child_completed": true, "child_reaped": false} 7.0s
+base-rust rep1 P0-TSTP {"rc": "hung", "child_completed": true, "child_reaped": false} 7.0s
+base-rust rep1 P1-STOP {"jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep1 P1-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.3s
+base-rust rep1 P2-STOP {"jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep1 P2-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep1 P1k-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "S"} 6.4s
+base-rust rep1 P2k-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "S"} 6.4s
+base-rust rep1 P2n-TTIN {"jobs": "stopped[Stopped (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 4, "out_ok": true, "child_completed": true} 2.2s
+base-rust rep1 P3-STOP {"rc": "hung", "recovery": "ctrlz+fg", "inner_rc_after_recovery": 7, "child_completed": true} 7.4s
+base-rust rep1 P3-TSTP {"rc": "hung", "recovery": "ctrlz+fg", "inner_rc_after_recovery": 7, "child_completed": true} 7.4s
+base-rust rep1 P4-STOP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 147, "jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep1 P4-TSTP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 148, "jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.3s
+base-rust rep1 P4t-STOP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 147, "jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep1 P4t-TSTP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 148, "jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep1 P5-STOP {"jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep1 P5-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.3s
+base-rust rep1 P6-STOP {"rc": "hung", "child_completed": true} 6.8s
+base-rust rep1 P6-TSTP {"rc": "hung", "child_completed": true} 6.8s
+base-rust rep1 P7-TTOU {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 150, "jobs": "stopped[Stopped (tty output)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep1 P7-TTIN {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 149, "jobs": "stopped[Stopped (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep1 P7n-TTOU {"jobs": "stopped[Stopped (tty output)]", "child_state": "T", "completed_in_bg": false, "job_stopped_consistent": true, "recovery": "fg", "rc": 3} 1.7s
+base-rust rep1 P8 {"child_1s": "T", "jobs_1s": "stopped[Stopped]", "completed_by_5s": false, "jobs_5s": "stopped[Stopped]", "recovery": "fg"} 6.0s
+base-rust rep1 P9 {"suspend_notice": true, "who_after_bg": "outer", "jobs_after_bg": "running", "who_after_fg": null, "rc_after_exit": null, "outer_shell_alive_at_end": true} 7.9s
+base-rust rep1 P9e0 {"suspend_notice": true, "rc_at_prompt": 147, "jobs_after_bg": null, "child_after_bg": null, "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 16.5s
+base-rust rep1 P9e-bg {"suspend_notice": true, "rc_at_prompt": 147, "jobs_after_bg": "running", "child_after_bg": "T", "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 17.7s
+base-rust rep1 P10 {"jobs": ["stopped[Stopped (tty input)]", "stopped[Stopped (tty input)]", "stopped[Stopped (tty input)]"], "child_after_bg": ["T", "T", "T"], "consistent": true, "child_after_fg": ["S", "S", "S"], "echoed": true, "rc": 0} 11.7s
+base-rust rep1 P11 {"arm_notice": true, "child_after_arm_fg": "T", "cycle_notices": [true, true, true], "running_after_each_fg": true, "finished": true, "rc": 0} 10.4s
+base-rust rep1 P12-S3 {"rc_at_prompt": 148, "child_after_1s": "T", "job_stopped_consistent": false, "jobs": "running", "recovery": "ctrlz+fg", "rc": 6, "out_ok": true} 20.9s
+base-rust rep1 P13-STOP {"child_completed": true, "all_gone": false, "launcher_rc": null} 6.9s
+base-rust rep1 P13-TSTP {"child_completed": true, "all_gone": true, "launcher_rc": 7} 1.5s
+base-rust rep1 P14 {"notice": true, "other_job_left_stopped": true} 2.5s
+base-rust rep2 P0-STOP {"rc": "hung", "child_completed": true, "child_reaped": false} 7.0s
+base-rust rep2 P0-TSTP {"rc": "hung", "child_completed": true, "child_reaped": false} 7.0s
+base-rust rep2 P1-STOP {"jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep2 P1-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep2 P2-STOP {"jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep2 P2-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep2 P1k-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "S"} 6.4s
+base-rust rep2 P2k-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true, "child_after_kill_cont_jobspec": "S"} 6.4s
+base-rust rep2 P2n-TTIN {"jobs": "stopped[Stopped (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 4, "out_ok": true, "child_completed": true} 2.2s
+base-rust rep2 P3-STOP {"rc": "hung", "recovery": "ctrlz+fg", "inner_rc_after_recovery": 7, "child_completed": true} 7.4s
+base-rust rep2 P3-TSTP {"rc": "hung", "recovery": "ctrlz+fg", "inner_rc_after_recovery": 7, "child_completed": true} 7.4s
+base-rust rep2 P4-STOP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 147, "jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep2 P4-TSTP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 148, "jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep2 P4t-STOP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 147, "jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep2 P4t-TSTP {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 148, "jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep2 P5-STOP {"jobs": "stopped[Stopped (signal)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep2 P5-TSTP {"jobs": "stopped[Stopped]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 6.4s
+base-rust rep2 P6-STOP {"rc": "hung", "child_completed": true} 6.8s
+base-rust rep2 P6-TSTP {"rc": "hung", "child_completed": true} 6.8s
+base-rust rep2 P7-TTOU {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 150, "jobs": "stopped[Stopped (tty output)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep2 P7-TTIN {"prompt_returned": true, "notice": "Stopped", "rc_at_prompt": 149, "jobs": "stopped[Stopped (tty input)]", "child_state": "T", "job_stopped_consistent": true, "recovery": "fg", "rc": 0, "child_completed": true} 5.4s
+base-rust rep2 P7n-TTOU {"jobs": "stopped[Stopped (tty output)]", "child_state": "T", "completed_in_bg": false, "job_stopped_consistent": true, "recovery": "fg", "rc": 3} 1.7s
+base-rust rep2 P8 {"child_1s": "T", "jobs_1s": "stopped[Stopped]", "completed_by_5s": false, "jobs_5s": "stopped[Stopped]", "recovery": "fg"} 6.0s
+base-rust rep2 P9 {"suspend_notice": true, "who_after_bg": "outer", "jobs_after_bg": "running", "who_after_fg": null, "rc_after_exit": null, "outer_shell_alive_at_end": true} 8.0s
+base-rust rep2 P9e0 {"suspend_notice": true, "rc_at_prompt": 147, "jobs_after_bg": null, "child_after_bg": null, "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 16.6s
+base-rust rep2 P9e-bg {"suspend_notice": true, "rc_at_prompt": 147, "jobs_after_bg": "running", "child_after_bg": "T", "child_answers_after_fg": false, "rc_after_exit": null, "recovery": "failed"} 17.7s
+base-rust rep2 P10 {"jobs": ["stopped[Stopped (tty input)]", "stopped[Stopped (tty input)]", "stopped[Stopped (tty input)]"], "child_after_bg": ["T", "T", "T"], "consistent": true, "child_after_fg": ["S", "S", "S"], "echoed": true, "rc": 0} 11.7s
+base-rust rep2 P11 {"arm_notice": true, "child_after_arm_fg": "T", "cycle_notices": [true, true, true], "running_after_each_fg": true, "finished": true, "rc": 0} 10.3s
+base-rust rep2 P12-S3 {"rc_at_prompt": 148, "child_after_1s": "T", "job_stopped_consistent": false, "jobs": "running", "recovery": "ctrlz+fg", "rc": 6, "out_ok": true} 20.9s
+base-rust rep2 P13-STOP {"child_completed": true, "all_gone": false, "launcher_rc": null} 6.9s
+base-rust rep2 P13-TSTP {"child_completed": true, "all_gone": true, "launcher_rc": 7} 1.6s
+base-rust rep2 P14 {"notice": true, "other_job_left_stopped": true} 2.5s

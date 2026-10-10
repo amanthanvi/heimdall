@@ -1,0 +1,70 @@
+   Compiling heimdall-proto v0.0.0-g02 (<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/rust)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src/lib.rs (target/debug/deps/heimdall_proto-d7bc56532cd80e18)
+
+running 49 tests
+test agent::tests::request_is_exactly_type_11 ... ok
+test agent::tests::wrong_type_and_failure ... ok
+test agent::tests::zero_keys_ok ... ok
+test agent::tests::truncated_rejected ... ok
+test agent::tests::k4_failure_with_payload_is_protocol_error ... ok
+test agent::tests::oversize_length_rejected_without_reading_body ... ok
+test agent::tests::control_chars_in_comment_replaced ... ok
+test agent::tests::trailing_bytes_rejected ... ok
+test keys::tests::garbage_is_bounded_and_invalid_utf8_is_other ... ok
+test agent::tests::huge_nkeys_rejected ... ok
+test agent::tests::string_length_exceeding_frame_rejected ... ok
+test agent::tests::k1_all_control_classes_replaced_in_comment_and_key_type ... ok
+test keys::tests::lone_escape_needs_flush ... ok
+test keys::tests::contract_keys ... ok
+test agent::tests::parses_identities_and_fingerprint ... ok
+test envelope::tests::envelope_shape ... ok
+test agent::tests::envelope_shapes ... ok
+test keys::tests::split_sequences_and_utf8_across_reads ... ok
+test agent::tests::k3a_reset_classified_like_eof ... ok
+test list_model::tests::narrow_rows ... ok
+test list_model::tests::k9_filter_edit_resets_selection_enter_keeps_it ... ok
+test list_model::tests::navigate_and_select ... ok
+test list_model::tests::q_in_filter_mode_is_text_and_empty_enter_noop ... ok
+test list_model::tests::filter_mode ... ok
+test profile::tests::invalid_utf8_is_schema_invalid ... ok
+test profile::tests::duplicate_alias_and_id ... ok
+test profile::tests::forbidden_key_no_canary ... ok
+test profile::tests::example_json_matches_contract_shape ... ok
+test agent::tests::max_length_frame_accepted_by_reader ... ok
+test profile::tests::malformed ... ok
+test profile::tests::malformed_with_canary_not_quoted ... ok
+test profile::tests::homelab_ok ... ok
+test profile::tests::meta_content_tolerated_including_unknown_nested_keys ... ok
+test profile::tests::schema_version_unsupported ... ok
+test profile::tests::k2_control_chars_in_values_rejected_outside_meta ... ok
+test profile::tests::unknown_dest_key ... ok
+test runner::tests::meta_shapes ... ok
+test sigdisp::tests::default_disposition_is_not_ignored ... ok
+test profile::tests::port_out_of_range ... ok
+test text::tests::controls_replaced ... ok
+test text::tests::key_segments ... ok
+test profile::tests::required_and_types ... ok
+test profile::tests::spaced_unicode_path_identical ... ok
+test runner::tests::launch_failure_is_127 ... ok
+test agent::tests::exactly_1024_keys_ok ... ok
+test list_model::tests::large_filter_immediate ... ok
+test profile::tests::large_100 ... ok
+test runner::tests::exit_code_and_signal_mapping ... ok
+test profile::tests::oversize_not_parsed_and_missing_is_usage ... FAILED
+
+failures:
+
+---- profile::tests::oversize_not_parsed_and_missing_is_usage stdout ----
+
+thread 'profile::tests::oversize_not_parsed_and_missing_is_usage' (1051895) panicked at src/profile.rs:782:13:
+symlink to a regular file loads
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    profile::tests::oversize_not_parsed_and_missing_is_usage
+
+test result: FAILED. 48 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--lib`

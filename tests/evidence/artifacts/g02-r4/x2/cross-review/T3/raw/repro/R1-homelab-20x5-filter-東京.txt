@@ -1,0 +1,39 @@
+# repro_bytes.py homelab 5x20 "/,東,京" (screen and the bytes written for the LAST key; TERM=xterm-256color)
+=== base-go-pinned  last key '京'  oracle ok=True
+   0 |> vps-東京|
+   4 |1/3 /東京|
+  bytes: \u4eac\x1b[10G
+=== base-go  last key '京'  oracle ok=True
+   0 |> vps-東京|
+   4 |1/3 /東京|
+  bytes: \u4eac\x1b[10G
+=== T3-go-opus1  last key '京'  oracle ok=False
+   0 |> vps- 京|  ul=[6, 7]
+   4 |1/3 /東京|
+  issues: ["rows do not match any contiguous window of the expected rows; first rows ['> vps- 京']; expected e.g. ['> vps-東京']"]
+  bytes: \x1b[1d\x1b[36;1;4m\u4eac\x1b[11G\x1b[m\x1b[5;8H\u4eac\x1b[10G
+=== T3-go-opus2  last key '京'  oracle ok=True
+   0 |> vps-東京|  ul=[6, 8]
+   4 |1/3 /東京|
+  bytes: \x1b[H\x1b[H\x1b[2J\x1b[36;1m> vps-\x1b[4m\u6771\u4eac\x1b[11G\x1b[m\r\x1b[5d1/3 /\u6771\u4eac\x1b[10G
+=== T3-go-sonnet1  last key '京'  oracle ok=False
+   0 |> vps- 京|  ul=[6, 7]
+   4 |1/3 /東京|
+  issues: ["rows do not match any contiguous window of the expected rows; first rows ['> vps- 京']; expected e.g. ['> vps-東京']"]
+  bytes: \x1b[1d\x1b[36;1;4m\u4eac\x1b[11G\x1b[m\x1b[5;8H\u4eac\x1b[10G
+=== base-rust  last key '京'  oracle ok=True
+   0 |> vps-東京|
+   4 |1/3  /東京|
+  bytes: \x1b[5;9H\u4eac\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-opus1  last key '京'  oracle ok=True
+   0 |> vps-東京|  ul=[6, 8]
+   4 |1/3  /東京|
+  bytes: \x1b[1;9H\x1b[1m\x1b[4m\x1b[38;5;6;49m\u4eac\x1b[5;9H\x1b[22m\x1b[24m\x1b[39;49m\u4eac\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-opus2  last key '京'  oracle ok=True
+   0 |> vps-東京|  ul=[6, 8]
+   4 |1/3  /東京|
+  bytes: \x1b[1;9H\x1b[1m\x1b[4m\x1b[38;5;6;49m\u4eac\x1b[5;9H\x1b[22m\x1b[24m\x1b[39;49m\u4eac\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l
+=== T3-rust-sonnet1  last key '京'  oracle ok=True
+   0 |> vps-東京|  ul=[6, 8]
+   4 |1/3  /東京|
+  bytes: \x1b[1;9H\x1b[1m\x1b[4m\x1b[38;5;6;49m\u4eac\x1b[5;9H\x1b[22m\x1b[24m\x1b[39;49m\u4eac\x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25l

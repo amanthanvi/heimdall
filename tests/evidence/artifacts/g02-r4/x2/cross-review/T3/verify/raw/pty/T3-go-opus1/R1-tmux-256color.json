@@ -1,0 +1,49 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/T3-go-opus1/heimdall-proto",
+ "sha256": "3cb494cec404002ecf27556353351c9c1b2df6cda5e6c3b19cf0a349dbb68dad",
+ "size": "20x5",
+ "term": "tmux-256color",
+ "profile": "homelab.toml",
+ "keys": [
+  "/",
+  "東",
+  "京"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 544,
+   "n": 133,
+   "b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bW20bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1ttG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0KCjMvMw==",
+   "esc": "\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> lab-server\\x1b[m\\r\\n  nas\\r\\n  vps-\\u6771\\u4eac\\x1b[11G\\r\\n\\n3/3"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 433,
+   "n": 2,
+   "b64": "IC8=",
+   "esc": " /"
+  },
+  {
+   "key": "東",
+   "sent": "\\u6771",
+   "ms": 426,
+   "n": 66,
+   "b64": "G1sxOzNIG1szNjsxbXZwcy0bWzRt5p2xG1syNG3kuqwbW20bW0sbWzExRw0KG1tLChtbSwoKMS8zIC/mnbEbWzhH",
+   "esc": "\\x1b[1;3H\\x1b[36;1mvps-\\x1b[4m\\u6771\\x1b[24m\\u4eac\\x1b[m\\x1b[K\\x1b[11G\\r\\n\\x1b[K\\n\\x1b[K\\n\\n1/3 /\\u6771\\x1b[8G"
+  },
+  {
+   "key": "京",
+   "sent": "\\u4eac",
+   "ms": 423,
+   "n": 38,
+   "b64": "G1sxZBtbMzY7MTs0beS6rBtbMTFHG1ttG1s1OzhI5LqsG1sxMEc=",
+   "esc": "\\x1b[1d\\x1b[36;1;4m\\u4eac\\x1b[11G\\x1b[m\\x1b[5;8H\\u4eac\\x1b[10G"
+  }
+ ],
+ "full_b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bW20bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1ttG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IGxhYi1zZXJ2ZXIbW20NCiAgbmFzDQogIHZwcy3mnbHkuqwbWzExRw0KCjMvMyAvG1sxOzNIG1szNjsxbXZwcy0bWzRt5p2xG1syNG3kuqwbW20bW0sbWzExRw0KG1tLChtbSwoKMS8zIC/mnbEbWzhHG1sxZBtbMzY7MTs0beS6rBtbMTFHG1ttG1s1OzhI5LqsG1sxMEcbWz40bRtbbRtbPDF1DRtbPzEwNDlsG1s/MjVoG1s/MjAwNGw=",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[>4m\\x1b[m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l",
+ "stderr_tail": ""
+}

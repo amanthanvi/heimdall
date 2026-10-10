@@ -1,0 +1,923 @@
+[
+ {
+  "build": "T1-go-opus2",
+  "binary": "bin/T1-go-opus2/darwin-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:44:33Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 7707,
+      "ppid": 7706,
+      "pgid": 7707,
+      "sid": "0",
+      "tpgid": 7706,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7708,
+      "ppid": 7707,
+      "pgid": 7708,
+      "sid": "0",
+      "tpgid": 7706,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 7706,
+      "ppid": 7705,
+      "pgid": 7706,
+      "sid": "0",
+      "tpgid": 7706,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 7707,
+      "ppid": 7706,
+      "pgid": 7707,
+      "sid": "0",
+      "tpgid": 7706,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7708,
+      "ppid": 7707,
+      "pgid": 7708,
+      "sid": "0",
+      "tpgid": 7706,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 7706,
+      "ppid": 7705,
+      "pgid": 7706,
+      "sid": "0",
+      "tpgid": 7706,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+  7707 Running                 bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 7707,
+      "ppid": 7706,
+      "pgid": 7707,
+      "sid": "0",
+      "tpgid": 7708,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7708,
+      "ppid": 7707,
+      "pgid": 7708,
+      "sid": "0",
+      "tpgid": 7708,
+      "state": "T+",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 7706,
+      "ppid": 7705,
+      "pgid": 7706,
+      "sid": "0",
+      "tpgid": 7708,
+      "state": "Ss",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 7707,
+      "ppid": 7706,
+      "pgid": 7707,
+      "sid": "0",
+      "tpgid": 7708,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 7708,
+      "ppid": 7707,
+      "pgid": 7708,
+      "sid": "0",
+      "tpgid": 7708,
+      "state": "T+",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 7706,
+  "job_line": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null\r<win-arm64/heimdall-proto run -- sleep 3 </dev/null                          \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b>/dev/null 2>&1 &\r\n[1] 7707",
+  "job_pid": 7707,
+  "launcher_children": [
+   7708
+  ],
+  "program_pid": 7708,
+  "before_signal": {
+   "launcher": {
+    "pid": 7707,
+    "ppid": 7706,
+    "pgid": 7707,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7708,
+    "ppid": 7707,
+    "pgid": 7708,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7706,
+    "ppid": 7705,
+    "pgid": 7706,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 7708,
+  "after_signal": {
+   "launcher": {
+    "pid": 7707,
+    "ppid": 7706,
+    "pgid": 7707,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7708,
+    "ppid": 7707,
+    "pgid": 7708,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7706,
+    "ppid": 7705,
+    "pgid": 7706,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+  7707 Running                 bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 7707,
+    "ppid": 7706,
+    "pgid": 7707,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7708,
+    "ppid": 7707,
+    "pgid": 7708,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7706,
+    "ppid": 7705,
+    "pgid": 7706,
+    "sid": "0",
+    "tpgid": 7706,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 7707,
+    "ppid": 7706,
+    "pgid": 7707,
+    "sid": "0",
+    "tpgid": 7708,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7708,
+    "ppid": 7707,
+    "pgid": 7708,
+    "sid": "0",
+    "tpgid": 7708,
+    "state": "T+",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 7707,
+    "ppid": 7706,
+    "pgid": 7707,
+    "sid": "0",
+    "tpgid": 7708,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 7708,
+    "ppid": 7707,
+    "pgid": 7708,
+    "sid": "0",
+    "tpgid": 7708,
+    "state": "T+",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 7706,
+    "ppid": 7705,
+    "pgid": 7706,
+    "sid": "0",
+    "tpgid": 7708,
+    "state": "Ss",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 7708,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 7708,
+     "ppid": 7707,
+     "pgid": 7708,
+     "sid": "0",
+     "tpgid": 7708,
+     "state": "T+",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 7707,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-opus2",
+  "binary": "bin/T1-go-opus2/darwin-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:44:48Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 8077,
+      "ppid": 8075,
+      "pgid": 8077,
+      "sid": "0",
+      "tpgid": 8075,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8078,
+      "ppid": 8077,
+      "pgid": 8078,
+      "sid": "0",
+      "tpgid": 8075,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 8075,
+      "ppid": 7705,
+      "pgid": 8075,
+      "sid": "0",
+      "tpgid": 8075,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 8077,
+      "ppid": 8075,
+      "pgid": 8077,
+      "sid": "0",
+      "tpgid": 8075,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8078,
+      "ppid": 8077,
+      "pgid": 8078,
+      "sid": "0",
+      "tpgid": 8075,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 8075,
+      "ppid": 7705,
+      "pgid": 8075,
+      "sid": "0",
+      "tpgid": 8075,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+  8077 Running                 bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 8077,
+      "ppid": 8075,
+      "pgid": 8077,
+      "sid": "0",
+      "tpgid": 8078,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8078,
+      "ppid": 8077,
+      "pgid": 8078,
+      "sid": "0",
+      "tpgid": 8078,
+      "state": "T+",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 8075,
+      "ppid": 7705,
+      "pgid": 8075,
+      "sid": "0",
+      "tpgid": 8078,
+      "state": "Ss",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 8077,
+      "ppid": 8075,
+      "pgid": 8077,
+      "sid": "0",
+      "tpgid": 8078,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8078,
+      "ppid": 8077,
+      "pgid": 8078,
+      "sid": "0",
+      "tpgid": 8078,
+      "state": "T+",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 8075,
+  "job_line": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null\r<win-arm64/heimdall-proto run -- sleep 3 </dev/null                          \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b>/dev/null 2>&1 &\r\n[1] 8077",
+  "job_pid": 8077,
+  "launcher_children": [
+   8078
+  ],
+  "program_pid": 8078,
+  "before_signal": {
+   "launcher": {
+    "pid": 8077,
+    "ppid": 8075,
+    "pgid": 8077,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8078,
+    "ppid": 8077,
+    "pgid": 8078,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8075,
+    "ppid": 7705,
+    "pgid": 8075,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 8078,
+  "after_signal": {
+   "launcher": {
+    "pid": 8077,
+    "ppid": 8075,
+    "pgid": 8077,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8078,
+    "ppid": 8077,
+    "pgid": 8078,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8075,
+    "ppid": 7705,
+    "pgid": 8075,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+  8077 Running                 bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 8077,
+    "ppid": 8075,
+    "pgid": 8077,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8078,
+    "ppid": 8077,
+    "pgid": 8078,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8075,
+    "ppid": 7705,
+    "pgid": 8075,
+    "sid": "0",
+    "tpgid": 8075,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 8077,
+    "ppid": 8075,
+    "pgid": 8077,
+    "sid": "0",
+    "tpgid": 8078,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8078,
+    "ppid": 8077,
+    "pgid": 8078,
+    "sid": "0",
+    "tpgid": 8078,
+    "state": "T+",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 8077,
+    "ppid": 8075,
+    "pgid": 8077,
+    "sid": "0",
+    "tpgid": 8078,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8078,
+    "ppid": 8077,
+    "pgid": 8078,
+    "sid": "0",
+    "tpgid": 8078,
+    "state": "T+",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8075,
+    "ppid": 7705,
+    "pgid": 8075,
+    "sid": "0",
+    "tpgid": 8078,
+    "state": "Ss",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 8078,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 8078,
+     "ppid": 8077,
+     "pgid": 8078,
+     "sid": "0",
+     "tpgid": 8078,
+     "state": "T+",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 8077,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "T1-go-opus2",
+  "binary": "bin/T1-go-opus2/darwin-arm64/heimdall-proto",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "TSTP",
+  "mode": "cont",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:45:03Z",
+  "steps": [
+   {
+    "step": "kill -CONT %1",
+    "prompt_returned": true,
+    "output": "kill -CONT %1",
+    "procs": {
+     "launcher": {
+      "pid": 8767,
+      "ppid": 8765,
+      "pgid": 8767,
+      "sid": "0",
+      "tpgid": 8765,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8768,
+      "ppid": 8767,
+      "pgid": 8768,
+      "sid": "0",
+      "tpgid": 8765,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 8765,
+      "ppid": 7705,
+      "pgid": 8765,
+      "sid": "0",
+      "tpgid": 8765,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    }
+   },
+   {
+    "step": "after 4.5 s",
+    "procs": {
+     "launcher": {
+      "pid": 8767,
+      "ppid": 8765,
+      "pgid": 8767,
+      "sid": "0",
+      "tpgid": 8765,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8768,
+      "ppid": 8767,
+      "pgid": 8768,
+      "sid": "0",
+      "tpgid": 8765,
+      "state": "T",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 8765,
+      "ppid": 7705,
+      "pgid": 8765,
+      "sid": "0",
+      "tpgid": 8765,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "jobs": "jobs -l\r\n[1]+  8767 Running                 bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+    "job_listed": true
+   },
+   {
+    "step": "fg",
+    "prompt_returned": false,
+    "output": null,
+    "procs": {
+     "launcher": {
+      "pid": 8767,
+      "ppid": 8765,
+      "pgid": 8767,
+      "sid": "0",
+      "tpgid": 8768,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8768,
+      "ppid": 8767,
+      "pgid": 8768,
+      "sid": "0",
+      "tpgid": 8768,
+      "state": "T+",
+      "comm": "sleep"
+     },
+     "shell": {
+      "pid": 8765,
+      "ppid": 7705,
+      "pgid": 8765,
+      "sid": "0",
+      "tpgid": 8768,
+      "state": "Ss",
+      "comm": "bash"
+     }
+    },
+    "shell_done": false,
+    "leftover": {
+     "launcher": {
+      "pid": 8767,
+      "ppid": 8765,
+      "pgid": 8767,
+      "sid": "0",
+      "tpgid": 8768,
+      "state": "S",
+      "comm": "heimdall-proto"
+     },
+     "program": {
+      "pid": 8768,
+      "ppid": 8767,
+      "pgid": 8768,
+      "sid": "0",
+      "tpgid": 8768,
+      "state": "T+",
+      "comm": "sleep"
+     }
+    }
+   }
+  ],
+  "shell_pid": 8765,
+  "job_line": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null\r<win-arm64/heimdall-proto run -- sleep 3 </dev/null                          \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b>/dev/null 2>&1 &\r\n[1] 8767",
+  "job_pid": 8767,
+  "launcher_children": [
+   8768
+  ],
+  "program_pid": 8768,
+  "before_signal": {
+   "launcher": {
+    "pid": 8767,
+    "ppid": 8765,
+    "pgid": 8767,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8768,
+    "ppid": 8767,
+    "pgid": 8768,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8765,
+    "ppid": 7705,
+    "pgid": 8765,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 8768,
+  "after_signal": {
+   "launcher": {
+    "pid": 8767,
+    "ppid": 8765,
+    "pgid": 8767,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8768,
+    "ppid": 8767,
+    "pgid": 8768,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8765,
+    "ppid": 7705,
+    "pgid": 8765,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+  8767 Running                 bin/T1-go-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &",
+  "after_jobs": {
+   "launcher": {
+    "pid": 8767,
+    "ppid": 8765,
+    "pgid": 8767,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8768,
+    "ppid": 8767,
+    "pgid": 8768,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8765,
+    "ppid": 7705,
+    "pgid": 8765,
+    "sid": "0",
+    "tpgid": 8765,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "none",
+  "leftover_at_end": {
+   "launcher": {
+    "pid": 8767,
+    "ppid": 8765,
+    "pgid": 8767,
+    "sid": "0",
+    "tpgid": 8768,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8768,
+    "ppid": 8767,
+    "pgid": 8768,
+    "sid": "0",
+    "tpgid": 8768,
+    "state": "T+",
+    "comm": "sleep"
+   }
+  },
+  "final": {
+   "launcher": {
+    "pid": 8767,
+    "ppid": 8765,
+    "pgid": 8767,
+    "sid": "0",
+    "tpgid": 8768,
+    "state": "S",
+    "comm": "heimdall-proto"
+   },
+   "program": {
+    "pid": 8768,
+    "ppid": 8767,
+    "pgid": 8768,
+    "sid": "0",
+    "tpgid": 8768,
+    "state": "T+",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 8765,
+    "ppid": 7705,
+    "pgid": 8765,
+    "sid": "0",
+    "tpgid": 8768,
+    "state": "Ss",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 8768,
+    "action": "SIGKILL",
+    "note": "program (may be reparented)",
+    "before": {
+     "pid": 8768,
+     "ppid": 8767,
+     "pgid": 8768,
+     "sid": "0",
+     "tpgid": 8768,
+     "state": "T+",
+     "comm": "sleep"
+    },
+    "after": null
+   },
+   {
+    "pid": 8767,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]

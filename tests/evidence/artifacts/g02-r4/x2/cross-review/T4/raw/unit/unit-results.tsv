@@ -1,0 +1,23 @@
+subject	rc	seconds	failed_tests
+T4-go-opus1	0	12	none
+T4-go-opus1.seed	1	12	TestK14NonRegularFiles TestLoadSymlinkRetargetedBeforeOpen TestLoadSymlinkToRegularFile TestProfileShowSymlink TestTUISymlink 
+T4-go-opus1.nocheck	1	12	TestLoadSymlinkRetargetedBeforeOpen 
+T4-go-opus2	0	13	none
+T4-go-opus2.seed	1	12	TestLoadFollowsSymlinkToRegularFile TestProfileShowSymlink TestTUISymlink 
+T4-go-opus2.nocheck	0	13	none
+T4-go-sonnet1	0	14	none
+T4-go-sonnet1.seed	1	12	TestLoadFollowsSymlinkToRegularFile TestProfileShowFollowsSymlink TestTUIFollowsSymlink 
+T4-go-sonnet1.nocheck	0	13	none
+T4-rust-opus1	0	4	none
+T4-rust-opus1.nocheck	0	4	none
+T4-rust-opus2	0	4	none
+T4-rust-opus2.nocheck	0	4	none
+T4-rust-sonnet1	0	4	none
+T4-rust-sonnet1.nocheck	0	4	none
+T4-rust-opus1.seed	101	4	profile::tests::symlinks_are_followed_but_k14_still_applies profile_show_follows_symlinks_to_regular_files 
+T4-rust-opus2.seed	101	4	profile::tests::symlink_to_regular_file_loads_like_the_file symlinked_profile_reads_like_its_target 
+T4-rust-sonnet1.seed	101	4	profile::tests::oversize_not_parsed_and_missing_is_usage profile_symlinks_follow_to_regular_files_only 
+base-go	0	12	none
+base-go.nocheck	0	11	none
+base-rust	0	4	none
+base-rust.nocheck	101	4	k14_non_regular_profile_files 

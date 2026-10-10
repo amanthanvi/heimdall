@@ -1,0 +1,54 @@
+--- FAIL: TestProfileShowFollowsSymlink (0.00s)
+    main_test.go:110: [--json] <home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/tmp-tests/T4-go-sonnet1.seed/TestProfileShowFollowsSymlink1797240444/001/config/abs.toml: exit 2 out "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" err "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 out "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n" err ""
+    main_test.go:110: [--json] <home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/tmp-tests/T4-go-sonnet1.seed/TestProfileShowFollowsSymlink1797240444/001/config/rel.toml: exit 2 out "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" err "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 out "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n" err ""
+    main_test.go:110: [] <home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/tmp-tests/T4-go-sonnet1.seed/TestProfileShowFollowsSymlink1797240444/001/config/abs.toml: exit 2 out "" err "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 out "homelab (revision 3)\nlab-server  aman@lab.example.internal:22\nnas  admin@nas.example.internal:22\nvps-東京  deploy@vps1.example.invalid:2222\n" err ""
+    main_test.go:110: [] <home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/tmp-tests/T4-go-sonnet1.seed/TestProfileShowFollowsSymlink1797240444/001/config/rel.toml: exit 2 out "" err "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 out "homelab (revision 3)\nlab-server  aman@lab.example.internal:22\nnas  admin@nas.example.internal:22\nvps-東京  deploy@vps1.example.invalid:2222\n" err ""
+    main_test.go:116: 2 {"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"key_path":null,"message":"profile path is not a regular file"}},"warnings":[],"next":null}
+        
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 210 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x8151917e5a0, {0x10080f660, 0x1007bcbd0})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x10080f660?, 0x1007bcbd0?})
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x1008d8930?}, {0x10083ef68?, 0x815198b2030?})
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x8151917e5a0, {0x10084e018?, 0x8151965a200?}, 0x815191a70a0)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x8151917e5a0)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x10084e018, 0x8151965a200}, 0x8151965a200, 0x815191b03c8, {0x10084ca78, 0x815191af590}, {0x10084ca78, 0x815191af5c0}, {0x81518eaee90, 0x2, ...})
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/main.go:357 +0x330
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x81519660d88)
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x81519660d88, 0x10084f0e0)
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/testing/testing.go:2195 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/testing/testing.go:2260 +0x3b8
+
+--- FAIL: TestTUIFollowsSymlink (1.02s)
+    tui_symlink_test.go:88: absolute link: exit 2, alternate screen entered/left: false/false
+    tui_symlink_test.go:88: relative link: exit 2, alternate screen entered/left: false/false
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	12.380s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.125s
+--- FAIL: TestLoadFollowsSymlinkToRegularFile (0.00s)
+    k14_test.go:122: absolute link: USAGE_ERROR: profile path is not a regular file
+    k14_test.go:122: relative link: USAGE_ERROR: profile path is not a regular file
+    k14_test.go:122: chain of links: USAGE_ERROR: profile path is not a regular file
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	0.048s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.299s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.008s
+FAIL

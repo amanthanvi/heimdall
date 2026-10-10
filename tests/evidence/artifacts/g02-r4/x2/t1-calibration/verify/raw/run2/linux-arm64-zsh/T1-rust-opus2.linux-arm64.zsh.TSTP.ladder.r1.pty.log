@@ -1,0 +1,40 @@
+
+<<SEND "unsetopt zle promptsp promptcr banghist beep; PROMPT='__PS''1__ '; PS2=''\n">>
+unsetopt zle promptsp promptcr banghist beep; PROMPT='__PS''1__ '; PS2=''
+%                                                                               512f6a0992a8% [?2004hunsetopt zle promptsp promptcr banghist beep; PROMPT='__PS''1__ <tcr banghist beep; PROMPT='__PS''1__ '                                       <tcr banghist beep; PROMPT='__PS''1__ '; PS2=''[?2004l
+__PS1__ 
+<<SEND 'bin/T1-rust-opus2/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\n'>>
+bin/T1-rust-opus2/linux-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &
+[1] 701
+__PS1__ 
+<<SEND 'echo "__PID""__ $!"\n'>>
+echo "__PID""__ $!"
+__PID__ 701
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+[1]  + 701 running    bin/T1-rust-opus2/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+[1]  + running    bin/T1-rust-opus2/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>
+
+<<SEND '\x1a'>>
+^Z
+zsh: suspended  bin/T1-rust-opus2/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+[1]  + continued  bin/T1-rust-opus2/linux-arm64/heimdall-proto run -- sleep 3 < /dev/null >  2>
+__PS1__ 
+<<SEND 'echo "__RC""__ $?"\n'>>
+echo "__RC""__ $?"
+__RC__ 0
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+__PS1__ 
+<<SEND '\nexit\n'>>
+
+exit
+__PS1__ 

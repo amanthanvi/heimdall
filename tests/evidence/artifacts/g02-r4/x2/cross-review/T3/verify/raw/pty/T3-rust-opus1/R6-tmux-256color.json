@@ -1,0 +1,49 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/T3-rust-opus1/heimdall-proto",
+ "sha256": "9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc",
+ "size": "80x24",
+ "term": "tmux-256color",
+ "profile": "homelab.toml",
+ "keys": [
+  "/",
+  "東",
+  "京"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 517,
+   "n": 273,
+   "b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgYW1hbkBsYWIuZXhhbXBsZS5pbnRlcm5hbDoyMiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syOzNIG1syMm0bWzM5OzQ5bW5hcxtbMjs4SGFkbWluQG5hcy5leGFtcGxlLmludGVybmFsOjIyG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMzsxM0hkZXBsb3lAdnBzMS5leGFtcGxlLmludmFsaWQ6MjIyMhtbMjQ7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[?1049h\\x1b[?25l\\x1b[2J\\x1b[1;1H\\x1b[1m\\x1b[38;5;6;49m> lab-server  aman@lab.example.internal:22                                      \\x1b[2;3H\\x1b[22m\\x1b[39;49mnas\\x1b[2;8Hadmin@nas.example.internal:22\\x1b[3;3Hvps-\\u6771\\x1b[3;9H\\u4eac\\x1b[3;13Hdeploy@vps1.example.invalid:2222\\x1b[24;1H3/3\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 419,
+   "n": 33,
+   "b64": "G1syNDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[24;6H/\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "東",
+   "sent": "\\u6771",
+   "ms": 409,
+   "n": 260,
+   "b64": "G1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SBtbNG3mnbEbWzE7OUgbWzI0beS6rBtbMTsxMUggIGRlcGxveRtbMTsyMEh2cHMxLmV4YW1wbGUuaW52YWxpZBtbMTs0M0gyMhtbMjszSBtbMjJtG1szOTs0OW0gICAbWzI7OEggICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzszSCAgICAgG1szOzlIIBtbMzsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MUgxG1syNDs3SOadsRtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWw=",
+   "esc": "\\x1b[1;3H\\x1b[1m\\x1b[38;5;6;49mvps\\x1b[1;7H\\x1b[4m\\u6771\\x1b[1;9H\\x1b[24m\\u4eac\\x1b[1;11H  deploy\\x1b[1;20Hvps1.example.invalid\\x1b[1;43H22\\x1b[2;3H\\x1b[22m\\x1b[39;49m   \\x1b[2;8H                             \\x1b[3;3H     \\x1b[3;9H \\x1b[3;13H                                \\x1b[24;1H1\\x1b[24;7H\\u6771\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "京",
+   "sent": "\\u4eac",
+   "ms": 415,
+   "n": 82,
+   "b64": "G1sxOzlIG1sxbRtbNG0bWzM4OzU7Njs0OW3kuqwbWzI0OzlIG1syMm0bWzI0bRtbMzk7NDlt5LqsG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bA==",
+   "esc": "\\x1b[1;9H\\x1b[1m\\x1b[4m\\x1b[38;5;6;49m\\u4eac\\x1b[24;9H\\x1b[22m\\x1b[24m\\x1b[39;49m\\u4eac\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  }
+ ],
+ "full_b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgYW1hbkBsYWIuZXhhbXBsZS5pbnRlcm5hbDoyMiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syOzNIG1syMm0bWzM5OzQ5bW5hcxtbMjs4SGFkbWluQG5hcy5leGFtcGxlLmludGVybmFsOjIyG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMzsxM0hkZXBsb3lAdnBzMS5leGFtcGxlLmludmFsaWQ6MjIyMhtbMjQ7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1syNDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SBtbNG3mnbEbWzE7OUgbWzI0beS6rBtbMTsxMUggIGRlcGxveRtbMTsyMEh2cHMxLmV4YW1wbGUuaW52YWxpZBtbMTs0M0gyMhtbMjszSBtbMjJtG1szOTs0OW0gICAbWzI7OEggICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzszSCAgICAgG1szOzlIIBtbMzsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MUgxG1syNDs3SOadsRtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWzE7OUgbWzFtG1s0bRtbMzg7NTs2OzQ5beS6rBtbMjQ7OUgbWzIybRtbMjRtG1szOTs0OW3kuqwbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjVoG1s/MTA0OWwbWz8yNWg=",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[?25h\\x1b[?1049l\\x1b[?25h",
+ "stderr_tail": ""
+}

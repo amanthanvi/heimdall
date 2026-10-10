@@ -1,0 +1,258 @@
+{
+ "verdict": "SUSPECT",
+ "transcript_files": 1,
+ "tool_calls": 78,
+ "offending_calls": [
+  {
+   "index": 12,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 71,
+   "tool": "Read",
+   "reasons": [
+    "path-outside:home"
+   ]
+  },
+  {
+   "index": 26,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 155,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 30,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 178,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "marker:repository",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 34,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 202,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 39,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 232,
+   "tool": "Bash",
+   "reasons": [
+    "output-marker:repository"
+   ]
+  },
+  {
+   "index": 42,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 251,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 44,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 263,
+   "tool": "airport_Write",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 46,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 273,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 47,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 279,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 48,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 285,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "marker:repository",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 51,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 304,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:root",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 52,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 310,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 53,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 315,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "path-outside:outside",
+    "path-outside:tmp",
+    "raw-path-outside:outside",
+    "raw-path-outside:tmp"
+   ]
+  },
+  {
+   "index": 54,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 321,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "path-outside:outside",
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 55,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 327,
+   "tool": "Bash",
+   "reasons": [
+    "output-marker:repository"
+   ]
+  },
+  {
+   "index": 58,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 345,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "marker:repository",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 60,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 358,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "path-outside:outside",
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 70,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 415,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:root",
+    "unresolved-expansion"
+   ]
+  },
+  {
+   "index": 71,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 420,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "path-outside:outside",
+    "path-outside:tmp",
+    "raw-path-outside:outside",
+    "raw-path-outside:tmp"
+   ]
+  },
+  {
+   "index": 72,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 426,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "marker:repository",
+    "output-marker:other-workspace",
+    "raw-path-outside:home",
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 73,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 432,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 77,
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 456,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "raw-path-outside:other-workspace",
+    "raw-path-outside:outside"
+   ]
+  }
+ ],
+ "entries": [],
+ "notes": [
+  {
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 3,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 6,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-afcffbfd4d4896ef7.jsonl",
+   "line": 7,
+   "place": "prompt",
+   "reasons": [
+    "marker:task-pack"
+   ]
+  }
+ ]
+}

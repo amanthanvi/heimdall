@@ -1,0 +1,4 @@
+base-rust rep1 P9e0-fg3 {"answered_after_fg_number": 0, "ping_destinations": ["nowhere"], "rc_after_exit": null} 4.8s
+base-rust rep1 P9e-bg-fg3 {"answered_after_fg_number": 0, "ping_destinations": ["nowhere"], "rc_after_exit": null} 5.8s
+base-rust rep2 P9e0-fg3 {"answered_after_fg_number": 0, "ping_destinations": ["nowhere"], "rc_after_exit": null} 4.9s
+base-rust rep2 P9e-bg-fg3 {"answered_after_fg_number": 0, "ping_destinations": ["nowhere"], "rc_after_exit": null} 5.9s

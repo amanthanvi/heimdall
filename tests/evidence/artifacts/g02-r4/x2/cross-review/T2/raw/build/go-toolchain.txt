@@ -1,0 +1,7 @@
+go version of the binaries (go version <bin>), 2026-10-10:
+  base-go: go1.27.2
+  T2-go-opus1: go1.27.2
+  T2-go-opus2: go1.27.2
+  T2-go-sonnet1: go1.27.2
+  repository prototypes/go/dist/darwin-arm64 (= BASE.json base-go bdfd64a2...): go1.27.1
+evaluator harness records (go1.27.x strings): go-opus1 eval/harness-darwin.json go1.27.1; go-opus2 eval/harness-darwin.json go1.27.1; go-sonnet1 harness-darwin.json go1.27.2

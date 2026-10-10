@@ -1,0 +1,6 @@
+signed darwin-arm64: ad-hoc, hardened runtime
+built darwin-arm64 (5212224 bytes)
+built linux-x64 (5451936 bytes)
+built linux-arm64 (5177504 bytes)
+built windows-x64 (5105664 bytes)
+wrote <scratch>/src/go/prototypes/go/dist/manifest.json

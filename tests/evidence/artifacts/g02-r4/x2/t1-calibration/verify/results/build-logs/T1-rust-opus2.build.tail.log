@@ -1,0 +1,8 @@
+== linux-x64 (x86_64-unknown-linux-musl, zig)
+   built in 4s
+== linux-arm64 (aarch64-unknown-linux-musl, zig)
+   built in 4s
+== windows-x64 (x86_64-pc-windows-gnu, zig)
+   built in 4s
+notices generation failed; see dist/logs/notices.log
+{"darwin-arm64": true, "linux-x64": true, "linux-arm64": true, "windows-x64": true}

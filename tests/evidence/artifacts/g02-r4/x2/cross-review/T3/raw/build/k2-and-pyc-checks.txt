@@ -1,0 +1,10 @@
+# K2: alias holds U+0007 (TOML escape). profile show --json: code, key_path, exit status. tui (under script(1)): the SCHEMA_INVALID stderr line
+T3-go-opus1 profile_show: SCHEMA_INVALID destinations[0].alias exit=2 | tui: SCHEMA_INVALID: destinations[0].alias: string value contains a control character
+T3-go-opus2 profile_show: SCHEMA_INVALID destinations[0].alias exit=2 | tui: SCHEMA_INVALID: destinations[0].alias: string value contains a control character
+T3-go-sonnet1 profile_show: SCHEMA_INVALID destinations[0].alias exit=2 | tui: SCHEMA_INVALID: destinations[0].alias: string value contains a control character
+T3-rust-opus1 profile_show: SCHEMA_INVALID destinations[0].alias exit=2 | tui: SCHEMA_INVALID: destinations[0].alias contains control characters
+T3-rust-opus2 profile_show: SCHEMA_INVALID destinations[0].alias exit=2 | tui: SCHEMA_INVALID: destinations[0].alias contains control characters
+T3-rust-sonnet1 profile_show: SCHEMA_INVALID destinations[0].alias exit=2 | tui: SCHEMA_INVALID: destinations[0].alias contains control characters
+# rust build.sh (001a791): 115:python3 tools/gen_notices.py "$DIST/THIRD-PARTY-NOTICES.txt" >"$DIST/logs/notices.log" 2>&1 \
+# tools/gen_notices.py (001a791): 14:import inventory as inv  # noqa: E402
+# git check-ignore: .gitignore:9:__pycache__/	prototypes/rust/tools/__pycache__/inventory.cpython-314.pyc

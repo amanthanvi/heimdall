@@ -1,0 +1,7 @@
+Reviewer probes (M00-T05-r4-x2-review-T1-rust-opus1), darwin-arm64, artifact sha256 b82bd960... (the evaluated build).
+probe.py <bin> <workdir> script : interactive bash on a fresh pty runs a NON-job-control `bash -c '<cmd>; echo RC=$?'`
+  with stdio on the terminal; a third party SIGSTOPs the child, waits 0.5 s, SIGCONTs the child only.
+  control (plain exec) prints RC=7; via heimdall-proto no RC within 6 s (launcher left stopped; probe then SIGKILLs the job group it started).
+probe.py <bin> <workdir> bgfg   : nested bash, suspend, bg, fg. Control and heimdall-proto behave identically
+  (nested bash exits after bg); no defect, hypothesis rejected.
+Exit codes in probe-exit-codes.txt are the probe driver's own exit codes.

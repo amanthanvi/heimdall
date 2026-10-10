@@ -1,0 +1,18 @@
+== T2-go-opus1: python3 -I cross-review/T2/scripts/patch_equiv.py runs/T2-go-opus1/eval/change.patch runs/T2-go-opus1/implementer-out/diff.patch
+files: 8 8 equivalent
+rc=0
+== T2-go-opus2: python3 -I cross-review/T2/scripts/patch_equiv.py runs/T2-go-opus2/eval/change.patch runs/T2-go-opus2/implementer-out/diff.patch
+files: 8 8 equivalent
+rc=0
+== T2-rust-opus1: python3 -I cross-review/T2/scripts/patch_equiv.py runs/T2-rust-opus1/eval/change.patch runs/T2-rust-opus1/implementer-out/diff.patch
+files: 7 7 equivalent
+rc=0
+== T2-rust-opus2: python3 -I cross-review/T2/scripts/patch_equiv.py runs/T2-rust-opus2/eval/change.patch runs/T2-rust-opus2/implementer-out/diff.patch
+files: 7 7 equivalent
+rc=0
+== T2-go-sonnet1: python3 -I cross-review/T2/scripts/patch_equiv.py runs/T2-go-sonnet1/change.patch runs/T2-go-sonnet1/implementer-out/diff.patch
+files: 5 5 equivalent
+rc=0
+== T2-rust-sonnet1: python3 -I cross-review/T2/scripts/patch_equiv.py runs/T2-rust-sonnet1/change.patch runs/T2-rust-sonnet1/out/diff.patch
+files: 6 6 equivalent
+rc=0

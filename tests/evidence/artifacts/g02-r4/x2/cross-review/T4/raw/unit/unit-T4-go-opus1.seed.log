@@ -1,0 +1,64 @@
+--- FAIL: TestProfileShowSymlink (0.00s)
+    symlink_test.go:69: absolute link [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:70: relative link [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:72: relative --file naming a relative link [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:73: relative --file naming an absolute link [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:69: absolute link []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:70: relative link []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:72: relative --file naming a relative link []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+    symlink_test.go:73: relative --file naming an absolute link []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 and the regular file's output
+--- FAIL: TestTUISymlink (0.01s)
+    symlink_test.go:118: absolute link: exit=2 drew=false killed="" output="heimdall-proto: USAGE_ERROR: profile path is not a regular file\r\n"
+    symlink_test.go:118: relative link: exit=2 drew=false killed="" output="heimdall-proto: USAGE_ERROR: profile path is not a regular file\r\n"
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 230 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x1bb30356e000, {0x104d376c0, 0x104ce4bf0})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x104d376c0?, 0x104ce4bf0?})
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x104e00940?}, {0x104d67040?, 0x1bb3034149c0?})
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x1bb30356e000, {0x104d760f0?, 0x1bb303532600?}, 0x1bb30339ef50)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x1bb30356e000)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x104d760f0, 0x1bb303532600}, 0x1bb303532600, 0x1bb302e6e660, {0x104d74b50, 0x1bb303553830}, {0x104d74b50, 0x1bb303553860}, {0x1bb3030c5e90, 0x2, ...})
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/main.go:357 +0x330
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x1bb30356c008)
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x1bb30356c008, 0x104d771b8)
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/testing/testing.go:2195 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/testing/testing.go:2260 +0x3b8
+
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	11.355s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.124s
+--- FAIL: TestK14NonRegularFiles (0.00s)
+    k14_test.go:71: symlink to regular file: got USAGE_ERROR: profile path is not a regular file, want success
+--- FAIL: TestLoadSymlinkToRegularFile (0.00s)
+    symlink_test.go:99: link through linked dir: got USAGE_ERROR: profile path is not a regular file, want success
+    symlink_test.go:99: link with space and ü: got USAGE_ERROR: profile path is not a regular file, want success
+    symlink_test.go:99: absolute link: got USAGE_ERROR: profile path is not a regular file, want success
+    symlink_test.go:99: relative link: got USAGE_ERROR: profile path is not a regular file, want success
+    symlink_test.go:99: chain of links: got USAGE_ERROR: profile path is not a regular file, want success
+    symlink_test.go:113: link to oversize file: got USAGE_ERROR: profile path is not a regular file, want INPUT_TOO_LARGE
+    symlink_test.go:122: link to invalid profile: got USAGE_ERROR: profile path is not a regular file, want SCHEMA_INVALID: destinations[0].port: must be an integer in 1..65535
+--- FAIL: TestLoadSymlinkRetargetedBeforeOpen (0.00s)
+    symlink_test.go:216: restored link: USAGE_ERROR: profile path is not a regular file
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	0.048s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.297s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.008s
+FAIL

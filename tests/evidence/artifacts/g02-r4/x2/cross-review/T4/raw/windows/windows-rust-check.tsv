@@ -1,0 +1,5 @@
+subject	cargo_check_tests_windows_gnu_rc	warnings
+base-rust	0	0
+T4-rust-opus1	0	0
+T4-rust-opus2	0	0
+T4-rust-sonnet1	0	0

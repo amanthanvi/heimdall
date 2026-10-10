@@ -1,0 +1,101 @@
+{
+ "note": "hidden-pack run.py --task T3 on the rebuilt darwin-arm64 binaries. Run 1 used /usr/bin/python3 3.9.6: T3.k17_filter_latency errored (no tomllib in 3.9; an invocation error of this task, not a product result), the other 16 checks passed. Run 2 re-ran only T3.k17_filter_latency with python3 3.14.8.",
+ "cells": {
+  "T3-go-opus1": {
+   "binary_sha256": "3cb494cec404002ecf27556353351c9c1b2df6cda5e6c3b19cf0a349dbb68dad",
+   "run1_python": "3.9.6",
+   "run1_summary": {
+    "pass": 16,
+    "fail": 0,
+    "error": 1,
+    "total": 17
+   },
+   "run1_not_pass": [
+    "T3.k17_filter_latency"
+   ],
+   "run2_python": "3.14.8",
+   "run2_k17_status": "pass",
+   "run2_k17_p95": 17.5
+  },
+  "T3-go-opus2": {
+   "binary_sha256": "87f81fb90346f26007c629acc9f95e9cab47d360a537c74f494d778859a463cc",
+   "run1_python": "3.9.6",
+   "run1_summary": {
+    "pass": 16,
+    "fail": 0,
+    "error": 1,
+    "total": 17
+   },
+   "run1_not_pass": [
+    "T3.k17_filter_latency"
+   ],
+   "run2_python": "3.14.8",
+   "run2_k17_status": "pass",
+   "run2_k17_p95": 18.3
+  },
+  "T3-go-sonnet1": {
+   "binary_sha256": "9eb467768617e4e923c4f9e8485be4b6c8345eb644bd419dc01d650cc3dffbf9",
+   "run1_python": "3.9.6",
+   "run1_summary": {
+    "pass": 16,
+    "fail": 0,
+    "error": 1,
+    "total": 17
+   },
+   "run1_not_pass": [
+    "T3.k17_filter_latency"
+   ],
+   "run2_python": "3.14.8",
+   "run2_k17_status": "pass",
+   "run2_k17_p95": 18.4
+  },
+  "T3-rust-opus1": {
+   "binary_sha256": "9c6606190083ae44fdcbb7213da8125031eab71402ee7311183f74d6ac8f2ddc",
+   "run1_python": "3.9.6",
+   "run1_summary": {
+    "pass": 16,
+    "fail": 0,
+    "error": 1,
+    "total": 17
+   },
+   "run1_not_pass": [
+    "T3.k17_filter_latency"
+   ],
+   "run2_python": "3.14.8",
+   "run2_k17_status": "pass",
+   "run2_k17_p95": 4.2
+  },
+  "T3-rust-opus2": {
+   "binary_sha256": "7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590",
+   "run1_python": "3.9.6",
+   "run1_summary": {
+    "pass": 16,
+    "fail": 0,
+    "error": 1,
+    "total": 17
+   },
+   "run1_not_pass": [
+    "T3.k17_filter_latency"
+   ],
+   "run2_python": "3.14.8",
+   "run2_k17_status": "pass",
+   "run2_k17_p95": 3.7
+  },
+  "T3-rust-sonnet1": {
+   "binary_sha256": "a49cc5b0a44307468befd92efe9e0db6d8d05ecb3817b53c331c6a1562e67477",
+   "run1_python": "3.9.6",
+   "run1_summary": {
+    "pass": 16,
+    "fail": 0,
+    "error": 1,
+    "total": 17
+   },
+   "run1_not_pass": [
+    "T3.k17_filter_latency"
+   ],
+   "run2_python": "3.14.8",
+   "run2_k17_status": "pass",
+   "run2_k17_p95": 5.0
+  }
+ }
+}

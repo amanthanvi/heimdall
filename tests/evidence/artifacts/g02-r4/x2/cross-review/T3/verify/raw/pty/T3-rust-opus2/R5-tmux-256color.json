@@ -1,0 +1,49 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/T3-rust-opus2/heimdall-proto",
+ "sha256": "7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590",
+ "size": "40x10",
+ "term": "tmux-256color",
+ "profile": "homelab.toml",
+ "keys": [
+  "/",
+  "東",
+  "京"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 512,
+   "n": 159,
+   "b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7M0gbWzIybRtbMzk7NDltbmFzG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMTA7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[?1049h\\x1b[?25l\\x1b[2J\\x1b[1;1H\\x1b[1m\\x1b[38;5;6;49m> lab-server                            \\x1b[2;3H\\x1b[22m\\x1b[39;49mnas\\x1b[3;3Hvps-\\u6771\\x1b[3;9H\\u4eac\\x1b[10;1H3/3\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 412,
+   "n": 33,
+   "b64": "G1sxMDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[10;6H/\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "東",
+   "sent": "\\u6771",
+   "ms": 402,
+   "n": 144,
+   "b64": "G1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SBtbNG3mnbEbWzE7OUgbWzI0beS6rBtbMTsxMUggIBtbMjszSBtbMjJtG1szOTs0OW0gICAbWzM7M0ggICAgIBtbMzs5SCAbWzEwOzFIMRtbMTA7N0jmnbEbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[1;3H\\x1b[1m\\x1b[38;5;6;49mvps\\x1b[1;7H\\x1b[4m\\u6771\\x1b[1;9H\\x1b[24m\\u4eac\\x1b[1;11H  \\x1b[2;3H\\x1b[22m\\x1b[39;49m   \\x1b[3;3H     \\x1b[3;9H \\x1b[10;1H1\\x1b[10;7H\\u6771\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "京",
+   "sent": "\\u4eac",
+   "ms": 411,
+   "n": 82,
+   "b64": "G1sxOzlIG1sxbRtbNG0bWzM4OzU7Njs0OW3kuqwbWzEwOzlIG1syMm0bWzI0bRtbMzk7NDlt5LqsG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bA==",
+   "esc": "\\x1b[1;9H\\x1b[1m\\x1b[4m\\x1b[38;5;6;49m\\u4eac\\x1b[10;9H\\x1b[22m\\x1b[24m\\x1b[39;49m\\u4eac\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  }
+ ],
+ "full_b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7M0gbWzIybRtbMzk7NDltbmFzG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMTA7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1sxMDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SBtbNG3mnbEbWzE7OUgbWzI0beS6rBtbMTsxMUggIBtbMjszSBtbMjJtG1szOTs0OW0gICAbWzM7M0ggICAgIBtbMzs5SCAbWzEwOzFIMRtbMTA7N0jmnbEbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1sxOzlIG1sxbRtbNG0bWzM4OzU7Njs0OW3kuqwbWzEwOzlIG1syMm0bWzI0bRtbMzk7NDlt5LqsG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bBtbPzI1aBtbPzEwNDlsG1s/MjVo",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[?25h\\x1b[?1049l\\x1b[?25h",
+ "stderr_tail": ""
+}

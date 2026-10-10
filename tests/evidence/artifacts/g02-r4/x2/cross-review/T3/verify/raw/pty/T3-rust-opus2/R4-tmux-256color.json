@@ -1,0 +1,58 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/T3-rust-opus2/heimdall-proto",
+ "sha256": "7287e8c691f4f41897fae79c3346c5afc2658a38d2ae6ac994772ea8202a4590",
+ "size": "80x24",
+ "term": "tmux-256color",
+ "profile": "homelab.toml",
+ "keys": [
+  "/",
+  "京",
+  "enter",
+  "/"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 526,
+   "n": 273,
+   "b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgYW1hbkBsYWIuZXhhbXBsZS5pbnRlcm5hbDoyMiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syOzNIG1syMm0bWzM5OzQ5bW5hcxtbMjs4SGFkbWluQG5hcy5leGFtcGxlLmludGVybmFsOjIyG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMzsxM0hkZXBsb3lAdnBzMS5leGFtcGxlLmludmFsaWQ6MjIyMhtbMjQ7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[?1049h\\x1b[?25l\\x1b[2J\\x1b[1;1H\\x1b[1m\\x1b[38;5;6;49m> lab-server  aman@lab.example.internal:22                                      \\x1b[2;3H\\x1b[22m\\x1b[39;49mnas\\x1b[2;8Hadmin@nas.example.internal:22\\x1b[3;3Hvps-\\u6771\\x1b[3;9H\\u4eac\\x1b[3;13Hdeploy@vps1.example.invalid:2222\\x1b[24;1H3/3\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 416,
+   "n": 33,
+   "b64": "G1syNDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs",
+   "esc": "\\x1b[24;6H/\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "京",
+   "sent": "\\u4eac",
+   "ms": 404,
+   "n": 260,
+   "b64": "G1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SOadsRtbMTs5SBtbNG3kuqwbWzE7MTFIG1syNG0gIGRlcGxveRtbMTsyMEh2cHMxLmV4YW1wbGUuaW52YWxpZBtbMTs0M0gyMhtbMjszSBtbMjJtG1szOTs0OW0gICAbWzI7OEggICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzszSCAgICAgG1szOzlIIBtbMzsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MUgxG1syNDs3SOS6rBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWw=",
+   "esc": "\\x1b[1;3H\\x1b[1m\\x1b[38;5;6;49mvps\\x1b[1;7H\\u6771\\x1b[1;9H\\x1b[4m\\u4eac\\x1b[1;11H\\x1b[24m  deploy\\x1b[1;20Hvps1.example.invalid\\x1b[1;43H22\\x1b[2;3H\\x1b[22m\\x1b[39;49m   \\x1b[2;8H                             \\x1b[3;3H     \\x1b[3;9H \\x1b[3;13H                                \\x1b[24;1H1\\x1b[24;7H\\u4eac\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "enter",
+   "sent": "\\r",
+   "ms": 425,
+   "n": 50,
+   "b64": "G1syNDs2SGZpbHRlcjobWzI0OzE0SOS6rBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWw=",
+   "esc": "\\x1b[24;6Hfilter:\\x1b[24;14H\\u4eac\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 407,
+   "n": 56,
+   "b64": "G1syNDs2SC/kuqwbWzI0OzlIICAgIBtbMjQ7MTRIIBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWw=",
+   "esc": "\\x1b[24;6H/\\u4eac\\x1b[24;9H    \\x1b[24;14H \\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l"
+  }
+ ],
+ "full_b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgYW1hbkBsYWIuZXhhbXBsZS5pbnRlcm5hbDoyMiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syOzNIG1syMm0bWzM5OzQ5bW5hcxtbMjs4SGFkbWluQG5hcy5leGFtcGxlLmludGVybmFsOjIyG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMzsxM0hkZXBsb3lAdnBzMS5leGFtcGxlLmludmFsaWQ6MjIyMhtbMjQ7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1syNDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SOadsRtbMTs5SBtbNG3kuqwbWzE7MTFIG1syNG0gIGRlcGxveRtbMTsyMEh2cHMxLmV4YW1wbGUuaW52YWxpZBtbMTs0M0gyMhtbMjszSBtbMjJtG1szOTs0OW0gICAbWzI7OEggICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzszSCAgICAgG1szOzlIIBtbMzsxM0ggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjQ7MUgxG1syNDs3SOS6rBtbMzltG1s0OW0bWzU5bRtbMG0bWz8yNWwbWzI0OzZIZmlsdGVyOhtbMjQ7MTRI5LqsG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bBtbMjQ7Nkgv5LqsG1syNDs5SCAgICAbWzI0OzE0SCAbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVsG1s/MjVoG1s/MTA0OWwbWz8yNWg=",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[?25h\\x1b[?1049l\\x1b[?25h",
+ "stderr_tail": ""
+}

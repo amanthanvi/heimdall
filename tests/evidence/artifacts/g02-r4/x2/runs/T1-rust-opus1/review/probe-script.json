@@ -1,0 +1,14 @@
+{
+ "control": {
+  "jobpg": 28819,
+  "rc7_within_6s": true,
+  "completed": true,
+  "tail": "/bin/bash -c '\"$Y\" \"$D/c.py\" \"$D\"; echo RC=$?'\r\nRC=7\r\nHPS1$ "
+ },
+ "hp": {
+  "jobpg": 28822,
+  "rc7_within_6s": false,
+  "completed": true,
+  "tail": "/bin/bash -c '\"$P\" run -- \"$Y\" \"$D/c.py\" \"$D\"; echo RC=$?'\r\n"
+ }
+}

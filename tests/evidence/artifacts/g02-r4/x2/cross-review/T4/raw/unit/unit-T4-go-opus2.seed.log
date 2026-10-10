@@ -1,0 +1,57 @@
+--- FAIL: TestProfileShowSymlink (0.00s)
+    symlink_test.go:72: absolute symlink [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 stdout "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+    symlink_test.go:72: relative symlink [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 stdout "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+    symlink_test.go:72: symlink to a symlink [--json]: exit 2 stdout "{\"schema_version\":\"1\",\"state\":\"failed\",\"code\":\"USAGE_ERROR\",\"data\":{\"error\":{\"key_path\":null,\"message\":\"profile path is not a regular file\"}},\"warnings\":[],\"next\":null}\n" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 stdout "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"PROFILE_OK\",\"data\":{\"profile\":{\"name\":\"homelab\",\"revision\":3,\"destinations\":[{\"id\":\"dst_lab_server\",\"alias\":\"lab-server\",\"host\":\"lab.example.internal\",\"port\":22,\"account\":\"aman\",\"labels\":[\"homelab\",\"fixed-auth\"]},{\"id\":\"dst_nas\",\"alias\":\"nas\",\"host\":\"nas.example.internal\",\"port\":22,\"account\":\"admin\",\"labels\":[\"homelab\"]},{\"id\":\"dst_vps_ünïcode\",\"alias\":\"vps-東京\",\"host\":\"vps1.example.invalid\",\"port\":2222,\"account\":\"deploy\",\"labels\":[]}]}},\"warnings\":[],\"next\":null}\n"
+    symlink_test.go:72: symlink to a symlink []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 stdout "homelab (revision 3)\nlab-server  aman@lab.example.internal:22\nnas  admin@nas.example.internal:22\nvps-東京  deploy@vps1.example.invalid:2222\n"
+    symlink_test.go:72: absolute symlink []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 stdout "homelab (revision 3)\nlab-server  aman@lab.example.internal:22\nnas  admin@nas.example.internal:22\nvps-東京  deploy@vps1.example.invalid:2222\n"
+    symlink_test.go:72: relative symlink []: exit 2 stdout "" stderr "heimdall-proto: USAGE_ERROR: profile path is not a regular file\n"; want exit 0 stdout "homelab (revision 3)\nlab-server  aman@lab.example.internal:22\nnas  admin@nas.example.internal:22\nvps-東京  deploy@vps1.example.invalid:2222\n"
+--- FAIL: TestTUISymlink (0.02s)
+    symlink_test.go:120: absolute symlink: exit=2 drew=false killed="" no_panic_trace=true; want a frame and exit 0
+    symlink_test.go:120: relative symlink: exit=2 drew=false killed="" no_panic_trace=true; want a frame and exit 0
+    symlink_test.go:120: symlink to a symlink: exit=2 drew=false killed="" no_panic_trace=true; want a frame and exit 0
+Caught panic:
+
+K10 test panic
+
+Restoring terminal...
+
+goroutine 232 [running]:
+runtime/debug.Stack()
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/runtime/debug/stack.go:26 +0x64
+charm.land/bubbletea/v2.(*Program).recoverFromPanic(0x7c17122a94a0, {0x100e1f678, 0x100dccbd0})
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1304 +0xec
+charm.land/bubbletea/v2.(*Program).Run.func2()
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1038 +0xf4
+panic({0x100e1f678?, 0x100dccbd0?})
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/runtime/panic.go:859 +0x120
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.panicky.Update({0x100ee8930?}, {0x100e4ef78?, 0x7c171220e0c0?})
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/tui_k10_test.go:26 +0xa4
+charm.land/bubbletea/v2.(*Program).eventLoop(0x7c17122a94a0, {0x100e5e028?, 0x7c17125ca580?}, 0x7c17124a8a10)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:880 +0xb98
+charm.land/bubbletea/v2.(*Program).Run(0x7c17122a94a0)
+	<home>/go/pkg/mod/charm.land/bubbletea/v2@v2.0.10/tea.go:1153 +0x7cc
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.runTUI({0x100e5e028, 0x7c17125ca580}, 0x7c17125ca580, 0x7c1711efc4a8, {0x100e5ca88, 0x7c17125ff5c0}, {0x100e5ca88, 0x7c17125ff5f0}, {0x7c1711f83e90, 0x2, ...})
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/main.go:357 +0x330
+github.com/heimdall-g02/proto-go/cmd/heimdall-proto.TestK10PanicRestoresAndExits1(0x7c17125b9b08)
+	<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T4/work/go/cmd/heimdall-proto/tui_k10_test.go:95 +0x214
+testing.tRunner(0x7c17125b9b08, 0x100e5f0f0)
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/testing/testing.go:2195 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.2/libexec/src/testing/testing.go:2260 +0x3b8
+
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/cmd/heimdall-proto	11.576s
+ok  	github.com/heimdall-g02/proto-go/internal/agent	1.125s
+--- FAIL: TestLoadFollowsSymlinkToRegularFile (0.00s)
+    symlink_test.go:65: symlink to a symlink: got USAGE_ERROR: profile path is not a regular file, want the profile
+    symlink_test.go:65: absolute symlink: got USAGE_ERROR: profile path is not a regular file, want the profile
+    symlink_test.go:65: relative symlink: got USAGE_ERROR: profile path is not a regular file, want the profile
+    symlink_test.go:82: symlink to schema-invalid file: got USAGE_ERROR: profile path is not a regular file, want SCHEMA_INVALID: schema_version: unsupported schema_version
+    symlink_test.go:91: symlink to oversize file: got USAGE_ERROR: profile path is not a regular file, want INPUT_TOO_LARGE
+FAIL
+FAIL	github.com/heimdall-g02/proto-go/internal/profile	0.045s
+?   	github.com/heimdall-g02/proto-go/internal/result	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/run	0.296s
+?   	github.com/heimdall-g02/proto-go/internal/testfix	[no test files]
+ok  	github.com/heimdall-g02/proto-go/internal/tui	0.008s
+FAIL

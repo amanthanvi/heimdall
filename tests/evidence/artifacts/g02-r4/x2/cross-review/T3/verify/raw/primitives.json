@@ -1,0 +1,669 @@
+{
+ "E1-wide-onto-right-half": {
+  "what": "R1 mechanism: '> vps-東京' (東 at cols 7-8, 京 at 9-10), CHA 8 (right half of 東), write 京",
+  "bytes": "\\x1b[H\\x1b[2J> vps-\\u6771\\u4eac\\x1b[8G\\u4eac",
+  "xterm_rule_expectation": "> vps- 京  (東 vanishes: its right half is overwritten; the new 京 takes cols 8-9 and overwrites the old 京's left half, so the old 京 vanishes too)",
+  "tmux": {
+   "rows": [
+    "> vps- 京"
+   ],
+   "cursor": [
+    9,
+    0
+   ]
+  },
+  "xtermjs": {
+   "rows": [
+    "> vps- 京",
+    "",
+    ""
+   ],
+   "cursor": [
+    9,
+    0
+   ],
+   "cells": [
+    [
+     [
+      0,
+      ">",
+      1
+     ],
+     [
+      1,
+      " ",
+      1
+     ],
+     [
+      2,
+      "v",
+      1
+     ],
+     [
+      3,
+      "p",
+      1
+     ],
+     [
+      4,
+      "s",
+      1
+     ],
+     [
+      5,
+      "-",
+      1
+     ],
+     [
+      7,
+      "京",
+      2
+     ],
+     [
+      8,
+      "",
+      0
+     ]
+    ],
+    [],
+    []
+   ]
+  },
+  "pyte_harness": {
+   "rows": [
+    "> vps- 京",
+    "",
+    ""
+   ],
+   "cursor": [
+    9,
+    0
+   ],
+   "raw_cells": [
+    [
+     [
+      0,
+      ">"
+     ],
+     [
+      2,
+      "v"
+     ],
+     [
+      3,
+      "p"
+     ],
+     [
+      4,
+      "s"
+     ],
+     [
+      5,
+      "-"
+     ],
+     [
+      6,
+      "東"
+     ],
+     [
+      7,
+      "京"
+     ],
+     [
+      8,
+      ""
+     ],
+     [
+      9,
+      ""
+     ]
+    ],
+    [],
+    []
+   ]
+  }
+ },
+ "E2-narrow-onto-right-half": {
+  "what": "R2 mechanism: '  名古屋-backup', CHA 8 (right half of 屋), write '-b'",
+  "bytes": "\\x1b[H\\x1b[2J  \\u540d\\u53e4\\u5c4b-backup\\x1b[8G-b",
+  "xterm_rule_expectation": "  名古 -bbackup  (屋 vanishes; '-' at col 8, 'b' over the old '-')",
+  "tmux": {
+   "rows": [
+    "  名古 -bbackup"
+   ],
+   "cursor": [
+    9,
+    0
+   ]
+  },
+  "xtermjs": {
+   "rows": [
+    "  名古 -bbackup",
+    "",
+    ""
+   ],
+   "cursor": [
+    9,
+    0
+   ],
+   "cells": [
+    [
+     [
+      0,
+      " ",
+      1
+     ],
+     [
+      1,
+      " ",
+      1
+     ],
+     [
+      2,
+      "名",
+      2
+     ],
+     [
+      3,
+      "",
+      0
+     ],
+     [
+      4,
+      "古",
+      2
+     ],
+     [
+      5,
+      "",
+      0
+     ],
+     [
+      7,
+      "-",
+      1
+     ],
+     [
+      8,
+      "b",
+      1
+     ],
+     [
+      9,
+      "b",
+      1
+     ],
+     [
+      10,
+      "a",
+      1
+     ],
+     [
+      11,
+      "c",
+      1
+     ],
+     [
+      12,
+      "k",
+      1
+     ],
+     [
+      13,
+      "u",
+      1
+     ],
+     [
+      14,
+      "p",
+      1
+     ]
+    ],
+    [],
+    []
+   ]
+  },
+  "pyte_harness": {
+   "rows": [
+    "  名古 -bbackup",
+    "",
+    ""
+   ],
+   "cursor": [
+    9,
+    0
+   ],
+   "raw_cells": [
+    [
+     [
+      2,
+      "名"
+     ],
+     [
+      3,
+      ""
+     ],
+     [
+      4,
+      "古"
+     ],
+     [
+      5,
+      ""
+     ],
+     [
+      6,
+      "屋"
+     ],
+     [
+      7,
+      "-"
+     ],
+     [
+      8,
+      "b"
+     ],
+     [
+      9,
+      "b"
+     ],
+     [
+      10,
+      "a"
+     ],
+     [
+      11,
+      "c"
+     ],
+     [
+      12,
+      "k"
+     ],
+     [
+      13,
+      "u"
+     ],
+     [
+      14,
+      "p"
+     ]
+    ],
+    [],
+    []
+   ]
+  }
+ },
+ "E3-BS-then-EL-on-right-half": {
+  "what": "R4 status-line bytes: '1/3', CHA 5, '/京', BS (onto the right half of 京), EL, CHA 7",
+  "bytes": "\\x1b[H\\x1b[2J1/3\\x1b[5G/\\u4eac\\x08\\x1b[K\\x1b[7G",
+  "xterm_rule_expectation": "1/3 /  (EL starting on the right half of a wide character erases the whole character)",
+  "tmux": {
+   "rows": [
+    "1/3 /京"
+   ],
+   "cursor": [
+    6,
+    0
+   ]
+  },
+  "xtermjs": {
+   "rows": [
+    "1/3 /",
+    "",
+    ""
+   ],
+   "cursor": [
+    6,
+    0
+   ],
+   "cells": [
+    [
+     [
+      0,
+      "1",
+      1
+     ],
+     [
+      1,
+      "/",
+      1
+     ],
+     [
+      2,
+      "3",
+      1
+     ],
+     [
+      4,
+      "/",
+      1
+     ]
+    ],
+    [],
+    []
+   ]
+  },
+  "pyte_harness": {
+   "rows": [
+    "1/3 /",
+    "",
+    ""
+   ],
+   "cursor": [
+    6,
+    0
+   ],
+   "raw_cells": [
+    [
+     [
+      0,
+      "1"
+     ],
+     [
+      1,
+      "/"
+     ],
+     [
+      2,
+      "3"
+     ],
+     [
+      4,
+      "/"
+     ],
+     [
+      5,
+      "京"
+     ]
+    ],
+    [],
+    []
+   ]
+  }
+ },
+ "E4-EL-from-after-wide": {
+  "what": "control: same as E3 without the BS: EL starts after 京",
+  "bytes": "\\x1b[H\\x1b[2J1/3\\x1b[5G/\\u4eac\\x1b[K",
+  "xterm_rule_expectation": "1/3 /京",
+  "tmux": {
+   "rows": [
+    "1/3 /京"
+   ],
+   "cursor": [
+    7,
+    0
+   ]
+  },
+  "xtermjs": {
+   "rows": [
+    "1/3 /京",
+    "",
+    ""
+   ],
+   "cursor": [
+    7,
+    0
+   ],
+   "cells": [
+    [
+     [
+      0,
+      "1",
+      1
+     ],
+     [
+      1,
+      "/",
+      1
+     ],
+     [
+      2,
+      "3",
+      1
+     ],
+     [
+      4,
+      "/",
+      1
+     ],
+     [
+      5,
+      "京",
+      2
+     ],
+     [
+      6,
+      "",
+      0
+     ]
+    ],
+    [],
+    []
+   ]
+  },
+  "pyte_harness": {
+   "rows": [
+    "1/3 /京",
+    "",
+    ""
+   ],
+   "cursor": [
+    7,
+    0
+   ],
+   "raw_cells": [
+    [
+     [
+      0,
+      "1"
+     ],
+     [
+      1,
+      "/"
+     ],
+     [
+      2,
+      "3"
+     ],
+     [
+      4,
+      "/"
+     ],
+     [
+      5,
+      "京"
+     ],
+     [
+      6,
+      ""
+     ]
+    ],
+    [],
+    []
+   ]
+  }
+ },
+ "E5-VPA-keeps-column": {
+  "what": "R1 as emitted: row 3 '1/3 /東' leaves the cursor at col 8 after CHA 8; VPA 1 moves to row 1 keeping col 8; 京 written there",
+  "bytes": "\\x1b[H\\x1b[2J  vps-\\u6771\\u4eac\\r\\n\\n1/3 /\\u6771\\x1b[8G\\x1b[1d\\u4eac",
+  "xterm_rule_expectation": "row 1: '  vps- 京'",
+  "tmux": {
+   "rows": [
+    "  vps- 京",
+    "",
+    "1/3 /東"
+   ],
+   "cursor": [
+    9,
+    0
+   ]
+  },
+  "xtermjs": {
+   "rows": [
+    "  vps- 京",
+    "",
+    "1/3 /東"
+   ],
+   "cursor": [
+    9,
+    0
+   ],
+   "cells": [
+    [
+     [
+      0,
+      " ",
+      1
+     ],
+     [
+      1,
+      " ",
+      1
+     ],
+     [
+      2,
+      "v",
+      1
+     ],
+     [
+      3,
+      "p",
+      1
+     ],
+     [
+      4,
+      "s",
+      1
+     ],
+     [
+      5,
+      "-",
+      1
+     ],
+     [
+      7,
+      "京",
+      2
+     ],
+     [
+      8,
+      "",
+      0
+     ]
+    ],
+    [],
+    [
+     [
+      0,
+      "1",
+      1
+     ],
+     [
+      1,
+      "/",
+      1
+     ],
+     [
+      2,
+      "3",
+      1
+     ],
+     [
+      3,
+      " ",
+      1
+     ],
+     [
+      4,
+      "/",
+      1
+     ],
+     [
+      5,
+      "東",
+      2
+     ],
+     [
+      6,
+      "",
+      0
+     ]
+    ]
+   ]
+  },
+  "pyte_harness": {
+   "rows": [
+    "  vps- 京",
+    "",
+    "1/3 /東"
+   ],
+   "cursor": [
+    9,
+    0
+   ],
+   "raw_cells": [
+    [
+     [
+      2,
+      "v"
+     ],
+     [
+      3,
+      "p"
+     ],
+     [
+      4,
+      "s"
+     ],
+     [
+      5,
+      "-"
+     ],
+     [
+      6,
+      "東"
+     ],
+     [
+      7,
+      "京"
+     ],
+     [
+      8,
+      ""
+     ],
+     [
+      9,
+      ""
+     ]
+    ],
+    [],
+    [
+     [
+      0,
+      "1"
+     ],
+     [
+      1,
+      "/"
+     ],
+     [
+      2,
+      "3"
+     ],
+     [
+      4,
+      "/"
+     ],
+     [
+      5,
+      "東"
+     ],
+     [
+      6,
+      ""
+     ]
+    ]
+   ]
+  }
+ }
+}

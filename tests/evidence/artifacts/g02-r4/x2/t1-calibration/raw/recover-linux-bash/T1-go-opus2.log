@@ -1,0 +1,4 @@
+T1-go-opus2 rep1 P1x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": null, "child_completed": false} 25.0s
+T1-go-opus2 rep1 P2x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": null, "child_completed": false} 25.0s
+T1-go-opus2 rep2 P1x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": null, "child_completed": false} 25.1s
+T1-go-opus2 rep2 P2x-TSTP {"jobs": "running", "fg": "hung", "prompt_back_by": null, "child_completed": false} 25.0s

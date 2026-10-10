@@ -1,0 +1,40 @@
+{
+ "bin": "<home>/.local/share/heimdall-m00/r4-scratch/M00-T05-r4-x2-xrev-T3-verify/bins/base-go/heimdall-proto",
+ "sha256": "f812084ff36d8f04d5f279ad466b1207b23fa20a1b39d0e57f56fa16a7bf9a5d",
+ "size": "20x5",
+ "term": "tmux-256color",
+ "profile": "wide.toml",
+ "keys": [
+  "/",
+  "-"
+ ],
+ "chunks": [
+  {
+   "key": "start",
+   "ms": 545,
+   "n": 151,
+   "b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IOadseS6rC3jgrXjg7zjg5Djg7wt5pys55WqG1ttDQogIGxhYi1zZXJ2ZXINCiAg5aSn6ZiqG1s3Rw0KICBuYXMNCjUvNQ==",
+   "esc": "\\x1b[?2026$p\\x1b[?2027$p\\x1b[>4m\\x1b[?1049h\\x1b[?25l\\x1b[?5W\\x1b[?2004h\\x1b[>4;2m\\x1b[>1u\\x1b[?u\\x1b[H\\x1b[2J\\x1b[36;1m> \\u6771\\u4eac-\\u30b5\\u30fc\\u30d0\\u30fc-\\u672c\\u756a\\x1b[m\\r\\n  lab-server\\r\\n  \\u5927\\u962a\\x1b[7G\\r\\n  nas\\r\\n5/5"
+  },
+  {
+   "key": "/",
+   "sent": "/",
+   "ms": 424,
+   "n": 2,
+   "b64": "IC8=",
+   "esc": " /"
+  },
+  {
+   "key": "-",
+   "sent": "-",
+   "ms": 409,
+   "n": 43,
+   "b64": "G1szOzNI5ZCN5Y+k5bGLLWJhY2t1cC3mnbEbWzE5Rw0KG1tLCjMvNSAvLQ==",
+   "esc": "\\x1b[3;3H\\u540d\\u53e4\\u5c4b-backup-\\u6771\\x1b[19G\\r\\n\\x1b[K\\n3/5 /-"
+  }
+ ],
+ "full_b64": "G1s/MjAyNiRwG1s/MjAyNyRwG1s+NG0bWz8xMDQ5aBtbPzI1bBtbPzVXG1s/MjAwNGgbWz40OzJtG1s+MXUbWz91G1tIG1syShtbMzY7MW0+IOadseS6rC3jgrXjg7zjg5Djg7wt5pys55WqG1ttDQogIGxhYi1zZXJ2ZXINCiAg5aSn6ZiqG1s3Rw0KICBuYXMNCjUvNSAvG1szOzNI5ZCN5Y+k5bGLLWJhY2t1cC3mnbEbWzE5Rw0KG1tLCjMvNSAvLRtbPjRtG1s8MXUNG1s/MTA0OWwbWz8yNWgbWz8yMDA0bA==",
+ "rc": 130,
+ "exit_tail_esc": "\\x1b[>4m\\x1b[<1u\\r\\x1b[?1049l\\x1b[?25h\\x1b[?2004l",
+ "stderr_tail": ""
+}

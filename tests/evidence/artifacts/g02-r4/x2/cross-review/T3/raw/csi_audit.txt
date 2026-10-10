@@ -1,0 +1,64 @@
+# csi_audit.py: one 15-key sequence (wide profile, 60x10) per build and TERM; columns: emitted CSI finals, and those not implemented by pyte 0.8.2 + harness SU/SD
+base-go          TERM=xterm-256color  finals=BGHJKm  not-in-emulator={'?W': 1}
+base-go          TERM=screen          finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go          TERM=tmux-256color   finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go          TERM=linux           finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go          TERM=xterm-kitty     finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go          TERM=dumb            finals=BCGHJKhl  not-in-emulator={'?W': 1}
+base-go          TERM=(unset)         finals=BCGHJKhl  not-in-emulator={'?W': 1}
+T3-go-opus1      TERM=xterm-256color  finals=BDGHJKm  not-in-emulator={'?W': 1}
+T3-go-opus1      TERM=screen          finals=BDGHJK`m  not-in-emulator={'?W': 1, '`': 7}
+T3-go-opus1      TERM=tmux-256color   finals=BDGHJK`bm  not-in-emulator={'?W': 1, '`': 7, 'b': 7}
+T3-go-opus1      TERM=linux           finals=BDGHJK`m  not-in-emulator={'?W': 1, '`': 7}
+T3-go-opus1      TERM=xterm-kitty     finals=BDGHJK`bm  not-in-emulator={'?W': 1, '`': 7, 'b': 7}
+T3-go-opus1      TERM=dumb            finals=BCDGHJKhlm  not-in-emulator={'?W': 1}
+T3-go-opus1      TERM=(unset)         finals=BCDGHJKhlm  not-in-emulator={'?W': 1}
+T3-go-opus2      TERM=xterm-256color  finals=BGHJKm  not-in-emulator={'?W': 1}
+T3-go-opus2      TERM=screen          finals=BGHJKm  not-in-emulator={'?W': 1}
+T3-go-opus2      TERM=tmux-256color   finals=BGHJKbm  not-in-emulator={'?W': 1, 'b': 7}
+T3-go-opus2      TERM=linux           finals=BGHJKm  not-in-emulator={'?W': 1}
+T3-go-opus2      TERM=xterm-kitty     finals=BGHJKbm  not-in-emulator={'?W': 1, 'b': 7}
+T3-go-opus2      TERM=dumb            finals=BGHJKm  not-in-emulator={'?W': 1}
+T3-go-opus2      TERM=(unset)         finals=BGHJKm  not-in-emulator={'?W': 1}
+T3-go-sonnet1    TERM=xterm-256color  finals=BDGHJKm  not-in-emulator={'?W': 1}
+T3-go-sonnet1    TERM=screen          finals=BDGHJK`m  not-in-emulator={'?W': 1, '`': 7}
+T3-go-sonnet1    TERM=tmux-256color   finals=BDGHJK`bm  not-in-emulator={'?W': 1, '`': 7, 'b': 7}
+T3-go-sonnet1    TERM=linux           finals=BDGHJK`m  not-in-emulator={'?W': 1, '`': 7}
+T3-go-sonnet1    TERM=xterm-kitty     finals=BDGHJK`bm  not-in-emulator={'?W': 1, '`': 7, 'b': 7}
+T3-go-sonnet1    TERM=dumb            finals=BCDGHJKhl  not-in-emulator={'?W': 1}
+T3-go-sonnet1    TERM=(unset)         finals=BCDGHJKhl  not-in-emulator={'?W': 1}
+base-rust        TERM=xterm-256color  finals=HJm  not-in-emulator={}
+base-rust        TERM=screen          finals=HJm  not-in-emulator={}
+base-rust        TERM=tmux-256color   finals=HJm  not-in-emulator={}
+base-rust        TERM=linux           finals=HJm  not-in-emulator={}
+base-rust        TERM=xterm-kitty     finals=HJm  not-in-emulator={}
+base-rust        TERM=dumb            finals=HJm  not-in-emulator={}
+base-rust        TERM=(unset)         finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=xterm-256color  finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=screen          finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=tmux-256color   finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=linux           finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=xterm-kitty     finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=dumb            finals=HJm  not-in-emulator={}
+T3-rust-opus1    TERM=(unset)         finals=HJm  not-in-emulator={}
+base-go-pinned   TERM=xterm-256color  finals=BGHJKm  not-in-emulator={'?W': 1}
+base-go-pinned   TERM=screen          finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go-pinned   TERM=tmux-256color   finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go-pinned   TERM=linux           finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go-pinned   TERM=xterm-kitty     finals=BGHJK`m  not-in-emulator={'?W': 1, '`': 1}
+base-go-pinned   TERM=dumb            finals=BCGHJKhl  not-in-emulator={'?W': 1}
+base-go-pinned   TERM=(unset)         finals=BCGHJKhl  not-in-emulator={'?W': 1}
+T3-rust-opus2    TERM=xterm-256color  finals=HJm  not-in-emulator={}
+T3-rust-opus2    TERM=screen          finals=HJm  not-in-emulator={}
+T3-rust-opus2    TERM=tmux-256color   finals=HJm  not-in-emulator={}
+T3-rust-opus2    TERM=linux           finals=HJm  not-in-emulator={}
+T3-rust-opus2    TERM=xterm-kitty     finals=HJm  not-in-emulator={}
+T3-rust-opus2    TERM=dumb            finals=HJm  not-in-emulator={}
+T3-rust-opus2    TERM=(unset)         finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=xterm-256color  finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=screen          finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=tmux-256color   finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=linux           finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=xterm-kitty     finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=dumb            finals=HJm  not-in-emulator={}
+T3-rust-sonnet1  TERM=(unset)         finals=HJm  not-in-emulator={}

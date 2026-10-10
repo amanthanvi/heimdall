@@ -1,0 +1,13 @@
+# toolchains (observed 2026-10-10T06:52:47Z)
+go version go1.27.2 darwin/arm64
+rustc 1.99.0 (b940084d7 2026-09-28)
+cargo 1.99.0 (5f94df478 2026-08-27)
+Apple clang version 21.0.0 (clang-2100.3.34.2)
+base-go/darwin-arm64/heimdall-proto: go1.27.2
+seeded-go/darwin-arm64/heimdall-proto: go1.27.2
+T4-go-opus1/darwin-arm64/heimdall-proto: go1.27.2
+T4-go-opus2/darwin-arm64/heimdall-proto: go1.27.2
+T4-go-sonnet1/darwin-arm64/heimdall-proto: go1.27.2
+pinned (BASE.json) Go binaries:
+bin/base-go/darwin-arm64/heimdall-proto: go1.27.1
+bin/seeded-go/darwin-arm64/heimdall-proto: go1.27.1

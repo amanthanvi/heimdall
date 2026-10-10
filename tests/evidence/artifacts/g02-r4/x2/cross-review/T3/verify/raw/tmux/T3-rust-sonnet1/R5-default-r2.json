@@ -1,0 +1,176 @@
+{
+ "build": "T3-rust-sonnet1",
+ "case": "R5",
+ "variant": "default",
+ "rep": 2,
+ "size": "40x10",
+ "keys": [
+  "/",
+  "東",
+  "京"
+ ],
+ "tmux_session": "v2-T3-rust-sonnet1-R5-default",
+ "screens": [
+  {
+   "label": "start",
+   "lines": [
+    "> lab-server",
+    "  nas",
+    "  vps-東京",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "3/3"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[38;5;6m> lab-server",
+    "\u001b[0m  nas",
+    "  vps-東京",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "3/3"
+   ],
+   "cursor": [
+    3,
+    9
+   ],
+   "pane": "40x10"
+  },
+  {
+   "label": "/",
+   "lines": [
+    "> lab-server",
+    "  nas",
+    "  vps-東京",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "3/3  /"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[38;5;6m> lab-server",
+    "\u001b[0m  nas",
+    "  vps-東京",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "3/3  /"
+   ],
+   "cursor": [
+    6,
+    9
+   ],
+   "pane": "40x10"
+  },
+  {
+   "label": "東",
+   "lines": [
+    "> vps-東京",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "1/3  /東"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[38;5;6m> vps-\u001b[4m東\u001b[0;1m\u001b[38;5;6m京",
+    "\u001b[0m",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "1/3  /東"
+   ],
+   "cursor": [
+    8,
+    9
+   ],
+   "pane": "40x10"
+  },
+  {
+   "label": "京",
+   "lines": [
+    "> vps-東京",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "1/3  /東京"
+   ],
+   "sgr": [
+    "\u001b[1m\u001b[38;5;6m> vps-\u001b[4m東京\u001b[0;1m\u001b[38;5;6m",
+    "\u001b[0m",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "1/3  /東京"
+   ],
+   "cursor": [
+    10,
+    9
+   ],
+   "pane": "40x10"
+  }
+ ],
+ "pane_id": "%6",
+ "pane_size": "40x10",
+ "tmux_version": "3.8",
+ "default_terminal": "tmux-256color",
+ "exited_by_itself": true,
+ "chunks": [
+  {
+   "key": "start",
+   "n": 159,
+   "esc": "\\x1b[?1049h\\x1b[?25l\\x1b[2J\\x1b[1;1H\\x1b[1m\\x1b[38;5;6;49m> lab-server                            \\x1b[2;3H\\x1b[22m\\x1b[39;49mnas\\x1b[3;3Hvps-\\u6771\\x1b[3;9H\\u4eac\\x1b[10;1H3/3\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l",
+   "b64": "G1s/MTA0OWgbWz8yNWwbWzJKG1sxOzFIG1sxbRtbMzg7NTs2OzQ5bT4gbGFiLXNlcnZlciAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7M0gbWzIybRtbMzk7NDltbmFzG1szOzNIdnBzLeadsRtbMzs5SOS6rBtbMTA7MUgzLzMbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs"
+  },
+  {
+   "key": "/",
+   "n": 33,
+   "esc": "\\x1b[10;6H/\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l",
+   "b64": "G1sxMDs2SC8bWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs"
+  },
+  {
+   "key": "東",
+   "n": 144,
+   "esc": "\\x1b[1;3H\\x1b[1m\\x1b[38;5;6;49mvps\\x1b[1;7H\\x1b[4m\\u6771\\x1b[1;9H\\x1b[24m\\u4eac\\x1b[1;11H  \\x1b[2;3H\\x1b[22m\\x1b[39;49m   \\x1b[3;3H     \\x1b[3;9H \\x1b[10;1H1\\x1b[10;7H\\u6771\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l",
+   "b64": "G1sxOzNIG1sxbRtbMzg7NTs2OzQ5bXZwcxtbMTs3SBtbNG3mnbEbWzE7OUgbWzI0beS6rBtbMTsxMUggIBtbMjszSBtbMjJtG1szOTs0OW0gICAbWzM7M0ggICAgIBtbMzs5SCAbWzEwOzFIMRtbMTA7N0jmnbEbWzM5bRtbNDltG1s1OW0bWzBtG1s/MjVs"
+  },
+  {
+   "key": "京",
+   "n": 82,
+   "esc": "\\x1b[1;9H\\x1b[1m\\x1b[4m\\x1b[38;5;6;49m\\u4eac\\x1b[10;9H\\x1b[22m\\x1b[24m\\x1b[39;49m\\u4eac\\x1b[39m\\x1b[49m\\x1b[59m\\x1b[0m\\x1b[?25l",
+   "b64": "G1sxOzlIG1sxbRtbNG0bWzM4OzU7Njs0OW3kuqwbWzEwOzlIG1syMm0bWzI0bRtbMzk7NDlt5LqsG1szOW0bWzQ5bRtbNTltG1swbRtbPzI1bA=="
+  }
+ ],
+ "tail_after_last_key_esc": "\\x1b[?25h\\x1b[?1049l\\x1b[?25h",
+ "program_env": "PATH=/usr/bin:/bin HOME=<sandbox>/home LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 TMPDIR=<sandbox>/tmp TERM=tmux-256color TMUX=<private-socket>,<server-pid>,<idx> TMUX_PANE=%6 TERM_PROGRAM=tmux TERM_PROGRAM_VERSION=3.8"
+}

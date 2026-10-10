@@ -1,0 +1,22 @@
+Wall-clock assertions in the cells' own tests: observed run times (darwin-arm64, 2026-10-10).
+Scratch Rust tree = base 001a791 + the cell's implementer diff.patch, debug test build, CARGO_NET_OFFLINE=true.
+"finished in" is cargo's own figure for the whole test (setup included), so the timed part is at most this.
+
+T2-rust-sonnet1  tests/cli.rs lint_large_input_is_fast  (asserts < 2 s; ~600 KB profile, spawns the debug binary)
+  command: cargo test --locked --test cli lint_large_input_is_fast   (6 runs, exit 0 each)
+  test result: ok. 1 passed; ... finished in 0.26s
+  test result: ok. 1 passed; ... finished in 0.26s
+  test result: ok. 1 passed; ... finished in 0.26s
+  test result: ok. 1 passed; ... finished in 0.26s
+  test result: ok. 1 passed; ... finished in 0.26s
+  test result: ok. 1 passed; ... finished in 0.27s
+  margin to the 2 s bound: about 7.5x
+
+T2-rust-opus2  src/lint.rs tests::linear_on_many_labels  (asserts lint() < 2 s on 100k labels)
+  command: cargo test --locked --lib lint::tests::linear_on_many_labels   (6 runs, exit 0 each)
+  test result: ok. 1 passed; ... finished in 0.09s   (all 6 runs)
+  margin to the 2 s bound: more than 20x
+
+K14 "answers within 2 s" assertions (go-opus1 and go-opus2 lint_fifo_test.go, rust-opus1 run_bounded,
+rust-opus2 and rust-sonnet1 bounded waits): the release binaries answered every non-regular, invalid or
+oversize input of probe P5 in <= 0.01 s (raw/probe-results.json, P5 "secs"), a margin of more than 100x.

@@ -1,0 +1,44 @@
+
+<<SEND "PS1='__PS''1__ '; PS2=''; unset PROMPT_COMMAND; set +H\n">>
+PS1='__PS''1__ '; PS2=''; unset PROMPT_COMMAND; set +H
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+bash-3.2$ PS1='__PS''1__ '; PS2=''; unset PROMPT_COMMAND; set +H
+__PS1__ 
+<<SEND 'bin/T1-rust-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/null >/dev/null 2>&1 &\n'>>
+bin/T1-rust-opus2/darwin-arm64/heimdall-proto run -- sleep 3 </dev/nu<arwin-arm64/heimdall-proto run -- sleep 3 </dev/nul                         l >/dev/null 2>&1 &
+[1] 99876
+__PS1__ 
+<<SEND 'echo "__PID""__ $!"\n'>>
+echo "__PID""__ $!"
+__PID__ 99876
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+[1]+ 99876 Running                 bin/T1-rust-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1 &
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+bin/T1-rust-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1
+
+<<SEND '\x1a'>>
+^Z
+[1]+  Stopped                 bin/T1-rust-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1
+__PS1__ 
+<<SEND 'fg\n'>>
+fg
+bin/T1-rust-opus2/darwin-arm64/heimdall-proto run -- sleep 3 < /dev/null > /dev/null 2>&1
+__PS1__ 
+<<SEND 'echo "__RC""__ $?"\n'>>
+echo "__RC""__ $?"
+__RC__ 0
+__PS1__ 
+<<SEND 'jobs -l\n'>>
+jobs -l
+__PS1__ 
+<<SEND '\nexit\n'>>
+
+__PS1__ exit
+exit

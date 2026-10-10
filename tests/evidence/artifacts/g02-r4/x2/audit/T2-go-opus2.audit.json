@@ -1,0 +1,130 @@
+{
+ "verdict": "SUSPECT",
+ "transcript_files": 1,
+ "tool_calls": 32,
+ "offending_calls": [
+  {
+   "index": 10,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 61,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 12,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 73,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:tmp",
+    "raw-path-outside:tmp"
+   ]
+  },
+  {
+   "index": 13,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 79,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 14,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 85,
+   "tool": "Bash",
+   "reasons": [
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 15,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 91,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository",
+    "raw-path-outside:outside"
+   ]
+  },
+  {
+   "index": 18,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 109,
+   "tool": "Bash",
+   "reasons": [
+    "output-marker:repository"
+   ]
+  },
+  {
+   "index": 24,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 144,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 25,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 151,
+   "tool": "Bash",
+   "reasons": [
+    "output-marker:repository"
+   ]
+  },
+  {
+   "index": 28,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 169,
+   "tool": "Bash",
+   "reasons": [
+    "cwd-outside:repository"
+   ]
+  },
+  {
+   "index": 29,
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 176,
+   "tool": "Bash",
+   "reasons": [
+    "path-outside:other-workspace",
+    "path-outside:outside",
+    "raw-path-outside:outside",
+    "raw-path-outside:tmp",
+    "unresolved-expansion"
+   ]
+  }
+ ],
+ "entries": [],
+ "notes": [
+  {
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 3,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 6,
+   "place": "prompt",
+   "reasons": [
+    "marker:repository"
+   ]
+  },
+  {
+   "file": "agent-a271e78a99fcd6c51.jsonl",
+   "line": 7,
+   "place": "prompt",
+   "reasons": [
+    "marker:task-pack"
+   ]
+  }
+ ]
+}

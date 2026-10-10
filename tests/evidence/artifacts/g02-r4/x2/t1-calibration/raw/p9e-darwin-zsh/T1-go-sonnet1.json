@@ -1,0 +1,156 @@
+{
+ "label": "T1-go-sonnet1",
+ "platform": "darwin-arm64",
+ "shell": "zsh",
+ "pid1": false,
+ "runs": [
+  {
+   "scenario": "P9e0-fg3",
+   "via": "T1-go-sonnet1",
+   "shell": "zsh",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "ping_went_to": "child",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "answered_after_fg_number": 1,
+   "rc_after_exit": 3,
+   "cmp": {
+    "answered_after_fg_number": 1,
+    "ping_destinations": [
+     "child"
+    ],
+    "rc_after_exit": 3
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr bang_hist; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\nzsh: suspended (signal)  <bin> run --  -I -B  <tmp>/pf1 \n@P@ fg\n[1]  + continued  <bin> run --  -I -B  <tmp>/pf1 \nxq-ping 2\nPONG-2\nexit 3\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.9,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e-bg-fg3",
+   "via": "T1-go-sonnet1",
+   "shell": "zsh",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "ping_went_to": "child",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "answered_after_fg_number": 1,
+   "rc_after_exit": 3,
+   "cmp": {
+    "answered_after_fg_number": 1,
+    "ping_destinations": [
+     "child"
+    ],
+    "rc_after_exit": 3
+   },
+   "transcript": "%    @P@ unsetopt zle prompt_sp prompt_cr bang_hist; PS1='@P@ '; PROMPT_EOL_MARK=''\n@P@ echo \"@M\"\"K1@\"\n@MK1@\n@P@ <bin> run -- <py> -I -B <tmp>/child.py <tmp>/pf1 jcsh\nxq-ping 1\nPONG-1\nsuspend\nzsh: suspended (signal)  <bin> run --  -I -B  <tmp>/pf1 \n@P@ bg\n[1]  + continued  <bin> run --  -I -B  <tmp>/pf1 \n@P@ [1]  + suspended (tty input)  <bin> run --  -I -B  <tmp>/pf1 \nfg\n[1]  + continued  <bin> run --  -I -B  <tmp>/pf1 \nxq-ping 2\nPONG-2\nexit 3\n@P@ echo \"@R\"\"C2=$?@\"\n@RC2=3@\n@P@ ",
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.9,
+   "rep": 1
+  },
+  {
+   "scenario": "P9e0-fg3",
+   "via": "T1-go-sonnet1",
+   "shell": "zsh",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "ping_went_to": "child",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "answered_after_fg_number": 1,
+   "rc_after_exit": 3,
+   "cmp": {
+    "answered_after_fg_number": 1,
+    "ping_destinations": [
+     "child"
+    ],
+    "rc_after_exit": 3
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 1.8,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  },
+  {
+   "scenario": "P9e-bg-fg3",
+   "via": "T1-go-sonnet1",
+   "shell": "zsh",
+   "tries": [
+    {
+     "fg": 1,
+     "states_after_fg": {
+      "C": "R",
+      "L": "R"
+     },
+     "ping_went_to": "child",
+     "stop_notice_after_fg": false
+    }
+   ],
+   "child_up": true,
+   "suspend_prompt": true,
+   "suspend_notice": "suspended (signal)",
+   "answered_after_fg_number": 1,
+   "rc_after_exit": 3,
+   "cmp": {
+    "answered_after_fg_number": 1,
+    "ping_destinations": [
+     "child"
+    ],
+    "rc_after_exit": 3
+   },
+   "cleanup": {
+    "killed_by_probe": [
+     "shell"
+    ],
+    "left_after_cleanup": []
+   },
+   "duration_s": 2.9,
+   "rep": 2,
+   "transcript_omitted": "same cmp as rep 1"
+  }
+ ]
+}

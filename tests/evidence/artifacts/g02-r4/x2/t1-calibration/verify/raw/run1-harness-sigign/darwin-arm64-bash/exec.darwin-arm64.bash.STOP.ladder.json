@@ -1,0 +1,392 @@
+[
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 1,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:37:23Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nsleep 3 < /dev/null > /dev/null 2>&1",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 67371,
+      "ppid": 67369,
+      "pgid": 67371,
+      "sid": "0",
+      "tpgid": 67371,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 67371,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 67372",
+  "job_pid": 67372,
+  "program_pid": 67372,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 67372,
+    "ppid": 67371,
+    "pgid": 67372,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67371,
+    "ppid": 67369,
+    "pgid": 67371,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 67372,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 67372,
+    "ppid": 67371,
+    "pgid": 67372,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67371,
+    "ppid": 67369,
+    "pgid": 67371,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 67372 Suspended (signal): 17  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 67372,
+    "ppid": 67371,
+    "pgid": 67372,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67371,
+    "ppid": 67369,
+    "pgid": 67371,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 67371,
+    "ppid": 67369,
+    "pgid": 67371,
+    "sid": "0",
+    "tpgid": 67371,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 67372,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 2,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:37:26Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nsleep 3 < /dev/null > /dev/null 2>&1",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 67421,
+      "ppid": 67369,
+      "pgid": 67421,
+      "sid": "0",
+      "tpgid": 67421,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 67421,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 67424",
+  "job_pid": 67424,
+  "program_pid": 67424,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 67424,
+    "ppid": 67421,
+    "pgid": 67424,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67421,
+    "ppid": 67369,
+    "pgid": 67421,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 67424,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 67424,
+    "ppid": 67421,
+    "pgid": 67424,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67421,
+    "ppid": 67369,
+    "pgid": 67421,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 67424 Suspended (signal): 17  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 67424,
+    "ppid": 67421,
+    "pgid": 67424,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67421,
+    "ppid": 67369,
+    "pgid": 67421,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 67421,
+    "ppid": 67369,
+    "pgid": 67421,
+    "sid": "0",
+    "tpgid": 67421,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 67424,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ },
+ {
+  "build": "exec",
+  "binary": "exec",
+  "shell": "bash",
+  "platform": "darwin-arm64",
+  "signal": "STOP",
+  "mode": "ladder",
+  "rep": 3,
+  "program": "sleep 3",
+  "utc": "2026-10-10T06:37:29Z",
+  "steps": [
+   {
+    "step": "a:fg",
+    "prompt_returned": true,
+    "output": "fg\r\nsleep 3 < /dev/null > /dev/null 2>&1",
+    "rc": "0",
+    "jobs": "jobs -l",
+    "job_listed": false,
+    "procs": {
+     "launcher": null,
+     "program": null,
+     "shell": {
+      "pid": 67471,
+      "ppid": 67369,
+      "pgid": 67471,
+      "sid": "0",
+      "tpgid": 67471,
+      "state": "Ss+",
+      "comm": "bash"
+     }
+    },
+    "shell_done": true,
+    "leftover": {}
+   }
+  ],
+  "shell_pid": 67471,
+  "job_line": "sleep 3 </dev/null >/dev/null 2>&1 &",
+  "job_start_output": "sleep 3 </dev/null >/dev/null 2>&1 &\r\n[1] 67474",
+  "job_pid": 67474,
+  "program_pid": 67474,
+  "before_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 67474,
+    "ppid": 67471,
+    "pgid": 67474,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "S",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67471,
+    "ppid": 67369,
+    "pgid": 67471,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "signal_sent_to": 67474,
+  "after_signal": {
+   "launcher": null,
+   "program": {
+    "pid": 67474,
+    "ppid": 67471,
+    "pgid": 67474,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67471,
+    "ppid": 67369,
+    "pgid": 67471,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "jobs_after_signal": "jobs -l\r\n[1]+ 67474 Suspended (signal): 17  sleep 3 < /dev/null > /dev/null 2>&1",
+  "after_jobs": {
+   "launcher": null,
+   "program": {
+    "pid": 67474,
+    "ppid": 67471,
+    "pgid": 67474,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "T",
+    "comm": "sleep"
+   },
+   "shell": {
+    "pid": 67471,
+    "ppid": 67369,
+    "pgid": 67471,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "worked": "a",
+  "leftover_at_end": {},
+  "final": {
+   "launcher": null,
+   "program": null,
+   "shell": {
+    "pid": 67471,
+    "ppid": 67369,
+    "pgid": 67471,
+    "sid": "0",
+    "tpgid": 67471,
+    "state": "Ss+",
+    "comm": "bash"
+   }
+  },
+  "cleanup": [
+   {
+    "pid": 67474,
+    "action": "none",
+    "reason": "gone"
+   }
+  ],
+  "leftover_after_cleanup": {},
+  "async_text": []
+ }
+]
