@@ -1,0 +1,4 @@
+post-run check by the orchestrator, 2026-10-31T20:19:52Z: sc_auth list-ctk-identities identity lines (header excluded):
+0
+fixture containers with label heimdall.fixture after down.sh:
+0

@@ -1,0 +1,34 @@
+20:09:29Z g04_ctk_probe v3 mode=unlocked launchd_session=Aqua out=tests/evidence/artifacts/g04/p5/20261031T200928Z-unlocked
+20:09:29Z temp dir created (0700, disposable)
+20:09:29Z AuthenticationAuthority digest taken (memory only); token-identity pairings before: 0
+20:09:29Z SmartCard pairing dialog: enabled (if macOS offers to pair heimdall-m00-p5-..., dismiss it; do NOT pair)
+20:09:29Z pre-run CTK identities: 0 (list kept only in the 0700 temp dir; digest in memory); rows with prefix heimdall-m00-p5- from earlier runs: 0 (never touched)
+20:09:29Z smart cards/tokens: none reported (security list-smartcards rc=44)
+20:09:29Z creating CTK identity label=heimdall-m00-p5-8d8ef9ce584c1196 type=p-256-ne protection=none (timeout 60s)
+20:09:29Z create-ctk-identity rc=0 timed_out=0
+20:09:29Z own identity present (hash prefix EDF0D016); rows with own label: 1
+20:09:29Z sc_auth SSH hash for own identity: SHA256:V4LyDknGx+ZmQDouDvfCiB9I5eNP/LzHVD2gNXaSK4g
+20:09:29Z dedicated ssh-agent ctlpkcs11 pid=44218 (HOME=<tmp>/home-ctlpkcs11, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<random non-matching hash>)
+20:09:29Z filter control pkcs11 (non-matching hash): load rc=1 keys=0
+20:09:29Z dedicated ssh-agent pkcs11 pid=44267 (HOME=<tmp>/home-pkcs11, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<own hash>)
+20:09:29Z load pkcs11 (ssh-add -s /usr/lib/ssh-keychain.dylib) rc=1 class=agent_refused keys_in_agent=0
+20:09:29Z dedicated ssh-agent ctlsk pid=44321 (HOME=<tmp>/home-ctlsk, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<random non-matching hash>)
+20:09:29Z filter control sk (non-matching hash): load rc=0 keys=1
+20:09:29Z FINDING: filter control sk loaded 1 key(s) with a non-matching KEYCHAIN_CERTIFICATES; not used, ssh-add -D issued (rc in the record), agent terminated at cleanup
+20:09:29Z dedicated ssh-agent sk pid=44379 (HOME=<tmp>/home-sk, -U, -P /usr/lib/ssh-keychain.dylib, KEYCHAIN_CERTIFICATES=<own hash>)
+20:09:30Z load sk (ssh-add -K -S /usr/lib/ssh-keychain.dylib) rc=0 class=resident_identity_added keys_in_agent=1
+20:09:30Z sk: agent lists 1 key alg=sk-ecdsa-sha2-nistp256@openssh.com fp=SHA256:V4LyDknGx+ZmQDouDvfCiB9I5eNP/LzHVD2gNXaSK4g; fp vs sc_auth SSH hash: match; EC-point hash vs own hash: pkhash_match; ownership basis: public_key_hash_of_ec_point_equals_own_hash
+20:09:30Z sk: ssh-add -T rc=0; -Y sign rc=0; check-novalidate rc=0
+20:09:30Z sk: fresh login to ca1 with default-extension certificate rc=0 class=accepted
+20:09:30Z sk: controls: ca2 principal mismatch rc=255 class=refused_at_query; ca1 without agent rc=255 class=failed_after_query (both expected non-zero)
+20:09:30Z sampler pid=44660; taking 3 samples (screen stays unlocked)
+20:09:42Z sampling stopped; 3 samples
+20:09:42Z server-side (ca1): accepted logins with this run's key IDs: pkcs11=0 sk=4; presence-related lines: pkcs11=na sk=0
+20:09:42Z export check: sc_auth export-ctk-identity -h <own hash> -f <tmp>/export.p12 -p <random, not recorded>
+20:09:42Z export-ctk-identity rc=0 timed_out=0 file=absent class=hardware_bounded_cannot_be_exported
+20:09:42Z delete-ctk-identity -h <own hash> rc=0 timed_out=0; own row absent afterwards: yes
+20:09:42Z sk after identity delete: agent lists 1 key(s); ssh-add -T rc=1; -Y sign rc=255
+20:09:42Z cleanup: sampler=stopped agents=[ctlpkcs11:terminated pkcs11:terminated ctlsk:terminated sk:terminated] sockets=[ctlpkcs11:removed pkcs11:removed ctlsk:removed sk:removed] identity=deleted identity_list=matches_pre_run authentication_authority=unchanged export_file=absent caffeinate=not_started temp_dir=removed
+20:09:42Z result: status=verified verdict=fail; mode=unlocked; identity created=yes (create_rc=0, timed_out=0); export_rc=0 export_file=absent (hardware_bounded_cannot_be_exported); deleted=yes; pkcs11: load_rc=1 keys=0 alg= sign=not_measured login=not_measured login_class= variant= works=no; sk: load_rc=0 keys=1 alg=sk-ecdsa-sha2-nistp256@openssh.com sign=available_all_samples login=available_all_samples login_class=accepted variant=default works=yes; samples=3; lock_window_evidence=not_applicable; identity_list_after_cleanup=matches_pre_run; cleanup_complete=true; canary_scan=clean.
+20:09:43Z record written: tests/evidence/artifacts/g04/p5/20261031T200928Z-unlocked/run-record.json (JSON parses)
+20:09:43Z exit=1

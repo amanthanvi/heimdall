@@ -1,0 +1,258 @@
+[2026-10-31T20:09:13Z] pulling base debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1 (preexisting=0)
+  docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1: Pulling from library/debian
+  7f50a08a2527: Already exists
+  Digest: sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  Status: Downloaded newer image for debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+[2026-10-31T20:09:14Z] building heimdall-m00-t03-sshd:local
+  #0 building with "desktop-linux" instance using docker driver
+  
+  #1 [internal] load build definition from Dockerfile
+  #1 transferring dockerfile: 945B done
+  #1 DONE 0.0s
+  
+  #2 [internal] load metadata for docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  #2 DONE 0.0s
+  
+  #3 [internal] load .dockerignore
+  #3 transferring context: 2B done
+  #3 DONE 0.0s
+  
+  #4 [1/4] FROM docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+  #4 DONE 0.0s
+  
+  #5 [internal] load build context
+  #5 transferring context: 1.97kB done
+  #5 DONE 0.0s
+  
+  #6 [2/4] RUN apt-get update  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server  && rm -rf /var/lib/apt/lists/*  && mkdir -p /run/sshd /fixture  && rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+  #6 0.395 Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+  #6 0.417 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+  #6 0.433 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+  #6 0.445 Get:4 http://deb.debian.org/debian trixie/main arm64 Packages [9614 kB]
+  #6 0.578 Get:5 http://deb.debian.org/debian trixie-updates/main arm64 Packages [1108 B]
+  #6 0.595 Get:6 http://deb.debian.org/debian-security trixie-security/main arm64 Packages [292 kB]
+  #6 1.143 Fetched 10.1 MB in 1s (9619 kB/s)
+  #6 1.143 Reading package lists...
+  #6 1.475 Reading package lists...
+  #6 1.767 Building dependency tree...
+  #6 1.864 Reading state information...
+  #6 2.012 The following additional packages will be installed:
+  #6 2.012   adduser libapparmor1 libcbor0.10 libcom-err2 libedit2 libfido2-1
+  #6 2.013   libgssapi-krb5-2 libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0
+  #6 2.013   libncursesw6 libproc2-0 libsystemd-shared libtext-charwidth-perl
+  #6 2.013   libtext-wrapi18n-perl libwrap0 libwtmpdb0 openssh-client openssh-sftp-server
+  #6 2.013   procps runit-helper sensible-utils systemd ucf
+  #6 2.013 Suggested packages:
+  #6 2.013   liblocale-gettext-perl perl cron quota krb5-doc krb5-user libarchive13t64
+  #6 2.013   libbpf1 libcryptsetup12 libdw1t64 libelf1t64 libgcrypt20 libidn2-0 libip4tc2
+  #6 2.013   libp11-kit0 libpwquality1 libqrencode4 libtss2-rc0t64 keychain libpam-ssh
+  #6 2.013   monkeysphere ssh-askpass molly-guard ufw systemd-container systemd-homed
+  #6 2.013   systemd-userdbd systemd-boot systemd-resolved systemd-repart
+  #6 2.013   libtss2-tcti-device0 polkitd
+  #6 2.013 Recommended packages:
+  #6 2.013   krb5-locales libgpm2 libkmod2 xauth default-logind | logind | libpam-systemd
+  #6 2.013   ncurses-term psmisc linux-sysctl-defaults default-dbus-system-bus
+  #6 2.013   | dbus-system-bus systemd-timesyncd | time-daemon systemd-cryptsetup
+  #6 2.123 The following NEW packages will be installed:
+  #6 2.123   adduser libapparmor1 libcbor0.10 libcom-err2 libedit2 libfido2-1
+  #6 2.123   libgssapi-krb5-2 libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0
+  #6 2.124   libncursesw6 libproc2-0 libsystemd-shared libtext-charwidth-perl
+  #6 2.124   libtext-wrapi18n-perl libwrap0 libwtmpdb0 openssh-client openssh-server
+  #6 2.124   openssh-sftp-server procps runit-helper sensible-utils systemd ucf
+  #6 2.166 0 upgraded, 26 newly installed, 0 to remove and 15 not upgraded.
+  #6 2.166 Need to get 8616 kB of archives.
+  #6 2.166 After this operation, 38.1 MB of additional disk space will be used.
+  #6 2.166 Get:1 http://deb.debian.org/debian trixie/main arm64 libsystemd-shared arm64 257.13-1~deb13u1 [1922 kB]
+  #6 2.248 Get:2 http://deb.debian.org/debian trixie/main arm64 libapparmor1 arm64 4.1.0-1 [42.9 kB]
+  #6 2.249 Get:3 http://deb.debian.org/debian trixie/main arm64 systemd arm64 257.13-1~deb13u1 [2921 kB]
+  #6 2.285 Get:4 http://deb.debian.org/debian trixie/main arm64 adduser all 3.152 [191 kB]
+  #6 2.286 Get:5 http://deb.debian.org/debian trixie/main arm64 libedit2 arm64 3.1-20250104-1 [89.3 kB]
+  #6 2.286 Get:6 http://deb.debian.org/debian trixie/main arm64 libcbor0.10 arm64 0.10.2-2 [27.4 kB]
+  #6 2.286 Get:7 http://deb.debian.org/debian trixie/main arm64 libfido2-1 arm64 1.15.0-1+b1 [74.3 kB]
+  #6 2.288 Get:8 http://deb.debian.org/debian trixie/main arm64 libkrb5support0 arm64 1.21.3-5+deb13u1 [32.5 kB]
+  #6 2.293 Get:9 http://deb.debian.org/debian trixie/main arm64 libcom-err2 arm64 1.47.2-3+b12 [24.9 kB]
+  #6 2.293 Get:10 http://deb.debian.org/debian trixie/main arm64 libk5crypto3 arm64 1.21.3-5+deb13u1 [81.4 kB]
+  #6 2.293 Get:11 http://deb.debian.org/debian trixie/main arm64 libkeyutils1 arm64 1.6.3-6 [9716 B]
+  #6 2.293 Get:12 http://deb.debian.org/debian trixie/main arm64 libkrb5-3 arm64 1.21.3-5+deb13u1 [308 kB]
+  #6 2.301 Get:13 http://deb.debian.org/debian trixie/main arm64 libgssapi-krb5-2 arm64 1.21.3-5+deb13u1 [128 kB]
+  #6 2.310 Get:14 http://deb.debian.org/debian trixie/main arm64 openssh-client arm64 1:10.0p1-7+deb13u4 [927 kB]
+  #6 2.335 Get:15 http://deb.debian.org/debian trixie/main arm64 openssh-sftp-server arm64 1:10.0p1-7+deb13u4 [60.6 kB]
+  #6 2.335 Get:16 http://deb.debian.org/debian trixie/main arm64 libncursesw6 arm64 6.5+20250216-2 [124 kB]
+  #6 2.335 Get:17 http://deb.debian.org/debian trixie/main arm64 libproc2-0 arm64 2:4.0.4-9 [62.8 kB]
+  #6 2.337 Get:18 http://deb.debian.org/debian trixie/main arm64 procps arm64 2:4.0.4-9 [871 kB]
+  #6 2.347 Get:19 http://deb.debian.org/debian trixie/main arm64 libtext-charwidth-perl arm64 0.04-11+b4 [9652 B]
+  #6 2.347 Get:20 http://deb.debian.org/debian trixie/main arm64 libtext-wrapi18n-perl all 0.06-10 [8808 B]
+  #6 2.347 Get:21 http://deb.debian.org/debian trixie/main arm64 sensible-utils all 0.0.25 [25.0 kB]
+  #6 2.347 Get:22 http://deb.debian.org/debian trixie/main arm64 ucf all 3.0052 [43.3 kB]
+  #6 2.347 Get:23 http://deb.debian.org/debian trixie/main arm64 runit-helper all 2.16.4 [7296 B]
+  #6 2.351 Get:24 http://deb.debian.org/debian trixie/main arm64 libwrap0 arm64 7.6.q-36 [55.0 kB]
+  #6 2.361 Get:25 http://deb.debian.org/debian trixie/main arm64 libwtmpdb0 arm64 0.73.0-3+deb13u1 [12.8 kB]
+  #6 2.372 Get:26 http://deb.debian.org/debian trixie/main arm64 openssh-server arm64 1:10.0p1-7+deb13u4 [555 kB]
+  #6 2.765 Preconfiguring packages ...
+  #6 2.793 Fetched 8616 kB in 0s (32.9 MB/s)
+  #6 2.798 Selecting previously unselected package libsystemd-shared:arm64.
+  #6 2.798 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4940 files and directories currently installed.)
+  #6 2.800 Preparing to unpack .../libsystemd-shared_257.13-1~deb13u1_arm64.deb ...
+  #6 2.801 Unpacking libsystemd-shared:arm64 (257.13-1~deb13u1) ...
+  #6 2.880 Selecting previously unselected package libapparmor1:arm64.
+  #6 2.881 Preparing to unpack .../libapparmor1_4.1.0-1_arm64.deb ...
+  #6 2.883 Unpacking libapparmor1:arm64 (4.1.0-1) ...
+  #6 2.893 Setting up libsystemd-shared:arm64 (257.13-1~deb13u1) ...
+  #6 2.904 Selecting previously unselected package systemd.
+  #6 2.904 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4953 files and directories currently installed.)
+  #6 2.906 Preparing to unpack .../systemd_257.13-1~deb13u1_arm64.deb ...
+  #6 2.911 Unpacking systemd (257.13-1~deb13u1) ...
+  #6 3.037 Selecting previously unselected package adduser.
+  #6 3.037 Preparing to unpack .../archives/adduser_3.152_all.deb ...
+  #6 3.039 Unpacking adduser (3.152) ...
+  #6 3.056 Setting up adduser (3.152) ...
+  #6 3.069 Selecting previously unselected package libedit2:arm64.
+  #6 3.069 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5975 files and directories currently installed.)
+  #6 3.070 Preparing to unpack .../00-libedit2_3.1-20250104-1_arm64.deb ...
+  #6 3.071 Unpacking libedit2:arm64 (3.1-20250104-1) ...
+  #6 3.083 Selecting previously unselected package libcbor0.10:arm64.
+  #6 3.084 Preparing to unpack .../01-libcbor0.10_0.10.2-2_arm64.deb ...
+  #6 3.085 Unpacking libcbor0.10:arm64 (0.10.2-2) ...
+  #6 3.094 Selecting previously unselected package libfido2-1:arm64.
+  #6 3.095 Preparing to unpack .../02-libfido2-1_1.15.0-1+b1_arm64.deb ...
+  #6 3.096 Unpacking libfido2-1:arm64 (1.15.0-1+b1) ...
+  #6 3.107 Selecting previously unselected package libkrb5support0:arm64.
+  #6 3.107 Preparing to unpack .../03-libkrb5support0_1.21.3-5+deb13u1_arm64.deb ...
+  #6 3.108 Unpacking libkrb5support0:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.118 Selecting previously unselected package libcom-err2:arm64.
+  #6 3.118 Preparing to unpack .../04-libcom-err2_1.47.2-3+b12_arm64.deb ...
+  #6 3.119 Unpacking libcom-err2:arm64 (1.47.2-3+b12) ...
+  #6 3.127 Selecting previously unselected package libk5crypto3:arm64.
+  #6 3.128 Preparing to unpack .../05-libk5crypto3_1.21.3-5+deb13u1_arm64.deb ...
+  #6 3.130 Unpacking libk5crypto3:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.141 Selecting previously unselected package libkeyutils1:arm64.
+  #6 3.142 Preparing to unpack .../06-libkeyutils1_1.6.3-6_arm64.deb ...
+  #6 3.142 Unpacking libkeyutils1:arm64 (1.6.3-6) ...
+  #6 3.151 Selecting previously unselected package libkrb5-3:arm64.
+  #6 3.152 Preparing to unpack .../07-libkrb5-3_1.21.3-5+deb13u1_arm64.deb ...
+  #6 3.153 Unpacking libkrb5-3:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.173 Selecting previously unselected package libgssapi-krb5-2:arm64.
+  #6 3.173 Preparing to unpack .../08-libgssapi-krb5-2_1.21.3-5+deb13u1_arm64.deb ...
+  #6 3.175 Unpacking libgssapi-krb5-2:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.189 Selecting previously unselected package openssh-client.
+  #6 3.189 Preparing to unpack .../09-openssh-client_1%3a10.0p1-7+deb13u4_arm64.deb ...
+  #6 3.191 Unpacking openssh-client (1:10.0p1-7+deb13u4) ...
+  #6 3.238 Selecting previously unselected package openssh-sftp-server.
+  #6 3.238 Preparing to unpack .../10-openssh-sftp-server_1%3a10.0p1-7+deb13u4_arm64.deb ...
+  #6 3.239 Unpacking openssh-sftp-server (1:10.0p1-7+deb13u4) ...
+  #6 3.250 Selecting previously unselected package libncursesw6:arm64.
+  #6 3.250 Preparing to unpack .../11-libncursesw6_6.5+20250216-2_arm64.deb ...
+  #6 3.251 Unpacking libncursesw6:arm64 (6.5+20250216-2) ...
+  #6 3.263 Selecting previously unselected package libproc2-0:arm64.
+  #6 3.264 Preparing to unpack .../12-libproc2-0_2%3a4.0.4-9_arm64.deb ...
+  #6 3.265 Unpacking libproc2-0:arm64 (2:4.0.4-9) ...
+  #6 3.277 Selecting previously unselected package procps.
+  #6 3.278 Preparing to unpack .../13-procps_2%3a4.0.4-9_arm64.deb ...
+  #6 3.280 Unpacking procps (2:4.0.4-9) ...
+  #6 3.322 Selecting previously unselected package libtext-charwidth-perl:arm64.
+  #6 3.322 Preparing to unpack .../14-libtext-charwidth-perl_0.04-11+b4_arm64.deb ...
+  #6 3.323 Unpacking libtext-charwidth-perl:arm64 (0.04-11+b4) ...
+  #6 3.332 Selecting previously unselected package libtext-wrapi18n-perl.
+  #6 3.332 Preparing to unpack .../15-libtext-wrapi18n-perl_0.06-10_all.deb ...
+  #6 3.333 Unpacking libtext-wrapi18n-perl (0.06-10) ...
+  #6 3.340 Selecting previously unselected package sensible-utils.
+  #6 3.341 Preparing to unpack .../16-sensible-utils_0.0.25_all.deb ...
+  #6 3.342 Unpacking sensible-utils (0.0.25) ...
+  #6 3.352 Selecting previously unselected package ucf.
+  #6 3.353 Preparing to unpack .../17-ucf_3.0052_all.deb ...
+  #6 3.354 Moving old data out of the way
+  #6 3.355 Unpacking ucf (3.0052) ...
+  #6 3.366 Selecting previously unselected package runit-helper.
+  #6 3.367 Preparing to unpack .../18-runit-helper_2.16.4_all.deb ...
+  #6 3.372 Unpacking runit-helper (2.16.4) ...
+  #6 3.392 Selecting previously unselected package libwrap0:arm64.
+  #6 3.393 Preparing to unpack .../19-libwrap0_7.6.q-36_arm64.deb ...
+  #6 3.394 Unpacking libwrap0:arm64 (7.6.q-36) ...
+  #6 3.407 Selecting previously unselected package libwtmpdb0:arm64.
+  #6 3.407 Preparing to unpack .../20-libwtmpdb0_0.73.0-3+deb13u1_arm64.deb ...
+  #6 3.408 Unpacking libwtmpdb0:arm64 (0.73.0-3+deb13u1) ...
+  #6 3.420 Selecting previously unselected package openssh-server.
+  #6 3.421 Preparing to unpack .../21-openssh-server_1%3a10.0p1-7+deb13u4_arm64.deb ...
+  #6 3.423 Unpacking openssh-server (1:10.0p1-7+deb13u4) ...
+  #6 3.456 Setting up libtext-charwidth-perl:arm64 (0.04-11+b4) ...
+  #6 3.460 Setting up runit-helper (2.16.4) ...
+  #6 3.463 Setting up libkeyutils1:arm64 (1.6.3-6) ...
+  #6 3.466 Setting up libapparmor1:arm64 (4.1.0-1) ...
+  #6 3.469 Setting up libcbor0.10:arm64 (0.10.2-2) ...
+  #6 3.472 Setting up libedit2:arm64 (3.1-20250104-1) ...
+  #6 3.476 Setting up systemd (257.13-1~deb13u1) ...
+  #6 3.488 Created symlink '/etc/systemd/system/getty.target.wants/getty@tty1.service' → '/usr/lib/systemd/system/getty@.service'.
+  #6 3.490 Created symlink '/etc/systemd/system/multi-user.target.wants/remote-fs.target' → '/usr/lib/systemd/system/remote-fs.target'.
+  #6 3.492 Created symlink '/etc/systemd/system/sysinit.target.wants/systemd-pstore.service' → '/usr/lib/systemd/system/systemd-pstore.service'.
+  #6 3.494 Initializing machine ID from random generator.
+  #6 3.502 Creating group 'systemd-journal' with GID 999.
+  #6 3.502 Creating group 'systemd-network' with GID 998.
+  #6 3.502 Creating user 'systemd-network' (systemd Network Management) with UID 998 and GID 998.
+  #6 3.509 /usr/lib/tmpfiles.d/legacy.conf:14: Duplicate line for path "/run/lock", ignoring.
+  #6 3.514 Setting up libcom-err2:arm64 (1.47.2-3+b12) ...
+  #6 3.519 Setting up libtext-wrapi18n-perl (0.06-10) ...
+  #6 3.522 Setting up libkrb5support0:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.525 Setting up libwrap0:arm64 (7.6.q-36) ...
+  #6 3.529 Setting up libproc2-0:arm64 (2:4.0.4-9) ...
+  #6 3.533 Setting up libncursesw6:arm64 (6.5+20250216-2) ...
+  #6 3.535 Setting up libk5crypto3:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.538 Setting up sensible-utils (0.0.25) ...
+  #6 3.541 Setting up procps (2:4.0.4-9) ...
+  #6 3.551 Setting up libwtmpdb0:arm64 (0.73.0-3+deb13u1) ...
+  #6 3.556 Setting up libkrb5-3:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.558 Setting up libfido2-1:arm64 (1.15.0-1+b1) ...
+  #6 3.562 Setting up libgssapi-krb5-2:arm64 (1.21.3-5+deb13u1) ...
+  #6 3.566 Setting up ucf (3.0052) ...
+  #6 3.571 Setting up openssh-client (1:10.0p1-7+deb13u4) ...
+  #6 3.641 Created symlink '/etc/systemd/user/sockets.target.wants/ssh-agent.socket' → '/usr/lib/systemd/user/ssh-agent.socket'.
+  #6 3.645 Setting up openssh-sftp-server (1:10.0p1-7+deb13u4) ...
+  #6 3.649 Setting up openssh-server (1:10.0p1-7+deb13u4) ...
+  #6 3.694 Creating config file /etc/ssh/sshd_config with new version
+  #6 3.705 Creating SSH2 RSA key; this may take some time ...
+  #6 3.817 3072 SHA256:8KPwmHROI8urQ3SQFTydFp+SbWsiOVbyjsYTkpVTPp4 root@buildkitsandbox (RSA)
+  #6 3.818 Creating SSH2 ECDSA key; this may take some time ...
+  #6 3.823 256 SHA256:gzeFRdHQbBz1W/gMT8h0f5oGb2MLP8yGsQbr5qrg9mk root@buildkitsandbox (ECDSA)
+  #6 3.827 Creating SSH2 ED25519 key; this may take some time ...
+  #6 3.833 256 SHA256:7jti4iJx8/i36clzbD8KMM3/RcEVL/gsVNrlYY1d1Ig root@buildkitsandbox (ED25519)
+  #6 3.836 Creating user 'sshd' (sshd user) with UID 997 and GID 65534.
+  #6 3.848 runit: ssh: start action denied by policy-rc.d
+  #6 3.855 invoke-rc.d: could not determine current runlevel
+  #6 3.857 invoke-rc.d: policy-rc.d denied execution of start.
+  #6 3.896 Created symlink '/etc/systemd/system/sshd.service' → '/usr/lib/systemd/system/ssh.service'.
+  #6 3.896 Created symlink '/etc/systemd/system/multi-user.target.wants/ssh.service' → '/usr/lib/systemd/system/ssh.service'.
+  #6 3.961 Created symlink '/etc/systemd/system/ssh.service.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+  #6 3.961 Created symlink '/etc/systemd/system/sshd.service.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+  #6 3.961 Created symlink '/etc/systemd/system/sshd@.service.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+  #6 3.961 Created symlink '/etc/systemd/system/ssh.socket.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+  #6 3.971 Processing triggers for libc-bin (2.41-12+deb13u3) ...
+  #6 DONE 4.0s
+  
+  #7 [3/4] COPY entrypoint.sh /usr/local/bin/fixture-entrypoint.sh
+  #7 DONE 0.0s
+  
+  #8 [4/4] RUN chmod 0755 /usr/local/bin/fixture-entrypoint.sh
+  #8 DONE 0.1s
+  
+  #9 exporting to image
+  #9 exporting layers 0.1s done
+  #9 writing image sha256:3bbbe9715e9d20244cfb07312ecd0b6ca1482cbeee910e3919ebb60ddf18242b done
+  #9 naming to docker.io/library/heimdall-m00-t03-sshd:local
+  #9 naming to docker.io/library/heimdall-m00-t03-sshd:local done
+  #9 DONE 0.1s
+  
+  View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/x1f91d7li9ik6ntw3rpz631ac
+[2026-10-31T20:09:18Z] generating per-run keys, CA and host keys in <home>/GitRepos/heimdall/tests/fixtures/ssh/runtime
+[2026-10-31T20:09:19Z] starting hm-m00t03-fixed
+[2026-10-31T20:09:19Z] starting hm-m00t03-enroll
+[2026-10-31T20:09:19Z] starting hm-m00t03-ca1
+[2026-10-31T20:09:19Z] starting hm-m00t03-ca2
+[2026-10-31T20:09:19Z] starting hm-m00t03-bastion
+[2026-10-31T20:09:20Z] starting hm-m00t03-target
+[2026-10-31T20:09:20Z] up complete (run 20261031T200913Z-43680). Ports (loopback only):
+  PORT_fixed=57226
+  PORT_enroll=57227
+  PORT_ca1=57229
+  PORT_ca2=57231
+  PORT_bastion=57233
+[2026-10-31T20:09:20Z] client config: <home>/GitRepos/heimdall/tests/fixtures/ssh/runtime/ssh_config  (use: /usr/bin/ssh -F runtime/ssh_config <alias>)

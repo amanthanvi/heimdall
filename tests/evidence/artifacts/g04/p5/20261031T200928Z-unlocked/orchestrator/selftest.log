@@ -1,0 +1,143 @@
+20:08:15Z g04_ctk_probe self-test: probe sha256 c9b2fcc176e688bd6fe68f3b9776d06c27244abd520e482834c2e2aa1e455dd2
+20:08:15Z   PASS probe passes bash -n under /bin/bash 3.2.57(1)-release
+20:08:15Z   PASS probe never contains the bulk delete subcommand
+20:08:15Z   PASS probe forces empty askpass answers (no terminal PIN prompt)
+20:08:15Z   PASS probe has no ownership fallback that skips the key checks
+20:08:15Z   PASS probe has no $(case ...) (bash 3.2 closes the substitution at the pattern's parenthesis)
+20:08:15Z   PASS write_ssh_config (bash 3.2): sk config sets SecurityKeyProvider
+20:08:15Z   PASS write_ssh_config (bash 3.2): non-sk config has no SecurityKeyProvider
+20:08:15Z   PASS write_ssh_config (bash 3.2): no stray shell text in either config
+20:08:17Z   PASS shellcheck -S warning clean (0.11.0)
+20:08:17Z   PASS usage: --mode bogus exits 2 (got 2)
+20:08:17Z   PASS usage: --samples 0 exits 2 (got 2)
+20:08:17Z   PASS hook guard: arbitrary path exits 2 (got 2)
+20:08:17Z   PASS hook guard: lock mode refused, exit 2 (got 2)
+20:08:17Z scenario normal
+20:08:19Z   PASS normal: exit 1 (self-test evidence is never verified; got 1)
+20:08:19Z   PASS normal: fake store equals the seed afterwards
+20:08:19Z   PASS normal: identity created
+20:08:19Z   PASS normal: pre-run identity count 2
+20:08:19Z   PASS normal: leftover prefix row counted, untouched
+20:08:19Z   PASS normal: export refused as hardware bounded (fake exits 0 like the real one)
+20:08:19Z   PASS normal: export rc 0 recorded
+20:08:19Z   PASS normal: export left no file
+20:08:19Z   PASS normal: own row gone after delete
+20:08:19Z   PASS normal: identity list equals pre-run list
+20:08:19Z   PASS normal: cleanup complete
+20:08:19Z   PASS normal: clauses create/export/delete pass
+20:08:19Z   PASS normal: own row kept, hash shortened
+20:08:19Z   PASS normal: own row's local time redacted
+20:08:19Z   PASS normal: chatty create output had other-identity lines removed
+20:08:19Z   PASS normal: own row survives in the create output
+20:08:19Z   PASS normal: exactly two other-identity lines removed
+20:08:19Z   PASS normal: record parses as JSON
+20:08:19Z   PASS normal: bulk delete never called
+20:08:19Z   PASS normal: no fake sc_auth or child process left
+20:08:19Z   PASS normal: owner and leftover identities never named in artifacts
+20:08:19Z   PASS normal: no local time of day in artifacts
+20:08:19Z   PASS normal: record carries no requirement IDs
+20:08:19Z   PASS normal: record marks the fake sc_auth
+20:08:19Z scenario create_hang
+20:08:37Z   PASS create_hang: exit 6 blocked (got 6)
+20:08:37Z   PASS create_hang: status blocked
+20:08:37Z   PASS create_hang: create timed out
+20:08:37Z   PASS create_hang: exact PIDs terminated and named
+20:08:37Z   PASS create_hang: nothing created
+20:08:37Z   PASS create_hang: fake store equals the seed
+20:08:37Z   PASS create_hang: record parses as JSON
+20:08:37Z   PASS create_hang: bulk delete never called
+20:08:37Z   PASS create_hang: no fake sc_auth or child process left
+20:08:37Z   PASS create_hang: owner and leftover identities never named in artifacts
+20:08:37Z   PASS create_hang: no local time of day in artifacts
+20:08:37Z   PASS create_hang: record carries no requirement IDs
+20:08:37Z   PASS create_hang: record marks the fake sc_auth
+20:08:37Z scenario create_partial_hang
+20:08:44Z   PASS create_partial_hang: exit 6 blocked (got 6)
+20:08:44Z   PASS create_partial_hang: identity marked partial
+20:08:44Z   PASS create_partial_hang: identity deleted by cleanup
+20:08:44Z   PASS create_partial_hang: fake store equals the seed
+20:08:44Z   PASS create_partial_hang: record parses as JSON
+20:08:44Z   PASS create_partial_hang: bulk delete never called
+20:08:44Z   PASS create_partial_hang: no fake sc_auth or child process left
+20:08:44Z   PASS create_partial_hang: owner and leftover identities never named in artifacts
+20:08:44Z   PASS create_partial_hang: no local time of day in artifacts
+20:08:44Z   PASS create_partial_hang: record carries no requirement IDs
+20:08:44Z   PASS create_partial_hang: record marks the fake sc_auth
+20:08:44Z scenario export_succeeds
+20:08:46Z   PASS export_succeeds: exit 1 (got 1)
+20:08:46Z   PASS export_succeeds: file removed and recorded
+20:08:46Z   PASS export_succeeds: export clause fails
+20:08:46Z   PASS export_succeeds: finding recorded
+20:08:46Z   PASS export_succeeds: fake store equals the seed
+20:08:46Z   PASS export_succeeds: record parses as JSON
+20:08:46Z   PASS export_succeeds: bulk delete never called
+20:08:46Z   PASS export_succeeds: no fake sc_auth or child process left
+20:08:46Z   PASS export_succeeds: owner and leftover identities never named in artifacts
+20:08:46Z   PASS export_succeeds: no local time of day in artifacts
+20:08:46Z   PASS export_succeeds: record carries no requirement IDs
+20:08:46Z   PASS export_succeeds: record marks the fake sc_auth
+20:08:46Z scenario delete_fails
+20:08:51Z   PASS delete_fails: exit 4 cleanup incomplete (got 4)
+20:08:51Z   PASS delete_fails: list mismatch reported
+20:08:51Z   PASS delete_fails: identity reported as still present
+20:08:51Z   PASS delete_fails: temp dir kept for diagnosis
+20:08:51Z   PASS delete_fails: owner and leftover rows untouched
+20:08:51Z   PASS delete_fails: delete was attempted
+20:08:51Z   PASS delete_fails: record parses as JSON
+20:08:51Z   PASS delete_fails: bulk delete never called
+20:08:51Z   PASS delete_fails: no fake sc_auth or child process left
+20:08:51Z   PASS delete_fails: owner and leftover identities never named in artifacts
+20:08:51Z   PASS delete_fails: no local time of day in artifacts
+20:08:51Z   PASS delete_fails: record carries no requirement IDs
+20:08:51Z   PASS delete_fails: record marks the fake sc_auth
+20:08:51Z scenario non_empty_store (guard: other CTK identities present, nothing may be created)
+20:08:52Z   PASS non_empty_store: exit 6 blocked (got 6)
+20:08:52Z   PASS non_empty_store: status blocked
+20:08:52Z   PASS non_empty_store: create never called
+20:08:52Z   PASS non_empty_store: nothing created
+20:08:52Z   PASS non_empty_store: fake store equals the seed
+20:08:52Z   PASS non_empty_store: record parses as JSON
+20:08:52Z   PASS non_empty_store: bulk delete never called
+20:08:52Z   PASS non_empty_store: no fake sc_auth or child process left
+20:08:52Z   PASS non_empty_store: owner and leftover identities never named in artifacts
+20:08:52Z   PASS non_empty_store: no local time of day in artifacts
+20:08:52Z   PASS non_empty_store: record carries no requirement IDs
+20:08:52Z   PASS non_empty_store: record marks the fake sc_auth
+20:08:52Z scenario interrupt (SIGTERM during an in-flight sc_auth export call)
+20:08:55Z   PASS interrupt: exit 5 (got 5)
+20:08:55Z   PASS interrupt: record says interrupted
+20:08:55Z   PASS interrupt: identity deleted by cleanup
+20:08:55Z   PASS interrupt: fake store equals the seed
+20:08:55Z   PASS interrupt: record parses as JSON
+20:08:55Z   PASS interrupt: bulk delete never called
+20:08:55Z   PASS interrupt: no fake sc_auth or child process left
+20:08:55Z   PASS interrupt: owner and leftover identities never named in artifacts
+20:08:55Z   PASS interrupt: no local time of day in artifacts
+20:08:55Z   PASS interrupt: record carries no requirement IDs
+20:08:55Z   PASS interrupt: record marks the fake sc_auth
+20:08:55Z scenario interrupt_in_create (SIGTERM while create is in flight, after it wrote the identity)
+20:08:57Z   PASS interrupt_in_create: exit 5 (got 5)
+20:08:57Z   PASS interrupt_in_create: identity found by label and deleted
+20:08:57Z   PASS interrupt_in_create: fake store equals the seed
+20:08:57Z   PASS interrupt_in_create: record parses as JSON
+20:08:57Z   PASS interrupt_in_create: bulk delete never called
+20:08:57Z   PASS interrupt_in_create: no fake sc_auth or child process left
+20:08:57Z   PASS interrupt_in_create: owner and leftover identities never named in artifacts
+20:08:57Z   PASS interrupt_in_create: no local time of day in artifacts
+20:08:57Z   PASS interrupt_in_create: record carries no requirement IDs
+20:08:57Z   PASS interrupt_in_create: record marks the fake sc_auth
+20:08:57Z scenario double_signal (SIGTERM, then SIGHUP while cleanup is deleting; a repeated SIGTERM is deferred by bash while its own trap runs)
+20:09:02Z   PASS double_signal: exit 5 (got 5)
+20:09:02Z   PASS double_signal: cleanup completed
+20:09:03Z   PASS double_signal: identity deleted
+20:09:03Z   PASS double_signal: late SIGHUP noted, cleanup not cut short
+20:09:03Z   PASS double_signal: fake store equals the seed
+20:09:03Z   PASS double_signal: record parses as JSON
+20:09:03Z   PASS double_signal: bulk delete never called
+20:09:03Z   PASS double_signal: no fake sc_auth or child process left
+20:09:03Z   PASS double_signal: owner and leftover identities never named in artifacts
+20:09:03Z   PASS double_signal: no local time of day in artifacts
+20:09:03Z   PASS double_signal: record carries no requirement IDs
+20:09:03Z   PASS double_signal: record marks the fake sc_auth
+20:09:03Z result: pass=132 fail=0
+20:09:03Z teardown: selftest temp dir removed=yes

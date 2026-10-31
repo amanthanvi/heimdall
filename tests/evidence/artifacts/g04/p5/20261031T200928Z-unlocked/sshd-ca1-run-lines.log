@@ -1,0 +1,13 @@
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 59186 ssh2: ECDSA-SK-CERT SHA256:V4LyDknGx+ZmQDouDvfCiB9I5eNP/LzHVD2gNXaSK4g ID heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default (serial 0) CA ED25519 SHA256:<other-fp>
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 59198 ssh2: ECDSA-SK-CERT SHA256:V4LyDknGx+ZmQDouDvfCiB9I5eNP/LzHVD2gNXaSK4g ID heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default (serial 0) CA ED25519 SHA256:<other-fp>
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 59328 ssh2: ECDSA-SK-CERT SHA256:V4LyDknGx+ZmQDouDvfCiB9I5eNP/LzHVD2gNXaSK4g ID heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default (serial 0) CA ED25519 SHA256:<other-fp>
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted certificate ID "heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default" (serial 0) signed by ED25519 CA SHA256:<other-fp> via /etc/ssh/user_ca.pub
+Accepted publickey for cert from 172.18.0.1 port 59332 ssh2: ECDSA-SK-CERT SHA256:V4LyDknGx+ZmQDouDvfCiB9I5eNP/LzHVD2gNXaSK4g ID heimdall-g04-p5-20261031T200928Z-dffbbd-sk-default (serial 0) CA ED25519 SHA256:<other-fp>
