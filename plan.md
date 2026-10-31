@@ -5,7 +5,7 @@
 **Prepared:** October 1, 2026  
 **Specification:** [spec.md](spec.md)  
 **Planning basis:** 80 requirements, 36 acceptance scenarios, and nine decision gates  
-**Language/TUI:** Unselected pending G02
+**Language/TUI:** Rust + Ratatui, selected at G02 on 2026-10-31 (ADR-0002, ADR-0004)
 
 > Prove the hard access workflows early. Build the ordinary experience around them. Do not postpone Windows, existing-access compatibility, or usability until after a large credential platform has been built.
 

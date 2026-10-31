@@ -1,7 +1,7 @@
 # Progress
 
-**Current milestone:** M00 — evidence baseline and gate experiments
-**Owner decision pending:** G02 D1. Round 4 and the native Windows/WSL tests are done; ADR-0002 revision 3 recommends Rust + Ratatui (low confidence, conditional on Iroh in V1) and asks Q-A–Q-F (§10).
+**Current milestone:** M00 closing → M01 (deterministic core) started 2026-10-31
+**Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
 |---|---|---|
@@ -10,8 +10,22 @@
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
 | M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Native Windows 11 and WSL2 runs since 2026-10-06 (36a8751): most records verified; the rest blocked or in progress on a second Windows/Linux account, a disposable distribution or host, or a console operator (`docs/research/g03-windows-wsl.md` §0) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
-| M00-T05 G02 language/TUI + ADR | blocked | Round 4 done (X1–X6). ADR-0002 revision 3: re-scored by three blind scorers plus the orchestrator, two adversarial reviews in two rounds. Blocked on owner decision D1 and Q-A–Q-F |
+| M00-T05 G02 language/TUI + ADR | verified | ADR-0002 revision 3 (re-scored, reviewed twice) and its 2026-10-31 recorded decision: Rust + Ratatui (ADR-0004 §1) |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
+
+## Owner decisions under delegation (2026-10-31)
+
+ADR-0004 records every decision. Still blocked on a physical input only the owner has:
+- an operator at the console for logout/reboot probes and for observing a UAC prompt (P-A06); screen-lock probes may run when the console has been idle ≥ 15 min (ADR-0004 §2);
+- one elevation consent to create a disposable second Windows account (P-W05, P-W06 cross-user, P-B11);
+- a disposable 1Password account (P-W10) and a disposable Windows host (P-W11);
+- Apple Developer membership for Developer ID signing and notarization (G04 D3, ADR-0002 Q-F).
+
+## Worklog (current)
+
+- Goal: release-ready V1 candidate (plan §10), all open items done; publishing stays a separate action (plan §10.3).
+- Running 2026-10-31: M01-T00 design (architecture, ADR-0006 G08 baseline, Cargo workspace skeleton); ADR-0005 managed-recipe ADR; X4 Windows secure-store run (authorized by ADR-0004 §3); G03 WSL Mode B probes P-B08/09/10 on a disposable distribution.
+- Next: adversarial review of the M01 design; parallel M01 implementation; then M02.
 
 ## Owner decisions and inputs (2026-10-06)
 

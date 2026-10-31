@@ -1,7 +1,7 @@
 # ADR-0002: Implementation language, TUI stack, and distribution (G02)
 
-**Status:** proposed. The decision is the owner's (§10) and is not yet recorded. No production stack
-is locked until it is.
+**Status:** accepted 2026-10-31: **Rust + Ratatui** (§10, decided under the owner's delegation,
+ADR-0004). Revision 3's analysis below is unchanged.
 **Date:** 2026-10-10 (revision 3, after round 4) · **Gate:** G02 · **Task:** M00-T05
 **Affects:** every production requirement, through the stack choice. This ADR
 cites prototype-level evidence for R-SS-04, R-UX-05, R-DI-01, R-AP-02 and
@@ -740,7 +740,13 @@ whether D1 can be taken now.
 - **D3:** all of the orchestrator's rulings stand ((a)–(i); (j) followed the
   first native Windows run; (k) and (l) are new in this revision).
 - **D4:** wait until Windows/WSL has been tested (see Q-C).
-- **Recorded decision:** _pending_.
+- **Recorded decision (2026-10-31):** **D1 = Rust + Ratatui.** Taken by the orchestrator under
+  the owner's explicit delegation ("I trust your judgement on all of these and the rest of the
+  decisions"). Q-A: Iroh stays a V1 target, G06 decides the boundary. Q-B: `run` launches batch
+  files, refusing script paths `cmd.exe` would expand. Q-C, Q-D: accepted; the shared uncertain
+  gates must close before any stable-release claim. Q-E: Ratatui, replaceable only by ADR. Q-F:
+  darwin builds signed on macOS; Developer ID needs the owner's Apple membership. Q-G: inside G06.
+  D3 (a)–(l) stand. Full reasons: ADR-0004 §1.
 
 ## 11. Consequences once decided
 

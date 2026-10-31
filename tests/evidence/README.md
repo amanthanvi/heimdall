@@ -42,4 +42,6 @@ with one `blocked` row and every other row `verified` is `blocked`, and its
 Canary rule: no evidence record or artifact may contain a full
 `HEIMDALL_CANARY_…` value. Harness assertion text names a canary by fixture
 and key path, never by value. The prefix alone, used as a scan pattern, is
-allowed.
+allowed. Synthetic canary values may appear in fixtures and test inputs that
+define them; a canary value anywhere else (program output, logs, arguments,
+artifacts, redacted evidence) is a defect (ADR-0004 §4).

@@ -110,8 +110,11 @@ Template rows (to be filled from observed runs):
 
 ¹ new authority / provider-required human action / unrecoverable error / avoidable ceremony.
 
-**Needed from owner:** redacted descriptions of the recurring pain points and
-which machines/providers form the baseline. Status: `blocked`.
+**Decided 2026-10-31 (ADR-0004 §4):** the worksheet is filled from observed runs of the
+template workflows on the owner's machines with a correctly configured OpenSSH/provider setup,
+counting real steps and prompts; owner-described pain points stay optional input and are never
+invented. Status: `not_started` (measured in M02 for the existing-access rows and M09 for the
+normal-week comparison).
 
 ## 7. Support labels
 

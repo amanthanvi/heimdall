@@ -538,10 +538,10 @@ cross-compile or defer Mode B into a vague future feature while calling V1 compl
   - The owner named the AI coding agents Mode B must serve: Claude Code,
     Codex, Pi, Cursor and OpenCode. These are downstream **clients**, and the
     Mode B probes (P-B*) must cover how they start `ssh`.
-  - The **upstream** question is still open. The orchestrator's proposed
-    default: Heimdall-held managed credentials (G04) as the path with real
-    scope, and the system agent / 1Password as filtered convenience upstreams,
-    disclosed as such. Waiting for owner confirmation.
+  - The **upstream** question was decided on 2026-10-31 under the owner's
+    delegation (ADR-0004 §3): Heimdall-held managed credentials (G04) are the
+    path with real scope; the system agent and 1Password are filtered
+    convenience upstreams, disclosed as such.
 - **E-4 (orchestrator, delegated by the owner, "keep it simple"):** V1 does
   not package an alternative Windows SSH client.
   - If P-W03 shows the in-box client cannot select a Heimdall pipe, the

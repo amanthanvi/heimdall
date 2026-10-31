@@ -682,6 +682,7 @@ These are not decided here.
 | D4 | **Yes.** P5 may create, and then delete, a CTK identity in the owner's real user token store | owner |
 | D5 | **Yes.** K_ca gets an encrypted offline backup | owner |
 | Q4 | Decided by the orchestrator under owner delegation ("choose what works best"); see below | orchestrator |
+| Recipe | **B1 selected** on 2026-10-31 under the owner's delegation (ADR-0004 §2); specification in ADR-0005. P5 further real-store runs are covered by D4 | orchestrator |
 
 **Q4.**
 - **(a) The residual window is stated per component:**

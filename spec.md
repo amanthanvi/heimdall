@@ -5,7 +5,7 @@
 **Prepared:** October 1, 2026  
 **Companion:** [plan.md](plan.md)  
 **Working release:** Single-owner, local-first V1 with a standalone CLI and built-in TUI  
-**Implementation language:** Deliberately unselected
+**Implementation language:** Rust + Ratatui, selected at G02 on 2026-10-31 (docs/decisions/0002, 0004)
 
 > Set up access once. Your terminals, tools, and agents work across environments. Heimdall handles the machinery.
 
@@ -85,7 +85,7 @@ The product hypothesis is weakened if its ordinary use requires more mental book
 | ID | Decision | Consequence |
 |---|---|---|
 | C01 | A standalone CLI and built-in TUI are both central. | No TUI-only functionality; no GUI required. |
-| C02 | The language remains open. | Evaluate Go/Bubble Tea, Rust/Ratatui, and TypeScript/OpenTUI before committing. |
+| C02 | The language was left open until G02. | Go/Bubble Tea, Rust/Ratatui and TypeScript/OpenTUI were evaluated; Rust + Ratatui was selected on 2026-10-31 (ADR-0002). |
 | C03 | Heimdall should own the whole SSH access experience, not remain a meek wrapper. | Provisioning, services, credential management, and repair are legitimate options. |
 | C04 | First-class use includes homelab hosts, VPSs, and fixed-authentication destinations. | No forced enrollment or certificate-only architecture. |
 | C05 | Approved work normally continues through desktop and personal-vault lock until its configured deadline. | Use an actually available execution credential or signer; disclose and configure this behavior. |
