@@ -1,0 +1,123 @@
+M00-T05-r5-x1d-linux-hosts: commands run (2026-10-31 UTC). Real exit codes. Placeholders: <repo> = the repository
+checkout, <mac-tmp> = a private mktemp directory under /tmp on the Mac (removed at the end), <home> = the remote home
+directory, <scratch> = <home>/hm-m00/M00-T05-r5-x1d. The hosts are named here only by label (ubuntu2404-kvm,
+debian13-x64); they were reached with the owner's SSH config and agent (ssh -o BatchMode=yes), as a non-root user.
+Nothing under prototypes/ was rebuilt or edited. No sudo, no package installs, no Docker, no listeners.
+
+Mac: provenance
+  shasum -a 256 prototypes/{go,rust}/dist/linux-x64/heimdall-proto                                         exit 0
+      go   bfb668bb0f7045e3f50606ccd2acff444ed5c4e733400b997624519e0fc23c3b  (5451936 bytes)
+      rust 7b1b3fcfc64031fe76625164c06c7181d800f3af1cf51cd0425688f95531769d  (887072 bytes)
+      both equal artifact_digest of tests/evidence/g02-{go,rust}-conformance-linux-x64-x1b.json (X1c)
+  ls -la prototypes/{go,rust}/dist/linux-x64/                                                             exit 0
+      one file each (heimdall-proto)
+  git diff --stat 772a6b1 51413ebb -- tests/g02 tests/fixtures/g02 tests/fixtures/fake-agent schemas/g02 tests/evidence/record.schema.json
+                                                                                                           exit 0, empty
+  git log 84c7665..HEAD -- prototypes/go ; git log 001a791..HEAD -- prototypes/rust                        exit 0, empty
+      (HEAD was 972321ce when the task started and 51413ebb, an orchestrator commit outside these paths, when the
+       harness archive was made; the archive and --build-commit use 51413ebb)
+
+Hosts: read-only probes before any write (OS, kernel, glibc, CPUs, load, tool presence, python venv/ensurepip,
+strace/bwrap presence, ~/hm-m00 existence)                                                                exit 0 each
+  (one probe loop passed "-l <user> <alias>" as a single word, because zsh does not split an unquoted variable;
+   ssh rejected it ("hostname contains invalid characters") and nothing ran on that host; repeated per host)
+  debian13-x64: python3 -m pip -> "No module named pip"; import ensurepip -> ModuleNotFoundError; import venv ok
+  debian13-x64: load average 29-32 on 16 CPUs at first probe (owner's workloads); 9.4 at the start of the task
+
+Mac: staging
+  git archive --format=tar -o <mac-tmp>/stage/harness.tar HEAD tests/g02 ':(exclude)tests/g02/selftest-results'
+      tests/fixtures/g02 tests/fixtures/fake-agent schemas/g02 tests/evidence/record.schema.json            exit 0  (29 files)
+  cp -p prototypes/<c>/dist/linux-x64/heimdall-proto <mac-tmp>/stage/art/<c>/                               exit 0
+  tests/g02/.venv/bin/pip download --require-hashes --only-binary=:all: -r tests/g02/requirements.txt -d <mac-tmp>/stage/wheels
+                                                                                                           exit 0
+      saved pyte-0.8.2-py3-none-any.whl, wcwidth-0.9.1-py3-none-any.whl (hash-checking mode)
+  shasum -a 256 harness.tar art/*/heimdall-proto wheels/*.whl > inputs.sha256                             exit 0
+  tar cf <mac-tmp>/stage.tar harness.tar art wheels inputs.sha256 setup.sh run-linux.sh notoolchain.sh
+      user-checks.sh hostfacts.sh wheel-install.py                                                         exit 0
+      (first built with --build-commit 972321ce in run-linux.sh; rebuilt after HEAD moved, before any copy)
+      stage.tar sha256 b5e592755b21e047a519e0c57599773f7d97024ad0e38debcc5cdf94ef78fa19
+
+Per host (both hosts; ubuntu2404-kvm first, then debian13-x64)
+  ssh: python3 -I -c '<home, user and host name as JSON>' > <mac-tmp>/ids-<label>.json                     exit 0 (values not printed)
+  ssh 'bash -s' < hostfacts.sh > hostfacts-start.txt                                                        exit 0
+  ssh: mkdir -p ~/hm-m00/M00-T05-r5-x1d (before: ~/hm-m00 absent on both)                                   exit 0 (mkdir.txt)
+  scp stage.tar                                                                                             exit 0
+  ssh: cd <scratch> && sha256sum stage.tar && tar xf stage.tar setup.sh && nice -n 10 bash setup.sh        exit 0 (setup.txt)
+      sha256sum -c inputs.sha256: 5 OK
+      ubuntu2404-kvm: python3 -m venv 0; pip install --require-hashes 0 (pip.log)
+      debian13-x64:   python3 -m venv 1 (venv.log: ensurepip is not available); python3 -m venv --without-pip 0;
+                      wheel-install.py 0 (pip.log: both sha256 == pin; import pyte 0.8.2, wcwidth 0.9.1 ok)
+      both: file "statically linked"; ldd "not a dynamic executable"
+
+  Harness launch
+    ubuntu2404-kvm: ssh 'cd <scratch> && echo loadavg && setsid nohup bash run-linux.sh ubuntu2404-kvm > run-linux.log 2>&1 < /dev/null & echo pid'
+        The '&' applied to the whole '&&' list, so a background subshell kept the ssh channel open and the local
+        loop (which would have launched debian13-x64 only after this run) blocked. A separate ssh read the
+        process tree (pid, ppid, sid, nice, executable name only): run-linux.sh in its own session, the harness
+        python at nice 10, output to files. The local ssh task was then stopped (TaskStop of that local
+        background task only); the remote run was not touched and went on (run-linux.log).
+    debian13-x64:   ssh 'cd <scratch> || exit 1; ...; setsid nohup bash run-linux.sh debian13-x64 > run-linux.log 2>&1 < /dev/null & echo pid'
+                                                                                                           ssh exit 0
+        (before launch: no run-linux.log and no out/ there, so no earlier launch had reached this host)
+  run-linux.sh (both, under nice -n 10, go then rust):
+    ubuntu2404-kvm go   conformance.py ... --case-id G02-go-conformance-linux-x64-x1d-ubuntu2404-kvm     exit 0  139/139
+    ubuntu2404-kvm rust conformance.py ... --case-id G02-rust-conformance-linux-x64-x1d-ubuntu2404-kvm   exit 0  139/139
+    debian13-x64   go   conformance.py ... --case-id G02-go-conformance-linux-x64-x1d-debian13-x64       exit 0  139/139
+    debian13-x64   rust conformance.py ... --case-id G02-rust-conformance-linux-x64-x1d-debian13-x64     exit 0  139/139
+    (run-linux.log per host: start/exit times and load averages)
+  After each host's DONE (the other host's run did not share a machine with it):
+    ssh: nice -n 10 bash notoolchain.sh > notoolchain.txt                                                   exit 0
+    ssh: nice -n 10 bash user-checks.sh > user-checks.txt                                                   exit 0
+      ubuntu2404-kvm: the first run (user-checks.first-run.txt, exit 0) deleted its raw strace logs after
+      summarising them; user-checks.sh was changed to keep them under out/strace-<c>/ and run again (exit 0).
+      The two outputs differ only in the control file's path. debian13-x64 ran the changed script only (no strace
+      there, so the change does not apply).
+  ssh 'bash -s' < hostfacts.sh > hostfacts-end.txt                                                          exit 0
+  ssh: tar cf - out run-linux.log notoolchain.txt user-checks.txt [user-checks.first-run.txt] pip.log venv.log
+       | (Mac) tar xf - -C <mac-tmp>/raw/<label>/host                                                       exit 0/0
+  ssh: yes --version (read-only, to explain a stderr difference)                                            exit 0
+      ubuntu2404-kvm GNU coreutils 9.4; debian13-x64 GNU coreutils 9.7
+
+Hosts: cleanup (both)
+  ssh: count processes whose cwd is in <scratch> (excluding the query shell): 0; pgrep -c -x heimdall-proto: 0;
+       the PIDs started by this task no longer exist; rm -rf <scratch>                                     exit 0
+       rmdir ~/hm-m00                                                                                       exit 0
+       ~/hm-m00 absent again (as before the task); 0 leftover bwrap control files in ~ or /tmp
+  ssh: find /tmp -maxdepth 1 -name 'hmg02-*' -user <uid> | wc -l                                            0 on both
+
+Mac: redaction and records
+  python3 -I x1d/redact.py scan <ids-label.json> <mac-tmp>/raw/<label>                                     exit 0
+      hits (counts only): ubuntu2404-kvm home 666 / user 666; debian13-x64 home 661 / user 661 (every user-name
+      hit inside the home path); host name and SSH alias: 0
+  grep -rlaE 'HEIMDALL_CANARY_[A-Za-z0-9]' <mac-tmp>/raw                                                    no file
+  grep -rhoaE '<IPv4 pattern>' <mac-tmp>/raw                                                                no match
+  python3 -I x1d/redact.py copy <ids-label.json> <mac-tmp>/raw/<label> <mac-tmp>/red/<label>               exit 0 (both)
+      666 / 661 replacements (all <home>); rescan of each copy: 0 hits
+  cp the redacted files into x1d/<label>/ (layout in README.md)
+  python3 -I x1d/compare.py <repo> x1d > x1d/compare.txt                                                   exit 0
+      (dry run first with the X1c records in both host slots: 0 differences everywhere, exit 0; patched twice
+       to compare only harness-written limitation lines, then re-run)
+  python3 -I x1d/make-records.py <repo>                                                                    exit 0
+      (run three times: the first output had a lexical started_at minimum across UTC offsets and kernel/locale
+       fields carrying neighbouring text; fixed, re-run; the script replaces its own appended lines, so each host
+       record carries them once)
+      go:   status verified, verdict pass; rows ubuntu2404-kvm=verified/pass, debian13-x64=verified/pass
+      rust: status verified, verdict pass; rows ubuntu2404-kvm=verified/pass, debian13-x64=verified/pass
+  python3 -I: make-records.user_checks() on altered lines (wrong exit, canary hit, a traced write, a control
+      without a write, a write control that succeeded, a failed positive control)                          exit 0, all flagged
+  python3 -I x1d/compare.py again after make-records.py                                                    exit 0, identical output
+  tests/g02/.venv/bin/python -I -c "minischema.validate(record.schema.json, R)" for the 2 summary records
+      and the 4 host harness records                                                                       exit 0, [] for each
+  negative control: the same validator on a copy with status "failed", and with status "blocked" and no
+      blocked_on                                                                                            both rejected
+  final scan of x1d/ and the two records for the user name, the Mac user name, /Users/, /home/, host names,
+      SSH aliases, IPv4 and full canary values                                                             exit 0
+      first pass: also hit __pycache__/make-records.cpython-315.pyc (bytecode written when the negative-control
+      test imported make-records.py; it held a Mac path). Removed, together with x1c/__pycache__/compare.cpython-315.pyc
+      written by compare.py's import of ../x1c/compare.py (both gitignored, both created by this task);
+      compare.py now sets sys.dont_write_bytecode and reproduces compare.txt byte for byte (cmp exit 0)
+      remaining hits: the words "/Users/" and "/home/" naming the scan patterns in README.md and commands.txt, and
+      X1c's kernel version 6.18.54.1 (matches the IPv4 pattern) in README.md
+
+Mac: cleanup
+  rm -rf <mac-tmp> and its pointer file                                                                     (README, Cleanup)

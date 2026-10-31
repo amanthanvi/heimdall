@@ -1,0 +1,1 @@
+heimdall-proto 0.0.0-g02 (go, go1.27.1 linux/amd64, charm.land/bubbletea/v2 v2.0.10)

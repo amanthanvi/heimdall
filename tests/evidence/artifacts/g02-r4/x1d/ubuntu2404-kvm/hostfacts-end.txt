@@ -1,0 +1,51 @@
+date_utc=2026-10-31T20:52:57Z
+os=Ubuntu 24.04.5 LTS
+kernel=6.8.0-147-generic machine=x86_64
+glibc=ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39
+virt=kvm
+nproc=4 memtotal_kb=8131776 memavailable_kb=6863268
+loadavg=0.00 0.02 0.00 1/246
+processes=147
+bash=GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)
+zsh=not installed
+python3=Python 3.12.3
+openssh=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+LANG=C.UTF-8 LC_ALL=unset
+uid_is_root=no
+non-interactive ssh PATH: <home>/.local/bin:<home>/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+toolchain commands, command -v in this non-interactive shell (empty = absent):
+  go: absent
+  gofmt: absent
+  rustc: absent
+  cargo: absent
+  rustup: absent
+toolchain commands, command -v in a login shell (bash -lc, which reads the profile files; empty = absent):
+  go: absent
+  gofmt: absent
+  rustc: absent
+  cargo: absent
+  rustup: absent
+executables named go, gofmt, rustc, cargo or rustup under /usr/local, /opt, /usr/lib and $HOME (find -maxdepth 5):
+  (end of list)
+toolchain directories (exists: top-level entries):
+  <home>/go: pkg 
+  <home>/.cache/go-build: 00 01 02 03 04 
+  (end of list)
+other generic tools (command -v; present/absent):
+  gcc: present
+  cc: present
+  clang: absent
+  make: present
+  node: present
+  npm: absent
+  bun: absent
+  deno: absent
+  perl: present
+  python3: present
+  docker: present
+  podman: absent
+  bwrap: absent
+  strace: present
+  tmux: present
+  file: present
+  ldd: present

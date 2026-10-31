@@ -1,0 +1,2 @@
+hm-m00 before: absent
+mkdir rc=0

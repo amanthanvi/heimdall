@@ -1,0 +1,86 @@
+strace: present; bwrap: absent
+=== go
+1. staged art/go/ entries: heimdall-proto 
+   file: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, Go BuildID=GkLk9iZU1sw-sti3f6cf/nb8ExwyxJ1cbonKKZQRk/6L85pYSS7mVbhIHzRojO/-ySqKZ-XAcu1pZOlFql2, BuildID[sha1]=dd3b2d335d74795df469cf31affd54c2a3604c15, stripped
+   ldd: not a dynamic executable (ldd rc=1)
+   copy sha256 bfb668bb0f7045e3f50606ccd2acff444ed5c4e733400b997624519e0fc23c3b; directory (redacted): <home>/hm-m00/M00-T05-r5-x1d/u dir ü 東 spaced/go bin ü
+2. spaced/non-ASCII directory, env -i PATH=<empty dir>, no HOME or TMPDIR
+  absolute path:
+    version --json rc=0 code="code":"VERSION_OK"
+    profile show (spaced copy in this dir) rc=0 code="code":"PROFILE_OK"
+    profile show forbidden-key rc=2 code="code":"SCHEMA_INVALID" canary_prefix_hits=0
+    run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0
+    agent list (missing socket in this dir) rc=5 code="code":"AGENT_UNAVAILABLE"
+  ./heimdall-proto:
+    version --json rc=0 code="code":"VERSION_OK"
+    profile show (spaced copy in this dir) rc=0 code="code":"PROFILE_OK"
+    profile show forbidden-key rc=2 code="code":"SCHEMA_INVALID" canary_prefix_hits=0
+    run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0
+    agent list (missing socket in this dir) rc=5 code="code":"AGENT_UNAVAILABLE"
+3. read-only HOME, TMPDIR and working directory (chmod 555), env -i PATH=<empty dir>
+  write control: write refused (control ok)
+    version --json rc=0 code="code":"VERSION_OK"
+    profile show (spaced copy in this dir) rc=0 code="code":"PROFILE_OK"
+    profile show forbidden-key rc=2 code="code":"SCHEMA_INVALID" canary_prefix_hits=0
+    run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0
+    agent list (missing socket in this dir) rc=5 code="code":"AGENT_UNAVAILABLE"
+  entries afterwards: cwd 2 (2 = binary + profile), HOME 0, TMPDIR 0
+4. strace -f write-class calls (open/openat/openat2 with O_WRONLY, O_RDWR, O_CREAT, O_TRUNC or O_APPEND;
+   creat, mkdir*, rename*, unlink*, rmdir, link*, symlink*, truncate, chmod*, chown*, utimensat, mknod*, bind)
+  control (sh writing a file) rc=0
+  cmd1 (version --json) rc=0
+  cmd2 (profile show --file @P --json) rc=0
+  cmd3 (profile show --file @F --json) rc=2
+  cmd4 (run -- /bin/sh -c exit\ 7) rc=7
+  cmd5 (agent list --socket @S --json) rc=5
+  control.log: 3 traced calls; write-class: 1
+      openat(AT_FDCWD, "<home>/hm-m00/M00-T05-r5-x1d/out/strace-go/control-file", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3
+  cmd1.log: 35 traced calls; write-class: 0
+  cmd2.log: 36 traced calls; write-class: 0
+  cmd3.log: 36 traced calls; write-class: 0
+  cmd4.log: 39 traced calls; write-class: 0
+  cmd5.log: 35 traced calls; write-class: 0
+5. bwrap not installed: read-only root run not done on this host
+=== rust
+1. staged art/rust/ entries: heimdall-proto 
+   file: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped
+   ldd: not a dynamic executable (ldd rc=1)
+   copy sha256 7b1b3fcfc64031fe76625164c06c7181d800f3af1cf51cd0425688f95531769d; directory (redacted): <home>/hm-m00/M00-T05-r5-x1d/u dir ü 東 spaced/rust bin ü
+2. spaced/non-ASCII directory, env -i PATH=<empty dir>, no HOME or TMPDIR
+  absolute path:
+    version --json rc=0 code="code":"VERSION_OK"
+    profile show (spaced copy in this dir) rc=0 code="code":"PROFILE_OK"
+    profile show forbidden-key rc=2 code="code":"SCHEMA_INVALID" canary_prefix_hits=0
+    run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0
+    agent list (missing socket in this dir) rc=5 code="code":"AGENT_UNAVAILABLE"
+  ./heimdall-proto:
+    version --json rc=0 code="code":"VERSION_OK"
+    profile show (spaced copy in this dir) rc=0 code="code":"PROFILE_OK"
+    profile show forbidden-key rc=2 code="code":"SCHEMA_INVALID" canary_prefix_hits=0
+    run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0
+    agent list (missing socket in this dir) rc=5 code="code":"AGENT_UNAVAILABLE"
+3. read-only HOME, TMPDIR and working directory (chmod 555), env -i PATH=<empty dir>
+  write control: write refused (control ok)
+    version --json rc=0 code="code":"VERSION_OK"
+    profile show (spaced copy in this dir) rc=0 code="code":"PROFILE_OK"
+    profile show forbidden-key rc=2 code="code":"SCHEMA_INVALID" canary_prefix_hits=0
+    run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0
+    agent list (missing socket in this dir) rc=5 code="code":"AGENT_UNAVAILABLE"
+  entries afterwards: cwd 2 (2 = binary + profile), HOME 0, TMPDIR 0
+4. strace -f write-class calls (open/openat/openat2 with O_WRONLY, O_RDWR, O_CREAT, O_TRUNC or O_APPEND;
+   creat, mkdir*, rename*, unlink*, rmdir, link*, symlink*, truncate, chmod*, chown*, utimensat, mknod*, bind)
+  control (sh writing a file) rc=0
+  cmd1 (version --json) rc=0
+  cmd2 (profile show --file @P --json) rc=0
+  cmd3 (profile show --file @F --json) rc=2
+  cmd4 (run -- /bin/sh -c exit\ 7) rc=7
+  cmd5 (agent list --socket @S --json) rc=5
+  control.log: 3 traced calls; write-class: 1
+      openat(AT_FDCWD, "<home>/hm-m00/M00-T05-r5-x1d/out/strace-rust/control-file", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3
+  cmd1.log: 30 traced calls; write-class: 0
+  cmd2.log: 31 traced calls; write-class: 0
+  cmd3.log: 31 traced calls; write-class: 0
+  cmd4.log: 33 traced calls; write-class: 0
+  cmd5.log: 30 traced calls; write-class: 0
+5. bwrap not installed: read-only root run not done on this host
+removed the check directories

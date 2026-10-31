@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: profile nesting exceeds 32 levels near line 6

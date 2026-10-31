@@ -1,0 +1,7 @@
+Collecting pyte==0.8.2 (from -r repo/tests/g02/requirements.txt (line 3))
+  Downloading pyte-0.8.2-py3-none-any.whl (31 kB)
+Collecting wcwidth==0.9.1 (from -r repo/tests/g02/requirements.txt (line 5))
+  Downloading wcwidth-0.9.1-py3-none-any.whl (300 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 300.7/300.7 kB 14.9 MB/s eta 0:00:00
+Installing collected packages: wcwidth, pyte
+Successfully installed pyte-0.8.2 wcwidth-0.9.1

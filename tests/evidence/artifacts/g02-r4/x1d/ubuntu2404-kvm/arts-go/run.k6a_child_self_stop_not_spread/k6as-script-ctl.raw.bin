@@ -1,0 +1,5 @@
+[?2004hHMPS1$ /bin/sh -c 'echo $$ > "$D/script-ctl.peer.pid"; "$Y" "$D/s.py" "$D" script-ctl; echo "K6AS_SCRIPT_RC=$?"'
+[?2004lK6AS_SCRIPT_RC=0
+[?2004hHMPS1$ exit
+[?2004lexit
+exit

@@ -1,0 +1,4 @@
+ls: cannot access 'run-linux.log': No such file or directory
+ls: cannot access 'out': No such file or directory
+loadavg before launch: 15.29 16.48 18.76 24/1419
+launched pid 224366

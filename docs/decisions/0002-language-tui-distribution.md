@@ -178,7 +178,7 @@ place the verdict differs from a reviewer's or a re-scorer's.
 | Child/IPC correctness | **pass, given the §9.5 classification.** 139/139 on darwin-arm64, linux-arm64 and (round 4) native linux-x64; the Windows `run` rows pass after X1b. [Review3c rated "waits for the child, no orphan" **uncertain** because of the darwin SIGSTOP orphan (§6), and escalated it.] | **pass, given the §9.5 classification.** 139/139 on the same three platforms; Windows `run` rows pass. [Review3c rated "no regression" **fail** because of the third-party-stop hang (§6), and escalated it.] | **fail.** K8, K14 ×2, K6a ×3, K6e, and K12 for a usage error on a closed stdout. K6d errors on a harness precondition |
 | Viable Windows/WSL path | **pass** (round 4). Native Windows 11 x64: 71/71 gating rows after one fix round (X1b), independently reviewed; native linux-x64 under WSL2: 139/139. The fix refuses `.bat`/`.cmd` targets, so `run` cannot launch npm-style `.cmd` shims (§3.1) | **pass** (round 4). Native Windows 11 x64: 71/71 after one fix round, independently reviewed; linux-x64: 139/139 | **uncertain.** Bun named-pipe support taken from Bun's source only |
 | No unsupported security assumption | **pass for the slice** (round 4). Unix as before. Windows, executed: batch targets refused; ErrDot refuses resolution through the current directory; `--socket` on a non-pipe path refused without writing. The pipe client connects at the Anonymous impersonation level (matters only to servers that identify clients by impersonation). Native secure-store APIs not executed (X4) [Codex re-scorer: uncertain] | **pass for the slice** (round 4). Windows, executed after X1b: file-type checks before any read or write; std escapes batch arguments (`argv[1..]`, 16/16 exact). Recorded, not gated: std searches the application directory and System32 before PATH; a batch file's own path is not escaped, and the reviewer demonstrated command injection and wrong-file execution through it, as under plain exec (§9.7). Native secure-store APIs not executed [Codex re-scorer: uncertain] | **fail.** In compiled Bun 1.4.2 binaries, BUN_OPTIONS `--preload`, BUN_BE_BUN and BUN_INSPECT cannot be disabled (`artifacts/g02-ts/research/`). OTUI_* keystroke logging must also be scrubbed |
-| Practical distribution | **uncertain.** One file per target, 5.2 MB (2.0 MB gzip), static on Linux. Ran without a toolchain on PATH on Windows and under `env -i` on Linux and WSL, but on development hosts, not clean machines; files carried no Mark-of-the-Web; ad-hoc signing only, no notarization or Authenticode [Fable re-scorer: pass] | **uncertain.** One file per target, 0.72–0.88 MB (0.37–0.45 MB gzip), static on Linux. Same method and the same gaps [Fable re-scorer: pass] | **uncertain.** 73–97 MB per target plus a native sidecar; musl runtime dynamically linked |
+| Practical distribution | **uncertain.** One file per target, 5.2 MB (2.0 MB gzip), static on Linux. **Linux (2026-10-31, X1d):** the post-fix artifact ran 139/139 on two long-lived hosts with no Go or Rust toolchain installed (Ubuntu 24.04 VM, Debian 13), from a directory with spaces and non-ASCII characters, and with a read-only filesystem. Windows: ran without a toolchain on PATH, but on a development host, files carried no Mark-of-the-Web. macOS: development host only. Ad-hoc signing only, no notarization or Authenticode [Fable re-scorer: pass] | **uncertain.** One file per target, 0.72–0.88 MB (0.37–0.45 MB gzip), static on Linux. Same results and the same gaps [Fable re-scorer: pass] | **uncertain.** 73–97 MB per target plus a native sidecar; musl runtime dynamically linked |
 | Maintained dependencies | **uncertain**, a judgment. ultraviolet (Bubble Tea's renderer) is an untagged pseudo-version and has the wide-character cursor bug X2 found (§6.2); cancelreader dates from 2022; there is no maintained Go library for the macOS Keychain and SecKey (X4) | **uncertain**, a judgment. crossterm's last release (0.29.0, 2025-04) is about 18 months old and still carries the Windows path; `security-framework` is looking for a maintainer and drops one error status (X4); winapi 0.3.9 dates from 2020 | **uncertain**, a judgment. OpenTUI is pre-1.0 |
 | Compatible licensing | **pass.** 17 third-party modules, all MIT or BSD-3 (X3: go-licenses check rc 0 with the unlicensed main module excluded). Notices are not shipped yet | **pass.** Permissive; a full notices file ships; cargo-deny and cargo-about rc 0 (X3). Which LGPL-marked mingw-w64 parts the Windows build links was not determined | **uncertain.** LGPL-2 JavaScriptCore and LGPL-2.1 tinycc |
 | Domain shared across CLI/TUI | pass | pass | pass |
@@ -222,8 +222,10 @@ the console.
   Neither separates the two. plan.md §3 G02 puts all hard gates before
   preference scoring, so the scores in §7 and the recommendation in §9 are
   **provisional** until you either accept these two as open for both stacks
-  (Q-D) or they are closed. Closing practical distribution needs clean
-  Windows, macOS and Linux machines and signing identities.
+  (Q-D) or they are closed. Linux now has runs on two machines without
+  either candidate's toolchain (X1d, not freshly installed); closing practical
+  distribution still needs clean Windows and macOS machines and signing
+  identities.
 
 **TypeScript** fails both child/IPC correctness and the security-assumption
 gate.
@@ -666,7 +668,8 @@ Questions that change the recommendation's strength, in order of effect:
   before preference scoring. Do you accept practical distribution (clean
   machines, signing) and dependency maintenance as open for both stacks, to
   be closed before a release claim rather than before D1? If not, D1 waits
-  for clean Windows, macOS and Linux machines and signing identities.
+  for clean Windows and macOS machines (Linux is covered by two toolchain-free
+  hosts, X1d) and signing identities.
 - **Q-E. TUI library.** Is the choice "Go + Bubble Tea" against "Rust +
   Ratatui" as plan.md names them, or may the chosen language change TUI
   library later? If it may, the X2 T3 finding weighs on Bubble Tea rather

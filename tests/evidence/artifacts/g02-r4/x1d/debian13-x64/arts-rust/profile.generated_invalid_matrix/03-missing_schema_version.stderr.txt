@@ -1,0 +1,1 @@
+heimdall-proto: SCHEMA_INVALID: required key schema_version is missing

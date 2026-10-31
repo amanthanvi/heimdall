@@ -1,0 +1,248 @@
+== go
+  sources (status / verdict / summary / harness / artifact digest):
+    X1c wsl2         verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=181.3 harness=2.4.2 python=3.12.3 digest=sha256:bfb668bb0f70
+    ubuntu2404-kvm   verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=182.7 harness=2.4.2 python=3.12.3 digest=sha256:bfb668bb0f70
+    debian13-x64     verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=182.0 harness=2.4.2 python=3.13.5 digest=sha256:bfb668bb0f70
+  --- ubuntu2404-kvm vs X1c
+  check ids (union): 139; differing outcome or presence: 0
+  assertions: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  captures: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 210; same stderr sha256: 227
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes ubuntu2404-kvm=262298 X1c=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes ubuntu2404-kvm=233 X1c=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes ubuntu2404-kvm=134255 X1c=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.slow_timeout [timeout-300] bytes ubuntu2404-kvm=152 X1c=182
+    stderr digest differs: agent.slow_timeout [timeout-300] bytes ubuntu2404-kvm=40 X1c=70
+      ubuntu2404-kvm stderr="heimdall-proto: agent list: read failed\n"
+      X1c stderr="heimdall-proto: agent list: read: no complete response within timeout\n"
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes ubuntu2404-kvm=226 X1c=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes ubuntu2404-kvm=729 X1c=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes ubuntu2404-kvm=81 X1c=81
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes ubuntu2404-kvm=1533 X1c=1489
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes ubuntu2404-kvm=1533 X1c=1489
+  observations: keys 19/19, only in one: []; structural (non-timing) leaf differences: 0, grouped by observation sub-key:
+  harness limitation lines only in ubuntu2404-kvm: 0; only in X1c: 0 (load averages and probe trial counts masked; lines added after the run by X1c/X1d ignored)
+  --- debian13-x64 vs X1c
+  check ids (union): 139; differing outcome or presence: 0
+  assertions: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  captures: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 211; same stderr sha256: 227
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes debian13-x64=262298 X1c=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes debian13-x64=233 X1c=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes debian13-x64=134255 X1c=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes debian13-x64=226 X1c=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes debian13-x64=729 X1c=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes debian13-x64=81 X1c=81
+    stderr digest differs: run.k6a_inherited_ignore [direct-yes-ignore] bytes debian13-x64=34 X1c=43
+      debian13-x64 stderr="yes: standard output: Broken pipe\n"
+      X1c stderr="/usr/bin/yes: standard output: Broken pipe\n"
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes debian13-x64=1519 X1c=1489
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes debian13-x64=1519 X1c=1489
+  observations: keys 19/19, only in one: []; structural (non-timing) leaf differences: 3, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        debian13-x64=[2, 1, 1, 2, 1, 2, 1, 1, 1, 1]
+        X1c=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        debian13-x64=true
+        X1c=false
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        debian13-x64="3/10"
+        X1c="0/10"
+  harness limitation lines only in debian13-x64: 2; only in X1c: 1 (load averages and probe trial counts masked; lines added after the run by X1c/X1d ignored)
+    + "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+    + "Machine load was high during the run (load average [<loadavg>] on <n> CPUs); timing-gated checks (SIGINT 500 ms, resize 100 ms) may be unreliable - repeat on an idle machine before trusting a timing failure."
+    - "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+  --- debian13-x64 vs ubuntu2404-kvm
+  check ids (union): 139; differing outcome or presence: 0
+  assertions: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  captures: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 210; same stderr sha256: 226
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes debian13-x64=262298 ubuntu2404-kvm=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes debian13-x64=233 ubuntu2404-kvm=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes debian13-x64=134255 ubuntu2404-kvm=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.slow_timeout [timeout-300] bytes debian13-x64=182 ubuntu2404-kvm=152
+    stderr digest differs: agent.slow_timeout [timeout-300] bytes debian13-x64=70 ubuntu2404-kvm=40
+      debian13-x64 stderr="heimdall-proto: agent list: read: no complete response within timeout\n"
+      ubuntu2404-kvm stderr="heimdall-proto: agent list: read failed\n"
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes debian13-x64=226 ubuntu2404-kvm=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes debian13-x64=729 ubuntu2404-kvm=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes debian13-x64=81 ubuntu2404-kvm=81
+    stderr digest differs: run.k6a_inherited_ignore [direct-yes-ignore] bytes debian13-x64=34 ubuntu2404-kvm=43
+      debian13-x64 stderr="yes: standard output: Broken pipe\n"
+      ubuntu2404-kvm stderr="/usr/bin/yes: standard output: Broken pipe\n"
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes debian13-x64=1519 ubuntu2404-kvm=1533
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes debian13-x64=1519 ubuntu2404-kvm=1533
+  observations: keys 19/19, only in one: []; structural (non-timing) leaf differences: 3, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        debian13-x64=[2, 1, 1, 2, 1, 2, 1, 1, 1, 1]
+        ubuntu2404-kvm=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        debian13-x64=true
+        ubuntu2404-kvm=false
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        debian13-x64="3/10"
+        ubuntu2404-kvm="0/10"
+  harness limitation lines only in debian13-x64: 2; only in ubuntu2404-kvm: 1 (load averages and probe trial counts masked; lines added after the run by X1c/X1d ignored)
+    + "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+    + "Machine load was high during the run (load average [<loadavg>] on <n> CPUs); timing-gated checks (SIGINT 500 ms, resize 100 ms) may be unreliable - repeat on an idle machine before trusting a timing failure."
+    - "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+  timing observations (wall-clock, not gating except via each check's own bound):
+  X1c wsl2         duration_s=181.3 first_frame_ms=35.7 k17_filter_p95_ms=17.4 sigint_exit_ms=[1.4, 1.0, 0.9] resize_ms(median/max)=15.45/17.0 loadavg_start=[0.08, 0.02, 0.0] loadavg_end=[0.17, 0.05, 0.01]
+  ubuntu2404-kvm   duration_s=182.7 first_frame_ms=41.3 k17_filter_p95_ms=17.7 sigint_exit_ms=[0.8, 0.8, 0.8] resize_ms(median/max)=15.2/16.1 loadavg_start=[0.07, 0.02, 0.0] loadavg_end=[0.1, 0.04, 0.01]
+  debian13-x64     duration_s=182.0 first_frame_ms=37.8 k17_filter_p95_ms=19.1 sigint_exit_ms=[1.3, 0.9, 0.8] resize_ms(median/max)=15.25/17.2 loadavg_start=[15.29, 16.48, 18.76] loadavg_end=[10.94, 13.49, 17.19]
+
+== rust
+  sources (status / verdict / summary / harness / artifact digest):
+    X1c wsl2         verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=182.3 harness=2.4.2 python=3.12.3 digest=sha256:7b1b3fcfc640
+    ubuntu2404-kvm   verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=183.0 harness=2.4.2 python=3.12.3 digest=sha256:7b1b3fcfc640
+    debian13-x64     verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=181.8 harness=2.4.2 python=3.13.5 digest=sha256:7b1b3fcfc640
+  --- ubuntu2404-kvm vs X1c
+  check ids (union): 139; differing outcome or presence: 0
+  assertions: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  captures: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 211; same stderr sha256: 228
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes ubuntu2404-kvm=262298 X1c=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes ubuntu2404-kvm=233 X1c=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes ubuntu2404-kvm=134255 X1c=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes ubuntu2404-kvm=226 X1c=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes ubuntu2404-kvm=466 X1c=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes ubuntu2404-kvm=729 X1c=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes ubuntu2404-kvm=81 X1c=81
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes ubuntu2404-kvm=1533 X1c=1489
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes ubuntu2404-kvm=1533 X1c=1489
+  observations: keys 19/19, only in one: []; structural (non-timing) leaf differences: 3, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        ubuntu2404-kvm=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        X1c=[2, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        ubuntu2404-kvm=false
+        X1c=true
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        ubuntu2404-kvm="0/10"
+        X1c="3/10"
+  harness limitation lines only in ubuntu2404-kvm: 1; only in X1c: 1 (load averages and probe trial counts masked; lines added after the run by X1c/X1d ignored)
+    + "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+    - "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+  --- debian13-x64 vs X1c
+  check ids (union): 139; differing outcome or presence: 0
+  assertions: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  captures: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 211; same stderr sha256: 227
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes debian13-x64=262298 X1c=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes debian13-x64=233 X1c=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes debian13-x64=134255 X1c=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes debian13-x64=226 X1c=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes debian13-x64=466 X1c=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes debian13-x64=729 X1c=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes debian13-x64=81 X1c=81
+    stderr digest differs: run.k6a_inherited_ignore [direct-yes-ignore] bytes debian13-x64=34 X1c=43
+      debian13-x64 stderr="yes: standard output: Broken pipe\n"
+      X1c stderr="/usr/bin/yes: standard output: Broken pipe\n"
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes debian13-x64=1519 X1c=1489
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes debian13-x64=1519 X1c=1489
+  observations: keys 19/19, only in one: []; structural (non-timing) leaf differences: 2, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        debian13-x64=[1, 1, 2, 2, 1, 1, 2, 2, 1, 2]
+        X1c=[2, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        debian13-x64="5/10"
+        X1c="3/10"
+  harness limitation lines only in debian13-x64: 2; only in X1c: 1 (load averages and probe trial counts masked; lines added after the run by X1c/X1d ignored)
+    + "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+    + "Machine load was high during the run (load average [<loadavg>] on <n> CPUs); timing-gated checks (SIGINT 500 ms, resize 100 ms) may be unreliable - repeat on an idle machine before trusting a timing failure."
+    - "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+  --- debian13-x64 vs ubuntu2404-kvm
+  check ids (union): 139; differing outcome or presence: 0
+  assertions: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  captures: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 211; same stderr sha256: 227
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes debian13-x64=262298 ubuntu2404-kvm=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes debian13-x64=233 ubuntu2404-kvm=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes debian13-x64=134255 ubuntu2404-kvm=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes debian13-x64=226 ubuntu2404-kvm=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes debian13-x64=466 ubuntu2404-kvm=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes debian13-x64=729 ubuntu2404-kvm=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes debian13-x64=81 ubuntu2404-kvm=81
+    stderr digest differs: run.k6a_inherited_ignore [direct-yes-ignore] bytes debian13-x64=34 ubuntu2404-kvm=43
+      debian13-x64 stderr="yes: standard output: Broken pipe\n"
+      ubuntu2404-kvm stderr="/usr/bin/yes: standard output: Broken pipe\n"
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes debian13-x64=1519 ubuntu2404-kvm=1533
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes debian13-x64=1519 ubuntu2404-kvm=1533
+  observations: keys 19/19, only in one: []; structural (non-timing) leaf differences: 3, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        debian13-x64=[1, 1, 2, 2, 1, 1, 2, 2, 1, 2]
+        ubuntu2404-kvm=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        debian13-x64=true
+        ubuntu2404-kvm=false
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        debian13-x64="5/10"
+        ubuntu2404-kvm="0/10"
+  harness limitation lines only in debian13-x64: 2; only in ubuntu2404-kvm: 1 (load averages and probe trial counts masked; lines added after the run by X1c/X1d ignored)
+    + "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+    + "Machine load was high during the run (load average [<loadavg>] on <n> CPUs); timing-gated checks (SIGINT 500 ms, resize 100 ms) may be unreliable - repeat on an idle machine before trusting a timing failure."
+    - "K6 exactly-once on Linux: harness.signal_duplicate_probe (observations.harness_os_probe_back_to_back_signal_merge: the harness's own OS probe, not a heimdall-proto measurement) ran a known double-forwarding wrapper written by the harness (two back-to-back kill() calls) and the child saw both sig...
+  timing observations (wall-clock, not gating except via each check's own bound):
+  X1c wsl2         duration_s=182.3 first_frame_ms=17.6 k17_filter_p95_ms=1.8 sigint_exit_ms=[5.8, 5.7, 5.7] resize_ms(median/max)=0.8/1.1 loadavg_start=[0.17, 0.05, 0.01] loadavg_end=[0.24, 0.08, 0.02]
+  ubuntu2404-kvm   duration_s=183.0 first_frame_ms=22.4 k17_filter_p95_ms=2.6 sigint_exit_ms=[5.6, 5.7, 5.8] resize_ms(median/max)=1.1/1.4 loadavg_start=[0.1, 0.04, 0.01] loadavg_end=[0.07, 0.04, 0.0]
+  debian13-x64     duration_s=181.8 first_frame_ms=17.2 k17_filter_p95_ms=2.7 sigint_exit_ms=[5.5, 5.5, 5.6] resize_ms(median/max)=0.8500000000000001/1.4 loadavg_start=[10.94, 13.49, 17.19] loadavg_end=[10.59, 11.91, 15.88]
+

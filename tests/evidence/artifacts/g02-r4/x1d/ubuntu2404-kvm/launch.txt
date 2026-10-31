@@ -1,0 +1,2 @@
+launched pid 1674610
+loadavg before launch: 0.07 0.02 0.00 1/294

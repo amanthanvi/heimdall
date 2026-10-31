@@ -1,0 +1,410 @@
+{
+  "case_id": "G02-rust-linux-x64-no-toolchain-hosts",
+  "status": "verified",
+  "requirement_ids": [
+    "R-SS-04",
+    "R-SS-02",
+    "R-SE-05",
+    "R-QU-07"
+  ],
+  "build_commit": "51413ebb",
+  "artifact_digest": "sha256:7b1b3fcfc64031fe76625164c06c7181d800f3af1cf51cd0425688f95531769d",
+  "environment": {
+    "subject": "artifact",
+    "platform": "linux-x64",
+    "candidate": "rust",
+    "candidate_commit": "001a791",
+    "artifact_dir": "prototypes/rust/dist/linux-x64",
+    "harness_version": "2.4.2",
+    "plan_wording": "plan.md section 3 G02: test release artifacts on clean Windows, macOS, and Linux machines without the candidate's development toolchain",
+    "hosts": {
+      "ubuntu2404-kvm": {
+        "label": "ubuntu2404-kvm",
+        "what": "the owner's long-lived Ubuntu 24.04.5 server VM (KVM guest, 4 vCPUs, 8 GB), reached over SSH as a non-root user; not freshly installed",
+        "os": "Ubuntu 24.04.5 LTS",
+        "kernel": "6.8.0-147-generic",
+        "machine": "x86_64",
+        "glibc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39",
+        "virtualisation": "kvm",
+        "cpu_count": 4,
+        "memtotal_kb": 8131776,
+        "python": "3.12.3",
+        "bash": "GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)",
+        "zsh": "not installed",
+        "openssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024",
+        "locale": "LANG=C.UTF-8, LC_ALL=unset",
+        "non_root": true,
+        "venv_method": "python3 -m venv + pip install --require-hashes -r tests/g02/requirements.txt (as X1c)",
+        "other_software": "a container runtime running the owner's service; C compiler and make (gcc, cc, make); Python 3.12 with venv/ensurepip; Perl; Node.js in the user's ~/.local/bin; tmux; strace; a Go module cache (<home>/go/pkg) and Go build cache (<home>/.cache/go-build) left from earlier use, with no go executable anywhere searched",
+        "harness_nice": 10
+      },
+      "debian13-x64": {
+        "label": "debian13-x64",
+        "what": "the owner's long-lived Debian 13 x86_64 server (16 CPUs, 64 GB; systemd-detect-virt: none), reached over SSH as a non-root user; not freshly installed; busy with the owner's projects during the run",
+        "os": "Debian GNU/Linux 13 (trixie)",
+        "kernel": "6.12.107+deb13-amd64",
+        "machine": "x86_64",
+        "glibc": "ldd (Debian GLIBC 2.41-12+deb13u4) 2.41",
+        "virtualisation": "none",
+        "cpu_count": 16,
+        "memtotal_kb": 64935356,
+        "python": "3.13.5",
+        "bash": "GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)",
+        "zsh": "not installed",
+        "openssh": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.7 9 Jun 2026",
+        "locale": "LANG=C.UTF-8, LC_ALL=unset",
+        "non_root": true,
+        "venv_method": "python3 -m venv failed (exit 1: ensurepip is not available; the python3-venv package is not installed and no package may be installed); used python3 -m venv --without-pip plus x1d/wheel-install.py: the two wheels pip downloaded on the Mac in hash-checking mode (pip download --require-hashes), re-checked on the host against the requirements.txt sha256 pins and unpacked into the venv's site-packages",
+        "other_software": "many CPU-bound worker processes and headless-browser processes of the owner's projects (load average 9 to 32 on 16 CPUs while probed); C compiler and make (gcc, cc, make); Python 3.13 without venv/ensurepip and without pip; Perl; bubblewrap; tmux; no Node.js, no container runtime on PATH",
+        "harness_nice": 10
+      }
+    }
+  },
+  "provider_versions": [
+    {
+      "name": "openssh (ssh-keygen used for fingerprints; version from /usr/bin/ssh -V)",
+      "path": "/usr/bin/ssh-keygen",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024",
+      "host": "ubuntu2404-kvm"
+    },
+    {
+      "name": "python",
+      "version": "3.12.3",
+      "host": "ubuntu2404-kvm"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2",
+      "host": "ubuntu2404-kvm"
+    },
+    {
+      "name": "wcwidth",
+      "version": "0.9.1",
+      "host": "ubuntu2404-kvm"
+    },
+    {
+      "name": "openssh (ssh-keygen used for fingerprints; version from /usr/bin/ssh -V)",
+      "path": "/usr/bin/ssh-keygen",
+      "version": "OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.7 9 Jun 2026",
+      "host": "debian13-x64"
+    },
+    {
+      "name": "python",
+      "version": "3.13.5",
+      "host": "debian13-x64"
+    },
+    {
+      "name": "pyte",
+      "version": "0.8.2",
+      "host": "debian13-x64"
+    },
+    {
+      "name": "wcwidth",
+      "version": "0.9.1",
+      "host": "debian13-x64"
+    }
+  ],
+  "started_at": "2026-10-31T20:46:51+00:00",
+  "commands_or_harness": [
+    "tests/evidence/artifacts/g02-r4/x1d/setup.sh (venv; per host method in environment.hosts.<label>.venv_method)",
+    "nice -n 10 tests/g02/.venv/bin/python tests/g02/conformance.py --bin <home>/hm-m00/M00-T05-r5-x1d/art/rust/heimdall-proto --candidate rust --case-id G02-rust-conformance-linux-x64-x1d-<label> --build-commit 51413ebb ... (via tests/evidence/artifacts/g02-r4/x1d/run-linux.sh <label>; full command line in each host record)",
+    "tests/evidence/artifacts/g02-r4/x1d/notoolchain.sh (X1c's commands under env -i, PATH=/usr/bin:/bin and an empty PATH directory)",
+    "tests/evidence/artifacts/g02-r4/x1d/user-checks.sh (one file; spaced/non-ASCII location; read-only HOME, TMPDIR and working directory; strace write scan or bwrap read-only root)",
+    "tests/evidence/artifacts/g02-r4/x1d/hostfacts.sh (OS, kernel, glibc, CPUs, load, shells, toolchain absence)",
+    "tests/evidence/artifacts/g02-r4/x1d/compare.py (comparison with X1c)"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "criterion": "per host: (a) no go, gofmt, rustc, cargo or rustup found (command -v in a non-interactive and a login shell, file search of /usr/local, /opt, /usr/lib and the home directory); (b) the full harness 2.4.2 catalogue passes natively (exit 0, every check pass); (c) the X1c no-toolchain commands give X1c's exit codes under env -i with PATH=/usr/bin:/bin and with an empty PATH directory, with no canary prefix; (d) the single-file artifact, copied alone into a directory with spaces and non-ASCII characters, gives the same exit codes from there, also with HOME, TMPDIR and the working directory read-only, and the write check (strace scan or bwrap read-only root) shows no write outside those directories",
+    "per_host": {
+      "ubuntu2404-kvm": {
+        "status": "verified",
+        "verdict": "pass",
+        "host": "the owner's long-lived Ubuntu 24.04.5 server VM (KVM guest, 4 vCPUs, 8 GB), reached over SSH as a non-root user; not freshly installed",
+        "harness": {
+          "record": "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm/g02-rust-conformance-linux-x64-x1d-ubuntu2404-kvm.json",
+          "exit_code": 0,
+          "status": "verified",
+          "verdict": "pass",
+          "summary": {
+            "pass": 139,
+            "fail": 0,
+            "error": 0,
+            "skipped": 0,
+            "total": 139,
+            "duration_s": 183.0
+          },
+          "console": "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm/console-rust.log",
+          "artifacts": "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm/arts-rust",
+          "non_gating_failed_assertions": [
+            "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)",
+            "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)",
+            "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)",
+            "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"
+          ]
+        },
+        "toolchain_absent": {
+          "command_v_non_interactive": {
+            "go": "absent",
+            "gofmt": "absent",
+            "rustc": "absent",
+            "cargo": "absent",
+            "rustup": "absent"
+          },
+          "command_v_login_shell": {
+            "go": "absent",
+            "gofmt": "absent",
+            "rustc": "absent",
+            "cargo": "absent",
+            "rustup": "absent"
+          },
+          "executables_found_by_find": [],
+          "all_absent": true,
+          "source": "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm/hostfacts-start.txt"
+        },
+        "no_toolchain_commands": {
+          "source": "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm/notoolchain.txt",
+          "results": [
+            "version --json rc=0 {\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}",
+            "profile show homelab rc=0 bytes=517 code=\"code\":\"PROFILE_OK\"",
+            "profile show spaced rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "run -- true (PATH lookup) rc=0 stderr=",
+            "agent list missing socket rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "version --json rc=0 {\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}",
+            "profile show homelab rc=0 bytes=517 code=\"code\":\"PROFILE_OK\"",
+            "profile show spaced rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "run -- true (PATH lookup) rc=127 stderr=heimdall-proto: cannot launch command: NotFound",
+            "agent list missing socket rc=5 code=\"code\":\"AGENT_UNAVAILABLE\""
+          ],
+          "unexpected": [],
+          "as_x1c": true
+        },
+        "user_checks": {
+          "source": "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm/user-checks.txt",
+          "write_check": "strace -f write-class system call scan (strace installed; bwrap not installed)",
+          "results": [
+            "=== rust",
+            "1. staged art/rust/ entries: heimdall-proto",
+            "file: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped",
+            "ldd: not a dynamic executable (ldd rc=1)",
+            "copy sha256 7b1b3fcfc64031fe76625164c06c7181d800f3af1cf51cd0425688f95531769d; directory (redacted): <home>/hm-m00/M00-T05-r5-x1d/u dir ü 東 spaced/rust bin ü",
+            "2. spaced/non-ASCII directory, env -i PATH=<empty dir>, no HOME or TMPDIR",
+            "absolute path:",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "./heimdall-proto:",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "3. read-only HOME, TMPDIR and working directory (chmod 555), env -i PATH=<empty dir>",
+            "write control: write refused (control ok)",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "entries afterwards: cwd 2 (2 = binary + profile), HOME 0, TMPDIR 0",
+            "4. strace -f write-class calls (open/openat/openat2 with O_WRONLY, O_RDWR, O_CREAT, O_TRUNC or O_APPEND;",
+            "creat, mkdir*, rename*, unlink*, rmdir, link*, symlink*, truncate, chmod*, chown*, utimensat, mknod*, bind)",
+            "control (sh writing a file) rc=0",
+            "cmd1 (version --json) rc=0",
+            "cmd2 (profile show --file @P --json) rc=0",
+            "cmd3 (profile show --file @F --json) rc=2",
+            "cmd4 (run -- /bin/sh -c exit\\ 7) rc=7",
+            "cmd5 (agent list --socket @S --json) rc=5",
+            "control.log: 3 traced calls; write-class: 1",
+            "openat(AT_FDCWD, \"<home>/hm-m00/M00-T05-r5-x1d/out/strace-rust/control-file\", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3",
+            "cmd1.log: 30 traced calls; write-class: 0",
+            "cmd2.log: 31 traced calls; write-class: 0",
+            "cmd3.log: 31 traced calls; write-class: 0",
+            "cmd4.log: 33 traced calls; write-class: 0",
+            "cmd5.log: 30 traced calls; write-class: 0",
+            "5. bwrap not installed: read-only root run not done on this host",
+            "removed the check directories"
+          ],
+          "contract_coded_results": 15,
+          "unexpected": [],
+          "all_expected": true
+        },
+        "comparison_with_x1c": "tests/evidence/artifacts/g02-r4/x1d/compare.txt (section 'ubuntu2404-kvm vs X1c') and tests/evidence/artifacts/g02-r4/x1d/README.md",
+        "loadavg": {
+          "facts_start": "0.00 0.00 0.00 2/294",
+          "harness_start": [
+            0.1,
+            0.04,
+            0.01
+          ],
+          "harness_end": [
+            0.07,
+            0.04,
+            0.0
+          ],
+          "facts_end": "0.00 0.02 0.00 1/246"
+        }
+      },
+      "debian13-x64": {
+        "status": "verified",
+        "verdict": "pass",
+        "host": "the owner's long-lived Debian 13 x86_64 server (16 CPUs, 64 GB; systemd-detect-virt: none), reached over SSH as a non-root user; not freshly installed; busy with the owner's projects during the run",
+        "harness": {
+          "record": "tests/evidence/artifacts/g02-r4/x1d/debian13-x64/g02-rust-conformance-linux-x64-x1d-debian13-x64.json",
+          "exit_code": 0,
+          "status": "verified",
+          "verdict": "pass",
+          "summary": {
+            "pass": 139,
+            "fail": 0,
+            "error": 0,
+            "skipped": 0,
+            "total": 139,
+            "duration_s": 181.8
+          },
+          "console": "tests/evidence/artifacts/g02-r4/x1d/debian13-x64/console-rust.log",
+          "artifacts": "tests/evidence/artifacts/g02-r4/x1d/debian13-x64/arts-rust",
+          "non_gating_failed_assertions": [
+            "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)",
+            "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)",
+            "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)",
+            "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"
+          ]
+        },
+        "toolchain_absent": {
+          "command_v_non_interactive": {
+            "go": "absent",
+            "gofmt": "absent",
+            "rustc": "absent",
+            "cargo": "absent",
+            "rustup": "absent"
+          },
+          "command_v_login_shell": {
+            "go": "absent",
+            "gofmt": "absent",
+            "rustc": "absent",
+            "cargo": "absent",
+            "rustup": "absent"
+          },
+          "executables_found_by_find": [],
+          "all_absent": true,
+          "source": "tests/evidence/artifacts/g02-r4/x1d/debian13-x64/hostfacts-start.txt"
+        },
+        "no_toolchain_commands": {
+          "source": "tests/evidence/artifacts/g02-r4/x1d/debian13-x64/notoolchain.txt",
+          "results": [
+            "version --json rc=0 {\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}",
+            "profile show homelab rc=0 bytes=517 code=\"code\":\"PROFILE_OK\"",
+            "profile show spaced rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "run -- true (PATH lookup) rc=0 stderr=",
+            "agent list missing socket rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "version --json rc=0 {\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"VERSION_OK\",\"data\":{\"name\":\"heimdall-proto\",\"version\":\"0.0.0-g02\",\"candidate\":\"rust\",\"runtime\":\"rustc 1.99.0 (b940084d7 2026-09-28)\",\"tui_framework\":\"ratatui\",\"tui_framework_version\":\"0.30.2\"},\"warnings\":[],\"next\":null}",
+            "profile show homelab rc=0 bytes=517 code=\"code\":\"PROFILE_OK\"",
+            "profile show spaced rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "run -- true (PATH lookup) rc=127 stderr=heimdall-proto: cannot launch command: NotFound",
+            "agent list missing socket rc=5 code=\"code\":\"AGENT_UNAVAILABLE\""
+          ],
+          "unexpected": [],
+          "as_x1c": true
+        },
+        "user_checks": {
+          "source": "tests/evidence/artifacts/g02-r4/x1d/debian13-x64/user-checks.txt",
+          "write_check": "bwrap --ro-bind / / (whole file system read-only; bwrap installed, strace not installed)",
+          "results": [
+            "=== rust",
+            "1. staged art/rust/ entries: heimdall-proto",
+            "file: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped",
+            "ldd: not a dynamic executable (ldd rc=1)",
+            "copy sha256 7b1b3fcfc64031fe76625164c06c7181d800f3af1cf51cd0425688f95531769d; directory (redacted): <home>/hm-m00/M00-T05-r5-x1d/u dir ü 東 spaced/rust bin ü",
+            "2. spaced/non-ASCII directory, env -i PATH=<empty dir>, no HOME or TMPDIR",
+            "absolute path:",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "./heimdall-proto:",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "3. read-only HOME, TMPDIR and working directory (chmod 555), env -i PATH=<empty dir>",
+            "write control: write refused (control ok)",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "entries afterwards: cwd 2 (2 = binary + profile), HOME 0, TMPDIR 0",
+            "4. strace not installed: write-class syscall trace not run on this host",
+            "5. bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid --die-with-parent (whole file system read-only)",
+            "positive control /bin/true rc=0",
+            "write control <home>/hm-m00/M00-T05-r5-x1d/bw-ctl rc=2 (sh: 1: cannot create <home>/hm-m00/M00-T05-r5-x1d/bw-ctl: Read-only file system)",
+            "write control /tmp/x1d-bw-ctl-<pid> rc=2 (sh: 1: cannot create /tmp/x1d-bw-ctl-<pid>: Read-only file system)",
+            "write control <home>/x1d-bw-ctl rc=2 (sh: 1: cannot create <home>/x1d-bw-ctl: Read-only file system)",
+            "version --json rc=0 code=\"code\":\"VERSION_OK\"",
+            "profile show (spaced copy in this dir) rc=0 code=\"code\":\"PROFILE_OK\"",
+            "profile show forbidden-key rc=2 code=\"code\":\"SCHEMA_INVALID\" canary_prefix_hits=0",
+            "run -- /bin/sh -c 'exit 7' rc=7 out_bytes=0",
+            "agent list (missing socket in this dir) rc=5 code=\"code\":\"AGENT_UNAVAILABLE\"",
+            "removed the check directories"
+          ],
+          "contract_coded_results": 20,
+          "unexpected": [],
+          "all_expected": true
+        },
+        "comparison_with_x1c": "tests/evidence/artifacts/g02-r4/x1d/compare.txt (section 'debian13-x64 vs X1c') and tests/evidence/artifacts/g02-r4/x1d/README.md",
+        "loadavg": {
+          "facts_start": "9.36 19.68 20.22 4/1389",
+          "harness_start": [
+            10.94,
+            13.49,
+            17.19
+          ],
+          "harness_end": [
+            10.59,
+            11.91,
+            15.88
+          ],
+          "facts_end": "10.30 11.73 15.72 6/1439"
+        }
+      }
+    },
+    "not_covered": [
+      "freshly installed machines (both hosts are long-lived and carry other software, including a C compiler)",
+      "Linux distributions and kernels other than these two",
+      "musl-based distributions",
+      "zsh K6e forms (zsh not installed)",
+      "windows-x64 and darwin (separate records)"
+    ]
+  },
+  "evidence_paths": [
+    "tests/evidence/g02-rust-linux-x64-no-toolchain-hosts.json",
+    "tests/evidence/artifacts/g02-r4/x1d/README.md",
+    "tests/evidence/artifacts/g02-r4/x1d/compare.txt",
+    "tests/evidence/artifacts/g02-r4/x1d/commands.txt",
+    "tests/evidence/artifacts/g02-r4/x1d/inputs.sha256",
+    "tests/evidence/artifacts/g02-r4/x1d/ubuntu2404-kvm",
+    "tests/evidence/artifacts/g02-r4/x1d/debian13-x64"
+  ],
+  "limitations": [
+    "Not clean machines in the plan's sense: both are the owner's long-lived hosts, not fresh installs. Neither has a Go or Rust toolchain, but both have other software (environment.hosts.<label>.other_software), including a C compiler. A static artifact does not use it; the check that it is not needed is that the binaries are static (file, ldd) and run under env -i with an empty PATH directory.",
+    "debian13-x64 was busy with the owner's workloads (load averages in per_host.debian13-x64.loadavg; the harness adds its own 'machine load was high' limitation when the load exceeds 0.75 x CPUs). Timing observations there are not comparable with an idle host. The harness ran under nice -n 10 on both hosts.",
+    "The harness venv on debian13-x64 was not created by pip (environment.hosts.debian13-x64.venv_method). pip's own install step was replaced by hash-checked extraction of the same two pinned wheels.",
+    "One run per candidate per host; timing observations are single samples.",
+    "Artifact provenance as in X1c: the X1b fix round's bytes, equal to the reviewers' rebuilds; a build of the committed candidate trees was not re-checked (no rebuild in this task).",
+    "linux-x64 is not a K13 verdict platform; these records are G02 practical-distribution evidence.",
+    "No independent review of this run."
+  ]
+}

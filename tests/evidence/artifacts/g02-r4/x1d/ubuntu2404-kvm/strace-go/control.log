@@ -1,0 +1,3 @@
+1681292 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+1681292 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+1681292 openat(AT_FDCWD, "<home>/hm-m00/M00-T05-r5-x1d/out/strace-go/control-file", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3

@@ -1,0 +1,1 @@
+heimdall-proto: USAGE_ERROR: cannot open profile file: Uncategorized

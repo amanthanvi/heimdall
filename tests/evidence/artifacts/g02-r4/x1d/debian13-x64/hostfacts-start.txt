@@ -1,0 +1,49 @@
+date_utc=2026-10-31T20:43:22Z
+os=Debian GNU/Linux 13 (trixie)
+kernel=6.12.107+deb13-amd64 machine=x86_64
+glibc=ldd (Debian GLIBC 2.41-12+deb13u4) 2.41
+virt=none
+nproc=16 memtotal_kb=64935356 memavailable_kb=49921504
+loadavg=9.36 19.68 20.22 4/1389
+processes=376
+bash=GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)
+zsh=not installed
+python3=Python 3.13.5
+openssh=OpenSSH_10.0p2 Debian-7+deb13u4, OpenSSL 3.5.7 9 Jun 2026
+LANG=C.UTF-8 LC_ALL=unset
+uid_is_root=no
+non-interactive ssh PATH: /usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
+toolchain commands, command -v in this non-interactive shell (empty = absent):
+  go: absent
+  gofmt: absent
+  rustc: absent
+  cargo: absent
+  rustup: absent
+toolchain commands, command -v in a login shell (bash -lc, which reads the profile files; empty = absent):
+  go: absent
+  gofmt: absent
+  rustc: absent
+  cargo: absent
+  rustup: absent
+executables named go, gofmt, rustc, cargo or rustup under /usr/local, /opt, /usr/lib and $HOME (find -maxdepth 5):
+  (end of list)
+toolchain directories (exists: top-level entries):
+  (end of list)
+other generic tools (command -v; present/absent):
+  gcc: present
+  cc: present
+  clang: absent
+  make: present
+  node: absent
+  npm: absent
+  bun: absent
+  deno: absent
+  perl: present
+  python3: present
+  docker: absent
+  podman: absent
+  bwrap: present
+  strace: absent
+  tmux: present
+  file: present
+  ldd: present

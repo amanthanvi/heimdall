@@ -1,0 +1,6 @@
+== host label=ubuntu2404-kvm kernel=6.8.0-147-generic distro=Ubuntu 24.04.5 LTS nproc=4 memtotal_kb=8131776 virt=kvm
+== go start 2026-10-31T20:43:48Z loadavg 0.07 0.02 0.00 running_tasks 1/295
+== go exit 0 2026-10-31T20:46:51Z loadavg 0.10 0.04 0.01 running_tasks 1/250
+== rust start 2026-10-31T20:46:51Z loadavg 0.10 0.04 0.01 running_tasks 1/250
+== rust exit 0 2026-10-31T20:49:54Z loadavg 0.07 0.04 0.00 running_tasks 1/249
+DONE
