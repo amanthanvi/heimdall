@@ -1,6 +1,6 @@
 # Current state (M00-T01)
 
-**Recorded:** 2026-10-02 · **Repository:** `/Users/amanthanvi/GitRepos/heimdall`
+**Recorded:** 2026-10-02 · **Repository:** `<home>/GitRepos/heimdall`
 · **Base commit:** `60ace01` ("Initial commit", contains no files)
 
 ## Finding: greenfield

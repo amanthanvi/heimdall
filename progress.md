@@ -33,7 +33,7 @@
   - E-5: delegated; accept and disclose. Recorded in g03 §6.1.
 - **Primitives Q1:** accept and disclose (option a).
 - **Windows host:** the owner's Windows 11 PC with WSL2 Ubuntu
-  (amangamingpc-Ubuntu, 100.66.192.34, reached over the tailnet) is
+  (reached over the owner's tailnet) is
   available for G03/G02 testing. A dedicated, revocable test key is waiting
   for the owner to install it (the orchestrator does not extract the owner's
   Termius credentials).
@@ -98,14 +98,15 @@
    - X4 Windows DPAPI/CNG/TPM, which write to the user key store and the TPM.
 4. ADR-0002 re-score: done (item 1).
 5. G04 follow-ups:
-   - P5 ran once (unlocked, v1) on 2026-10-09: commits 34ffe3e and 26fed81. Record: blocked / fail.
-     - Load and sign: the CTK key loads and signs only through `ssh-add -K -S`.
-     - Limit clause (fail): `KEYCHAIN_CERTIFICATES` does not limit which identities that path loads.
-     - Export: refused, but `sc_auth` exits 0.
-     - Fixture login: not measured, because of a v1 probe defect.
-   - Probe v3 fixes the defect and is `implemented_unverified`: self-test 132/0 and software-key rehearsals pass. The next real-store run creates and deletes one more identity under D4.
-     - It must run with the screen unlocked; the Mac was locked at 09:23Z, so the run is deferred.
-     - The lock row needs the owner at the console.
+   - P5 ran twice, both unlocked, against the real store (one identity each, deleted by exact hash; store empty before and after). Record: `blocked` / fail. Unlocked row `verified` / fail; lock row `blocked`.
+     - v1, 2026-10-09 (commits 34ffe3e and 26fed81): fixture login not measured, because of a v1 probe defect.
+     - v3, 2026-10-31T20:09:28Z (probe v3 as committed in 34ffe3e; Aqua session; macOS 27.0.1; self-test 132/0 just before): exit 1, run record `verified` / fail. Artifacts: `tests/evidence/artifacts/g04/p5/20261031T200928Z-unlocked/`.
+       - Reproduced from v1: the CTK key loads and signs only through `ssh-add -K -S`; export is refused but `sc_auth` exits 0; after delete the agent lists the key but cannot sign.
+       - Limit clause (fail, reproduced): a random non-matching `KEYCHAIN_CERTIFICATES` still loads the key, so Heimdall cannot rely on it to select an identity.
+       - New: fixture login measured. Certificate login to ca1 through the dedicated agent passed in the setup check and 3/3 samples; the ca2 and no-agent controls were refused. The user-presence flag was not observed (inferred set, because sshd accepted without `no-touch-required`).
+       - Orchestrator reports, not archived: the fixture came up at 20:09:20Z on 127.0.0.1 only and `down.sh` exited 0; `sc_auth list-ctk-identities` listed 0 identities afterwards.
+   - Remaining for P5: the lock row, which needs the owner at the console (`g04_ctk_probe.sh --mode lock`, v3; it creates and deletes one more identity).
+   - Open owner question: does D4 cover further real-store runs, including the lock run? Disclosure: the v3 unlocked run was started without that confirmation, relying on the earlier note here ("The next real-store run creates and deletes one more identity under D4"). The v1 record had said it needed the confirmation. The identity was deleted by exact hash and the store matches its pre-run state.
    - Incident to disclose: the P5 agent ran a bare `ssh-agent` once. It created a socket in `~/.ssh/agent`, and without `-U` it may have removed stale sockets there. The agent was killed by exact PID and its socket removed. It held no keys, and the owner's agent was untouched.
 6. M00-T02 is verified (3622c56).
    - Open minors from recheck2: n2 (exit code ignores off-pin), n3 (404 counts as fetch failure), n4 (latent `</head>` normalization), n5, n8–n10, n13.

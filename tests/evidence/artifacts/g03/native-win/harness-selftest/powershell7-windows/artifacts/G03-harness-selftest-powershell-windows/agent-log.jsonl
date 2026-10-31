@@ -1,32 +1,32 @@
 {"keys":["SHA256:nyl/DEyzzdVbPRNE/LQ0uT20jDP0Jj2YhkOg9eEXWNA","SHA256:1VwqjjU2gXKl7IyYWHXmCbQmnPuuC6xVAPVkWo6s1u0"],"ts":"2026-10-06T06:37:27.0810392Z","event":"listening","endpoint":"\\\\.\\pipe\\hg03-78f296b2","agent_pid":29092,"pipe":"hg03-78f296b2","access":"OwnerOnly"}
-{"client_image":"ssh-add","client_pid":70852,"ts":"2026-10-06T06:37:27.2229591Z","event":"connect","conn":1,"agent_pid":29092,"client_sid":"S-1-5-21-3360607638-3150545538-4116621283-1001","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe","pipe":"hg03-78f296b2"}
+{"client_image":"ssh-add","client_pid":70852,"ts":"2026-10-06T06:37:27.2229591Z","event":"connect","conn":1,"agent_pid":29092,"client_sid":"S-1-5-21-<redacted>","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe","pipe":"hg03-78f296b2"}
 {"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","event":"request","conn":1,"length":1,"agent_pid":29092,"ts":"2026-10-06T06:37:27.2357631Z","pipe":"hg03-78f296b2","msg_type":11}
 {"conn":1,"ts":"2026-10-06T06:37:27.2369639Z","event":"response","result":"identities:1","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":11}
 {"conn":1,"ts":"2026-10-06T06:37:27.2623177Z","pipe":"hg03-78f296b2","agent_pid":29092,"event":"disconnect"}
 {"method":"disconnect","ts":"2026-10-06T06:37:27.2643039Z","event":"rearm","agent_pid":29092,"pipe":"hg03-78f296b2","conn":1}
-{"client_image":"ssh-keygen","client_pid":56612,"ts":"2026-10-06T06:37:27.3381035Z","event":"connect","conn":2,"agent_pid":29092,"client_sid":"S-1-5-21-3360607638-3150545538-4116621283-1001","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe","pipe":"hg03-78f296b2"}
+{"client_image":"ssh-keygen","client_pid":56612,"ts":"2026-10-06T06:37:27.3381035Z","event":"connect","conn":2,"agent_pid":29092,"client_sid":"S-1-5-21-<redacted>","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe","pipe":"hg03-78f296b2"}
 {"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","event":"request","conn":2,"length":1,"agent_pid":29092,"ts":"2026-10-06T06:37:27.3389618Z","pipe":"hg03-78f296b2","msg_type":11}
 {"conn":2,"ts":"2026-10-06T06:37:27.3396687Z","event":"response","result":"identities:1","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":11}
 {"agent_pid":29092,"msg_name":"SSH2_AGENTC_SIGN_REQUEST","event":"request","conn":2,"length":221,"flags":0,"ts":"2026-10-06T06:37:27.3652717Z","key_fp":"SHA256:nyl/DEyzzdVbPRNE/LQ0uT20jDP0Jj2YhkOg9eEXWNA","pipe":"hg03-78f296b2","msg_type":13,"data_len":104}
 {"conn":2,"ts":"2026-10-06T06:37:27.3658681Z","event":"response","result":"signed","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":13}
 {"conn":2,"ts":"2026-10-06T06:37:27.3706134Z","pipe":"hg03-78f296b2","agent_pid":29092,"event":"disconnect"}
 {"method":"disconnect","ts":"2026-10-06T06:37:27.3712645Z","event":"rearm","agent_pid":29092,"pipe":"hg03-78f296b2","conn":2}
-{"client_image":"ssh-keygen","client_pid":19792,"ts":"2026-10-06T06:37:27.4631382Z","event":"connect","conn":3,"agent_pid":29092,"client_sid":"S-1-5-21-3360607638-3150545538-4116621283-1001","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe","pipe":"hg03-78f296b2"}
+{"client_image":"ssh-keygen","client_pid":19792,"ts":"2026-10-06T06:37:27.4631382Z","event":"connect","conn":3,"agent_pid":29092,"client_sid":"S-1-5-21-<redacted>","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-keygen.exe","pipe":"hg03-78f296b2"}
 {"msg_name":"SSH2_AGENTC_REQUEST_IDENTITIES","event":"request","conn":3,"length":1,"agent_pid":29092,"ts":"2026-10-06T06:37:27.4641164Z","pipe":"hg03-78f296b2","msg_type":11}
 {"conn":3,"ts":"2026-10-06T06:37:27.4645943Z","event":"response","result":"identities:1","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":11}
 {"conn":3,"ts":"2026-10-06T06:37:27.4684230Z","pipe":"hg03-78f296b2","agent_pid":29092,"event":"disconnect"}
 {"method":"disconnect","ts":"2026-10-06T06:37:27.4690501Z","event":"rearm","agent_pid":29092,"pipe":"hg03-78f296b2","conn":3}
-{"client_image":"pwsh","client_pid":35588,"ts":"2026-10-06T06:37:27.4997817Z","event":"connect","conn":4,"agent_pid":29092,"client_sid":"S-1-5-21-3360607638-3150545538-4116621283-1001","client_path":"C:\\Program Files\\PowerShell\\7\\pwsh.exe","pipe":"hg03-78f296b2"}
+{"client_image":"pwsh","client_pid":35588,"ts":"2026-10-06T06:37:27.4997817Z","event":"connect","conn":4,"agent_pid":29092,"client_sid":"S-1-5-21-<redacted>","client_path":"C:\\Program Files\\PowerShell\\7\\pwsh.exe","pipe":"hg03-78f296b2"}
 {"agent_pid":29092,"msg_name":"SSH2_AGENTC_SIGN_REQUEST","event":"request","conn":4,"length":137,"flags":0,"ts":"2026-10-06T06:37:27.5007562Z","key_fp":"SHA256:1VwqjjU2gXKl7IyYWHXmCbQmnPuuC6xVAPVkWo6s1u0","pipe":"hg03-78f296b2","msg_type":13,"data_len":20}
 {"conn":4,"ts":"2026-10-06T06:37:27.5013745Z","event":"response","result":"denied_filtered_key","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":13}
 {"conn":4,"ts":"2026-10-06T06:37:27.5075855Z","pipe":"hg03-78f296b2","agent_pid":29092,"event":"disconnect"}
 {"method":"disconnect","ts":"2026-10-06T06:37:27.5081773Z","event":"rearm","agent_pid":29092,"pipe":"hg03-78f296b2","conn":4}
-{"client_image":"pwsh","client_pid":35588,"ts":"2026-10-06T06:37:27.5151200Z","event":"connect","conn":5,"agent_pid":29092,"client_sid":"S-1-5-21-3360607638-3150545538-4116621283-1001","client_path":"C:\\Program Files\\PowerShell\\7\\pwsh.exe","pipe":"hg03-78f296b2"}
+{"client_image":"pwsh","client_pid":35588,"ts":"2026-10-06T06:37:27.5151200Z","event":"connect","conn":5,"agent_pid":29092,"client_sid":"S-1-5-21-<redacted>","client_path":"C:\\Program Files\\PowerShell\\7\\pwsh.exe","pipe":"hg03-78f296b2"}
 {"agent_pid":29092,"msg_name":"SSH2_AGENTC_SIGN_REQUEST","event":"request","conn":5,"length":137,"flags":0,"ts":"2026-10-06T06:37:27.5160133Z","key_fp":"SHA256:yD+3WhoAX9MefYcPOHqG8lCX1+fvSIOy8tttiJcROYA","pipe":"hg03-78f296b2","msg_type":13,"data_len":20}
 {"conn":5,"ts":"2026-10-06T06:37:27.5164181Z","event":"response","result":"denied_unknown_key","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":13}
 {"conn":5,"ts":"2026-10-06T06:37:27.5175001Z","pipe":"hg03-78f296b2","agent_pid":29092,"event":"disconnect"}
 {"method":"disconnect","ts":"2026-10-06T06:37:27.5179750Z","event":"rearm","agent_pid":29092,"pipe":"hg03-78f296b2","conn":5}
-{"client_image":"ssh-add","client_pid":76528,"ts":"2026-10-06T06:37:27.5428626Z","event":"connect","conn":6,"agent_pid":29092,"client_sid":"S-1-5-21-3360607638-3150545538-4116621283-1001","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe","pipe":"hg03-78f296b2"}
+{"client_image":"ssh-add","client_pid":76528,"ts":"2026-10-06T06:37:27.5428626Z","event":"connect","conn":6,"agent_pid":29092,"client_sid":"S-1-5-21-<redacted>","client_path":"C:\\WINDOWS\\System32\\OpenSSH\\ssh-add.exe","pipe":"hg03-78f296b2"}
 {"msg_name":"SSH2_AGENTC_REMOVE_ALL_IDENTITIES","event":"request","conn":6,"length":1,"agent_pid":29092,"ts":"2026-10-06T06:37:27.5435274Z","pipe":"hg03-78f296b2","msg_type":19}
 {"conn":6,"ts":"2026-10-06T06:37:27.5439109Z","event":"response","result":"denied_unsupported","agent_pid":29092,"pipe":"hg03-78f296b2","msg_type":19}
 {"msg_name":null,"event":"request","conn":6,"length":1,"agent_pid":29092,"ts":"2026-10-06T06:37:27.5451652Z","pipe":"hg03-78f296b2","msg_type":9}

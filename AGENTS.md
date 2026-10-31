@@ -25,12 +25,22 @@ See `progress.md` for task status.
 
 ## Boundaries
 
-- Disposable fixtures only. Never touch the owner's real `~/.ssh`, agents,
-  keychains, password manager, or live hosts. Fixture keys are generated
-  per run and never committed (public fixture keys excepted, when stated).
+- Tests and probes use disposable fixtures only: never use the owner's real
+  keys, agents, keychains or password manager as test material or test
+  targets. Fixture keys are generated per run and never committed (public
+  fixture keys excepted, when stated).
+- The owner's SSH config, keys and agent may be used to reach the owner's own
+  machines (the Windows PC, devbox, vps1-edge) for authorized work, such as
+  copying files or running tests in a scratch directory. Never print, copy or
+  export private keys, and do not edit `~/.ssh` or change which keys the agent
+  holds. Do not stop, reconfigure or overload services you did not start.
 - No public network listeners (loopback/container-internal only), no privileged
-  service installation, no package publishing, no `git push`.
-- Subagents do not commit; the orchestrator integrates and commits.
+  service installation, no package publishing.
+- `git push` to this repository's own remote is allowed; never force-push or
+  rewrite published history. The repository is public, so scan what you push
+  for secrets, canaries, home paths and personal data first.
+- Subagents do not commit or push; the orchestrator integrates, commits and
+  pushes.
 - Write only inside the paths your task packet grants. Escalate contract or
   authority-semantics ambiguity instead of deciding it.
 - Never put secrets, canaries, or private keys in stdout JSON, args, env dumps,
