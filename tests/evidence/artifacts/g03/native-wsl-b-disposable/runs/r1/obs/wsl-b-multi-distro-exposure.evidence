@@ -1,0 +1,15 @@
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/target-state.json
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/target-self-list.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/target-self-list.stderr
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-abstract.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-abstract.stderr
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-mnt-wsl.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-mnt-wsl.stderr
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-loopback-tcp.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-loopback-tcp.stderr
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/windows-loopback-tcp.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/windows-loopback-tcp.stderr
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-invokes-target-via-wsl-exe.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/controller-invokes-target-via-wsl-exe.stderr
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/windows-unc-visibility.stdout
+<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/artifacts/G03-wsl-b-multi-distro-exposure/windows-unc-visibility.stderr

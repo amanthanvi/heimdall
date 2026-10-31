@@ -1,0 +1,9 @@
+$ wslx --terminate hm-g03b-732254
+The operation completed successfully. 
+(exit 0)
+$ wslx --unregister hm-g03b-732254
+The operation completed successfully. 
+(exit 0)
+$ ls -A <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/distro
+ls: cannot access '<winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/distro': No such file or directory
+(exit 2)

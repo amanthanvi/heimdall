@@ -1,0 +1,3 @@
+G03-wsl-b-idle-timeout verified
+[g03 23:09:37] records: <wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r2-idle600/records
+harness exit 0

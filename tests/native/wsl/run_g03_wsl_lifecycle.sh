@@ -200,7 +200,9 @@ probe_multi() {
   keepalive
   tstart multi
   [ -s "$SH/state-$ID.json" ] || { g03_obs $c error --str "target start script produced no state"; g03_crit $c target_started null; g03_finish $c "${REQ_MULTI[@]}"; return; }
-  printf '%s\n' "$SH/state-$ID.json" >> "$(g03_case_file $c evidence)"
+  # Keep the target state with the run: $SH is in the Windows scratch that g03_cleanup deletes.
+  mkdir -p "$G03_OUT/artifacts/$(g03_cid $c)" && cp "$SH/state-$ID.json" "$G03_OUT/artifacts/$(g03_cid $c)/target-state.json"
+  printf '%s\n' "$G03_OUT/artifacts/$(g03_cid $c)/target-state.json" >> "$(g03_case_file $c evidence)"
   g03_net_mode_obs $c
   local tnm
   tnm="$(wslx -d "$TARGET" -- sh -c 'command -v wslinfo >/dev/null 2>&1 && wslinfo --networking-mode 2>/dev/null | head -1 || echo unavailable' | tr -d ' \t')"

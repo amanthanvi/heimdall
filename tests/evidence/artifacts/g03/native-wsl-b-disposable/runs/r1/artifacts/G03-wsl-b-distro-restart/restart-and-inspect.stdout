@@ -1,0 +1,3 @@
+proxy_alive=no
+tmp_socket=absent
+home_socket=present

@@ -1,0 +1,3 @@
+Microsoft's WSL security model states a distribution is not a security boundary from the Windows user or from other distributions of the same user; this probe measures default reachability, not isolation.
+Assumes the default /mnt automount root in both distributions.
+The loopback rows depend on the WSL networking mode (NAT relays bound ports to Windows via wslrelay; mirrored forwards bind() to Windows; Consomme tracks bound guest ports; wsl-config.md, localhost.md [G03-S15, G03-S16]); interpret loopback_tcp_reachable_from_windows only together with the recorded mode.

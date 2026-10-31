@@ -1,0 +1,4 @@
+G03-wsl-b-distro-restart verified
+G03-wsl-b-idle-timeout verified
+[g03 23:12:52] records: <wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r3-nosystemd/records
+harness exit 0

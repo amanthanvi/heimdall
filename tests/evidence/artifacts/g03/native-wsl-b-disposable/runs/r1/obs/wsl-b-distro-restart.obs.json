@@ -1,0 +1,11 @@
+{
+ "after_restart": "proxy_alive=no\ntmp_socket=absent\nhome_socket=present\n",
+ "client_against_persistent_path_after_restart": {
+  "cmd": "list",
+  "connected": false,
+  "errno": 111,
+  "error": "ConnectionRefusedError"
+ },
+ "keepalive_stop": "target=keepalive=already-exited controller=already-exited",
+ "seconds_until_not_running": 0
+}

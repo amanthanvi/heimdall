@@ -1,0 +1,13 @@
+$ diff <normalized wsl -l -v before> <normalized wsl -l -v after>
+(exit 0: identical)
+
+normalized before (inventory.sh before, 22:54:44Z):
+  NAME      STATE           VERSION
+* <owner-distro-A>    Running         2
+
+normalized after (inventory.sh after, 23:13:08Z):
+  NAME      STATE           VERSION
+* <owner-distro-A>    Running         2
+
+$ diff <first inventory of the task, taken before the image download> <after>
+(exit 0)

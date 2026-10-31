@@ -1,0 +1,19 @@
+{
+ "abstract_namespace_reachable_from_controller": true,
+ "controller_can_use_target_endpoint_via_wsl_exe": true,
+ "endpoint_file_visible_to_windows_via_unc": "True",
+ "keepalive_stop": "target=keepalive=stopped controller=already-exited",
+ "loopback_tcp_reachable_from_controller": true,
+ "loopback_tcp_reachable_from_windows": true,
+ "mnt_wsl_socket_reachable_from_controller": true,
+ "same_mount_namespace": false,
+ "same_network_namespace": true,
+ "target_listeners_ready": {
+  "abstract": true,
+  "mnt_wsl": true,
+  "tcp": true
+ },
+ "target_networking_mode_wslinfo": "nat",
+ "wslconfig_networkingMode": "<not read: wslinfo available>",
+ "wslinfo_networking_mode": "nat"
+}

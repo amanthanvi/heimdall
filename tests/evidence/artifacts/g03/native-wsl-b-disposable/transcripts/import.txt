@@ -1,0 +1,67 @@
+# 2026-10-31T22:55:03Z import
+$ wslx --import hm-g03b-732254 <winhome>\AppData\Local\hm-m00\M00-T04-g03-wsl-b\distro <winhome>\AppData\Local\hm-m00\M00-T04-g03-wsl-b\rootfs\ubuntu-24.04.5-wsl-amd64.wsl --version 2
+wsl: Sparse VHDs are currently experimental. If you encounter unexpected behavior, please file an issue at https://github.com/microsoft/WSL.
+The operation completed successfully. 
+(exit 0)
+$ wslx -l -v
+  NAME              STATE           VERSION
+* <owner-distro-A>            Running         2
+  hm-g03b-732254    Stopped         2
+(exit 0)
+# 2026-10-31T22:55:11Z first launch (root, non-interactive --exec; the image OOBE is interactive-only per WSL docs)
+$ timeout 300 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 -u root --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_facts.sh
+user=root uid=0
+os=Ubuntu 24.04.5 LTS
+pid1=systemd
+systemd_state=running
+python3=/usr/bin/python3
+ssh-keygen=/usr/bin/ssh-keygen
+ssh-agent=/usr/bin/ssh-agent
+ssh-add=/usr/bin/ssh-add
+setsid=/usr/bin/setsid
+nohup=/usr/bin/nohup
+awk=/usr/bin/awk
+sed=/usr/bin/sed
+wslinfo=/usr/bin/wslinfo
+python=Python 3.12.3
+ssh=OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024
+net_ns=net:[4026531833] mnt_ns=mnt:[4026532241]
+uid1000_user=
+--- /etc/wsl.conf
+[boot]
+systemd=true
+(exit 0)
+$ timeout 120 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 -u root --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_setup.sh
+useradd exit 0
+wsl.conf [user] appended exit 0
+(exit 0)
+# 2026-10-31T22:55:14Z terminate own distribution so /etc/wsl.conf [user] default applies
+$ wslx --terminate hm-g03b-732254
+The operation completed successfully. 
+(exit 0)
+# 2026-10-31T22:55:18Z not running after 0s
+$ timeout 300 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_facts.sh
+user=hg03t uid=1000
+os=Ubuntu 24.04.5 LTS
+pid1=systemd
+systemd_state=running
+python3=/usr/bin/python3
+ssh-keygen=/usr/bin/ssh-keygen
+ssh-agent=/usr/bin/ssh-agent
+ssh-add=/usr/bin/ssh-add
+setsid=/usr/bin/setsid
+nohup=/usr/bin/nohup
+awk=/usr/bin/awk
+sed=/usr/bin/sed
+wslinfo=/usr/bin/wslinfo
+python=Python 3.12.3
+ssh=OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024
+net_ns=net:[4026531833] mnt_ns=mnt:[4026532244]
+uid1000_user=hg03t
+--- /etc/wsl.conf
+[boot]
+systemd=true
+
+[user]
+default=hg03t
+(exit 0)

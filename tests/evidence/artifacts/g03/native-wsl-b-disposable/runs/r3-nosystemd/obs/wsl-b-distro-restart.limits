@@ -1,0 +1,1 @@
+Recovery of the stale persistent-path endpoint is exercised by wsl-b-stale-socket (agent_proxy --replace-stale) in run_g03_wsl_probes.sh; this probe records what survives a distribution restart.

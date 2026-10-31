@@ -1,0 +1,18 @@
+$ gpg --batch --import cdimage-key.asc  (key fetched from keyserver.ubuntu.com by full fingerprint 843938DF228D22F7B3742BC0D94AA3F0EFE21092)
+(exit 0)
+$ gpg --batch --status-fd 1 --verify SHA256SUMS.gpg SHA256SUMS
+[GNUPG:] NEWSIG
+gpg: Signature made Tue Sep 15 15:11:12 2026 EDT
+gpg:                using RSA key 843938DF228D22F7B3742BC0D94AA3F0EFE21092
+[GNUPG:] KEY_CONSIDERED 843938DF228D22F7B3742BC0D94AA3F0EFE21092 0
+[GNUPG:] SIG_ID dRLyL2viRLXREpRkg2nJJpNbzsM 2026-09-15 1789499472
+[GNUPG:] GOODSIG D94AA3F0EFE21092 Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>
+gpg: Good signature from "Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>" [unknown]
+[GNUPG:] VALIDSIG 843938DF228D22F7B3742BC0D94AA3F0EFE21092 2026-09-15 1789499472 0 4 0 1 10 00 843938DF228D22F7B3742BC0D94AA3F0EFE21092
+[GNUPG:] TRUST_UNDEFINED 0 pgp
+gpg:          There is no indication that the signature belongs to the owner.
+(exit 0)
+$ shasum -a 256 SHA256SUMS SHA256SUMS.gpg
+728064ecf411f4ab702d9c3ca0a938ce672771424c028a1b52b2449f7eb5a068  SHA256SUMS
+f9be4b4a527b63f14dde0387edcb7a02ba3ac43d537b1674a5aeae19c6f23827  SHA256SUMS.gpg
+(exit 0)

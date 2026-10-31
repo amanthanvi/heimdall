@@ -1,0 +1,1 @@
+{"cmd": "list", "connected": true, "reply_type": 12, "reply_name": "SSH2_AGENT_IDENTITIES_ANSWER", "keys": [{"fingerprint": "SHA256:RXNIZmpYnRxOY4dvQSKC+bDbsg8wZondLWW4Mfeafxg", "comment": "hg03-target"}]}

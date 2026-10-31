@@ -10,7 +10,7 @@ touches them) · **Acceptance inputs:** A12 (WSL Mode A), A13 (WSL Mode B), A14 
 
 Since 2026-10-06 the probes run natively on the owner's Windows 11 Pro PC (build 26300, non-elevated)
 and its WSL2 Ubuntu 24.04 (§0.1, §0.2). Rows that need a second Windows account, admin rights, a
-disposable 1Password, a decoy on the system agent pipe, a disposable WSL distribution or WSL restarts,
+disposable 1Password, a decoy on the system agent pipe,
 or an operator at the console are still `blocked` or `in_progress`, with the exact reason in each record.
 Status follows `tests/evidence/README.md`: a record with a blocked row takes the lowest row status, and
 an unobserved pass criterion gives `in_progress`/`inconclusive`. Before that date, only the pinned
@@ -25,7 +25,8 @@ sources, the question matrix, the candidate designs, the harnesses and their mac
 | WSL Mode A elevation (P-A06) | `tests/evidence/g03-wsl-a-elevation.json` | in_progress, verdict inconclusive | interop child not elevated [O]; `no_uac_prompt_observed` needs an operator watching the console |
 | WSL Mode B, executed 2026-10-06 (P-B02 unauthorized key, P-B03 deletion, P-B04 relay/attribution, P-B05 stale, P-B06 teardown/deadline) | `tests/evidence/g03-wsl-b-{unauthorized-key,socket-deletion,relay-attribution,stale-socket,teardown-deadline}.json` (5) | verified, verdict pass (§0.2) | — |
 | WSL Mode B endpoint permissions (P-B01) | `tests/evidence/g03-wsl-b-endpoint-perms.json` | in_progress, verdict inconclusive | same-user rows pass [O]; other-Linux-user rows need a second Linux account with non-interactive sudo |
-| WSL Mode B, not executable on the owner PC (P-B07 host lock, P-B08 multi-distribution, P-B09 restart, P-B10 idle, P-B11 other Windows user) | `tests/evidence/g03-wsl-b-{host-lock,multi-distro-exposure,distro-restart,idle-timeout,other-windows-user}.json` (5) | blocked | P-B07: operator at the console to lock and unlock; P-B08–P-B10: a disposable second distribution plus owner authorization to create it and to `wsl --terminate` it (both forbidden in this task); P-B11: second Windows account + disposable distribution |
+| WSL Mode B lifecycle, executed 2026-10-31 on a disposable second distribution (P-B08 multi-distribution, P-B09 restart, P-B10 idle) | `tests/evidence/g03-wsl-b-{multi-distro-exposure,distro-restart,idle-timeout}.json` (3) | verified, verdict pass (§0.2, note of 2026-10-31) | — |
+| WSL Mode B, not executable on the owner PC (P-B07 host lock, P-B11 other Windows user) | `tests/evidence/g03-wsl-b-{host-lock,other-windows-user}.json` (2) | blocked | P-B07: operator at the console to lock and unlock; P-B11: second Windows account + disposable distribution |
 | Harness self-tests (not G03 evidence) | `tests/evidence/artifacts/g03/harness-selftest/**/records/*.json` | see §7 | — |
 
 Label legend used in every table: **[D]** documented by the vendor/official documentation cited;
@@ -191,6 +192,22 @@ left).
 distribution, and owner authorization to create it and to `wsl --terminate` it, are both outside this
 task's authorization); P-B11 (second Windows account); the P-B01 other-Linux-user rows (second Linux
 account with `sudo -n`). Their records stay `blocked` or carry null criteria.
+
+**Note, 2026-10-31 (M00-T04-g03-wsl-b-disposable-distro).** P-B08, P-B09 and P-B10 have now run on this
+host with WSL 3.0.3.0. The harness was `run_g03_wsl_lifecycle.sh` with one patch that preserves evidence
+paths. Distribution 1 was the owner's existing distribution, used as the controller with client actions
+only. Distribution 2 was a disposable `wsl --import` of the official, signature-checked Ubuntu 24.04.5 WSL
+image with a uid-1000 user. It was unregistered afterwards (ADR-0004 §3), and `wsl -l -v` before and after
+compare equal. All three records are `verified`, verdict pass [O]:
+
+- **P-B08:** the private path is not visible from the other distribution. Abstract-namespace, `/mnt/wsl`
+  and loopback-TCP endpoints are reachable from it, and TCP is also reachable from Windows under `nat`.
+- **P-B09:** after `wsl --terminate` the endpoint processes are gone, and the stale `$HOME` socket fails
+  with ECONNREFUSED.
+- **P-B10:** a detached endpoint kept the instance running for the whole watch (600 s in a supplementary
+  run). With no process left, the instance stopped at about 15 s, with and without systemd.
+
+Details: `tests/evidence/artifacts/g03/native-wsl-b-disposable/README.md`.
 
 **How the named AI coding agents would start ssh inside WSL.** This comes from public documentation and
 source only; nothing was installed or run, so every row is [D], [S], [C] or [I], not [O]. Sources were

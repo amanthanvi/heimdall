@@ -7,7 +7,7 @@ scoped endpoint, A13), plan.md §3 G03, spec §8.4. Design, sources, and pass/fa
 
 **First run in WSL: 2026-10-06** (`run_g03_wsl_probes.sh` only; owner's Windows 11 PC, WSL 3.0.1,
 Ubuntu 24.04; research doc §0.2). Harness fixes from that run are in `CHANGELOG-native.md`.
-`run_g03_wsl_lifecycle.sh` has still never run (no disposable second distribution, no terminate rights).
+`run_g03_wsl_lifecycle.sh` ran natively on 2026-10-31 against a disposable second distribution (P-B08, P-B09, P-B10: `tests/evidence/artifacts/g03/native-wsl-b-disposable/`), with the evidence-preserving fix from that run applied.
 Outside WSL every probe is recorded `blocked`. The Mode B mechanics were also self-tested on macOS with
 `selftest_unix.sh` (records labeled `G03-harness-selftest-unix-*`, which are not G03 evidence).
 

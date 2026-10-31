@@ -1,0 +1,11 @@
+$ wslx --terminate hm-g03b-732254
+The operation completed successfully. 
+(exit 0)
+# 2026-10-31T23:10:10Z not running after terminate
+$ /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 --cd / --exec /bin/true
+(exit 0)
+t+0s running
+t+5s running
+t+10s running
+t+15s stopped
+control_stopped_after_seconds=15 watched_seconds=180

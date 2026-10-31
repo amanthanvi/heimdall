@@ -37,3 +37,11 @@ Harness files that produced the promoted records (`environment.harness_sha256_*`
 `cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a`, `run_g03_wsl_probes.sh`
 `b6ed680dbe6934d29fdf84973febf2b79c0eafdc516dc844f8f01059292bf7d8`; `agent_proxy.py`, `agent_client.py`,
 `agent_proto.py`, `argv_fidelity.py`, `exposure_listener.py` and `run_g03_wsl_lifecycle.sh` unchanged.
+
+## 2026-10-31: first native lifecycle run (P-B08, P-B09, P-B10)
+
+`run_g03_wsl_lifecycle.sh` ran on the owner's Windows 11 PC against a disposable second WSL
+distribution (authorized by ADR-0004 §3). One fix from that run: the multi-distribution probe
+recorded the target's state file by a path inside the Windows scratch directory that cleanup
+deletes; it now copies the file into the run's artifacts first (no step or criterion changed).
+Evidence: `tests/evidence/artifacts/g03/native-wsl-b-disposable/`.

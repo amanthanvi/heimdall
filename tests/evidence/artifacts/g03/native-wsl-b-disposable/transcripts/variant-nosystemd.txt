@@ -1,0 +1,49 @@
+# 2026-10-31T23:10:01Z shipped configuration (systemd=true)
+$ timeout 300 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_tmp.sh
+pid1=systemd
+/tmp: no separate mount (exit 1)
+tmp.mount enabled=not-found active=inactive
+systemd-tmpfiles-setup.service enabled=static active=active
+systemd-tmpfiles-clean.timer enabled=static active=active
+(exit 0)
+# 2026-10-31T23:10:03Z switch own distribution to systemd=false
+$ timeout 120 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 -u root --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_nosystemd.sh
+sed exit 0
+[boot]
+systemd=false
+
+[user]
+default=hg03t
+(exit 0)
+$ wslx --terminate hm-g03b-732254
+The operation completed successfully. 
+(exit 0)
+$ timeout 300 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_facts.sh
+user=hg03t uid=1000
+os=Ubuntu 24.04.5 LTS
+pid1=init(hm-g03b-73
+systemd_state=offline
+python3=/usr/bin/python3
+ssh-keygen=/usr/bin/ssh-keygen
+ssh-agent=/usr/bin/ssh-agent
+ssh-add=/usr/bin/ssh-add
+setsid=/usr/bin/setsid
+nohup=/usr/bin/nohup
+awk=/usr/bin/awk
+sed=/usr/bin/sed
+wslinfo=/usr/bin/wslinfo
+python=Python 3.12.3
+ssh=OpenSSH_9.6p1 Ubuntu-3ubuntu13.19, OpenSSL 3.0.13 30 Jan 2024
+net_ns=net:[4026531833] mnt_ns=mnt:[4026532243]
+uid1000_user=hg03t
+--- /etc/wsl.conf
+[boot]
+systemd=false
+
+[user]
+default=hg03t
+(exit 0)
+$ timeout 300 /mnt/c/Windows/System32/wsl.exe -d hm-g03b-732254 --cd / --exec /bin/bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/scripts/target_tmp.sh
+pid1=init(hm-g03b-73
+/tmp: no separate mount (exit 1)
+(exit 1)

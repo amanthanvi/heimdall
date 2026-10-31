@@ -1,0 +1,4 @@
+tclient --socket /tmp/hg03-e096aa/ep/agent.sock list (exit 0)
+wslx --terminate hm-g03b-732254 (exit 0)
+wslx -d hm-g03b-732254 -- bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/tmp//hg03-20261031T231039Z-0c509c/h/t_inspect.sh 29 225149 /tmp/hg03-e096aa/ep/agent.sock /home/hg03t/.cache/hg03-e096aa/agent.sock (exit 0)
+tclient --socket /home/hg03t/.cache/hg03-e096aa/agent.sock list (exit 2)

@@ -1,0 +1,22 @@
+# 2026-10-31T22:54:44Z inventory before
+$ wslx --version
+WSL version: 3.0.3.0
+Kernel version: 6.18.54.1-1
+WSLg version: 1.0.79
+MSRDC version: 1.2.7391
+Direct3D version: 1.611.1-81528511
+DXCore version: 10.0.26100.1-240331-1435.ge-release
+Windows version: 10.0.26300.9711
+(exit 0)
+$ wslx -l -v
+  NAME      STATE           VERSION
+* <owner-distro-A>    Running         2
+(exit 0)
+$ psx -File <winhome>\AppData\Local\hm-m00\M00-T04-g03-wsl-b\scripts\sidefx.ps1 -Name hm-g03b-732254 -Tarball <winhome>\AppData\Local\hm-m00\M00-T04-g03-wsl-b\rootfs\ubuntu-24.04.5-wsl-amd64.wsl
+lxss_subkeys_total=1
+lxss_subkeys_named_target=0
+start_menu_lnk_named_target=0
+wt_fragments_dir_exists=True
+wt_fragment_files_mentioning_target=0
+tarball_sha256_windows=bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e
+(exit 0)

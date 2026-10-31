@@ -1,0 +1,1 @@
+Observation only: whether a detached background endpoint keeps a WSL instance alive decides whether a Mode B helper needs a keepalive or a supervisor outside the distribution.

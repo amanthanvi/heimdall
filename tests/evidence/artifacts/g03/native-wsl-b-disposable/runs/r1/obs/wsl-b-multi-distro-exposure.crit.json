@@ -1,0 +1,5 @@
+{
+ "exposure_matrix_measured": true,
+ "private_path_not_visible_from_controller": true,
+ "target_endpoint_serves_inside_target": true
+}

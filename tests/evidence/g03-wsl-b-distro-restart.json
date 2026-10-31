@@ -1,6 +1,6 @@
 {
   "case_id": "G03-wsl-b-distro-restart",
-  "status": "blocked",
+  "status": "verified",
   "requirement_ids": [
     "R-EN-03",
     "R-RT-01",
@@ -10,12 +10,52 @@
   "build_commit": null,
   "artifact_digest": null,
   "environment": {
-    "recorded_on": "owner's personal Windows 11 Pro PC (build 26300.9550, x86-64), WSL 3.0.1.0, distribution 'Ubuntu' (Ubuntu 24.04.5 LTS); recorded without running the lifecycle harness",
-    "recorded_at": "2026-10-06T07:03:57Z",
-    "task": "M00-T04-G03-native-wsl",
+    "arch": "x86_64",
+    "bash": "5.2.21(1)-release",
+    "distro": "Ubuntu 24.04.5 LTS",
+    "harness_appended_windows_system32_to_PATH": true,
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "91945da532d1ff1ee6a8b8c8c5322139878e43285ab64316a441cf38fada4cdc",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "8cc5698c23967c9e77c3a3e3273dfeac3b71a500aab8ebe71942f8dda929138f",
+    "harness_sha256_run_g03_wsl_probes.sh": "b6ed680dbe6934d29fdf84973febf2b79c0eafdc516dc844f8f01059292bf7d8",
+    "is_wsl": true,
+    "kernel": "Linux 6.18.54.1-microsoft-standard-WSL2",
+    "linux_ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024",
+    "python": "Python 3.12.3",
+    "run_id": "20261031T225541Z-ce6a48",
+    "systemd_pid1": true,
+    "wsl_distro_name": "<owner-distro-A>",
+    "wsl_interop_binfmt_present": true,
+    "xdg_runtime_dir_present": true,
+    "recorded_on": "owner's personal Windows 11 PC (wsl.exe reports Windows version 10.0.26300.9711, x86-64), WSL 3.0.3.0, kernel 6.18.54.1; controller = the owner's existing distribution <owner-distro-A> (Ubuntu 24.04.5 LTS), target = disposable distribution hm-g03b-732254 created and unregistered by this task (ADR-0004 sec. 3)",
+    "task": "M00-T04-g03-wsl-b-disposable-distro",
+    "host": {
+      "description": "owner's personal Windows 11 PC, authorized for non-destructive testing; NOT a disposable host",
+      "windows": "Windows version 10.0.26300.9711 (wsl.exe --version), x86-64, non-elevated Windows user <winuser>",
+      "wsl": "WSL 3.0.3.0, kernel 6.18.54.1-1, WSLg 1.0.79; networking mode nat (wslinfo in both distributions)",
+      "controller_distribution": "<owner-distro-A>: the owner's existing distribution and the only one registered before and after the task; Ubuntu 24.04.5 LTS, WSL2, systemd PID 1, harness user uid 1000. Only client-side harness actions ran there; no listener was started in it",
+      "target_distribution": "hm-g03b-732254: created by this task with `wsl --import ... --version 2` from the official Ubuntu 24.04.5 WSL image, default user hg03t (uid 1000, created by the task), systemd PID 1 (image default); terminated only by the harness/task and unregistered at the end",
+      "reached_via": "SSH from the Mac into <owner-distro-A> (dedicated test key), then `wsl.exe -d <owner-distro-A> --cd <scratch> --exec /bin/bash scripts/run.sh` through interop (WSL-launched session)"
+    },
+    "target_rootfs": {
+      "url": "https://releases.ubuntu.com/noble/ubuntu-24.04.5-wsl-amd64.wsl",
+      "sha256": "bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e",
+      "size_bytes": 388975696,
+      "checksum_source": "releases.ubuntu.com/noble/SHA256SUMS, OpenPGP signature SHA256SUMS.gpg verified (gpg exit 0, VALIDSIG 843938DF228D22F7B3742BC0D94AA3F0EFE21092, Ubuntu CD Image Automatic Signing Key (2012))",
+      "image_config": "/etc/wsl-distribution.conf: [oobe] command=/usr/lib/wsl/wsl-setup, defaultUid=1000; /etc/wsl.conf: [boot] systemd=true; no uid >= 1000 user shipped",
+      "task_setup": "as root: useradd -m -u 1000 -U -s /bin/bash hg03t; /etc/wsl.conf [user] default=hg03t; wsl --terminate (own distribution); the image OOBE was never run (non-interactive --exec launches only)",
+      "evidence": "tests/evidence/artifacts/g03/native-wsl-b-disposable/rootfs/"
+    },
     "harness": {
-      "path": "tests/native/wsl/run_g03_wsl_lifecycle.sh",
-      "sha256": "265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4",
+      "path": "tests/evidence/artifacts/g03/native-wsl-b-disposable/harness/run_g03_wsl_lifecycle.sh",
+      "sha256": "8cc5698c23967c9e77c3a3e3273dfeac3b71a500aab8ebe71942f8dda929138f",
+      "derived_from": "tests/native/wsl/run_g03_wsl_lifecycle.sh at c6dd982b (sha256 265d9a3cd2f8647d73d9dca30f09f9cd748c85316a6a8c3696a489c8b3d422f4)",
+      "patch": "tests/evidence/artifacts/g03/native-wsl-b-disposable/harness/lifecycle.patch",
       "supporting_sha256": {
         "tests/native/wsl/g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
         "tests/native/wsl/evidence.py": "91945da532d1ff1ee6a8b8c8c5322139878e43285ab64316a441cf38fada4cdc",
@@ -25,21 +65,84 @@
         "tests/native/wsl/exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be"
       }
     },
-    "observed_host_state": "wsl.exe -l -v (P-A00, tests/evidence/g03-wsl-env-inventory.json): 'Ubuntu' running (default), 'kali-linux' and 'Ubuntu-24.04' stopped; all three are the owner's distributions, none is disposable"
+    "harness_provenance": "Harness ran from a copy of tests/native/wsl at HEAD c6dd982b (no .git, so build_commit is null) with one evidence-preservation patch to run_g03_wsl_lifecycle.sh: probe_multi copies the target state file into the case artifacts instead of referencing it inside the Windows scratch that g03_cleanup deletes. No step or criterion changed; every other harness file matches the in-tree sha256 (environment.harness_sha256_*).",
+    "raw_record": "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/records/g03-wsl-b-distro-restart.json"
   },
-  "provider_versions": [],
-  "started_at": null,
-  "commands_or_harness": "not run: tests/native/wsl/run_g03_wsl_lifecycle.sh --probes restart --target-distro <disposable target> --allow-terminate-target",
-  "observed_result": null,
+  "provider_versions": [
+    {
+      "name": "linux ssh (controller)",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024"
+    },
+    {
+      "name": "wsl.exe",
+      "version": "WSL version: 3.0.3.0"
+    }
+  ],
+  "started_at": "2026-10-31T22:55:41Z",
+  "commands_or_harness": [
+    "scripts/run.sh hm-g03b-732254 r1 -> bash tests/native/wsl/run_g03_wsl_lifecycle.sh (patched copy) --out <scratch>/out/r1 (copied to runs/r1) --target-distro hm-g03b-732254 --allow-terminate-target (exit 0)",
+    "tclient --socket /tmp/hg03-0923f5/ep/agent.sock list (exit 0)",
+    "wslx --terminate hm-g03b-732254 (exit 0)",
+    "wslx -d hm-g03b-732254 -- bash <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/tmp//hg03-20261031T225541Z-ce6a48/h/t_inspect.sh 473 136067 /tmp/hg03-0923f5/ep/agent.sock /home/hg03t/.cache/hg03-0923f5/agent.sock (exit 0)",
+    "tclient --socket /home/hg03t/.cache/hg03-0923f5/agent.sock list (exit 2)"
+  ],
+  "observed_result": {
+    "after_restart": "proxy_alive=no\ntmp_socket=absent\nhome_socket=present\n",
+    "client_against_persistent_path_after_restart": {
+      "cmd": "list",
+      "connected": false,
+      "errno": 111,
+      "error": "ConnectionRefusedError"
+    },
+    "keepalive_stop": "target=keepalive=already-exited controller=already-exited",
+    "seconds_until_not_running": 0,
+    "criteria": {
+      "endpoint_processes_gone_after_terminate": true,
+      "serves_before_restart": true,
+      "stale_endpoint_fails_cleanly": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass",
+    "supplementary_not_harness_criteria": {
+      "note": "Not harness criteria of this record. Same host and target; see the README.",
+      "tmp_mount_systemd": "/tmp is not a separate mount; systemd-tmpfiles-setup.service static/active; tmp.mount not-found (transcripts/variant-nosystemd.txt)",
+      "r3_nosystemd": {
+        "after_restart": "proxy_alive=no\ntmp_socket=present\nhome_socket=present\n",
+        "client_against_persistent_path_after_restart": {
+          "connected": false,
+          "error": "ConnectionRefusedError",
+          "errno": 111
+        },
+        "criteria_all_true": true,
+        "source": "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r3-nosystemd/records/g03-wsl-b-distro-restart.json"
+      }
+    }
+  },
   "evidence_paths": [
-    "docs/research/g03-windows-wsl.md",
-    "tests/native/wsl/run_g03_wsl_lifecycle.sh"
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/README.md",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/before-restart-list.stdout",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/before-restart-list.stderr",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/terminate.stdout",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/terminate.stderr",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/restart-and-inspect.stdout",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/restart-and-inspect.stderr",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/client-after-restart.stdout",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r1/artifacts/G03-wsl-b-distro-restart/client-after-restart.stderr",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/transcripts/import.txt",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/transcripts/variant-nosystemd.txt",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r3-nosystemd/records/g03-wsl-b-distro-restart.json",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r3-nosystemd/artifacts/G03-wsl-b-distro-restart/restart-and-inspect.stdout",
+    "tests/evidence/artifacts/g03/native-wsl-b-disposable/runs/r3-nosystemd/artifacts/G03-wsl-b-distro-restart/client-after-restart.stdout"
   ],
   "limitations": [
-    "Not executed: the first WSL run (M00-T04-G03-native-wsl, 2026-10-06) ran the in-distribution probes only; this lifecycle probe needs a disposable second distribution and/or WSL terminate rights on the owner's personal PC, which were not authorized. No observation exists (plan.md sec. 6.5).",
-    "Probe P-B09; acceptance input A13; preconditions, steps and pass/fail criteria in docs/research/g03-windows-wsl.md sec. 4.3.",
-    "Unknown until executed: Process and socket state across wsl.exe --terminate; stale endpoint behavior after restart.",
-    "The lifecycle harness itself (target staging, keepalive through wsl.exe, target-side stop script) has still never run on Windows; expect harness fixes on its first run, as the in-distribution harness needed (tests/native/wsl/CHANGELOG-native.md)."
+    "Recovery of the stale persistent-path endpoint is exercised by wsl-b-stale-socket (agent_proxy --replace-stale) in run_g03_wsl_probes.sh; this probe records what survives a distribution restart.",
+    "Promoted by M00-T04-g03-wsl-b-disposable-distro from environment.raw_record (run r1, the first run of run_g03_wsl_lifecycle.sh on Windows); fields added at promotion: build_commit (null), environment.recorded_on/task/host/target_rootfs/harness/harness_provenance/raw_record, evidence paths mapped to the repository copy, the harness invocation prepended to commands_or_harness, observed_result.supplementary_not_harness_criteria (where present), and the limitations after the harness-written ones. Method, inventory before/after and cleanup: tests/evidence/artifacts/g03/native-wsl-b-disposable/README.md.",
+    "One host (WSL 3.0.3.0, Windows 10.0.26300.9711), networking mode nat only; mirrored/Consomme not measured.",
+    "Target = official Ubuntu 24.04.5 WSL image with a task-created uid-1000 default user (same uid as the controller user) instead of the image OOBE user; a root-default target and other distributions were not measured.",
+    "The controller is the owner's existing (not disposable) distribution; only client-side actions ran there. wsl.exe -l -v before and after the task compare equal (diff exit 0); the target was unregistered (exit 0).",
+    "The /tmp socket was absent after the restart with systemd (r1) but present and stale without systemd (r3); attributing the r1 absence to boot-time systemd-tmpfiles cleaning is inference [I]. Either way the persistent $HOME/.cache socket stays behind stale and must be detected and replaced (P-B05 mechanics); input for D-G03-03.",
+    "seconds_until_not_running = 0 means the first 1 s-granularity check after `wsl --terminate` (exit 0) already saw the target stopped."
   ],
-  "blocked_on": "a disposable second WSL2 target distribution and owner authorization to create it and to run wsl.exe --terminate on it (--allow-terminate-target); this task's owner authorization forbids wsl --import/--install (creating a distribution) and wsl --terminate/--shutdown (they could end the owner's WSL sessions and the SSH connection used for testing), and starting or staging listeners in the owner's other distributions is outside it"
+  "blocked_on": null
 }

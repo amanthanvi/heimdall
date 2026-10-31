@@ -37,5 +37,5 @@
     "Revised (M00-T04-G03-fix): wsl.exe --version positive control as the other user; launch denial counts only with a recognized distribution-not-found message.",
     "Revised (M00-T04-G03-fix2): other-user script staged as in P-W05 (previous -EncodedCommand line 3751 characters, above the 1024-character CreateProcessWithLogonW limit)."
   ],
-  "blocked_on": "a second, disposable, non-administrator local Windows account (Secondary Logon available) on the owner's Windows 11 PC, plus a disposable WSL2 distribution registered to the probe user; neither exists and creating them needs owner authorization (the in-box Win32-OpenSSH 9.5p2 and MSI 10.0p2 clients and PowerShell were inventoried on 2026-10-06 by P-W01)"
+  "blocked_on": "a second, disposable, non-administrator local Windows account (Secondary Logon available) on the owner's Windows 11 PC; creating it needs one elevation consent at the console (authorized in principle by ADR-0004 §3). A disposable WSL2 distribution is now authorized and was exercised on 2026-10-31 (P-B08–P-B10), so it is no longer a blocker."
 }

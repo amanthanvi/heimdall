@@ -1,0 +1,64 @@
+{
+  "case_id": "G03-wsl-b-idle-timeout",
+  "status": "verified",
+  "requirement_ids": [
+    "R-EN-03",
+    "R-RT-01"
+  ],
+  "build_commit": "",
+  "artifact_digest": null,
+  "environment": {
+    "arch": "x86_64",
+    "bash": "5.2.21(1)-release",
+    "distro": "Ubuntu 24.04.5 LTS",
+    "harness_appended_windows_system32_to_PATH": true,
+    "harness_sha256_agent_client.py": "e8989edc588cb212899c6dfb43005d8651433473217cdd54f50d50bb5c749286",
+    "harness_sha256_agent_proto.py": "3b84e2900f80fd2c8424f47c4c50ae32e9681c4306e7bb220b3cc700263bf303",
+    "harness_sha256_agent_proxy.py": "ffbc50c0cd468fcad5e95380c295a23894d5946eec7201da5b2795a5bfe4bee2",
+    "harness_sha256_argv_fidelity.py": "5f2e2373076b01d820ba4150b47eef9462e1b07b0aa32e1f3317845660f5e402",
+    "harness_sha256_evidence.py": "91945da532d1ff1ee6a8b8c8c5322139878e43285ab64316a441cf38fada4cdc",
+    "harness_sha256_exposure_listener.py": "5b29a6c36958b7e6ccb3bcf1232660bd7ba70f20efacebb138ecea00781074be",
+    "harness_sha256_g03_common.sh": "cd0ef101357b485bc1d611302b4499cff73478f328699d42d7a8038ac5cf764a",
+    "harness_sha256_run_g03_wsl_lifecycle.sh": "8cc5698c23967c9e77c3a3e3273dfeac3b71a500aab8ebe71942f8dda929138f",
+    "harness_sha256_run_g03_wsl_probes.sh": "b6ed680dbe6934d29fdf84973febf2b79c0eafdc516dc844f8f01059292bf7d8",
+    "is_wsl": true,
+    "kernel": "Linux 6.18.54.1-microsoft-standard-WSL2",
+    "linux_ssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024",
+    "python": "Python 3.12.3",
+    "run_id": "20261031T225920Z-4fa65b",
+    "systemd_pid1": true,
+    "wsl_distro_name": "<owner-distro-A>",
+    "wsl_interop_binfmt_present": true,
+    "xdg_runtime_dir_present": true
+  },
+  "provider_versions": [
+    {
+      "name": "linux ssh (controller)",
+      "version": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024"
+    },
+    {
+      "name": "wsl.exe",
+      "version": "WSL version: 3.0.3.0"
+    }
+  ],
+  "started_at": "2026-10-31T22:59:20Z",
+  "commands_or_harness": null,
+  "observed_result": {
+    "documented_default_instanceIdleTimeout_ms": 15000,
+    "stopped_after_seconds": null,
+    "watched_seconds": 600,
+    "criteria": {
+      "timeline_recorded": true
+    },
+    "failed_criteria": [],
+    "unobserved_criteria": [],
+    "verdict": "pass"
+  },
+  "evidence_paths": [
+    "<wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r2-idle600/artifacts/G03-wsl-b-idle-timeout/timeline.txt"
+  ],
+  "limitations": [
+    "Observation only: whether a detached background endpoint keeps a WSL instance alive decides whether a Mode B helper needs a keepalive or a supervisor outside the distribution."
+  ],
+  "blocked_on": null
+}

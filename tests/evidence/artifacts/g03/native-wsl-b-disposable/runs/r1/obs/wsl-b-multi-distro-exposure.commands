@@ -1,0 +1,7 @@
+tclient --socket /tmp/hg03-0923f5/ep/agent.sock list (exit 0)
+python3 <wslhome>/hm-m00/M00-T04-g03-wsl-b/repo/tests/native/wsl/agent_client.py --abstract hg03-0923f5 banner (exit 0)
+python3 <wslhome>/hm-m00/M00-T04-g03-wsl-b/repo/tests/native/wsl/agent_client.py --socket /mnt/wsl/hg03-0923f5.sock banner (exit 0)
+python3 <wslhome>/hm-m00/M00-T04-g03-wsl-b/repo/tests/native/wsl/agent_client.py --tcp 127.0.0.1:35045 banner (exit 0)
+g03_win powershell.exe -NoProfile -NonInteractive -Command try { $c = New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1', 35045); $b = New-Object byte[] 32; $n = $c.GetStream().Read($b, 0, 32); [Text.Encoding]::ASCII.GetString($b, 0, $n) } catch { 'unreachable' } (exit 0)
+wslx -d hm-g03b-732254 -u hg03t -- python3 <winhome>/AppData/Local/hm-m00/M00-T04-g03-wsl-b/tmp//hg03-20261031T225541Z-ce6a48/h/agent_client.py --socket /tmp/hg03-0923f5/ep/agent.sock list (exit 0)
+g03_win powershell.exe -NoProfile -NonInteractive -Command Test-Path -LiteralPath '\\wsl.localhost\hm-g03b-732254\tmp\hg03-0923f5\ep\agent.sock' (exit 0)

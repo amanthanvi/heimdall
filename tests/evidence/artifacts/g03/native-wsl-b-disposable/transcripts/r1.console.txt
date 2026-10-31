@@ -1,0 +1,5 @@
+G03-wsl-b-multi-distro-exposure verified
+G03-wsl-b-distro-restart verified
+G03-wsl-b-idle-timeout verified
+[g03 22:58:07] records: <wslhome>/hm-m00/M00-T04-g03-wsl-b/out/r1/records
+harness exit 0

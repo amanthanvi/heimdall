@@ -1,0 +1,5 @@
+{
+ "endpoint_processes_gone_after_terminate": true,
+ "serves_before_restart": true,
+ "stale_endpoint_fails_cleanly": true
+}

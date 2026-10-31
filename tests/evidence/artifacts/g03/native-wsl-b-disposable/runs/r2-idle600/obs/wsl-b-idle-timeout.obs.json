@@ -1,0 +1,5 @@
+{
+ "documented_default_instanceIdleTimeout_ms": 15000,
+ "stopped_after_seconds": null,
+ "watched_seconds": 600
+}
