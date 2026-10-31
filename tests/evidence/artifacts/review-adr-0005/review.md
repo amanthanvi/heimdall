@@ -1,0 +1,111 @@
+# M00-T04-G04-adr-review
+
+**Verdict: accept after fixes. Counts: 0 blocker, 5 major, 3 minor.**
+
+0 blockers, 5 majors, 3 minors. B1 is a defensible recipe within the disclosed same-user boundary, but the concurrency/recovery/time/verification contracts need correction before M03 builds on them. This is an independent static design/evidence review, not native or implementation verification.
+
+Reviewed uncommitted ADR SHA-256: `78b4f9e966b57aefaa95057ad608759999a6d4edbbdc77bade00195896d4b8fe`.
+
+Scope: security and authority semantics against the requested spec/plan sections, ADR-0004, research §7/§9.1, G04 records and selected underlying artifacts. Tracked files were read-only. The only writes are review.json and review.md in this directory. No nested delegation: this task is itself the independent review.
+
+## R1 — major
+
+**Location:** §3.3 Transaction; §6.5: "M03-T02 must re-check immediately before the rename and reconcile afterwards"; "preserving unrelated bytes and concurrent edits [O:E4][O:ENR]".
+
+**Problem:** R1 — The proposed repair still permits lost administrator updates. An edit between the final digest check and rename is overwritten; post-rename reconciliation cannot recover bytes never recorded. E4 acknowledges the race, but §6.5 still attributes preservation to E4/ENR. Atomic replacement is not atomic compare-and-swap. This affects enrollment, rotation and unenrollment, including preservation of existing access.
+
+**Evidence:** spec.md §7.5: "Do not rewrite a shared account file from a stale snapshot" and "Preserve ... concurrent administrator edits." tests/evidence/g04-exp-e4-account-ca-principals.json limitations: "The add transaction is check-then-rename without a lock: a write landing between the remote digest check and the rename would be lost." tests/evidence/g04-exp-enroll-marker-key.json limitations: "The concurrent administrator edit was a plain append between enrollment and removal; it did not race the rename itself." tests/native/g04/lib.sh reg_add/reg_remove construct a replacement and use mv -f without serialization.
+
+**Fix:** Replace recheck-as-solution with an explicit concurrency contract: a supported registry API with conditional writes, or serialization honored by all relevant writers; where that cannot be established, do not promise automatic preservation or perform a stale replacement. Specify durable intent and outcome_unknown reconciliation as required by §7.5. Add an interleaving test that places an administrator edit after the final check and before replacement for add/remove/rotation; preserve the edit or refuse the mutation. Scope E4/ENR citations to the cases actually measured.
+
+## R2 — major
+
+**Location:** §3.5: "The issuer re-reads the grant from the transactional store"; "writes ... to the issuance log before releasing a certificate"; §6.1: "A tombstone is persisted before acknowledgment".
+
+**Problem:** R2 — A transactional read and a later durable issuance log do not define ordering against revocation, cutoff edits or delegation changes. The described sequence admits: read generation n; revoke and acknowledge n+1 with the residual computed from the old issuance log; finish and release a new n certificate. This can invalidate the reported residual (especially for a previously preparing grant with no logged certificate), or deliver authority after local success. Per-signature checks mitigate a reachable local signer but do not establish the issuance invariant for a disconnected runner.
+
+**Evidence:** spec.md §6.7: "Invalidate approval races, renewals, and retries against the previous generation." spec.md R-SE-07 requires policy generation checks before issuance. spec.md §13.3 requires persisted generations and revocation tombstones. tests/evidence/g04-exp-e5-issuer-separation.json criterion covers worker socket exclusion and child principal/deadline attenuation; it does not exercise concurrent grant-store changes. ADR §9.3 explicitly leaves "issuer refusal rules (property tests)" unstarted.
+
+**Fix:** Define one linearization protocol shared by issuer and revoker: atomically validate the current grant and ancestor/policy revisions and durably reserve/log the complete certificate bounds before publication. If revocation wins, publish nothing; if issuance wins, revocation must include that reservation in its residual even if delivery is lost or delayed. Recheck/cancel stale publication and installation, and define crash recovery for pending issuance. Require deterministic revoke/cutoff-versus-issue/reissue tests, including runner delivery and acknowledgment loss.
+
+## R3 — major
+
+**Location:** §3.6: "wall-clock now is before D and before the policy cutoff"; §3.5 item 7: "time is uncertain (rollback detected or skew bound exceeded): TIME_UNCERTAIN"; §3.7 restart recovery.
+
+**Problem:** R3 — The signer enforcement rule is wall-clock-only, and the ADR provides no persisted time/recovery rule tying its issuer TIME_UNCERTAIN check to existing keys, owned-master timers or a restarted runtime. A backward clock adjustment can keep the signer willing to sign beyond the original elapsed-time budget, including while its issuer is unavailable. The issuer-only refusal does not repair that path. Absolute valid_before caps new authentication at a correctly timed server, but cannot justify local signing or owned-connection deadline claims.
+
+**Evidence:** spec.md §6.4: "Use monotonic elapsed time within a process and persisted absolute deadlines across restarts. Detect implausible clock rollback, bound tolerated skew, and stop issuance when the authority cannot establish safe time." R-AU-06: "Handle sleep, restart, rollback, and skew without extending authority; report uncertain time." tests/evidence/g04-exp-e2-cert-expiry.json limitations: "Skewed or rolled-back server clocks are not tested (G09 virtual-clock work)." ADR §9.3 leaves sleep and A08-related implementation evidence open.
+
+**Fix:** State that signer admission and owned-connection timers use the earlier of the immutable absolute deadline/cutoff and a monotonic elapsed deadline that accounts for sleep. Specify persisted high-water/time-confidence data and startup/wake validation before reissue or admission; uncertain time must not restore a stale grant. Define how controller/runner/server skew changes capability values and residual reports. Add A08 cases for rollback with a live key and unavailable issuer, restart under rollback, forward jumps and sleep crossing D.
+
+## R4 — major
+
+**Location:** §3.7: "After a signer restart, the local issuer re-issues for every unexpired grant without a new approval"; §4.3: "Signer or supervisor stops (crash, logout) ... re-issue for unexpired grants"; §14 item 1.
+
+**Problem:** R4 — Automatic recovery is applied to logout/reboot loss despite the recorded owner condition in D2. The spec permits supported recovery of valid state but does not itself override an explicit owner requirement for a new approval after these lifecycle events. ADR-0004 selects B1 and in-memory issuance; it does not record a change to D2. This is an authority-semantics conflict to resolve before building recovery, rather than silently deciding that all memory loss is ordinary renewal.
+
+**Evidence:** docs/research/g04-managed-credentials.md §9.1 D2 (owner): "The cost: loss at logout or reboot needs a new approval." spec.md §6.4: "A supported recovery can restore only unexpired authorized state; it cannot infer renewed permission from a saved process file." docs/decisions/0004-delegated-owner-decisions.md §5: "Authority semantics the spec fixes (scope, deadlines, revocation, custody) are not changed here."
+
+**Fix:** Distinguish a supported signer-process restart from logout/reboot. Preserve D2 new approval for logout/reboot unless an explicit superseding owner decision is recorded. Ensure renewal cannot use a saved process file as authority and cannot revive a terminal grant, clear cutoff, change the original absolute D or widen scope. Record which lifecycle events support automatic recovery and test each separately.
+
+## R5 — major
+
+**Location:** §3.3 Verification: "success needs exactly one new accepted line with the expected key ID [O:E6]"; B1 selected for spec §7.4 capability 2.
+
+**Problem:** R5 — Account-level enrollment requires reading sshd authentication logs, but the ADR supplies no mechanism or capability requirement for obtaining them. Account-level control of authorized_keys does not entail authentication-log access. E6 has Docker administrator visibility into fixture logs. Making that fixture oracle the mandatory production success criterion prevents B1 verification on ordinary capability-2 accounts or encourages an unverifiable success claim.
+
+**Evidence:** spec.md §7.4 capability 2: "Account-level control: add a dedicated key or permitted certificate-authority entry to the account's actual supported key registry. Do not require system administration when account authority is sufficient." tests/evidence/g04-exp-e6-fresh-login-verification.json observed_result checks use "exactly 1 new Accepted line carrying" the certificate ID; its environment is the disposable Docker fixture. tests/evidence/artifacts/g04/experiments/20261003T192323Z/e6-fresh-login-verification.results.tsv records "new_accepted_with_id=1 new_accepted_any=1 new_connections=1". ADR §3.3 names no account-accessible log source or alternative.
+
+**Fix:** Keep the fixture log oracle for testing, and define an account-level production fresh-authentication proof using an independently launched constrained client, only the selected certificate/key, disabled fallback/reuse, host verification and the positive/negative checks. If server log attestation remains mandatory, expose it as a separate enrollment capability and report unavailable when inaccessible; do not imply generic capability-2 support. Test verification with an account that cannot read sshd logs.
+
+## R6 — minor
+
+**Location:** §3.4 Serial: "Unique per K_ca, monotonic, persisted before the certificate is released"; §5.3 restore; §12: "KRL ... since serials are unique".
+
+**Problem:** R6 — D5 restores the same CA private key but does not specify restoration of its serial high-water mark or issuance log. After state loss, the recipe cannot maintain its stated monotonic/unique serial invariant or reconstruct residuals solely from that backup. The immediate consequence is attribution/recovery ambiguity; the later serial-based KRL assumption is unsafe if duplicates occur.
+
+**Evidence:** ADR §5.3 backs up the OpenSSH private-key file and records fingerprint/date, while §4.3 stores the issuance log in transactional state. spec.md §13.3 separates protected secrets and persisted runtime state; a private-key backup is not a runtime-state backup.
+
+**Fix:** Specify fail-closed same-CA restore unless the serial high-water/log state is recovered from a verified source, or rotate/re-enroll a new CA when that state is unavailable. Alternatively define an explicit collision-free issuance epoch design with its recovery constraints and adjust the monotonic claim. Keep unknown residuals conservative until reconciled; test key-only restore after database loss.
+
+## R7 — minor
+
+**Location:** §5.2 macOS K_ca Evidence and limits: "Untested for Heimdall ... Measured on a disposable macOS account."
+
+**Problem:** R7 — The unqualified measured-on-account sentence suggests native validation of the selected login-keychain ACL/startup behavior, while the same row and §9.3 say that experiment is still needed. X4-mac measured a disposable file keychain, not this login-keychain custody design.
+
+**Evidence:** tests/evidence/artifacts/g02-r4/x4/macos/RESULTS.md §1: "Generic password in a disposable file keychain ... never in the search list"; ADR §9.3: "Login keychain item for an ad-hoc-signed issuer, across updates ... Needs a disposable macOS account (never the owner's keychain)".
+
+**Fix:** Change the sentence to a future validation requirement, or cite the exact account-level run and recorded observations if it exists. Keep availability/ACL behavior unverified until then.
+
+## R8 — minor
+
+**Location:** §5.2 Windows: "DPAPI, CNG and TPM were never executed"; §9.1 X4-win; §9.3 Windows store run.
+
+**Problem:** R8 — The evidence inventory became stale during this review: a native Windows secure-store record is now present and verified/pass, while the ADR still says the native store run has not occurred. This does not close lock/reboot or Heimdall custody claims.
+
+**Evidence:** tests/evidence/g04-windows-secure-store-spike.json status verified, observed_result.verdict pass: "Attempt 3 ... every Rust check passed"; the summary records cross-process DPAPI, Software KSP and TPM signing/export-refusal checks. Limitations: "Lock, sign-out, sleep and reboot are out of scope" and "Self-review only; no independent review of this run."
+
+**Fix:** Reconcile Windows rows and evidence keys with this new record, preserving its limitations and lack of independent native verification. Keep P-W1/P-W2 blocked and do not turn this spike into a lock-continuity claim.
+
+## Checked without findings
+
+- B1 selection matches ADR-0004 §2; the specified cutoff-as-expiry and pause-only-blocks-activation decisions are represented in §6.1. Those decisions are not findings.
+- Issuer endpoint is separated from signing/control, excluded from container/WSL/forwarded-agent exports; E5 confirms only endpoint-level separation and same-user minting/readability. The ADR discloses same_user_process/shared_os_user instead of claiming hostile same-user isolation.
+- One certificate per destination/account, one opaque restricted principal, clear-first extension allowlist, explicit bounded valid_before and no V1 critical options are specified. Restricted extension enforcement is expressly untested and assigned to M03, not reported as observed.
+- Working keys per grant and per child; parent scope/deadline attenuation and tombstones are specified. E3/E4/E5 provide preliminary principal/deadline evidence, not Heimdall enforcement. Same-user parent endpoint access is disclosed.
+- Whole-grant runner certificates, no runner CA key, explicit signer-running condition and refresh dependence after runner restart avoid the fifteen-minute-cache/overnight misclaim.
+- Custody covers generation/storage/unlock/locked use/loss/rotation/backup/destruction/recovery for K_env/K_ca/K_A; no plaintext or personal-vault-export fallback is allowed. D5 uses a standard encrypted OpenSSH format, >=128-bit generated passphrase, owner-present TTY creation, no passphrase in JSON/argv/env/logs/clipboard, in-memory verification and separate offline storage. These are design requirements, not validated code.
+- Revocation residual separates new authentication, owned masters, dedicated connections, unmanaged sessions and remote processes. E7/E7P support closing masters rather than relying on -O stop; E7P fail is preserved as verified evidence with a failed criterion. No universal immediate remote revocation is claimed.
+- Capability fields are conditional proposals; §7.4 leaves product enforcement unknown and lock_continuity not_verified. Native lock/logout/reboot/headless evidence remains blocked, distinct from unlocked smoke runs and cross-builds.
+- All substantive [O:...] keys resolve through §9.1 to existing records/artifacts, including SMOKE wildcard and platform X4 files. Parsed the initial 27 g04 JSON records: ten experiment records, seven smoke records and ten blocked platform/probe records; a subsequently added native Windows store record brings the final inventory to 28 (R8). E1–E6/ENR pass, E7 scoped pass, E7P fail and E7R scoped pass agree with the ADR. K1 timeout=300s/lock-on-sleep and X4 mac/Linux mechanism claims were checked against artifacts. The misleading macOS measurement wording is R7.
+
+## Commands and validation
+
+- Read-only commands: pwd; rg --files; rg -n targeted searches; cat, sed and nl for scoped document/evidence reads; git status --short. Read active Codex-home and repository AGENTS.md. A targeted memory registry search returned no Heimdall hits; no memory-derived facts were used.
+- Python parsed all G04 JSON records, inventoried status/verdict/exit values, extracted O-label keys and checked referenced probe/X4 paths. An initial inventory assumed observed_result was always an object and exited with AttributeError on blocked records; rerun with null handling passed. This was a diagnostic script error, not a product failure.
+- Read E4/ENR limitations and reg_add/reg_remove source, E5 evidence, E6 result TSV, K1 selected settings, X4 mac/Linux results, and P5 evidence. Raw logs were not bulk emitted. No production, probe, secure-store or network commands were run.
+- The initial final-inventory check failed because a new native Windows store record arrived during review (28 records versus the earlier 27). It was read and recorded as R8. Final git diff lists four tracked research/probe files changed concurrently by other work; this reviewer did not edit them.
+- Final checks parse the review JSON, enforce required fields/severity/verdict, confirm counts and check tracked diff status. No builds or tests were run; no build artifacts or fixture runtime material were created.
+
+Skipped: implementation/native reruns and exhaustive byte-by-byte replay of archived logs. Risk: this review does not close any blocked lock, store, lifecycle or runner claim; M03 must validate the corrected design.

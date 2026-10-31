@@ -1,0 +1,76 @@
+{
+  "resolution": [
+    {
+      "finding": "R1",
+      "status": "resolved",
+      "note": "Resolved against the supplied orchestrator ruling: single-write O_APPEND/exclusive creation for add, compare-then-rename for removal/rotation, durable intent, reread/outcome_unknown reconciliation, explicit irrecoverable race disclosure, accurately scoped E4/ENR, and planned interleaving tests (§3.3, §6.5, §9.3). This accepts the ruled design limitation; it does not prove the full spec §7.5/A09 concurrent-edit preservation guarantee. Implementation and interleaving evidence remain not_started."
+    },
+    {
+      "finding": "R2",
+      "status": "resolved",
+      "note": "The original revoke/log race is closed at the design level (§3.5): reservation commits complete bounds before signing; revoke and publish serialize on current generations/ancestor/policy revisions; reserved and published entries count even on delivery/ack loss. A stale post-revoke publication is voided. Crash recovery never republishes a reserved entry. Release after an earlier successful publication may still arrive after revocation, but is already counted; local use must pass §3.6 and disconnected-runner use remains remote_pending. No unreported certificate follows from the specified crash ordering with an intact store. New time-at-publication omission is R12, separate from the original generation race."
+    },
+    {
+      "finding": "R3",
+      "status": "partly",
+      "note": "Live-process sleep-counting monotonic limits, high-water persistence, forward/rollback uncertainty, signing refusal and master closure are now specified. Restart validation remains insufficient (R9); runner receipt-time rebasing expressly permits extra time (R10). Destination skew is disclosed, but is not evidence of a measured finite server-error bound. A08/G09 cases remain not_started/blocked."
+    },
+    {
+      "finding": "R4",
+      "status": "resolved",
+      "note": "ADR-0004 §2 now explicitly supersedes D2 under the delegation supplied in the brief. §3.7 requires unchanged scope/D, unexpired/non-revoked/non-released/non-cutoff authority, validated time, transactional generations/tombstones, no process-file authority, and no recovery with lock-revokes. Process restart, logout/login, reboot/login and runner restart are separately listed for testing. §3.5 additionally excludes other terminal states. The decision conflict is resolved; whether time validation actually establishes unexpired authority is the remaining R3/R9 defect, not a renewed objection to the authorized D2 ruling."
+    },
+    {
+      "finding": "R5",
+      "status": "resolved",
+      "note": "§3.3 specifies an independent constrained SSH client, no user config/fallback/multiplexing, host verification, positive signature observation and a wrong-principal refusal; log attestation is optional/unavailable without access. §7.4/§9.3 require a log-inaccessible-account test. This resolves the account-level log-authority prerequisite as a design change; the new verifier has not run."
+    },
+    {
+      "finding": "R6",
+      "status": "partly",
+      "note": "Random OS-CSPRNG 64-bit serials remove dependence on a lost counter; probabilistic collision risk is disclosed. But §5.3 now replaces unknown residuals with restore time plus the longest validity in saved policies/default 12 h, which is not necessarily an upper bound on certificates issued under missing historical policies (R11). Random serials alone do not reconstruct issuance history or make that bound conservative."
+    },
+    {
+      "finding": "R7",
+      "status": "resolved",
+      "note": "§5.2 now explicitly says no selected login-keychain run exists, distinguishes the disposable file-keychain X4 result, and requires disposable-account/update validation before availability or ACL claims. Native Heimdall custody remains unverified."
+    },
+    {
+      "finding": "R8",
+      "status": "resolved",
+      "note": "§5.2 and §9.1/§9.3 incorporate WSS as verified/pass for Rust store mechanics, preserve the Go TPM-delete failure and self-review/no-positive-export-control limitations, and keep lock/signout/sleep/reboot and cross-user claims open. Parsed the current WSS record and checked those scopes; did not rerun native tests."
+    }
+  ],
+  "new_findings": [
+    {
+      "severity": "major",
+      "location": "R9 — §3.6 lines 285–304; §3.7 lines 330–350; §9.3 A08 restart criterion line 868",
+      "problem": "Consistency with a persisted wall-clock high-water mark does not establish safe current time after downtime. Restart discards the monotonic budget and constructs a fresh one from the current wall clock. A rollback that remains above the last trusted mark can therefore revive elapsed authority without triggering TIME_UNCERTAIN.",
+      "evidence": "Static counterexample: last trusted persisted time 10:00, D=11:00, runtime stops; real time reaches 12:00 while stopped; wall clock is reset to 10:01; reboot/login occurs. 10:01 exceeds the high-water mark and a new monotonic reference has no prior elapsed interval, so the stated predicates permit reissue and a new 59-minute budget. The grant was not running to persist an expired state. A correctly timed destination may refuse the old D, but local signing and owned-master admission still exceed the original elapsed authority; correlated server rollback is also not excluded. spec §6.4/A08 and plan §6.3 require restart not to reset time or restore expired authority. This is a design trace, not an executed product failure.",
+      "fix": "Define what startup validation trusts across each lifecycle event. Preserve a grant/boot-scoped continuous-clock anchor across same-boot process restarts. After reboot or loss of that anchor, require a trustworthy current-time bound that establishes remaining validity; high-water consistency alone is insufficient. Otherwise remain TIME_UNCERTAIN and do not reissue/sign/admit. Never reset a surviving grant budget at key reload. Test downtime spanning D followed by rollback to a value above the persisted high-water mark, separately from rollback below it."
+    },
+    {
+      "severity": "major",
+      "location": "R10 — §3.6 lines 305–313; §3.8 lines 370–377; §7.2 lines 730–732",
+      "problem": "The runner starts its monotonic budget at receipt using the controller's remaining duration at send time. This knowingly adds delivery time to the budget, contrary to the no-extra-authority and owned-master deadline guarantees. The absolute branch does not eliminate the extra interval when the runner clock lags within tolerated skew, and the delivery check does not define a safe delay/clock-offset bound.",
+      "evidence": "Static counterexample for any positive allowed tolerance: controller sends at T with D=T+60 s; delivery takes 10 s; runner wall clock is 10 s behind. At receipt its wall clock reads T and the controller-stated remaining duration is still 60 s, so both wall and receipt-based monotonic deadlines expire at actual T+70 s. Comparing the runner reading with the send timestamp sees no disagreement; even a current-time comparison allows this if tolerance >=10 s. An owned master authenticated before D can admit new sessions for the extra 10 s regardless of a correctly timed destination rejecting fresh authentication. §3.6 expressly acknowledges ending late by delivery time, while spec §6.4/§6.6/A08 disallow this authority extension. No product execution was performed.",
+      "fix": "Derive the runner deadline from a conservative upper bound on current controller time / transit age using an authenticated time exchange or another explicit bounded-delay/skew mechanism; subtract uncertainty so the runner may stop early. Retain that deadline for the grant rather than restarting it on receipt/reissue. If a safe bound is unavailable, report TIME_UNCERTAIN/CAPABILITY_UNAVAILABLE and do not claim deadline admission. Add delayed/replayed delivery, tolerated negative runner skew, and live-master admission tests."
+    },
+    {
+      "severity": "major",
+      "location": "R11 — §5.3 lines 582–588; §6.2 line 613; §9.3 key-only restore line 870",
+      "problem": "The key-only restore fallback can underreport outstanding certificate validity. The longest validity any saved policy permits is not necessarily the longest validity any historical policy permitted, especially after the database and issuance log were lost. The 12-hour proposed default is not a historical issuance ceiling. Elapsing the guessed bound cannot safely complete reconciliation.",
+      "evidence": "Static counterexample: a prior policy allowed a 7-day grant and the CA issued a 7-day certificate immediately before database loss. Restore K_ca an hour later with only a 12-hour saved/default policy. §5.3 substitutes restore+12 h for unknown and considers reconciliation complete then, while the certificate may remain valid for almost 7 days. spec §6.5/§6.7 require truthful maximum residuals; §2 P04 is a default and §6.1 allows saved policies to outlive/change separately from issued grants. Clock validation cannot recover the missing historical validity ceiling.",
+      "fix": "Keep residual unknown/unbounded unless a verified durable historical maximum for all possibly outstanding certificates is recovered (or an immutable previously enforced issuance ceiling is provable). Alternatively remove/rotate trust at every affected account and track unreachable accounts as pending. Do not infer a bound from current policies or defaults. Test an old long-validity certificate plus a shorter restored policy and no recovered issuance log."
+    },
+    {
+      "severity": "minor",
+      "location": "R12 — §3.5 lines 216–226, 240–254; §9.3 line 867",
+      "problem": "Publication rechecks generation/revisions/tombstones but omits current time, TIME_UNCERTAIN and the grant state/refusal predicates. Passage of D/cutoff or a new time fault need not advance any revision, so a reservation made just before the deadline can still be published afterwards.",
+      "evidence": "Static trace: reserve at D−1 s; signing is delayed; publish at D+1 s with unchanged generations and no tombstone yet. The stated publish transaction succeeds although the refusal list says the minimum deadline has passed. Likewise a time-confidence failure between reserve and publish does not inherently change generation. The certificate remains in the residual log and a correct signer should refuse it, so this is not an unreported-certificate race, but the issuer refusal/recovery contract is incomplete.",
+      "fix": "At publication reapply all current authorization/admission predicates, including grant state, effective deadline/cutoff/parent and time confidence, along with generation checks; void on failure. Require receiver installation/admission to check its own current generation, tombstone and safe deadline. Extend deterministic tests to expiry, cutoff passage without an edit, and TIME_UNCERTAIN between reserve/sign/publish/delivery."
+    }
+  ],
+  "verdict": "accept after fixes",
+  "summary": "6 resolved, 2 partly, 0 not. 0 blockers; 3 major remaining issues (R9/R10 under R3 and R11 under R6), 1 new minor (R12). The original revoke linearization and owner-decision conflict are resolved at design level. Static independent design/evidence review only; no implementation/native/lifecycle behavior verified."
+}
