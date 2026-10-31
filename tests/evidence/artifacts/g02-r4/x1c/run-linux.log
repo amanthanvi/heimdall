@@ -1,0 +1,6 @@
+== host kernel=6.18.54.1-microsoft-standard-WSL2 distro=Ubuntu 24.04.5 LTS nproc=6 memtotal_kb=16380032 wsl=3.0.3.0
+== go start 2026-10-31T20:14:11Z loadavg 0.08 0.02 0.00 running_tasks 1/296
+== go exit 0 2026-10-31T20:17:13Z loadavg 0.16 0.05 0.01 running_tasks 1/288
+== rust start 2026-10-31T20:17:13Z loadavg 0.16 0.05 0.01 running_tasks 1/288
+== rust exit 0 2026-10-31T20:20:16Z loadavg 0.24 0.08 0.02 running_tasks 2/298
+DONE

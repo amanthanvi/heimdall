@@ -1,0 +1,75 @@
+M00-T05-r5-x1c-linux-x64: commands run (2026-10-31 UTC). Real exit codes. Placeholders: <repo> = the repository
+checkout (HEAD cfd97d23), <mac-tmp> = a private mktemp directory under /tmp on the Mac (removed at the end),
+<wslhome>, <wslscratch> = <wslhome>/hm-m00/M00-T05-r5-x1c. Host access only through the task's dedicated ssh -F
+config, with SSH_AUTH_SOCK unset locally. Nothing under prototypes/ was rebuilt or edited.
+
+Mac: provenance
+  shasum -a 256 prototypes/{go,rust}/dist/linux-x64/heimdall-proto                                         exit 0
+      go   bfb668bb0f7045e3f50606ccd2acff444ed5c4e733400b997624519e0fc23c3b  (5451936 bytes)
+      rust 7b1b3fcfc64031fe76625164c06c7181d800f3af1cf51cd0425688f95531769d  (887072 bytes)
+      both equal the linux-x64 entry of prototypes/<c>/dist/manifest.json
+  python3: linux-x64 entry of the x1b build manifests                                                      exit 0
+      x1b/review-go/build/rebuilt-manifest.json          bfb668bb...  5451936  (equal)
+      x1b/rust/build/manifest.after.json                 7b1b3fcf...  887072   (equal; fix round's build)
+      x1b/review-rust/build/manifest.review-rebuild.json 7b1b3fcf...  887072   (equal; reviewer's rebuild)
+      x1b/rust/build/manifest.before.json                961e3fb9...  876464   (round-3 d8f0cbe build, = X1's input)
+  git log 84c7665..HEAD -- prototypes/go ; git log 001a791..HEAD -- prototypes/rust                        exit 0, empty
+  git diff --stat 772a6b1 HEAD -- tests/g02 tests/fixtures/g02 tests/fixtures/fake-agent schemas/g02 tests/evidence/record.schema.json
+                                                                                                           exit 0, empty
+Mac: staging
+  git archive --format=tar -o <mac-tmp>/stage/harness.tar HEAD tests/g02 ':(exclude)tests/g02/selftest-results'
+      tests/fixtures/g02 tests/fixtures/fake-agent schemas/g02 tests/evidence/record.schema.json            exit 0  (29 files)
+      (a first archive without the exclude, 73 selftest-results entries more, was discarded before staging)
+  cp -p prototypes/<c>/dist/linux-x64/heimdall-proto <mac-tmp>/stage/art/<c>/                               exit 0
+  shasum -a 256 harness.tar art/go/heimdall-proto art/rust/heimdall-proto > inputs.sha256                   exit 0
+  tar cf <mac-tmp>/stage.tar harness.tar art inputs.sha256 run-linux.sh notoolchain.sh setup.sh            exit 0
+      stage.tar sha256 28df4efdaffa64c330e1be96fb17229d0f82819f816b20e6b76a24c1c79fa2da
+  (a first attempt to chain these with a cd into a shell variable was refused by the local tool policy before running;
+   rerun with absolute paths)
+
+Host (WSL2 Ubuntu, non-root)
+  ssh: mkdir ~/hm-m00/M00-T05-r5-x1c                                                                       exit 0
+      (before: ~/hm-m00 existed and was empty; zsh absent; loadavg 0.03 0.01 0.00)
+  scp stage.tar                                                                                             exit 0
+  ssh: sha256sum stage.tar; tar xf stage.tar setup.sh; bash setup.sh                                       exit 0 (setup.txt)
+      sha256sum -c inputs.sha256: 3 OK; python3 -m venv: 0; pip install --require-hashes: 0 (pip.log)
+  ssh: setsid nohup bash run-linux.sh > run-linux.log 2>&1 < /dev/null &                                   ssh exit 0
+      go:   tests/g02/conformance.py ... --case-id G02-go-conformance-linux-x64-x1b   exit 0  139/139 (console-go.log)
+      rust: tests/g02/conformance.py ... --case-id G02-rust-conformance-linux-x64-x1b exit 0  139/139 (console-rust.log)
+      (run-linux.log: go 20:14:11Z-20:17:13Z, rust 20:17:13Z-20:20:16Z, loadavg <= 0.24)
+  ssh: bash notoolchain.sh > notoolchain.txt                                                               exit 0 (notoolchain.txt)
+  ssh: tar cf - out run-linux.log notoolchain.txt pip.log | (Mac) tar xf - -C <mac-tmp>/raw
+      exit status of the pipeline not captured (zsh has no PIPESTATUS); 1337 files arrived, both records parse and both
+      consoles end with their summary line
+
+Mac: redaction and records
+  python3 -I x1c/redact.py scan <ids.json> <mac-tmp>/raw                                                   exit 0
+      hits (counts only): wslscratch 660, wslhome 660, wsluser 660 (every user-name hit inside the scratch path),
+      winhost 0; no "/mnt/c" or "Users/" string; ids.json held the values outside the repository
+  grep -rlaE 'HEIMDALL_CANARY_[A-Za-z0-9]' <mac-tmp>/raw                                                    no file
+  grep -rhoaE IPv4 pattern <mac-tmp>/raw                                                                   only the kernel (6.18.54.1) and WSL (3.0.3.0) versions
+  python3 -I x1c/redact.py copy <ids.json> <mac-tmp>/raw <mac-tmp>/red                                     exit 0
+      660 replacements (all <wslscratch>); rescan of the copy: 0 hits
+  cp -R red/out/arts-{go,rust}, red/out/console-{go,rust}.log, red/{run-linux.log,notoolchain.txt,pip.log}, stage/inputs.sha256 -> x1c/
+  python3 -I x1c/make-records.py <repo> <mac-tmp>/red/out                                                  exit 0
+      wrote tests/evidence/g02-{go,rust}-conformance-linux-x64-x1b.json; appended 1 limitation line to each round-3
+      linux-x64 record (git diff: that line plus the comma on the previous line, nothing else)
+  python3 -I x1c/make-records.py <repo> <mac-tmp>/red/out   (second run, after rewording the host-change limitation
+      to name the OpenSSH update and making the round-3 step idempotent)                                   exit 0
+      x1b records rewritten; both round-3 records "already have the X1c line (unchanged)"
+  python3 -I x1c/compare.py <repo> tests/evidence/g02-go-conformance-linux-x64-x1b.json tests/evidence/g02-rust-conformance-linux-x64-x1b.json > x1c/compare.txt
+                                                                                                           exit 0
+      (compare.py was first dry-run with the round-3 linux-x64 records as "NEW": it reproduced X1's
+       compare-structural.txt findings: zsh not run, harness OS probe 1/10 vs 0/10)
+  tests/g02/.venv/bin/python -I -c "minischema.validate(record.schema.json, R) for the 4 records"           exit 0, [] for each
+      g02-go-conformance-linux-x64-x1b.json, g02-rust-conformance-linux-x64-x1b.json,
+      g02-go-conformance-linux-x64.json, g02-rust-conformance-linux-x64.json
+  negative control: the same validator on a copy with status "failed", and with status "blocked" and no blocked_on
+                                                                                                           exit 0 (both rejected)
+
+Host: cleanup
+  ssh: count processes with the task id in their command line (excluding the query shell and its parent): 0;
+       pgrep -c -x heimdall-proto: 0; rm -rf ~/hm-m00/M00-T05-r5-x1c                                        exit 0
+       scratch gone; ~/hm-m00 kept, 0 entries (as found)
+Mac: cleanup
+  rm -rf <mac-tmp> and its pointer file                                                                     (see README, Cleanup)

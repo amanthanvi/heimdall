@@ -1,0 +1,1 @@
+{"schema_version":"1","state":"succeeded","code":"VERSION_OK","data":{"name":"heimdall-proto","version":"0.0.0-g02","candidate":"rust","runtime":"rustc 1.99.0 (b940084d7 2026-09-28)","tui_framework":"ratatui","tui_framework_version":"0.30.2"},"warnings":[],"next":null}

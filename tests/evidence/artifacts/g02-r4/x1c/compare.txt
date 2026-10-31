@@ -1,0 +1,223 @@
+== go
+  sources (status / verdict / summary / harness / artifact digest):
+    NEW linux-x64            verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=181.3 harness=2.4.2 digest=sha256:bfb668bb0f70
+    r3-linux-x64             verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=184.2 harness=2.4.2 digest=sha256:429063bf6704
+    r3-linux-arm64           verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=257.0 harness=2.4.2 digest=sha256:d55b4ffe4bff
+    r3-darwin-arm64          verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=262.6 harness=2.4.2 digest=sha256:31c3ee17cc25
+    x1b-fix-darwin-arm64     verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=263.1 harness=2.4.2 (not in summary) digest=sha256:bdfd64a2f5a0
+    x1b-fix-linux-arm64      verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=258.9 harness=2.4.2 (not in summary) digest=sha256:18d96a07a553
+    x1b-review-darwin-arm64  verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=262.2 harness=2.4.2 digest=sha256:bdfd64a2f5a0
+    x1b-review-linux-arm64   verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=258.1 harness=2.4.2 digest=sha256:18d96a07a553
+  check ids (union over 8 sources): 139; checks with differing outcome or presence: 0
+  assertions NEW vs r3-linux-x64: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  assertions NEW vs r3-linux-arm64: checks with a different assertion count: 2; with a different set of failed assertions: 2
+    count run.k6e_child_self_stop: NEW=170 r3-linux-arm64=262
+    count run.k6e_job_control: NEW=192 r3-linux-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[bash SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)"], [false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh...
+      r3-linux-arm64=[[false, "[bash SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)"], [false, "[zsh SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: sec...
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      r3-linux-arm64=[]
+  assertions NEW vs r3-darwin-arm64: checks with a different assertion count: 3; with a different set of failed assertions: 2
+    count run.k6a_inherited_ignore: NEW=58 r3-darwin-arm64=45
+    count run.k6e_child_self_stop: NEW=170 r3-darwin-arm64=190
+    count run.k6e_job_control: NEW=192 r3-darwin-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[bash SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)"], [false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh...
+      r3-darwin-arm64=[[false, "[bash SIGSTOP: hp1] stop 1: the shell reports the job stopped ('Stopped') and prompts again, with no user action, within 4.0 s of the harness's go to the child (as for the direct run) (non-gating observation)"], [false, "[bash SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that ...
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      r3-darwin-arm64=[]
+  captures NEW vs r3-linux-x64: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 210; same stderr sha256: 227
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes NEW=466 r3=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes NEW=262298 r3=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes NEW=233 r3=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes NEW=134255 r3=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: agent.timeout_whole_response [drip-timeout-1000] bytes NEW=182 r3=152
+    stderr digest differs: agent.timeout_whole_response [drip-timeout-1000] bytes NEW=70 r3=40
+      NEW stderr="heimdall-proto: agent list: read: no complete response within timeout\n"
+      r3  stderr="heimdall-proto: agent list: read failed\n"
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes NEW=226 r3=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes NEW=729 r3=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes NEW=81 r3=81
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes NEW=1489 r3=1503
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes NEW=1489 r3=1503
+  NEW: checks with failed (necessarily non-gating, since all checks pass) assertions: 2
+    run.k6e_job_control: [[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+    run.k6e_child_self_stop: [[false, "[bash SIGSTOP] the stop notice word and the shell's status of the stopped job ($?) equal the direct-exec control's (non-gating observation: section 9.4 requires that the shell reports the job stopped, not which stop signal it names)"], [false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh...
+  observations NEW vs r3-linux-x64: keys 19/19, only in one: []; structural (non-timing) leaf differences: 3, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        NEW=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        r3-linux-x64=[1, 1, 1, 2, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        NEW=false
+        r3-linux-x64=true
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        NEW="0/10"
+        r3-linux-x64="1/10"
+  observations NEW vs r3-linux-arm64: keys 19/19, only in one: []; structural (non-timing) leaf differences: 176, grouped by observation sub-key:
+    k6e_child_self_stop.zsh-SIGSTOP: 82 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_child_self_stop.zsh-SIGTSTP: 82 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_job_control.zsh-list: 6 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_job_control.zsh-simple: 6 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+  timing observations (wall-clock, not gating except via each check's own bound):
+  NEW linux-x64    duration_s=181.3 first_frame_ms=35.7 k17_filter_p95_ms=17.4 sigint_exit_ms=[1.4, 1.0, 0.9] resize_ms(median/max)=15.45/17.0 loadavg_start=[0.08, 0.02, 0.0] loadavg_end=[0.17, 0.05, 0.01]
+  r3-linux-x64     duration_s=184.2 first_frame_ms=40.2 k17_filter_p95_ms=17.7 sigint_exit_ms=[1.2, 1.0, 1.3] resize_ms(median/max)=15.4/15.9 loadavg_start=[0.51, 0.25, 0.15] loadavg_end=[0.89, 0.55, 0.29]
+  r3-linux-arm64   duration_s=257.0 first_frame_ms=36.6 k17_filter_p95_ms=18.6 sigint_exit_ms=[2.5, 2.3, 1.8] resize_ms(median/max)=9.35/14.5 loadavg_start=[0.0, 0.0, 0.0] loadavg_end=[0.18, 0.07, 0.01]
+  r3-darwin-arm64  duration_s=262.6 first_frame_ms=58.5 k17_filter_p95_ms=17.6 sigint_exit_ms=[1.0, 0.9, 0.9] resize_ms(median/max)=6.35/12.8 loadavg_start=[4.29, 4.96, 4.16] loadavg_end=[5.85, 6.02, 4.86]
+
+== rust
+  sources (status / verdict / summary / harness / artifact digest):
+    NEW linux-x64            verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=182.3 harness=2.4.2 digest=sha256:7b1b3fcfc640
+    r3-linux-x64             verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=184.2 harness=2.4.2 digest=sha256:961e3fb9f02e
+    r3-linux-arm64           verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=260.6 harness=2.4.2 digest=sha256:47160fdd0ee8
+    r3-darwin-arm64          verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=267.0 harness=2.4.2 digest=sha256:496684ed337f
+    x1b-fix-darwin-arm64     verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=269.3 harness=2.4.2 digest=sha256:f9a3ec8b4683
+    x1b-fix-linux-arm64      verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=260.5 harness=2.4.2 digest=sha256:85e038b4728f
+    x1b-review-darwin-arm64  verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=268.5 harness=2.4.2 digest=sha256:f9a3ec8b4683
+    x1b-review-linux-arm64   verified/pass {"pass": 139, "fail": 0, "error": 0, "skipped": 0, "total": 139} duration_s=261.0 harness=2.4.2 digest=sha256:85e038b4728f
+  check ids (union over 8 sources): 139; checks with differing outcome or presence: 0
+  assertions NEW vs r3-linux-x64: checks with a different assertion count: 0; with a different set of failed assertions: 0
+  assertions NEW vs r3-linux-arm64: checks with a different assertion count: 2; with a different set of failed assertions: 2
+    count run.k6e_child_self_stop: NEW=170 r3-linux-arm64=262
+    count run.k6e_job_control: NEW=192 r3-linux-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      r3-linux-arm64=[]
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      r3-linux-arm64=[]
+  assertions NEW vs r3-darwin-arm64: checks with a different assertion count: 3; with a different set of failed assertions: 2
+    count run.k6a_inherited_ignore: NEW=58 r3-darwin-arm64=45
+    count run.k6e_child_self_stop: NEW=170 r3-darwin-arm64=262
+    count run.k6e_job_control: NEW=192 r3-darwin-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      r3-darwin-arm64=[]
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      r3-darwin-arm64=[]
+  assertions NEW vs x1b-fix-darwin-arm64: checks with a different assertion count: 3; with a different set of failed assertions: 2
+    count run.k6a_inherited_ignore: NEW=58 x1b-fix-darwin-arm64=45
+    count run.k6e_child_self_stop: NEW=170 x1b-fix-darwin-arm64=262
+    count run.k6e_job_control: NEW=192 x1b-fix-darwin-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-fix-darwin-arm64=[]
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-fix-darwin-arm64=[]
+  assertions NEW vs x1b-fix-linux-arm64: checks with a different assertion count: 2; with a different set of failed assertions: 2
+    count run.k6e_child_self_stop: NEW=170 x1b-fix-linux-arm64=262
+    count run.k6e_job_control: NEW=192 x1b-fix-linux-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-fix-linux-arm64=[]
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-fix-linux-arm64=[]
+  assertions NEW vs x1b-review-darwin-arm64: checks with a different assertion count: 3; with a different set of failed assertions: 2
+    count run.k6a_inherited_ignore: NEW=58 x1b-review-darwin-arm64=45
+    count run.k6e_child_self_stop: NEW=170 x1b-review-darwin-arm64=262
+    count run.k6e_job_control: NEW=192 x1b-review-darwin-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-review-darwin-arm64=[]
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-review-darwin-arm64=[]
+  assertions NEW vs x1b-review-linux-arm64: checks with a different assertion count: 2; with a different set of failed assertions: 2
+    count run.k6e_child_self_stop: NEW=170 x1b-review-linux-arm64=262
+    count run.k6e_job_control: NEW=192 x1b-review-linux-arm64=374
+    failed run.k6e_child_self_stop:
+      NEW=[[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-review-linux-arm64=[]
+    failed run.k6e_job_control:
+      NEW=[[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+      x1b-review-linux-arm64=[]
+  captures NEW vs r3-linux-x64: 228 paired; same (exit_code, timed_out, leftover_processes): 228; same stdout sha256: 211; same stderr sha256: 228
+    stdout digest differs: agent.fingerprint_ssh_keygen [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: agent.fragmented_reply [agent-fragmented] bytes NEW=466 r3=466
+    stdout digest differs: agent.frame_boundary [agent-frame_max] bytes NEW=262298 r3=262298
+    stdout digest differs: agent.invalid_utf8_comment [agent-invalid_utf8_comment] bytes NEW=233 r3=233
+    stdout digest differs: agent.nkeys_boundary [agent-nkeys_max] bytes NEW=134255 r3=134255
+    stdout digest differs: agent.normal_identities [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: agent.passive_contact_log [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: agent.unicode_spaced_socket_path [agent-normal] bytes NEW=466 r3=466
+    stdout digest differs: common.exit_codes_without_json [agent-normal] bytes NEW=226 r3=226
+    stdout digest differs: common.no_helper_processes [k16-tmux-env-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: common.no_helper_processes [k16-tmux-term-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: common.no_helper_processes [k16-screen-term-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: common.no_helper_processes [k16-screen-plain-agent-list] bytes NEW=466 r3=466
+    stdout digest differs: run.argv_exact [run --meta-file] bytes NEW=729 r3=729
+    stdout digest differs: run.cwd_env_inherited [run --] bytes NEW=81 r3=81
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-ignore] bytes NEW=1489 r3=1503
+    stdout digest differs: run.k6a_inherited_ignore [via-proto-cat-status-default] bytes NEW=1489 r3=1503
+  NEW: checks with failed (necessarily non-gating, since all checks pass) assertions: 2
+    run.k6e_job_control: [[false, "[zsh list] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh simple] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+    run.k6e_child_self_stop: [[false, "[zsh SIGSTOP] harness precondition: /bin/zsh is executable (non-gating; form not run)"], [false, "[zsh SIGTSTP] harness precondition: /bin/zsh is executable (non-gating; form not run)"]]
+  observations NEW vs r3-linux-x64: keys 19/19, only in one: []; structural (non-timing) leaf differences: 2, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        NEW=[2, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+        r3-linux-x64=[1, 1, 2, 1, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        NEW="3/10"
+        r3-linux-x64="1/10"
+  observations NEW vs r3-linux-arm64: keys 19/19, only in one: []; structural (non-timing) leaf differences: 179, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        NEW=[2, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+        r3-linux-arm64=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        NEW=true
+        r3-linux-arm64=false
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        NEW="3/10"
+        r3-linux-arm64="0/10"
+    k6e_child_self_stop.zsh-SIGSTOP: 82 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_child_self_stop.zsh-SIGTSTP: 82 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_job_control.zsh-list: 6 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_job_control.zsh-simple: 6 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+  observations NEW vs x1b-fix-linux-arm64: keys 19/19, only in one: []; structural (non-timing) leaf differences: 179, grouped by observation sub-key:
+    harness_os_probe_back_to_back_signal_merge.deliveries_per_trial: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.deliveries_per_trial
+        NEW=[2, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+        x1b-fix-linux-arm64=[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    harness_os_probe_back_to_back_signal_merge.duplicates_observable: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.duplicates_observable
+        NEW=true
+        x1b-fix-linux-arm64=false
+    harness_os_probe_back_to_back_signal_merge.trials_with_duplicate: 1 leaf difference(s)
+      harness_os_probe_back_to_back_signal_merge.trials_with_duplicate
+        NEW="3/10"
+        x1b-fix-linux-arm64="0/10"
+    k6e_child_self_stop.zsh-SIGSTOP: 82 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_child_self_stop.zsh-SIGTSTP: 82 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_job_control.zsh-list: 6 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+    k6e_job_control.zsh-simple: 6 leaf difference(s) (NEW not_run: /bin/zsh not executable)
+  timing observations (wall-clock, not gating except via each check's own bound):
+  NEW linux-x64    duration_s=182.3 first_frame_ms=17.6 k17_filter_p95_ms=1.8 sigint_exit_ms=[5.8, 5.7, 5.7] resize_ms(median/max)=0.8/1.1 loadavg_start=[0.17, 0.05, 0.01] loadavg_end=[0.24, 0.08, 0.02]
+  r3-linux-x64     duration_s=184.2 first_frame_ms=20.2 k17_filter_p95_ms=2.7 sigint_exit_ms=[6.3, 6.4, 5.8] resize_ms(median/max)=0.9/2.6 loadavg_start=[0.89, 0.55, 0.29] loadavg_end=[0.08, 0.34, 0.25]
+  r3-linux-arm64   duration_s=260.6 first_frame_ms=23.5 k17_filter_p95_ms=4.3 sigint_exit_ms=[13.9, 1.4, 9.0] resize_ms(median/max)=1.9/3.3 loadavg_start=[0.12, 0.06, 0.01] loadavg_end=[0.08, 0.04, 0.0]
+  r3-darwin-arm64  duration_s=267.0 first_frame_ms=27.9 k17_filter_p95_ms=4.3 sigint_exit_ms=[0.6, 0.5, 3.4] resize_ms(median/max)=0.6/2.1 loadavg_start=[5.85, 6.02, 4.86] loadavg_end=[7.28, 6.44, 5.31]
+  x1b-fix-darwin-arm64 duration_s=269.3 first_frame_ms=37.6 k17_filter_p95_ms=3.3 sigint_exit_ms=[0.5, 1.0, 12.1] resize_ms(median/max)=1.2/3.7 loadavg_start=[20.18, 18.91, 18.51] loadavg_end=[9.69, 14.18, 16.5]
+  x1b-fix-linux-arm64 duration_s=260.5 first_frame_ms=16.6 k17_filter_p95_ms=4.3 sigint_exit_ms=[1.5, 12.4, 1.5] resize_ms(median/max)=1.95/3.0 loadavg_start=[0.05, 0.06, 0.01] loadavg_end=[0.11, 0.08, 0.02]
+  x1b-review-darwin-arm64 duration_s=268.5 first_frame_ms=27.9 k17_filter_p95_ms=3.1 sigint_exit_ms=[0.5, 0.5, 0.5] resize_ms(median/max)=1.8/3.1 loadavg_start=[18.38, 13.56, 13.94] loadavg_end=[4.31, 7.36, 10.95]
+  x1b-review-linux-arm64 duration_s=261.0 first_frame_ms=25.6 k17_filter_p95_ms=3.9 sigint_exit_ms=[1.5, 1.4, 1.4] resize_ms(median/max)=2.05/3.1 loadavg_start=[0.03, 0.07, 0.05] loadavg_end=[0.42, 0.17, 0.08]
+

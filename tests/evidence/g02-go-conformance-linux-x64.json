@@ -36812,6 +36812,7 @@
     "Environment: native linux-x64 run in WSL2 Ubuntu 24.04.5 (kernel 6.18.40.1-microsoft-standard-WSL2, x86_64, no container, no emulation) on the owner's Windows 11 Pro 26300 PC, as a non-root user, harness 2.4.2 from a git archive of 772a6b1 (environment.native_host). The harness's generic K13 text above about Docker Desktop's arm64 VM does not describe this run. linux-x64 is not a K13 verdict platform (darwin-arm64 and linux-arm64 are); this record is X1 cross-platform evidence.",
     "zsh is not installed on this host (no package installs allowed), so the zsh K6e forms were not run (observations k6e_job_control zsh-*, k6e_child_self_stop zsh-*: not_run); they are non-gating. bash 5.2.21 gated K6e.",
     "Not a container: unlike tests/g02/linux/run.sh there was no --network none, cap drop or memory limit; the host also runs the owner's other WSL processes. The harness binary-under-test environment is unchanged.",
-    "No independent review of this run yet."
+    "No independent review of this run yet.",
+    "X1c (2026-10-31): the post-fix (X1b) artifact, 84c7665, ran on native linux-x64 in tests/evidence/g02-go-conformance-linux-x64-x1b.json; this record covers only the round-3 artifact 38b6b72."
   ]
 }

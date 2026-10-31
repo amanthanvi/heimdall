@@ -1,0 +1,14 @@
+$ ssh ... 'cd ~/hm-m00/M00-T05-r5-x1c && sha256sum stage.tar | cut -c1-64 && tar xf stage.tar setup.sh && bash setup.sh 2>&1 | sed "s#$HOME#<wslhome>#g"'
+28df4efdaffa64c330e1be96fb17229d0f82819f816b20e6b76a24c1c79fa2da
+tar stage rc=0
+harness.tar: OK
+art/go/heimdall-proto: OK
+art/rust/heimdall-proto: OK
+sha256sum -c rc=0
+tar harness rc=0
+venv rc=0
+pip rc=0
+python 3.12.3 pyte 0.8.2 wcwidth 0.9.1
+go: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, Go BuildID=GkLk9iZU1sw-sti3f6cf/nb8ExwyxJ1cbonKKZQRk/6L85pYSS7mVbhIHzRojO/-ySqKZ-XAcu1pZOlFql2, BuildID[sha1]=dd3b2d335d74795df469cf31affd54c2a3604c15, stripped | ldd: not a dynamic executable
+rust: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, stripped | ldd: not a dynamic executable
+(ssh exit 0)
