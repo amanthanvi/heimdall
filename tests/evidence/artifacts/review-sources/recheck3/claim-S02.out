@@ -1,0 +1,13 @@
+S02 
+CLAIM: Config evaluation, client behavior, multiplex control incl. stop
+PINNED EXCERPT: "-G Causes ssh to print its configuration after evaluating Host and Match blocks and exit." ; "-O ... stop: Request the master to stop accepting further multiplexing requests."
+LIVE: HTTP 200
+FRAGMENT True: -G Causes ssh to print its configuration after evaluating Host and Match blocks and exit.
+CONTEXT: then a client started with f will wait for all remote port forwards to be successfully established before placing itself in the background refer to the description of forkafterauthentication in ssh config 5 for details g causes ssh to print its configuration after evaluating host and match blocks and exit g allows remote hosts to connect to local forwarded ports if used on a multiplexed connection then this option must be specified on the master process i pkcs11 specify the pkcs 11 shared library ssh should use to communicate with a pkcs 11 token providing keys for user authentication i identity file selects a file from which the identity private key for public key authenticati
+FRAGMENT True: stop: Request the master to stop accepting further multiplexing requests.
+CONTEXT: hannels report information about open channels forward request forwardings without command execution cancel cancel forwardings proxy connect to a running multiplexing master in proxy mode exit request the master to exit stop request the master to stop accepting further multiplexing requests o option can be used to give options in the format used in the configuration file this is useful for specifying options for which there is no separate command line flag for full details of the options and their values see ssh config 5 p tag specify a tag name that may be used to select configuration in ssh config 5 refer to the tag and match keywords in ssh config 5 for more i
+CHANGE BLOCKS 4
+('insert', '', 'OpenBSD-8.0')
+('replace', ':', 'on the server:')
+('replace', '/etc/ssh/ssh_host_ed25519_key', '/etc/ssh/ssh_host_ed25519_key.pub')
+('replace', 'September 5,', 'October 13,')

@@ -1,0 +1,12 @@
+S06 
+CLAIM: Vault lock and requesting-application security behavior
+PINNED EXCERPT: "After you've added your SSH keys, any process can use any key that the OpenSSH agent is managing." ; 1Password agent "asks for your consent before an SSH client or terminal session can use your key"
+LIVE: HTTP 200
+FRAGMENT True: After you've added your SSH keys, any process can use any key that the OpenSSH agent is managing.
+CONTEXT: er used without your consent differences with the openssh agent the standard openssh agent ssh agent that comes preinstalled on most operating systems requires you to add keys to the agent ssh add every time it launches after youve added your ssh keys any process can use any key that the openssh agent is managing its then up to you to remove those keys when theyre not needed anymore the 1password ssh agent uses a different approach and asks for your consent before an ssh client or terminal session can use your key because of this theres no concept of adding or removing keys like with the openssh agent when you turn on the ssh agent from the 1password preferences or settings every eligi
+FRAGMENT True: asks for your consent before an SSH client or terminal session can use your key
+CONTEXT: after youve added your ssh keys any process can use any key that the openssh agent is managing its then up to you to remove those keys when theyre not needed anymore the 1password ssh agent uses a different approach and asks for your consent before an ssh client or terminal session can use your key because of this theres no concept of adding or removing keys like with the openssh agent when you turn on the ssh agent from the 1password preferences or settings every eligible key saved in 1password becomes available to use for ssh but your private keys will never be used without your consent authorization model the authorization model for the 1password ssh agent is built on
+CHANGE BLOCKS 3
+('insert', '', 'Assistant Responses are generated using AI and may contain mistakes. Contact support')
+('insert', '', 'Back to top')
+('delete', 'Assistant Responses are generated using AI and may contain mistakes. Contact support', '')

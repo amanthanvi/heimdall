@@ -1,0 +1,107 @@
+{
+ "normalizer_version": 1,
+ "results": [
+  {
+   "fetched_url": "https://docs.iroh.computer/languages",
+   "final_url": "https://docs.iroh.computer/languages",
+   "headers": {
+    "content-length": "283408",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"15fq964saun62fs\""
+   },
+   "http_status": 200,
+   "id": "A01",
+   "markers": {
+    "page_dateModified": "2026-07-17T15:40:55.549Z"
+   },
+   "normalized_text_chars": 3868,
+   "normalized_text_sha256": "1cd3483639478a58a9a6d8db46dc02af3a91626751eb2fb16a1d06cbb22a892e",
+   "normalizer_version": 1,
+   "raw_body_sha256": "ed276cc11d89b8935d23bb617465f0f62a93709fbfbee089adb900cf5eb43f38",
+   "raw_bytes": 283408,
+   "retrieved_at_utc": "2026-10-31T20:39:10Z",
+   "snapshot": {
+    "gz_sha256": "024eedd049eca86506427e79571608e3616a3e67ca7430e0d70aa835ead683f8",
+    "path": "<tmp>/snapAux/A01.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/languages"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/languages/go",
+   "final_url": "https://docs.iroh.computer/languages/go",
+   "headers": {
+    "content-length": "296247",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"164tzmk0wuw6ckr\""
+   },
+   "http_status": 200,
+   "id": "A02",
+   "markers": {
+    "page_dateModified": "2026-07-10T23:57:37.516Z"
+   },
+   "normalized_text_chars": 2409,
+   "normalized_text_sha256": "f0cf5a013cc6dc65512ead89167f59abff45c61d892361546d50dbb292b297b9",
+   "normalizer_version": 1,
+   "raw_body_sha256": "a81ae8dcaa19f06e1d6b04cafba089328ef17ddb14f6273b108a1133ec7ab728",
+   "raw_bytes": 296247,
+   "retrieved_at_utc": "2026-10-31T20:39:10Z",
+   "snapshot": {
+    "gz_sha256": "24f2bca19e1947fd1c1841c38e14c327306655acc627e79ea3c5f7302ac2366b",
+    "path": "<tmp>/snapAux/A02.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/languages/go"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/languages/c",
+   "final_url": "https://docs.iroh.computer/languages/c",
+   "headers": {
+    "content-length": "311419",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"u0ugmnfi286o9z\""
+   },
+   "http_status": 200,
+   "id": "A03",
+   "markers": {
+    "page_dateModified": "2026-07-17T15:40:55.543Z"
+   },
+   "normalized_text_chars": 3119,
+   "normalized_text_sha256": "390041e831964be7659bf3a07d6229b0803a2206d459de3ece01285b0bd14f32",
+   "normalizer_version": 1,
+   "raw_body_sha256": "90a8f3b5283a3a1f0bd31032a55a032b6d146fb281e394165f8c4f5eb335eb48",
+   "raw_bytes": 311419,
+   "retrieved_at_utc": "2026-10-31T20:39:11Z",
+   "snapshot": {
+    "gz_sha256": "35c145946c5c07da5a8d7e57901dcb4e7893d73afd5dffffcb02a4fc6b34f369",
+    "path": "<tmp>/snapAux/A03.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/languages/c"
+  },
+  {
+   "fetched_url": "https://docs.iroh.computer/compatibility",
+   "final_url": "https://docs.iroh.computer/compatibility",
+   "headers": {
+    "content-length": "280587",
+    "content-type": "text/html; charset=utf-8",
+    "etag": "\"144r0808n5l60gt\""
+   },
+   "http_status": 200,
+   "id": "A04",
+   "markers": {
+    "page_dateModified": "2026-09-14T13:41:54.964Z"
+   },
+   "normalized_text_chars": 4454,
+   "normalized_text_sha256": "03c4751532b0387e5ba805c604276669f70d744e6e8254ac9fdb17db4ef47a5d",
+   "normalizer_version": 1,
+   "raw_body_sha256": "dbe4469348413dd1dfc24cde402d63372197cd2d4da170ca711aed497ee627e2",
+   "raw_bytes": 280587,
+   "retrieved_at_utc": "2026-10-31T20:39:11Z",
+   "snapshot": {
+    "gz_sha256": "418b7f74f5a414f89efbf6985566ea7cd5af54027ce15666420d17de8375836a",
+    "path": "<tmp>/snapAux/A04.txt.gz"
+   },
+   "spec_url": "https://docs.iroh.computer/compatibility"
+  }
+ ],
+ "set": "aux",
+ "tool": "fetch_pins.py"
+}

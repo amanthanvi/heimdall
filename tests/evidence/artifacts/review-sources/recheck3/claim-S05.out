@@ -1,0 +1,12 @@
+S05 
+CLAIM: Authentication methods, key registries, CA and principal policy
+PINNED EXCERPT: AuthenticationMethods, AuthorizedKeysFile, AuthorizedPrincipalsFile, TrustedUserCAKeys all present; "AuthorizedPrincipalsFile Specifies a file that lists principal names that are accepted for certificate authentication." ; "TrustedUserCAKeys Specifies a file containing public keys of certificate authorities that are trusted to sign user certificates for authentication"
+LIVE: HTTP 200
+FRAGMENT True: AuthorizedPrincipalsFile Specifies a file that lists principal names that are accepted for certificate authentication.
+CONTEXT: use a dedicated user that has no other role on the host than running authorized principals commands if authorizedprincipalscommand is specified but authorizedprincipalscommanduser is not then sshd 8 will refuse to start authorizedprincipalsfile specifies a file that lists principal names that are accepted for certificate authentication when using certificates signed by a key listed in trustedusercakeys this file lists names one of which must appear in the certificate for it to be accepted for authentication names are listed one per line preceded by key options as described in authorized keys file format in sshd 8 empty lines and comments starting with are ignored arguments to authorizedprincipalsfile may inc
+FRAGMENT True: TrustedUserCAKeys Specifies a file containing public keys of certificate authorities that are trusted to sign user certificates for authentication
+CONTEXT: ated for x11 or port forwarding or no to disable tcp keepalive messages the default is transport see also clientaliveinterval for a more robust connection failure detection mechanism that works at the ssh protocol level trustedusercakeys specifies a file containing public keys of certificate authorities that are trusted to sign user certificates for authentication or none to not use one keys are listed one per line empty lines and comments starting with are allowed if a certificate is presented for authentication and has its signing ca key listed in this file then it may be used for authentication for any user listed in the certificates principals list note that certificates that lack a list of principals will not be permitted for authe
+CHANGE BLOCKS 3
+('insert', '', 'OpenBSD-8.0')
+('replace', 'ssh-mldsa44-ed2551', 'ssh-mldsa44-ed25519')
+('replace', 'September 17,', 'October 9,')

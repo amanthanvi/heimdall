@@ -19,8 +19,15 @@ Each row carries three separate statuses:
   describes the evidence, not product support, and follows the gate-probe convention in `tests/evidence/README.md`:
   `verified` means the probe ran as designed and its output is preserved, whatever the verdict. Each record keeps
   its own top-level status. The multi-row rule says that status is the record's lowest row status (order in
-  `tests/evidence/README.md`); `m00-t03-fixtures.json` is coarser: it is `in_progress` by design. A row takes the lowest-standing status among the records and
-  sub-rows it relies on:
+  `tests/evidence/README.md`); three records are coarser:
+  - `m00-t03-fixtures.json` is `in_progress` by design;
+  - `g03-wsl-a-process-io.json` (L3) is `verified` although interactive Ctrl-C, PTY resize and console behaviour are
+    manual steps it did not run (its Windows twin `g03-win-process-io.json` is `blocked` on the same manual steps);
+  - `g03-wsl-a-executable-selection.json` (L2) is `verified` although its P-A01 unset-variable sub-row
+    (`unset_var_identityagent`) was deliberately not run. Neither WSL record has a per-row status map
+    (`sub_probe_status`), so the matrix cells copy their top-level status.
+
+  A row takes the lowest-standing status among the records and sub-rows it relies on:
   - `blocked` if any cited record or needed sub-row is `blocked`, or cannot run without a missing platform, host,
     operator or authorization; the missing input is named;
   - otherwise `in_progress` if any cited record is `in_progress`;
@@ -79,11 +86,11 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
      (`g04-macos-{screen-lock,logout,reboot-headless,sleep}-probe.json`);
    - an Apple Developer signing identity and provisioning profile for a test bundle, plus an owner-driven screen
      lock/unlock cycle (`g04-macos-data-protection-keychain-probe.json`);
-   - for `g04-macos-secure-enclave-ctk-probe.json` (commit 34ffe3e): `blocked`, verdict `fail`. One unlocked run on
-     2026-10-09 under owner decision G04 D4. The identity loaded only through `ssh-add -K -S` and signed. Its fixture
-     login was not measured (probe v1 defect), and `KEYCHAIN_CERTIFICATES` did not limit which identities that path
-     loads (the clause that fails). Blocked on an owner-driven screen lock/unlock cycle; the fixed probe v3 has not
-     yet run on the real store.
+   - for `g04-macos-secure-enclave-ctk-probe.json` (commit b5a528cb): `blocked`, verdict `fail`. Two unlocked runs
+     (v1 2026-10-09, v3 2026-10-31). The identity loads only through `ssh-add -K -S`, signs, and (v3) logs in to the
+     fixture with the controls refused; `KEYCHAIN_CERTIFICATES` does not limit which identities that path loads (the
+     clause that fails, in both runs). Unlocked row `verified`; blocked on an owner-driven screen lock/unlock cycle,
+     and on the owner confirming that D4 covers further real-store runs.
 
    The recipe is not selected (G04 B1 pending).
 4. **Evidence:** none on a native Linux host. **Blocked on:** native Linux x86-64 and arm64 desktop/user-session and
@@ -112,13 +119,16 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
 9. **Evidence:** G02 X4 Windows spike: named-pipe checks pass. DPAPI, CNG and TPM are blocked on owner authorization
    or a disposable account or host (`tests/evidence/artifacts/g02-r4/x1/RESULTS.md` §3; no evidence record).
    **Blocked on:** `g04-windows-desktop-lock-probe.json` and `g04-windows-signout-reboot-probe.json`, both `blocked`.
-   Their `blocked_on` text says no Windows host is available; that text predates 2026-10-06, and an owner-driven
-   lock, sign-out and reboot is still needed. The recipe is not selected.
+   Their `blocked_on` names two inputs: an owner at the console of the native Windows 11 host to lock, or to sign out
+   and reboot, and the probe harness, which is not yet implemented (g04 §8.2, P-W1 and P-W2:
+   `docs/research/g04-managed-credentials.md`). The owner cannot unblock the row alone. The recipe is not selected.
 10. **Evidence:** WSL run of 2026-10-06 (L1–L7). `verified`: L1–L6. `in_progress`: L7. **Blocked on:**
     - an operator watching the Windows console for the UAC-prompt attestation of P-A06 (L7; progress.md lists
       "P-A06 UAC" among the inputs that need an operator at the console);
     - a host where `\\.\pipe\openssh-ssh-agent` is absent, for the P-A01 unset-variable sub-row. That sub-row was
-      skipped by design because the owner's default pipe exists.
+      skipped by design because the owner's default pipe exists;
+    - an operator for interactive Ctrl-C and PTY resize from a WSL terminal (L3: `g03-wsl-a-process-io.json` lists them
+      as manual steps not run).
 
     The Windows-side provider was a fixture agent served by pwsh; the 1Password (row 8) and agent-service (row 7)
     providers were not exercised from WSL. **Observed:** WSL 3.0.1.0, Ubuntu 24.04.5, kernel 6.18.40.1, NAT
@@ -134,6 +144,11 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
 13. **Evidence:** none. **Blocked on:** a native headless Linux host (ADR-0001 §5;
     `g04-linux-logout-reboot-headless-probe.json` is `blocked` on Linux desktop and headless hosts). The runner
     itself is not built: M00-T03 fixture row 15 (paired runner) is `not_started`, and the runner belongs to G07.
+    **Source note (2026-10-31):** S34 on `main` now says the default pairing grant includes access and relay
+    management (its pin says ordinary pairing does not), and that a shell or full-access-agent scope can mint a fully
+    scoped session. The pin stays the baseline, main's defaults are not a Heimdall contract, and G07's authority-boundary
+    investigation is retained on this point. S17 and S18 also changed on `main` with qualifications. See
+    `docs/sources/drift-2026-10-31.md`.
 14. **Evidence:** `m00-t03-fixtures.json` row 4, the ProxyJump portion only (`verified` per fixture; record
     `in_progress`): ProxyJump works with ForwardAgent off and the target sees no agent. That was a macOS client
     only. Bastion-hop host-key substitution and the forwarding recipe were not tested. **Blocked on:** native Linux
@@ -207,7 +222,7 @@ macOS 27.0 (26A428) arm64; client OpenSSH_10.3p1, LibreSSL 3.3.6; fixture server
 | M2 | Dedicated agent, certificate expiry, principal scope, account CA principals, issuer separation, fresh-login verification, enroll marker key | `g04-exp-{e1-dedicated-agent,e2-cert-expiry,e3-principal-scope,e4-account-ca-principals,e5-issuer-separation,e6-fresh-login-verification}.json`, `g04-exp-enroll-marker-key.json` | verified / pass (7) | S04, S05, S10, S30 |
 | M3 | Multiplexing (G09 preliminary). After-expiry: certificate expiry did not stop new sessions through an existing master; after `ssh -O stop`, new clients were not admitted and the open session continued (criterion H2 held). Stop race: 0 of 25 clients that started after `-O stop` returned were admitted. Preconnected: the criterion that control connections accepted before `-O stop` are refused afterwards did not hold. | `g04-exp-g09-prelim-mux-{after-expiry,stop-race,preconnected-after-stop}.json` | verified / pass, pass, **fail** | S01, S02 |
 | M4 | macOS lock-probe smoke runs (harness smoke; no human-driven lock) | `g04-macos-lock-probe-smoke-*.json` (7) | 5 verified / pass, 2 in_progress / inconclusive | — |
-| M5 | Screen lock, logout, reboot, sleep, data-protection keychain, Secure Enclave CTK. CTK (one unlocked run): loads only through `ssh-add -K -S` and signs; `KEYCHAIN_CERTIFICATES` does not limit that path | `g04-macos-*-probe.json` (6) | blocked (owner-driven cycles, signing identity); CTK: blocked / **fail** | — |
+| M5 | Screen lock, logout, reboot, sleep, data-protection keychain, Secure Enclave CTK. CTK (two unlocked runs): loads only through `ssh-add -K -S` and signs; fixture login in v3 only (v1 left it unmeasured); `KEYCHAIN_CERTIFICATES` does not limit that path | `g04-macos-*-probe.json` (6) | blocked (owner-driven cycles, signing identity); CTK: blocked / **fail** | — |
 
 ## G02 prototype platform runs (not product support)
 

@@ -1,0 +1,26 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare <tmp>/runA.json <tmp>/runB.json
+sources: 34  IDENTICAL=26  RAW_ONLY=1  MARKER_ONLY=0  CONTENT=0  GONE=0  FETCH_FAILED=7  MISSING=0  EXTRA=0  off_pin=15
+S01 FETCH_FAILED http=0/0
+S02 FETCH_FAILED http=0/0
+S03 FETCH_FAILED http=0/0
+S04 FETCH_FAILED http=0/0
+S05 FETCH_FAILED http=0/0
+S06 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S07 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S08 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S09 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S10 FETCH_FAILED http=0/0
+S11 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=no
+S12 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S14 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S15 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S20 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S21 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S22 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S24 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S25 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S26 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S28 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S30 FETCH_FAILED http=0/0
+exit 3: fetch failure (no content change, removal or missing source among the rest)
+exit=3

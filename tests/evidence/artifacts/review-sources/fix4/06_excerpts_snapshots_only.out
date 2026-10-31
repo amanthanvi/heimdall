@@ -1,0 +1,41 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py excerpts --set all
+S01 OK fragments=4 found=4 copy=snapshot
+S02 OK fragments=2 found=2 copy=snapshot
+S03 OK fragments=4 found=4 copy=snapshot
+S04 OK fragments=1 found=1 copy=snapshot
+S05 OK fragments=2 found=2 copy=snapshot
+S06 OK fragments=2 found=2 copy=snapshot
+S07 OK fragments=5 found=5 copy=snapshot
+S08 OK fragments=2 found=2 copy=snapshot
+S09 OK fragments=2 found=2 copy=snapshot
+S10 OK fragments=1 found=1 copy=snapshot
+S11 OK fragments=2 found=2 copy=snapshot
+S12 OK fragments=2 found=2 copy=snapshot
+S13 OK fragments=2 found=2 copy=snapshot
+S14 OK fragments=2 found=2 copy=snapshot
+S15 OK fragments=2 found=2 copy=snapshot
+S16 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=2
+S17 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=2
+S18 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=3
+S19 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=1
+S20 OK fragments=2 found=2 copy=snapshot
+S21 OK fragments=2 found=2 copy=snapshot
+S22 OK fragments=4 found=4 copy=snapshot
+S23 OK fragments=2 found=2 copy=snapshot
+S24 OK fragments=4 found=4 copy=snapshot
+S25 OK fragments=1 found=1 copy=snapshot
+S26 OK fragments=5 found=5 copy=snapshot
+S27 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=2
+S28 OK fragments=1 found=1 copy=snapshot
+S29 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=2
+S30 OK fragments=1 found=1 copy=snapshot
+S31 OK fragments=2 found=2 copy=snapshot
+S32 OK fragments=2 found=2 copy=snapshot
+S33 OK fragments=3 found=3 copy=snapshot
+S34 SKIPPED GitHub source, no local copy (use --fetch-git) fragments=3
+A01 OK fragments=3 found=3 copy=snapshot
+A02 OK fragments=4 found=4 copy=snapshot
+A03 OK fragments=3 found=3 copy=snapshot
+A04 OK fragments=2 found=2 copy=snapshot
+sources=38 checked=31 fragments=76 not_found_in=[] unchecked=['S16', 'S17', 'S18', 'S19', 'S27', 'S29', 'S34']
+exit=3

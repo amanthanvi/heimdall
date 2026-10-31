@@ -1,0 +1,8 @@
+S30 
+CLAIM: Agent socket and same-user/root trust limits
+PINNED EXCERPT: "It is accessible only to the current user, but is easily abused by root or another instance of the same user."
+LIVE: HTTP 200
+FRAGMENT True: It is accessible only to the current user, but is easily abused by root or another instance of the same user.
+CONTEXT: vironment ssh agent pid when ssh agent starts it stores the name of the agents process id pid in this variable ssh auth sock when ssh agent starts it creates a unix domain socket and stores its pathname in this variable it is accessible only to the current user but is easily abused by root or another instance of the same user files home ssh agent s unix domain sockets used to contain the connection to the authentication agent these sockets should only be readable by the owner the sockets should get automatically removed when the agent exits see also ssh 1 ssh add 1 ssh keygen 1 ssh config 5 sshd 8 authors openssh is a derivative of the original and free ssh 1 2 12 release by tatu ylonen aaron campb
+CHANGE BLOCKS 1
+('insert', '', 'OpenBSD-8.0')

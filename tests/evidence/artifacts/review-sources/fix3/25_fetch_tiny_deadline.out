@@ -1,0 +1,4 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py fetch --only S01 --deadline 0.001 --out <tmp>/cases/deadline.json
+S01 0 0 e3b0c44298fc e3b0c44298fc error=DeadlineExceeded
+not fetched (non-200, network error or deadline): S01
+exit=3

@@ -1,0 +1,1220 @@
+$ git diff HEAD -- docs/sources docs/decisions/0003-source-pins.md docs/compatibility/matrix.md
+diff --git a/docs/compatibility/matrix.md b/docs/compatibility/matrix.md
+index 0640f171..bc325835 100644
+--- a/docs/compatibility/matrix.md
++++ b/docs/compatibility/matrix.md
+@@ -19,8 +19,15 @@ Each row carries three separate statuses:
+   describes the evidence, not product support, and follows the gate-probe convention in `tests/evidence/README.md`:
+   `verified` means the probe ran as designed and its output is preserved, whatever the verdict. Each record keeps
+   its own top-level status. The multi-row rule says that status is the record's lowest row status (order in
+-  `tests/evidence/README.md`); `m00-t03-fixtures.json` is coarser: it is `in_progress` by design. A row takes the lowest-standing status among the records and
+-  sub-rows it relies on:
++  `tests/evidence/README.md`); three records are coarser:
++  - `m00-t03-fixtures.json` is `in_progress` by design;
++  - `g03-wsl-a-process-io.json` (L3) is `verified` although interactive Ctrl-C, PTY resize and console behaviour are
++    manual steps it did not run (its Windows twin `g03-win-process-io.json` is `blocked` on the same manual steps);
++  - `g03-wsl-a-executable-selection.json` (L2) is `verified` although its P-A01 unset-variable sub-row
++    (`unset_var_identityagent`) was deliberately not run. Neither WSL record has a per-row status map
++    (`sub_probe_status`), so the matrix cells copy their top-level status.
++
++  A row takes the lowest-standing status among the records and sub-rows it relies on:
+   - `blocked` if any cited record or needed sub-row is `blocked`, or cannot run without a missing platform, host,
+     operator or authorization; the missing input is named;
+   - otherwise `in_progress` if any cited record is `in_progress`;
+@@ -79,11 +86,11 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
+      (`g04-macos-{screen-lock,logout,reboot-headless,sleep}-probe.json`);
+    - an Apple Developer signing identity and provisioning profile for a test bundle, plus an owner-driven screen
+      lock/unlock cycle (`g04-macos-data-protection-keychain-probe.json`);
+-   - for `g04-macos-secure-enclave-ctk-probe.json` (commit 34ffe3e): `blocked`, verdict `fail`. One unlocked run on
+-     2026-10-09 under owner decision G04 D4. The identity loaded only through `ssh-add -K -S` and signed. Its fixture
+-     login was not measured (probe v1 defect), and `KEYCHAIN_CERTIFICATES` did not limit which identities that path
+-     loads (the clause that fails). Blocked on an owner-driven screen lock/unlock cycle; the fixed probe v3 has not
+-     yet run on the real store.
++   - for `g04-macos-secure-enclave-ctk-probe.json` (commit b5a528cb): `blocked`, verdict `fail`. Two unlocked runs
++     (v1 2026-10-09, v3 2026-10-31). The identity loads only through `ssh-add -K -S`, signs, and (v3) logs in to the
++     fixture with the controls refused; `KEYCHAIN_CERTIFICATES` does not limit which identities that path loads (the
++     clause that fails, in both runs). Unlocked row `verified`; blocked on an owner-driven screen lock/unlock cycle,
++     and on the owner confirming that D4 covers further real-store runs.
+ 
+    The recipe is not selected (G04 B1 pending).
+ 4. **Evidence:** none on a native Linux host. **Blocked on:** native Linux x86-64 and arm64 desktop/user-session and
+@@ -112,13 +119,16 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
+ 9. **Evidence:** G02 X4 Windows spike: named-pipe checks pass. DPAPI, CNG and TPM are blocked on owner authorization
+    or a disposable account or host (`tests/evidence/artifacts/g02-r4/x1/RESULTS.md` §3; no evidence record).
+    **Blocked on:** `g04-windows-desktop-lock-probe.json` and `g04-windows-signout-reboot-probe.json`, both `blocked`.
+-   Their `blocked_on` text says no Windows host is available; that text predates 2026-10-06, and an owner-driven
+-   lock, sign-out and reboot is still needed. The recipe is not selected.
++   Their `blocked_on` names two inputs: an owner at the console of the native Windows 11 host to lock, or to sign out
++   and reboot, and the probe harness, which is not yet implemented (g04 §8.2, P-W1 and P-W2:
++   `docs/research/g04-managed-credentials.md`). The owner cannot unblock the row alone. The recipe is not selected.
+ 10. **Evidence:** WSL run of 2026-10-06 (L1–L7). `verified`: L1–L6. `in_progress`: L7. **Blocked on:**
+     - an operator watching the Windows console for the UAC-prompt attestation of P-A06 (L7; progress.md lists
+       "P-A06 UAC" among the inputs that need an operator at the console);
+     - a host where `\\.\pipe\openssh-ssh-agent` is absent, for the P-A01 unset-variable sub-row. That sub-row was
+-      skipped by design because the owner's default pipe exists.
++      skipped by design because the owner's default pipe exists;
++    - an operator for interactive Ctrl-C and PTY resize from a WSL terminal (L3: `g03-wsl-a-process-io.json` lists them
++      as manual steps not run).
+ 
+     The Windows-side provider was a fixture agent served by pwsh; the 1Password (row 8) and agent-service (row 7)
+     providers were not exercised from WSL. **Observed:** WSL 3.0.1.0, Ubuntu 24.04.5, kernel 6.18.40.1, NAT
+@@ -207,7 +217,7 @@ macOS 27.0 (26A428) arm64; client OpenSSH_10.3p1, LibreSSL 3.3.6; fixture server
+ | M2 | Dedicated agent, certificate expiry, principal scope, account CA principals, issuer separation, fresh-login verification, enroll marker key | `g04-exp-{e1-dedicated-agent,e2-cert-expiry,e3-principal-scope,e4-account-ca-principals,e5-issuer-separation,e6-fresh-login-verification}.json`, `g04-exp-enroll-marker-key.json` | verified / pass (7) | S04, S05, S10, S30 |
+ | M3 | Multiplexing (G09 preliminary). After-expiry: certificate expiry did not stop new sessions through an existing master; after `ssh -O stop`, new clients were not admitted and the open session continued (criterion H2 held). Stop race: 0 of 25 clients that started after `-O stop` returned were admitted. Preconnected: the criterion that control connections accepted before `-O stop` are refused afterwards did not hold. | `g04-exp-g09-prelim-mux-{after-expiry,stop-race,preconnected-after-stop}.json` | verified / pass, pass, **fail** | S01, S02 |
+ | M4 | macOS lock-probe smoke runs (harness smoke; no human-driven lock) | `g04-macos-lock-probe-smoke-*.json` (7) | 5 verified / pass, 2 in_progress / inconclusive | — |
+-| M5 | Screen lock, logout, reboot, sleep, data-protection keychain, Secure Enclave CTK. CTK (one unlocked run): loads only through `ssh-add -K -S` and signs; `KEYCHAIN_CERTIFICATES` does not limit that path | `g04-macos-*-probe.json` (6) | blocked (owner-driven cycles, signing identity); CTK: blocked / **fail** | — |
++| M5 | Screen lock, logout, reboot, sleep, data-protection keychain, Secure Enclave CTK. CTK (two unlocked runs): loads only through `ssh-add -K -S`, signs and logs in to the fixture; `KEYCHAIN_CERTIFICATES` does not limit that path | `g04-macos-*-probe.json` (6) | blocked (owner-driven cycles, signing identity); CTK: blocked / **fail** | — |
+ 
+ ## G02 prototype platform runs (not product support)
+ 
+diff --git a/docs/decisions/0003-source-pins.md b/docs/decisions/0003-source-pins.md
+index e52ed1ac..ce14d734 100644
+--- a/docs/decisions/0003-source-pins.md
++++ b/docs/decisions/0003-source-pins.md
+@@ -1,21 +1,21 @@
+ # ADR-0003: Source pins for spec section 19 and G02 candidate dependencies
+ 
+-Status: recorded (M00-T02, revised by M00-T02-fix and M00-T02-fix2). Task status: verified (recheck2, 2026-10-09). The v1 pins had an independent review (`tests/evidence/artifacts/m00-wf3/review-sources.json`: two major and several minor defects). M00-T02-fix addressed those, and an independent recheck (`tests/evidence/artifacts/review-sources/recheck/RECHECK.md`, 2026-10-09) confirmed the fixes. The recheck found one major gap (M1, the support matrix) and nine minor ones (m1-m9). M00-T02-fix2 addresses them (finding-to-fix map: `tests/evidence/artifacts/review-sources/fix2/README.md`). A second independent recheck (`tests/evidence/artifacts/review-sources/recheck2/RECHECK2.md`, 2026-10-09) found every fix correct, with no blocker or major. Its text-only items n1, n11, n12 and n15 are applied; its other minors (n2-n10, n13) are open and listed in progress.md.
+-Date: v1 retrieval 2026-10-02T23:56Z; v2 baseline retrieval 2026-10-03T21:18Z; fix2 re-run and auxiliary pins 2026-10-09 (spec says sources were accessed 2026-10-01).
++Status: recorded (M00-T02, revised by M00-T02-fix, M00-T02-fix2 and M00-T02-fix3). Task status: verified (recheck2, 2026-10-09); the fix3 changes to the fetch tool and its docs are `implemented_unverified` until an independent recheck. The v1 pins had an independent review (`tests/evidence/artifacts/m00-wf3/review-sources.json`: two major and several minor defects). M00-T02-fix addressed those, and an independent recheck (`tests/evidence/artifacts/review-sources/recheck/RECHECK.md`, 2026-10-09) confirmed the fixes. The recheck found one major gap (M1, the support matrix) and nine minor ones (m1-m9). M00-T02-fix2 addresses them (finding-to-fix map: `tests/evidence/artifacts/review-sources/fix2/README.md`). A second independent recheck (`tests/evidence/artifacts/review-sources/recheck2/RECHECK2.md`, 2026-10-09) found every fix correct, with no blocker or major. Its text-only items n1, n11, n12 and n15 are applied. M00-T02-fix3 (2026-10-31) addresses its other minors n2-n10 and n13 (finding-to-fix map and the runs: `tests/evidence/artifacts/review-sources/fix3/README.md`); n14 is an integration item and is not addressed there.
++Date: v1 retrieval 2026-10-02T23:56Z; v2 baseline retrieval 2026-10-03T21:18Z; fix2 re-run and auxiliary pins 2026-10-09; fix3 tool and documentation changes 2026-10-31 (spec says sources were accessed 2026-10-01). No pinned hash value changed in fix3.
+ 
+ ## Context
+ spec.md section 19 cites 34 mutable primary sources (S01-S34) and says dependency versions and immutable snapshots must be pinned before implementation (plan 1.4, G01, R-QU-01, R-QU-07, R-DI-08). Later decisions (G02 and others) must cite fixed snapshots rather than moving docs. This ADR also pins the G02 candidate dependencies and adjacent tools, and records where the M00-T02 baseline/support matrix lives (section "Support matrix").
+ 
+ ## Method (v2, reproducible; revised by fix2)
+-- The fetch and normalization code is committed: `docs/sources/tools/fetch_pins.py` (python3 standard library, HTTP GET only, no credentials). Its docstring defines the normalizer (version 1: UTF-8 decode, drop head/script/style/noscript/template/svg content, NFC, collapse whitespace), the `compare` classes and every exit code.
++- The fetch and normalization code is committed: `docs/sources/tools/fetch_pins.py` (python3 standard library, HTTP GET only, no credentials). Its docstring defines the normalizer (version 1: UTF-8 decode, drop head/script/style/noscript/template/svg content, NFC, collapse whitespace), the `compare` classes and every exit code. Every GET has an overall per-source deadline (120 s; exceeding it is a failed fetch) and output is line-buffered (fix3, n8). Since fix3 a head without any `</head>` ends at the first start tag that cannot be in a head, where it used to swallow the whole document (n4); output is unchanged for every other document, so the normalizer stays version 1. `fetch` warns when a 200 response normalizes to under 200 characters.
+ - For each source the script records HTTP status, raw-body sha256, normalized-text sha256, sizes, selected headers and date markers. The S01-S34 baseline is `docs/sources/fetch-baseline.json` (retrieved 2026-10-03T21:18Z). GitHub sources are fetched at the pinned commit (`raw.githubusercontent.com/<repo>/<sha>/<path>`) and the git blob sha1 is recomputed; all 7 match the pinned blobs.
+ - Primary pin (`pin_v2.primary`). Since fix2, 14 sources use the raw-body sha256: the 7 GitHub permalinks (S16-S19, S27, S29, S34; immutable by commit) and the 7 OpenBSD/OpenSSH pages (S01-S05, S10, S30), whose raw hash held from the v1 retrieval (2026-10-02T23:56Z) to the fix2 re-run (2026-10-09T05:31Z). The other 20 use the normalized-text sha256: CMS or static-site HTML (S06-S09, S11-S15, S20-S23, S28) and the `.md` variants of doc sites (S24-S26, S31-S33), whose bytes can change in a site rebuild without a text change. The raw hash is kept for all as evidence of the exact bytes fetched. fix2 moved S23 from raw to normalized (section "Pin changes in M00-T02-fix2").
+ - Reproducibility proof (executed, 2026-10-03): `fetch` run twice back to back gave 34/34 identical raw hashes and 34/34 identical normalized hashes and date markers (`docs/sources/fetch-repeat.json` vs `fetch-baseline.json`, `compare` exit 0), and the 27 snapshot files were byte-identical across the two runs. That shows stability over minutes. Over longer intervals: 21 sources kept their v1 raw bytes for about 21 h (v1 to v2; 13 did not), and the fix2 re-run after about 5.3 days found raw bytes unchanged for 19 and normalized text unchanged for 32 of 34 (`pins.json` `reproducibility`).
+ - v1 hashes. For the 28 HTML and GitHub sources, the v1 `text_sha256` came from an HTML-to-text script that was not retained, and the independent review could not reproduce it. It remains in `pins.json` as `pin.legacy_text_sha256_unreproducible` and must not be used as a drift detector. For the 6 `.md` sources (S24-S26, S31-S33), the v1 `text_sha256` equals the v2 raw-body sha256: v1 hashed the same raw `.md` bytes 21 h earlier. fix2 relabelled these 6 as `pin.legacy_raw_body_sha256_v1` (reproduced), following the recheck's `legacy_v1_hashes.out`. The `pin.value` fields that still held v1 text hashes (13 sources) now say "superseded". The v1 sentence "all 34 text hashes matched on re-fetch" is withdrawn as unverifiable.
+-- `compare` (revised by fix2) gives each source one class, with the HTTP status taken into account: IDENTICAL, RAW_ONLY (text and markers equal, bytes differ), MARKER_ONLY (text equal, a date marker moved), CONTENT (visible text changed, or a GitHub body whose blob sha1 is not the pinned blob), FETCH_FAILED (either side not HTTP 200, for example a bot-challenge 403; hashes not compared), MISSING, EXTRA. It also reports `primary_same`: whether the new file still matches the `pin_v2` primary hash in `pins.json`, which it must be able to read unless `--no-pins` is given. Exit 0 = all identical, 4 = text identical with only bytes or markers moved, 3 = fetch failure, 2 = content change or missing source; 1 = unreadable input, 64 = usage error. The v1 compare counted a moved date marker as a content change and ignored HTTP status. All requests are GET over https only, also after redirects.
+-- GitHub branch drift. `fetch` reads the pinned commit, so `compare` cannot see later changes on the branch the spec URL names. `fetch_pins.py upstream` GETs the raw file on that branch (the raw rendering of the spec URL; HEAD for repo-root URLs), compares its blob sha1 with the pin, and counts the quoted fragments still present. Exit 0 = no drift, 4 = drift with every quoted fragment still present, 2 = a drifted source lost a quoted fragment, 3 = fetch failure.
++- `compare` (revised by fix2 and fix3) gives each source one class, with the HTTP status taken into account: IDENTICAL, RAW_ONLY (text and markers equal, bytes differ), MARKER_ONLY (text equal, a date marker moved), CONTENT (visible text changed, or a GitHub body whose blob sha1 is not the pinned blob), GONE (reference HTTP 200, second file HTTP 404 or 410: the page was removed or moved; fix3, n3), FETCH_FAILED (either side not HTTP 200 otherwise, a network error or the per-source deadline; hashes not compared), MISSING, EXTRA. It also reports `primary_same`: whether the new file still matches the `pin_v2` primary hash in `pins.json`, which it must be able to read unless `--no-pins` is given. Off-pin rule (fix3, n2; the same rule is in `docs/sources/README.md` and `pins.json` `reopen_conditions`): `primary_same=no` is the off-pin flag. `compare` always prints such a line (also without `--all`), counts it as `off_pin`, and exits 5 when nothing worse was found. Against the baseline, an off-pin RAW_ONLY or MARKER_ONLY line means the text equals the pin and only the raw bytes of a raw-primary source moved: pin maintenance, not drift. An off-pin normalized-primary source is CONTENT. Exit codes, first match wins: 2 = CONTENT, GONE or MISSING; 3 = FETCH_FAILED; 5 = off-pin and nothing above; 4 = only RAW_ONLY / MARKER_ONLY, every one on-pin; 0 = all identical and none off-pin; 1 = unreadable input, 64 = usage error. `fetch` exits 0, 2 (a GitHub body whose blob sha1 is not the pinned blob, the integrity failure `compare` calls CONTENT, also exit 2) or 3 (a source not HTTP 200, a network error or the deadline); before fix3 all three were exit 1, which is now only an input error (n9). The v1 compare counted a moved date marker as a content change and ignored HTTP status. All requests are GET over https only, also after redirects.
++- GitHub branch drift. `fetch` reads the pinned commit, so `compare` cannot see later changes on the branch the spec URL names. `fetch_pins.py upstream` GETs the raw file on that branch (the raw rendering of the spec URL; HEAD for repo-root URLs), compares its blob sha1 with the pin, and counts the quoted fragments still present. The URL it builds is recorded for all 7 GitHub sources in `pins.json` (`upstream.url` and `upstream.ref`; S19, S27 and S29 use HEAD with the pinned path README.md, S16-S18 and S34 the branch named in the spec URL), and `upstream` and `selftest` check the record against the code (fix3, n13). Exit 0 = no drift, 4 = drifted, quotes intact (claim not re-read), 2 = a drifted source lost a quoted fragment or has none to check, or its file is gone (404 or 410), 3 = fetch failure. The old label "benign drift" is withdrawn: a surviving quote shows that the quoted words are present, not that the claim still holds (n5).
+ - Release tags. `pins.json` `tag_pins` records the commit each candidate release tag pointed to on 2026-10-09, read from the repository's public git ref advertisement (GET `https://github.com/<repo>.git/info/refs?service=git-upload-pack`, protocol v0, no POST). `fetch_pins.py tags` re-checks them. Tag names stay as labels.
+-- Excerpt attribution. `fetch_pins.py excerpts` checks that every quoted fragment of every `pins.json` excerpt occurs in its own source's pinned copy, and names any other source that contains a missing fragment (the S26 misattribution class). It exits 3 if any source could not be checked (a GitHub source without `--fetch-git`, or an excerpt with no quote). S05 and S21 had no quoted fragment, so fix2 added verbatim quotes from their snapshots. On 2026-10-09 every one of the 38 sources was checked and every fragment found (counts in the fix2 README).
++- Excerpt attribution. `fetch_pins.py excerpts` checks that every quoted fragment of every `pins.json` excerpt occurs in its own source's pinned copy, and names any other source that contains a missing fragment (the S26 misattribution class). Matching is on whole word sequences since fix3 (n10): a fragment must start and end on word boundaries, so "is not permitted by default" no longer matches "is not permitted by defaults". It exits 3 if any source could not be checked (a GitHub source without `--fetch-git`, or an excerpt with no quote). S05 and S21 had no quoted fragment, so fix2 added verbatim quotes from their snapshots. On 2026-10-09 every one of the 38 sources was checked and every fragment found (counts in the fix2 README).
+ - Immutable copy. GitHub sources: commit permalink plus blob sha1. The other 27 spec sources and A01-A04: a deterministic gzip of the normalized text in `docs/sources/snapshots/` (scope, verification and copyright note in its README; owner decision E8). The Internet Archive's read-only availability API (GET only, no save requests) returned a snapshot for 8 of 27 sources across two passes, and its answers were inconsistent between passes. Every snapshot it found predates the pin, and only S03's archived text matches the pinned normalized text (`docs/sources/archive-lookups.json`). Archive URLs are recorded as hints, not as the copy of record.
+ - Date markers kept from v1 where they exist: OpenBSD man page footer date, openssh.org Last-Modified, Microsoft ms.date and updated_at, Smallstep "Last updated" text, 1Password embedded dateModified. They are now extracted by the script.
+ - Candidate versions came from the crates.io API, the npm registry, the Go module proxy and `gh api` GET, and tag commits from git ref advertisements (fix2). No installs, no writes, no SSH or credential access, no fixture downloads.
+@@ -118,6 +118,17 @@ The "construct the baseline/support matrix" half of M00-T02 (plan.md M00-T02 row
+ - The 13 `pin.value` fields that held v1 text hashes (S14, S15, S20-S26, S28, S31-S33) now say "superseded". Their v1 hashes stay under `legacy_*` names (finding m4).
+ - New pins: A01-A04 with snapshots (finding m5), and `tag_pins` for 14 tags in 10 repositories (finding m8). No existing source pin or hash value was changed. `fetch-baseline.json` and `fetch-repeat.json` are unchanged.
+ 
++## Changes in M00-T02-fix3 (tool and documentation; no pinned hash changed)
++Finding-to-fix map (recheck2 section F; runs and exit codes: `tests/evidence/artifacts/review-sources/fix3/README.md`). Exit codes by subcommand are in `docs/sources/README.md` "Exit codes" and in the script docstring.
++- n2: off-pin lines are always printed, `off_pin` is counted in the header, and compare exits 5 when nothing worse was found. One rule in README, this ADR ("Reopen conditions") and `pins.json`.
++- n3: GONE class (404 or 410 after a 200 reference), exit 2; `upstream` reports a gone file as exit 2; persistent FETCH_FAILED rule.
++- n4: head without `</head>` handled (normalizer stays version 1); selftest cases; stderr warning below 200 characters.
++- n5: exit-4 wording and the re-read policy ("Reopen conditions"); a drifted source with no quoted fragment is exit 2 instead of 4.
++- n8: 120 s overall deadline per GET (`fetch --deadline`), mapped to FETCH_FAILED; line-buffered output.
++- n9: `fetch` exit 2 for a GitHub blob mismatch, 3 for a failed fetch, 1 only for input errors.
++- n10: whole-word excerpt matching. n13: `upstream` URL recorded for the 7 GitHub sources.
++- Beyond the findings: the S29 drift note above (a live `upstream` run lost a quoted fragment, so the new exit 2 fired on a real change).
++
+ ## Contradictions and nuances found (escalations, not decided here)
+ - E1 (S06/S07 vs spec ~line 323): suggested spec clarification, not a contradiction. The spec sentence (remembered approvals do not keep private keys available after lock) is supported as written. S07 also says the timed options (4/12/24 h) keep key approvals in agent memory while 1Password is locked, with an unlock still needed for key access. A sentence distinguishing approvals from key availability would prevent misreading; wording is the owner's.
+ - E2 (S01/S02 vs spec ~line 488): "ssh -G ... Match exec may run commands" is an inference, labelled as such. S01 says "The exec keyword executes the specified command under the user's shell" and S02 says "-G ... after evaluating Host and Match blocks"; together they support it textually but no source says it in one sentence. Needs behavioral evidence (G07/G09).
+@@ -140,7 +151,8 @@ The "construct the baseline/support matrix" half of M00-T02 (plan.md M00-T02 row
+   - S18: main blob 4f3e062 (pinned 367d911).
+   - S34: main blob 132b655 (pinned 2428783).
+ 
+-  Every pin is a commit permalink; `fetch` reads that commit and the blob sha1 matches. All quoted excerpt fragments still occur on main (2/2, 2/2, 3/3, 3/3). The commits that changed S16, S18 and S34 were not looked up, because no GitHub API request was made. The S19, S27 and S29 READMEs on the default branch still equal their pinned blobs.
++  Every pin is a commit permalink; `fetch` reads that commit and the blob sha1 matches. All quoted excerpt fragments still occur on main (2/2, 2/2, 3/3, 3/3); that is exit 4, "drifted, quotes intact (claim not re-read)". The claims of these four sources were not re-read against main; the re-read policy under "Reopen conditions" applies when a still-open gate cites one of them. The commits that changed S16, S18 and S34 were not looked up, because no GitHub API request was made. The S19, S27 and S29 READMEs on the default branch still equal their pinned blobs.
++- Drift observed again by `upstream` at 2026-10-31T20:39Z (fix3 run, `tests/evidence/artifacts/review-sources/fix3/48_upstream.out`): S16, S17, S18 and S34 changed again on `main` (new branch blobs; all quoted fragments still present, exit-4 class; claims not re-read). S29 is new: its README on HEAD changed (blob 5141426 against the pinned 6f2523a) and 1 of 2 quoted fragments is gone ("Development requires Bun 1.4.1 or later and Zig 0.16.0."; HEAD says Zig 0.17.0), so `upstream` exits 2. The diff was read in fix3 and the S29 claim still reads as supported on HEAD (recorded in the S29 `note`); the pin at de8dc97 is unaffected. Whether a still-open gate relies on OpenTUI's Zig requirement is not checked here: that decision, under "Reopen conditions", is the gate owner's. S19 and S27 still equal their pinned blobs.
+ - S26 excerpt: the v1 excerpt quoted "Be very specific about your end goal", which is on S31, not S26. Corrected in `pins.json` and `excerpts/notes.md`; the S26 claim is supported by its own text. On 2026-10-09 S26 had an unrelated content edit (Fast-mode / EU data residency); all 5 S26 excerpt fragments are still live.
+ - S24 excerpt: the first quote joins three list headings that are not adjacent on the page; ellipses now mark the gaps (finding m9).
+ - S27 pin: 96d69d2 is the main head at retrieval, not the v2.0.10 release commit d5bfd5c; cite the tag for the release.
+@@ -152,8 +164,13 @@ The "construct the baseline/support matrix" half of M00-T02 (plan.md M00-T02 row
+ - The revised fetcher's own runs (`fetch`, `compare`, `verify`, `upstream`, `tags`, `excerpts`, `selftest`) are listed in the fix2 README with their exit codes.
+ 
+ ## Reopen conditions
+-- `fetch_pins.py compare` against `docs/sources/fetch-baseline.json` (or `fetch-baseline-aux.json`) classifies a source cited by a still-open gate as CONTENT, or reports `primary_same=no` for it. Read `docs/sources/snapshots/<id>.txt.gz` to see what the pin said. MARKER_ONLY, and RAW_ONLY with `primary_same=yes`, are not drift. FETCH_FAILED means re-run.
+-- `fetch_pins.py upstream` exits 2: a GitHub source drifted on its spec branch and lost a quoted fragment. `fetch_pins.py tags` exits 2: a tag moved or is missing.
++- `fetch_pins.py compare` against `docs/sources/fetch-baseline.json` (or `fetch-baseline-aux.json`) classifies a source cited by a still-open gate as CONTENT, GONE (HTTP 404 or 410, after one confirming re-run) or MISSING. Read `docs/sources/snapshots/<id>.txt.gz` to see what the pin said. This is the one off-pin rule (also in `docs/sources/README.md` and `pins.json` `reopen_conditions`; fix3, n2):
++  - `primary_same=no` flags a source whose second-file primary hash differs from the pin. `compare` always prints it and exits 5 when nothing worse was found.
++  - Against the baseline, off-pin with class RAW_ONLY or MARKER_ONLY means the text equals the pin and only the raw bytes of a raw-primary source moved. That is pin maintenance (run `verify`, then re-pin with a dated note, as for S23 in fix2), not drift and not a reopen. An off-pin normalized-primary source is CONTENT, which is drift.
++  - MARKER_ONLY, and RAW_ONLY with `primary_same=yes`, are not drift.
++  - FETCH_FAILED means re-run, not drift, unless the same source is FETCH_FAILED on runs at least 24 h apart: then treat it as GONE and investigate (n3).
++- `fetch_pins.py upstream` exits 2: a GitHub source drifted on its spec branch and lost a quoted fragment or has none to check, or its file is gone. `fetch_pins.py tags` exits 2: a tag moved or is missing.
++- Re-read policy for a drifted GitHub source (`upstream` exit 4, "drifted, quotes intact (claim not re-read)"; n5). Exit 4 reopens nothing by itself, and a surviving quote does not show that the claim still holds. For a source cited by a still-open gate: (1) read the branch file against the claim before anyone relies on `main`; (2) record the outcome in the source's `note` with the date, as `claim re-read: holds` or `claim re-read: changed`; (3) reopen the gate if the claim changed or the file is gone (exit 2); (4) until step 2 is recorded, cite only the pinned permalink, which stays valid. A drifted source that no open gate cites needs only the note.
+ - A candidate ships a new minor/major release before the G02 selection is locked.
+ - Win32-OpenSSH (`PowerShell/Win32-OpenSSH`) publishes a release tag without "Preview", or `PowerShell/openssh-portable` changes its `LICENCE`. Iroh JS adds darwin-x64, or A02 changes the Go binding's status or platforms. Pigeons changes its ProxyCommand integration, telemetry or service behavior.
+ - spec section 19 is amended, or `docs/compatibility/matrix.md` cites a source not listed here or in the G03 source pins.
+@@ -161,6 +178,7 @@ The "construct the baseline/support matrix" half of M00-T02 (plan.md M00-T02 row
+ ## Limits
+ - Normalized-text hashes depend on the normalizer: a change of Python's `html.parser` or `unicodedata` data could shift a hash without a content change. The baseline and the fix2 runs used Python 3.14.8. A mismatch should be checked against the snapshot before it is treated as drift.
+ - Long-interval stability is shown for one interval per source: about 21 h (v1 to v2), and about 5.3 days to the fix2 re-run. The auxiliary sources A01-A04 have only a same-day pair of runs.
+-- `upstream` reads the branch HEAD at one moment; it does not list the commits that changed a file. Release asset digests are not recorded (see Candidate dependency pins).
++- Reproduction depends on the interpreter's TLS stack: on 2026-10-31 Python 3.15.2 with OpenSSL 4.1.0 could not fetch S01-S05, S10 and S30 (`man.openbsd.org`, `www.openssh.org`; `TLSV1_ALERT_DECODE_ERROR` in a direct probe; the pre-fix3 tool failed the same way), while Python 3.13.18 with OpenSSL 3.5.9 could. The cause on the servers' side is not established.
++- The per-source deadline bounds one source, not a whole run, and a stalled run was seen once without an established cause (recheck2 n8); fix3 bounds it and flushes progress lines but does not explain it. `upstream` reads the branch HEAD at one moment; it does not list the commits that changed a file. Release asset digests are not recorded (see Candidate dependency pins).
+ - The Internet Archive availability API gave inconsistent answers; absence of an archive URL is not proof of absence.
+ - Behavioral claims (E2 Match exec under `ssh -G`, OpenTUI under Node 26.4 versus Bun, Iroh JS on Intel macOS) are not tested here; they belong to G02, G07 and G09.
+diff --git a/docs/sources/README.md b/docs/sources/README.md
+index 8bd633f8..849ac80c 100644
+--- a/docs/sources/README.md
++++ b/docs/sources/README.md
+@@ -4,8 +4,8 @@ Source pins for spec section 19 (S01-S34), auxiliary sources (A01-A04), and the
+ 
+ | Path | What it is |
+ |---|---|
+-| `pins.json` | `sources` S01-S34 and `auxiliary_sources` A01-A04: `pin_v2` is the reproducible pin (primary hash kind, raw and normalized sha256, markers, snapshot). `pin` keeps the v1 marker; v1 hashes appear only under `legacy_*` names. `candidates`: dependency versions, licences, heads. `tag_pins`: release tags resolved to commit ids. `escalations`, `reopen_conditions`, `reproducibility`. |
+-| `tools/fetch_pins.py` | Stdlib-only, GET-only fetch, normalization, compare, verify, upstream drift, tag resolution, excerpt check, self-test, archive lookup. The docstring defines the normalizer, the compare classes and every exit code. |
++| `pins.json` | `sources` S01-S34 and `auxiliary_sources` A01-A04: `pin_v2` is the reproducible pin (primary hash kind, raw and normalized sha256, markers, snapshot). `pin` keeps the v1 marker; v1 hashes appear only under `legacy_*` names. `upstream` (the 7 GitHub sources): the raw branch URL and ref that `upstream` GETs. `candidates`: dependency versions, licences, heads. `tag_pins`: release tags resolved to commit ids. `escalations`, `reopen_conditions`, `reproducibility`. |
++| `tools/fetch_pins.py` | Stdlib-only, GET-only fetch, normalization, compare, verify, upstream drift, tag resolution, excerpt check, self-test, archive lookup. The docstring defines the normalizer, the compare classes and every exit code (table below). |
+ | `fetch-baseline.json` | `fetch` output for S01-S34 on 2026-10-03T21:18Z (hashes, sizes, headers, date markers). |
+ | `fetch-repeat.json` | Immediate second run, identical hashes and markers. |
+ | `fetch-baseline-aux.json` | `fetch --set aux` output for A01-A04 on 2026-10-09 (a second run was identical). |
+@@ -31,22 +31,41 @@ Each source gets one class. The first file is the reference.
+ | Class | Meaning | Drift? |
+ |---|---|---|
+ | `IDENTICAL` | raw bytes, normalized text and date markers equal | no |
+-| `RAW_ONLY` | text and markers equal, raw bytes differ (page chrome, site rebuild) | no, if `primary_same=yes`; for a raw-primary source (`primary_same=no`) the text is still identical, so check the snapshot before calling it drift |
++| `RAW_ONLY` | text and markers equal, raw bytes differ (page chrome, site rebuild) | no. With `primary_same=no` (a raw-primary source whose bytes moved) the text still equals the pin: pin maintenance, see the off-pin rule |
+ | `MARKER_ONLY` | text equal, a date marker moved (HTTP Last-Modified, embedded dateModified); raw may differ | no |
+ | `CONTENT` | normalized text differs: the visible text changed; or a GitHub body's blob sha1 is not the pinned blob (`blob_mismatch=yes`) | yes, read the snapshot and the live page. S28 fires on live counters (crate count, stars) |
+-| `FETCH_FAILED` | either side not HTTP 200 or a network error (for example a bot-challenge 403); hashes not compared | unknown, re-run |
++| `GONE` | the reference was HTTP 200 and the second file is HTTP 404 or 410: the cited page was removed or moved | yes, after one confirming re-run |
++| `FETCH_FAILED` | either side not HTTP 200 (other than the `GONE` case), a network error, or the per-source deadline (for example a bot-challenge 403); hashes not compared | unknown, re-run. If the same source fails on runs at least 24 h apart, treat it as `GONE` and investigate |
+ | `MISSING` / `EXTRA` | id absent from the second / first file | `MISSING` counts as a failure |
+ 
+-`primary_same` says whether the second file still matches the `pin_v2` primary hash in `pins.json`. `compare` needs a readable `--pins` (default `docs/sources/pins.json`, relative to the current directory) unless `--no-pins` is given.
++Off-pin rule (the one rule; ADR-0003 "Reopen conditions" and `pins.json` `reopen_conditions` say the same). `primary_same` says whether the second file still matches the `pin_v2` primary hash in `pins.json`; `primary_same=no` is the off-pin flag. `compare` always prints an off-pin line (also without `--all`), counts it in the header as `off_pin=N`, and exits 5 when nothing worse was found. Against the baseline, an off-pin line with class `RAW_ONLY` or `MARKER_ONLY` means the text equals the pin and only the raw bytes of a raw-primary source moved: that is pin maintenance (run `verify`, then re-pin with a dated note), not drift and not a gate reopen. An off-pin normalized-primary source is `CONTENT`, so it is drift. When the first file is not the baseline (for example two fresh runs), exit 5 only says that the live pages no longer match the pins; compare against the baseline to classify them. `compare` needs a readable `--pins` (default `docs/sources/pins.json`, relative to the current directory) unless `--no-pins` is given, which turns the off-pin check off.
+ 
+-Exit codes: `0` all identical; `4` text identical everywhere, only raw bytes or markers moved; `3` a fetch failed and no content change was seen; `2` at least one `CONTENT` or `MISSING`; `1` unreadable input (pins file, result file, empty reference); `64` usage error. Other subcommands: `upstream` 0 no drift, 4 drift with every quoted fragment still present, 2 a fragment lost, 3 fetch failure; `tags` 0 all equal, 2 moved or missing, 3 fetch failure or invalid advertisement, 4 unpinned; `excerpts` 0 all checked and found, 2 a fragment not found, 3 a source unchecked (GitHub sources need `--fetch-git`); `verify` 0 or 3; `fetch` 0, or 1 on any non-200 or GitHub blob mismatch. Every request is a GET over https, also after redirects. Between 2026-10-03 and 2026-10-09 the raw bytes of the 1Password, Microsoft, Smallstep and Iroh pages changed while their text did not, so `4` is the expected result when no cited text has changed. On 2026-10-09 the result was `2` (S26 page edit, S28 counters).
++## Exit codes
++
++| Subcommand | Codes |
++|---|---|
++| any | `1` unreadable input (pins file, result file, empty reference file, a `pins.json` `upstream.url` that differs from the URL the tool builds); `64` usage error |
++| `fetch` | `0` every source HTTP 200 and every GitHub blob equal to its pin; `2` a GitHub body whose blob sha1 is not the pinned blob (integrity failure, the condition `compare` calls `CONTENT`); `3` some source was not HTTP 200, had a network error or exceeded the deadline. Before M00-T02-fix3 every one of these was exit `1` |
++| `compare` | first match wins: `2` at least one `CONTENT`, `GONE` or `MISSING`; `3` at least one `FETCH_FAILED`; `5` off-pin and nothing above; `4` only `RAW_ONLY` / `MARKER_ONLY`, every one on-pin; `0` all `IDENTICAL` and none off-pin |
++| `upstream` | `0` no drift; `4` drifted, quotes intact (claim not re-read); `2` a drifted source lost a quoted fragment or has none to check, or its file is gone (404 or 410); `3` fetch failure and nothing scored `2` |
++| `tags` | `0` all equal; `2` moved or missing; `3` fetch failure or invalid advertisement; `4` unpinned |
++| `excerpts` | `0` all checked and found; `2` a fragment not found; `3` a source unchecked (GitHub sources need `--fetch-git`) |
++| `verify` | `0` match, `3` mismatch |
++| `selftest` | `0` pass, `1` fail |
++
++Every request is a GET over https, also after redirects, with an overall deadline per source (120 s, `fetch --deadline`); output is line-buffered. Between 2026-10-03 and 2026-10-09 the raw bytes of the 1Password, Microsoft, Smallstep and Iroh pages changed while their text did not. Those sources are normalized-primary, so `4` is the expected result when no cited text has changed (`5` if the moved bytes belong to a raw-primary source). On 2026-10-09 the result was `2` (S26 page edit, S28 counters).
++
++Exit 4 of `upstream` says that the file on the branch changed and every quoted fragment is still there. It does not say that the claim still holds, and no gate reopens by itself. The re-read policy for a drifted source cited by a still-open gate is in ADR-0003 "Reopen conditions".
+ 
+ ## Pin kinds and their limits
+ 
+ - Primary kind (`pin_v2.primary`), since M00-T02-fix2: `raw_body_sha256` for the 7 GitHub permalinks (S16-S19, S27, S29, S34) and the 7 OpenBSD/OpenSSH pages (S01-S05, S10, S30), whose raw hash held from 2026-10-02 to 2026-10-09; `normalized_text_sha256` for the other 20 spec sources and for A01-A04. S23 moved from raw to normalized in fix2 (ADR-0003).
+-- GitHub sources are pinned at a commit. `fetch` reads that commit, so `compare` never sees later changes on the branch the spec URL names (`main` or the default branch). Use `upstream` for that: on 2026-10-09 S16, S17, S18 and S34 had drifted on `main` with all quoted fragments still present (exit 4).
++- GitHub sources are pinned at a commit. `fetch` reads that commit, so `compare` never sees later changes on the branch the spec URL names (`main` or the default branch). Use `upstream` for that: on 2026-10-09 S16, S17, S18 and S34 had drifted on `main` with all quoted fragments still present (exit 4, drifted with quotes intact, claims not re-read). The URL `upstream` GETs for each of the 7 sources is recorded in `pins.json` (`upstream.url`; S19, S27 and S29 use `HEAD`, the others the branch in the spec URL), and `upstream` and `selftest` check it against the URL the code builds.
+ - Release tags are mutable refs. `tag_pins` records the commit each tag pointed to on 2026-10-09, and `tags` re-checks them. Release asset digests (MSI, zip, binaries) are not recorded.
+ - Normalized hashes depend on the Python `html.parser` and `unicodedata` versions; the baseline used Python 3.14.8.
++- The normalizer ends a `<head>` at `</head>`. For a document that has a `<head>` and no `</head>` at all, it ends the head at the first start tag that cannot be in a head (`<body>` included); before fix3 such a page normalized to the empty string. Output is unchanged for every other document, so `NORMALIZER_VERSION` stays 1 (no pinned source has an unclosed head: every HTML source has at least 2202 normalized characters, and the old and new normalizer gave identical text for all 38 sources as served on 2026-10-31: `tests/evidence/artifacts/review-sources/fix3/40_*.out`, `55_*.out`). `fetch` warns on stderr when a 200 response normalizes to fewer than 200 characters.
++- Environment: on 2026-10-31, Python 3.15.2 with OpenSSL 4.1.0 could not fetch the 7 OpenBSD/OpenSSH sources (S01-S05, S10, S30: `man.openbsd.org` and `www.openssh.org`; the record says `error` `URLError`, and a direct urllib probe showed `TLSV1_ALERT_DECODE_ERROR`); the fetch tool of 3622c56 failed the same way. Python 3.13.18 with OpenSSL 3.5.9 fetched all seven. Run `fetch` with an interpreter that can reach them, or `compare` will report them `FETCH_FAILED`.
++- `excerpts` matches whole words: a fragment must start and end on word boundaries in its source's copy.
+ 
+ ## Support matrix
+ 
+diff --git a/docs/sources/pins.json b/docs/sources/pins.json
+index d4b35345..291ddd11 100644
+--- a/docs/sources/pins.json
++++ b/docs/sources/pins.json
+@@ -637,6 +637,10 @@
+    "id": "S16",
+    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/remote.md",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md",
++    "ref": "main"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:06Z",
+    "claim": "Environment identity/execution independent of routes",
+    "claim_status": "supported",
+@@ -680,6 +684,10 @@
+    "id": "S17",
+    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/connection-runtime.md",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md",
++    "ref": "main"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:06Z",
+    "claim": "Connection supervision and mutation replay boundary",
+    "claim_status": "supported",
+@@ -723,6 +731,10 @@
+    "id": "S18",
+    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/t3-connect.md",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md",
++    "ref": "main"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:06Z",
+    "claim": "Control/transport/session separation and resource lifecycle",
+    "claim_status": "supported",
+@@ -766,6 +778,10 @@
+    "id": "S19",
+    "url": "https://github.com/n0-computer/pigeons",
+    "fetched_url": "https://raw.githubusercontent.com/n0-computer/pigeons/main/README.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/n0-computer/pigeons/HEAD/README.md",
++    "ref": "HEAD"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:06Z",
+    "claim": "SSH-over-Iroh and ProxyCommand integration",
+    "claim_status": "supported",
+@@ -1109,6 +1125,10 @@
+    "id": "S27",
+    "url": "https://github.com/charmbracelet/bubbletea",
+    "fetched_url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/main/README.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/HEAD/README.md",
++    "ref": "HEAD"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:08Z",
+    "claim": "Go TUI candidate; no perf/interop claim",
+    "claim_status": "supported",
+@@ -1190,11 +1210,15 @@
+    "id": "S29",
+    "url": "https://github.com/anomalyco/opentui",
+    "fetched_url": "https://raw.githubusercontent.com/anomalyco/opentui/main/README.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/anomalyco/opentui/HEAD/README.md",
++    "ref": "HEAD"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:09Z",
+    "claim": "TS-facing TUI candidate; native/runtime packaging considerations",
+    "claim_status": "supported",
+    "excerpt": "\"It is written in Zig. You write TypeScript directly or through React and Solid.\" ; \"Development requires Bun 1.4.1 or later and Zig 0.16.0.\" ; @opentui/native is a private workspace",
+-   "note": "",
++   "note": "Drift on HEAD observed by `fetch_pins.py upstream` at 2026-10-31T20:39:14Z (M00-T02-fix3: fix3/data_upstream.json; the README diff is in fix3/62_s29_head_vs_pinned.out): the HEAD blob is 5141426ee59a44ae1784b8254f3786e53ea1a69d, not the pinned blob 6f2523a1afb3bf091b91eab073bc6fb0066d9844. The pin is the commit permalink de8dc97; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments on HEAD: 1/2. The missing one is \"Development requires Bun 1.4.1 or later and Zig 0.16.0.\": HEAD says Zig 0.17.0. The README on HEAD differs from the pinned one in 3 places (the words anomalyco/opentui are replaced by https://opentui.com, an added paragraph about the skill and `npx skills update`, and the Zig version). Claim re-read (diff read by the fix3 author, not independently reviewed): the claim as stated here (TS-facing TUI candidate; native/runtime packaging considerations) is unchanged and still supported on HEAD; only the Zig requirement moved. `upstream` exits 2 while the fragment is missing from HEAD. Whether a gate that is still open relies on the Zig version is not checked here.",
+    "pin": {
+     "type": "git_commit_and_blob",
+     "value": "commit de8dc97080e4c404d9018d9e6a485036aeaef7d2; README blob 6f2523a1afb3bf091b91eab073bc6fb0066d9844; release v0.5.14",
+@@ -1399,6 +1423,10 @@
+    "id": "S34",
+    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/environment-auth.md",
+    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md",
++   "upstream": {
++    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md",
++    "ref": "main"
++   },
+    "retrieved_at_utc": "2026-10-02T23:56:10Z",
+    "claim": "Pairing/management boundaries; project-vs-sandbox",
+    "claim_status": "supported",
+@@ -1756,8 +1784,8 @@
+   }
+  ],
+  "reopen_conditions": [
+-  "`fetch_pins.py compare` against docs/sources/fetch-baseline.json (or fetch-baseline-aux.json) classifies a source cited by a gate that is still open as CONTENT (normalized text changed), or reports primary_same=no for it; read docs/sources/snapshots/<id>.txt.gz to see what the pin said. MARKER_ONLY, and RAW_ONLY with primary_same=yes, are not drift; FETCH_FAILED means re-run, not drift.",
+-  "`fetch_pins.py upstream` reports a GitHub source drifted on the branch its spec URL names and not every quoted excerpt fragment is still there (on 2026-10-09 S16, S17, S18 and S34 had drifted on main with all fragments present).",
++  "`fetch_pins.py compare` against docs/sources/fetch-baseline.json (or fetch-baseline-aux.json) classifies a source cited by a gate that is still open as CONTENT (normalized text changed), GONE (HTTP 404 or 410, after one confirming re-run) or MISSING; read docs/sources/snapshots/<id>.txt.gz to see what the pin said. primary_same=no is the off-pin flag (the second file does not reproduce the pinned primary hash): compare always prints such a line and exits 5 when nothing worse was found. Against the baseline, off-pin with class RAW_ONLY or MARKER_ONLY means the text equals the pin and only the raw bytes of a raw-primary source moved: that is pin maintenance (run `verify`, then re-pin with a dated note), not drift, and not a reopen. An off-pin normalized-primary source is CONTENT, so it is drift. MARKER_ONLY, and RAW_ONLY with primary_same=yes, are not drift. FETCH_FAILED means re-run, not drift, unless the same source is FETCH_FAILED on runs at least 24 h apart: then treat it as GONE and investigate.",
++  "`fetch_pins.py upstream` exits 2 (a GitHub source drifted on the branch its spec URL names and lost a quoted fragment or has none to check, or its file is gone), or exits 4 (drifted, quotes intact, claim not re-read) for a source cited by a gate that is still open and the re-read shows that the claim changed. Exit 4 does not show that the claim still holds. Before anyone relies on `main` for a source cited by a still-open gate, read the branch file against the claim and record the outcome (date, `claim re-read: holds` or `changed`) in the source's note; the pinned permalink stays the citation of record until then (on 2026-10-09 S16, S17, S18 and S34 had drifted on main with all fragments present; their claims were not re-read).",
+   "`fetch_pins.py tags` reports a moved or missing release tag (exit 2).",
+   "A candidate dependency ships a new major/minor release before G02 selection is locked.",
+   "Win32-OpenSSH (PowerShell/Win32-OpenSSH) publishes a release tag without \"Preview\", or PowerShell/openssh-portable changes LICENCE.",
+@@ -1775,7 +1803,7 @@
+   "snapshots_dir": "docs/sources/snapshots",
+   "archive_lookups": "docs/sources/archive-lookups.json",
+   "raw_stability": "v1 to v2 (about 21 h, 2026-10-02T23:56Z to 2026-10-03T21:18Z): 21 sources reproduced the v1 raw-body sha256: S01-S05, S10, S16-S19, S23, S27, S29, S30, S34 (v1 raw hash) and S24, S25, S26, S31, S32, S33 (v1 recorded the raw .md hash as text_sha256; relabelled by M00-T02-fix2). 13 did not: S06-S09, S11-S15, S20-S22, S28. v2 to 2026-10-09T05:31Z (about 5.3 days, fix2 run of the committed fetcher): raw unchanged for 19 (S01-S05, S10, S16-S19, S24, S25, S27, S29-S34), changed for 15 (S06-S09, S11-S15, S20-S23, S26, S28). Primary kinds since M00-T02-fix2: raw_body_sha256 for the 7 GitHub permalinks (S16-S19, S27, S29, S34) and the 7 OpenBSD/OpenSSH pages (S01-S05, S10, S30), whose raw hash held over the whole interval; normalized_text_sha256 for the other 20 spec sources (CMS or static-site HTML, and .md variants of doc sites, whose bytes can change in a rebuild without a text change) and for A01-A04.",
+-  "verify": "python3 -I docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = all IDENTICAL; 4 = text identical, only raw bytes or date markers moved; 3 = a fetch failed; 2 = CONTENT change or missing source; read the drifted id's snapshot with `gzip -dc docs/sources/snapshots/<id>.txt.gz`). Also: `fetch --set aux` + compare against fetch-baseline-aux.json; `upstream`; `tags`; `excerpts --set all --fetch-git`; `selftest`.",
++  "verify": "python3 -I docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = all IDENTICAL and none off-pin; 4 = text identical, only raw bytes or date markers moved, every source on-pin; 5 = off-pin (a source's primary_same=no) with nothing worse; 3 = a fetch failed; 2 = CONTENT change, GONE (404/410) or missing source; read the drifted id's snapshot with `gzip -dc docs/sources/snapshots/<id>.txt.gz`). Also: `fetch --set aux` + compare against fetch-baseline-aux.json; `upstream`; `tags`; `excerpts --set all --fetch-git`; `selftest`.",
+   "baseline_aux": "docs/sources/fetch-baseline-aux.json",
+   "fix2_rerun": "2026-10-09, M00-T02-fix2 (tests/evidence/artifacts/review-sources/fix2/): the committed fetcher (as of d096a64) fetched all 34 with HTTP 200 (exit 0); compare against the baseline: IDENTICAL 15, RAW_ONLY 10, MARKER_ONLY 7, CONTENT 2 (S26 page edit, S28 live counters), FETCH_FAILED 0; every primary pin held except S23 (raw, text identical; now normalized-primary), S26 and S28. The committed snapshots all verify against the baseline; fresh snapshots are byte-identical except S26 and S28. See fix2/README.md for the runs with the revised fetcher."
+  },
+@@ -2062,5 +2090,6 @@
+   }
+  ],
+  "candidates_provenance": "Producer-observed 2026-10-02 (v1) and 2026-10-03 (M00-T02-fix). Independently checked by the review of 2026-10-03 (tests/evidence/artifacts/m00-wf3/review-sources.json; gh api, crates.io, npm and Go proxy reads): versions, release tags and dates, licence fields, rust-version/engines and repo heads of the candidates as they stood in v1. Produced after that review and so not covered by it: the corrected Win32-OpenSSH source row (openssh-portable e581929, LICENCE blob and sha256, NOASSERTION, no releases on openssh-portable, misc.c sample) and the Bubble Tea tag commit. The recheck of 2026-10-09 (tests/evidence/artifacts/review-sources/recheck/) verified the LICENCE bytes at e581929 (blob and sha256) and the Bubble Tea v2.0.10 commit d5bfd5c (Go proxy origin), and the @opentui/core tarball. Still producer-observed only: e581929 as the latestw_all head on 2026-09-25, the NOASSERTION licence field, the empty release list of openssh-portable, the misc.c sample. tag_pins (2026-10-09, fix2) were resolved from the public git ref advertisements and re-checked the same day.",
+- "fix2_edited_at_utc": "2026-10-09"
++ "fix2_edited_at_utc": "2026-10-09",
++ "fix3_edited_at_utc": "2026-10-31"
+ }
+diff --git a/docs/sources/tools/fetch_pins.py b/docs/sources/tools/fetch_pins.py
+index 90899231..1a69af07 100644
+--- a/docs/sources/tools/fetch_pins.py
++++ b/docs/sources/tools/fetch_pins.py
+@@ -1,23 +1,32 @@
+ #!/usr/bin/env python3
+-"""Reproducible source pinning for spec section 19 (M00-T02-fix, revised by M00-T02-fix2).
++"""Reproducible source pinning for spec section 19 (M00-T02-fix, revised by M00-T02-fix2 and fix3).
+ 
+ Read-only: HTTP GET only (https only, also after redirects), Python standard
+ library only, no credentials, no writes outside --out / --snapshots-dir. It
+ never calls any archive "save" endpoint and never pushes or POSTs anything.
++Every GET has an overall deadline (DEADLINE_S seconds, `fetch --deadline`); a
++source that exceeds it counts as a failed fetch (error DeadlineExceeded). Output
++is line-buffered, so progress lines appear while a run is still going.
+ 
+ Exit codes common to every subcommand: 64 = usage error (bad arguments);
+ 1 = input error (for example an unreadable pins file or an empty reference
+ file). The codes below are per subcommand.
+ 
+ Subcommands
+-  fetch     GET every source in docs/sources/pins.json (--set spec: S01-S34,
+-            the default; --set aux: auxiliary sources A01..; --set all), write a
++  fetch     GET every source in docs/sources/pins.json (--set spec: S01-S34, the
++            default; --set aux: auxiliary sources A01..; --set all), write a
+             result file with raw-body sha256, normalized-text sha256 (script
+             NORMALIZER_VERSION), size, HTTP status, selected response headers and
+             in-page date markers; for GitHub sources also the git blob sha1 and
+             whether it equals the pinned blob. Optionally write deterministic
+-            .txt.gz snapshots of the normalized text. Exit 0 = every source HTTP
+-            200 (and every GitHub blob equal to its pin), 1 = otherwise.
++            .txt.gz snapshots of the normalized text. Warns on stderr when a
++            normalized text is shorter than SHORT_TEXT_CHARS characters (a sign
++            that the normalizer dropped the page). Exit 0 = every source HTTP 200
++            and every GitHub blob equal to its pin; 2 = a GitHub body whose blob
++            sha1 is not the pinned blob (integrity failure; `compare` calls the
++            same condition CONTENT, also exit 2); 3 = otherwise, some source was
++            not HTTP 200 or had a network error or deadline (before fix3 this was
++            exit 1, which is now only an input error).
+   compare   Compare two fetch result files, the first being the reference
+             (normally docs/sources/fetch-baseline.json). Each source gets exactly
+             one class:
+@@ -30,18 +39,36 @@ Subcommands
+               CONTENT       normalized text differs: the visible text changed;
+                             also a GitHub body whose blob sha1 is not the pinned
+                             blob (integrity failure, flagged blob_mismatch)
+-              FETCH_FAILED  either side is not HTTP 200 or had a network error;
+-                            hashes are not compared (a bot-challenge page is not
+-                            a content change)
++              GONE          the reference is HTTP 200 and the second file is HTTP
++                            404 or 410: the cited page was removed or moved
++                            (confirm with one re-run; see the reopen conditions)
++              FETCH_FAILED  either side is not HTTP 200 (other than the GONE
++                            case) or had a network error or deadline; hashes are
++                            not compared (a bot-challenge page is not a content
++                            change)
+               MISSING       the id is in the first file but not in the second
+               EXTRA         the id is only in the second file (informational)
+             Unless --no-pins is given, the pins file (--pins, default
+             docs/sources/pins.json) must be readable, and each line also says
+             whether the second file still matches the source's primary pin
+             (pin_v2.primary hash in pins.json): primary_same.
+-            Exit: 2 = at least one CONTENT or MISSING; else 3 = at least one
+-            FETCH_FAILED; else 4 = only RAW_ONLY / MARKER_ONLY differences (text
+-            identical everywhere it was fetched); 0 = all IDENTICAL.
++            Off-pin rule. primary_same=no means the second file does not
++            reproduce the pinned primary hash. Such a line is always printed
++            (also without --all) and counted as off_pin in the header. It is a
++            separate question from the class. Against the baseline, RAW_ONLY or
++            MARKER_ONLY with primary_same=no means the text is still identical to
++            the pin and only the raw bytes of a raw-primary source moved (pin
++            maintenance: run `verify`, then re-pin with a dated note), while a
++            normalized-primary source that is off-pin is CONTENT. When the first
++            file is not the baseline (for example two fresh runs), exit 5 only
++            says that the live pages no longer match the pins: compare against
++            the baseline to classify them.
++            Exit, first match wins: 2 = at least one CONTENT, GONE or MISSING;
++            3 = at least one FETCH_FAILED; 5 = off-pin: none of the above, but at
++            least one source has primary_same=no (never with --no-pins);
++            4 = only RAW_ONLY / MARKER_ONLY differences, every one on-pin (text
++            identical everywhere it was fetched); 0 = all IDENTICAL and none
++            off-pin.
+   verify    Compare a stored snapshot file against the normalized hash recorded
+             in a fetch result (offline). Exit 0 match, 3 mismatch.
+   upstream  Optional drift check for the GitHub sources. `fetch` reads them at the
+@@ -50,10 +77,14 @@ Subcommands
+             (raw.githubusercontent.com/<repo>/<branch>/<path>, the raw rendering of
+             the spec URL; repo-root URLs use HEAD and the pinned path), recomputes
+             the git blob sha1, compares it with pin.blob_sha, and counts the quoted
+-            excerpt fragments still in the branch text. Exit 0 = every blob equals
+-            its pin; 4 = some drifted but every quoted fragment is still there;
+-            2 = a drifted source lost a quoted fragment; 3 = a fetch failed (and
+-            nothing scored 2).
++            excerpt fragments still in the branch text. That URL is also recorded
++            in pins.json (`upstream.url`) and checked against the derived one; a
++            mismatch is an input error. The check does not re-read the claim: a
++            surviving quote does not show that the claim still holds.
++            Exit 0 = every blob equals its pin; 4 = drifted, quotes intact (claim
++            not re-read): every quoted fragment is still there; 2 = a drifted
++            source lost a quoted fragment or has none to check, or its file is
++            gone (HTTP 404 or 410); 3 = a fetch failed (and nothing scored 2).
+   tags      Resolve the release tags listed in pins.json `tag_pins` to immutable
+             ids by reading the repository's public git ref advertisement
+             (GET https://github.com/<repo>.git/info/refs?service=git-upload-pack,
+@@ -71,15 +102,19 @@ Subcommands
+             fetched only with --fetch-git and accepted only if its blob sha1 equals
+             the pin. A fragment missing from its own copy is reported together with
+             any other source whose copy contains it (an S26-type misattribution).
+-            Matching is a substring test on lowercased word sequences
+-            (punctuation, quote style and markdown emphasis/links ignored). Not
++            Matching is a whole-word-sequence test on lowercased words
++            (punctuation, quote style and markdown emphasis/links ignored; a
++            fragment must start and end on word boundaries). Not
+             covered: quotes in excerpts/notes.md and in `candidates`. Exit 0 =
+             every source checked, each with at least one fragment, all found;
+             2 = a fragment was not found; 3 = a source was skipped (no copy) or has
+             no quoted fragment, and nothing scored 2.
+-  selftest  Offline checks of the normalizer, the compare classes, primary_same,
+-            exit precedences, the ref-advertisement parser, URL and fragment
+-            helpers, and the https-only rule. Exit 0 = pass, 1 = fail.
++  selftest  Offline checks of the normalizer (including a head without </head>),
++            the compare classes (GONE, off-pin), primary_same, every exit
++            precedence of fetch, compare and upstream, the overall deadline (with
++            a fake opener, no network), the ref-advertisement parser, URL,
++            fragment and word-boundary helpers, the recorded upstream URLs in
++            pins.json, and the https-only rule. Exit 0 = pass, 1 = fail.
+   archive   Query the Internet Archive availability API (GET only) for the
+             closest snapshot to each URL, GET that snapshot's raw ("id_") body,
+             and report whether its raw / normalized hash equals the fetched one.
+@@ -90,6 +125,14 @@ Normalization (NORMALIZER_VERSION 1), so a third party can reproduce it:
+      entire content of <head>, <script>, <style>, <noscript>, <template>,
+      <svg>; keep all other text nodes (html.parser unescapes entities); a
+      space is inserted at every tag boundary so adjacent text never fuses.
++     The head ends at </head>. If the document has a <head> but no </head>
++     at all, it is parsed again and the head ends at the first start tag that
++     cannot be in a head (anything but title, meta, link, base, script, style,
++     noscript, template), which includes <body>; text inside a script, style,
++     noscript or template element that is open in the head stays dropped.
++     (fix3: before, such a document normalized to the empty string. The
++     output is unchanged for every document whose head is closed or absent,
++     so NORMALIZER_VERSION stays 1.)
+      Otherwise (markdown, plain text) use the decoded text as is.
+   3. Unicode NFC.
+   4. Replace every run of Unicode whitespace (str.split()) with one U+0020 and
+@@ -113,6 +156,7 @@ import json
+ import os
+ import re
+ import sys
++import threading
+ import time
+ import unicodedata
+ import urllib.error
+@@ -124,6 +168,12 @@ NORMALIZER_VERSION = 1
+ USER_AGENT = "heimdall-source-pins/1 (read-only GET; M00-T02-fix)"
+ MD_VARIANT_HOSTS = ("developers.openai.com", "learn.chatgpt.com")
+ SKIP_TAGS = {"head", "script", "style", "noscript", "template", "svg"}
++# Elements that may appear inside <head>; the first other start tag implies </head> (see normalize()).
++HEAD_TAGS = {"head", "title", "meta", "link", "base", "script", "style", "noscript", "template"}
++DEADLINE_S = 120  # overall deadline per GET (all retries), a failed fetch when exceeded
++DEADLINE_GRACE_S = 5  # the hard (thread) deadline is this much later than the cooperative one
++SHORT_TEXT_CHARS = 200  # fetch warns when a 200 response normalizes to fewer characters
++GONE_STATUSES = (404, 410)
+ GITHUB_PERMALINK = re.compile(r"^https://github\.com/([^/]+/[^/]+)/blob/([0-9a-f]{40})/(.+)$")
+ GITHUB_BLOB_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/blob/([^/]+)/(.+)$")
+ GITHUB_REPO_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+?)/?$")
+@@ -142,9 +192,11 @@ MARKER_PATTERNS = {
+ 
+ # compare classes and exit codes
+ IDENTICAL, RAW_ONLY, MARKER_ONLY, CONTENT = "IDENTICAL", "RAW_ONLY", "MARKER_ONLY", "CONTENT"
+-FETCH_FAILED, MISSING, EXTRA = "FETCH_FAILED", "MISSING", "EXTRA"
+-CLASSES = (IDENTICAL, RAW_ONLY, MARKER_ONLY, CONTENT, FETCH_FAILED, MISSING, EXTRA)
+-EXIT_INPUT, EXIT_CONTENT, EXIT_FETCH_FAILED, EXIT_TEXT_SAME, EXIT_USAGE = 1, 2, 3, 4, 64
++GONE, FETCH_FAILED, MISSING, EXTRA = "GONE", "FETCH_FAILED", "MISSING", "EXTRA"
++CLASSES = (IDENTICAL, RAW_ONLY, MARKER_ONLY, CONTENT, GONE, FETCH_FAILED, MISSING, EXTRA)
++EXIT_INPUT, EXIT_CONTENT, EXIT_FETCH_FAILED, EXIT_TEXT_SAME, EXIT_OFF_PIN, EXIT_USAGE = 1, 2, 3, 4, 5, 64
++# fetch: a blob mismatch is the same condition `compare` calls CONTENT, so it has the same code
++EXIT_BLOB_MISMATCH = EXIT_CONTENT
+ 
+ 
+ class InputError(Exception):
+@@ -152,22 +204,37 @@ class InputError(Exception):
+ 
+ 
+ class _TextExtractor(html.parser.HTMLParser):
+-    def __init__(self):
++    def __init__(self, implied_head_end=False):
+         super().__init__(convert_charrefs=True)
+         self.parts = []
+         self.skip = 0
++        self.implied_head_end = implied_head_end
++        self.head_open = False  # a <head> was opened and no </head> has closed it
++
++    def _end_head_if_implied(self, tag):
++        # Second pass only (document without </head>): skip == 1 means that only the head itself
++        # is open (no script/style/noscript/template/svg inside it).
++        if self.implied_head_end and self.head_open and self.skip == 1 and tag not in HEAD_TAGS:
++            self.skip = 0
++            self.head_open = False
+ 
+     def handle_starttag(self, tag, attrs):
++        self._end_head_if_implied(tag)
+         if tag in SKIP_TAGS:
+             self.skip += 1
++            if tag == "head":
++                self.head_open = True
+         self.parts.append(" ")
+ 
+     def handle_startendtag(self, tag, attrs):
++        self._end_head_if_implied(tag)
+         self.parts.append(" ")
+ 
+     def handle_endtag(self, tag):
+         if tag in SKIP_TAGS and self.skip:
+             self.skip -= 1
++            if tag == "head":
++                self.head_open = False
+         self.parts.append(" ")
+ 
+     def handle_data(self, data):
+@@ -175,16 +242,22 @@ class _TextExtractor(html.parser.HTMLParser):
+             self.parts.append(data)
+ 
+ 
++def _html_text(text: str, implied_head_end: bool):
++    p = _TextExtractor(implied_head_end)
++    p.feed(text)
++    p.close()
++    return "".join(p.parts), p.head_open
++
++
+ def normalize(body: bytes, content_type: str, url: str) -> str:
+     text = body.decode("utf-8", errors="replace")
+     is_html = "html" in (content_type or "").lower() or (
+         not content_type and url.lower().endswith((".html", "/"))
+     )
+     if is_html:
+-        p = _TextExtractor()
+-        p.feed(text)
+-        p.close()
+-        text = "".join(p.parts)
++        text, head_unclosed = _html_text(text, False)
++        if head_unclosed:  # <head> without </head>: the pass above dropped the rest of the document
++            text, _ = _html_text(body.decode("utf-8", errors="replace"), True)
+     text = unicodedata.normalize("NFC", text)
+     return " ".join(text.split())
+ 
+@@ -207,38 +280,88 @@ class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+ _OPENER = urllib.request.build_opener(_HttpsOnlyRedirect())
+ 
+ 
+-def http_get(url: str, timeout: int = 60, retries: int = 2):
+-    """GET over https only (also after redirects). Returns status 0 and an
+-    `error` name for a refused scheme or a network failure."""
+-    if urllib.parse.urlparse(url).scheme != "https":
+-        return {"status": 0, "final_url": url, "headers": {}, "body": b"", "error": "SchemeNotAllowed"}
++class _DeadlineExceeded(Exception):
++    pass
++
++
++def _failure(url: str, error: str):
++    return {"status": 0, "final_url": url, "headers": {}, "body": b"", "error": error}
++
++
++def _read_all(resp, stop_at: float) -> bytes:
++    """Read a response in chunks, so that a body that trickles in cannot outlast the deadline."""
++    chunks = []
++    while True:
++        if time.monotonic() >= stop_at:
++            raise _DeadlineExceeded()
++        chunk = resp.read(65536)
++        if not chunk:
++            return b"".join(chunks)
++        chunks.append(chunk)
++
++
++def _get_with_retries(url: str, timeout: float, retries: int, stop_at: float):
+     last = None
+     for attempt in range(retries + 1):
++        remaining = stop_at - time.monotonic()
++        if remaining <= 0:
++            return _failure(url, "DeadlineExceeded")
+         req = urllib.request.Request(
+             url,
+             headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
+             method="GET",
+         )
+         try:
+-            with _OPENER.open(req, timeout=timeout) as r:
+-                body = r.read()
+-                return {
+-                    "status": r.status,
+-                    "final_url": r.geturl(),
+-                    "headers": {k.lower(): v for k, v in r.headers.items()},
+-                    "body": body,
+-                }
+-        except urllib.error.HTTPError as e:
+-            return {
+-                "status": e.code,
+-                "final_url": url,
+-                "headers": {k.lower(): v for k, v in e.headers.items()},
+-                "body": e.read(),
+-            }
++            try:
++                resp = _OPENER.open(req, timeout=min(timeout, remaining))
++                status, final = resp.status, resp.geturl()
++            except urllib.error.HTTPError as e:  # an HTTP error status is an answer, not a failure to retry
++                resp, status, final = e, e.code, url
++            with resp:
++                body = _read_all(resp, stop_at)
++            return {"status": status, "final_url": final,
++                    "headers": {k.lower(): v for k, v in resp.headers.items()}, "body": body}
++        except _DeadlineExceeded:
++            return _failure(url, "DeadlineExceeded")
+         except Exception as e:  # network error: retry
+             last = e
+-            time.sleep(1.5 * (attempt + 1))
+-    return {"status": 0, "final_url": url, "headers": {}, "body": b"", "error": type(last).__name__}
++            time.sleep(max(0.0, min(1.5 * (attempt + 1), stop_at - time.monotonic())))
++    return _failure(url, type(last).__name__)
++
++
++def run_with_deadline(fn, deadline: float):
++    """Run fn() in a daemon thread. Returns (True, result) or (False, None) when fn has not finished
++    within `deadline` seconds (the thread is abandoned; it cannot outlive the process). An exception
++    raised by fn is raised here."""
++    box = []
++
++    def work():
++        try:
++            box.append((True, fn()))
++        except BaseException as e:  # re-raised in the caller's thread
++            box.append((False, e))
++
++    t = threading.Thread(target=work, daemon=True)
++    t.start()
++    t.join(deadline)
++    if t.is_alive() or not box:
++        return False, None
++    ok, val = box[0]
++    if not ok:
++        raise val
++    return True, val
++
++
++def http_get(url: str, timeout: float = 60, retries: int = 2, deadline: float = DEADLINE_S):
++    """GET over https only (also after redirects). Returns status 0 and an `error` name for a refused
++    scheme, a network failure, or a GET that took longer than `deadline` seconds in total (all retries
++    and the whole body; error DeadlineExceeded). The socket timeout alone bounds only one operation,
++    not a body that trickles in or a stalled name lookup, so the GET also runs under a hard deadline."""
++    if urllib.parse.urlparse(url).scheme != "https":
++        return _failure(url, "SchemeNotAllowed")
++    stop_at = time.monotonic() + deadline
++    done, res = run_with_deadline(lambda: _get_with_retries(url, timeout, retries, stop_at), deadline + DEADLINE_GRACE_S)
++    return res if done else _failure(url, "DeadlineExceeded")
+ 
+ 
+ def fetch_url_for(source: dict) -> str:
+@@ -323,13 +446,32 @@ def utc_now():
+     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+ 
+ 
++def short_text_warning(source_id: str, status, chars: int):
++    """Warning text for a 200 response whose normalized text is suspiciously short, else None."""
++    if status == 200 and chars < SHORT_TEXT_CHARS:
++        return ("warning: %s normalized text is only %d characters (below %d); "
++                "check the page and the normalizer" % (source_id, chars, SHORT_TEXT_CHARS))
++    return None
++
++
++def fetch_exit(results):
++    """(exit code, ids not fetched, ids with a blob mismatch). A blob mismatch counts only for an answered
++    request: a failed fetch has no body to compare."""
++    ok = lambda x: x["http_status"] == 200 and "error" not in x
++    bad = [x["id"] for x in results if not ok(x)]
++    blob_bad = [x["id"] for x in results if ok(x) and x.get("git_blob_matches_pin") is False]
++    if blob_bad:
++        return EXIT_BLOB_MISMATCH, bad, blob_bad
++    return (EXIT_FETCH_FAILED if bad else 0), bad, blob_bad
++
++
+ def cmd_fetch(a):
+     only = set(a.only.split(",")) if a.only else None
+     snap_ids = set(a.snapshot_ids.split(",")) if a.snapshot_ids else set()
+     results = []
+     for s in load_sources(a.pins, only, a.set):
+         url = fetch_url_for(s)
+-        r = http_get(url)
++        r = http_get(url, deadline=a.deadline)
+         body = r["body"]
+         ct = r["headers"].get("content-type", "")
+         norm = normalize(body, ct, url)
+@@ -361,24 +503,27 @@ def cmd_fetch(a):
+             with open(p, "rb") as f:
+                 rec["snapshot"] = {"path": p, "gz_sha256": sha256(f.read())}
+         results.append(rec)
+-        print(s["id"], r["status"], rec["raw_bytes"], rec["raw_body_sha256"][:12], rec["normalized_text_sha256"][:12])
++        print(s["id"], r["status"], rec["raw_bytes"], rec["raw_body_sha256"][:12], rec["normalized_text_sha256"][:12],
++              ("error=" + rec["error"]) if "error" in rec else "")
++        warn = short_text_warning(s["id"], r["status"], rec["normalized_text_chars"])
++        if warn:
++            print(warn, file=sys.stderr)
+         time.sleep(0.3)
+     out = {"tool": "fetch_pins.py", "normalizer_version": NORMALIZER_VERSION, "set": a.set, "results": results}
+     with open(a.out, "w") as f:
+         json.dump(out, f, indent=1, sort_keys=True)
+         f.write("\n")
+-    bad = [x["id"] for x in results if x["http_status"] != 200 or "error" in x]
+-    blob_bad = [x["id"] for x in results if x.get("git_blob_matches_pin") is False]
++    rc, bad, blob_bad = fetch_exit(results)
+     if bad:
+-        print("non-200:", ",".join(bad), file=sys.stderr)
++        print("not fetched (non-200, network error or deadline):", ",".join(bad), file=sys.stderr)
+     if blob_bad:
+         print("git blob differs from the pin:", ",".join(blob_bad), file=sys.stderr)
+-    return 1 if bad or blob_bad else 0
++    return rc
+ 
+ 
+ def archive_lookup(url: str, ts: str):
+     q = urllib.parse.urlencode({"url": url, "timestamp": ts})
+-    r = http_get("https://archive.org/wayback/available?" + q, timeout=60, retries=3)
++    r = http_get("https://archive.org/wayback/available?" + q, timeout=60, retries=3, deadline=300)
+     if r["status"] != 200:
+         return None, r["status"]
+     try:
+@@ -406,7 +551,7 @@ def cmd_archive(a):
+             rec["archive_timestamp"] = stamp
+             rec["archive_url"] = "https://web.archive.org/web/%s/%s" % (stamp, url)
+             raw_url = "https://web.archive.org/web/%sid_/%s" % (stamp, url)
+-            r = http_get(raw_url, timeout=90, retries=2)
++            r = http_get(raw_url, timeout=90, retries=2, deadline=400)
+             rec["archive_raw_http"] = r["status"]
+             if r["status"] == 200:
+                 ct = r["headers"].get("content-type", "")
+@@ -432,6 +577,8 @@ def classify(x: dict, y):
+         return MISSING, {}
+     sx, sy = x.get("http_status"), y.get("http_status")
+     detail = {"http": "%s/%s" % (sx, sy)}
++    if sx == 200 and "error" not in x and sy in GONE_STATUSES and "error" not in y:
++        return GONE, detail  # answered earlier, now 404 or 410: removed or moved, not a transient failure
+     if sx != 200 or sy != 200 or "error" in x or "error" in y:
+         return FETCH_FAILED, detail
+     rs = x["raw_body_sha256"] == y["raw_body_sha256"]
+@@ -453,11 +600,14 @@ def classify(x: dict, y):
+     return IDENTICAL, detail
+ 
+ 
+-def compare_exit(counts: dict) -> int:
+-    if counts.get(CONTENT) or counts.get(MISSING):
++def compare_exit(counts: dict, off_pin: int = 0) -> int:
++    """First match wins: drift (CONTENT, GONE, MISSING), fetch failure, off-pin, text identical, all identical."""
++    if counts.get(CONTENT) or counts.get(MISSING) or counts.get(GONE):
+         return EXIT_CONTENT
+     if counts.get(FETCH_FAILED):
+         return EXIT_FETCH_FAILED
++    if off_pin:
++        return EXIT_OFF_PIN
+     if counts.get(RAW_ONLY) or counts.get(MARKER_ONLY):
+         return EXIT_TEXT_SAME
+     return 0
+@@ -478,9 +628,10 @@ def yn(v):
+ 
+ 
+ def compare_results(A: dict, B: dict, prim: dict):
+-    """Counts per class and one output line per non-identical source."""
++    """Counts per class, one (class, off_pin, text) line per source, and the ids that are off-pin
++    (primary_same=no; only sources that were fetched with HTTP 200 on both sides)."""
+     counts = {c: 0 for c in CLASSES}
+-    lines = []
++    lines, off_pin = [], []
+     for i in sorted(A):
+         x, y = A[i], B.get(i)
+         cls, det = classify(x, y)
+@@ -495,15 +646,34 @@ def compare_results(A: dict, B: dict, prim: dict):
+             parts.append("moved=" + ",".join(det["moved"]))
+         if det.get("blob_mismatch"):
+             parts.append("blob_mismatch=yes")
+-        if i in prim and y is not None and cls != FETCH_FAILED:
++        off = False
++        if i in prim and y is not None and cls not in (FETCH_FAILED, GONE):
+             kind, pinned = prim[i]
+-            parts.append("primary=%s primary_same=%s" % ("raw" if kind == "raw_body_sha256" else "norm",
+-                                                         yn(y.get(kind) == pinned)))
+-        lines.append((cls, " ".join(parts)))
++            same = y.get(kind) == pinned
++            parts.append("primary=%s primary_same=%s" % ("raw" if kind == "raw_body_sha256" else "norm", yn(same)))
++            if not same:
++                off = True
++                off_pin.append(i)
++        lines.append((cls, off, " ".join(parts)))
+     for i in sorted(set(B) - set(A)):
+         counts[EXTRA] += 1
+-        lines.append((EXTRA, "%s %s (only in second file)" % (i, EXTRA)))
+-    return counts, lines
++        lines.append((EXTRA, False, "%s %s (only in second file)" % (i, EXTRA)))
++    return counts, lines, off_pin
++
++
++def visible_lines(lines, show_all: bool):
++    """Lines to print: every source that is not IDENTICAL, and every off-pin source even if IDENTICAL."""
++    return [ln for cls, off, ln in lines if show_all or cls != IDENTICAL or off]
++
++
++COMPARE_EXIT_TEXT = {
++    0: "all identical, none off-pin (--no-pins: off-pin not checked)",
++    EXIT_CONTENT: "content change, removed (GONE) or missing source",
++    EXIT_FETCH_FAILED: "fetch failure (no content change, removal or missing source among the rest)",
++    EXIT_OFF_PIN: "off-pin: the second file does not reproduce the pinned primary hash of some source; "
++                  "no content change, removal, missing source or fetch failure between the two files",
++    EXIT_TEXT_SAME: "text identical; only raw bytes and/or date markers moved, every source on-pin",
++}
+ 
+ 
+ def read_results(path: str) -> dict:
+@@ -520,15 +690,12 @@ def cmd_compare(a):
+     if not A:
+         raise InputError("reference file %r has no results" % a.a)
+     prim = {} if a.no_pins else primary_pins(load_pins(a.pins))
+-    counts, lines = compare_results(A, B, prim)
+-    print("sources: %d  " % len(A) + "  ".join("%s=%d" % (c, counts[c]) for c in CLASSES))
+-    for cls, ln in lines:
+-        if cls != IDENTICAL or a.all:
+-            print(ln)
+-    rc = compare_exit(counts)
+-    print("exit %d: %s" % (rc, {0: "all identical", EXIT_CONTENT: "content change or missing source",
+-                                EXIT_FETCH_FAILED: "fetch failure (no content change among fetched sources)",
+-                                EXIT_TEXT_SAME: "text identical; only raw bytes and/or date markers moved"}[rc]))
++    counts, lines, off_pin = compare_results(A, B, prim)
++    print("sources: %d  " % len(A) + "  ".join("%s=%d" % (c, counts[c]) for c in CLASSES) + "  off_pin=%d" % len(off_pin))
++    for ln in visible_lines(lines, a.all):
++        print(ln)
++    rc = compare_exit(counts, len(off_pin))
++    print("exit %d: %s" % (rc, COMPARE_EXIT_TEXT[rc]))
+     return rc
+ 
+ 
+@@ -550,14 +717,25 @@ def loose(t: str) -> str:
+     return " ".join(re.sub(r"[^0-9a-z']+", " ", t.lower()).replace("'", "").split())
+ 
+ 
++def contains_words(copy_loose: str, fragment: str) -> bool:
++    """Whole-word-sequence test: loose(fragment) must occur in an already loose()-normalized copy
++    starting and ending on word boundaries ("is not permitted by default" is not in "... by defaults")."""
++    f = loose(fragment)
++    return bool(f) and (" " + f + " ") in (" " + copy_loose + " ")
++
++
+ def excerpt_fragments(excerpt: str):
+     frags = re.findall(r'"([^"]{12,})"', excerpt or "")
+     return [p for f in frags for p in re.split(r"\s*(?:\.\.\.|…)\s*", f) if len(p) >= 12]
+ 
+ 
+ def upstream_exit(rows) -> int:
+-    lost = [r for r in rows if r.get("result") == "drifted" and r.get("fragments_found") != r.get("fragments_total")]
+-    if lost:
++    def lost(r):  # a drifted source whose quotes cannot be shown intact, or a file that is gone
++        return r.get("result") == "gone" or (
++            r.get("result") == "drifted"
++            and (not r.get("fragments_total") or r.get("fragments_found") != r.get("fragments_total")))
++
++    if any(lost(r) for r in rows):
+         return EXIT_CONTENT
+     if any(r.get("result") == "fetch_failed" for r in rows):
+         return EXIT_FETCH_FAILED
+@@ -566,6 +744,14 @@ def upstream_exit(rows) -> int:
+     return 0
+ 
+ 
++UPSTREAM_EXIT_TEXT = {
++    0: "no drift: every branch blob equals its pin",
++    EXIT_TEXT_SAME: "drifted, quotes intact (claim not re-read)",
++    EXIT_CONTENT: "a drifted source lost a quoted fragment or has none to check, or its file is gone",
++    EXIT_FETCH_FAILED: "fetch failure (nothing lost, nothing gone)",
++}
++
++
+ def cmd_upstream(a):
+     rows = []
+     for s in load_sources(a.pins, set(a.only.split(",")) if a.only else None, "spec"):
+@@ -573,10 +759,18 @@ def cmd_upstream(a):
+         if not GITHUB_PERMALINK.match(pin.get("permalink", "") or ""):
+             continue
+         url, ref = upstream_url_for(s)
++        recorded = (s.get("upstream") or {}).get("url")
++        if recorded is not None and recorded != url:
++            raise InputError("pins.json upstream.url of %s differs from the URL this tool builds" % s["id"])
+         r = http_get(url)
+         rec = {"id": s["id"], "url": url, "ref": ref, "http_status": r["status"], "pinned_blob": pin.get("blob_sha"),
+                "retrieved_at_utc": utc_now()}
+-        if r["status"] != 200 or "error" in r:
++        if "error" in r:
++            rec["result"] = "fetch_failed"
++            rec["error"] = r["error"]
++        elif r["status"] in GONE_STATUSES:
++            rec["result"] = "gone"
++        elif r["status"] != 200:
+             rec["result"] = "fetch_failed"
+         else:
+             rec["branch_blob"] = git_blob_sha1(r["body"])
+@@ -584,7 +778,7 @@ def cmd_upstream(a):
+             text = loose(r["body"].decode("utf-8", errors="replace"))
+             frs = excerpt_fragments(s.get("excerpt"))
+             rec["fragments_total"] = len(frs)
+-            rec["fragments_found"] = sum(1 for p in frs if loose(p) in text)
++            rec["fragments_found"] = sum(1 for p in frs if contains_words(text, p))
+         rows.append(rec)
+         print(s["id"], rec["retrieved_at_utc"], rec["http_status"], ref, "branch blob", (rec.get("branch_blob") or "-")[:12],
+               "pinned blob", (rec["pinned_blob"] or "-")[:12], rec["result"].upper(),
+@@ -594,7 +788,9 @@ def cmd_upstream(a):
+         with open(a.out, "w") as f:
+             json.dump({"tool": "fetch_pins.py upstream", "results": rows}, f, indent=1, sort_keys=True)
+             f.write("\n")
+-    return upstream_exit(rows)
++    rc = upstream_exit(rows)
++    print("exit %d: %s" % (rc, UPSTREAM_EXIT_TEXT[rc]))
++    return rc
+ 
+ 
+ def parse_ref_advertisement(data: bytes) -> dict:
+@@ -710,7 +906,7 @@ def cmd_excerpts(a):
+     for s in srcs:
+         txt, how[s["id"]] = pinned_copy(s, root, a.fetch_git)
+         if txt is not None:
+-            copies[s["id"]] = loose(txt)
++            copies[s["id"]] = loose(txt)  # contains_words() pads it for the word-boundary test
+     bad, unchecked, total = [], [], 0
+     for s in srcs:
+         i = s["id"]
+@@ -724,10 +920,10 @@ def cmd_excerpts(a):
+             print(i, "NO_QUOTES (excerpt has no double-quoted fragment of 12+ characters)", "copy=" + how[i])
+             continue
+         total += len(frs)
+-        miss = [p for p in frs if loose(p) not in copies[i]]
++        miss = [p for p in frs if not contains_words(copies[i], p)]
+         print(i, "OK" if not miss else "NOT_FOUND", "fragments=%d found=%d" % (len(frs), len(frs) - len(miss)), "copy=" + how[i])
+         for p in miss:
+-            elsewhere = [j for j in copies if j != i and loose(p) in copies[j]]
++            elsewhere = [j for j in copies if j != i and contains_words(copies[j], p)]
+             print("   missing: %r%s" % (p[:100], ("  (found in %s)" % ",".join(elsewhere)) if elsewhere else ""))
+         if miss:
+             bad.append(i)
+@@ -749,6 +945,26 @@ def cmd_selftest(a):
+                  b"<p>a&amp;b</p><svg><text>no</text></svg><p>e\xcc\x81</p></body></html>")
+     check("normalize html", normalize(html_body, "text/html", "u"), "Café a&b é")
+     check("normalize md", normalize(b"# A\n\n  b\tc  ", "text/markdown", "u.md"), "# A b c")
++    # n4: a head without </head> used to swallow the whole document
++    check("normalize no </head>, <body>", normalize(
++        b"<html><head><title>t</title><meta charset=utf-8><body><p>Hello world</p></body></html>", "text/html", "u"),
++        "Hello world")
++    check("normalize no </head>, no <body>", normalize(
++        b"<html><head><title>t</title><link rel=x><p>Para</p><p>Two</p>", "text/html", "u"), "Para Two")
++    check("normalize no </head>, script and style stay dropped", normalize(
++        b"<head><script>var a = '<p>x</p>'</script><style>p{}</style><body>B</body>", "text/html", "u"), "B")
++    check("normalize no </head>, noscript in head stays dropped", normalize(
++        b"<head><noscript><p>hid</p></noscript><body>ok", "text/html", "u"), "ok")
++    check("normalize no </head>, svg is not a head element", normalize(
++        b"<head><title>t</title><svg><text>no</text></svg><body>ok", "text/html", "u"), "ok")
++    # the v1 rule is kept for every document that has </head>: a stray element inside a closed head stays dropped
++    check("normalize closed head keeps v1 rule", normalize(
++        b"<head><title>t</title><div>stray</div></head><body><p>x</p></body>", "text/html", "u"), "x")
++    check("normalize no head at all", normalize(b"<html><body><p>a</p><title>kept</title></body></html>", "text/html", "u"),
++          "a kept")
++    check("short text warning", (short_text_warning("S99", 200, 5) or "").startswith("warning: S99 normalized text is only 5 characters"), True)
++    check("no short text warning: long", short_text_warning("S99", 200, SHORT_TEXT_CHARS), None)
++    check("no short text warning: not 200", short_text_warning("S99", 403, 0), None)
+     base = {"http_status": 200, "raw_body_sha256": "r1", "normalized_text_sha256": "n1", "markers": {"m": "1"}}
+     cases = [
+         ("identical", dict(base), IDENTICAL),
+@@ -761,17 +977,34 @@ def cmd_selftest(a):
+         ("git blob match", dict(base, git_blob_matches_pin=True), IDENTICAL),
+         ("challenge page 403", dict(base, http_status=403, normalized_text_sha256="n9"), FETCH_FAILED),
+         ("network error", dict(base, http_status=0, error="URLError"), FETCH_FAILED),
++        ("deadline", dict(base, http_status=0, error="DeadlineExceeded"), FETCH_FAILED),
++        ("404 after 200", dict(base, http_status=404, normalized_text_sha256="n9"), GONE),
++        ("410 after 200", dict(base, http_status=410), GONE),
++        ("500 is not gone", dict(base, http_status=500), FETCH_FAILED),
+         ("missing", None, MISSING),
+     ]
+     for name, y, want in cases:
+         check("classify " + name, classify(base, y)[0], want)
+     check("classify reference failed", classify(dict(base, http_status=403), dict(base))[0], FETCH_FAILED)
++    check("classify reference 404, now 200", classify(dict(base, http_status=404), dict(base))[0], FETCH_FAILED)
++    check("classify 404 on both sides", classify(dict(base, http_status=404), dict(base, http_status=404))[0], FETCH_FAILED)
++    check("classify reference errored, now 404", classify(dict(base, http_status=0, error="URLError"),
++                                                          dict(base, http_status=404))[0], FETCH_FAILED)
+     check("exit identical", compare_exit({IDENTICAL: 3}), 0)
+     check("exit text same", compare_exit({IDENTICAL: 1, RAW_ONLY: 1, MARKER_ONLY: 1}), EXIT_TEXT_SAME)
+     check("exit fetch failed", compare_exit({RAW_ONLY: 1, FETCH_FAILED: 1}), EXIT_FETCH_FAILED)
+     check("exit content wins", compare_exit({CONTENT: 1, FETCH_FAILED: 1}), EXIT_CONTENT)
+     check("exit missing", compare_exit({MISSING: 1}), EXIT_CONTENT)
+     check("exit extra only", compare_exit({IDENTICAL: 1, EXTRA: 2}), 0)
++    check("exit gone", compare_exit({IDENTICAL: 1, GONE: 1}), EXIT_CONTENT)
++    check("exit gone beats fetch failed", compare_exit({GONE: 1, FETCH_FAILED: 1}, off_pin=1), EXIT_CONTENT)
++    check("exit off-pin only", compare_exit({IDENTICAL: 3}, off_pin=1), EXIT_OFF_PIN)
++    check("exit off-pin beats text same", compare_exit({RAW_ONLY: 2}, off_pin=1), EXIT_OFF_PIN)
++    check("exit text same, on-pin", compare_exit({RAW_ONLY: 2}, off_pin=0), EXIT_TEXT_SAME)
++    check("exit fetch failed beats off-pin", compare_exit({FETCH_FAILED: 1}, off_pin=1), EXIT_FETCH_FAILED)
++    check("exit content beats off-pin", compare_exit({CONTENT: 1}, off_pin=2), EXIT_CONTENT)
++    check("exit codes are distinct", len({EXIT_INPUT, EXIT_CONTENT, EXIT_FETCH_FAILED, EXIT_TEXT_SAME, EXIT_OFF_PIN, EXIT_USAGE}), 6)
++    check("every compare exit has text", sorted(COMPARE_EXIT_TEXT), [0, 2, 3, 4, 5])
+     pins = {"sources": [{"id": "S1", "pin_v2": {"primary": "raw_body_sha256", "raw_body_sha256": "r1"}},
+                         {"id": "S2", "pin_v2": {"primary": "normalized_text_sha256", "normalized_text_sha256": "pinned"}}],
+             "auxiliary_sources": [{"id": "A1", "pin_v2": {"primary": "normalized_text_sha256", "normalized_text_sha256": "n1"}}]}
+@@ -780,12 +1013,22 @@ def cmd_selftest(a):
+                                  "A1": ("normalized_text_sha256", "n1")})
+     A = {"S1": dict(base), "S2": dict(base), "A1": dict(base)}
+     B = {"S1": dict(base, raw_body_sha256="r2"), "S2": dict(base), "A1": dict(base), "X9": dict(base)}
+-    counts, lines = compare_results(A, B, prim)
++    counts, lines, off_pin = compare_results(A, B, prim)
+     check("compare_results counts", (counts[RAW_ONLY], counts[IDENTICAL], counts[EXTRA]), (1, 2, 1))
+-    txt = "\n".join(ln for _, ln in lines)
++    check("off-pin ids", off_pin, ["S1", "S2"])
++    shown = visible_lines(lines, False)
++    check("off-pin lines print without --all", [ln.split()[0] for ln in shown], ["S1", "S2", "X9"])
++    check("--all prints every line", len(visible_lines(lines, True)), 4)
++    txt = "\n".join(ln for _, _, ln in lines)
+     check("primary_same raw changed", "S1 RAW_ONLY" in txt and "primary=raw primary_same=no" in txt, True)
+     check("primary_same against the pin, not the reference", "S2 IDENTICAL" in txt and "primary=norm primary_same=no" in txt, True)
+     check("primary_same aux", "A1 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=yes" in txt, True)
++    # GONE and FETCH_FAILED lines carry no primary_same; a GONE source is not counted off-pin
++    c2, l2, o2 = compare_results({"S1": dict(base), "S2": dict(base)},
++                                 {"S1": dict(base, http_status=404), "S2": dict(base, http_status=403)}, prim)
++    check("gone / failed: counts", (c2[GONE], c2[FETCH_FAILED]), (1, 1))
++    check("gone / failed: no primary_same, not off-pin", (o2, any("primary_same" in ln for _, _, ln in l2)), ([], False))
++    check("gone line", [ln for _, _, ln in l2][0], "S1 GONE http=200/404")
+ 
+     def pkt(s):
+         b = s.encode()
+@@ -809,8 +1052,13 @@ def cmd_selftest(a):
+     check("https only: file", http_get("file:///etc/hosts").get("error"), "SchemeNotAllowed")
+     check("https only: http", http_get("http://example.invalid/").get("error"), "SchemeNotAllowed")
+     check("upstream exit same", upstream_exit([{"result": "same"}]), 0)
+-    check("upstream exit benign drift", upstream_exit([{"result": "drifted", "fragments_found": 2, "fragments_total": 2}]),
++    check("upstream exit drifted, quotes intact", upstream_exit([{"result": "drifted", "fragments_found": 2, "fragments_total": 2}]),
+           EXIT_TEXT_SAME)
++    check("upstream exit drifted, no quotes to check", upstream_exit([{"result": "drifted", "fragments_found": 0, "fragments_total": 0}]),
++          EXIT_CONTENT)
++    check("upstream exit gone", upstream_exit([{"result": "same"}, {"result": "gone"}]), EXIT_CONTENT)
++    check("upstream exit gone beats fetch failed", upstream_exit([{"result": "fetch_failed"}, {"result": "gone"}]), EXIT_CONTENT)
++    check("every upstream exit has text", sorted(UPSTREAM_EXIT_TEXT), [0, 2, 3, 4])
+     check("upstream exit lost fragment", upstream_exit([{"result": "drifted", "fragments_found": 1, "fragments_total": 2},
+                                                         {"result": "fetch_failed"}]), EXIT_CONTENT)
+     check("upstream exit fetch failed", upstream_exit([{"result": "same"}, {"result": "fetch_failed"}]), EXIT_FETCH_FAILED)
+@@ -823,12 +1071,126 @@ def cmd_selftest(a):
+     check("upstream url repo", upstream_url_for({"url": "https://github.com/o/r", "pin": {"path": "README.md"}}),
+           ("https://raw.githubusercontent.com/o/r/HEAD/README.md", "HEAD"))
+     check("repo root from pins path", repo_root_for(os.path.join(os.sep, "x", "y", PINS_REL)), os.path.join(os.sep, "x", "y"))
++    # n10: excerpts match on word boundaries
++    by_default = loose("This is not permitted by defaults.")
++    check("word boundary: end", contains_words(by_default, "is not permitted by default"), False)
++    check("word boundary: whole words", contains_words(by_default, "is not permitted by defaults"), True)
++    check("word boundary: start", contains_words(loose("xthis is allowed"), "this is allowed"), False)
++    check("word boundary: whole copy", contains_words(loose("this is allowed"), "This is *allowed*"), True)
++    check("word boundary: punctuation only", contains_words(loose("a b c"), "............"), False)
++    # n9: fetch exit codes
++    ok200 = {"id": "S1", "http_status": 200}
++    check("fetch exit ok", fetch_exit([ok200, dict(ok200, id="S2", git_blob_matches_pin=True)])[0], 0)
++    check("fetch exit non-200", fetch_exit([ok200, dict(ok200, id="S2", http_status=403)])[0], EXIT_FETCH_FAILED)
++    check("fetch exit network error", fetch_exit([dict(ok200, http_status=0, error="URLError")])[0], EXIT_FETCH_FAILED)
++    check("fetch exit deadline", fetch_exit([dict(ok200, http_status=0, error="DeadlineExceeded")])[0], EXIT_FETCH_FAILED)
++    check("fetch exit blob mismatch", fetch_exit([ok200, dict(ok200, id="S2", git_blob_matches_pin=False)]),
++          (EXIT_BLOB_MISMATCH, [], ["S2"]))
++    check("fetch exit blob mismatch beats non-200", fetch_exit([dict(ok200, git_blob_matches_pin=False),
++                                                                dict(ok200, id="S2", http_status=404)])[0], EXIT_BLOB_MISMATCH)
++    check("fetch exit: failed GitHub fetch is not a blob mismatch",
++          fetch_exit([dict(ok200, http_status=404, git_blob_matches_pin=False)]), (EXIT_FETCH_FAILED, ["S1"], []))
++    check("fetch exit differs from the input-error code", EXIT_BLOB_MISMATCH != EXIT_INPUT and EXIT_FETCH_FAILED != EXIT_INPUT, True)
++    # n8: overall deadline (a fake opener; no network) and line-buffered output
++    global _OPENER, DEADLINE_GRACE_S
++    saved, saved_grace = _OPENER, DEADLINE_GRACE_S
++    DEADLINE_GRACE_S = 0.2
++
++    class _Resp:  # a body that trickles in (it ends after limit_s, so a missing deadline fails the check, not hangs it)
++        status, headers = 200, {}
++
++        def __init__(self, limit_s=5.0):
++            self.t_end = time.monotonic() + limit_s
++
++        def geturl(self):
++            return "https://example.invalid/"
++
++        def read(self, n=-1):
++            time.sleep(0.05)
++            return b"x" if time.monotonic() < self.t_end else b""
++
++        def __enter__(self):
++            return self
++
++        def __exit__(self, *exc):
++            return False
++
++    class _Slow:
++        def __init__(self, hang):
++            self.hang = hang
++
++        def open(self, req, timeout=None):
++            if self.hang:
++                time.sleep(3)  # a stalled connect or name lookup: nothing the socket timeout can bound
++            return _Resp()
++
++    try:
++        for name, hang in (("trickling body", False), ("stalled connect", True)):
++            _OPENER = _Slow(hang)
++            t0 = time.monotonic()
++            r = http_get("https://example.invalid/", timeout=60, retries=2, deadline=0.4)
++            took = time.monotonic() - t0
++            check("deadline %s: error" % name, (r["status"], r.get("error")), (0, "DeadlineExceeded"))
++            check("deadline %s: returned promptly (%.1fs)" % (name, took), took < 2.5, True)
++        check("deadline maps to FETCH_FAILED", classify(dict(base), dict(base, http_status=r["status"], error=r["error"]))[0],
++              FETCH_FAILED)
++        # the cooperative checks alone (no thread): a trickling body must not outlast the deadline either
++        t0 = time.monotonic()
++        try:
++            _read_all(_Resp(1.5), t0 + 0.3)
++            fails.append("read_all: a trickling body outlasted the deadline")
++        except _DeadlineExceeded:
++            check("read_all stops at the deadline", time.monotonic() - t0 < 1.2, True)
++        _OPENER = _Slow(False)
++        t0 = time.monotonic()
++        r2 = _get_with_retries("https://example.invalid/", 60, 2, time.monotonic() + 0.3)
++        check("cooperative deadline in the retry loop", (r2["status"], r2.get("error"), time.monotonic() - t0 < 2.0),
++              (0, "DeadlineExceeded", True))
++    finally:
++        _OPENER, DEADLINE_GRACE_S = saved, saved_grace
++    done, val = run_with_deadline(lambda: 7, 1.0)
++    check("run_with_deadline finishes", (done, val), (True, 7))
++    try:
++        run_with_deadline(lambda: 1 // 0, 1.0)
++        fails.append("run_with_deadline: exception not re-raised")
++    except ZeroDivisionError:
++        pass
++    import io
++    buf = io.TextIOWrapper(io.BytesIO())
++    check("line_buffered", (line_buffered(buf), buf.line_buffering), (True, True))
++    check("line_buffered on a stream without reconfigure", line_buffered(object()), False)
++    # n13: the upstream URL recorded in pins.json is the one this tool builds
++    pins_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "pins.json")
++    if os.path.exists(pins_file):
++        gh = [x for x in load_pins(pins_file)["sources"] if GITHUB_PERMALINK.match(x.get("pin", {}).get("permalink", "") or "")]
++        check("pins.json has 7 GitHub sources", len(gh), 7)
++        for x in gh:
++            check("pins.json upstream url of " + x["id"], (x.get("upstream") or {}).get("url"), upstream_url_for(x)[0])
++            check("pins.json upstream ref of " + x["id"], (x.get("upstream") or {}).get("ref"), upstream_url_for(x)[1])
++    else:
++        print("note: pins.json not found next to the script; the recorded upstream URLs were not checked")
+     for f in fails:
+         print("FAIL", f)
+     print("selftest: %d checks failed" % len(fails) if fails else "selftest: all checks passed")
+     return 1 if fails else 0
+ 
+ 
++def _positive_float(v):
++    x = float(v)  # ValueError becomes a usage error in argparse
++    if not x > 0:
++        raise ValueError("must be positive")
++    return x
++
++
++def line_buffered(stream) -> bool:
++    """Flush after every line, so progress is visible while a long run is going (also through a pipe)."""
++    try:
++        stream.reconfigure(line_buffering=True)
++        return True
++    except (AttributeError, ValueError, OSError):
++        return False
++
++
+ class _Parser(argparse.ArgumentParser):
+     def error(self, message):  # usage errors must not look like a compare result (exit 2)
+         self.print_usage(sys.stderr)
+@@ -846,6 +1208,8 @@ def main():
+     f.add_argument("--set", choices=SETS, default="spec")
+     f.add_argument("--snapshots-dir")
+     f.add_argument("--snapshot-ids")
++    f.add_argument("--deadline", type=_positive_float, default=DEADLINE_S,
++                   help="overall seconds per source, retries included; exceeding it is a failed fetch (default %d)" % DEADLINE_S)
+     f.set_defaults(fn=cmd_fetch)
+     r = sub.add_parser("archive")
+     r.add_argument("--pins", default=PINS_REL)
+@@ -883,6 +1247,7 @@ def main():
+     s = sub.add_parser("selftest")
+     s.set_defaults(fn=cmd_selftest)
+     a = ap.parse_args()
++    line_buffered(sys.stdout)
+     try:
+         rc = a.fn(a)
+     except InputError as err:
+
+exit=0

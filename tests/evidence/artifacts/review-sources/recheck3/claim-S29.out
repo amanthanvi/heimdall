@@ -1,0 +1,27 @@
+S29 
+CLAIM: TS-facing TUI candidate; native/runtime packaging considerations
+PINNED EXCERPT: "It is written in Zig. You write TypeScript directly or through React and Solid." ; "Development requires Bun 1.4.1 or later and Zig 0.16.0." ; @opentui/native is a private workspace
+LIVE: HTTP 200
+FRAGMENT True: It is written in Zig. You write TypeScript directly or through React and Solid.
+CONTEXT: uild core yml img alt core build status src https img shields io github actions workflow status anomalyco opentui build core yml style flat square branch main a div opentui is a library to build terminal user interfaces it is written in zig you write typescript directly or through react and solid you arrange boxes and text with flexbox you add selects inputs and scroll boxes with keyboard and mouse controls you can play sounds show images and render 3d graphics opencode uses opentui in production for millions of users website documentation packages packages opentui core native terminal ui library with typescript bindings opentui react react renderer for building termin
+FRAGMENT True: Development requires Bun 1.4.1 or later and Zig 0.16.0.
+CONTEXT: ai agent skill ai agent skill install the opentui documentation as a skill for your ai coding assistant with npx skills bash npx skills add anomalyco opentui skill opentui add g to install the skill globally development development requires bun 1 4 1 or later and zig 0 16 0 see agents md for engineering tooling and verification conventions bash bun install run package scripts from their package directory run bun run build from the repository root after you change native code or cross package build outputs ordinary typescript changes do not require a root build run repository tests and static checks from the repository root bash bun run test bun r
+BRANCH 200
+BRANCH FRAGMENT True: It is written in Zig. You write TypeScript directly or through React and Solid.
+BRANCH CONTEXT: src https img shields io github actions workflow status anomalyco opentui build core yml style flat square branch main a div opentui is a library to build terminal user interfaces it is written in zig you write typescript directly or through react and solid you arrange boxes and text with flexbox you add selects inputs and scroll boxes with keyboard and mouse controls you can play sounds show images and render 3d graphics opencode uses opentui in production for millions of users website documentation packages packages opentui core native terminal ui library with typescript bindings opentui react react renderer for building termin
+BRANCH FRAGMENT False: Development requires Bun 1.4.1 or later and Zig 0.16.0.
+LOST
+OpenTUI is a library to build terminal user interfaces.
+- It is written in Zig.
+- [`@opentui/core`](packages/core) - Native terminal UI library with TypeScript bindings.
+- [`@opentui/react`](packages/react) - React renderer for building terminal user interfaces with OpenTUI Core.
+- [`@opentui/solid`](packages/solid) - Solid renderer for building terminal user interfaces with OpenTUI Core.
+- [`@opentui/keymap`](packages/keymap) - Key binding and command routing library for terminal and browser applications.
+- [`@opentui/native`](packages/native) - Private workspace with the Zig implementation, native tests, and benchmarks.
+Development requires Bun 1.4.1 or later and Zig 0.17.0.
+bun install
+Run package scripts from their package directory. Run `bun run build` from the repository root after you change
+bun run test
+bun run fmt:check
+bun run lint
+To link the source packages into a Bun-managed project, install that project's dependencies, then run

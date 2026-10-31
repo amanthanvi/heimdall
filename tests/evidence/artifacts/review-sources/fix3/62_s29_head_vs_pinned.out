@@ -1,0 +1,10 @@
+$ python3 -I -B tests/evidence/artifacts/review-sources/fix3/s29_head_vs_pinned.py
+HEAD    https://raw.githubusercontent.com/anomalyco/opentui/HEAD/README.md 200 blob 5141426ee59a44ae1784b8254f3786e53ea1a69d
+pinned  https://raw.githubusercontent.com/anomalyco/opentui/de8dc97080e4c404d9018d9e6a485036aeaef7d2/README.md 200 blob 6f2523a1afb3bf091b91eab073bc6fb0066d9844 equals the pin
+fragment on HEAD: True  in pinned copy: True  | It is written in Zig. You write TypeScript directly or through React and Solid.
+fragment on HEAD: False in pinned copy: True  | Development requires Bun 1.4.1 or later and Zig 0.16.0.
+words: pinned 377, HEAD 422, changed regions 3
+  replace PINNED: 'anomalyco/opentui' HEAD: 'https://opentui.com'
+  insert PINNED: '' HEAD: 'The skill matches the latest release, and `npx skills update` moves it to each new release. Install from `https://opentui.com/docs/next` to follow the main bran'
+  replace PINNED: '0.16.0.' HEAD: '0.17.0.'
+exit=0

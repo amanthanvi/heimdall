@@ -1,0 +1,15 @@
+S14 HTTP 200 https://docs.iroh.computer/concepts/endpoints
+CLAIM Cryptographic endpoint identity distinct from routing
+EXCERPT "Each endpoint in iroh has a unique identifier (EndpointID) created as a cryptographic key." ; EndpointAddr is a separate struct that tells iroh "what & where to dial"
+LIVE SHA256 e163cd7236f8c64be46e6437cca63b5e7a53c517bad8f8bb6c7f75e655b8b957
+DIFF insert
+OLD ⌘K Community Blog Login Login Search... Navigation How it works Endpoints What is iroh? Quickstart Compatibility Languages Tutorials How it works Endpoints Tickets Address Lookup Relays NAT Traversal Protocols Security & Privacy Creating Connections Sending Data
+NEW ⌘K Community Blog Login Login Search... Navigation How it works Endpoints What is iroh? Quickstart Compatibility Languages Tutorials Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks How it works Endpoints Tickets Address Lookup Relays NAT Traversal Protocols Security & Privacy Creating Connections Sending Data
+DIFF insert
+OLD Privacy Creating Connections Sending Data Transports Relays Observability About API References Examples Troubleshooting Support FAQ On this page Connections Endpoint Identifiers Endpoint Addresses Interaction with address lookup When to provide full details What to persist in
+NEW Privacy Creating Connections Sending Data Transports Relays Observability About API References Examples Troubleshooting Support FAQ On this page Back to top Connections Endpoint Identifiers Endpoint Addresses Interaction with address lookup When to provide full details What to persist in
+FRAGMENT True Each endpoint in iroh has a unique identifier (EndpointID) created as a cryptographic key.
+CONTEXT streams a relay server can be used to make the connections reliable due to the light weight properties of quic streams a stream can only be accepted once the initiating peer has sent some data on it endpoint identifiers each endpoint in iroh has a unique identifier endpointid created as a cryptographic key this can be used to globally identify an endpoint because endpointids are cryptographic keys they are also the mechanism by which all traffic is always encrypted for a specific endpoint only by default creating an endpoint generates a new random identity each time a fresh keypair and therefore a new endpointid if you want the same endpointid to persist across restarts so peers can reconnect and y
+FRAGMENT True what & where to dial
+CONTEXT rsistent identity for a working example see the endpointid documentation for more information endpoint addresses endpoint addresses or endpointaddrs are a common struct youll interact when working with iroh to tell iroh what where to dial in rust they look like this pub struct endpointaddr pub id endpointid pub addrs btreeset transportaddr youll interact with endpointaddr s a fair amount when working with iroh its also quite normal to construct addresses manually from say endpoint identifiers stored in your application database when we call connect on an endpoint we need to pass either a endpointaddr or something that can turn int
+exit=0

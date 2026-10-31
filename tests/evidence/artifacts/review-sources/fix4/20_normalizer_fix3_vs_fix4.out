@@ -1,0 +1,58 @@
+$ python3.13 -I -B tests/evidence/artifacts/review-sources/fix4/normalizer_fix3_vs_fix4.py <tmp>/probe
+rebuilt fix3 file sha256 bc369c6d14ae729059630ac99beeca00afde0adff1b890a1985c5911e84dd064 == recorded by recheck3
+python 3.13.18
+S01 html second_pass=no chars 3622c56=67164 fix3=67164 fix4=67164 SAME
+S02 html second_pass=no chars 3622c56=41607 fix3=41607 fix4=41607 SAME
+S03 html second_pass=no chars 3622c56=24203 fix3=24203 fix4=24203 SAME
+S04 html second_pass=no chars 3622c56=29873 fix3=29873 fix4=29873 SAME
+S05 html second_pass=no chars 3622c56=62821 fix3=62821 fix4=62821 SAME
+S06 html second_pass=no chars 3622c56=7513 fix3=7513 fix4=7513 SAME
+S07 html second_pass=no chars 3622c56=8143 fix3=8143 fix4=8143 SAME
+S08 html second_pass=no chars 3622c56=9500 fix3=9500 fix4=9500 SAME
+S09 html second_pass=no chars 3622c56=14087 fix3=14087 fix4=14087 SAME
+S10 html second_pass=no chars 3622c56=39466 fix3=39466 fix4=39466 SAME
+S11 html second_pass=no chars 3622c56=13855 fix3=13855 fix4=13855 SAME
+S12 html second_pass=no chars 3622c56=7954 fix3=7954 fix4=7954 SAME
+S13 html second_pass=no chars 3622c56=12837 fix3=12837 fix4=12837 SAME
+S14 html second_pass=no chars 3622c56=6517 fix3=6517 fix4=6517 SAME
+S15 html second_pass=no chars 3622c56=5007 fix3=5007 fix4=5007 SAME
+S16 other second_pass=no chars 3622c56=4032 fix3=4032 fix4=4032 SAME
+S17 other second_pass=no chars 3622c56=4634 fix3=4634 fix4=4634 SAME
+S18 other second_pass=no chars 3622c56=7611 fix3=7611 fix4=7611 SAME
+S19 other second_pass=no chars 3622c56=8424 fix3=8424 fix4=8424 SAME
+S20 html second_pass=no chars 3622c56=9497 fix3=9497 fix4=9497 SAME
+S21 html second_pass=no chars 3622c56=2365 fix3=2365 fix4=2365 SAME
+S22 html second_pass=no chars 3622c56=4250 fix3=4250 fix4=4250 SAME
+S23 html second_pass=no chars 3622c56=7395 fix3=7395 fix4=7395 SAME
+S24 other second_pass=no chars 3622c56=68899 fix3=68899 fix4=68899 SAME
+S25 other second_pass=no chars 3622c56=9836 fix3=9836 fix4=9836 SAME
+S26 other second_pass=no chars 3622c56=20067 fix3=20067 fix4=20067 SAME
+S27 other second_pass=no chars 3622c56=14110 fix3=14110 fix4=14110 SAME
+S28 html second_pass=no chars 3622c56=4199 fix3=4199 fix4=4199 SAME
+S29 other second_pass=no chars 3622c56=3222 fix3=3222 fix4=3222 SAME
+S30 html second_pass=no chars 3622c56=8957 fix3=8957 fix4=8957 SAME
+S31 other second_pass=no chars 3622c56=17006 fix3=17006 fix4=17006 SAME
+S32 other second_pass=no chars 3622c56=22663 fix3=22663 fix4=22663 SAME
+S33 other second_pass=no chars 3622c56=5764 fix3=5764 fix4=5764 SAME
+S34 other second_pass=no chars 3622c56=4331 fix3=4331 fix4=4331 SAME
+A01 html second_pass=no chars 3622c56=3868 fix3=3868 fix4=3868 SAME
+A02 html second_pass=no chars 3622c56=2409 fix3=2409 fix4=2409 SAME
+A03 html second_pass=no chars 3622c56=3119 fix3=3119 fix4=3119 SAME
+A04 html second_pass=no chars 3622c56=4454 fix3=4454 fix4=4454 SAME
+sources whose document has a <head> without </head> (second pass runs): 0
+-- synthetic documents (fix3 -> fix4)
+R3-1: text after </title>, no </head>      fix3='' fix4='Hello world' changed
+text straight after <head>, no </head>     fix3='' fix4='Hello world' changed
+<body> start tag alone ends the head       fix3='kept' fix4='kept' same
+whitespace between head elements           fix3='two' fix4='Hello two' changed
+title text only                            fix3='' fix4='' same
+unclosed title only                        fix3='' fix4='' same
+script, style, noscript text only          fix3='' fix4='' same
+text after script/style/noscript           fix3='too' fix4='shown too' changed
+no-break space ends the head               fix3='' fix4='Kept' changed
+closed head, text in the head (v1)         fix3='x' fix4='x' same
+closed head                                fix3='Hello' fix4='Hello' same
+no head                                    fix3='a' fix4='a' same
+head without </head>, with <body>          fix3='Hello world' fix4='Hello world' same
+head without </head>, no <body>            fix3='Para' fix4='Para' same
+exit=0

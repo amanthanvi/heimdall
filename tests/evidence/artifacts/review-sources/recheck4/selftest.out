@@ -1,0 +1,4 @@
+$ python3.13 -I -B docs/sources/tools/fetch_pins.py selftest
+selftest: all checks passed
+
+exit=0

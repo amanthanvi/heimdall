@@ -1,0 +1,9 @@
+S13 
+CLAIM: Windows account, service, key permission integration
+PINNED EXCERPT: "place the contents of your public key ... into a text file called administrators_authorized_keys in C:\ProgramData\ssh\" with icacls.exe permission reset (/inheritance:r)
+LIVE: HTTP 200
+FRAGMENT True: place the contents of your public key
+CONTEXT: s used if you lose access to the private key you have to create a new key pair and update the public key on all systems you interact with deploy the public key to use the user key that you created previously you need to place the contents of your public key ssh id ecdsa pub on the server into a text file the name and location of the file depend on whether the user account is a member of the local administrator group or a standard user account the following sections cover both standard and administrative users standard user you need to place the contents of your public key ssh id ecdsa pub on the server into a text file called aut
+FRAGMENT True: into a text file called administrators_authorized_keys in C:\ProgramData\ssh\
+CONTEXT: er and run the powershell command by using the remotepowershell variable ssh username domain hostname remotepowershell administrative user you need to place the contents of your public key ssh id ecdsa pub on the server into a text file called administrators authorized keys in c programdata ssh you can copy your public key by using the openssh scp secure file transfer utility or by using powershell to write the key to the file the acl on this file needs to be configured to only allow access to administrators and the system user you can use the following code to copy the public key to the server and configure the acl in the last line replace username with your usernam
+CHANGE BLOCKS 0

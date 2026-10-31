@@ -1,0 +1,5 @@
+$ /opt/homebrew/opt/python@3.13/bin/python3.13 -I <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted.py fetch-deadline <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted-krpvr4d6/pins.json
+S1 0 0 e3b0c44298fc e3b0c44298fc error=DeadlineExceeded
+not fetched (non-200, network error or deadline): S1
+
+exit=3

@@ -1,0 +1,4 @@
+$ /opt/homebrew/bin/python3.13 -I docs/sources/tools/fetch_pins.py verify --fetch-result docs/sources/fetch-baseline-aux.json --id A02 --snapshot docs/sources/snapshots/A02.txt.gz
+A02 snapshot normalized hash matches
+
+exit=0

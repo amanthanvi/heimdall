@@ -1,0 +1,22 @@
+Changed manifest leaves vs HEAD:
+/fix3_edited_at_utc
+/fix4_edited_at_utc
+/reopen_conditions/0
+/reopen_conditions/1
+/reproducibility/verify
+/sources/15/note
+/sources/15/upstream
+/sources/16/note
+/sources/16/upstream
+/sources/17/note
+/sources/17/upstream
+/sources/18/upstream
+/sources/26/upstream
+/sources/28/note
+/sources/28/upstream
+/sources/33/note
+/sources/33/upstream
+Changed tracked sources paths:
+docs/sources/README.md
+docs/sources/pins.json
+docs/sources/tools/fetch_pins.py

@@ -1,0 +1,11 @@
+A04 
+CLAIM: Iroh operating-system support table
+PINNED EXCERPT: "iroh supports all major operating systems." ; "OS Supported Linux Yes macOS Yes Windows Yes Android Yes iOS Yes WebAssembly (browser) Yes FreeRTOS Yes" (table cells flattened by the normalizer)
+LIVE: HTTP 200
+FRAGMENT True: iroh supports all major operating systems.
+CONTEXT: data to and from any device running anywhere big or small cloud servers tablets or embedded systems the core peer to peer technology is open source and built on open standards so youre never locked in operating systems iroh supports all major operating systems os supported linux yes macos yes windows yes android yes ios yes webassembly browser yes freertos yes hardware iroh is regularly tested on a wide range of hardware from servers to microcontrollers hardware notes x86 64 servers desktops fully supported apple silicon m series fully supported raspberry pi linux fully supported esp32 xtensa risc v supported rp2350 supported for ha
+FRAGMENT True: OS Supported Linux Yes macOS Yes Windows Yes Android Yes iOS Yes WebAssembly (browser) Yes FreeRTOS Yes
+CONTEXT: ere big or small cloud servers tablets or embedded systems the core peer to peer technology is open source and built on open standards so youre never locked in operating systems iroh supports all major operating systems os supported linux yes macos yes windows yes android yes ios yes webassembly browser yes freertos yes hardware iroh is regularly tested on a wide range of hardware from servers to microcontrollers hardware notes x86 64 servers desktops fully supported apple silicon m series fully supported raspberry pi linux fully supported esp32 xtensa risc v supported rp2350 supported for hardware you dont see here or to integrate your custom hardware into our testing frameworks on every iro
+CHANGE BLOCKS 2
+('insert', '', 'Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks')
+('insert', '', 'Back to top')

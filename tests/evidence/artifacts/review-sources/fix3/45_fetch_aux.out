@@ -1,0 +1,6 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py fetch --set aux --out <tmp>/aux.json --snapshots-dir <tmp>/snapAux --snapshot-ids A01,A02,A03,A04
+A01 200 283408 ed276cc11d89 1cd348363947 
+A02 200 296247 a81ae8dcaa19 f0cf5a013cc6 
+A03 200 311419 90a8f3b5283a 390041e83196 
+A04 200 280587 dbe446934841 03c4751532b0 
+exit=0

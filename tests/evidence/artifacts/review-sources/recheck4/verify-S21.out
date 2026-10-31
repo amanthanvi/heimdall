@@ -1,0 +1,4 @@
+$ python3.13 -I -B docs/sources/tools/fetch_pins.py verify --id S21 --snapshot docs/sources/snapshots/S21.txt.gz --fetch-result docs/sources/fetch-baseline.json
+S21 snapshot normalized hash matches
+
+exit=0

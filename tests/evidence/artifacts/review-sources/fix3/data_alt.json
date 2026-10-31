@@ -1,0 +1,170 @@
+{
+ "normalizer_version": 1,
+ "results": [
+  {
+   "fetched_url": "https://man.openbsd.org/ssh_config",
+   "final_url": "https://man.openbsd.org/ssh_config",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S01",
+   "markers": {
+    "mdoc_footer": "October 9, 2026"
+   },
+   "normalized_text_chars": 67164,
+   "normalized_text_sha256": "ebeb92bd4f9f3307f5fff73cf2a5d6280335af34dfcef5710598813479635da7",
+   "normalizer_version": 1,
+   "raw_body_sha256": "da53ade0bfcb8e92a73e397ad9886a8a8e97b11c62ecad2ca6c5f1c3ed3221a9",
+   "raw_bytes": 116922,
+   "retrieved_at_utc": "2026-10-31T20:39:20Z",
+   "snapshot": {
+    "gz_sha256": "2dac74e0d3704f48ccc72f08b885b7057f02968cacd3226db433941f92557ba5",
+    "path": "<tmp>/snapAlt/S01.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh_config"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/ssh",
+   "final_url": "https://man.openbsd.org/ssh",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S02",
+   "markers": {
+    "mdoc_footer": "October 13, 2026"
+   },
+   "normalized_text_chars": 41607,
+   "normalized_text_sha256": "52eb8b580d0684adcef228240642dc0e5b921481fb3c71228e02687664ba1a9d",
+   "normalizer_version": 1,
+   "raw_body_sha256": "8a72f0757b00c85de56b17212921b130edd968e7e1ac0b3c38bef2569ea07874",
+   "raw_bytes": 82462,
+   "retrieved_at_utc": "2026-10-31T20:39:20Z",
+   "snapshot": {
+    "gz_sha256": "f4b49e67d44b8f343ed46a890e9af4ebb5722e700c1b337774ab07589cd84f27",
+    "path": "<tmp>/snapAlt/S02.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh"
+  },
+  {
+   "fetched_url": "https://www.openssh.org/agent-restrict.html",
+   "final_url": "https://www.openssh.org/agent-restrict.html",
+   "headers": {
+    "content-length": "31685",
+    "content-type": "text/html",
+    "last-modified": "Tue, 22 Sep 2026 19:18:50 GMT"
+   },
+   "http_status": 200,
+   "id": "S03",
+   "markers": {
+    "http_last_modified": "Tue, 22 Sep 2026 19:18:50 GMT"
+   },
+   "normalized_text_chars": 24203,
+   "normalized_text_sha256": "7f421cdb50b95b49fa9710b820093593bde4a380b049878829dd309556037fc3",
+   "normalizer_version": 1,
+   "raw_body_sha256": "28939c425c736c784915e63bf8e1febfd238422c4ede43c759fe0bd8e0417f1c",
+   "raw_bytes": 31685,
+   "retrieved_at_utc": "2026-10-31T20:39:21Z",
+   "snapshot": {
+    "gz_sha256": "6828505746fcfac74d2285a791c89c03ccdf7a0e80f140459ec5ade7030e1322",
+    "path": "<tmp>/snapAlt/S03.txt.gz"
+   },
+   "spec_url": "https://www.openssh.org/agent-restrict.html"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/sshd",
+   "final_url": "https://man.openbsd.org/sshd",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S04",
+   "markers": {
+    "mdoc_footer": "September 2, 2026"
+   },
+   "normalized_text_chars": 29873,
+   "normalized_text_sha256": "c72dd159dc2ea9d7a6e4d78fb67dc20e491540feaf76c80405187d68503b6cc9",
+   "normalizer_version": 1,
+   "raw_body_sha256": "ff432ae0808bfc2e2f491c6d28fb26aea7b5d4e6cc092fe842f3c5fffdcc6d81",
+   "raw_bytes": 52704,
+   "retrieved_at_utc": "2026-10-31T20:39:22Z",
+   "snapshot": {
+    "gz_sha256": "a5cb488aff71a4ff25f1a92328d6399d57171bb056c7c2709da4188120ea73af",
+    "path": "<tmp>/snapAlt/S04.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/sshd"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/sshd_config",
+   "final_url": "https://man.openbsd.org/sshd_config",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S05",
+   "markers": {
+    "mdoc_footer": "October 9, 2026"
+   },
+   "normalized_text_chars": 62821,
+   "normalized_text_sha256": "cc8e80fb3b0699531a54e229a78a803f3b4e078f75a2e98d20238df551097fe5",
+   "normalizer_version": 1,
+   "raw_body_sha256": "20f142bfd69f2426d37fcea3ab700cc89adfd07a1a6762df8f57640d5e04dada",
+   "raw_bytes": 113990,
+   "retrieved_at_utc": "2026-10-31T20:39:22Z",
+   "snapshot": {
+    "gz_sha256": "d36e062f87dad1851805b7836f6d2be634c1cf965db09e7456ac85ddd6c714b9",
+    "path": "<tmp>/snapAlt/S05.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/sshd_config"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/ssh-keygen",
+   "final_url": "https://man.openbsd.org/ssh-keygen",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S10",
+   "markers": {
+    "mdoc_footer": "October 1, 2026"
+   },
+   "normalized_text_chars": 39466,
+   "normalized_text_sha256": "38f503ba0bc83fabc35a82c5f8523bc6e090075795e6dccc1ad8a6d27d0d4666",
+   "normalizer_version": 1,
+   "raw_body_sha256": "5b75318e1b409bcab10eb508a7e3e308fe2f31b6f5c8d7d9f08cf57d0d840b25",
+   "raw_bytes": 78002,
+   "retrieved_at_utc": "2026-10-31T20:39:23Z",
+   "snapshot": {
+    "gz_sha256": "22047bcac24964fd4d17eb3b15b864de51d91bd754e21524e74be1ab714fcc87",
+    "path": "<tmp>/snapAlt/S10.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh-keygen"
+  },
+  {
+   "fetched_url": "https://man.openbsd.org/ssh-agent",
+   "final_url": "https://man.openbsd.org/ssh-agent",
+   "headers": {
+    "content-type": "text/html; charset=utf-8"
+   },
+   "http_status": 200,
+   "id": "S30",
+   "markers": {
+    "mdoc_footer": "September 18, 2026"
+   },
+   "normalized_text_chars": 8957,
+   "normalized_text_sha256": "f3ef98f1635b149ec00529b753daa8aa6408709e7a77610e84d63764bf1fbf75",
+   "normalizer_version": 1,
+   "raw_body_sha256": "f7d144d9fa890fd2f309cc5a6d7189c306b23f0693e49e7ebbb011336da895d0",
+   "raw_bytes": 21295,
+   "retrieved_at_utc": "2026-10-31T20:39:24Z",
+   "snapshot": {
+    "gz_sha256": "4874711aa8d65d8b580cb1c32d4a266e40558ba5e11fbe2091b61d47798da250",
+    "path": "<tmp>/snapAlt/S30.txt.gz"
+   },
+   "spec_url": "https://man.openbsd.org/ssh-agent"
+  }
+ ],
+ "set": "spec",
+ "tool": "fetch_pins.py"
+}

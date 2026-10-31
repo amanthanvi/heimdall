@@ -1,0 +1,13 @@
+S17 
+CLAIM: Connection supervision and mutation replay boundary
+PINNED EXCERPT: "The supervisor owns transport retry policy" ; "Reconnection does not automatically replay mutations, whose retry and ..."
+LIVE: HTTP 200
+FRAGMENT True: The supervisor owns transport retry policy
+CONTEXT: ignals and application lifecycle events react views consume the runtime keeping retries and session lifetime here prevents competing reconnect loops when several views need the same environment one transport retry owner the supervisor owns transport retry policy resolving an endpoint and opening an rpc session are single attempts transient failures retry with capped backoff offline states and authentication failures wait for a wakeup instead of spending attempts on unchanged conditions foregrounding needs different treatment depending on the connections state it wakes a retry immediately leaves an ordinary in flight attempt alone and
+FRAGMENT True: Reconnection does not automatically replay mutations, whose retry and
+CONTEXT: ainst the current session at execution time durable subscriptions follow replacement sessions after a transport failure they wait for the supervisor an expected domain failure may resubscribe on the same healthy session reconnection does not automatically replay mutations whose retry and idempotency rules belong to the operation
+BRANCH 200
+BRANCH FRAGMENT True: The supervisor owns transport retry policy
+BRANCH CONTEXT: react views consume the runtime keeping retries and session lifetime here prevents competing reconnect loops when several views need the same environment one transport retry owner the supervisor owns transport retry policy resolving an endpoint and opening an rpc session are single attempts transient failures retry with jittered exponential backoff capped at five minutes that resets only after a connection stays up without jitter every client of a restarted server reconnects in the same second with a short cap a client that can never connect retries all day offline states and authentication fail
+BRANCH FRAGMENT True: Reconnection does not automatically replay mutations, whose retry and
+BRANCH CONTEXT: ime durable subscriptions follow replacement sessions after a transport failure they wait for the supervisor an expected domain failure may resubscribe on the same healthy session reconnection does not automatically replay mutations whose retry and idempotency rules belong to the operation

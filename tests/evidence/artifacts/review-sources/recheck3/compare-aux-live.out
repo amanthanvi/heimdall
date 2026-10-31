@@ -1,0 +1,43 @@
+$ /opt/homebrew/bin/python3.13 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline-aux.json tests/evidence/artifacts/review-sources/recheck3/fresh.json --all
+sources: 4  IDENTICAL=0  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=4  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=34  off_pin=4
+A01 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+A02 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+A03 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+A04 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S01 EXTRA (only in second file)
+S02 EXTRA (only in second file)
+S03 EXTRA (only in second file)
+S04 EXTRA (only in second file)
+S05 EXTRA (only in second file)
+S06 EXTRA (only in second file)
+S07 EXTRA (only in second file)
+S08 EXTRA (only in second file)
+S09 EXTRA (only in second file)
+S10 EXTRA (only in second file)
+S11 EXTRA (only in second file)
+S12 EXTRA (only in second file)
+S13 EXTRA (only in second file)
+S14 EXTRA (only in second file)
+S15 EXTRA (only in second file)
+S16 EXTRA (only in second file)
+S17 EXTRA (only in second file)
+S18 EXTRA (only in second file)
+S19 EXTRA (only in second file)
+S20 EXTRA (only in second file)
+S21 EXTRA (only in second file)
+S22 EXTRA (only in second file)
+S23 EXTRA (only in second file)
+S24 EXTRA (only in second file)
+S25 EXTRA (only in second file)
+S26 EXTRA (only in second file)
+S27 EXTRA (only in second file)
+S28 EXTRA (only in second file)
+S29 EXTRA (only in second file)
+S30 EXTRA (only in second file)
+S31 EXTRA (only in second file)
+S32 EXTRA (only in second file)
+S33 EXTRA (only in second file)
+S34 EXTRA (only in second file)
+exit 2: content change, removed (GONE) or missing source
+
+exit=2

@@ -1,0 +1,47 @@
+$ python3.13 -I -B tests/evidence/artifacts/review-sources/fix3/normalizer_old_vs_new.py <tmp>/probe_alt
+python 3.13.18
+S01 html chars old=67164 new=67164 SAME
+S02 html chars old=41607 new=41607 SAME
+S03 html chars old=24203 new=24203 SAME
+S04 html chars old=29873 new=29873 SAME
+S05 html chars old=62821 new=62821 SAME
+S06 html chars old=7513 new=7513 SAME
+S07 html chars old=8143 new=8143 SAME
+S08 html chars old=9500 new=9500 SAME
+S09 html chars old=14087 new=14087 SAME
+S10 html chars old=39466 new=39466 SAME
+S11 html chars old=13855 new=13855 SAME
+S12 html chars old=7954 new=7954 SAME
+S13 html chars old=12837 new=12837 SAME
+S14 html chars old=6517 new=6517 SAME
+S15 html chars old=5007 new=5007 SAME
+S16 other chars old=4032 new=4032 SAME
+S17 other chars old=4634 new=4634 SAME
+S18 other chars old=7611 new=7611 SAME
+S19 other chars old=8424 new=8424 SAME
+S20 html chars old=9497 new=9497 SAME
+S21 html chars old=2365 new=2365 SAME
+S22 html chars old=4250 new=4250 SAME
+S23 html chars old=7395 new=7395 SAME
+S24 other chars old=68899 new=68899 SAME
+S25 other chars old=9836 new=9836 SAME
+S26 other chars old=20067 new=20067 SAME
+S27 other chars old=14110 new=14110 SAME
+S28 html chars old=4199 new=4199 SAME
+S29 other chars old=3222 new=3222 SAME
+S30 html chars old=8957 new=8957 SAME
+S31 other chars old=17006 new=17006 SAME
+S32 other chars old=22663 new=22663 SAME
+S33 other chars old=5764 new=5764 SAME
+S34 other chars old=4331 new=4331 SAME
+A01 html chars old=3868 new=3868 SAME
+A02 html chars old=2409 new=2409 SAME
+A03 html chars old=3119 new=3119 SAME
+A04 html chars old=4454 new=4454 SAME
+-- synthetic documents (old -> new)
+closed head                          old='Hello' new='Hello' same
+closed head with a stray div         old='x' new='x' same
+no head                              old='a' new='a' same
+head without </head>, with <body>    old='' new='Hello world' changed
+head without </head>, no <body>      old='' new='Para' changed
+exit=0

@@ -1,0 +1,73 @@
+$ python3 -I -B tests/evidence/artifacts/review-sources/fix4/mutation_check.py <tmp>/mut
+unmutated copy: exit=0 ['selftest: all checks passed']
+n10 substring match instead of word boundaries                                 exit=1 CAUGHT
+       FAIL word boundary: end: got True want False
+       FAIL word boundary: start: got True want False
+n3 GONE class removed                                                          exit=1 CAUGHT
+       FAIL classify 404 after 200: got 'FETCH_FAILED' want 'GONE'
+       FAIL classify 410 after 200: got 'FETCH_FAILED' want 'GONE'
+n3 GONE not part of exit 2                                                     exit=1 CAUGHT
+       FAIL exit gone: got 0 want 2
+       FAIL exit gone beats fetch failed: got 3 want 2
+n2 off-pin ignored by the exit code                                            exit=1 CAUGHT
+       FAIL exit off-pin only: got 0 want 5
+       FAIL exit off-pin beats text same: got 4 want 5
+n2 off-pin IDENTICAL lines hidden without --all                                exit=1 CAUGHT
+       FAIL off-pin lines print without --all: got ['S1', 'X9'] want ['S1', 'S2', 'X9']
+       selftest: 1 checks failed
+n2 off-pin shown for a GONE source                                             exit=1 CAUGHT
+       FAIL gone / failed: no primary_same, not off-pin: got ([], True) want ([], False)
+       FAIL gone line: got 'S1 GONE http=200/404 primary=raw primary_same=yes' want 'S1 GONE http=200/404'
+n4 no second pass for a head without </head>                                   exit=1 CAUGHT
+       FAIL normalize no </head>, <body>: got '' want 'Hello world'
+       FAIL normalize no </head>, no <body>: got '' want 'Para Two'
+n4 implied head end applied to every document (changes closed-head output)     exit=1 CAUGHT
+       FAIL normalize closed head: text in the head stays dropped (v1 rule): got 'stray text x' want 'x'
+       FAIL normalize closed head keeps v1 rule: got 'stray x' want 'x'
+n4 body does not end the head                                                  exit=1 CAUGHT
+       FAIL normalize no </head>, a <body> start tag alone ends the head: got '' want 'kept'
+       selftest: 1 checks failed
+n5 drifted with no quoted fragment counts as quotes intact                     exit=1 CAUGHT
+       FAIL upstream exit drifted, no quotes to check: got 4 want 2
+       selftest: 1 checks failed
+n3 upstream: a gone file is not exit 2                                         exit=1 CAUGHT
+       FAIL upstream exit gone: got 0 want 2
+       FAIL upstream exit gone beats fetch failed: got 3 want 2
+n9 blob mismatch shares the input-error code                                   exit=1 CAUGHT
+       FAIL fetch exit differs from the input-error code: got False want True
+       selftest: 1 checks failed
+n9 failed fetch is exit 1 again                                                exit=1 CAUGHT
+       FAIL fetch exit non-200: got 1 want 3
+       FAIL fetch exit network error: got 1 want 3
+n9 failed GitHub fetch counted as blob mismatch                                exit=1 CAUGHT
+       FAIL fetch exit: failed GitHub fetch is not a blob mismatch: got (2, ['S1'], ['S1']) want (3, ['S1'], [])
+       selftest: 1 checks failed
+n8 body read ignores the deadline                                              exit=1 CAUGHT
+       FAIL read_all: a trickling body outlasted the deadline
+       FAIL cooperative deadline in the retry loop: got (200, None, False) want (0, 'DeadlineExceeded', True)
+n8 no hard deadline around the GET                                             exit=1 CAUGHT
+       FAIL deadline stalled connect: returned promptly (3.0s): got False want True
+       selftest: 1 checks failed
+n8 output not line-buffered                                                    exit=1 CAUGHT
+       FAIL line_buffered: got (True, False) want (True, True)
+       FAIL line_buffered on a stream without reconfigure: got True want False
+R3-1 character data does not end the head                                      exit=1 CAUGHT
+       FAIL normalize no </head>, body text after </title>: got '' want 'Hello world'
+       FAIL normalize no </head>, body text straight after <head>: got '' want 'Hello world'
+R3-1 title text ends the head                                                  exit=1 CAUGHT
+       FAIL normalize no </head>, <body>: got 't Hello world' want 'Hello world'
+       FAIL normalize no </head>, no <body>: got 't Para Two' want 'Para Two'
+R3-1 any Unicode whitespace is ignored, not only HTML whitespace               exit=1 CAUGHT
+       FAIL normalize no </head>, a no-break space is not HTML whitespace: it ends the head: got '' want 'Kept'
+       selftest: 1 checks failed
+R3-1 text inside script/style/noscript/template ends the head too              exit=1 CAUGHT
+       FAIL normalize no </head>, script and style stay dropped: got "var a = '<p>x</p>' B" want 'B'
+       FAIL normalize no </head>, noscript in head stays dropped: got 'hid ok' want 'ok'
+R3-1 </title> does not close the title                                         exit=1 CAUGHT
+       FAIL normalize no </head>, body text after </title>: got '' want 'Hello world'
+       FAIL normalize no </head>, whitespace between head elements does not end the head: got 'two' want 'Hello two'
+n13 repo-root upstream URL uses main instead of HEAD                           exit=1 CAUGHT
+       FAIL upstream url repo: got ('https://raw.githubusercontent.com/o/r/main/README.md', 'main') want ('https://raw.githubusercontent.com/o/r/HEAD/README.
+       FAIL pins.json upstream url of S19: got 'https://raw.githubusercontent.com/n0-computer/pigeons/HEAD/README.md' want 'https://raw.githubusercontent.com
+mutants: 23, not caught: 0, unmutated baseline passes
+exit=0

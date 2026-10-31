@@ -1,0 +1,9 @@
+$ python3.13 -I -B docs/sources/tools/fetch_pins.py fetch --only S01,S02,S03,S04,S05,S10,S30 --out <tmp>/alt.json --snapshots-dir <tmp>/snapAlt --snapshot-ids S01,S02,S03,S04,S05,S10,S30
+S01 200 116922 da53ade0bfcb ebeb92bd4f9f 
+S02 200 82462 8a72f0757b00 52eb8b580d06 
+S03 200 31685 28939c425c73 7f421cdb50b9 
+S04 200 52704 ff432ae0808b c72dd159dc2e 
+S05 200 113990 20f142bfd69f cc8e80fb3b06 
+S10 200 78002 5b75318e1b40 38f503ba0bc8 
+S30 200 21295 f7d144d9fa89 f3ef98f1635b 
+exit=0

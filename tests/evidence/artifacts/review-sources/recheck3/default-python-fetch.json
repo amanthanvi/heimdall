@@ -1,0 +1,23 @@
+{
+ "normalizer_version": 1,
+ "results": [
+  {
+   "error": "URLError",
+   "fetched_url": "https://man.openbsd.org/ssh_config",
+   "final_url": "https://man.openbsd.org/ssh_config",
+   "headers": {},
+   "http_status": 0,
+   "id": "S01",
+   "markers": {},
+   "normalized_text_chars": 0,
+   "normalized_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "normalizer_version": 1,
+   "raw_body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "raw_bytes": 0,
+   "retrieved_at_utc": "2026-10-31T20:46:32Z",
+   "spec_url": "https://man.openbsd.org/ssh_config"
+  }
+ ],
+ "set": "spec",
+ "tool": "fetch_pins.py"
+}

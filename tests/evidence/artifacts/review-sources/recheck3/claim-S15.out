@@ -1,0 +1,11 @@
+S15 
+CLAIM: Connection bootstrapping; not one-use approval invitations
+PINNED EXCERPT: "Tickets are reusable: Unlike what the name might imply, tickets are not single-use tokens." ; "Sharing a ticket means sharing your IP address"
+LIVE: HTTP 200
+FRAGMENT True: Tickets are reusable: Unlike what the name might imply, tickets are not single-use tokens.
+CONTEXT: bles direct connections without a central server this is actually better than many p2p systems that broadcast your ip to all peers with tickets you form a cozy network between peers you explicitly choose to connect with tickets are reusable unlike what the name might imply tickets are not single use tokens once created a ticket can be used multiple times by anyone who has it application specific tickets may contain secrets depending on what your application includes in a ticket like write capabilities for a document tickets can grant ongoing access treat them accordingly tickets can go stale the dialing information in a ticket especially ip addresses can become outdated as netwo
+FRAGMENT True: Sharing a ticket means sharing your IP address
+CONTEXT: card encoding keeps tickets compact despite containing multiple pieces of information security considerations tickets contain ip addresses when you create a ticket it embeds the ip addresses youre currently reachable at sharing a ticket means sharing your ip address with whoever receives it this is intentional it enables direct connections without a central server this is actually better than many p2p systems that broadcast your ip to all peers with tickets you form a cozy network between peers you explicitly choose to connect with tickets are reusable unlike what the name might imply tickets are not single use tokens once created a ticke
+CHANGE BLOCKS 2
+('insert', '', 'Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks')
+('insert', '', 'Back to top')

@@ -1,0 +1,4 @@
+$ /opt/homebrew/bin/python3.13 -I docs/sources/tools/fetch_pins.py verify --fetch-result docs/sources/fetch-baseline.json --id S30 --snapshot docs/sources/snapshots/S30.txt.gz
+S30 snapshot normalized hash matches
+
+exit=0

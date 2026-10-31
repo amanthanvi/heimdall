@@ -1,0 +1,5 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json <tmp>/cases/case_failed.json
+sources: 34  IDENTICAL=33  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=0  GONE=0  FETCH_FAILED=1  MISSING=0  EXTRA=0  off_pin=0
+S01 FETCH_FAILED http=200/403
+exit 3: fetch failure (no content change, removal or missing source among the rest)
+exit=3

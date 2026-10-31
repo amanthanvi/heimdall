@@ -1,0 +1,14 @@
+'<html><head><title>Title</title>Hello world</html>' => 'Hello world'
+'<head>hello &amp; world' => 'hello & world'
+'<head><title>T</title>\t\n<meta charset=utf-8>visible' => 'visible'
+'<head><script>hidden</script>visible' => 'visible'
+'<head><style>hidden</style>visible' => 'visible'
+'<head><noscript>hidden</noscript>visible' => 'visible'
+'<head><template>hidden</template>visible' => 'visible'
+'<head><title>hidden' => ''
+'<head><title>hidden</title>' => ''
+'<head><!-- comment -->visible' => 'visible'
+'<head><title>T</title></head><p>visible</p>' => 'visible'
+'<p>visible</p>' => 'visible'
+12 assertions passed
+exit=0

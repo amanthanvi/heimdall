@@ -1,0 +1,5 @@
+$ /opt/homebrew/opt/python@3.13/bin/python3.13 -I <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted.py upstream-failed <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted-krpvr4d6/pins.json
+S1 2026-10-31T20:46:02Z 403 HEAD branch blob - pinned blob c53939e324e6 FETCH_FAILED excerpt fragments on branch -/-
+exit 3: fetch failure (nothing lost, nothing gone)
+
+exit=3

@@ -637,11 +637,15 @@
    "id": "S16",
    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/remote.md",
    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md",
+    "ref": "main"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:06Z",
    "claim": "Environment identity/execution independent of routes",
    "claim_status": "supported",
    "excerpt": "\"An environment keeps its ID across server restarts and endpoint changes.\" ; \"Direct access, Tailscale, SSH, and T3 Connect change how the client reaches that server; they do not introduce another execution model.\"",
-   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 3f9e64b03cf10e51adb4c07923c5ee46936f3c84, not the pinned blob 43d96f862e3b42fe48e8035ccff0c39595cc81db. The pin is the commit permalink cba7dd7; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 2/2. The commit that changed the path on main was not looked up (no GitHub API request).",
+   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 3f9e64b03cf10e51adb4c07923c5ee46936f3c84, not the pinned blob 43d96f862e3b42fe48e8035ccff0c39595cc81db. The pin is the commit permalink cba7dd7; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 2/2. The commit that changed the path on main was not looked up (no GitHub API request). Claim re-read 2026-10-31 (M00-T02-fix4, docs/sources/drift-2026-10-31.md): holds. Main (blob 0c328c50317c) still has both quoted statements (2/2); the new text adds route-walking, credential and fork-key details around them and leaves 'identity is independent of the route' unchanged. The pinned permalink stays the citation of record.",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "cba7dd77817df2a458d86977f1daf4606c67dfc8 (last commit touching path); blob 43d96f862e3b42fe48e8035ccff0c39595cc81db",
@@ -680,11 +684,15 @@
    "id": "S17",
    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/connection-runtime.md",
    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md",
+    "ref": "main"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:06Z",
    "claim": "Connection supervision and mutation replay boundary",
    "claim_status": "supported",
    "excerpt": "\"The supervisor owns transport retry policy\" ; \"Reconnection does not automatically replay mutations, whose retry and ...\"",
-   "note": "Drift after the v1 pin: commit 9333509 (2026-10-03T04:42:36Z, \"fix(client-runtime): reconnects back off with jitter and keep healthy sockets\") changed the path on main (blob 301e1e0 -> 35c8b0a, 4650 -> 5002 bytes). The pin is the commit permalink 99641fd; v2 fetches at that commit (blob sha1 matches). The reopen condition on source change is triggered for main but not for the pinned commit; quotes used still hold in the new text per the independent review. Re-observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and 06:14Z: main blob 35c8b0a7365837aa1e9c00e28aea744f8e12ae21, quoted excerpt fragments still on main 2/2.",
+   "note": "Drift after the v1 pin: commit 9333509 (2026-10-03T04:42:36Z, \"fix(client-runtime): reconnects back off with jitter and keep healthy sockets\") changed the path on main (blob 301e1e0 -> 35c8b0a, 4650 -> 5002 bytes). The pin is the commit permalink 99641fd; v2 fetches at that commit (blob sha1 matches). The reopen condition on source change is triggered for main but not for the pinned commit; quotes used still hold in the new text per the independent review. Re-observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and 06:14Z: main blob 35c8b0a7365837aa1e9c00e28aea744f8e12ae21, quoted excerpt fragments still on main 2/2. Claim re-read 2026-10-31 (M00-T02-fix4, docs/sources/drift-2026-10-31.md): holds, with a qualification. Main (blob 698ddac7a73f) still says the supervisor owns transport retry policy and that reconnection does not automatically replay mutations (2/2). An adjacent detail changed: the pin says credential expiry does not close the socket; main says the server closes a socket when its session is revoked or expires and the driver renews a live socket's token in its last minute. The spec cites S17 for supervision and the replay boundary only, so no cited claim changes; a gate that wants T3's expiry behavior as a precedent (G07, G09) must read both versions. The pinned permalink stays the citation of record.",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "99641fd09a509feb644b3c8ef718c12c60cf436c (last commit touching path); blob 301e1e0ffecb1b5278444e1808cb59153c1c23fc",
@@ -723,11 +731,15 @@
    "id": "S18",
    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/t3-connect.md",
    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md",
+    "ref": "main"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:06Z",
    "claim": "Control/transport/session separation and resource lifecycle",
    "claim_status": "supported",
    "excerpt": "\"The relay manages environment links, credentials for reaching environments, and managed tunnel allocations. ... the relay Worker does not proxy their HTTP or WebSocket sessions.\" ; \"normal shutdown of a CLI-managed link releases its tunnel\"",
-   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 4f3e0620416439ba191f7d60a15fdac5f22272e5, not the pinned blob 367d9116e92e42a0e53a7d19a185199a121e25cf. The pin is the commit permalink 8d7b5e9; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 3/3. The commit that changed the path on main was not looked up (no GitHub API request).",
+   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 4f3e0620416439ba191f7d60a15fdac5f22272e5, not the pinned blob 367d9116e92e42a0e53a7d19a185199a121e25cf. The pin is the commit permalink 8d7b5e9; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 3/3. The commit that changed the path on main was not looked up (no GitHub API request). Claim re-read 2026-10-31 (M00-T02-fix4, docs/sources/drift-2026-10-31.md): holds, with a qualification. Main (blob 4c9bbcb780be) still has the three quoted statements (3/3), but the relay's not proxying environment sessions now has one stated exception: automation webhooks are forwarded to the environment's tunnel (and can be held by the relay while the environment is offline, if the environment opts in). The control/transport/session separation precedent stands with that exception. The pinned permalink stays the citation of record.",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "8d7b5e998c72b4674326cbac7d23bafe9b222668 (last commit touching path); blob 367d9116e92e42a0e53a7d19a185199a121e25cf",
@@ -766,6 +778,10 @@
    "id": "S19",
    "url": "https://github.com/n0-computer/pigeons",
    "fetched_url": "https://raw.githubusercontent.com/n0-computer/pigeons/main/README.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/n0-computer/pigeons/HEAD/README.md",
+    "ref": "HEAD"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:06Z",
    "claim": "SSH-over-Iroh and ProxyCommand integration",
    "claim_status": "supported",
@@ -1109,6 +1125,10 @@
    "id": "S27",
    "url": "https://github.com/charmbracelet/bubbletea",
    "fetched_url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/main/README.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/HEAD/README.md",
+    "ref": "HEAD"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:08Z",
    "claim": "Go TUI candidate; no perf/interop claim",
    "claim_status": "supported",
@@ -1190,11 +1210,15 @@
    "id": "S29",
    "url": "https://github.com/anomalyco/opentui",
    "fetched_url": "https://raw.githubusercontent.com/anomalyco/opentui/main/README.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/anomalyco/opentui/HEAD/README.md",
+    "ref": "HEAD"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:09Z",
    "claim": "TS-facing TUI candidate; native/runtime packaging considerations",
    "claim_status": "supported",
    "excerpt": "\"It is written in Zig. You write TypeScript directly or through React and Solid.\" ; \"Development requires Bun 1.4.1 or later and Zig 0.16.0.\" ; @opentui/native is a private workspace",
-   "note": "",
+   "note": "Drift on HEAD observed by `fetch_pins.py upstream` at 2026-10-31T20:39:14Z (M00-T02-fix3: fix3/data_upstream.json; the README diff is in fix3/62_s29_head_vs_pinned.out): the HEAD blob is 5141426ee59a44ae1784b8254f3786e53ea1a69d, not the pinned blob 6f2523a1afb3bf091b91eab073bc6fb0066d9844. The pin is the commit permalink de8dc97; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments on HEAD: 1/2. The missing one is \"Development requires Bun 1.4.1 or later and Zig 0.16.0.\": HEAD says Zig 0.17.0. The README on HEAD differs from the pinned one in 3 places (the words anomalyco/opentui are replaced by https://opentui.com, an added paragraph about the skill and `npx skills update`, and the Zig version). Claim re-read (diff read by the fix3 author, not independently reviewed): the claim as stated here (TS-facing TUI candidate; native/runtime packaging considerations) is unchanged and still supported on HEAD; only the Zig requirement moved. `upstream` exits 2 while the fragment is missing from HEAD. Disposition (orchestrator, M00-T02-fix4, 2026-10-31, docs/sources/drift-2026-10-31.md): qualification recorded, pin kept. G02 keeps the pinned, frozen TypeScript candidate (prototypes/ts depends on the published @opentui/core 0.5.14, not on a source build); that candidate was rejected on the security-assumption and child/IPC gates (ADR-0002 section 3 and 3.3), which do not depend on the Zig version, so it is not re-tested. The Zig requirement (0.16.0 at the pin, 0.17.0 on HEAD) is a requirement for building OpenTUI from a checkout; no gate, matrix row or spec sentence relies on it. `upstream` keeps exiting 2 while the quoted Zig line is absent from HEAD: that standing exit is accepted and recorded here, and the excerpt keeps quoting the pin.",
    "pin": {
     "type": "git_commit_and_blob",
     "value": "commit de8dc97080e4c404d9018d9e6a485036aeaef7d2; README blob 6f2523a1afb3bf091b91eab073bc6fb0066d9844; release v0.5.14",
@@ -1399,11 +1423,15 @@
    "id": "S34",
    "url": "https://github.com/pingdotgg/t3code/blob/main/docs/internals/environment-auth.md",
    "fetched_url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md",
+   "upstream": {
+    "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md",
+    "ref": "main"
+   },
    "retrieved_at_utc": "2026-10-02T23:56:10Z",
    "claim": "Pairing/management boundaries; project-vs-sandbox",
    "claim_status": "supported",
    "excerpt": "\"Pairing delegates a set of scopes. ... cannot widen it.\" ; \"Projects are organizational boundaries, not filesystem sandboxes.\"",
-   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 132b65548125543e14dee24854f2be2aeac7b33f, not the pinned blob 2428783ccc56531e1281ef056ed3b216539210e4. The pin is the commit permalink 3b75e60; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 3/3. The commit that changed the path on main was not looked up (no GitHub API request).",
+   "note": "Drift on main observed by `fetch_pins.py upstream` at 2026-10-09T05:36Z and again at 06:14Z (fix2/upstream1.json, final_upstream.json): the main-branch blob is 132b65548125543e14dee24854f2be2aeac7b33f, not the pinned blob 2428783ccc56531e1281ef056ed3b216539210e4. The pin is the commit permalink 3b75e60; `fetch` reads that commit and its blob sha1 matches. Quoted excerpt fragments still on main: 3/3. The commit that changed the path on main was not looked up (no GitHub API request). Claim re-read 2026-10-31 (M00-T02-fix4, docs/sources/drift-2026-10-31.md; first found by recheck3, claim-S34.out): changed, adjacent to the excerpted statements. The three quoted fragments are still on main (3/3) and the narrow statements hold (a bootstrap exchange can narrow a grant but not widen it; projects are not filesystem sandboxes). But the pin says ordinary pairing does not grant access-management or relay-management authority, while main says the default grant includes access and relay management, and that terminal:operate (a shell as the server's user) or orchestration:operate (can start a full-access agent) can mint a session with every scope through `t3 auth session issue`, so withholding management from the default would not be a boundary. Main also names the file-reading scope filesystem:read (the pin calls it orchestration:read) and adds that a URL minted before the grant was revoked keeps working until it expires. Disposition: qualification recorded. The immutable pin stays the experiment baseline; main's defaults are not promoted into any Heimdall contract; G07's authority-boundary investigation (plan.md section 3, G07: attempt privileged management as a limited client; pairing must not become unlimited owner authority) is retained, reopened on this point, and its owner re-reads the main section.",
    "pin": {
     "type": "git_blob_and_path_commit",
     "value": "3b75e607eb909522a8f5562fb40e44efc72bb66c (last commit touching path); blob 2428783ccc56531e1281ef056ed3b216539210e4",
@@ -1756,8 +1784,8 @@
   }
  ],
  "reopen_conditions": [
-  "`fetch_pins.py compare` against docs/sources/fetch-baseline.json (or fetch-baseline-aux.json) classifies a source cited by a gate that is still open as CONTENT (normalized text changed), or reports primary_same=no for it; read docs/sources/snapshots/<id>.txt.gz to see what the pin said. MARKER_ONLY, and RAW_ONLY with primary_same=yes, are not drift; FETCH_FAILED means re-run, not drift.",
-  "`fetch_pins.py upstream` reports a GitHub source drifted on the branch its spec URL names and not every quoted excerpt fragment is still there (on 2026-10-09 S16, S17, S18 and S34 had drifted on main with all fragments present).",
+  "`fetch_pins.py compare` against docs/sources/fetch-baseline.json (or fetch-baseline-aux.json) classifies a source cited by a gate that is still open as CONTENT (normalized text changed), GONE (HTTP 404 or 410, after one confirming re-run) or MISSING; read docs/sources/snapshots/<id>.txt.gz to see what the pin said. primary_same=no is the off-pin flag (the second file does not reproduce the pinned primary hash): compare always prints such a line and exits 5 when nothing worse was found. Against the baseline, off-pin with class RAW_ONLY or MARKER_ONLY means the text equals the pin and only the raw bytes of a raw-primary source moved: that is pin maintenance (run `verify`, then re-pin with a dated note), not drift, and not a reopen. An off-pin normalized-primary source is CONTENT, so it is drift. MARKER_ONLY, and RAW_ONLY with primary_same=yes, are not drift. FETCH_FAILED means re-run, not drift, unless the same source is FETCH_FAILED on runs at least 24 h apart: then treat it as GONE and investigate. Dated dispositions of the 2026-10-31 drift (21 spec and 4 auxiliary CONTENT sources, 4 branch-drifted GitHub sources, 1 lost fragment): docs/sources/drift-2026-10-31.md.",
+  "`fetch_pins.py upstream` exits 2 (a GitHub source drifted on the branch its spec URL names and lost a quoted fragment or has none to check, or its file is gone), or exits 4 (drifted, quotes intact, claim not re-read) for a source cited by a gate that is still open and the re-read shows that the claim changed. Exit 4 does not show that the claim still holds. Before anyone relies on `main` for a source cited by a still-open gate, read the branch file against the claim and record the outcome (date, `claim re-read: holds` or `changed`) in the source's note; the pinned permalink stays the citation of record until then (on 2026-10-09 S16, S17, S18 and S34 had drifted on main with all fragments present; their claims were not re-read). Re-read on 2026-10-31 (M00-T02-fix4): S16 holds; S17 and S18 hold with qualifications; S34 changed adjacent to its excerpts (default grants), so G07's authority-boundary investigation is retained; S29 lost its Zig 0.16.0 fragment and is closed by the recorded G02 disposition (docs/sources/drift-2026-10-31.md).",
   "`fetch_pins.py tags` reports a moved or missing release tag (exit 2).",
   "A candidate dependency ships a new major/minor release before G02 selection is locked.",
   "Win32-OpenSSH (PowerShell/Win32-OpenSSH) publishes a release tag without \"Preview\", or PowerShell/openssh-portable changes LICENCE.",
@@ -1775,7 +1803,7 @@
   "snapshots_dir": "docs/sources/snapshots",
   "archive_lookups": "docs/sources/archive-lookups.json",
   "raw_stability": "v1 to v2 (about 21 h, 2026-10-02T23:56Z to 2026-10-03T21:18Z): 21 sources reproduced the v1 raw-body sha256: S01-S05, S10, S16-S19, S23, S27, S29, S30, S34 (v1 raw hash) and S24, S25, S26, S31, S32, S33 (v1 recorded the raw .md hash as text_sha256; relabelled by M00-T02-fix2). 13 did not: S06-S09, S11-S15, S20-S22, S28. v2 to 2026-10-09T05:31Z (about 5.3 days, fix2 run of the committed fetcher): raw unchanged for 19 (S01-S05, S10, S16-S19, S24, S25, S27, S29-S34), changed for 15 (S06-S09, S11-S15, S20-S23, S26, S28). Primary kinds since M00-T02-fix2: raw_body_sha256 for the 7 GitHub permalinks (S16-S19, S27, S29, S34) and the 7 OpenBSD/OpenSSH pages (S01-S05, S10, S30), whose raw hash held over the whole interval; normalized_text_sha256 for the other 20 spec sources (CMS or static-site HTML, and .md variants of doc sites, whose bytes can change in a rebuild without a text change) and for A01-A04.",
-  "verify": "python3 -I docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = all IDENTICAL; 4 = text identical, only raw bytes or date markers moved; 3 = a fetch failed; 2 = CONTENT change or missing source; read the drifted id's snapshot with `gzip -dc docs/sources/snapshots/<id>.txt.gz`). Also: `fetch --set aux` + compare against fetch-baseline-aux.json; `upstream`; `tags`; `excerpts --set all --fetch-git`; `selftest`.",
+  "verify": "python3 -I docs/sources/tools/fetch_pins.py fetch --out /tmp/new.json && python3 -I docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json /tmp/new.json (exit 0 = all IDENTICAL and none off-pin; 4 = text identical, only raw bytes or date markers moved, every source on-pin; 5 = off-pin (a source's primary_same=no) with nothing worse; 3 = a fetch failed; 2 = CONTENT change, GONE (404/410) or missing source; read the drifted id's snapshot with `gzip -dc docs/sources/snapshots/<id>.txt.gz`). Also: `fetch --set aux` + compare against fetch-baseline-aux.json; `upstream`; `tags`; `excerpts --set all --fetch-git`; `selftest`.",
   "baseline_aux": "docs/sources/fetch-baseline-aux.json",
   "fix2_rerun": "2026-10-09, M00-T02-fix2 (tests/evidence/artifacts/review-sources/fix2/): the committed fetcher (as of d096a64) fetched all 34 with HTTP 200 (exit 0); compare against the baseline: IDENTICAL 15, RAW_ONLY 10, MARKER_ONLY 7, CONTENT 2 (S26 page edit, S28 live counters), FETCH_FAILED 0; every primary pin held except S23 (raw, text identical; now normalized-primary), S26 and S28. The committed snapshots all verify against the baseline; fresh snapshots are byte-identical except S26 and S28. See fix2/README.md for the runs with the revised fetcher."
  },
@@ -2062,5 +2090,7 @@
   }
  ],
  "candidates_provenance": "Producer-observed 2026-10-02 (v1) and 2026-10-03 (M00-T02-fix). Independently checked by the review of 2026-10-03 (tests/evidence/artifacts/m00-wf3/review-sources.json; gh api, crates.io, npm and Go proxy reads): versions, release tags and dates, licence fields, rust-version/engines and repo heads of the candidates as they stood in v1. Produced after that review and so not covered by it: the corrected Win32-OpenSSH source row (openssh-portable e581929, LICENCE blob and sha256, NOASSERTION, no releases on openssh-portable, misc.c sample) and the Bubble Tea tag commit. The recheck of 2026-10-09 (tests/evidence/artifacts/review-sources/recheck/) verified the LICENCE bytes at e581929 (blob and sha256) and the Bubble Tea v2.0.10 commit d5bfd5c (Go proxy origin), and the @opentui/core tarball. Still producer-observed only: e581929 as the latestw_all head on 2026-09-25, the NOASSERTION licence field, the empty release list of openssh-portable, the misc.c sample. tag_pins (2026-10-09, fix2) were resolved from the public git ref advertisements and re-checked the same day.",
- "fix2_edited_at_utc": "2026-10-09"
+ "fix2_edited_at_utc": "2026-10-09",
+ "fix3_edited_at_utc": "2026-10-31",
+ "fix4_edited_at_utc": "2026-10-31"
 }

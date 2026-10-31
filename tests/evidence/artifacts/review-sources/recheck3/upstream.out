@@ -1,0 +1,11 @@
+$ /opt/homebrew/bin/python3.13 -I docs/sources/tools/fetch_pins.py upstream --out tests/evidence/artifacts/review-sources/recheck3/upstream.json
+S16 2026-10-31T20:45:19Z 200 main branch blob 0c328c50317c pinned blob 43d96f862e3b DRIFTED excerpt fragments on branch 2/2
+S17 2026-10-31T20:45:20Z 200 main branch blob 698ddac7a73f pinned blob 301e1e0ffecb DRIFTED excerpt fragments on branch 2/2
+S18 2026-10-31T20:45:20Z 200 main branch blob 4c9bbcb780be pinned blob 367d9116e92e DRIFTED excerpt fragments on branch 3/3
+S19 2026-10-31T20:45:20Z 200 HEAD branch blob 9cf16f68def2 pinned blob 9cf16f68def2 SAME excerpt fragments on branch 1/1
+S27 2026-10-31T20:45:21Z 200 HEAD branch blob 4d08d355bf10 pinned blob 4d08d355bf10 SAME excerpt fragments on branch 2/2
+S29 2026-10-31T20:45:21Z 200 HEAD branch blob 5141426ee59a pinned blob 6f2523a1afb3 DRIFTED excerpt fragments on branch 1/2
+S34 2026-10-31T20:45:21Z 200 main branch blob ad7a96c5eb46 pinned blob 2428783ccc56 DRIFTED excerpt fragments on branch 3/3
+exit 2: a drifted source lost a quoted fragment or has none to check, or its file is gone
+
+exit=2

@@ -1,0 +1,8 @@
+{
+  "docs/sources/tools/fetch_pins.py": "6c5420cf9aab129a5b4a74fc3fffcbaef45fa0fb883ac83e414aefd65a3c4a97",
+  "docs/sources/pins.json": "ba03eb87a1efd97d81880ea03ba05dad3f0bfe1471ce33b307289f328214b593",
+  "docs/sources/drift-2026-10-31.md": "485cbea536baf5905f6bd9baae1b6632aa3502df1692e5d7893be38c24b1b4ff",
+  "docs/sources/README.md": "a93fd63dfbac51d187e146792f5790364fa3d85e51dfc623f347d468dbc455ee",
+  "docs/decisions/0003-source-pins.md": "7a156368726f3638c246be4f2b3d700591ce215bf7ec356ee9557de4e965005c",
+  "docs/compatibility/matrix.md": "ce9bacf66870e8df4696a005494789e72ea0f9cae8f2d154c2296dcb994e56c1"
+}

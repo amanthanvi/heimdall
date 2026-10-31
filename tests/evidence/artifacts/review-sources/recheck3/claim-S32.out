@@ -1,0 +1,9 @@
+S32 
+CLAIM: Task-specific evaluation and evidence
+PINNED EXCERPT: Eval process: collect dataset, define metrics, "Run and compare evals"; judge tasks "against specific criteria instead of open-ended generation"
+LIVE: HTTP 200
+FRAGMENT True: Run and compare evals
+CONTEXT: jective consider synthetic eval data domain specific eval data purchased eval data human curated eval data production data and historical data 1 define eval metrics how will you check that the success criteria are met 1 run and compare evals iterate and improve model performance for your task or system 1 continuously evaluate set up continuous evaluation ce to run evals on every change monitor your app to identify new cases of nondeterminism and grow the eval set over time lets run through a few examples example summarizing transcripts to test your llm based applications ability to summarize transcripts your eval
+FRAGMENT True: against specific criteria instead of open-ended generation
+CONTEXT: p to identify new cases of nondeterminism and grow the eval set over time llms are better at discriminating between options therefore evaluations should focus on tasks like pairwise comparisons classification or scoring against specific criteria instead of open ended generation aligning evaluation methods with llms strengths in comparison leads to more reliable assessments of llm outputs or model comparisons example q a over docs to test your llm based applications ability to do q a over docs your eval design might be 1 define eval objective the model should be able to provide precise answers recall context as needed to reason through user prompts an
+CHANGE BLOCKS 0

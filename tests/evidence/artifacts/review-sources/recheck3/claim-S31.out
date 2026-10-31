@@ -1,0 +1,9 @@
+S31 
+CLAIM: Clear goals/constraints; avoid demanding hidden CoT; some sections describe older models
+PINNED EXCERPT: "Avoid chain-of-thought prompts: Since these models perform reasoning internally, prompting them to 'think step by step' ... is unnecessary." ; page covers o1/o3/o4-mini/GPT-4.1 era models
+LIVE: HTTP 200
+FRAGMENT True: Avoid chain-of-thought prompts: Since these models perform reasoning internally, prompting them to 'think step by step'
+CONTEXT: er messages rather than system messages to align with the chain of command behavior described in the model spec keep prompts simple and direct the models excel at understanding and responding to brief clear instructions avoid chain of thought prompts since these models perform reasoning internally prompting them to think step by step or explain your reasoning is unnecessary use delimiters for clarity use delimiters like markdown xml tags and section titles to clearly indicate distinct parts of the input helping the model interpret different sections appropriately try zero shot first then few shot if needed reasoning models often dont need few shot examples to produce good results so try to write prompts wi
+FRAGMENT True: is unnecessary.
+CONTEXT: the models excel at understanding and responding to brief clear instructions avoid chain of thought prompts since these models perform reasoning internally prompting them to think step by step or explain your reasoning is unnecessary use delimiters for clarity use delimiters like markdown xml tags and section titles to clearly indicate distinct parts of the input helping the model interpret different sections appropriately try zero shot first then few shot if needed reasoning models often dont need few shot examples to produce good results so try to write prompts without examples first if you have more com
+CHANGE BLOCKS 0

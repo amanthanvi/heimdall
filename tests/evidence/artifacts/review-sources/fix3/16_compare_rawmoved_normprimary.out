@@ -1,0 +1,5 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json <tmp>/cases/case_rawmoved_normprimary.json
+sources: 34  IDENTICAL=33  RAW_ONLY=1  MARKER_ONLY=0  CONTENT=0  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=0  off_pin=0
+S06 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+exit 4: text identical; only raw bytes and/or date markers moved, every source on-pin
+exit=4

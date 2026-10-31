@@ -1,0 +1,30 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json <tmp>/runA_merged.json
+sources: 34  IDENTICAL=8  RAW_ONLY=2  MARKER_ONLY=3  CONTENT=21  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=0  off_pin=21
+S01 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=mdoc_footer primary=raw primary_same=no
+S02 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=mdoc_footer primary=raw primary_same=no
+S04 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=raw primary_same=no
+S05 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=mdoc_footer primary=raw primary_same=no
+S06 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified,page_dateModified primary=norm primary_same=no
+S07 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified primary=norm primary_same=no
+S08 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified,page_dateModified primary=norm primary_same=no
+S09 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified,page_dateModified primary=norm primary_same=no
+S10 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=raw primary_same=no
+S11 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S12 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified,page_dateModified primary=norm primary_same=no
+S13 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S14 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=page_dateModified primary=norm primary_same=no
+S15 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=page_dateModified primary=norm primary_same=no
+S20 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=page_dateModified primary=norm primary_same=no
+S21 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S22 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S23 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+S24 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified primary=norm primary_same=no
+S25 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S26 CONTENT http=200/200 raw_same=no norm_same=no markers_same=no moved=http_last_modified primary=norm primary_same=no
+S28 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+S30 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=raw primary_same=no
+S31 MARKER_ONLY http=200/200 raw_same=yes norm_same=yes markers_same=no moved=http_last_modified primary=norm primary_same=yes
+S32 MARKER_ONLY http=200/200 raw_same=yes norm_same=yes markers_same=no moved=http_last_modified primary=norm primary_same=yes
+S33 MARKER_ONLY http=200/200 raw_same=yes norm_same=yes markers_same=no moved=http_last_modified primary=norm primary_same=yes
+exit 2: content change, removed (GONE) or missing source
+exit=2

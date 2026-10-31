@@ -1,0 +1,24 @@
+$ python3 -I -B tests/evidence/artifacts/review-sources/fix4/ledger_check.py tests/evidence/artifacts/review-sources/fix4
+OK   ledger rows parsed
+OK   row ids unique
+OK   every class is known
+OK   every disposition is known (the prefix before ';')
+OK   every row names a citing document or gate
+OK   counts table equals the rows
+     rows=30 dispositions=[26, 4, 0] classes=[21, 4, 4, 1]
+OK   ledger ids equal the sources that CONTENT/GONE/MISSING/FETCH_FAILED or upstream drift flag
+     data ids (30): A01,A02,A03,A04,S01,S02,S04,S05,S06,S07,S08,S09,S10,S11,S12,S14,S15,S16,S17,S18,S20,S21,S22,S24,S25,S26,S28,S29,S30,S34
+OK   S34 row: qualification recorded and G07 retained
+OK   S29 row: qualification recorded
+OK   ledger has the S34 and S29 sections
+OK   pins.json S34 note: dated, qualification, G07, pin stays baseline
+OK   pins.json S29 note: orchestrator disposition, no re-test
+OK   ADR-0003 has the S34 line
+OK   ADR-0003 has the S29 line
+OK   matrix row 13 has the S34 source note
+OK   matrix M5 says login in v3 only
+OK   pin and pin_v2 of all 38 sources equal git HEAD
+OK   candidates and tag_pins equal git HEAD
+OK   excerpt and claim fields equal git HEAD
+OK   no home path or user name in the files fix4 wrote
+exit=0

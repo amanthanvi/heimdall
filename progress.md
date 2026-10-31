@@ -6,9 +6,9 @@
 | Task | Status | Notes |
 |---|---|---|
 | M00-T01 current-state note | verified | `docs/current-state.md` |
-| M00-T02 source pins + support matrix | verified | d096a64; recheck 5b2c0a3 (M1 + m1–m9); fix2 + recheck2 3622c56 (no blocker/major). Open minors n2–n10, n13 (fetcher exit semantics, nits). Owner items E6 and E8 |
+| M00-T02 source pins + support matrix | verified | d096a64; recheck 5b2c0a3; fix2 + recheck2 3622c56; fix3 + fix4 with recheck3/recheck4 (2026-10-31, Codex: verified): every recheck2 minor closed, drift ledger `docs/sources/drift-2026-10-31.md` (26 claims unchanged, 4 qualifications: S17, S18, S29, S34; S34 reopens a G07 authority-boundary point). Owner items E6 and E8 |
 | M00-T03 disposable SSH fixtures | verified | Committed in 2272e74. Rows 1–5 verified; native-platform rows blocked |
-| M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Two review rounds resolved. Every native record is blocked (no Windows 11/WSL2 host) |
+| M00-T04 G03 Windows/WSL | implemented_unverified | Committed in 8418dc9. Native Windows 11 and WSL2 runs since 2026-10-06 (36a8751): most records verified; the rest blocked or in progress on a second Windows/Linux account, a disposable distribution or host, or a console operator (`docs/research/g03-windows-wsl.md` §0) |
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
 | M00-T05 G02 language/TUI + ADR | blocked | Round 4 done (X1–X6). ADR-0002 revision 3: re-scored by three blind scorers plus the orchestrator, two adversarial reviews in two rounds. Blocked on owner decision D1 and Q-A–Q-F |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
@@ -76,6 +76,11 @@
 
 ## Next actions
 
+0. **2026-10-31 session (heimdall-27):**
+   - Owner rule change: `git push` and use of the owner's SSH config, keys and agent to reach the owner's machines (Windows PC, devbox, vps1-edge) are allowed (AGENTS.md, 218e7417). The repository is public; `main` was pushed for the first time (fast-forward from the initial commit). Older commits still contain the owner's user names, the PC's host name and tailnet address, and one Windows SID (identifiers, not credentials); the current tree is redacted.
+   - Done and pushed: G04 P5 v3 real-store run (b5a528cb: unlocked row verified/fail, login measured, limit clause fails again; ran without the D4 confirmation the v1 record asked for, disclosed); X1c post-fix artifacts natively on linux-x64 (972321ce, 139/139 both); X5 Iroh natively on linux-x64 (51413ebb, verified; Windows blocked on Q-G; X5's loopback claim corrected: a transient wildcard-bound UDP socket per endpoint); X1d post-fix artifacts on two Linux hosts without any Go or Rust toolchain (c1327d1e, 139/139 both).
+   - M00-T02: fix3 and fix4 with two independent rechecks (Codex GPT-6.1 Sol): verified. New: compare exit 5 (off-pin), GONE class, per-source deadline, word-boundary excerpts, recorded upstream URLs, head-less HTML fix; the 2026-10-31 drift ledger; S34 qualification recorded for G07 (default T3 pairing now includes relay management; a shell/full-access agent can mint a fully scoped session); S29 (OpenTUI now needs Zig 0.17.0) does not affect the frozen TS candidate. The default python3 3.15.2 cannot reach the OpenBSD/OpenSSH sources over TLS; live steps used python3.13.
+   - Owner questions now: ADR-0002 §10 D1 and Q-A–Q-G (Q-G new: Iroh on Windows), D3 (k)/(l); D4 coverage of further P5 real-store runs; the rest under "Still open from the owner".
 1. G02 round 4 (owned by session heimdall-83 since the 2026-10-09 reboot):
    - **X2 done** (101aeeb; `tests/evidence/artifacts/g02-r4/x2/RESULTS.md`). 24 cells, all hidden checks pass, effort equal. Calibrated cross-cell reviews (`t1-calibration/`, `cross-review/T{2,3,4}/`): two causes of an untested major, each in 2–3 of 3 Go cells and no Rust cell (T1 job-control recovery; T3 Bubble Tea wide-character renderer bug), each reproduced independently (`t1-calibration/verify/`, `cross-review/T3/verify/`). History of the three attempts, the excluded contaminated cells and the reruns: RESULTS.md §3 and `runs-excluded/NOTE.md`. Scratch: `~/.local/share/heimdall-m00/r4-scratch/` (x2c-audit, rescore*, review3-*).
    - **Re-score done:** three blind scorers (Codex GPT-6.1 Sol 3.75/3.80, Claude Fable 5.1 3.70/3.90, Claude Opus 5.5 3.50/4.00, Go/Rust) and the orchestrator's pre-registered 3.50/3.90 all lean Rust (`tests/evidence/artifacts/review-adr-0002/rescore-r4/`).
@@ -108,6 +113,5 @@
    - Remaining for P5: the lock row, which needs the owner at the console (`g04_ctk_probe.sh --mode lock`, v3; it creates and deletes one more identity).
    - Open owner question: does D4 cover further real-store runs, including the lock run? Disclosure: the v3 unlocked run was started without that confirmation, relying on the earlier note here ("The next real-store run creates and deletes one more identity under D4"). The v1 record had said it needed the confirmation. The identity was deleted by exact hash and the store matches its pre-run state.
    - Incident to disclose: the P5 agent ran a bare `ssh-agent` once. It created a socket in `~/.ssh/agent`, and without `-U` it may have removed stale sockets there. The agent was killed by exact PID and its socket removed. It held no keys, and the owner's agent was untouched.
-6. M00-T02 is verified (3622c56).
-   - Open minors from recheck2: n2 (exit code ignores off-pin), n3 (404 counts as fetch failure), n4 (latent `</head>` normalization), n5, n8–n10, n13.
+6. M00-T02 is verified (3622c56; fix3/fix4 2026-10-31, see item 0). The recheck2 minors are closed.
    - The record-wording escalations were applied: `g04-windows-*` and `g03-wsl-b-other-windows-user` `blocked_on`; `g03-win-stale-squat-pipe` is now `blocked` under the lowest-row rule. The status order is now written down in `tests/evidence/README.md`.

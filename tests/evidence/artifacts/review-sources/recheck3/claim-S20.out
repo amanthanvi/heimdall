@@ -1,0 +1,11 @@
+S20 
+CLAIM: Encrypted payloads, metadata disclosure, shared relay caveats
+PINNED EXCERPT: "relays are not able to read any of the traffic ... However, the relays are able to see metadata about connections, such as source and destination IP addresses, connection times, and the amount of relayed data." ; default shared public infrastructure operated by n0.computer
+LIVE: HTTP 200
+FRAGMENT True: relays are not able to read any of the traffic
+CONTEXT: contact us for assistance with custom cryptographic configurations public relays iroh is by default configured to use shared public infrastructure that is operated by n0 computer because traffic is end to end encrypted relays are not able to read any of the traffic that they forward or help connect however the relays are able to see metadata about connections such as source and destination ip addresses connection times and the amount of relayed data we monitor the public relays for abuse and malicious activity if we detect abuse we reserve the right to block offending ip addresses or users from accessing the public relays protecting leak
+FRAGMENT True: However, the relays are able to see metadata about connections, such as source and destination IP addresses, connection times, and the amount of relayed data.
+CONTEXT: iroh is by default configured to use shared public infrastructure that is operated by n0 computer because traffic is end to end encrypted relays are not able to read any of the traffic that they forward or help connect however the relays are able to see metadata about connections such as source and destination ip addresses connection times and the amount of relayed data we monitor the public relays for abuse and malicious activity if we detect abuse we reserve the right to block offending ip addresses or users from accessing the public relays protecting leakage of ip addresses any direct connection between two devices stands a high chance of being the fastest connection but always requires ip addresses to be disclosed as with the majority of
+CHANGE BLOCKS 2
+('insert', '', 'Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks')
+('insert', '', 'Back to top')

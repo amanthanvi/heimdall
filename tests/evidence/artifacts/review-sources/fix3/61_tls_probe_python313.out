@@ -1,0 +1,6 @@
+$ python3.13 -I -B tests/evidence/artifacts/review-sources/fix3/tls_probe.py
+python 3.13.18 | OpenSSL 3.5.9 29 Sep 2026
+https://man.openbsd.org/ssh_config HTTP 200 116922 bytes
+https://www.openssh.org/agent-restrict.html HTTP 200 31685 bytes
+https://www.1password.dev/ssh/agent/security HTTP 200 196874 bytes
+exit=0

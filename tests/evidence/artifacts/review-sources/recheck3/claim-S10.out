@@ -1,0 +1,8 @@
+S10 
+CLAIM: Cert validity, principals, signing purpose, key ops
+PINNED EXCERPT: "-V validity_interval Specify a validity interval when signing a certificate" ; -n principals ; -Y find-principals / match-principals ; -n namespace for signing
+LIVE: HTTP 200
+FRAGMENT True: -V validity_interval Specify a validity interval when signing a certificate
+CONTEXT: ca key resides in an ssh agent 1 see the certificates section for more information u update a krl when specified with k keys listed via the command line are added to the existing krl rather than a new krl being created v validity interval specify a validity interval when signing a certificate a validity interval may consist of a single time indicating that the certificate is valid beginning now and expiring at that time or may consist of two times separated by a colon to indicate an explicit time interval the start time may be specified as the string always to indicate the certificate has no specified start time a date or time in the system time zone formatted as y
+CHANGE BLOCKS 1
+('insert', '', 'OpenBSD-8.0')

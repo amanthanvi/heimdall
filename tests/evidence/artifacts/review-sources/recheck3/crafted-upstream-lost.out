@@ -1,0 +1,5 @@
+$ /opt/homebrew/opt/python@3.13/bin/python3.13 -I <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted.py upstream-lost <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted-krpvr4d6/pins.json
+S1 2026-10-31T20:46:01Z 200 HEAD branch blob c53939e324e6 pinned blob bbbbbbbbbbbb DRIFTED excerpt fragments on branch 0/1
+exit 2: a drifted source lost a quoted fragment or has none to check, or its file is gone
+
+exit=2

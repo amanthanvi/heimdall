@@ -1,0 +1,89 @@
+{
+ "results": [
+  {
+   "branch_blob": "0c328c50317c54b3d81725e029b30e325a116326",
+   "fragments_found": 2,
+   "fragments_total": 2,
+   "http_status": 200,
+   "id": "S16",
+   "pinned_blob": "43d96f862e3b42fe48e8035ccff0c39595cc81db",
+   "ref": "main",
+   "result": "drifted",
+   "retrieved_at_utc": "2026-10-31T20:45:19Z",
+   "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/remote.md"
+  },
+  {
+   "branch_blob": "698ddac7a73f9f2a2ec52aa23f511a603cdcce3f",
+   "fragments_found": 2,
+   "fragments_total": 2,
+   "http_status": 200,
+   "id": "S17",
+   "pinned_blob": "301e1e0ffecb1b5278444e1808cb59153c1c23fc",
+   "ref": "main",
+   "result": "drifted",
+   "retrieved_at_utc": "2026-10-31T20:45:20Z",
+   "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/connection-runtime.md"
+  },
+  {
+   "branch_blob": "4c9bbcb780bee35626599ed94e3d253bd9c497ed",
+   "fragments_found": 3,
+   "fragments_total": 3,
+   "http_status": 200,
+   "id": "S18",
+   "pinned_blob": "367d9116e92e42a0e53a7d19a185199a121e25cf",
+   "ref": "main",
+   "result": "drifted",
+   "retrieved_at_utc": "2026-10-31T20:45:20Z",
+   "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/t3-connect.md"
+  },
+  {
+   "branch_blob": "9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+   "fragments_found": 1,
+   "fragments_total": 1,
+   "http_status": 200,
+   "id": "S19",
+   "pinned_blob": "9cf16f68def26ff7f8f9404b458c890ce4ef74bc",
+   "ref": "HEAD",
+   "result": "same",
+   "retrieved_at_utc": "2026-10-31T20:45:20Z",
+   "url": "https://raw.githubusercontent.com/n0-computer/pigeons/HEAD/README.md"
+  },
+  {
+   "branch_blob": "4d08d355bf1076e36b4f3843ed59a8a37e8d332c",
+   "fragments_found": 2,
+   "fragments_total": 2,
+   "http_status": 200,
+   "id": "S27",
+   "pinned_blob": "4d08d355bf1076e36b4f3843ed59a8a37e8d332c",
+   "ref": "HEAD",
+   "result": "same",
+   "retrieved_at_utc": "2026-10-31T20:45:21Z",
+   "url": "https://raw.githubusercontent.com/charmbracelet/bubbletea/HEAD/README.md"
+  },
+  {
+   "branch_blob": "5141426ee59a44ae1784b8254f3786e53ea1a69d",
+   "fragments_found": 1,
+   "fragments_total": 2,
+   "http_status": 200,
+   "id": "S29",
+   "pinned_blob": "6f2523a1afb3bf091b91eab073bc6fb0066d9844",
+   "ref": "HEAD",
+   "result": "drifted",
+   "retrieved_at_utc": "2026-10-31T20:45:21Z",
+   "url": "https://raw.githubusercontent.com/anomalyco/opentui/HEAD/README.md"
+  },
+  {
+   "branch_blob": "ad7a96c5eb46f8b82056614e05f9e0c9fc2d3627",
+   "fragments_found": 3,
+   "fragments_total": 3,
+   "http_status": 200,
+   "id": "S34",
+   "pinned_blob": "2428783ccc56531e1281ef056ed3b216539210e4",
+   "ref": "main",
+   "result": "drifted",
+   "retrieved_at_utc": "2026-10-31T20:45:21Z",
+   "url": "https://raw.githubusercontent.com/pingdotgg/t3code/main/docs/internals/environment-auth.md"
+  }
+ ],
+ "tool": "fetch_pins.py upstream"
+}

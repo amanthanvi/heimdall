@@ -1,0 +1,9 @@
+{
+  "docs/sources/tools/fetch_pins.py": "bc369c6d14ae729059630ac99beeca00afde0adff1b890a1985c5911e84dd064",
+  "docs/sources/pins.json": "f9c17290fe984f9c8fc8f0b3a487919159ebbb95664ee5cc3e19c4d297c38e9e",
+  "docs/sources/README.md": "0d417b61c1e36cf31074ffb0a59dbdbba51cee2a12963c402581a019f0c835c2",
+  "docs/decisions/0003-source-pins.md": "d820c9054039fd24c07605b2740e03953c96762865163a73f271e1fc5b0bdf28",
+  "docs/compatibility/matrix.md": "ff6549c38eabb1062de173fa3b9f8acfd6892131b4f90969b0d3bbc6073662fd",
+  "tests/evidence/g04-macos-secure-enclave-ctk-probe.json": "1fdce7374799c0a9074d81e276ef54fd4339d931e6f7aa84926557caee2d0b45",
+  "plan.md": "19a013937092dc5da632a14399eb9897bb47d5e71e4f4ef2d1f52b64a416abf2"
+}

@@ -1,0 +1,5 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json <tmp>/cases/case_content.json
+sources: 34  IDENTICAL=33  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=1  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=0  off_pin=1
+S06 CONTENT http=200/200 raw_same=yes norm_same=no markers_same=yes primary=norm primary_same=no
+exit 2: content change, removed (GONE) or missing source
+exit=2

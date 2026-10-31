@@ -1,0 +1,13 @@
+S09 
+CLAIM: Existing host/key config capability; documented beta
+PINNED EXCERPT: Title: "Manage SSH Bookmarks in 1Password (beta)" ; "Match your SSH keys to specific hosts to make sure the correct key is used for each connection."
+LIVE: HTTP 200
+FRAGMENT True: Manage SSH Bookmarks in 1Password (beta)
+CONTEXT: ve ci cd and other machine workflows short lived access to secrets without managing service account tokens 1password developer home page search k ask assistant i community academy github github search navigation ssh git manage ssh bookmarks in 1password beta get started tutorials security for ai environments ssh git cli sdks more tools ssh git overview get started manage ssh keys autofill public keys sign git commits ssh bookmarks beta ssh agent integrations on this page back to top requirements manage your ssh bookmarks create a bookmark from the activity log in an ssh key item connect to a bookmarked host edit a bookmark remove
+FRAGMENT True: Match your SSH keys to specific hosts to make sure the correct key is used for each connection.
+CONTEXT: git manage ssh bookmarks in 1password beta copy page copy page copy page copy page ssh bookmarks in 1password allow you to connect to ssh hosts directly from 1password without manually entering commands in the terminal match your ssh keys to specific hosts to make sure the correct key is used for each connection avoid server key limitations when managing multiple ssh keys you can add bookmarks from the ssh agent activity log or by adding ssh urls to your ssh key items requirements sign up for 1password install and sign in to 1password for mac windows or linux import or generate ssh keys in 1password set up the 1password ssh agent manage your ssh bookmarks you can use and manage ssh bo
+CHANGE BLOCKS 4
+('insert', '', 'Assistant Responses are generated using AI and may contain mistakes. Contact support')
+('insert', '', 'Back to top')
+('insert', '', 'If you see a message that says “Managed by administrator”, the setting is managed by your team’s app usage policy . Contact your team administrator to learn more.')
+('delete', 'Assistant Responses are generated using AI and may contain mistakes. Contact support', '')

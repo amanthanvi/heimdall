@@ -1,0 +1,5 @@
+reviewed hashes unchanged
+git diff --check exit=0
+all final evidence including RECHECK4.md scanned: no home paths, canary values or private-key delimiters
+no scratch modules or bytecode remain
+exit=0

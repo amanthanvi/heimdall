@@ -1,0 +1,6 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline.json <tmp>/cases/case_both_rawmoved.json
+sources: 34  IDENTICAL=32  RAW_ONLY=2  MARKER_ONLY=0  CONTENT=0  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=0  off_pin=1
+S01 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=raw primary_same=no
+S06 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=norm primary_same=yes
+exit 5: off-pin: the second file does not reproduce the pinned primary hash of some source; no content change, removal, missing source or fetch failure between the two files
+exit=5

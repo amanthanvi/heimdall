@@ -1,0 +1,77 @@
+S01 pin / pin_v2 / excerpt / claim equal HEAD
+S02 pin / pin_v2 / excerpt / claim equal HEAD
+S03 pin / pin_v2 / excerpt / claim equal HEAD
+S04 pin / pin_v2 / excerpt / claim equal HEAD
+S05 pin / pin_v2 / excerpt / claim equal HEAD
+S06 pin / pin_v2 / excerpt / claim equal HEAD
+S07 pin / pin_v2 / excerpt / claim equal HEAD
+S08 pin / pin_v2 / excerpt / claim equal HEAD
+S09 pin / pin_v2 / excerpt / claim equal HEAD
+S10 pin / pin_v2 / excerpt / claim equal HEAD
+S11 pin / pin_v2 / excerpt / claim equal HEAD
+S12 pin / pin_v2 / excerpt / claim equal HEAD
+S13 pin / pin_v2 / excerpt / claim equal HEAD
+S14 pin / pin_v2 / excerpt / claim equal HEAD
+S15 pin / pin_v2 / excerpt / claim equal HEAD
+S16 pin / pin_v2 / excerpt / claim equal HEAD
+S17 pin / pin_v2 / excerpt / claim equal HEAD
+S18 pin / pin_v2 / excerpt / claim equal HEAD
+S19 pin / pin_v2 / excerpt / claim equal HEAD
+S20 pin / pin_v2 / excerpt / claim equal HEAD
+S21 pin / pin_v2 / excerpt / claim equal HEAD
+S22 pin / pin_v2 / excerpt / claim equal HEAD
+S23 pin / pin_v2 / excerpt / claim equal HEAD
+S24 pin / pin_v2 / excerpt / claim equal HEAD
+S25 pin / pin_v2 / excerpt / claim equal HEAD
+S26 pin / pin_v2 / excerpt / claim equal HEAD
+S27 pin / pin_v2 / excerpt / claim equal HEAD
+S28 pin / pin_v2 / excerpt / claim equal HEAD
+S29 pin / pin_v2 / excerpt / claim equal HEAD
+S30 pin / pin_v2 / excerpt / claim equal HEAD
+S31 pin / pin_v2 / excerpt / claim equal HEAD
+S32 pin / pin_v2 / excerpt / claim equal HEAD
+S33 pin / pin_v2 / excerpt / claim equal HEAD
+S34 pin / pin_v2 / excerpt / claim equal HEAD
+A01 pin / pin_v2 / excerpt / claim equal HEAD
+A02 pin / pin_v2 / excerpt / claim equal HEAD
+A03 pin / pin_v2 / excerpt / claim equal HEAD
+A04 pin / pin_v2 / excerpt / claim equal HEAD
+candidates equal HEAD
+tag_pins equal HEAD
+docs/sources/excerpts/notes.md byte-identical to HEAD
+docs/sources/fetch-baseline-aux.json byte-identical to HEAD
+docs/sources/fetch-baseline.json byte-identical to HEAD
+docs/sources/fetch-repeat.json byte-identical to HEAD
+docs/sources/snapshots/A01.txt.gz byte-identical to HEAD
+docs/sources/snapshots/A02.txt.gz byte-identical to HEAD
+docs/sources/snapshots/A03.txt.gz byte-identical to HEAD
+docs/sources/snapshots/A04.txt.gz byte-identical to HEAD
+docs/sources/snapshots/README.md byte-identical to HEAD
+docs/sources/snapshots/S01.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S02.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S03.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S04.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S05.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S06.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S07.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S08.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S09.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S10.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S11.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S12.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S13.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S14.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S15.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S20.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S21.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S22.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S23.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S24.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S25.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S26.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S28.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S30.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S31.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S32.txt.gz byte-identical to HEAD
+docs/sources/snapshots/S33.txt.gz byte-identical to HEAD
+exit=0

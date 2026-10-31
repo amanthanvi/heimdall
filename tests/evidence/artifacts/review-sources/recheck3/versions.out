@@ -1,0 +1,5 @@
+$ /opt/homebrew/bin/python3.13 -I -c import sys,ssl; print(sys.version); print(ssl.OPENSSL_VERSION)
+3.13.18 (main, Oct 25 2026, 18:31:23) [Clang 21.0.0 (clang-2100.3.34.2)]
+OpenSSL 3.5.9 29 Sep 2026
+
+exit=0

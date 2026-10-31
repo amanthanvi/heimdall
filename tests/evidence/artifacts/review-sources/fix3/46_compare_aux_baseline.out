@@ -1,0 +1,8 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py compare docs/sources/fetch-baseline-aux.json <tmp>/aux.json
+sources: 4  IDENTICAL=0  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=4  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=0  off_pin=4
+A01 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+A02 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+A03 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+A04 CONTENT http=200/200 raw_same=no norm_same=no markers_same=yes primary=norm primary_same=no
+exit 2: content change, removed (GONE) or missing source
+exit=2

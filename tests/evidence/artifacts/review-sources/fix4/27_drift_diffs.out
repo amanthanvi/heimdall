@@ -1,0 +1,314 @@
+$ python3.13 -I -B tests/evidence/artifacts/review-sources/fix4/drift_diffs.py <tmp>/snap <tmp>/fresh.json
+== S01 pinned snapshot -> live page: 3 changed word runs
+  insert  - 
+          + OpenBSD-8.0
+  replace - webauthn-sk-ecdsa-sha2-nistp256@openssh.com
+          + webauthn-sk-ecdsa-sha2-nistp256@openssh.com,
+  replace - September 20,
+          + October 9,
+== S02 pinned snapshot -> live page: 4 changed word runs
+  insert  - 
+          + OpenBSD-8.0
+  replace - :
+          + on the server:
+  replace - /etc/ssh/ssh_host_ed25519_key
+          + /etc/ssh/ssh_host_ed25519_key.pub
+  replace - September 5,
+          + October 13,
+== S03: text identical to the committed snapshot
+== S04 pinned snapshot -> live page: 1 changed word runs
+  insert  - 
+          + OpenBSD-8.0
+== S05 pinned snapshot -> live page: 3 changed word runs
+  insert  - 
+          + OpenBSD-8.0
+  replace - ssh-mldsa44-ed2551
+          + ssh-mldsa44-ed25519
+  replace - September 17,
+          + October 9,
+== S06 pinned snapshot -> live page: 3 changed word runs
+  insert  - 
+          + Assistant Responses are generated using AI and may contain mistakes. Contact support
+  insert  - 
+          + Back to top
+  delete  - Assistant Responses are generated using AI and may contain mistakes. Contact support
+          + 
+== S07 pinned snapshot -> live page: 3 changed word runs
+  insert  - 
+          + Assistant Responses are generated using AI and may contain mistakes. Contact support
+  insert  - 
+          + Back to top
+  delete  - Assistant Responses are generated using AI and may contain mistakes. Contact support
+          + 
+== S08 pinned snapshot -> live page: 11 changed word runs
+  insert  - 
+          + Assistant Responses are generated using AI and may contain mistakes. Contact support
+  insert  - 
+          + Claude Code (beta) Cursor (beta)
+  insert  - 
+          + Back to top
+  delete  - To turn on the MCP server:
+          + 
+  replace - Labs
+          + Developer
+  delete  - select MCP Server . Turn on the Enable local MCP server toggle. Navigate to Settings > Developer and
+          + 
+  delete  - a local .env file validation hook and
+          + 
+  replace - kiro.dev/powers .
+          + kiro.dev/powers.
+  insert  - 
+          + If you use OpenCode , add the server to the mcp section of your opencode.json config file: { "$schema" : "https://opencode.ai/config.json" , "mcp" : { "1password" : { "type" : "local" , "command" : [ "1password-mcp" ], "enabled" : true } } }
+  delete  - and validate local .env files
+          + 
+  delete  - Assistant Responses are generated using AI and may contain mistakes. Contact support
+          + 
+== S09 pinned snapshot -> live page: 4 changed word runs
+  insert  - 
+          + Assistant Responses are generated using AI and may contain mistakes. Contact support
+  insert  - 
+          + Back to top
+  insert  - 
+          + If you see a message that says “Managed by administrator”, the setting is managed by your team’s app usage policy . Contact your team administrator to learn more.
+  delete  - Assistant Responses are generated using AI and may contain mistakes. Contact support
+          + 
+== S10 pinned snapshot -> live page: 1 changed word runs
+  insert  - 
+          + OpenBSD-8.0
+== S11 pinned snapshot -> live page: 1 changed word runs
+  insert  - 
+          + Credential Files
+== S12 pinned snapshot -> live page: 4 changed word runs
+  insert  - 
+          + Assistant Responses are generated using AI and may contain mistakes. Contact support
+  insert  - 
+          + Back to top
+  insert  - 
+          + Get help if you don’t see your SSH key(s) listed when you run the ssh-add.exe -l command.
+  delete  - Assistant Responses are generated using AI and may contain mistakes. Contact support
+          + 
+== S13: text identical to the committed snapshot
+== S14 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== S15 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== S16 pinned commit -> branch main: 2 changed word runs
+  replace - environment.
+          + environment; an agent reaches another environment's threads only through a peer link. The canonical key follows the `upstream` remote when one exists, so pull request features target the repository a fork tracks. A fork also reports its own `origin`, and clients group and label by that, so a fork never collapses into a checkout of its upstream.
+  insert  - 
+          + A saved environment holds an ordered list of routes, and the [driver](../../packages/client-runtime/src/connection/driver.ts) connects over the first that works. Each direct route is first checked with the public descriptor, so a saved LAN address that a different machine answers on another network receives no credential. That check is not proof of a working route: when every route stays silent, each is still tried. A route that fails to connect, including a blocked one such as a signed-out T3 C
+== S17 pinned commit -> branch main: 13 changed word runs
+  insert  - 
+          + jittered exponential backoff,
+  replace - backoff.
+          + at five minutes, that resets only after a connection stays up. Without jitter, every client of a restarted server reconnects in the same second; with a short cap, a client that can never connect retries all day.
+  replace - Foregrounding needs different treatment depending on
+          + Foregrounding, a network change, an explicit retry, and an offline report probe
+  replace - connection's state. It wakes
+          + established session, and only
+  replace - retry immediately, leaves an ordinary in-flight attempt alone, and probes an established session before replacing it. A long mobile background suspension forces replacement because the
+          + failed probe reconnects. Offline reports are often wrong, for example for a loopback server. The
+  insert  - 
+          + suspended
+  replace - reporting closure. Treating every
+          + a close event, so a probe still unanswered after 500 ms asks the host for its public descriptor over a fresh request, again each second until it answers. If the host answers while the socket delivers no frame, the socket is dead and is replaced, even while the network reports offline: at once on loopback and LAN, and 2.5 seconds after the check starts elsewhere, where one lost packet can stall a live socket. Without that evidence the probe deadline decides: 3 seconds on loopback and LAN routes a
+  replace - event as
+          + probe skips the fresh request, because
+  replace - reconnect delays healthy attempts; treating every resume as harmless
+          + busy host can answer it before a queued probe. Foregrounding also wakes a pending retry immediately. A long suspension restarts an in-flight attempt; a short one
+  replace - suspended sockets stuck.
+          + it alone.
+  replace - Credential expiry does not close the socket, and refresh
+          + Refresh
+  insert  - 
+          + The server closes a socket when its session is revoked or expires. T3 Connect access tokens last one hour, so the driver renews a live socket's token in its last minute. The server then moves the socket to the newer session for the same DPoP key, subject, and scopes ([`SessionStore.awaitInvalidation`](../../apps/server/src/auth/SessionStore.ts)). If renewal fails, the socket closes at expiry and the supervisor reconnects.
+  insert  - 
+          + Shell snapshots can leave rows out when the client asks. Servers that advertise `shellThreadFamilies` leave out idle subagent children: a child stays while it has a live or queued run, a pending request or background work, or a subagent child of its own, so badge and working walks never meet a gap. Servers that also advertise `shellOlderSettled` keep only the 25 newest settled top-level threads (and any tied with the 25th, pinned, snoozed, live, or above a kept child); the snapshot's `olderSettl
+== S18 pinned commit -> branch main: 4 changed word runs
+  insert  - 
+          + The one exception is automation webhooks: the relay forwards `/v1/hooks/:endpointKey/:hookId/:token` to the environment's tunnel so senders get a stable URL. `endpointKey` is the 16-hex hash suffix of the managed tunnel's name, not the environment id. It keeps bodies and tokens out of its traces and leaves token and signature verification to the environment ([forwarder](../../infra/relay/src/hooks/HookForwarder.ts)). By default the forwarder stores nothing. An environment can opt in to having th
+  replace - cloud handlers](../../apps/server/src/cloud/http.ts)
+          + link service](../../apps/server/src/cloud/CloudLink.ts)
+  replace - handling](../../apps/server/src/cloud/http.ts).
+          + handling](../../apps/server/src/cloud/CloudLink.ts).
+  insert  - 
+          + A paid T3 Chat plan raises the tunnel cap T3 Chat uses WorkOS, not Clerk, so the two accounts are linked by consent rather than by a shared identity. The relay and T3 Chat share one secret (`T3CHAT_LINK_SECRET` here, `T3CODE_LINK_SECRET` there). The relay signs a short-lived token naming the Clerk user and email; the user confirms it while signed in to T3 Chat, and T3 Chat stores the link. T3 Chat owns the link and the plan, so the relay keeps no copy. It asks T3 Chat only when an account reache
+== S19: branch HEAD equals the pinned blob
+== S20 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== S21 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== S22 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== S23: text identical to the committed snapshot
+== S24 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + tool_choice: "required",
+  replace - { id: item.id, call_id: item.call_id, name: item.name, type: item.type, arguments: item.arguments.dup }
+          + item.to_h.merge(arguments: item.arguments.dup)
+== S25 pinned snapshot -> live page: 2 changed word runs
+  replace - To avoid crowding out the rest of the prompt,
+          + By default,
+  insert  - 
+          + Use [`skills.max_context_tokens`](https://learn.chatgpt.com/docs/config-file/config-reference) to set a different budget, up to 10,000 tokens.
+== S26 pinned snapshot -> live page: 34 changed word runs
+  delete  - Choose a GPT-6 model based on the reasoning your task requires, speed, and cost.
+          + 
+  insert  - 
+          + - [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) **Fast and efficient** For visual reasoning, precise computer use, and clear, natural writing.
+  delete  - Use
+          + 
+  insert  - 
+          + delivers near-Astra performance at a lower cost
+  replace - work when you want near-Astra performance at a lower cost. Compare it with Astra on your tasks to assess the tradeoff between quality and cost. Set `reasoning.effort` to
+          + work. It supports
+  delete  - or `max`. Use the Responses API for tool calling. Chat Completions supports requests without tools. The `none`
+          + 
+  replace - `minimal`
+          + `max`
+  replace - efforts are not supported.
+          + effort.
+  replace - specifications,
+          + specifications and pricing. <a id="gpt-61-terra"></a> <a id="gpt-6.1-terra"></a> ### GPT-6.1 Terra GPT-6.1 Terra is a fast, efficient model for visual reasoning, precise computer use, and clear, natural writing. Use it to match product photos to catalog entries, compare technical drawings, act on application screens, or draft and revise text. It supports `none`, `low`, `medium` (default), `high`, `xhigh`, and `max` reasoning effort. Start with `medium` and increase it if the improvement in quali
+  insert  - 
+          + [image inputs](https://developers.openai.com/api/docs/guides/images-vision) for visual analysis,
+  replace - availability, or [model selection](https://developers.openai.com/api/docs/guides/model-selection#when-to-consider-gpt-61-sol)
+          + [computer use](https://developers.openai.com/api/docs/guides/tools-computer-use)
+  replace - guidance
+          + acting
+  replace - choosing a model.
+          + screens.
+  insert  - 
+          + GPT-6.1 Terra,
+  replace - Sol
+          + Sol,
+  replace - is not available with
+          + supports
+  insert  - 
+          + GPT-6.1 Sol, GPT-6.1 Terra, and
+  replace - Astra,
+          + Luna, but not
+  replace - Sol,
+          + Astra
+  replace - Luna.
+          + Sol.
+  insert  - 
+          + for GPT-6.1 Sol supports US and EU data residency and global processing. GPT-6 Astra Ultrafast
+  delete  - It does not support EU or other non-US regional processing endpoints.
+          + 
+  insert  - 
+          + `gpt-6.1-terra`,
+  insert  - 
+          + GPT-6.1 Terra,
+  replace - Sol
+          + Sol,
+  replace - Astra
+          + Astra, GPT-6.1 Sol,
+  replace - Sol
+          + Terra
+  replace - is not available with
+          + supports
+  insert  - 
+          + GPT-6.1 Sol, GPT-6.1 Terra, and
+  replace - Astra,
+          + Luna, but not
+  replace - Sol,
+          + Astra
+  replace - Luna.
+          + Sol.
+  insert  - 
+          + for GPT-6.1 Sol supports US and EU data residency and global processing. GPT-6 Astra Ultrafast
+  delete  - It does not support EU or other non-US regional processing endpoints.
+          + 
+== S27: branch HEAD equals the pinned blob
+== S28 pinned snapshot -> live page: 9 changed word runs
+  replace - 6000+
+          + 6500+
+  replace - 22.8k
+          + 23.1k
+  replace - 54.5M
+          + 63M
+  replace - 726
+          + 747
+  replace - 742
+          + 756
+  replace - 4.4k
+          + 4.5k
+  replace - 55
+          + 58
+  replace - 350
+          + 353
+  replace - 1.9k
+          + 2k
+== S29 pinned commit -> branch HEAD: 3 changed word runs
+  replace - anomalyco/opentui
+          + https://opentui.com
+  insert  - 
+          + The skill matches the latest release, and `npx skills update` moves it to each new release. Install from `https://opentui.com/docs/next` to follow the main branch. A skill installed with `npx skills add anomalyco/opentui` follows the main branch; run the command above to switch it to releases.
+  replace - 0.16.0.
+          + 0.17.0.
+== S30 pinned snapshot -> live page: 1 changed word runs
+  insert  - 
+          + OpenBSD-8.0
+== S31: text identical to the committed snapshot
+== S32: text identical to the committed snapshot
+== S33: text identical to the committed snapshot
+== S34 pinned commit -> branch main: 11 changed word runs
+  replace - Ordinary pairing does
+          + The default grant includes access and relay management: `terminal:operate` is a shell as the server's user and `orchestration:operate` can start a full-access agent, and either can mint a session with every scope through `t3 auth session issue`, so withholding management from the default would
+  replace - grant access-management or relay-management authority.
+          + be a boundary. A narrower client gets explicit scopes.
+  replace - meaning, but
+          + meaning. ### Guest links are not sessions A [guest link](../user/guest-links.md) gives one browser read access to one thread and a way to propose messages. Its tokens are HMACs of
+  replace - environment does
+          + thread and share id under a server key ([GuestShareService](../../apps/server/src/guest/GuestShareService.ts)), so nothing secret is stored. The share in the thread projection is the only state: replacing, closing, or archiving it revokes every token, and the orchestrator's serial commands make redeeming and sending happen once. Guest tokens never enter `SessionStore`, so no RPC, WebSocket, or MCP path can accept one. Guest routes also require T3 Connect to still serve the link's hostname; the r
+  replace - implement
+          + checked, because
+  replace - general-purpose
+          + LAN client can forge it. ### MCP clients are a separate audience Agents T3 Code did not launch sign in to `/mcp` through a narrow
+  replace - authorization server.
+          + authorization-code server ([McpOAuth](../../apps/server/src/auth/McpOAuth.ts)). It accepts loopback redirect URIs for agents on the user's machine and any HTTPS redirect for hosted agents (ChatGPT, bots). An HTTPS redirect means a link someone else sends the owner can deliver access to that someone, so the approval page names the host access goes to and approving stays the owner's call. Every client is public and proves itself with PKCE; a client that asks for a secret is registered without one.
+  insert  - 
+          + A ticket names the route it opens: the RPC socket, or the media routes (device hub, preview stream), which share one ticket across `<img>`, `EventSource` and several sockets. A DPoP client's RPC ticket is bound to its proof key and the upgrade carries a fresh proof in the `dpop` query parameter, since a WebSocket cannot set headers; a ticket captured on a plain HTTP LAN route is useless without the key, and the proof's `jti` is consumed like any other. Media tickets stay bearer because each medi
+  replace - scope](../../apps/server/src/auth/RpcAuthorization.ts).
+          + scope](../../apps/server/src/auth/RpcAuthorization.ts), and the WebSocket RPC group's `RpcScopeAuthorization` middleware checks it before any handler runs. Scope changes must not prevent older clients from connecting. Token exchange intersects recognized requests with the pairing grant; retired and unknown names are dropped. A request with no granted scopes fails before consuming the link. Stored credentials are never expanded when scopes split. Auth responses keep `scopes` within the original w
+  replace - `orchestration:read`
+          + `filesystem:read`
+  insert  - 
+          + `filesystem:read` is checked when the URL is minted, not when it is served: a URL issued before the grant was revoked keeps working until it expires, and it is not bound to the session that minted it.
+== A01 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== A02 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== A03 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+== A04 pinned snapshot -> live page: 2 changed word runs
+  insert  - 
+          + Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks
+  insert  - 
+          + Back to top
+exit=0

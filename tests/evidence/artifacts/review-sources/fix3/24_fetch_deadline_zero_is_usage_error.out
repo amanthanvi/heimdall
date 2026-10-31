@@ -1,0 +1,7 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py fetch --only S01 --deadline 0 --out <tmp>/cases/x.json
+usage: fetch_pins.py fetch [-h] [--pins PINS] --out OUT [--only ONLY]
+                           [--set {spec,aux,all}]
+                           [--snapshots-dir SNAPSHOTS_DIR]
+                           [--snapshot-ids SNAPSHOT_IDS] [--deadline DEADLINE]
+fetch_pins.py fetch: error: argument --deadline: invalid _positive_float value: '0'
+exit=64

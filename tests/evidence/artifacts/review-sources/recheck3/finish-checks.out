@@ -1,0 +1,8 @@
+omitted head and body tags, direct body text: '' expected visible text: Hello world
+reviewed files changed during review: []
+CTK status: blocked
+CTK blocked_on: owner-driven screen lock/unlock cycle for the lock row (tests/native/macos/g04_ctk_probe.sh --mode lock, v3, run by the owner at the console), plus the owner's answer to whether D4 covers a further real-store run, including the lock run (it creates and deletes one more CTK identity). The unlocked row needs no further real-store run: its login clause was measured in the v3 run on 2026-10-31.
+CTK relevant selected fields:
+git diff --check exit 0
+
+evidence sanitized; no scratch directories remain: True

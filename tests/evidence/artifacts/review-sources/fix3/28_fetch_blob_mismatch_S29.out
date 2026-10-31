@@ -1,0 +1,4 @@
+$ python3 -I -B docs/sources/tools/fetch_pins.py fetch --only S29 --pins <tmp>/cases/pins_badblob.json --out <tmp>/cases/badblob.json
+S29 200 3264 6266260d556e 0a26997c5eeb 
+git blob differs from the pin: S29
+exit=2

@@ -1,0 +1,30 @@
+$ /opt/homebrew/bin/python3.13 -I docs/sources/tools/fetch_pins.py compare tests/evidence/artifacts/review-sources/recheck3/fresh.json tests/evidence/artifacts/review-sources/recheck3/fresh.json
+sources: 38  IDENTICAL=38  RAW_ONLY=0  MARKER_ONLY=0  CONTENT=0  GONE=0  FETCH_FAILED=0  MISSING=0  EXTRA=0  off_pin=25
+A01 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+A02 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+A03 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+A04 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S01 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=no
+S02 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=no
+S04 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=no
+S05 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=no
+S06 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S07 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S08 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S09 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S10 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=no
+S11 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S12 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S14 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S15 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S20 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S21 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S22 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S24 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S25 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S26 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S28 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=norm primary_same=no
+S30 IDENTICAL http=200/200 raw_same=yes norm_same=yes markers_same=yes primary=raw primary_same=no
+exit 5: off-pin: the second file does not reproduce the pinned primary hash of some source; no content change, removal, missing source or fetch failure between the two files
+
+exit=5

@@ -1,0 +1,16 @@
+S28 
+CLAIM: Rust TUI candidate
+PINNED EXCERPT: "Ratatui is a Rust library for building fast, lightweight, and rich terminal user interfaces" ; site shows version 0.30.2
+LIVE: HTTP 200
+FRAGMENT True: Ratatui is a Rust library for building fast, lightweight, and rich terminal user interfaces
+CONTEXT: skip to content ratatui docs rs crates io search ctrl k cancel github discord matrix discourse x com bluesky mastodon linkedin ratatui cook up delicious terminal user interfaces ratatui is a rust library for building fast lightweight and rich terminal user interfaces get started browse tutorials api docs github discord matrix discourse x com bluesky mastodon linkedin 0 30 2 use ratatui style stylize use ratatui widgets block paragraph fn main result box dyn std error error ratatui run terminal terminal draw frame let block block bordered title welcome let greeting paragraph new hello ratatui centered yellow block block frame render widget
+CHANGE BLOCKS 9
+('replace', '6000+', '6500+')
+('replace', '22.8k', '23.1k')
+('replace', '54.5M', '63M')
+('replace', '726', '747')
+('replace', '742', '756')
+('replace', '4.4k', '4.5k')
+('replace', '55', '58')
+('replace', '350', '353')
+('replace', '1.9k', '2k')

@@ -1,0 +1,13 @@
+S12 
+CLAIM: Windows SSH execution from WSL; not arbitrary Linux-native bridging
+PINNED EXCERPT: "you can effectively forward the entire SSH request from WSL to the ssh.exe process running on Windows" ; "any changes to your SSH configuration need to be made in your Windows %USERPROFILE%/.ssh/config"
+LIVE: HTTP 200
+FRAGMENT True: you can effectively forward the entire SSH request from WSL to the ssh.exe process running on Windows
+CONTEXT: 1password wsl integration leverages the interoperability built into wsl to forward ssh requests to the 1password ssh agent on windows instead of forwarding ssh agent requests like with standard openssh agent forwarding you can effectively forward the entire ssh request from wsl to the ssh exe process running on windows the ssh exe process then uses the 1password ssh agent on your windows host to authenticate the request this also means that any changes to your ssh configuration need to be made in your windows userprofile ssh config file rather than the file on your wsl instance forward an ssh request check if the 1password ssh agent is running on your windows host with the following command
+FRAGMENT True: any changes to your SSH configuration need to be made in your Windows %USERPROFILE%/.ssh/config
+CONTEXT: n effectively forward the entire ssh request from wsl to the ssh exe process running on windows the ssh exe process then uses the 1password ssh agent on your windows host to authenticate the request this also means that any changes to your ssh configuration need to be made in your windows userprofile ssh config file rather than the file on your wsl instance forward an ssh request check if the 1password ssh agent is running on your windows host with the following command if the agent is running a list with one or more ssh keys will be returned these are the ssh keys you stored in 1password that are available to use with the agent for ssh requests check if wsl is forwarding ssh request
+CHANGE BLOCKS 4
+('insert', '', 'Assistant Responses are generated using AI and may contain mistakes. Contact support')
+('insert', '', 'Back to top')
+('insert', '', 'Get help if you don’t see your SSH key(s) listed when you run the ssh-add.exe -l command.')
+('delete', 'Assistant Responses are generated using AI and may contain mistakes. Contact support', '')

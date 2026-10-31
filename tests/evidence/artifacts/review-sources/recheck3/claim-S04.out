@@ -1,0 +1,8 @@
+S04 
+CLAIM: Authorized-key options and per-account CA trust
+PINNED EXCERPT: "cert-authority: Specifies that the listed key is a certification authority (CA) that is trusted to validate signed certificates for user authentication." ; principals="principals" on a cert-authority line
+LIVE: HTTP 200
+FRAGMENT True: cert-authority: Specifies that the listed key is a certification authority (CA) that is trusted to validate signed certificates for user authentication.
+CONTEXT: pt within double quotes the following option specifications are supported note that option keywords are case insensitive agent forwarding enable authentication agent forwarding previously disabled by the restrict option cert authority specifies that the listed key is a certification authority ca that is trusted to validate signed certificates for user authentication certificates may encode access restrictions similar to these key options if both certificate restrictions and key options are present the most restrictive union of the two is applied command command specifies that the command is executed whenever this key is used for authentication the command supplied by the user if any is ignored the command is run on a pty if the client req
+CHANGE BLOCKS 1
+('insert', '', 'OpenBSD-8.0')

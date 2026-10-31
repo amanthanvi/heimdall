@@ -1,0 +1,11 @@
+S21 
+CLAIM: Native Rust interface and published platform list
+PINNED EXCERPT: "Platform Architectures iOS device and simulator Android aarch64, armv7 macOS arm64, x86_64 Linux x86_64, aarch64, armv7 (glibc and musl) Windows x86_64, aarch64" (table cells flattened by the normalizer) ; "iroh is written in Rust, so the Rust crate is the most fully-featured way to use it."
+LIVE: HTTP 200
+FRAGMENT True: Platform Architectures iOS device and simulator Android aarch64, armv7 macOS arm64, x86_64 Linux x86_64, aarch64, armv7 (glibc and musl) Windows x86_64, aarch64
+CONTEXT: ting connections sending data transports relays observability about api references examples troubleshooting support faq on this page back to top install hello iroh next steps languages rust add iroh to your rust project platform architectures ios device and simulator android aarch64 armv7 macos arm64 x86 64 linux x86 64 aarch64 armv7 glibc and musl windows x86 64 aarch64 api reference docs rs iroh example app sendme a cli for direct file transfers between devices all languages platform support matrix iroh is written in rust so the rust crate is the most fully featured way to use it everything in these docs assumes rust unless explicitly tagged otherwise install add iroh to your project cargo add iroh for tickets common protocols and async runt
+FRAGMENT True: iroh is written in Rust, so the Rust crate is the most fully-featured way to use it.
+CONTEXT: mv7 macos arm64 x86 64 linux x86 64 aarch64 armv7 glibc and musl windows x86 64 aarch64 api reference docs rs iroh example app sendme a cli for direct file transfers between devices all languages platform support matrix iroh is written in rust so the rust crate is the most fully featured way to use it everything in these docs assumes rust unless explicitly tagged otherwise install add iroh to your project cargo add iroh for tickets common protocols and async runtime support youll usually want a few more cargo add iroh tickets iroh ping anyhow cargo add tokio features full hello iroh use anyhow result use iroh endpoint endpoint presets tokio main async fn main result let end
+CHANGE BLOCKS 2
+('insert', '', 'Connect two endpoints See your direct data rate Diagnose a connectivity issue Using QUIC Build a chat app Add a relay Deploying to enterprise networks')
+('insert', '', 'Back to top')

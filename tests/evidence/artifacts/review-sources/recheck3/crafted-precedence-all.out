@@ -1,0 +1,8 @@
+$ /opt/homebrew/opt/python@3.13/bin/python3.13 -I docs/sources/tools/fetch_pins.py compare <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted-krpvr4d6/a.json <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted-krpvr4d6/b.json --pins <repo>/tests/evidence/artifacts/review-sources/recheck3/crafted-krpvr4d6/pins.json
+sources: 5  IDENTICAL=2  RAW_ONLY=1  MARKER_ONLY=0  CONTENT=1  GONE=0  FETCH_FAILED=1  MISSING=0  EXTRA=0  off_pin=1
+S0 CONTENT http=200/200 raw_same=yes norm_same=no markers_same=yes primary=raw primary_same=yes
+S1 FETCH_FAILED http=200/503
+S2 RAW_ONLY http=200/200 raw_same=no norm_same=yes markers_same=yes primary=raw primary_same=no
+exit 2: content change, removed (GONE) or missing source
+
+exit=2
