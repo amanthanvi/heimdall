@@ -1,0 +1,1 @@
+{"created":true,"key_name":"heimdall-m00-t04-x4-958f7d29-go-sw","ok":true,"op":"cng-create","provider":"software","pub_blob_len":72,"pub_magic_ok":true}

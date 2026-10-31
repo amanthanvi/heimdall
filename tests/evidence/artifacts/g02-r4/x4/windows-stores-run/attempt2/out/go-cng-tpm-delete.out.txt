@@ -1,0 +1,1 @@
+{"error":"NCryptDeleteKey: SECURITY_STATUS 0x80090009","key_name":"heimdall-m00-t04-x4-958f7d29-go-tpm","ok":false,"op":"cng-delete","provider":"platform","status_hex":"0x80090009"}

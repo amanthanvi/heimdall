@@ -1,0 +1,1 @@
+{"op":"cng-create","provider":"software","key_name":"heimdall-m00-t04-x4-3d2d51ca-rust-sw","provider_open_us":1618,"ok":false,"error":"NCryptCreatePersistedKey","status_hex":"0x8009000F"}

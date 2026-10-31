@@ -1,0 +1,1 @@
+{"key_name":"heimdall-x4-spike","ok":true,"op":"cng-probe","platform_provider_open":true,"provider":"software","software_provider_open":true}

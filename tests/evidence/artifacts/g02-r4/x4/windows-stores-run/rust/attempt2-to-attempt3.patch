@@ -1,0 +1,54 @@
+diff --color -ru b/src/cng.rs c/src/cng.rs
+--- b/src/cng.rs	2026-10-31 19:03:13
++++ c/src/cng.rs	2026-10-31 19:03:13
+@@ -2,7 +2,7 @@
+ use std::ffi::c_void;
+ use std::ptr::{null, null_mut};
+ use std::time::Instant;
+-use windows_sys::Win32::Foundation::{NTE_BAD_KEYSET, NTE_NO_MORE_ITEMS};
++use windows_sys::Win32::Foundation::{NTE_BAD_FLAGS, NTE_BAD_KEYSET, NTE_NO_MORE_ITEMS};
+ use windows_sys::Win32::Security::Cryptography::*;
+ 
+ type Res<T> = Result<T, (&'static str, i32)>;
+@@ -372,6 +372,12 @@
+             match open_provider(n) {
+                 Ok(h) => {
+                     j.b(&format!("{id}_provider_open"), true);
++                    // Attempt 3: Impl Type is not supported on key handles (attempt 2: 0x80090029),
++                    // so read it from the provider handle.
++                    match get_u32(h, NCRYPT_IMPL_TYPE_PROPERTY) {
++                        Ok(v) => j.n(&format!("{id}_provider_impl_type"), v as i64),
++                        Err((_, r)) => j.s(&format!("{id}_provider_impl_type_status"), &hx(r)),
++                    };
+                     if id == "platform" {
+                         match get_wstr(h, NCRYPT_PCP_PLATFORM_TYPE_PROPERTY) {
+                             Ok(s) => j.s("platform_type", &s),
+@@ -518,9 +524,25 @@
+                 }
+                 "delete" => {
+                     let k = open_key(prov, key)?;
+-                    st("NCryptDeleteKey", unsafe {
+-                        NCryptDeleteKey(k, NCRYPT_SILENT_FLAG)
+-                    })?; // frees the handle
++                    // Attempt 3 fix: the Platform Crypto Provider rejects NCRYPT_SILENT_FLAG on
++                    // NCryptDeleteKey with NTE_BAD_FLAGS (observed in attempt 2). On that status the
++                    // handle is still open (not freed on failure), so retry once with dwFlags = 0.
++                    // SAFETY: k is a live key handle; it is freed by a successful delete.
++                    let r1 = unsafe { NCryptDeleteKey(k, NCRYPT_SILENT_FLAG) };
++                    j.s("delete_silent_status", &hx(r1));
++                    if r1 == NTE_BAD_FLAGS {
++                        let r2 = unsafe { NCryptDeleteKey(k, 0) };
++                        j.s("delete_flags0_status", &hx(r2));
++                        if r2 != 0 {
++                            free(k);
++                        }
++                        st("NCryptDeleteKey(0)", r2)?;
++                    } else {
++                        if r1 != 0 {
++                            free(k);
++                        }
++                        st("NCryptDeleteKey", r1)?;
++                    }
+                     j.b("deleted", true);
+                     let gone = matches!(open_key(prov, key), Err((_, r)) if r == NTE_BAD_KEYSET);
+                     j.b("open_after_delete_is_bad_keyset", gone);

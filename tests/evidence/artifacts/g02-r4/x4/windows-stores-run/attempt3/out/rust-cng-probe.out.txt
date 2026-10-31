@@ -1,0 +1,1 @@
+{"op":"cng-probe","provider":"software","key_name":"heimdall-x4-spike","software_provider_open":true,"software_provider_impl_type":34,"platform_provider_open":true,"platform_provider_impl_type":1,"platform_type":"TPM-Version:2.0 -Level:0-Revision:1.59-VendorID:'AMD '-Firmware:393248.6","ok":true}

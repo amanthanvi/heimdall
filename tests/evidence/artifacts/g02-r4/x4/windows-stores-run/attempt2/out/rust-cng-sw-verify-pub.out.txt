@@ -1,0 +1,1 @@
+{"op":"cng-verify-pub","provider":"software","key_name":"heimdall-x4-spike","pub_blob_len":72,"sig_len":64,"pub_verify_ok":true,"pub_tampered_rejected":true,"pub_wrong_digest_rejected":true,"pub_verify_us":62,"ok":true}

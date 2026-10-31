@@ -1,0 +1,1 @@
+{"deleted":true,"key_name":"heimdall-m00-t04-x4-3d2d51ca-go-sw","ok":true,"op":"cng-delete","open_after_delete_is_bad_keyset":true,"provider":"software"}

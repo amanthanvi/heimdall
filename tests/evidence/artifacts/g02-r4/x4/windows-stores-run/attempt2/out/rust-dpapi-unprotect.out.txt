@@ -1,0 +1,1 @@
+{"op":"dpapi-unprotect","scope":"current-user","ciphertext_len":284,"roundtrip_ok_new_process":true,"wrong_entropy_rejected":true,"tamper_rejected":true,"unprotect_n":20,"unprotect_first_us":780,"unprotect_min_us":147,"unprotect_median_us":151,"unprotect_max_us":780,"unprotect_mean_us":184,"ok":true}

@@ -1,0 +1,25 @@
+== versions
+go version go1.27.3 darwin/arm64
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo 1.99.1 (5f94df478 2026-08-27)
+0.17.0
+cargo-zigbuild 0.23.4
+== go vet (windows/amd64)
+go_vet_exit=0
+== go build
+go_build_exit=0
+== cargo clippy (-D warnings)
+    Checking x4-windows-rust v0.0.0 (<home>/.local/share/heimdall-m00/r4-scratch/M00-T04-x4-stores/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+clippy_exit=0
+== cargo zigbuild --release
+   Compiling x4-windows-rust v0.0.0 (<home>/.local/share/heimdall-m00/r4-scratch/M00-T04-x4-stores/rust)
+    Finished `release` profile [optimized] target(s) in 1.87s
+rust_build_exit=0
+== outputs
+x4-go.exe 3283968 8da7cc73cf009b99f21f6436c0f1ef348544123594aeb10e0426a43b9500a3ce
+x4-rust.exe 390144 52ebcf30abfc502eaf81911db6a54f160395a93d7e3f70ccbd7d08e19491f80d
+== home-path leak check (count of /Users/ in each binary)
+x4-go.exe 0
+x4-rust.exe 0
+build_exit=0

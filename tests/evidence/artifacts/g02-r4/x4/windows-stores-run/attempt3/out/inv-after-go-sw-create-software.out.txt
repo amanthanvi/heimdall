@@ -1,0 +1,1 @@
+{"op":"cng-inventory","provider":"software","key_name":"heimdall-x4-spike","provider_open_us":1537,"count":61,"names_sha256":"1b6173b1bedfec5022609808044435dd5f50e995ae1ecead1870d7bcd08bbc21","prefix":"heimdall-m00-t04-x4-3d2d51ca-","prefix_count":1,"prefix_names":"heimdall-m00-t04-x4-3d2d51ca-go-sw","heimdall_prefixed_count":1,"ok":true}

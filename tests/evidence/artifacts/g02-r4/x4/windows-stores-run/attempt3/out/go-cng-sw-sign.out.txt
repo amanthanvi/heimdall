@@ -1,0 +1,1 @@
+{"key_name":"heimdall-m00-t04-x4-3d2d51ca-go-sw","ok":true,"op":"cng-sign","provider":"software","sig_len":64,"verify_ok_and_tamper_rejected":true}

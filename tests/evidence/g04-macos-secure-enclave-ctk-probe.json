@@ -214,7 +214,8 @@
     "Redaction: the v1 identity row's local time of day was redacted after the run (20261009T053616Z-unlocked/REDACTION.txt; macOS separates it from AM/PM with U+202F). The v3 run redacts it in-run (identity-row.txt shows '<local-time>').",
     "For the v3 run, the fixture logs, the self-test log as captured by the orchestrator and a post-run check (0 CTK identities, 0 fixture containers, taken about 10 minutes after the run) were added afterwards under tests/evidence/artifacts/g04/p5/20261031T200928Z-unlocked/orchestrator/; the self-test's exit status was 0.",
     "The v3 run record self-reports status verified / verdict fail and build_commit null, with empty requirement_ids; this record takes its status from the lowest-row rule and states build_commit above.",
-    "Lock row: not executed. The self-test's fake sc_auth and the software-key rehearsals never count as CTK or lock evidence."
+    "Lock row: not executed. The self-test's fake sc_auth and the software-key rehearsals never count as CTK or lock evidence.",
+    "2026-10-31: ADR-0004 §2 answered the D4 question (further real-store runs are covered, each creating and deleting one CTK identity); this also covers the v3 run of that day retroactively."
   ],
-  "blocked_on": "owner-driven screen lock/unlock cycle for the lock row (tests/native/macos/g04_ctk_probe.sh --mode lock, v3, run by the owner at the console), plus the owner's answer to whether D4 covers a further real-store run, including the lock run (it creates and deletes one more CTK identity). The unlocked row needs no further real-store run: its login clause was measured in the v3 run on 2026-10-31."
+  "blocked_on": "a screen lock/unlock cycle for the lock row (tests/native/macos/g04_ctk_probe.sh --mode lock, v3). Since 2026-10-31 the orchestrator may lock the screen itself once the console has been idle for at least 15 minutes (ADR-0004 §2); the probe's lock mode needs an automated-lock variant for that, or the owner at the console. D4 covers further real-store runs, including the lock run (ADR-0004 §2). The unlocked row needs no further real-store run: its login clause was measured in the v3 run on 2026-10-31."
 }

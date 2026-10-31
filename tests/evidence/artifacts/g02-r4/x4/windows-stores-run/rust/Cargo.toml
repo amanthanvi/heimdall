@@ -1,0 +1,31 @@
+[package]
+name = "x4-windows-rust"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+description = "G02 round 4 / X4 compile-only Windows spike (DPAPI, CNG, named pipe + client SID check)."
+
+[[bin]]
+name = "x4-rust"
+path = "src/main.rs"
+
+# Single dependency, exact pin, raw FFI bindings only (no wrapper crate).
+[dependencies]
+windows-sys = { version = "=0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_Pipes",
+  "Win32_System_Threading",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,1 @@
+{"created":true,"key_name":"heimdall-m00-t04-x4-3d2d51ca-go-tpm","ok":true,"op":"cng-create","provider":"platform","pub_blob_len":72,"pub_magic_ok":true}

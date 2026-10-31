@@ -1,0 +1,30 @@
+--- a/run-x4-stores.attempt1.ps1
++++ b/run-x4-stores.ps1
+@@ -189,7 +189,8 @@
+   Test-KeyStore $lang $exe 'platform'
+ }
+ 
+-$started = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
++# attempt 2 fix: PowerShell names are case-insensitive; $started overwrote $script:Started in attempt 1.
++$runStartedUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+ try {
+   $os = Get-CimInstance Win32_OperatingSystem
+   $cv = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+@@ -206,7 +207,7 @@
+   foreach ($l in $langs) { Test-Lang $l }
+ }
+ finally {
+-  foreach ($p in $script:Started) { if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
++  foreach ($p in $script:Started) { if ($p -is [System.Diagnostics.Process] -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
+   # Final sweep: delete by exact name any key with this run's prefix that is still present.
+   $after = Get-Inventory 'after'
+   $swept = 0
+@@ -235,7 +236,7 @@
+ Add-Check 'runner' 'inventory.unchanged' 'per provider: count and SHA-256 of the sorted key-name list equal before and after; no key with the run prefix before or after (spike and certutil)' $(if ($unchanged) { 'pass' } else { 'fail' }) $cmp
+ 
+ $summary = [pscustomobject]@{
+-  started_utc = $started
++  started_utc = $runStartedUtc
+   generated_utc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+   run_id = $RunId; key_prefix = $Prefix; sign_message = $Msg; iterations = $Iterations
+   host = $hostInfo; binaries = $bins; checks = $script:Checks; inventory = $script:Inventory; commands = $script:Commands

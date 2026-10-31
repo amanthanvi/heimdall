@@ -1,0 +1,42 @@
+{
+ "openssl": "OpenSSL 4.1.0 23 Oct 2026 (Library: OpenSSL 4.1.0 23 Oct 2026)",
+ "cases": {
+  "sw": {
+   "key_name": "heimdall-m00-t04-x4-958f7d29-rust-sw",
+   "provider": "software",
+   "message": "heimdall-m00-t04-x4-958f7d29-sign-marker",
+   "digest_matches_sha256_of_message": true,
+   "pub_blob_hex": "45435331200000005cc5e17fdf04c65e33544c2a26487f871e23f5e0e18aa5a27cd60eaf04c40403bda5ca3f4adcb43be39e951b92f7d0563f106ac943fd1d6132ed83fd6d814baf",
+   "sig_hex": "f35db80c99abe944966dac5aba3f4d43fb3d87479acaf01697a1492c813f9abd255246a9ea43c7062640d81f206edba5644814ccbbe87301e05a49d837b9d25f",
+   "spki_sha256": "bc9cbac2b18df18f98a4c8d738882c0d35a62098e6e576f228aac916368b43c5",
+   "verify_exit": 0,
+   "verify_output": [
+    "Verified OK"
+   ],
+   "tampered_exit": 1,
+   "tampered_output": [
+    "Verification failure"
+   ],
+   "pass": true
+  },
+  "tpm": {
+   "key_name": "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+   "provider": "platform",
+   "message": "heimdall-m00-t04-x4-958f7d29-sign-marker",
+   "digest_matches_sha256_of_message": true,
+   "pub_blob_hex": "45435331200000009202dccb322526c8b544b725138a780409c6d7ab4ff7d7b2d74ba3cd08997a96627b7478b85a1e8c0794071161261db6a820de8704d08766de9399e65397838a",
+   "sig_hex": "98c4144ccfcf21322930624d92dd4af36556e6f12675273aae8e05ee892306ce653e21c31d054a93b34d6c3732fa48277bbcbc06985213b7b01d420007bac55a",
+   "spki_sha256": "1ad7ea827cc9a4639971033bb79b025755df4661d7585b4eba7c0afb39e20a4c",
+   "verify_exit": 0,
+   "verify_output": [
+    "Verified OK"
+   ],
+   "tampered_exit": 1,
+   "tampered_output": [
+    "Verification failure"
+   ],
+   "pass": true
+  }
+ },
+ "pass": true
+}

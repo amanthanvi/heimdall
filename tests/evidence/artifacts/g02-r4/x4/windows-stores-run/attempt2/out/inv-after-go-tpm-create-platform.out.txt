@@ -1,0 +1,1 @@
+{"op":"cng-inventory","provider":"platform","key_name":"heimdall-x4-spike","provider_open_us":2262,"count":4,"names_sha256":"a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee","prefix":"heimdall-m00-t04-x4-958f7d29-","prefix_count":2,"prefix_names":"heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm","heimdall_prefixed_count":2,"ok":true}

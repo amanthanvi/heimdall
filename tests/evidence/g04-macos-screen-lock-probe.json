@@ -27,5 +27,5 @@
     "The probe's non-lock smoke path was executed by the agent (records g04-macos-lock-probe-smoke-*.json); that proves mechanics and cleanup only, not lock behavior.",
     "Covers a dedicated ssh-agent, a disposable custom file-based keychain, and optionally fresh SSH logins to the M00-T03 fixture; not the login keychain, data-protection keychain, Secure Enclave, or a launchd-supervised signer."
   ],
-  "blocked_on": "owner-driven macOS screen lock/unlock cycle (a human at the console of the macOS 27.0 arm64 host must lock and unlock the screen while tests/native/macos/g04_lock_probe.sh --mode lock runs)"
+  "blocked_on": "a macOS screen lock/unlock cycle while tests/native/macos/g04_lock_probe.sh --mode lock runs: either the owner at the console, or (ADR-0004 §2, 2026-10-31) an orchestrator-driven lock after at least 15 minutes of console idle time, which needs an automated-lock variant of the probe"
 }

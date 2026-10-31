@@ -1,0 +1,1 @@
+{"error":"NCryptCreatePersistedKey: SECURITY_STATUS 0x8009000F","key_name":"heimdall-m00-t04-x4-3d2d51ca-go-sw","ok":false,"op":"cng-create","provider":"software","status_hex":"0x8009000F"}

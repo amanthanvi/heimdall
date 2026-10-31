@@ -1,0 +1,14 @@
+2026-10-31T23:04:49Z
+{"op":"cng-inventory","provider":"software","key_name":"heimdall-x4-spike","provider_open_us":1642,"count":60,"names_sha256":"02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718","prefix":"heimdall-","prefix_count":0,"prefix_names":"","heimdall_prefixed_count":0,"ok":true}
+exit=0 <- x4-rust.exe cng --op inventory --provider software --prefix heimdall-
+{"op":"cng-inventory","provider":"platform","key_name":"heimdall-x4-spike","provider_open_us":2858,"count":2,"names_sha256":"4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b","prefix":"heimdall-","prefix_count":0,"prefix_names":"","heimdall_prefixed_count":0,"ok":true}
+exit=0 <- x4-rust.exe cng --op inventory --provider platform --prefix heimdall-
+certutil -user -silent -csp "Microsoft Software Key Storage Provider" -key: exit=0 lines_containing_heimdall=0
+certutil -user -silent -csp "Microsoft Platform Crypto Provider" -key: exit=0 lines_containing_heimdall=0
+== remote cleanup
+windows_scratch_present=no
+driver_cleanup_exit=0
+windows_hm-m00_parent_present=yes (other entries: 1)
+wsl_scratch_present=no
+wsl_hm-m00_entry: M00-T04-g03-wsl-b
+2026-10-31T23:04:49Z

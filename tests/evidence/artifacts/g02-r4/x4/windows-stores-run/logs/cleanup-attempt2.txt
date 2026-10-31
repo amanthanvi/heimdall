@@ -1,0 +1,14 @@
+2026-10-31T22:59:35Z
+{"op":"cng-inventory","provider":"platform","key_name":"heimdall-x4-spike","provider_open_us":2300,"count":4,"names_sha256":"a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee","prefix":"heimdall-m00-t04-x4-958f7d29-","prefix_count":2,"prefix_names":"heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm","heimdall_prefixed_count":2,"ok":true}
+exit=0 <- inventory platform (before cleanup)
+{"op":"cng-delete","provider":"platform","key_name":"heimdall-m00-t04-x4-958f7d29-rust-tpm","provider_open_us":2068,"delete_silent_status":"0x80090009","delete_flags0_status":"0x00000000","deleted":true,"open_after_delete_is_bad_keyset":true,"ok":true}
+exit=0 <- delete --provider platform --name heimdall-m00-t04-x4-958f7d29-rust-tpm
+{"op":"cng-delete","provider":"platform","key_name":"heimdall-m00-t04-x4-958f7d29-go-tpm","provider_open_us":2158,"delete_silent_status":"0x80090009","delete_flags0_status":"0x00000000","deleted":true,"open_after_delete_is_bad_keyset":true,"ok":true}
+exit=0 <- delete --provider platform --name heimdall-m00-t04-x4-958f7d29-go-tpm
+{"op":"cng-inventory","provider":"platform","key_name":"heimdall-x4-spike","provider_open_us":2371,"count":2,"names_sha256":"4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b","prefix":"heimdall-","prefix_count":0,"prefix_names":"","heimdall_prefixed_count":0,"ok":true}
+exit=0 <- inventory platform --prefix heimdall- (after cleanup)
+{"op":"cng-inventory","provider":"software","key_name":"heimdall-x4-spike","provider_open_us":1595,"count":60,"names_sha256":"02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718","prefix":"heimdall-","prefix_count":0,"prefix_names":"","heimdall_prefixed_count":0,"ok":true}
+exit=0 <- inventory software --prefix heimdall- (after cleanup)
+certutil -user -silent -csp "Microsoft Platform Crypto Provider" -key: exit=0 lines_containing_heimdall=0
+certutil -user -silent -csp "Microsoft Software Key Storage Provider" -key: exit=0 lines_containing_heimdall=0
+2026-10-31T22:59:35Z

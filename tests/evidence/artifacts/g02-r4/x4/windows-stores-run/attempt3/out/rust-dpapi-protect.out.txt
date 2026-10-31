@@ -1,0 +1,1 @@
+{"op":"dpapi-protect","scope":"current-user","ciphertext_len":284,"ciphertext_differs":true,"written":true,"protect_n":20,"protect_first_us":824,"protect_min_us":181,"protect_median_us":187,"protect_max_us":824,"protect_mean_us":223,"ok":true}

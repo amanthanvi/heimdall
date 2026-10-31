@@ -1,0 +1,1498 @@
+﻿{
+    "started_utc":  "2026-10-31T22:58:06Z",
+    "generated_utc":  "2026-10-31T22:58:09Z",
+    "run_id":  "958f7d29",
+    "key_prefix":  "heimdall-m00-t04-x4-958f7d29-",
+    "sign_message":  "heimdall-m00-t04-x4-958f7d29-sign-marker",
+    "iterations":  20,
+    "host":  {
+                 "os":  "Microsoft Windows 11 Pro",
+                 "build":  "26300",
+                 "ubr":  9711,
+                 "display_version":  "26H2",
+                 "arch":  "AMD64",
+                 "ps":  "5.1.26100.9711",
+                 "elevated":  false,
+                 "ssh_auth_sock_set":  false
+             },
+    "binaries":  {
+                     "x4-go.exe":  {
+                                       "sha256":  "8da7cc73cf009b99f21f6436c0f1ef348544123594aeb10e0426a43b9500a3ce",
+                                       "size":  3283968
+                                   },
+                     "x4-rust.exe":  {
+                                         "sha256":  "28cee3f5a478e47b322c3e40bfd6f253028d4288f98feb7d74365c67bb10184e",
+                                         "size":  389120
+                                     }
+                 },
+    "checks":  [
+                   {
+                       "lang":  "rust",
+                       "id":  "dpapi.roundtrip",
+                       "expect":  "exit 0; roundtrip_ok, wrong_entropy_rejected, tamper_rejected all true",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  15,
+                                        "stderr":  "",
+                                        "json":  {
+                                                     "op":  "dpapi",
+                                                     "scope":  "current-user",
+                                                     "ciphertext_len":  284,
+                                                     "ciphertext_differs":  true,
+                                                     "roundtrip_ok":  true,
+                                                     "wrong_entropy_rejected":  true,
+                                                     "tamper_rejected":  true,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "dpapi.protect.process1",
+                       "expect":  "exit 0; ciphertext written; timed",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "dpapi-protect",
+                                                     "scope":  "current-user",
+                                                     "ciphertext_len":  284,
+                                                     "ciphertext_differs":  true,
+                                                     "written":  true,
+                                                     "protect_n":  20,
+                                                     "protect_first_us":  795,
+                                                     "protect_min_us":  184,
+                                                     "protect_median_us":  188,
+                                                     "protect_max_us":  795,
+                                                     "protect_mean_us":  219,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "dpapi.unprotect.new_process",
+                       "expect":  "exit 0; ciphertext from process 1 unprotects in process 2; wrong entropy and tamper rejected; timed",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "dpapi-unprotect",
+                                                     "scope":  "current-user",
+                                                     "ciphertext_len":  284,
+                                                     "roundtrip_ok_new_process":  true,
+                                                     "wrong_entropy_rejected":  true,
+                                                     "tamper_rejected":  true,
+                                                     "unprotect_n":  20,
+                                                     "unprotect_first_us":  780,
+                                                     "unprotect_min_us":  147,
+                                                     "unprotect_median_us":  151,
+                                                     "unprotect_max_us":  780,
+                                                     "unprotect_mean_us":  184,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.probe",
+                       "expect":  "info only: which KSPs open",
+                       "result":  "info",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-probe",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-x4-spike",
+                                                     "software_provider_open":  true,
+                                                     "platform_provider_open":  true,
+                                                     "platform_type":  "TPM-Version:2.0 -Level:0-Revision:1.59-VendorID:\u0027AMD \u0027-Firmware:393248.6",
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.create",
+                       "expect":  "exit 0; created; ECCPUBLICBLOB magic ECS1 / 32-byte coords",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  16,
+                                        "stderr":  "",
+                                        "json":  {
+                                                     "op":  "cng-create",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-sw",
+                                                     "provider_open_us":  1581,
+                                                     "create_finalize_us":  1773,
+                                                     "export_policy_set_status":  "0x00000000",
+                                                     "export_policy":  0,
+                                                     "impl_type_status":  "0x80090029",
+                                                     "private_export_eccprivateblob_succeeded":  false,
+                                                     "private_export_eccprivateblob_status":  "0x80090029",
+                                                     "private_export_pkcs8_succeeded":  false,
+                                                     "private_export_pkcs8_status":  "0x80090029",
+                                                     "created":  true,
+                                                     "pub_blob_len":  72,
+                                                     "pub_magic_ok":  true,
+                                                     "pub_blob_hex":  "45435331200000005cc5e17fdf04c65e33544c2a26487f871e23f5e0e18aa5a27cd60eaf04c40403bda5ca3f4adcb43be39e951b92f7d0563f106ac943fd1d6132ed83fd6d814baf",
+                                                     "pub_written":  true,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.non_exportable",
+                       "expect":  "export_policy 0 read back; ECCPRIVATEBLOB and PKCS8 private exports both refused",
+                       "result":  "pass",
+                       "observed":  {
+                                        "eccprivateblob_status":  "0x80090029",
+                                        "export_policy_status":  null,
+                                        "impl_hardware":  null,
+                                        "export_policy":  0,
+                                        "pkcs8_status":  "0x80090029",
+                                        "export_policy_set_status":  "0x00000000",
+                                        "impl_type":  null
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.visible_in_inventory",
+                       "expect":  "spike enumeration lists exactly this key under the run prefix; certutil lists it too",
+                       "result":  "pass",
+                       "observed":  {
+                                        "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-sw",
+                                        "certutil_prefix_lines":  1,
+                                        "certutil_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.create.duplicate_fails",
+                       "expect":  "exit 1 with NTE_EXISTS 0x8009000F (no silent overwrite)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-create",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-sw",
+                                                     "provider_open_us":  1571,
+                                                     "ok":  false,
+                                                     "error":  "NCryptCreatePersistedKey",
+                                                     "status_hex":  "0x8009000F"
+                                                 },
+                                        "exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.sign.new_process",
+                       "expect":  "exit 0; key reopened in a new process; sig_len 64; verify ok; tampered signature rejected (rust: timed signatures verify, one written)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  17,
+                                        "json":  {
+                                                     "op":  "cng-sign",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-sw",
+                                                     "provider_open_us":  1544,
+                                                     "key_open_us":  452,
+                                                     "export_policy":  0,
+                                                     "impl_type_status":  "0x80090029",
+                                                     "private_export_eccprivateblob_succeeded":  false,
+                                                     "private_export_eccprivateblob_status":  "0x80090029",
+                                                     "private_export_pkcs8_succeeded":  false,
+                                                     "private_export_pkcs8_status":  "0x80090029",
+                                                     "sig_len":  64,
+                                                     "verify_ok_and_tamper_rejected":  true,
+                                                     "msg":  "heimdall-m00-t04-x4-958f7d29-sign-marker",
+                                                     "digest_hex":  "dc87ef8c9327965e5134ddb7c8f5d1781e28d7abd9821190bbd10026e6e8af21",
+                                                     "sign_n":  20,
+                                                     "sign_first_us":  113,
+                                                     "sign_min_us":  112,
+                                                     "sign_median_us":  114,
+                                                     "sign_max_us":  118,
+                                                     "sign_mean_us":  113,
+                                                     "sig_hex":  "f35db80c99abe944966dac5aba3f4d43fb3d87479acaf01697a1492c813f9abd255246a9ea43c7062640d81f206edba5644814ccbbe87301e05a49d837b9d25f",
+                                                     "timed_sig_verifies_with_handle":  true,
+                                                     "sig_written":  true,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.verify_exported_pub",
+                       "expect":  "exit 0; BCrypt import of the exported ECCPUBLICBLOB verifies the signature; tampered signature and wrong digest rejected",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-verify-pub",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-x4-spike",
+                                                     "pub_blob_len":  72,
+                                                     "sig_len":  64,
+                                                     "pub_verify_ok":  true,
+                                                     "pub_tampered_rejected":  true,
+                                                     "pub_wrong_digest_rejected":  true,
+                                                     "pub_verify_us":  62,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.delete",
+                       "expect":  "exit 0; deleted; reopen yields NTE_BAD_KEYSET 0x80090016",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-delete",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-sw",
+                                                     "provider_open_us":  1637,
+                                                     "deleted":  true,
+                                                     "open_after_delete_is_bad_keyset":  true,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.sw.absent_after_delete",
+                       "expect":  "spike enumeration and certutil list no key with the run prefix",
+                       "result":  "pass",
+                       "observed":  {
+                                        "certutil_prefix_lines":  0,
+                                        "prefix_count":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.create",
+                       "expect":  "exit 0; created; ECCPUBLICBLOB magic ECS1 / 32-byte coords",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  103,
+                                        "stderr":  "",
+                                        "json":  {
+                                                     "op":  "cng-create",
+                                                     "provider":  "platform",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                     "provider_open_us":  2205,
+                                                     "create_finalize_us":  84404,
+                                                     "export_policy_set_status":  "0x00000000",
+                                                     "export_policy":  0,
+                                                     "impl_type_status":  "0x80090029",
+                                                     "private_export_eccprivateblob_succeeded":  false,
+                                                     "private_export_eccprivateblob_status":  "0x8009000A",
+                                                     "private_export_pkcs8_succeeded":  false,
+                                                     "private_export_pkcs8_status":  "0x8009000A",
+                                                     "created":  true,
+                                                     "pub_blob_len":  72,
+                                                     "pub_magic_ok":  true,
+                                                     "pub_blob_hex":  "45435331200000009202dccb322526c8b544b725138a780409c6d7ab4ff7d7b2d74ba3cd08997a96627b7478b85a1e8c0794071161261db6a820de8704d08766de9399e65397838a",
+                                                     "pub_written":  true,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.non_exportable",
+                       "expect":  "export_policy 0 read back; ECCPRIVATEBLOB and PKCS8 private exports both refused",
+                       "result":  "pass",
+                       "observed":  {
+                                        "eccprivateblob_status":  "0x8009000A",
+                                        "export_policy_status":  null,
+                                        "impl_hardware":  null,
+                                        "export_policy":  0,
+                                        "pkcs8_status":  "0x8009000A",
+                                        "export_policy_set_status":  "0x00000000",
+                                        "impl_type":  null
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.visible_in_inventory",
+                       "expect":  "spike enumeration lists exactly this key under the run prefix; certutil lists it too",
+                       "result":  "pass",
+                       "observed":  {
+                                        "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                        "certutil_prefix_lines":  1,
+                                        "certutil_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.create.duplicate_fails",
+                       "expect":  "exit 1 with NTE_EXISTS 0x8009000F (no silent overwrite)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-create",
+                                                     "provider":  "platform",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                     "provider_open_us":  2243,
+                                                     "ok":  false,
+                                                     "error":  "NCryptCreatePersistedKey",
+                                                     "status_hex":  "0x8009000F"
+                                                 },
+                                        "exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.sign.new_process",
+                       "expect":  "exit 0; key reopened in a new process; sig_len 64; verify ok; tampered signature rejected (rust: timed signatures verify, one written)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  302,
+                                        "json":  {
+                                                     "op":  "cng-sign",
+                                                     "provider":  "platform",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                     "provider_open_us":  2297,
+                                                     "key_open_us":  3206,
+                                                     "export_policy":  0,
+                                                     "impl_type_status":  "0x80090029",
+                                                     "private_export_eccprivateblob_succeeded":  false,
+                                                     "private_export_eccprivateblob_status":  "0x8009000A",
+                                                     "private_export_pkcs8_succeeded":  false,
+                                                     "private_export_pkcs8_status":  "0x8009000A",
+                                                     "sig_len":  64,
+                                                     "verify_ok_and_tamper_rejected":  true,
+                                                     "msg":  "heimdall-m00-t04-x4-958f7d29-sign-marker",
+                                                     "digest_hex":  "dc87ef8c9327965e5134ddb7c8f5d1781e28d7abd9821190bbd10026e6e8af21",
+                                                     "sign_n":  20,
+                                                     "sign_first_us":  12613,
+                                                     "sign_min_us":  11801,
+                                                     "sign_median_us":  12424,
+                                                     "sign_max_us":  13655,
+                                                     "sign_mean_us":  12553,
+                                                     "sig_hex":  "98c4144ccfcf21322930624d92dd4af36556e6f12675273aae8e05ee892306ce653e21c31d054a93b34d6c3732fa48277bbcbc06985213b7b01d420007bac55a",
+                                                     "timed_sig_verifies_with_handle":  true,
+                                                     "sig_written":  true,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.verify_exported_pub",
+                       "expect":  "exit 0; BCrypt import of the exported ECCPUBLICBLOB verifies the signature; tampered signature and wrong digest rejected",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-verify-pub",
+                                                     "provider":  "software",
+                                                     "key_name":  "heimdall-x4-spike",
+                                                     "pub_blob_len":  72,
+                                                     "sig_len":  64,
+                                                     "pub_verify_ok":  true,
+                                                     "pub_tampered_rejected":  true,
+                                                     "pub_wrong_digest_rejected":  true,
+                                                     "pub_verify_us":  63,
+                                                     "ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.delete",
+                       "expect":  "exit 0; deleted; reopen yields NTE_BAD_KEYSET 0x80090016",
+                       "result":  "fail",
+                       "observed":  {
+                                        "json":  {
+                                                     "op":  "cng-delete",
+                                                     "provider":  "platform",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                     "provider_open_us":  2307,
+                                                     "ok":  false,
+                                                     "error":  "NCryptDeleteKey",
+                                                     "status_hex":  "0x80090009"
+                                                 },
+                                        "exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "rust",
+                       "id":  "cng.tpm.absent_after_delete",
+                       "expect":  "spike enumeration and certutil list no key with the run prefix",
+                       "result":  "fail",
+                       "observed":  {
+                                        "certutil_prefix_lines":  1,
+                                        "prefix_count":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "dpapi.roundtrip",
+                       "expect":  "exit 0; roundtrip_ok, wrong_entropy_rejected, tamper_rejected all true",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  99,
+                                        "stderr":  "",
+                                        "json":  {
+                                                     "ciphertext_differs":  true,
+                                                     "ciphertext_len":  284,
+                                                     "ok":  true,
+                                                     "op":  "dpapi",
+                                                     "roundtrip_ok":  true,
+                                                     "scope":  "current-user",
+                                                     "tamper_rejected":  true,
+                                                     "wrong_entropy_rejected":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.probe",
+                       "expect":  "info only: which KSPs open",
+                       "result":  "info",
+                       "observed":  {
+                                        "json":  {
+                                                     "key_name":  "heimdall-x4-spike",
+                                                     "ok":  true,
+                                                     "op":  "cng-probe",
+                                                     "platform_provider_open":  true,
+                                                     "provider":  "software",
+                                                     "software_provider_open":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sw.create",
+                       "expect":  "exit 0; created; ECCPUBLICBLOB magic ECS1 / 32-byte coords",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  23,
+                                        "stderr":  "",
+                                        "json":  {
+                                                     "created":  true,
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-sw",
+                                                     "ok":  true,
+                                                     "op":  "cng-create",
+                                                     "provider":  "software",
+                                                     "pub_blob_len":  72,
+                                                     "pub_magic_ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sw.visible_in_inventory",
+                       "expect":  "spike enumeration lists exactly this key under the run prefix; certutil lists it too",
+                       "result":  "pass",
+                       "observed":  {
+                                        "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-sw",
+                                        "certutil_prefix_lines":  1,
+                                        "certutil_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sw.create.duplicate_fails",
+                       "expect":  "exit 1 with NTE_EXISTS 0x8009000F (no silent overwrite)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "error":  "NCryptCreatePersistedKey: SECURITY_STATUS 0x8009000F",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-sw",
+                                                     "ok":  false,
+                                                     "op":  "cng-create",
+                                                     "provider":  "software",
+                                                     "status_hex":  "0x8009000F"
+                                                 },
+                                        "exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sw.sign.new_process",
+                       "expect":  "exit 0; key reopened in a new process; sig_len 64; verify ok; tampered signature rejected (rust: timed signatures verify, one written)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  17,
+                                        "json":  {
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-sw",
+                                                     "ok":  true,
+                                                     "op":  "cng-sign",
+                                                     "provider":  "software",
+                                                     "sig_len":  64,
+                                                     "verify_ok_and_tamper_rejected":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sw.delete",
+                       "expect":  "exit 0; deleted; reopen yields NTE_BAD_KEYSET 0x80090016",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "deleted":  true,
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-sw",
+                                                     "ok":  true,
+                                                     "op":  "cng-delete",
+                                                     "open_after_delete_is_bad_keyset":  true,
+                                                     "provider":  "software"
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.sw.absent_after_delete",
+                       "expect":  "spike enumeration and certutil list no key with the run prefix",
+                       "result":  "pass",
+                       "observed":  {
+                                        "certutil_prefix_lines":  0,
+                                        "prefix_count":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.tpm.create",
+                       "expect":  "exit 0; created; ECCPUBLICBLOB magic ECS1 / 32-byte coords",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  107,
+                                        "stderr":  "",
+                                        "json":  {
+                                                     "created":  true,
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-tpm",
+                                                     "ok":  true,
+                                                     "op":  "cng-create",
+                                                     "provider":  "platform",
+                                                     "pub_blob_len":  72,
+                                                     "pub_magic_ok":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.tpm.visible_in_inventory",
+                       "expect":  "spike enumeration lists exactly this key under the run prefix; certutil lists it too",
+                       "result":  "fail",
+                       "observed":  {
+                                        "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                        "certutil_prefix_lines":  2,
+                                        "certutil_exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.tpm.create.duplicate_fails",
+                       "expect":  "exit 1 with NTE_EXISTS 0x8009000F (no silent overwrite)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "json":  {
+                                                     "error":  "NCryptCreatePersistedKey: SECURITY_STATUS 0x8009000F",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-tpm",
+                                                     "ok":  false,
+                                                     "op":  "cng-create",
+                                                     "provider":  "platform",
+                                                     "status_hex":  "0x8009000F"
+                                                 },
+                                        "exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.tpm.sign.new_process",
+                       "expect":  "exit 0; key reopened in a new process; sig_len 64; verify ok; tampered signature rejected (rust: timed signatures verify, one written)",
+                       "result":  "pass",
+                       "observed":  {
+                                        "wall_ms":  50,
+                                        "json":  {
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-tpm",
+                                                     "ok":  true,
+                                                     "op":  "cng-sign",
+                                                     "provider":  "platform",
+                                                     "sig_len":  64,
+                                                     "verify_ok_and_tamper_rejected":  true
+                                                 },
+                                        "exit":  0
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.tpm.delete",
+                       "expect":  "exit 0; deleted; reopen yields NTE_BAD_KEYSET 0x80090016",
+                       "result":  "fail",
+                       "observed":  {
+                                        "json":  {
+                                                     "error":  "NCryptDeleteKey: SECURITY_STATUS 0x80090009",
+                                                     "key_name":  "heimdall-m00-t04-x4-958f7d29-go-tpm",
+                                                     "ok":  false,
+                                                     "op":  "cng-delete",
+                                                     "provider":  "platform",
+                                                     "status_hex":  "0x80090009"
+                                                 },
+                                        "exit":  1
+                                    }
+                   },
+                   {
+                       "lang":  "go",
+                       "id":  "cng.tpm.absent_after_delete",
+                       "expect":  "spike enumeration and certutil list no key with the run prefix",
+                       "result":  "fail",
+                       "observed":  {
+                                        "certutil_prefix_lines":  2,
+                                        "prefix_count":  2
+                                    }
+                   },
+                   {
+                       "lang":  "runner",
+                       "id":  "sweep.platform",
+                       "expect":  "leftover test key deleted by exact name",
+                       "result":  "fail",
+                       "observed":  {
+                                        "exit":  1,
+                                        "name":  "heimdall-m00-t04-x4-958f7d29-go-tpm"
+                                    }
+                   },
+                   {
+                       "lang":  "runner",
+                       "id":  "sweep.platform",
+                       "expect":  "leftover test key deleted by exact name",
+                       "result":  "fail",
+                       "observed":  {
+                                        "exit":  1,
+                                        "name":  "heimdall-m00-t04-x4-958f7d29-rust-tpm"
+                                    }
+                   },
+                   {
+                       "lang":  "runner",
+                       "id":  "inventory.unchanged",
+                       "expect":  "per provider: count and SHA-256 of the sorted key-name list equal before and after; no key with the run prefix before or after (spike and certutil)",
+                       "result":  "fail",
+                       "observed":  {
+                                        "software":  {
+                                                         "equal":  true,
+                                                         "after_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                         "after_prefix":  0,
+                                                         "certutil_after":  0,
+                                                         "certutil_before":  0,
+                                                         "before_prefix":  0,
+                                                         "before_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                         "before_count":  60,
+                                                         "after_count":  60
+                                                     },
+                                        "platform":  {
+                                                         "equal":  false,
+                                                         "after_sha256":  "a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee",
+                                                         "after_prefix":  2,
+                                                         "certutil_after":  2,
+                                                         "certutil_before":  0,
+                                                         "before_prefix":  0,
+                                                         "before_sha256":  "4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b",
+                                                         "before_count":  2,
+                                                         "after_count":  4
+                                                     }
+                                    }
+                   }
+               ],
+    "inventory":  {
+                      "before":  {
+                                     "software":  {
+                                                      "exit":  0,
+                                                      "ok":  true,
+                                                      "count":  60,
+                                                      "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                      "prefix_count":  0,
+                                                      "prefix_names":  "",
+                                                      "heimdall_prefixed_count":  0,
+                                                      "status_hex":  null,
+                                                      "certutil_exit":  0,
+                                                      "certutil_prefix_lines":  0
+                                                  },
+                                     "platform":  {
+                                                      "exit":  0,
+                                                      "ok":  true,
+                                                      "count":  2,
+                                                      "names_sha256":  "4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b",
+                                                      "prefix_count":  0,
+                                                      "prefix_names":  "",
+                                                      "heimdall_prefixed_count":  0,
+                                                      "status_hex":  null,
+                                                      "certutil_exit":  0,
+                                                      "certutil_prefix_lines":  0
+                                                  }
+                                 },
+                      "after-rust-sw-create":  {
+                                                   "software":  {
+                                                                    "exit":  0,
+                                                                    "ok":  true,
+                                                                    "count":  61,
+                                                                    "names_sha256":  "51fac33be5fec2f505b5cb5c3f11a73109d22ce3576a906f89769a84b28cf451",
+                                                                    "prefix_count":  1,
+                                                                    "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-sw",
+                                                                    "heimdall_prefixed_count":  1,
+                                                                    "status_hex":  null,
+                                                                    "certutil_exit":  0,
+                                                                    "certutil_prefix_lines":  1
+                                                                },
+                                                   "platform":  {
+                                                                    "exit":  0,
+                                                                    "ok":  true,
+                                                                    "count":  2,
+                                                                    "names_sha256":  "4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b",
+                                                                    "prefix_count":  0,
+                                                                    "prefix_names":  "",
+                                                                    "heimdall_prefixed_count":  0,
+                                                                    "status_hex":  null,
+                                                                    "certutil_exit":  0,
+                                                                    "certutil_prefix_lines":  0
+                                                                }
+                                               },
+                      "after-rust-sw-delete":  {
+                                                   "software":  {
+                                                                    "exit":  0,
+                                                                    "ok":  true,
+                                                                    "count":  60,
+                                                                    "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                                    "prefix_count":  0,
+                                                                    "prefix_names":  "",
+                                                                    "heimdall_prefixed_count":  0,
+                                                                    "status_hex":  null,
+                                                                    "certutil_exit":  0,
+                                                                    "certutil_prefix_lines":  0
+                                                                },
+                                                   "platform":  {
+                                                                    "exit":  0,
+                                                                    "ok":  true,
+                                                                    "count":  2,
+                                                                    "names_sha256":  "4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b",
+                                                                    "prefix_count":  0,
+                                                                    "prefix_names":  "",
+                                                                    "heimdall_prefixed_count":  0,
+                                                                    "status_hex":  null,
+                                                                    "certutil_exit":  0,
+                                                                    "certutil_prefix_lines":  0
+                                                                }
+                                               },
+                      "after-rust-tpm-create":  {
+                                                    "software":  {
+                                                                     "exit":  0,
+                                                                     "ok":  true,
+                                                                     "count":  60,
+                                                                     "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                                     "prefix_count":  0,
+                                                                     "prefix_names":  "",
+                                                                     "heimdall_prefixed_count":  0,
+                                                                     "status_hex":  null,
+                                                                     "certutil_exit":  0,
+                                                                     "certutil_prefix_lines":  0
+                                                                 },
+                                                    "platform":  {
+                                                                     "exit":  0,
+                                                                     "ok":  true,
+                                                                     "count":  3,
+                                                                     "names_sha256":  "1b4bf7d14522551dc3792c02c74a8cf8e7ed7952b13651f93cfd77a00fa6b0cb",
+                                                                     "prefix_count":  1,
+                                                                     "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                                     "heimdall_prefixed_count":  1,
+                                                                     "status_hex":  null,
+                                                                     "certutil_exit":  0,
+                                                                     "certutil_prefix_lines":  1
+                                                                 }
+                                                },
+                      "after-rust-tpm-delete":  {
+                                                    "software":  {
+                                                                     "exit":  0,
+                                                                     "ok":  true,
+                                                                     "count":  60,
+                                                                     "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                                     "prefix_count":  0,
+                                                                     "prefix_names":  "",
+                                                                     "heimdall_prefixed_count":  0,
+                                                                     "status_hex":  null,
+                                                                     "certutil_exit":  0,
+                                                                     "certutil_prefix_lines":  0
+                                                                 },
+                                                    "platform":  {
+                                                                     "exit":  0,
+                                                                     "ok":  true,
+                                                                     "count":  3,
+                                                                     "names_sha256":  "1b4bf7d14522551dc3792c02c74a8cf8e7ed7952b13651f93cfd77a00fa6b0cb",
+                                                                     "prefix_count":  1,
+                                                                     "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                                     "heimdall_prefixed_count":  1,
+                                                                     "status_hex":  null,
+                                                                     "certutil_exit":  0,
+                                                                     "certutil_prefix_lines":  1
+                                                                 }
+                                                },
+                      "after-go-sw-create":  {
+                                                 "software":  {
+                                                                  "exit":  0,
+                                                                  "ok":  true,
+                                                                  "count":  61,
+                                                                  "names_sha256":  "8b2083229899a97ed5814ef530dba019f818f0e254faea3fc55922386e503023",
+                                                                  "prefix_count":  1,
+                                                                  "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-sw",
+                                                                  "heimdall_prefixed_count":  1,
+                                                                  "status_hex":  null,
+                                                                  "certutil_exit":  0,
+                                                                  "certutil_prefix_lines":  1
+                                                              },
+                                                 "platform":  {
+                                                                  "exit":  0,
+                                                                  "ok":  true,
+                                                                  "count":  3,
+                                                                  "names_sha256":  "1b4bf7d14522551dc3792c02c74a8cf8e7ed7952b13651f93cfd77a00fa6b0cb",
+                                                                  "prefix_count":  1,
+                                                                  "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                                  "heimdall_prefixed_count":  1,
+                                                                  "status_hex":  null,
+                                                                  "certutil_exit":  0,
+                                                                  "certutil_prefix_lines":  1
+                                                              }
+                                             },
+                      "after-go-sw-delete":  {
+                                                 "software":  {
+                                                                  "exit":  0,
+                                                                  "ok":  true,
+                                                                  "count":  60,
+                                                                  "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                                  "prefix_count":  0,
+                                                                  "prefix_names":  "",
+                                                                  "heimdall_prefixed_count":  0,
+                                                                  "status_hex":  null,
+                                                                  "certutil_exit":  0,
+                                                                  "certutil_prefix_lines":  0
+                                                              },
+                                                 "platform":  {
+                                                                  "exit":  0,
+                                                                  "ok":  true,
+                                                                  "count":  3,
+                                                                  "names_sha256":  "1b4bf7d14522551dc3792c02c74a8cf8e7ed7952b13651f93cfd77a00fa6b0cb",
+                                                                  "prefix_count":  1,
+                                                                  "prefix_names":  "heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                                  "heimdall_prefixed_count":  1,
+                                                                  "status_hex":  null,
+                                                                  "certutil_exit":  0,
+                                                                  "certutil_prefix_lines":  1
+                                                              }
+                                             },
+                      "after-go-tpm-create":  {
+                                                  "software":  {
+                                                                   "exit":  0,
+                                                                   "ok":  true,
+                                                                   "count":  60,
+                                                                   "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                                   "prefix_count":  0,
+                                                                   "prefix_names":  "",
+                                                                   "heimdall_prefixed_count":  0,
+                                                                   "status_hex":  null,
+                                                                   "certutil_exit":  0,
+                                                                   "certutil_prefix_lines":  0
+                                                               },
+                                                  "platform":  {
+                                                                   "exit":  0,
+                                                                   "ok":  true,
+                                                                   "count":  4,
+                                                                   "names_sha256":  "a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee",
+                                                                   "prefix_count":  2,
+                                                                   "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                                   "heimdall_prefixed_count":  2,
+                                                                   "status_hex":  null,
+                                                                   "certutil_exit":  0,
+                                                                   "certutil_prefix_lines":  2
+                                                               }
+                                              },
+                      "after-go-tpm-delete":  {
+                                                  "software":  {
+                                                                   "exit":  0,
+                                                                   "ok":  true,
+                                                                   "count":  60,
+                                                                   "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                                   "prefix_count":  0,
+                                                                   "prefix_names":  "",
+                                                                   "heimdall_prefixed_count":  0,
+                                                                   "status_hex":  null,
+                                                                   "certutil_exit":  0,
+                                                                   "certutil_prefix_lines":  0
+                                                               },
+                                                  "platform":  {
+                                                                   "exit":  0,
+                                                                   "ok":  true,
+                                                                   "count":  4,
+                                                                   "names_sha256":  "a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee",
+                                                                   "prefix_count":  2,
+                                                                   "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                                   "heimdall_prefixed_count":  2,
+                                                                   "status_hex":  null,
+                                                                   "certutil_exit":  0,
+                                                                   "certutil_prefix_lines":  2
+                                                               }
+                                              },
+                      "after":  {
+                                    "software":  {
+                                                     "exit":  0,
+                                                     "ok":  true,
+                                                     "count":  60,
+                                                     "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                     "prefix_count":  0,
+                                                     "prefix_names":  "",
+                                                     "heimdall_prefixed_count":  0,
+                                                     "status_hex":  null,
+                                                     "certutil_exit":  0,
+                                                     "certutil_prefix_lines":  0
+                                                 },
+                                    "platform":  {
+                                                     "exit":  0,
+                                                     "ok":  true,
+                                                     "count":  4,
+                                                     "names_sha256":  "a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee",
+                                                     "prefix_count":  2,
+                                                     "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                     "heimdall_prefixed_count":  2,
+                                                     "status_hex":  null,
+                                                     "certutil_exit":  0,
+                                                     "certutil_prefix_lines":  2
+                                                 }
+                                },
+                      "after-sweep":  {
+                                          "software":  {
+                                                           "exit":  0,
+                                                           "ok":  true,
+                                                           "count":  60,
+                                                           "names_sha256":  "02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718",
+                                                           "prefix_count":  0,
+                                                           "prefix_names":  "",
+                                                           "heimdall_prefixed_count":  0,
+                                                           "status_hex":  null,
+                                                           "certutil_exit":  0,
+                                                           "certutil_prefix_lines":  0
+                                                       },
+                                          "platform":  {
+                                                           "exit":  0,
+                                                           "ok":  true,
+                                                           "count":  4,
+                                                           "names_sha256":  "a7d27e216f6157e091e95086be6a899587e40c5f3ce1380f3434a338f43e5dee",
+                                                           "prefix_count":  2,
+                                                           "prefix_names":  "heimdall-m00-t04-x4-958f7d29-go-tpm;heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                                                           "heimdall_prefixed_count":  2,
+                                                           "status_hex":  null,
+                                                           "certutil_exit":  0,
+                                                           "certutil_prefix_lines":  2
+                                                       }
+                                      }
+                  },
+    "commands":  [
+                     {
+                         "tag":  "inv-before-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  48
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-before-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  18
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "rust-dpapi",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "dpapi",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "rust-dpapi-protect",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "dpapi --op protect --out dpapi-ct-rust.bin --iterations 20",
+                         "exit":  0,
+                         "wall_ms":  18
+                     },
+                     {
+                         "tag":  "rust-dpapi-unprotect",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "dpapi --op unprotect --in dpapi-ct-rust.bin --iterations 20",
+                         "exit":  0,
+                         "wall_ms":  17
+                     },
+                     {
+                         "tag":  "rust-cng-probe",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op probe",
+                         "exit":  0,
+                         "wall_ms":  30
+                     },
+                     {
+                         "tag":  "rust-cng-sw-create",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op create --provider software --name heimdall-m00-t04-x4-958f7d29-rust-sw --pub-out pub-rust-sw.bin",
+                         "exit":  0,
+                         "wall_ms":  16
+                     },
+                     {
+                         "tag":  "inv-after-rust-sw-create-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  21
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-rust-sw-create-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "rust-cng-sw-create-dup",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op create --provider software --name heimdall-m00-t04-x4-958f7d29-rust-sw",
+                         "exit":  1,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "rust-cng-sw-sign",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op sign --provider software --name heimdall-m00-t04-x4-958f7d29-rust-sw --iterations 20 --msg heimdall-m00-t04-x4-958f7d29-sign-marker --sig-out sig-rust-sw.bin",
+                         "exit":  0,
+                         "wall_ms":  17
+                     },
+                     {
+                         "tag":  "rust-cng-sw-verify-pub",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op verify-pub --pub-in pub-rust-sw.bin --sig-in sig-rust-sw.bin --msg heimdall-m00-t04-x4-958f7d29-sign-marker",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "rust-cng-sw-delete",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op delete --provider software --name heimdall-m00-t04-x4-958f7d29-rust-sw",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "inv-after-rust-sw-delete-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  21
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-rust-sw-delete-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  17
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "rust-cng-tpm-create",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op create --provider platform --name heimdall-m00-t04-x4-958f7d29-rust-tpm --pub-out pub-rust-tpm.bin",
+                         "exit":  0,
+                         "wall_ms":  103
+                     },
+                     {
+                         "tag":  "inv-after-rust-tpm-create-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  22
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-rust-tpm-create-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  18
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "rust-cng-tpm-create-dup",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op create --provider platform --name heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                         "exit":  1,
+                         "wall_ms":  18
+                     },
+                     {
+                         "tag":  "rust-cng-tpm-sign",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op sign --provider platform --name heimdall-m00-t04-x4-958f7d29-rust-tpm --iterations 20 --msg heimdall-m00-t04-x4-958f7d29-sign-marker --sig-out sig-rust-tpm.bin",
+                         "exit":  0,
+                         "wall_ms":  302
+                     },
+                     {
+                         "tag":  "rust-cng-tpm-verify-pub",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op verify-pub --pub-in pub-rust-tpm.bin --sig-in sig-rust-tpm.bin --msg heimdall-m00-t04-x4-958f7d29-sign-marker",
+                         "exit":  0,
+                         "wall_ms":  14
+                     },
+                     {
+                         "tag":  "rust-cng-tpm-delete",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op delete --provider platform --name heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                         "exit":  1,
+                         "wall_ms":  20
+                     },
+                     {
+                         "tag":  "inv-after-rust-tpm-delete-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  22
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-rust-tpm-delete-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  16
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "go-dpapi",
+                         "exe":  "x4-go.exe",
+                         "argv":  "dpapi",
+                         "exit":  0,
+                         "wall_ms":  99
+                     },
+                     {
+                         "tag":  "go-cng-probe",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op probe",
+                         "exit":  0,
+                         "wall_ms":  19
+                     },
+                     {
+                         "tag":  "go-cng-sw-create",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op create --provider software --name heimdall-m00-t04-x4-958f7d29-go-sw",
+                         "exit":  0,
+                         "wall_ms":  23
+                     },
+                     {
+                         "tag":  "inv-after-go-sw-create-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  22
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-go-sw-create-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  16
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "go-cng-sw-create-dup",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op create --provider software --name heimdall-m00-t04-x4-958f7d29-go-sw",
+                         "exit":  1,
+                         "wall_ms":  16
+                     },
+                     {
+                         "tag":  "go-cng-sw-sign",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op sign --provider software --name heimdall-m00-t04-x4-958f7d29-go-sw",
+                         "exit":  0,
+                         "wall_ms":  17
+                     },
+                     {
+                         "tag":  "go-cng-sw-delete",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op delete --provider software --name heimdall-m00-t04-x4-958f7d29-go-sw",
+                         "exit":  0,
+                         "wall_ms":  19
+                     },
+                     {
+                         "tag":  "inv-after-go-sw-delete-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  21
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-go-sw-delete-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "go-cng-tpm-create",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op create --provider platform --name heimdall-m00-t04-x4-958f7d29-go-tpm",
+                         "exit":  0,
+                         "wall_ms":  107
+                     },
+                     {
+                         "tag":  "inv-after-go-tpm-create-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  22
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-go-tpm-create-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  16
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "go-cng-tpm-create-dup",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op create --provider platform --name heimdall-m00-t04-x4-958f7d29-go-tpm",
+                         "exit":  1,
+                         "wall_ms":  18
+                     },
+                     {
+                         "tag":  "go-cng-tpm-sign",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op sign --provider platform --name heimdall-m00-t04-x4-958f7d29-go-tpm",
+                         "exit":  0,
+                         "wall_ms":  50
+                     },
+                     {
+                         "tag":  "go-cng-tpm-delete",
+                         "exe":  "x4-go.exe",
+                         "argv":  "cng --op delete --provider platform --name heimdall-m00-t04-x4-958f7d29-go-tpm",
+                         "exit":  1,
+                         "wall_ms":  23
+                     },
+                     {
+                         "tag":  "inv-after-go-tpm-delete-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  21
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-go-tpm-delete-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  21
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  15
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "sweep-platform-0",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op delete --provider platform --name heimdall-m00-t04-x4-958f7d29-go-tpm",
+                         "exit":  1,
+                         "wall_ms":  20
+                     },
+                     {
+                         "tag":  "sweep-platform-1",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op delete --provider platform --name heimdall-m00-t04-x4-958f7d29-rust-tpm",
+                         "exit":  1,
+                         "wall_ms":  17
+                     },
+                     {
+                         "tag":  "inv-after-sweep-software",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider software --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  18
+                     },
+                     {
+                         "tag":  "certutil-software",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Software Key Storage Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     },
+                     {
+                         "tag":  "inv-after-sweep-platform",
+                         "exe":  "x4-rust.exe",
+                         "argv":  "cng --op inventory --provider platform --prefix heimdall-m00-t04-x4-958f7d29-",
+                         "exit":  0,
+                         "wall_ms":  14
+                     },
+                     {
+                         "tag":  "certutil-platform",
+                         "exe":  "certutil.exe",
+                         "argv":  "-user -silent -csp \"Microsoft Platform Crypto Provider\" -key (output counted for the run prefix, not kept)",
+                         "exit":  0,
+                         "wall_ms":  null
+                     }
+                 ],
+    "counts":  {
+                   "info":  2,
+                   "pass":  27,
+                   "fail":  8,
+                   "blocked":  0
+               }
+}

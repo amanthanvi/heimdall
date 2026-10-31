@@ -1,0 +1,1 @@
+{"op":"cng-delete","provider":"software","key_name":"heimdall-m00-t04-x4-958f7d29-rust-sw","provider_open_us":1637,"deleted":true,"open_after_delete_is_bad_keyset":true,"ok":true}

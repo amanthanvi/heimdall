@@ -1,0 +1,1 @@
+{"op":"cng-create","provider":"platform","key_name":"heimdall-m00-t04-x4-958f7d29-rust-tpm","provider_open_us":2243,"ok":false,"error":"NCryptCreatePersistedKey","status_hex":"0x8009000F"}

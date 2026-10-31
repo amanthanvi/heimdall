@@ -1,0 +1,1 @@
+{"op":"cng-delete","provider":"platform","key_name":"heimdall-m00-t04-x4-3d2d51ca-rust-tpm","provider_open_us":2192,"delete_silent_status":"0x80090009","delete_flags0_status":"0x00000000","deleted":true,"open_after_delete_is_bad_keyset":true,"ok":true}

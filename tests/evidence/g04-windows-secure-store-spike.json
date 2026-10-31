@@ -1,0 +1,183 @@
+{
+  "case_id": "G04-windows-secure-store-spike",
+  "status": "verified",
+  "requirement_ids": [
+    "R-CR-03",
+    "R-CR-04"
+  ],
+  "build_commit": "8b62719cc016cd7bc18552edd480d573138c7319 (HEAD when the run started; committed 2026-10-31T22:44:15Z, before the run). The spike source it adapts, tests/evidence/artifacts/g02-r4/x4/windows/, is committed and unmodified against HEAD. The adapted Rust source, runner and scripts that ran are new and uncommitted; exact copies are in tests/evidence/artifacts/g02-r4/x4/windows-stores-run/{rust,scripts}/",
+  "artifact_digest": "sha256:52ebcf30abfc502eaf81911db6a54f160395a93d7e3f70ccbd7d08e19491f80d (x4-rust.exe, adapted, attempt 3; rebuilt from rust/src/ to the same hash); sha256:8da7cc73cf009b99f21f6436c0f1ef348544123594aeb10e0426a43b9500a3ce (x4-go.exe, unmodified Go spike); runner run-x4-stores.ps1 sha256:8ecc9dfb262837c40992f285f320a7d61fde3c228a95828c5dd587eb3aa41c44; attempts 1 and 2 used x4-rust.exe sha256:28cee3f5a478e47b322c3e40bfd6f253028d4288f98feb7d74365c67bb10184e (reconstructed attempt-2 source rebuilds to this hash)",
+  "environment": {
+    "platform": "Windows",
+    "native_host": true,
+    "os": "Microsoft Windows 11 Pro, DisplayVersion 26H2, build 26300.9711, AMD64",
+    "powershell": "Windows PowerShell 5.1.26100.9711",
+    "elevated": false,
+    "tpm": "TPM 2.0, AMD firmware TPM (PCP_PLATFORM_TYPE: TPM-Version:2.0 -Level:0-Revision:1.59-VendorID:'AMD '-Firmware:393248.6), read without elevation through the Platform Crypto Provider",
+    "reach": "ssh into WSL2 on the owner's PC as the non-root user (ssh -F <hosts-dir>/<winhost>/ssh_config <winhost>); Windows through WSL interop (powershell.exe, cmd.exe and certutil.exe by full path)",
+    "build_host": "macOS (Darwin 27.0) arm64, cross-build in a scratch directory outside the repository",
+    "independent_verifier_host": "the same Mac, OpenSSL 4.1.0 (Homebrew)"
+  },
+  "provider_versions": [
+    {
+      "component": "Microsoft Software Key Storage Provider (CNG, current-user keys)",
+      "version": "in-box, Windows 11 26300.9711; provider Impl Type 0x22 (SOFTWARE | VIRTUAL_ISOLATION flags)"
+    },
+    {
+      "component": "Microsoft Platform Crypto Provider (CNG, TPM 2.0)",
+      "version": "in-box, Windows 11 26300.9711; provider Impl Type 0x1 (HARDWARE)"
+    },
+    {
+      "component": "DPAPI CryptProtectData/CryptUnprotectData (CurrentUser, CRYPTPROTECT_UI_FORBIDDEN)",
+      "version": "in-box, Windows 11 26300.9711"
+    },
+    {
+      "component": "certutil.exe (inventory cross-check)",
+      "version": "in-box, Windows 11 26300.9711"
+    },
+    {
+      "component": "Rust spike toolchain",
+      "version": "rustc 1.99.1, cargo 1.99.1, target x86_64-pc-windows-gnu (already installed), cargo-zigbuild 0.23.4 (installed into scratch), zig 0.17.0; windows-sys =0.61.2, windows-link 0.2.1"
+    },
+    {
+      "component": "Go spike toolchain",
+      "version": "go 1.27.3, CGO_ENABLED=0 windows/amd64; golang.org/x/sys v0.46.0, github.com/Microsoft/go-winio v0.6.2 (go.sum-pinned, downloaded into a scratch GOMODCACHE)"
+    },
+    {
+      "component": "OpenSSL (independent signature verification)",
+      "version": "OpenSSL 4.1.0 23 Oct 2026"
+    }
+  ],
+  "started_at": "2026-10-31T22:59:53Z (attempt 3, current evidence); earlier: attempt 1 2026-10-31T22:57:09Z (runner defect, no key created), attempt 2 2026-10-31T22:58:06Z (TPM delete flag defect), attempt-2 cleanup 2026-10-31T22:59:35Z, final inventory 2026-10-31T23:04:49Z",
+  "commands_or_harness": [
+    "Mac build (scratch only): cargo fetch --locked (exit 0); plain cargo build --target x86_64-pc-windows-gnu (exit 101, dlltool missing); cargo install --locked cargo-zigbuild --version 0.23.4 --root <scratch>/tools (exit 0); cargo clippy --locked --target x86_64-pc-windows-gnu -- -D warnings (exit 0); build-stores.sh with GOPROXY=off (exit 1: Go module lookup disabled, the shared module cache holds no download zips); scripts/build-stores.sh as saved (exit 0, logs/build-attempt2.log); after the attempt-3 change (exit 0, logs/build-attempt3.log); reproduction rebuilds of the attempt-2 and attempt-3 sources (exit 0 each, hashes equal the binaries that ran)",
+    "Transfer: scp to the WSL scratch, sha256sum -c (OK); scripts/wsl-driver.sh stage (exit 0; copies into %LOCALAPPDATA%\\hm-m00\\M00-T04-x4-stores\\)",
+    "Preflight (read-only): x4-rust.exe cng --op probe; cng --op inventory --provider software|platform --prefix heimdall-; certutil -user -silent -csp <provider> -key, counting only lines containing 'heimdall' (exit 0 each; logs/preflight.txt)",
+    "Runs: scripts/wsl-driver.sh run -> powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <winscratch>\\run-x4-stores.ps1 -BinDir <winscratch>\\bin -OutDir <winscratch>\\out -Iterations 20. Attempt 1: runner exit 1 (runner defect). Attempt 2: runner exit 1 (pass 27, fail 8). Attempt 3: runner exit 1 (pass 32, fail 2: both are the unmodified Go spike's TPM delete)",
+    "Per language and provider, each step a separate process: create (Rust: --pub-out, export policy readback, private-export attempts); duplicate create; sign in a new process (Rust: --iterations 20 --msg <run marker> --sig-out); Rust verify-pub (BCryptImportKeyPair of the exported ECCPUBLICBLOB, new process); delete (reopen must give NTE_BAD_KEYSET). DPAPI: in-process round trip (both); Rust protect in process 1 and unprotect in process 2 (20 iterations each). Inventory (x4-rust.exe cng --op inventory plus a certutil prefix count) before, after each create and delete, and after; a final sweep deletes leftover run-prefix keys by exact name",
+    "Attempt-2 cleanup: x4-rust.exe (attempt-3 binary) cng --op delete --provider platform --name <exact name> for the two leftover TPM test keys (exit 0 each), then inventory and certutil (logs/cleanup-attempt2.txt)",
+    "Independent verification: tests/g02/.venv/bin/python -I scripts/verify_openssl.py <attempt out dir> <work dir> /opt/homebrew/bin/openssl -> openssl dgst -sha256 -verify per key, plus a tampered-signature control (exit 0 for attempt 3 and for attempt 2)",
+    "Final: read-only inventory and certutil counts (exit 0 each), wsl-driver.sh cleanup (exit 0), rm -rf of the WSL scratch (logs/final-inventory-and-remote-cleanup.txt)"
+  ],
+  "observed_result": {
+    "verdict": "pass",
+    "criterion": "For the selected language (Rust), a non-elevated Windows user can (a) create, persist, reopen in a new process, sign with, and delete an ECDSA P-256 key in the CNG Microsoft Software Key Storage Provider; (b) the same in the Microsoft Platform Crypto Provider (TPM), with the private key non-exportable; (c) DPAPI CurrentUser protect and unprotect across processes. Each signature verifies with the public key the spike exports. Signing latency is measured. The key-name inventory after the run equals the one before. Go is a secondary comparison row with its own verdict.",
+    "summary": "Attempt 3 (run id 3d2d51ca): every Rust check passed. Software KSP: create+finalize 1.8 ms; reopen in a new process 0.47 ms; sign median 114 us (n=20); export policy 0 read back in both processes; ECCPRIVATEBLOB and PKCS8 export refused with 0x80090029. TPM: create+finalize 85 ms; reopen 3.3 ms; sign median 12.5 ms (n=20); export policy 0; private export refused with 0x8009000A NTE_BAD_TYPE; provider Impl Type HARDWARE. Signatures verify with the exported ECCPUBLICBLOB through BCrypt in a separate process and through OpenSSL 4.1.0 on the Mac; tampered signatures and a wrong digest are rejected. Delete reopens as NTE_BAD_KEYSET. DPAPI CurrentUser works across processes: protect median 187 us, unprotect median 147 us. Go (unmodified) passed DPAPI in-process and Software KSP create/duplicate/sign-in-new-process/delete, and TPM create/duplicate/sign-in-new-process. Its TPM delete failed with 0x80090009 NTE_BAD_FLAGS because the spike passes NCRYPT_SILENT_FLAG; the runner sweep deleted that key by exact name with the Rust binary. The Rust spike had the same defect in attempt 2, which left two TPM test keys; the fix (dwFlags = 0 on NTE_BAD_FLAGS) was applied, the two keys were deleted by exact name, and attempt 3 ran cleanly. Inventory: software KSP 60 names (sha256 02c84226...) and PCP 2 names (sha256 4305099e...) before and after attempt 3, equal to the preflight and to the final check at 23:04:49Z; no key with the run prefix remains (spike enumeration and certutil).",
+    "rows": {
+      "rust.software_ksp": {
+        "status": "verified",
+        "verdict": "pass",
+        "observed": "create pass (pub ECS1, 72 B); export_policy_set_status 0x00000000, export_policy 0; private export ECCPRIVATEBLOB 0x80090029, PKCS8 0x80090029; listed by the spike enumeration and certutil (1 line); duplicate create 0x8009000F NTE_EXISTS; sign in a new process: 64-byte signature, handle verify ok, tampered signature rejected, export_policy 0 again, 20 timed signatures verify; verify-pub (BCrypt, public key only) ok, tampered and wrong-digest rejected; OpenSSL 'Verified OK', tampered 'Verification failure'; delete with NCRYPT_SILENT_FLAG 0x00000000, reopen NTE_BAD_KEYSET; absent from both listings afterwards",
+        "timings_us": {
+          "provider_open": "1554-1714",
+          "create_finalize": 1803,
+          "key_open_new_process": 467,
+          "sign_median": 114,
+          "sign_min": 111,
+          "sign_max": 135,
+          "sign_first": 124,
+          "sign_n": 20,
+          "bcrypt_verify_pub": 62
+        },
+        "attempt2_repeat": "same results; create 1773 us, open 452 us, sign median 114 us (111-118)"
+      },
+      "rust.platform_tpm": {
+        "status": "verified",
+        "verdict": "pass",
+        "observed": "create pass (pub ECS1, 72 B); export policy set 0x00000000, read back 0; private export ECCPRIVATEBLOB 0x8009000A, PKCS8 0x8009000A; provider Impl Type 1 (NCRYPT_IMPL_HARDWARE_FLAG); listed by both; duplicate 0x8009000F; sign in a new process: 64 B, handle verify ok, tamper rejected, 20 timed signatures; verify-pub ok; OpenSSL 'Verified OK', tampered 'Verification failure'; delete: NCRYPT_SILENT_FLAG -> 0x80090009 NTE_BAD_FLAGS, retry dwFlags = 0 -> 0x00000000, reopen NTE_BAD_KEYSET; absent from both listings afterwards",
+        "timings_us": {
+          "provider_open": "2021-2227",
+          "create_finalize": 85367,
+          "key_open_new_process": 3327,
+          "sign_median": 12485,
+          "sign_min": 11900,
+          "sign_max": 12900,
+          "sign_first": 12599,
+          "sign_n": 20,
+          "bcrypt_verify_pub": 64
+        },
+        "attempt2_repeat": "create, duplicate, sign, verify-pub and OpenSSL the same (create 84404 us, open 3206 us, sign median 12424 us, 11801-13655); delete failed with NTE_BAD_FLAGS (pre-fix spike), the key was removed by exact name at 22:59:35Z",
+        "criterion_note": "The delete step was fixed after attempt 2 was seen (retry with dwFlags = 0 on NTE_BAD_FLAGS). The criterion did not change. Both source versions are kept (rust/x4-windows-to-attempt2.patch, rust/attempt2-to-attempt3.patch)."
+      },
+      "rust.dpapi_current_user": {
+        "status": "verified",
+        "verdict": "pass",
+        "observed": "in-process: ciphertext 284 B, not containing the plaintext, round trip ok, wrong entropy rejected, tampered blob rejected; protect in process 1 (20x, ciphertext written to the work dir) then unprotect in process 2 (20x): round trip ok, wrong entropy and tamper rejected",
+        "timings_us": {
+          "protect_median": 187,
+          "protect_first": 824,
+          "unprotect_new_process_median": 147,
+          "unprotect_first": 790,
+          "n": 20
+        }
+      },
+      "go.software_ksp": {
+        "status": "verified",
+        "verdict": "pass",
+        "observed": "create pass (pub ECS1); listed by both; duplicate 0x8009000F; sign in a new process: 64 B, verify ok, tamper rejected; delete ok (silent flag), reopen NTE_BAD_KEYSET; absent afterwards. Not covered by the unmodified Go source: export policy readback, private-export attempt, public-key verification, timing (runner wall time of the sign process: 17 ms)"
+      },
+      "go.platform_tpm": {
+        "status": "verified",
+        "verdict": "fail",
+        "observed": "create pass; listed by both; duplicate 0x8009000F; sign in a new process: 64 B, verify ok, tamper rejected (runner wall time 52 ms); delete FAILED: NCryptDeleteKey 0x80090009 NTE_BAD_FLAGS; the key was then deleted by exact name by the runner sweep (x4-rust.exe, exit 0)",
+        "inference": "The failure is the spike's NCRYPT_SILENT_FLAG on NCryptDeleteKey, not a platform limit: the Rust spike failed the same way before the fix and passes with dwFlags = 0. A Go fix was not tested."
+      },
+      "go.dpapi_current_user": {
+        "status": "verified",
+        "verdict": "pass",
+        "observed": "in-process round trip ok, wrong entropy and tamper rejected (ciphertext 284 B). Cross-process not covered by the Go source"
+      },
+      "inventory": {
+        "status": "verified",
+        "verdict": "pass",
+        "observed": "attempt 3 before = after sweep: software KSP 60 names, sha256 02c84226f01ae9f6f8067ec11174ae105d54722bbe84ab51646c1bf264ef9718; PCP 2 names, sha256 4305099e2f5f0dd914bbfb761fa9cbb9ef148c05970d15e52b219a22573d353b; run-prefix count 0 and certutil run-prefix lines 0 for both. Each create raised the count by 1 and each successful delete restored the before hash. The same values appear in the preflight, attempts 1 and 2 (before), after the attempt-2 cleanup, and at the final check 23:04:49Z (0 names starting 'heimdall', certutil 0 lines)."
+      }
+    },
+    "earlier_attempts": {
+      "attempt1_20261031T225709Z": "runner exit 1: runner defect ($started overwrote $script:Started; PowerShell names are case-insensitive). Only one read-only inventory process ran (60 software names, hash 02c84226...). No key created.",
+      "attempt2_20261031T225806Z": "runner exit 1, pass 27, fail 8. All checks passed except TPM delete in both spikes (0x80090009). Two TPM test keys were left: ...-958f7d29-rust-tpm and ...-958f7d29-go-tpm. They were deleted by exact name at 22:59:35Z with the fixed Rust binary; the PCP inventory was restored (2 names, 4305099e...)."
+    },
+    "independent_verification": {
+      "tool": "OpenSSL 4.1.0 (openssl dgst -sha256 -verify) on the Mac; SPKI built from the exported ECCPUBLICBLOB; signature r||s converted to DER",
+      "attempt3": "software and TPM: Verified OK (exit 0); tampered signature: Verification failure (exit 1); SHA-256(message) equals the signed digest",
+      "attempt2": "same results",
+      "evidence": "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/logs/verify-openssl-attempt3.json, verify-openssl-attempt2.json"
+    },
+    "product_findings": [
+      "On the Platform Crypto Provider, NCryptDeleteKey must be called with dwFlags = 0: NCRYPT_SILENT_FLAG returns NTE_BAD_FLAGS there, while the Software KSP accepts it.",
+      "NCRYPT_IMPL_TYPE_PROPERTY is not supported on key handles in either provider (0x80090029); read it from the provider handle (software 0x22, platform 0x1).",
+      "TPM signing costs about 12.5 ms per ECDSA P-256 signature on this AMD fTPM, versus about 0.11 ms with the Software KSP; TPM key creation about 85 ms."
+    ],
+    "cleanup": {
+      "windows_keys": "every test key deleted by exact name (attempt 3: in-run deletes plus the sweep for Go's TPM key; attempt 2's two TPM leftovers at 22:59:35Z); the final inventory at 23:04:49Z equals the before inventory",
+      "windows_scratch": "%LOCALAPPDATA%\\hm-m00\\M00-T04-x4-stores\\ removed (windows_scratch_present=no); the parent holds another task's directory, left alone",
+      "wsl_scratch": "~/hm-m00/M00-T04-x4-stores/ removed (wsl_scratch_present=no)",
+      "mac_scratch": "~/.local/share/heimdall-m00/r4-scratch/M00-T04-x4-stores/ removed at 23:09Z (rm -rf exit 0); 394,260 KB just before deletion. Also removed, both created by this task's first zigbuild (birth time 22:47:37Z): ~/.cache/zig (61,708 KB) and ~/Library/Caches/cargo-zigbuild (16 KB)",
+      "disk": "r4-scratch 3.4 MB before and after; df -k / available 1,250,784,056 KB at 22:46:49Z, 1,249,780,612 KB before deletion, 1,250,232,060 KB at 23:09:24Z (the remaining difference includes other host activity)"
+    }
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/README.md",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/attempt3/out/results.json",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/attempt3/runner-console.txt",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/attempt2/out/results.json",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/attempt1/runner-console.txt",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/logs/",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/scripts/",
+    "tests/evidence/artifacts/g02-r4/x4/windows-stores-run/rust/",
+    "tests/evidence/artifacts/g02-r4/x4/windows/"
+  ],
+  "limitations": [
+    "One native host, one user, one current run (attempt 3), plus attempt 2 for repeat values. The TPM is an AMD firmware TPM (revision 1.59); discrete TPMs and Pluton are untested.",
+    "Lock, sign-out, sleep and reboot are out of scope (P-W1/P-W2: g04-windows-desktop-lock-probe.json and g04-windows-signout-reboot-probe.json stay blocked). No second account, so cross-user isolation of keys and DPAPI blobs is untested.",
+    "The private-export refusal has no positive control: no exportable key was created to show that the same call succeeds when export is allowed.",
+    "Software KSP non-exportability is a policy enforced by the provider. The key material stays in the user profile under the user's DPAPI protection, so same-user code with profile access is a residual risk [I, not tested]. That TPM key material never leaves the TPM in clear comes from vendor documentation, not from a test.",
+    "Go coverage is narrower (source unmodified): no export policy readback, no private-export attempt, no public-key verification, no in-process timing, no cross-process DPAPI. Its TPM delete fails on the NCRYPT_SILENT_FLAG defect; a Go fix was not tested.",
+    "The spike and the runner changed after results were seen: the attempt-1 runner variable fix, and the attempt-2 to 3 delete-flag and provider Impl Type changes. The criterion did not change. The diffs are kept.",
+    "The inventory compares the current user's key names only: count, SHA-256 of the sorted names, and run-prefix names. It does not compare other keys' properties or material, and it does not cover machine keys (none were created). The certutil cross-check counts run-prefix lines only.",
+    "Timings are single-run, warm, with 20 samples (std::time::Instant); process wall times include PowerShell Start-Process overhead. Not a benchmark.",
+    "A preflight log line was corrected: my first certutil preflight command echoed a hard-coded 'heimdall_lines=0' that was not measured. I removed those lines and re-ran the command with a measured count (0 and 0), which is what the log keeps.",
+    "The console screen was not observed. 'No prompt' rests on NCRYPT_SILENT_FLAG/CRYPTPROTECT_UI_FORBIDDEN plus short process times.",
+    "Self-review only; no independent review of this run."
+  ]
+}

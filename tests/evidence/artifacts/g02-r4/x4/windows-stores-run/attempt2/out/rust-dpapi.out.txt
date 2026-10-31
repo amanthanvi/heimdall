@@ -1,0 +1,1 @@
+{"op":"dpapi","scope":"current-user","ciphertext_len":284,"ciphertext_differs":true,"roundtrip_ok":true,"wrong_entropy_rejected":true,"tamper_rejected":true,"ok":true}
