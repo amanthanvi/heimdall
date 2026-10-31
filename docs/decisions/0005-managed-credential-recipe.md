@@ -9,8 +9,9 @@ ADR, storage/custody specification ... capability reports"). Nothing in it is im
   open (§14).
 - Round 2 (`…/review-adr-0005/round2/review.json`): R1, R2, R4, R5, R7 and R8 resolved; R3 and R6
   partly resolved; new major R9–R11 and minor R12.
-- Revision 3 applies the round-2 findings under the orchestrator's rulings. It has not been
-  re-reviewed.
+- Revision 3 applies the round-2 findings under the orchestrator's rulings.
+- Round 3 (`…/review-adr-0005/round3/review.json`): **accept**; R3, R6 and R9–R12 resolved, no
+  new blocker or major. Acceptance covers the design; the §9.3 tests are still to run.
 
 **Date:** 2026-10-31 (revision 3) · **Gate:** G04, with the credential parts of G07 and the
 preliminary G09 · **Task:** M00-T04-G04-adr
