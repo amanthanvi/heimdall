@@ -1,0 +1,25 @@
+[package]
+name = "heimdall-store"
+description = "Heimdall transactional local state: SQLite journal, idempotency, grants, tombstones, resource generations, events, time anchors (spec §13.3, P08)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }

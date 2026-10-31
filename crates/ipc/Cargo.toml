@@ -1,0 +1,32 @@
+[package]
+name = "heimdall-ipc"
+description = "Heimdall local IPC: owner-only Unix sockets / named pipes with peer checks, length-prefixed JSON framing, hello negotiation, bounded SSH-agent signing framer (spec §13.2; ADR-0006 §2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+ssh-agent-lib = { workspace = true }
+ssh-key = { workspace = true }
+ssh-encoding = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }

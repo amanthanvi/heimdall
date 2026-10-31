@@ -1,0 +1,650 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Envelope",
+  "description": "Every ordinary structured result. `T` is the per-primitive `data` payload; errors\nuse [`ErrorData`]. Field order is the spec example's order.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "description": "Stable semantic code.",
+      "$ref": "#/$defs/Code"
+    },
+    "data": {
+      "description": "Per-primitive payload; never contains private keys or reusable secrets.",
+      "$ref": "#/$defs/EnsureData"
+    },
+    "next": {
+      "description": "Machine next action, or `null` when nothing is expected of the caller.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NextAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "operation_id": {
+      "description": "Present for effectful or long-running work; absent for pure reads.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OperationId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "description": "Major schema version of this document.",
+      "$ref": "#/$defs/SchemaVersion"
+    },
+    "state": {
+      "description": "Operation state; synchronous reads report `succeeded` or `failed`.",
+      "$ref": "#/$defs/OperationState"
+    },
+    "warnings": {
+      "description": "Non-fatal findings.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Warning"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "state",
+    "code",
+    "data"
+  ],
+  "$defs": {
+    "BindingId": {
+      "description": "Work binding ID (spec §4.1 \"Work binding\").",
+      "type": "string"
+    },
+    "Code": {
+      "description": "The stable code table. Spec §11.6 lists the codes marked `spec`; the others are\nbaseline additions recorded in ADR-0006 §5 (primitives-draft Q3 is folded in).",
+      "oneOf": [
+        {
+          "description": "Synchronous read or control action completed.",
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "description": "`ensure`/`bind` produced usable access (spec §11.3 example). (spec)",
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "description": "Asynchronous request accepted; the payload reports a pending state\n(spec §11.6 \"asynchronous accepted/pending\").",
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "description": "Additional owner authority is required; operation is `awaiting_approval`. (spec)",
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "description": "A provider or terminal interaction is required that non-interactive mode\nrefuses to open (spec §11.3). (spec)",
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "description": "The provider will not sign while locked (spec §7.1). (spec)",
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "description": "The minimum requested capability cannot be met (spec §4.3). (spec)",
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "description": "The standing policy is paused (spec §6.1). (spec)",
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "description": "A policy cutoff is in effect; fresh identifiers do not bypass it (spec §6.1). (spec)",
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "description": "The applicable grant or credential has expired; renewal cannot extend it\n(spec §6.1). (spec)",
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "description": "Destination host identity changed; recovery must not accept it silently\n(spec §9.1). (spec)",
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "description": "A delegation request is broader or longer than its parent (spec §6.7;\nprimitives-draft Q3).",
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "description": "The operation was explicitly cancelled (spec §11.4).",
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "description": "Destination not reachable over any approved route. (spec)",
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "description": "Safe time cannot be established; issuance stopped (spec §6.4). (spec)",
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "description": "The SSH client or consumer is unsupported for the requested path (spec §10.3). (spec)",
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "description": "The per-user runtime cannot be reached or started (spec §13.1).",
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "description": "The local state store is unavailable, locked, corrupt, or newer than this\nbuild; unsafe operations stop and recovery is offered (spec §13.3, §15.2).",
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "description": "A bounded queue or buffer is full; retry with backoff or resync (spec §11.5).",
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "description": "Same idempotency key with different canonical parameters (spec §11.4). (spec)",
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "description": "Managed configuration conflicts with a newer user edit (spec §10.1). (spec)",
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "description": "The idempotency record for this key has aged out; the retry is not silently\ntreated as new (spec §11.4).",
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "description": "The event cursor is expired or foreign; take a snapshot and resume from its\ncursor boundary (spec §11.2, §11.5; primitives-draft Q3).",
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "description": "An external mutation may or may not have applied (spec §7.5, §11.4). (spec)",
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "description": "Invalid arguments or request body.",
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "description": "Unsupported schema major, protocol version, or required capability\n(spec §11.2).",
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "description": "The referenced operation, binding, grant, profile, or environment is unknown\nto this runtime (possibly purged by retention).",
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "description": "Unexpected internal failure; never used to hide a classified condition.",
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        }
+      ]
+    },
+    "ConsumerIntegration": {
+      "description": "How a consumer reaches the binding (no secrets).",
+      "type": "object",
+      "properties": {
+        "environment": {
+          "description": "Environment variables a launcher should set (names and values; never secrets).",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "signing_endpoint": {
+          "description": "Signing endpoint path or pipe name, if one is materialized.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ssh_config_include": {
+          "description": "Generated OpenSSH include path, if one is materialized.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DestinationScopeEnforcement": {
+      "description": "Destination-scope enforcement levels (spec §4.3), ordered weakest to strongest.",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Intent only; nothing enforces it.",
+          "type": "string",
+          "const": "unenforced_intent"
+        },
+        {
+          "description": "Client configuration routes to the destination.",
+          "type": "string",
+          "const": "client_routing"
+        },
+        {
+          "description": "Agent restriction authenticated to the destination (spec S03).",
+          "type": "string",
+          "const": "authenticated_agent_restriction"
+        },
+        {
+          "description": "Server-side principal mapping verified by test.",
+          "type": "string",
+          "const": "verified_server_principals"
+        },
+        {
+          "description": "A separately tested isolated execution boundary.",
+          "type": "string",
+          "const": "isolated_execution_boundary"
+        }
+      ]
+    },
+    "Enforcement": {
+      "description": "Structured guarantee report (spec §4.3, §11.3 `enforcement`). Every claim\nreferences evidence held by the runtime; `Unknown` is a valid value.",
+      "type": "object",
+      "properties": {
+        "destination_scope": {
+          "description": "Destination/account restriction mechanism.",
+          "$ref": "#/$defs/DestinationScopeEnforcement"
+        },
+        "existing_connections": {
+          "description": "Existing-connection policy.",
+          "$ref": "#/$defs/ExistingConnectionsPolicy"
+        },
+        "new_authentication_expiry": {
+          "description": "What stops new authentication at expiry.",
+          "$ref": "#/$defs/NewAuthenticationExpiry"
+        },
+        "revocation": {
+          "description": "Revocation propagation.",
+          "$ref": "#/$defs/RevocationStatus"
+        },
+        "workload_isolation": {
+          "description": "Isolation label.",
+          "$ref": "#/$defs/WorkloadIsolation"
+        }
+      },
+      "required": [
+        "destination_scope",
+        "new_authentication_expiry",
+        "workload_isolation",
+        "existing_connections",
+        "revocation"
+      ]
+    },
+    "EnsureData": {
+      "description": "`ensure`/`bind` success payload (spec §11.3 example, primitives-draft §4.2).",
+      "type": "object",
+      "properties": {
+        "binding_id": {
+          "description": "Binding produced or reused.",
+          "$ref": "#/$defs/BindingId"
+        },
+        "consumer": {
+          "description": "Consumer integration descriptor; contains endpoints and config references,\nnever secrets.",
+          "$ref": "#/$defs/ConsumerIntegration"
+        },
+        "credential_mechanism": {
+          "description": "Mechanism name (`managed_certificate`, `native_agent`, `external_signer`, ...).",
+          "type": "string"
+        },
+        "enforcement": {
+          "description": "Structured guarantees.",
+          "$ref": "#/$defs/Enforcement"
+        },
+        "environment_id": {
+          "description": "Environment the binding is pinned to.",
+          "$ref": "#/$defs/EnvironmentId"
+        },
+        "expires_at": {
+          "description": "Immutable grant deadline.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "grant_id": {
+          "description": "Grant realizing the binding.",
+          "$ref": "#/$defs/GrantId"
+        },
+        "offline_until": {
+          "description": "Usable with no controller/issuer contact until.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "profile_revision": {
+          "description": "Profile revision pinned at activation.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "refresh_dependency": {
+          "description": "What ongoing readiness depends on.",
+          "$ref": "#/$defs/RefreshDependency"
+        },
+        "usable_until": {
+          "description": "Credentials usable without refresh until.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "binding_id",
+        "environment_id",
+        "profile_revision",
+        "grant_id",
+        "expires_at",
+        "usable_until",
+        "offline_until",
+        "refresh_dependency",
+        "credential_mechanism",
+        "enforcement",
+        "consumer"
+      ]
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "ExistingConnectionsPolicy": {
+      "description": "Effect on existing connections at expiry (spec §6.6).",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Dedicated connections may stay; owned masters are closed.",
+          "type": "string",
+          "const": "graceful_dedicated_connections"
+        },
+        {
+          "description": "Owned connections are closed at expiry.",
+          "type": "string",
+          "const": "strict_disconnect"
+        }
+      ]
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "NewAuthenticationExpiry": {
+      "description": "What ends new authentication at expiry (spec §4.3 \"Expiry\").",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Only the local signer stops.",
+          "type": "string",
+          "const": "signer_only"
+        },
+        {
+          "description": "Certificate validity and the signer both stop.",
+          "type": "string",
+          "const": "credential_and_signer"
+        },
+        {
+          "description": "Nothing stops new authentication (existing fixed credentials).",
+          "type": "string",
+          "const": "none"
+        }
+      ]
+    },
+    "NextAction": {
+      "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "Stable action name; defaults come from [`Code::default_next_action`].",
+          "type": "string"
+        },
+        "binding_id": {
+          "description": "Binding to use.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "description": "Cursor to resume from after a resync.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision_ref": {
+          "description": "Nonsecret reference to a pending owner decision.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "description": "Operation to observe.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retry_after_ms": {
+          "description": "Suggested minimum delay before a retry.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "OperationState": {
+      "description": "Operation states (spec §11.4). A caller timeout is not a state change.",
+      "oneOf": [
+        {
+          "description": "Accepted and journaled; not yet running.",
+          "type": "string",
+          "const": "queued"
+        },
+        {
+          "description": "In progress.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Waiting for an owner or provider decision on an owner channel.",
+          "type": "string",
+          "const": "awaiting_approval"
+        },
+        {
+          "description": "Terminal: completed with a result.",
+          "type": "string",
+          "const": "succeeded"
+        },
+        {
+          "description": "Terminal: failed with a classified error.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Terminal: explicitly cancelled; the result says whether an irreversible or\nuncertain step may have occurred.",
+          "type": "string",
+          "const": "cancelled"
+        },
+        {
+          "description": "Terminal until reconciled: an external effect may or may not have applied.",
+          "type": "string",
+          "const": "outcome_unknown"
+        }
+      ]
+    },
+    "RefreshDependency": {
+      "description": "Dependency of continued readiness (spec §6.5).",
+      "oneOf": [
+        {
+          "description": "No refresh needed before `expires_at`.",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "Needs the local issuer.",
+          "type": "string",
+          "const": "local_issuer"
+        },
+        {
+          "description": "Needs the controller device.",
+          "type": "string",
+          "const": "controller"
+        },
+        {
+          "description": "Needs provider interaction.",
+          "type": "string",
+          "const": "provider_interaction"
+        }
+      ]
+    },
+    "RevocationStatus": {
+      "description": "Revocation propagation status (spec §4.3 \"Revocation\", §6.7).",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Applied locally.",
+          "type": "string",
+          "const": "local_applied"
+        },
+        {
+          "description": "Acknowledged remotely.",
+          "type": "string",
+          "const": "remote_acknowledged"
+        },
+        {
+          "description": "Remote effect pending.",
+          "type": "string",
+          "const": "remote_pending"
+        },
+        {
+          "description": "Bounded only by an already-issued credential's expiry.",
+          "type": "string",
+          "const": "bounded_by_credential_expiry"
+        }
+      ]
+    },
+    "SchemaVersion": {
+      "description": "A `schema_version` value as received from a peer.",
+      "type": "string"
+    },
+    "Warning": {
+      "description": "A non-fatal finding attached to a result.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable warning code (SCREAMING_SNAKE_CASE, not localized).",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human text; may change without breaking callers.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "WorkloadIsolation": {
+      "description": "Workload isolation label (spec §4.3 \"Isolation\"; R-SE-03).",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Shared OS-user environment; same-user convenience only.",
+          "type": "string",
+          "const": "shared_os_user"
+        },
+        {
+          "description": "Separately authenticated service boundary.",
+          "type": "string",
+          "const": "separate_service_boundary"
+        },
+        {
+          "description": "A specifically tested isolated workload.",
+          "type": "string",
+          "const": "tested_isolated_workload"
+        }
+      ]
+    }
+  }
+}

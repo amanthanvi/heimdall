@@ -1,0 +1,22 @@
+[package]
+name = "heimdall-contract"
+description = "Heimdall public wire contract: envelope, stable codes, exit codes, states, events, IPC messages, schemas (ADR-0006)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+jiff = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

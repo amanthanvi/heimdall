@@ -1,0 +1,29 @@
+[package]
+name = "heimdall-app"
+description = "Heimdall application operations: inspect/ensure/bind/delegate/observe/release/revoke orchestration, authorization checks, single-flight, reconciler core (plan §4.1, §4.2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+heimdall-store = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiff = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+getrandom = { workspace = true }
+base64ct = { workspace = true }
+
+[dev-dependencies]
+heimdall-testkit = { workspace = true }
+proptest = { workspace = true }

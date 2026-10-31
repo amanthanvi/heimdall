@@ -1,0 +1,1115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClientMessage",
+  "description": "Client to server frames.",
+  "oneOf": [
+    {
+      "description": "Hello (must be first).",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "hello"
+        }
+      },
+      "$ref": "#/$defs/ClientHello",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "A request; `seq` is unique per connection and echoed in the response.",
+      "type": "object",
+      "properties": {
+        "request": {
+          "description": "The request.",
+          "$ref": "#/$defs/Request"
+        },
+        "seq": {
+          "description": "Per-connection sequence number.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "request"
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "request"
+      ]
+    },
+    {
+      "description": "Subscribe to events; the server replies with a `Subscribed` response.",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "description": "Filter.",
+          "$ref": "#/$defs/EventFilter",
+          "default": {}
+        },
+        "from_cursor": {
+          "description": "Resume point; absent means \"from a fresh snapshot\".",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seq": {
+          "description": "Per-connection sequence number.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "subscribe"
+        }
+      },
+      "required": [
+        "type",
+        "seq"
+      ]
+    },
+    {
+      "description": "Stop a subscription.",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "description": "Per-connection sequence number.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "subscription": {
+          "description": "Subscription to stop.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "unsubscribe"
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "subscription"
+      ]
+    }
+  ],
+  "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "BindForm": {
+      "description": "`bind` forms (primitives-draft §4.3).",
+      "oneOf": [
+        {
+          "description": "Launch `argv` without a shell under the binding (spec §10.4). The runtime\nnever launches; the CLI does, after `ensure` returns the integration.",
+          "type": "object",
+          "properties": {
+            "argv": {
+              "description": "Argument vector, bounded by [`MAX_ARGV_BYTES`]. Non-UTF-8 arguments are\ncarried by the CLI process, not over IPC.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "form": {
+              "type": "string",
+              "const": "launch"
+            }
+          },
+          "required": [
+            "form",
+            "argv"
+          ]
+        },
+        {
+          "description": "Produce a bound consumer configuration for a consumer Heimdall cannot launch.",
+          "type": "object",
+          "properties": {
+            "form": {
+              "type": "string",
+              "const": "materialize"
+            }
+          },
+          "required": [
+            "form"
+          ]
+        }
+      ]
+    },
+    "BindRequest": {
+      "description": "`bind` request.",
+      "type": "object",
+      "properties": {
+        "binding_id": {
+          "description": "Binding to attach to.",
+          "$ref": "#/$defs/BindingId"
+        },
+        "form": {
+          "description": "Form.",
+          "$ref": "#/$defs/BindForm"
+        },
+        "request_id": {
+          "description": "Idempotency request ID.",
+          "$ref": "#/$defs/RequestId"
+        }
+      },
+      "required": [
+        "binding_id",
+        "form",
+        "request_id"
+      ]
+    },
+    "BindingId": {
+      "description": "Work binding ID (spec §4.1 \"Work binding\").",
+      "type": "string"
+    },
+    "CancelRequest": {
+      "description": "`cancel` request (spec §11.4: explicit, idempotent).",
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "description": "Operation to cancel.",
+          "$ref": "#/$defs/OperationId"
+        }
+      },
+      "required": [
+        "operation_id"
+      ]
+    },
+    "Capability": {
+      "description": "Credential capabilities a caller may request (spec §7.2).",
+      "oneOf": [
+        {
+          "description": "SSH user authentication.",
+          "type": "string",
+          "const": "ssh-authentication"
+        },
+        {
+          "description": "Git commit/tag signing (never implied by authentication; spec §7.2).",
+          "type": "string",
+          "const": "git-signing"
+        },
+        {
+          "description": "Agent forwarding (explicit, disabled by default; spec §8.5).",
+          "type": "string",
+          "const": "agent-forwarding"
+        }
+      ]
+    },
+    "ClientHello": {
+      "description": "First client frame.",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Capabilities the client understands.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "client": {
+          "description": "Client software.",
+          "$ref": "#/$defs/PeerInfo"
+        },
+        "protocol": {
+          "description": "Protocol version the client speaks.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "required": {
+          "description": "Capabilities the client requires; a missing one is rejected explicitly\n(spec §11.2 \"required capability must be rejected explicitly\").",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "schema_version": {
+          "description": "Schema major the client expects.",
+          "$ref": "#/$defs/SchemaVersion"
+        }
+      },
+      "required": [
+        "protocol",
+        "schema_version",
+        "client"
+      ]
+    },
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DeadlineIntent": {
+      "description": "Deadline intent as given by the caller, kept verbatim so that a retry of\n`--for 2h` hashes equal (spec §6.2, primitives-draft §5).",
+      "oneOf": [
+        {
+          "description": "RFC 3339 timestamp with explicit offset (machine requests must be unambiguous).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "absolute"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "description": "ISO 8601 / friendly duration string (`PT2H`, `2h`), converted once at creation.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "duration"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        }
+      ]
+    },
+    "DelegateRequest": {
+      "description": "`delegate` request (primitives-draft §4.4; spec §6.7, §8.7).",
+      "type": "object",
+      "properties": {
+        "parent_binding_id": {
+          "description": "Parent binding.",
+          "$ref": "#/$defs/BindingId"
+        },
+        "request_id": {
+          "description": "Idempotency request ID.",
+          "$ref": "#/$defs/RequestId"
+        },
+        "required_capabilities": {
+          "description": "Minimum enforcement the child requires.",
+          "$ref": "#/$defs/RequiredCapabilities",
+          "default": {}
+        },
+        "scope": {
+          "description": "Scope subset (must be within the parent).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          },
+          "uniqueItems": true
+        },
+        "until": {
+          "description": "Deadline intent (effective deadline must not exceed the parent's).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeadlineIntent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "work_id": {
+          "description": "Work ID of the child.",
+          "$ref": "#/$defs/WorkId"
+        }
+      },
+      "required": [
+        "parent_binding_id",
+        "scope",
+        "work_id",
+        "request_id"
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "DestinationScopeEnforcement": {
+      "description": "Destination-scope enforcement levels (spec §4.3), ordered weakest to strongest.",
+      "oneOf": [
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        },
+        {
+          "description": "Intent only; nothing enforces it.",
+          "type": "string",
+          "const": "unenforced_intent"
+        },
+        {
+          "description": "Client configuration routes to the destination.",
+          "type": "string",
+          "const": "client_routing"
+        },
+        {
+          "description": "Agent restriction authenticated to the destination (spec S03).",
+          "type": "string",
+          "const": "authenticated_agent_restriction"
+        },
+        {
+          "description": "Server-side principal mapping verified by test.",
+          "type": "string",
+          "const": "verified_server_principals"
+        },
+        {
+          "description": "A separately tested isolated execution boundary.",
+          "type": "string",
+          "const": "isolated_execution_boundary"
+        }
+      ]
+    },
+    "EnsurePreview": {
+      "description": "Preview parameters for `inspect --preview` (no side effects).",
+      "type": "object",
+      "properties": {
+        "environment": {
+          "description": "Environment, default the caller's.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile": {
+          "description": "Profile to resolve.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "required_capabilities": {
+          "description": "Minimum capabilities.",
+          "$ref": "#/$defs/RequiredCapabilities",
+          "default": {}
+        },
+        "until": {
+          "description": "Deadline intent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeadlineIntent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "profile"
+      ]
+    },
+    "EnsureRequest": {
+      "description": "`ensure` request (spec §11.3).",
+      "type": "object",
+      "properties": {
+        "environment": {
+          "description": "Environment, default the caller's own.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interaction": {
+          "description": "Interaction mode.",
+          "$ref": "#/$defs/InteractionMode",
+          "default": "non_interactive"
+        },
+        "profile": {
+          "description": "Profile, or a subset of it via `scope`.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "profile_revision": {
+          "description": "Explicit profile revision; default latest at creation (pinned afterwards).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "request_id": {
+          "description": "Idempotency request ID.",
+          "$ref": "#/$defs/RequestId"
+        },
+        "required_capabilities": {
+          "description": "Minimum capabilities.",
+          "$ref": "#/$defs/RequiredCapabilities",
+          "default": {}
+        },
+        "scope": {
+          "description": "Optional subset of the profile's destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          },
+          "uniqueItems": true
+        },
+        "until": {
+          "description": "Deadline intent; default the policy's saved window.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeadlineIntent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "wait": {
+          "description": "Wait mode.",
+          "$ref": "#/$defs/WaitMode",
+          "default": {
+            "mode": "sync",
+            "timeout_ms": 30000
+          }
+        },
+        "work_id": {
+          "description": "Work ID (spec §6.1).",
+          "$ref": "#/$defs/WorkId"
+        }
+      },
+      "required": [
+        "profile",
+        "work_id",
+        "request_id"
+      ]
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "EventFilter": {
+      "description": "Event filter for subscriptions and `observe --events`.",
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "description": "Restrict to one operation.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "types": {
+          "description": "Restrict to event types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventType"
+          }
+        }
+      }
+    },
+    "EventType": {
+      "description": "Event types emitted by the runtime (spec §13.6 audit coverage).",
+      "oneOf": [
+        {
+          "description": "An operation changed state.",
+          "type": "string",
+          "const": "operation_state_changed"
+        },
+        {
+          "description": "A grant changed state.",
+          "type": "string",
+          "const": "grant_state_changed"
+        },
+        {
+          "description": "A standing policy changed (revision, pause, cutoff).",
+          "type": "string",
+          "const": "policy_changed"
+        },
+        {
+          "description": "A managed resource changed desired/observed state or generation.",
+          "type": "string",
+          "const": "resource_changed"
+        },
+        {
+          "description": "A credential lifecycle event (issued, renewed, expired, revoked).",
+          "type": "string",
+          "const": "credential_lifecycle"
+        },
+        {
+          "description": "An owner decision was requested or recorded.",
+          "type": "string",
+          "const": "decision"
+        },
+        {
+          "description": "The subscriber fell behind a bounded buffer; take a snapshot and resume\n(spec §11.5 backpressure).",
+          "type": "string",
+          "const": "resync_required"
+        },
+        {
+          "description": "The runtime started or stopped (restart recovery boundary).",
+          "type": "string",
+          "const": "runtime_lifecycle"
+        }
+      ]
+    },
+    "GrantId": {
+      "description": "Grant ID (spec §4.1 \"Grant\").",
+      "type": "string"
+    },
+    "InspectRequest": {
+      "description": "`inspect` request (read-only; never contacts agents, network, or executable\nconfiguration; spec §10.2).",
+      "type": "object",
+      "properties": {
+        "preview": {
+          "description": "Dry-run authority preview: resolved snapshot plus authority delta.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnsurePreview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subject": {
+          "description": "What to inspect.",
+          "$ref": "#/$defs/InspectSubject"
+        }
+      },
+      "required": [
+        "subject"
+      ]
+    },
+    "InspectSubject": {
+      "description": "`inspect` subjects (primitives-draft §4.1).",
+      "oneOf": [
+        {
+          "description": "Capability and schema discovery (R-AP-08).",
+          "type": "string",
+          "const": "capabilities"
+        },
+        {
+          "description": "Known environments.",
+          "type": "string",
+          "const": "environments"
+        },
+        {
+          "description": "Profiles.",
+          "type": "string",
+          "const": "profiles"
+        },
+        {
+          "description": "Destinations.",
+          "type": "string",
+          "const": "destinations"
+        },
+        {
+          "description": "Bindings.",
+          "type": "string",
+          "const": "bindings"
+        },
+        {
+          "description": "Grants.",
+          "type": "string",
+          "const": "grants"
+        },
+        {
+          "description": "Operations.",
+          "type": "string",
+          "const": "operations"
+        },
+        {
+          "description": "Pending owner decisions.",
+          "type": "string",
+          "const": "decisions"
+        }
+      ]
+    },
+    "InteractionMode": {
+      "description": "Whether Heimdall may open prompts (spec §11.3; R-AP-06).",
+      "oneOf": [
+        {
+          "description": "Heimdall may present decisions on the owner channel.",
+          "type": "string",
+          "const": "interactive"
+        },
+        {
+          "description": "Heimdall opens no browser, dialog, or terminal prompt.",
+          "type": "string",
+          "const": "non_interactive"
+        }
+      ]
+    },
+    "ObserveRequest": {
+      "description": "`observe` request (primitives-draft §4.5).",
+      "oneOf": [
+        {
+          "description": "Get an operation, optionally waiting (timeout is not cancel).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "operation"
+            },
+            "operation_id": {
+              "description": "Operation ID.",
+              "$ref": "#/$defs/OperationId"
+            },
+            "wait_ms": {
+              "description": "Bounded wait for a terminal state.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "operation_id"
+          ]
+        },
+        {
+          "description": "Fetch events after a cursor (or a snapshot when no cursor is given).",
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "description": "Resume point.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Cursor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "filter": {
+              "description": "Filter.",
+              "$ref": "#/$defs/EventFilter",
+              "default": {}
+            },
+            "kind": {
+              "type": "string",
+              "const": "events"
+            },
+            "limit": {
+              "description": "Maximum events to return (bounded by the runtime).",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PeerInfo": {
+      "description": "Identifies the peer software; informational only, never authority (spec §4.2).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Program name (`heimdall-cli`, `heimdall-tui`, a third-party wrapper).",
+          "type": "string"
+        },
+        "version": {
+          "description": "Program version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ]
+    },
+    "PolicyAction": {
+      "description": "Owner-channel policy actions (primitives-draft §4.6; spec §6.1).",
+      "oneOf": [
+        {
+          "description": "Pause future automatic activation.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "pause"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Resume automatic activation.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "resume"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id"
+          ]
+        },
+        {
+          "description": "Schedule a hard cutoff (RFC 3339 with offset).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "cutoff"
+            },
+            "at": {
+              "description": "Instant after which no new work activates until cleared.",
+              "type": "string",
+              "format": "date-time"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id",
+            "at"
+          ]
+        },
+        {
+          "description": "Clear a cutoff deliberately.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "clear_cutoff"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id"
+          ]
+        }
+      ]
+    },
+    "PolicyId": {
+      "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
+      "type": "string"
+    },
+    "ProfileId": {
+      "description": "Profile name (spec §4.1 \"Profile\").",
+      "type": "string"
+    },
+    "ReleaseRequest": {
+      "description": "`release` request (drops this consumer's reference; primitives-draft §4.6).",
+      "type": "object",
+      "properties": {
+        "binding_id": {
+          "description": "Binding reference to release.",
+          "$ref": "#/$defs/BindingId"
+        }
+      },
+      "required": [
+        "binding_id"
+      ]
+    },
+    "Request": {
+      "description": "A request sent over the control endpoint. The variant is the operation kind.",
+      "oneOf": [
+        {
+          "description": "Read-only inspection.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "inspect"
+            }
+          },
+          "$ref": "#/$defs/InspectRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Idempotent access preparation.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "ensure"
+            }
+          },
+          "$ref": "#/$defs/EnsureRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Attach a running context.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "bind"
+            }
+          },
+          "$ref": "#/$defs/BindRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Narrower child binding.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "delegate"
+            }
+          },
+          "$ref": "#/$defs/DelegateRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Status, events, resumption.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "observe"
+            }
+          },
+          "$ref": "#/$defs/ObserveRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Explicit cancellation.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "cancel"
+            }
+          },
+          "$ref": "#/$defs/CancelRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Drop a consumer reference.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "release"
+            }
+          },
+          "$ref": "#/$defs/ReleaseRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Revoke a grant and descendants.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "revoke"
+            }
+          },
+          "$ref": "#/$defs/RevokeRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Owner-channel policy action.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "policy"
+            }
+          },
+          "$ref": "#/$defs/PolicyAction",
+          "required": [
+            "op"
+          ]
+        }
+      ]
+    },
+    "RequestId": {
+      "description": "Caller-chosen request ID; part of the idempotency key (spec §11.4).",
+      "type": "string"
+    },
+    "RequiredCapabilities": {
+      "description": "Minimum capability a non-interactive caller requires (spec §4.3); unmet\nminimums yield `CAPABILITY_UNAVAILABLE`, never silently weaker access.",
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "description": "Credential capabilities needed.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "uniqueItems": true
+        },
+        "destination_scope_at_least": {
+          "description": "Minimum destination-scope enforcement.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DestinationScopeEnforcement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "offline_until": {
+          "description": "Credentials must remain usable offline until this instant.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "RevokeRequest": {
+      "description": "`revoke` request (spec §6.7).",
+      "type": "object",
+      "properties": {
+        "grant_id": {
+          "description": "Grant to revoke; descendants cascade.",
+          "$ref": "#/$defs/GrantId"
+        },
+        "request_id": {
+          "description": "Idempotency request ID.",
+          "$ref": "#/$defs/RequestId"
+        }
+      },
+      "required": [
+        "grant_id",
+        "request_id"
+      ]
+    },
+    "SchemaVersion": {
+      "description": "A `schema_version` value as received from a peer.",
+      "type": "string"
+    },
+    "WaitMode": {
+      "description": "Delivery preference; not part of the idempotency hash (ADR-0006 §7).",
+      "oneOf": [
+        {
+          "description": "Wait up to `timeout_ms`; on timeout return the current state (timeout is\nnot cancellation).",
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "sync"
+            },
+            "timeout_ms": {
+              "description": "Bounded wait.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "mode",
+            "timeout_ms"
+          ]
+        },
+        {
+          "description": "Return `ACCEPTED` immediately with the operation to observe.",
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "async"
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        }
+      ]
+    },
+    "WorkId": {
+      "description": "Caller-chosen work ID; a continuing binding cannot reset its expiry by\nchanging it (spec §6.1).",
+      "type": "string"
+    }
+  }
+}

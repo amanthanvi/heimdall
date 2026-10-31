@@ -1,0 +1,117 @@
+# Heimdall production workspace (M01). See docs/architecture/overview.md for the
+# crate map and docs/architecture/dependencies.md for every dependency decision.
+#
+# Every third-party version is pinned exactly ("=x.y.z") and Cargo.lock is
+# committed; CI builds with --locked. Bumps are recorded decisions.
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/contract",
+    "crates/domain",
+    "crates/store",
+    "crates/app",
+    "crates/ipc",
+    "crates/runtime",
+    "crates/testkit",
+    "crates/heimdall",
+]
+
+[workspace.package]
+version = "0.1.0-m01"
+edition = "2024"
+rust-version = "1.99.1"
+# The project license is an explicit release decision (spec §15.3, ADR-0001 §8).
+# "UNLICENSED" is a placeholder, not a choice.
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# --- workspace crates -------------------------------------------------------
+heimdall-contract = { path = "crates/contract" }
+heimdall-domain = { path = "crates/domain" }
+heimdall-store = { path = "crates/store" }
+heimdall-app = { path = "crates/app" }
+heimdall-ipc = { path = "crates/ipc" }
+heimdall-runtime = { path = "crates/runtime" }
+heimdall-testkit = { path = "crates/testkit" }
+
+# --- serialization and schemas ---------------------------------------------
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154" }
+schemars = { version = "=1.2.3", features = ["derive", "jiff02"] }
+toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde", "std"] }
+
+# --- time ----------------------------------------------------------------------
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "serde", "tz-system", "tzdb-bundle-platform"] }
+
+# --- async runtime and I/O -----------------------------------------------------
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "io-util", "time", "sync", "macros", "signal"] }
+tokio-util = { version = "=0.7.20", default-features = false, features = ["codec"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["std", "sink"] }
+async-trait = { version = "=0.1.92" }
+
+# --- storage ---------------------------------------------------------------------
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
+
+# --- SSH protocol types (signing endpoint framing; keys/certs arrive in M03) -------
+ssh-agent-lib = { version = "=0.6.0", default-features = false }
+ssh-key = { version = "=0.6.7", default-features = false, features = ["std"] }
+ssh-encoding = { version = "=0.2.0", default-features = false, features = ["alloc"] }
+
+# --- hashing, randomness, encoding ------------------------------------------------
+sha2 = { version = "=0.10.9", default-features = false }
+getrandom = { version = "=0.4.3" }
+base64ct = { version = "=1.8.3", features = ["alloc"] }
+
+# --- errors and diagnostics -------------------------------------------------------
+thiserror = { version = "=2.0.21" }
+tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "std"] }
+
+# --- CLI and TUI --------------------------------------------------------------------
+clap = { version = "=4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "env"] }
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = { version = "=0.29.0" }
+
+# --- platform ------------------------------------------------------------------------
+etcetera = { version = "=0.11.0" }
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+# --- test only -------------------------------------------------------------------------
+proptest = { version = "=1.12.0" }
+tempfile = { version = "=3.27.0" }
+
+[workspace.lints.rust]
+# Platform boundaries that need FFI opt in per module with #[allow(unsafe_code)] and a
+# justification comment; the inventory is in docs/architecture/overview.md §9.
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+unimplemented = "warn"
+# The M01 skeleton marks every unit body with todo!("M01-Txx ..."); the implementing
+# unit removes it. Re-enable as "deny" when M01 closes.
+todo = "allow"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "unwind"

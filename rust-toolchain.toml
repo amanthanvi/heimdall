@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned per M01-T00. Bump only by a recorded decision (docs/architecture/dependencies.md).
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

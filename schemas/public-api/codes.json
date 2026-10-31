@@ -1,0 +1,229 @@
+{
+  "codes": [
+    {
+      "code": "OK",
+      "default_effect_status": "applied",
+      "default_next_action": "none",
+      "exit_code": 0,
+      "retryable": false,
+      "success": true
+    },
+    {
+      "code": "ACCESS_READY",
+      "default_effect_status": "applied",
+      "default_next_action": "use_binding",
+      "exit_code": 0,
+      "retryable": false,
+      "success": true
+    },
+    {
+      "code": "ACCEPTED",
+      "default_effect_status": "none",
+      "default_next_action": "observe",
+      "exit_code": 0,
+      "retryable": false,
+      "success": true
+    },
+    {
+      "code": "APPROVAL_REQUIRED",
+      "default_effect_status": "none",
+      "default_next_action": "observe",
+      "exit_code": 3,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "default_effect_status": "none",
+      "default_next_action": "interact",
+      "exit_code": 3,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "PROVIDER_LOCKED",
+      "default_effect_status": "none",
+      "default_next_action": "interact",
+      "exit_code": 3,
+      "retryable": true,
+      "success": false
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "default_effect_status": "none",
+      "default_next_action": "narrow_request",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "POLICY_PAUSED",
+      "default_effect_status": "none",
+      "default_next_action": "owner_decision",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "POLICY_CUTOFF",
+      "default_effect_status": "none",
+      "default_next_action": "owner_decision",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "default_effect_status": "none",
+      "default_next_action": "new_work",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "HOST_TRUST_CHANGED",
+      "default_effect_status": "none",
+      "default_next_action": "review_host_trust",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "DELEGATION_EXCEEDS_PARENT",
+      "default_effect_status": "none",
+      "default_next_action": "narrow_request",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "OPERATION_CANCELLED",
+      "default_effect_status": "partial",
+      "default_next_action": "none",
+      "exit_code": 4,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "default_effect_status": "none",
+      "default_next_action": "retry_after",
+      "exit_code": 5,
+      "retryable": true,
+      "success": false
+    },
+    {
+      "code": "TIME_UNCERTAIN",
+      "default_effect_status": "none",
+      "default_next_action": "retry_after",
+      "exit_code": 5,
+      "retryable": true,
+      "success": false
+    },
+    {
+      "code": "UNSUPPORTED_CLIENT",
+      "default_effect_status": "none",
+      "default_next_action": "change_client",
+      "exit_code": 5,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "default_effect_status": "none",
+      "default_next_action": "retry_after",
+      "exit_code": 5,
+      "retryable": true,
+      "success": false
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "default_effect_status": "none",
+      "default_next_action": "retry_after",
+      "exit_code": 5,
+      "retryable": true,
+      "success": false
+    },
+    {
+      "code": "BACKPRESSURE",
+      "default_effect_status": "none",
+      "default_next_action": "retry_after",
+      "exit_code": 5,
+      "retryable": true,
+      "success": false
+    },
+    {
+      "code": "REQUEST_CONFLICT",
+      "default_effect_status": "none",
+      "default_next_action": "new_request_id",
+      "exit_code": 6,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "default_effect_status": "none",
+      "default_next_action": "review_config",
+      "exit_code": 6,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "REQUEST_EXPIRED",
+      "default_effect_status": "none",
+      "default_next_action": "new_request_id",
+      "exit_code": 6,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "RESYNC_REQUIRED",
+      "default_effect_status": "none",
+      "default_next_action": "resync",
+      "exit_code": 6,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "OUTCOME_UNKNOWN",
+      "default_effect_status": "unknown",
+      "default_next_action": "reconcile",
+      "exit_code": 7,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "USAGE_ERROR",
+      "default_effect_status": "none",
+      "default_next_action": "fix_request",
+      "exit_code": 2,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "SCHEMA_UNSUPPORTED",
+      "default_effect_status": "none",
+      "default_next_action": "fix_request",
+      "exit_code": 2,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "NOT_FOUND",
+      "default_effect_status": "none",
+      "default_next_action": "fix_request",
+      "exit_code": 2,
+      "retryable": false,
+      "success": false
+    },
+    {
+      "code": "INTERNAL_ERROR",
+      "default_effect_status": "none",
+      "default_next_action": "report",
+      "exit_code": 1,
+      "retryable": false,
+      "success": false
+    }
+  ],
+  "schema_version": "1"
+}

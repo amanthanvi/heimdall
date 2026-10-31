@@ -1,0 +1,5 @@
+# Workspace clippy configuration (see docs/architecture/overview.md §10).
+# `OpError` carries a classified code, effect status, resource reference, next action
+# and message (~300 bytes); operation results are not a hot path, so the
+# result_large_err threshold is raised rather than boxing every error.
+large-error-threshold = 1024

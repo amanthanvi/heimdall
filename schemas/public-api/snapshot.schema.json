@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Snapshot",
+  "description": "A snapshot with the cursor boundary it is consistent with (spec §11.5).",
+  "type": "object",
+  "properties": {
+    "cursor": {
+      "description": "Events after this cursor are not reflected in `data`.",
+      "$ref": "#/$defs/Cursor"
+    },
+    "data": {
+      "description": "Snapshot contents."
+    },
+    "taken_at": {
+      "description": "Runtime time of the snapshot.",
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "data",
+    "cursor",
+    "taken_at"
+  ],
+  "$defs": {
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    }
+  }
+}

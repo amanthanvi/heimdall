@@ -1,0 +1,22 @@
+[package]
+name = "heimdall-testkit"
+description = "Heimdall test support: virtual clock, scripted fault hooks, fake credential adapter, proptest strategies, canary assertions (plan §6.1–§6.4). Dev-dependency only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+heimdall-store = { workspace = true }
+heimdall-app = { workspace = true }
+async-trait = { workspace = true }
+jiff = { workspace = true }
+proptest = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }

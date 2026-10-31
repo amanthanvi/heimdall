@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Event",
+  "description": "One event (spec §11.5 field list).",
+  "type": "object",
+  "properties": {
+    "cursor": {
+      "description": "Cursor positioned *after* this event.",
+      "$ref": "#/$defs/Cursor"
+    },
+    "environment_id": {
+      "description": "Environment the event belongs to; ordering is only claimed within one.",
+      "$ref": "#/$defs/EnvironmentId"
+    },
+    "event_id": {
+      "description": "Unique event ID for deduplication.",
+      "$ref": "#/$defs/EventId"
+    },
+    "operation_id": {
+      "description": "Related operation, if any.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OperationId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "payload": {
+      "description": "Redacted payload; never contains private material."
+    },
+    "resource": {
+      "description": "Related resource, if any.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResourceRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "description": "Major schema version.",
+      "$ref": "#/$defs/SchemaVersion"
+    },
+    "timestamp": {
+      "description": "Runtime time of the event (RFC 3339, explicit offset).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "type": {
+      "description": "Event type.",
+      "$ref": "#/$defs/EventType"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "type",
+    "environment_id",
+    "timestamp",
+    "cursor",
+    "payload"
+  ],
+  "$defs": {
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "EnvironmentId": {
+      "description": "Stable environment ID (spec §4.1 \"Environment\").",
+      "type": "string"
+    },
+    "EventId": {
+      "description": "Event ID; consumers deduplicate by it (spec §11.5).",
+      "type": "string"
+    },
+    "EventType": {
+      "description": "Event types emitted by the runtime (spec §13.6 audit coverage).",
+      "oneOf": [
+        {
+          "description": "An operation changed state.",
+          "type": "string",
+          "const": "operation_state_changed"
+        },
+        {
+          "description": "A grant changed state.",
+          "type": "string",
+          "const": "grant_state_changed"
+        },
+        {
+          "description": "A standing policy changed (revision, pause, cutoff).",
+          "type": "string",
+          "const": "policy_changed"
+        },
+        {
+          "description": "A managed resource changed desired/observed state or generation.",
+          "type": "string",
+          "const": "resource_changed"
+        },
+        {
+          "description": "A credential lifecycle event (issued, renewed, expired, revoked).",
+          "type": "string",
+          "const": "credential_lifecycle"
+        },
+        {
+          "description": "An owner decision was requested or recorded.",
+          "type": "string",
+          "const": "decision"
+        },
+        {
+          "description": "The subscriber fell behind a bounded buffer; take a snapshot and resume\n(spec §11.5 backpressure).",
+          "type": "string",
+          "const": "resync_required"
+        },
+        {
+          "description": "The runtime started or stopped (restart recovery boundary).",
+          "type": "string",
+          "const": "runtime_lifecycle"
+        }
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "ResourceRef": {
+      "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Opaque identifier, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "SchemaVersion": {
+      "description": "A `schema_version` value as received from a peer.",
+      "type": "string"
+    }
+  }
+}
