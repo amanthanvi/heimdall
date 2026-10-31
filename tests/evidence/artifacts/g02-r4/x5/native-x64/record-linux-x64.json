@@ -1,0 +1,58 @@
+{
+  "case_id": "G02-r5-x5-native-linux-x64",
+  "status": "verified",
+  "requirement_ids": [
+    "R-SS-07"
+  ],
+  "build_commit": "x5 sources as committed in f4e6a878 (unchanged at HEAD cfd97d23); Go binaries rebuilt in a sparse shared clone at 772a6b1 for VCS-stamp parity",
+  "artifact_digest": "x5-iroh ring-min linux-musl sha256 c8b8da35b7aced461ec431f917b3b253feae7c6e0bf62642742d765e9254ac8b; default 390f835057faeb96071c9c36b9f6139b7f2417da5f3e85549bb158e929071939; x5-gosup linux-amd64 2e3d4878e21b0be235724cc57aa047354593b173ab3e8984de2ac066b5caa120 (identical to X5)",
+  "environment": {
+    "host": "owner PC, WSL2 Ubuntu 24.04.5 LTS, x86_64, kernel 6.18.54.1-microsoft-standard-WSL2, NAT networking, AMD Ryzen 9 9900X",
+    "build_host": "darwin-arm64 (macOS 27.0), scratch outside the repository",
+    "timestamps": "output files completed (WSL clock, -04:00): strace 2026-10-31T16:26:28/16:26:29, linux runs 16:27:02 (ring-min) and 16:27:25 (default); exact start not recorded"
+  },
+  "provider_versions": [
+    "iroh 1.3.0",
+    "tokio 1.53.2",
+    "netwatch 0.19.3",
+    "netdev 0.45.1 (windows) / 0.46.3 (linux)",
+    "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "zig 0.16.0 (official ziglang.org build)",
+    "cargo-zigbuild 0.23.4",
+    "go 1.27.1",
+    "strace 6.8",
+    "lsof 4.95.0",
+    "iproute2 6.1.0"
+  ],
+  "started_at": null,
+  "commands_or_harness": [
+    "scripts/mac-run-rust-build.sh iroh-ring-min iroh-default",
+    "go-helper/build.sh (VCS replay)",
+    "scripts/linux-strace.sh {ring-min,default}",
+    "scripts/linux-runs.sh {ring-min,default}"
+  ],
+  "observed_result": {
+    "selftest": "14/14 exit 0 (ring-min and default; 3 timed, 3 held, 1 under strace each); wall 17-24 ms without hold",
+    "go_supervisor_two_helpers": "14/14 exit 0; ok:true, message intact, from_matches_sender:true, exit_a:0, exit_b:0; elapsed 11-13 ms without hold",
+    "supervisor_sigkill": "6/6: supervisor wait status 137, both helpers gone 2-4 ms after the kill",
+    "sockets_snapshot_exact_pid": "selftest: 2x UDP 127.0.0.1 + 2x NETLINK_ROUTE; helper: 1x UDP 127.0.0.1 + 1x NETLINK_ROUTE; supervisor: none; no TCP/UDP6/wildcard",
+    "sockets_lifetime_strace": "per endpoint: UDP bind 127.0.0.1:0 (all traffic 127.0.0.1<->127.0.0.1), 4 transient + 1 persistent NETLINK_ROUTE, and 1 transient UDP socket bound to the IPv4 wildcard and connect()ed to netdev's fixed probe address port 1 with no data sent (netdev get_local_ipaddr via netwatch netmon); no TCP, no listen, no IPv6",
+    "digests": "x5-gosup matches X5 bit-for-bit (all 4 targets); x5-iroh linux-musl 16 B smaller than X5 for all variants incl. no-iroh baseline (inferred: different zig 0.16.0 build); builds self-reproducible"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/README.md",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/runs/linux-ring-min.txt",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/runs/linux-default.txt",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/runs/strace-ring-min.txt",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/runs/strace-default.txt",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/builds/"
+  ],
+  "limitations": [
+    "WSL2 VM (Hyper-V, Microsoft kernel, NAT), native x86_64 but not bare metal",
+    "no packet capture; strace limited to network syscalls",
+    "helpers' exit codes after supervisor death not observable (reparented); disappearance timed",
+    "Rust digests differ from X5 (16 B, cause inferred)",
+    "small timing samples on a shared host"
+  ],
+  "blocked_on": null
+}

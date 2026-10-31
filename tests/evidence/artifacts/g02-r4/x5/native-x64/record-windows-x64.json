@@ -1,0 +1,49 @@
+{
+  "case_id": "G02-r5-x5-native-windows-x64",
+  "status": "blocked",
+  "requirement_ids": [
+    "R-SS-07"
+  ],
+  "build_commit": "x5 sources as committed in f4e6a878 (unchanged at HEAD cfd97d23); Go binaries rebuilt in a sparse shared clone at 772a6b1 for VCS-stamp parity",
+  "artifact_digest": "x5-iroh.exe ring-min sha256 278ef7d249a434eaca9a4dcb58fcf33744896fca04e586ef8425f05175720b30; default 76c4b11c8204b9adf667417d31f9037066c43cd78d8f51b8f22014c5b3f42cd1; none dd0bb5200736c2b31bd9a2460c32cc74f8b22fc5e1e5abe6ae33592285631906; x5-gosup.exe 84a77e8797d1d4d7368912eac56f06d23ae4188ccfeb969c0c077e5577736ddb (identical to X5)",
+  "environment": {
+    "host": "owner PC, Windows 11 Pro 10.0.26300 AMD64, non-admin (not elevated), reached via WSL interop powershell.exe 5.1",
+    "build_host": "darwin-arm64 (macOS 27.0)",
+    "timestamps": "output file completed 2026-10-31T16:31:05-04:00 (WSL clock); the subset takes about 1 min; exact start not recorded"
+  },
+  "provider_versions": [
+    "iroh 1.3.0",
+    "tokio 1.53.2",
+    "netwatch 0.19.3",
+    "netdev 0.45.1 (windows) / 0.46.3 (linux)",
+    "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "zig 0.16.0 (official ziglang.org build)",
+    "cargo-zigbuild 0.23.4",
+    "go 1.27.1",
+    "Windows PowerShell 5.1.26100.9711"
+  ],
+  "started_at": null,
+  "commands_or_harness": [
+    "scripts/windows-runs.ps1 (W1 load check, W3 supervisor + baseline helpers, W4 TerminateProcess of the supervisor)"
+  ],
+  "observed_result": {
+    "iroh_selftest": "not run (blocked)",
+    "iroh_go_supervisor": "not run (blocked)",
+    "iroh_supervisor_death": "not run (blocked)",
+    "W1_load_no_args": "x5-iroh.exe ring-min/default/none: 9/9 exit 64 (usage), 4-12 ms",
+    "W3_gosup_baseline_helpers": "3/3 supervisor exit 1 by design (ready timeout), exit_a:0 exit_b:0, helper processes exit 0",
+    "W4_terminateprocess_baseline_helpers": "3/3: supervisor exit -1, both helpers exited 2-4 ms later with exit 0",
+    "sockets": "0 rows for all 18 W3/W4 PIDs in Get-NetUDPEndpoint, Get-NetTCPConnection and netstat -ano; positive control returns rows system-wide"
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/README.md",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/runs/windows-subset.txt",
+    "tests/evidence/artifacts/g02-r4/x5/native-x64/runs/windows-socket-query-control.txt"
+  ],
+  "limitations": [
+    "no iroh endpoint was started on Windows",
+    "W3/W4 use the no-iroh baseline helper: lifecycle and stdio EOF only, not iroh shutdown",
+    "no Windows syscall/packet trace without admin; desktop prompts not observable remotely"
+  ],
+  "blocked_on": "owner decision: every x5-iroh endpoint makes netdev (0.45.1, 'gateway' feature via netwatch 0.19.3) bind a UDP socket to the IPv4 wildcard address and connect it (observed by strace on Linux; same call in netdev's Windows interface enumeration). The owner rule forbids running anything that binds a non-loopback address on Windows without the owner (possible Windows Defender Firewall prompt). Needs: owner present to observe/decline any prompt, or authorisation of a patched probe, or owner confirmation that this bind does not prompt"
+}

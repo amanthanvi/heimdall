@@ -1,0 +1,37 @@
+# Reproducibility checks (commands run on the Mac build host, 2026-10-31; outputs verbatim, paths redacted)
+
+## 1. windows-gnu: first build vs rebuild of iroh-ring-min, PE TimeDateStamp zeroed
+$ python3 -I repro.py pe out/bin/iroh-ring-min/x86_64-pc-windows-gnu/x5-iroh.exe out-rebuild/bin/iroh-ring-min/x86_64-pc-windows-gnu/x5-iroh.exe
+first   build TimeDateStamp=1793477857 sha256(TimeDateStamp zeroed)=cdd04c80614ba1b6225ed9c05e15121adbce5f3e7e0dbd226153031b9a635021
+rebuild build TimeDateStamp=1793478135 sha256(TimeDateStamp zeroed)=cdd04c80614ba1b6225ed9c05e15121adbce5f3e7e0dbd226153031b9a635021
+bytes differing after zeroing: 0 lengths 4336640 4336640
+exit=0
+
+## 2. linux-musl: ELF .comment section of the r5 builds (toolchain identification strings)
+$ python3 -I repro.py comment <the three linux-musl binaries>
+iroh-ring-min/x86_64-unknown-linux-musl/x5-iroh ['clang version 21.1.0', 'rustc version 1.99.0 (b940084d7 2026-09-28)', 'Linker: LLD 21.1.0']
+iroh-default/x86_64-unknown-linux-musl/x5-iroh ['clang version 21.1.0', 'rustc version 1.99.0 (b940084d7 2026-09-28)', 'Linker: LLD 21.1.0']
+none/x86_64-unknown-linux-musl/x5-iroh ['clang version 21.1.0', 'rustc version 1.99.0 (b940084d7 2026-09-28)', 'Linker: LLD 21.1.0']
+exit=0
+
+## 3. linux-musl ring-min first build vs rebuild (sha256)
+c8b8da35b7aced461ec431f917b3b253feae7c6e0bf62642742d765e9254ac8b  <scratch>/out/bin/iroh-ring-min/x86_64-unknown-linux-musl/x5-iroh
+c8b8da35b7aced461ec431f917b3b253feae7c6e0bf62642742d765e9254ac8b  <scratch>/out-rebuild/bin/iroh-ring-min/x86_64-unknown-linux-musl/x5-iroh
+exit=0
+
+## 4. Go: build info of the VCS-replay build vs the plain scratch build (windows-amd64)
+$ go version -m go-out-vcs/windows-amd64/x5-gosup.exe | grep -E "go1|vcs"
+x5-gosup.exe: go1.27.1
+	build	vcs=git
+	build	vcs.revision=772a6b1f54a979cd87950834c625deba101ee3b8
+	build	vcs.time=2026-10-06T05:47:11Z
+	build	vcs.modified=true
+$ go version -m go-out/windows-amd64/x5-gosup.exe | grep -E "go1|vcs"
+x5-gosup.exe: go1.27.1
+(no vcs lines: the scratch copy is not inside a git checkout)
+
+## 5. netdev features enabled in the X5 probe (cargo tree -e features -i netdev, depth-1 feature nodes)
+iroh-ring-min x86_64-pc-windows-gnu netdev@0.45.1: feature "android-extra" feature "apple-system-configuration-extra" feature "default" feature "gateway" 
+iroh-ring-min x86_64-unknown-linux-musl netdev@0.46.3: feature "android-extra" feature "apple-system-configuration-extra" feature "default" feature "gateway" 
+iroh-default x86_64-pc-windows-gnu netdev@0.45.1: feature "android-extra" feature "apple-system-configuration-extra" feature "default" feature "gateway" 
+iroh-default x86_64-unknown-linux-musl netdev@0.46.3: feature "android-extra" feature "apple-system-configuration-extra" feature "default" feature "gateway" 

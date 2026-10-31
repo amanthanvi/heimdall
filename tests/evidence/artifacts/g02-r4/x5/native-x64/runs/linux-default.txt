@@ -1,0 +1,136 @@
+## variant=default host_uname=Linux x86_64 kernel=6.18.54.1-microsoft-standard-WSL2 shell_pid=89718
+selftest run=1 exit=0 wall_ms=17 stdout={"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:46561","b_bound":"127.0.0.1:45135"}
+selftest run=2 exit=0 wall_ms=17 stdout={"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:42694","b_bound":"127.0.0.1:51602"}
+selftest run=3 exit=0 wall_ms=17 stdout={"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:55724","b_bound":"127.0.0.1:53117"}
+selftest-hold run=1 launched_pid=89747 identity_ok=yes
+  pid 89747 exe=x5-iroh ppid=89718
+    socket_fds=4
+    inode 342549: udp local=127.0.0.1:45844 remote=00000000:0000 st=07
+    inode 342557: udp local=127.0.0.1:37456 remote=00000000:0000 st=07
+    inode 342563: netlink proto=0 (0=NETLINK_ROUTE)
+    inode 342564: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:45844 
+      IPv4 UDP 127.0.0.1:37456 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:37456 <any4>:*
+      udp UNCONN 127.0.0.1:45844 <any4>:*
+selftest-hold run=1 exit=0 wall_ms=2518 stdout={"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:45844","b_bound":"127.0.0.1:37456"}
+selftest-hold run=2 launched_pid=89837 identity_ok=yes
+  pid 89837 exe=x5-iroh ppid=89718
+    socket_fds=4
+    inode 342649: udp local=127.0.0.1:37351 remote=00000000:0000 st=07
+    inode 342657: udp local=127.0.0.1:54419 remote=00000000:0000 st=07
+    inode 342663: netlink proto=0 (0=NETLINK_ROUTE)
+    inode 342664: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:37351 
+      IPv4 UDP 127.0.0.1:54419 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:37351 <any4>:*
+      udp UNCONN 127.0.0.1:54419 <any4>:*
+selftest-hold run=2 exit=0 wall_ms=2522 stdout={"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:37351","b_bound":"127.0.0.1:54419"}
+selftest-hold run=3 launched_pid=89927 identity_ok=yes
+  pid 89927 exe=x5-iroh ppid=89718
+    socket_fds=4
+    inode 339644: udp local=127.0.0.1:49024 remote=00000000:0000 st=07
+    inode 339652: udp local=127.0.0.1:38646 remote=00000000:0000 st=07
+    inode 339658: netlink proto=0 (0=NETLINK_ROUTE)
+    inode 339659: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:49024 
+      IPv4 UDP 127.0.0.1:38646 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:38646 <any4>:*
+      udp UNCONN 127.0.0.1:49024 <any4>:*
+selftest-hold run=3 exit=0 wall_ms=2521 stdout={"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:49024","b_bound":"127.0.0.1:38646"}
+gosup run=1 exit=0 wall_ms=16 stdout={"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:59332","b_addr":"127.0.0.1:57371","exit_a":0,"exit_b":0,"elapsed_ms":12}
+gosup run=2 exit=0 wall_ms=17 stdout={"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:49850","b_addr":"127.0.0.1:41736","exit_a":0,"exit_b":0,"elapsed_ms":13}
+gosup run=3 exit=0 wall_ms=16 stdout={"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:57677","b_addr":"127.0.0.1:53663","exit_a":0,"exit_b":0,"elapsed_ms":12}
+gosup-hold run=1 launched_pid=90068 reported=[90068 90075 90076]
+  identity_ok=yes
+  pid 90068 exe=x5-gosup ppid=89718
+    socket_fds=0
+    lsof -i (inet sockets of this pid):
+    ss -uatpn rows owned by this pid:
+  pid 90075 exe=x5-iroh ppid=90068
+    socket_fds=2
+    inode 343243: udp local=127.0.0.1:44775 remote=00000000:0000 st=07
+    inode 343251: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:44775 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:44775 <any4>:*
+  pid 90076 exe=x5-iroh ppid=90068
+    socket_fds=2
+    inode 345168: udp local=127.0.0.1:50371 remote=00000000:0000 st=07
+    inode 344481: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:50371 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:50371 <any4>:*
+gosup-hold run=1 exit=0 wall_ms=3018 stdout={"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:44775","b_addr":"127.0.0.1:50371","exit_a":0,"exit_b":0,"elapsed_ms":3014}
+gosup-hold run=2 launched_pid=90206 reported=[90206 90213 90214]
+  identity_ok=yes
+  pid 90206 exe=x5-gosup ppid=89718
+    socket_fds=0
+    lsof -i (inet sockets of this pid):
+    ss -uatpn rows owned by this pid:
+  pid 90213 exe=x5-iroh ppid=90206
+    socket_fds=2
+    inode 343426: udp local=127.0.0.1:39970 remote=00000000:0000 st=07
+    inode 343434: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:39970 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:39970 <any4>:*
+  pid 90214 exe=x5-iroh ppid=90206
+    socket_fds=2
+    inode 344518: udp local=127.0.0.1:48246 remote=00000000:0000 st=07
+    inode 344526: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:48246 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:48246 <any4>:*
+gosup-hold run=2 exit=0 wall_ms=3018 stdout={"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:39970","b_addr":"127.0.0.1:48246","exit_a":0,"exit_b":0,"elapsed_ms":3013}
+gosup-hold run=3 launched_pid=90344 reported=[90344 90351 90352]
+  identity_ok=yes
+  pid 90344 exe=x5-gosup ppid=89718
+    socket_fds=0
+    lsof -i (inet sockets of this pid):
+    ss -uatpn rows owned by this pid:
+  pid 90351 exe=x5-iroh ppid=90344
+    socket_fds=2
+    inode 343612: udp local=127.0.0.1:45206 remote=00000000:0000 st=07
+    inode 343620: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:45206 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:45206 <any4>:*
+  pid 90352 exe=x5-iroh ppid=90344
+    socket_fds=2
+    inode 345473: udp local=127.0.0.1:51545 remote=00000000:0000 st=07
+    inode 345481: netlink proto=0 (0=NETLINK_ROUTE)
+    lsof -i (inet sockets of this pid):
+      IPv4 UDP 127.0.0.1:51545 
+    ss -uatpn rows owned by this pid:
+      udp UNCONN 127.0.0.1:51545 <any4>:*
+gosup-hold run=3 exit=0 wall_ms=3031 stdout={"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:45206","b_addr":"127.0.0.1:51545","exit_a":0,"exit_b":0,"elapsed_ms":3021}
+sup-death run=1 supervisor_pid=90480 helper_pids=90487,90488 identity_ok=yes
+  supervisor_wait_status=137
+  helper_A_gone_after_ms=2 helper_B_gone_after_ms=3 (- = still alive after 10 s)
+  stderr (helpers share the supervisor's stderr file):
+    x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+    x5-gosup: holding 8s for socket inspection
+sup-death run=2 supervisor_pid=90518 helper_pids=90525,90526 identity_ok=yes
+  supervisor_wait_status=137
+  helper_A_gone_after_ms=3 helper_B_gone_after_ms=4 (- = still alive after 10 s)
+  stderr (helpers share the supervisor's stderr file):
+    x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+    x5-gosup: holding 8s for socket inspection
+sup-death run=3 supervisor_pid=90556 helper_pids=90563,90564 identity_ok=yes
+  supervisor_wait_status=137
+  helper_A_gone_after_ms=3 helper_B_gone_after_ms=4 (- = still alive after 10 s)
+  stderr (helpers share the supervisor's stderr file):
+    x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+    x5-gosup: holding 8s for socket inspection

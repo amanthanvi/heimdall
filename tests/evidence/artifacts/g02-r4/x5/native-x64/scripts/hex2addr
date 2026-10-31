@@ -1,0 +1,8 @@
+#!/bin/sh
+# hex2addr 0100007F:C040 -> 127.0.0.1:49216 (IPv4 only; IPv6 printed as hex)
+h=${1%%:*}; port=$((0x${1##*:}))
+if [ ${#h} -eq 8 ]; then
+  printf '%d.%d.%d.%d:%d\n' 0x$(echo $h|cut -c7-8) 0x$(echo $h|cut -c5-6) 0x$(echo $h|cut -c3-4) 0x$(echo $h|cut -c1-2) $port
+else
+  echo "[$h]:$port"
+fi

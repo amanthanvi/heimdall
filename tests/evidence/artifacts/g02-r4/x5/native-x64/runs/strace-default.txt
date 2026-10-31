@@ -1,0 +1,58 @@
+## strace selftest variant=default exit=0 trace_files=2
+stdout: {"mode":"selftest","ok":true,"bytes_sent":28,"bytes_recv":28,"from_matches_dialer":true,"a_bound":"127.0.0.1:54991","b_bound":"127.0.0.1:36786"}
+-- socket() calls (family type protocol: count)
+     2  AF_INET SOCK_DGRAM|SOCK_CLOEXEC IPPROTO_IP
+     2  AF_INET SOCK_DGRAM|SOCK_CLOEXEC IPPROTO_UDP
+    10  AF_NETLINK SOCK_DGRAM|SOCK_CLOEXEC NETLINK_ROUTE
+-- bind/connect/listen/accept calls, in file order (fd annotation shows type and address)
+  bind(6<UDP:[337090]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+  bind(7<NETLINK:[337092]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[337093]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[337094]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[337095]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<UDP:[337096]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("<any4>")}, 16) = 0
+  connect(7<UDP:[<any4>:49295]>, {sa_family=AF_INET, sin_port=htons(1), sin_addr=inet_addr("<netdev-probe4>")}, 16) = 0
+  bind(7<UDP:[337097]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+  bind(8<NETLINK:[337098]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(8<NETLINK:[337099]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(8<NETLINK:[337100]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(8<NETLINK:[337101]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(8<UDP:[337102]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("<any4>")}, 16) = 0
+  connect(8<UDP:[<any4>:54053]>, {sa_family=AF_INET, sin_port=htons(1), sin_addr=inet_addr("<netdev-probe4>")}, 16) = 0
+  bind(8<NETLINK:[337103]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=0x0405d0}, 12) = 0
+  bind(9<NETLINK:[337104]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=0x0405d0}, 12) = 0
+-- send*/recv* (syscall, fd kind, fd local IP, msg_name/destination IP: count)
+    14  recvfrom NETLINK - -
+     8  recvmmsg UDP 127.0.0.1 (no msg_name)
+    24  recvmmsg UDP 127.0.0.1 127.0.0.1
+    24  sendmsg UDP 127.0.0.1 127.0.0.1
+     8  sendto NETLINK - -
+## strace gosup variant=default exit=0 trace_files=13
+stdout: {"ok":true,"message":"heimdall x5 go-\u003erust-\u003eiroh-\u003erust-\u003ego","from_matches_sender":true,"a_addr":"127.0.0.1:36239","b_addr":"127.0.0.1:47156","exit_a":0,"exit_b":0,"elapsed_ms":136}
+-- socket() calls (family type protocol: count)
+     2  AF_INET SOCK_DGRAM|SOCK_CLOEXEC IPPROTO_IP
+     2  AF_INET SOCK_DGRAM|SOCK_CLOEXEC IPPROTO_UDP
+    10  AF_NETLINK SOCK_DGRAM|SOCK_CLOEXEC NETLINK_ROUTE
+-- bind/connect/listen/accept calls, in file order (fd annotation shows type and address)
+  bind(6<UDP:[332754]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+  bind(7<NETLINK:[336878]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[336879]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[336880]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[336881]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<UDP:[336882]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("<any4>")}, 16) = 0
+  connect(7<UDP:[<any4>:51090]>, {sa_family=AF_INET, sin_port=htons(1), sin_addr=inet_addr("<netdev-probe4>")}, 16) = 0
+  bind(7<NETLINK:[336883]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=0x0405d0}, 12) = 0
+  bind(6<UDP:[334698]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+  bind(7<NETLINK:[334700]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[334701]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[334702]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<NETLINK:[334703]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 0
+  bind(7<UDP:[334704]>, {sa_family=AF_INET, sin_port=htons(0), sin_addr=inet_addr("<any4>")}, 16) = 0
+  connect(7<UDP:[<any4>:35670]>, {sa_family=AF_INET, sin_port=htons(1), sin_addr=inet_addr("<netdev-probe4>")}, 16) = 0
+  bind(7<NETLINK:[332755]>, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=0x0405d0}, 12) = 0
+-- send*/recv* (syscall, fd kind, fd local IP, msg_name/destination IP: count)
+    14  recvfrom NETLINK - -
+     6  recvmmsg UDP 127.0.0.1 (no msg_name)
+    23  recvmmsg UDP 127.0.0.1 127.0.0.1
+    23  sendmsg UDP 127.0.0.1 127.0.0.1
+     8  sendto NETLINK - -

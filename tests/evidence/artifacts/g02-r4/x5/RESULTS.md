@@ -287,3 +287,40 @@ existing pin changed. The sizes are in `results/proto-plus/sizes.tsv`.
 - `record.json`: evidence record (plan.md §6.6 schema).
 - Binaries were not committed. Their SHA-256 values are in the TSVs, and the binaries remain
   in `/tmp/hm-r4/M00-T05-r4-x5/` until cleanup.
+
+## Native x64 runs (2026-10-31)
+
+Task `M00-T05-r5-x5`. Full report: `native-x64/README.md`. Records:
+`native-x64/record-linux-x64.json` (`verified`) and `native-x64/record-windows-x64.json`
+(`blocked`). The sections above are unchanged.
+
+- **Builds.** Rebuilt with the pinned rustc 1.99.0, zig 0.16.0 (official build),
+  cargo-zigbuild 0.23.4 and Go 1.27.1.
+  - `x5-gosup`, rebuilt at commit `772a6b1` for VCS-stamp parity, is bit-identical to the
+    digests in `results/go-build.tsv`.
+  - `x5-iroh` windows-gnu differs only in the PE link timestamp.
+  - `x5-iroh` linux-musl is 16 B smaller for every variant, the no-iroh baseline included.
+    *Inferred:* the zig 0.16.0 build differs from the one X5 used.
+- **linux-x64, native, WSL2 on Windows 11 x64: pass**, for both iroh-ring-min and
+  iroh-default:
+  - selftest 14/14 exit 0;
+  - Go supervisor with two helpers 14/14 exit 0;
+  - supervisor SIGKILL 6/6, with both helpers gone 2–4 ms later.
+  - A supervisor run takes 11–13 ms. Under Rosetta it took about 300 ms.
+- **Correction to §1 item 2 and §3: loopback-only holds for traffic, but each endpoint also
+  briefly binds a wildcard UDP socket.**
+  - strace of whole runs found that every endpoint also creates one transient UDP socket
+    bound to the IPv4 wildcard address. It is `connect()`ed to a fixed private address on
+    port 1, and no data is sent on it.
+  - The source is netdev's `get_local_ipaddr`, reached through netwatch's network monitor.
+    No relay, address-lookup, portmapper or net-report setting disables it.
+  - All traffic stayed `127.0.0.1` ↔ `127.0.0.1`.
+  - The second Linux socket per helper (§3, §7) is NETLINK_ROUTE.
+- **windows-x64: iroh checks `blocked`.** The same netdev call runs on Windows, and the owner's
+  rule forbids non-loopback binds there without the owner present (possible firewall prompt).
+  The checks need an owner decision; options are in the README.
+- **windows-x64: no-endpoint subset ran natively.**
+  - `x5-iroh.exe` loads and exits 64 (usage), 9/9.
+  - `x5-gosup.exe` with no-iroh baseline helpers: 3/3 clean shutdown with helper exit 0.
+  - TerminateProcess of the supervisor: 3/3, with the helpers exiting 0 within 2–4 ms.
+  - No socket was held by any of the probe PIDs.

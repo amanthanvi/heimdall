@@ -547,7 +547,7 @@ previously inferred:
 
 | Candidate | Path | Evidence (X5, loopback only, relays and discovery disabled) |
 |---|---|---|
-| Rust | Embed the `iroh` crate (1.3.0, MIT OR Apache-2.0), or run it as a supervised helper from the same codebase | Built for darwin-arm64, linux-x64/arm64 (musl, zig) and windows-x64 (gnu) with ring and with aws-lc: 12 of 12 builds exit 0, so the ring-under-zig risk is **closed for building**. On windows-x64 both crypto crates link prebuilt assembly objects shipped inside the crates. Ran on darwin and in a `--network none` linux-arm64 container; Windows built, not run; linux-x64 only under emulation. Embedding grows the prototype 6–8× (darwin 0.72 → 4.5 MB); iroh's own dependency tree is 225–250 crates per target (`x5/results/dep-census.tsv`), including C and assembly, in the same process as the security core |
+| Rust | Embed the `iroh` crate (1.3.0, MIT OR Apache-2.0), or run it as a supervised helper from the same codebase | Built for darwin-arm64, linux-x64/arm64 (musl, zig) and windows-x64 (gnu) with ring and with aws-lc: 12 of 12 builds exit 0, so the ring-under-zig risk is **closed for building**. On windows-x64 both crypto crates link prebuilt assembly objects shipped inside the crates. Ran on darwin and in a `--network none` linux-arm64 container, and (2026-10-31) natively on linux-x64 under WSL2: selftest 14/14, supervisor 14/14, supervisor-death 6/6, all traffic 127.0.0.1 to 127.0.0.1 (`x5/native-x64/`). A whole-run trace there found what X5's socket snapshots missed: each endpoint briefly opens a UDP socket bound to the IPv4 wildcard address to discover the local address (netdev, through netwatch; no packet sent), and none of the relay, discovery, portmapper or net-report settings disables it. Windows: built, not run, because that wildcard bind might raise a firewall prompt on the owner's PC (§10 Q-G). Embedding grows the prototype 6–8× (darwin 0.72 → 4.5 MB); iroh's own dependency tree is 225–250 crates per target (`x5/results/dep-census.tsv`), including C and assembly, in the same process as the security core |
 | Go | A supervised Rust helper. A 226-line stdlib-only Go supervisor drove two Rust helpers over framed stdio; both exited within 1.5 s of the supervisor's SIGKILL | Two binaries from two toolchains: darwin 5.2 MB + 3.6 MB against Rust's 4.5 MB single file (similar ratios on the other targets; X5's claim that a real helper makes the gap "at least" this large is an inference). The community `iroh-go` binding is experimental, Linux-only and needs cgo; the only pure-Go port is young and carries about 51k lines of forked TLS and QUIC (X5 §5; not adoptable) |
 | TS | npm `@number0/iroh` (napi) | unchanged from round 3: no darwin-x64 build; extracts a native library to TMPDIR under `bun --compile` |
 
@@ -676,8 +676,13 @@ Questions that change the recommendation's strength, in order of effect:
   to build darwin binaries on Linux without the SDK no longer matters, and
   neither does Rust's need for the SDK.
 
+- **Q-G. Iroh on Windows.** Running the Iroh probes natively on your PC
+  needs one of: you present to decline any firewall prompt, a probe patched to
+  avoid the wildcard bind (§8), or your confirmation that such a bind does not
+  prompt there. Not needed for D1; it informs Q-A and G06.
+
 **Default path.** If you accept Q-C and Q-D, keep Iroh in V1 (Q-A) and let
-the D3 rulings stand, the recommendation is Rust + Ratatui; Q-B, Q-E and Q-F
+the D3 rulings stand, the recommendation is Rust + Ratatui; Q-B, Q-E, Q-F and Q-G
 then only adjust M01 work. Q-C and Q-D come first, because they decide
 whether D1 can be taken now.
 

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Mac-side wrappers used for every remote step (host alias and config path redacted).
+# r:   unset SSH_AUTH_SOCK; ssh -F <ssh_config> -o BatchMode=yes -o ConnectTimeout=15 <winhost> "$@"
+# rcp: unset SSH_AUTH_SOCK; scp -q -F <ssh_config> -o BatchMode=yes "$@"

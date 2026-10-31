@@ -1,0 +1,77 @@
+## windows caption=Microsoft Windows 11 Pro version=10.0.26300 build=26300 arch=AMD64 ps=5.1.26100.9711
+W1 load ring-min run=1 exit=64 wall_ms=9 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load ring-min run=2 exit=64 wall_ms=9 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load ring-min run=3 exit=64 wall_ms=9 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load default run=1 exit=64 wall_ms=12 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load default run=2 exit=64 wall_ms=8 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load default run=3 exit=64 wall_ms=8 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load none run=1 exit=64 wall_ms=5 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load none run=2 exit=64 wall_ms=4 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W1 load none run=3 exit=64 wall_ms=4 stderr=usage: x5-iroh selftest [--hold-ms N] | x5-iroh helper
+W3 gosup+none run=1 supervisor_pid=20864 name=x5-gosup children=42516:x5-iroh.exe:ppid=20864,25440:x5-iroh.exe:ppid=20864
+    pid 20864 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 20864 netstat -ano rows with this PID=0
+    pid 42516 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 42516 netstat -ano rows with this PID=0
+    pid 25440 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 25440 netstat -ano rows with this PID=0
+W3 gosup+none run=1 exit=1 wall_ms=15018 stdout={"ok":false,"message":"","from_matches_sender":false,"a_addr":"","b_addr":"","exit_a":0,"exit_b":0,"elapsed_ms":15009,"error":"A: timeout waiting for \"ready \""}
+  stderr: x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+  child 42516 exit=0
+  child 25440 exit=0
+W3 gosup+none run=2 supervisor_pid=48572 name=x5-gosup children=55108:x5-iroh.exe:ppid=48572,45392:x5-iroh.exe:ppid=48572
+    pid 48572 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 48572 netstat -ano rows with this PID=0
+    pid 55108 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 55108 netstat -ano rows with this PID=0
+    pid 45392 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 45392 netstat -ano rows with this PID=0
+W3 gosup+none run=2 exit=1 wall_ms=15019 stdout={"ok":false,"message":"","from_matches_sender":false,"a_addr":"","b_addr":"","exit_a":0,"exit_b":0,"elapsed_ms":15009,"error":"A: timeout waiting for \"ready \""}
+  stderr: x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+  child 55108 exit=0
+  child 45392 exit=0
+W3 gosup+none run=3 supervisor_pid=38240 name=x5-gosup children=18888:x5-iroh.exe:ppid=38240,41060:x5-iroh.exe:ppid=38240
+    pid 38240 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 38240 netstat -ano rows with this PID=0
+    pid 18888 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 18888 netstat -ano rows with this PID=0
+    pid 41060 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 41060 netstat -ano rows with this PID=0
+W3 gosup+none run=3 exit=1 wall_ms=15020 stdout={"ok":false,"message":"","from_matches_sender":false,"a_addr":"","b_addr":"","exit_a":0,"exit_b":0,"elapsed_ms":15012,"error":"A: timeout waiting for \"ready \""}
+  stderr: x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+  child 18888 exit=0
+  child 41060 exit=0
+W4 sup-death run=1 supervisor_pid=5024 helper_pids=37568,18372 identity_ok=True
+    pid 5024 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 5024 netstat -ano rows with this PID=0
+    pid 37568 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 37568 netstat -ano rows with this PID=0
+    pid 18372 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 18372 netstat -ano rows with this PID=0
+  supervisor TerminateProcess done; supervisor exit=-1
+  helper 37568 exited after_ms=4 exit=0
+  helper 18372 exited after_ms=4 exit=0
+  stderr: x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+W4 sup-death run=2 supervisor_pid=3388 helper_pids=58288,60956 identity_ok=True
+    pid 3388 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 3388 netstat -ano rows with this PID=0
+    pid 58288 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 58288 netstat -ano rows with this PID=0
+    pid 60956 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 60956 netstat -ano rows with this PID=0
+  supervisor TerminateProcess done; supervisor exit=-1
+  helper 58288 exited after_ms=2 exit=0
+  helper 60956 exited after_ms=3 exit=0
+  stderr: x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+W4 sup-death run=3 supervisor_pid=64732 helper_pids=31908,55240 identity_ok=True
+    pid 64732 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 64732 netstat -ano rows with this PID=0
+    pid 31908 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 31908 netstat -ano rows with this PID=0
+    pid 55240 Get-NetUDPEndpoint=0 Get-NetTCPConnection=0
+    pid 55240 netstat -ano rows with this PID=0
+  supervisor TerminateProcess done; supervisor exit=-1
+  helper 31908 exited after_ms=3 exit=0
+  helper 55240 exited after_ms=3 exit=0
+  stderr: x5-gosup: pid <pid>, helper A pid <pid>, helper B pid <pid>
+## done

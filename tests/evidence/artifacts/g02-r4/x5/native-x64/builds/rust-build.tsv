@@ -1,0 +1,9 @@
+build	variant	target	exit	seconds	bytes	sha256
+first	iroh-ring-min	x86_64-unknown-linux-musl	0	69	5633880	c8b8da35b7aced461ec431f917b3b253feae7c6e0bf62642742d765e9254ac8b
+first	iroh-ring-min	x86_64-pc-windows-gnu	0	52	4336640	278ef7d249a434eaca9a4dcb58fcf33744896fca04e586ef8425f05175720b30
+first	iroh-default	x86_64-unknown-linux-musl	0	59	6400864	390f835057faeb96071c9c36b9f6139b7f2417da5f3e85549bb158e929071939
+first	iroh-default	x86_64-pc-windows-gnu	0	47	5044736	76c4b11c8204b9adf667417d31f9037066c43cd78d8f51b8f22014c5b3f42cd1
+rebuild	iroh-ring-min	x86_64-unknown-linux-musl	0	56	5633880	c8b8da35b7aced461ec431f917b3b253feae7c6e0bf62642742d765e9254ac8b
+rebuild	iroh-ring-min	x86_64-pc-windows-gnu	0	42	4336640	b63771788a1f2a8fe10dd5523399afff79e31eb4b247d68d1a3a302674880906
+rebuild	none	x86_64-unknown-linux-musl	0	2	325736	b193f9b1783d4a05265cb14a70d54df93c285ef00f00ea692f42f5c2d9c30826
+rebuild	none	x86_64-pc-windows-gnu	0	2	327168	dd0bb5200736c2b31bd9a2460c32cc74f8b22fc5e1e5abe6ae33592285631906

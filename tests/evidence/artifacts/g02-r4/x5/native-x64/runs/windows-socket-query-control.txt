@@ -1,0 +1,9 @@
+# Positive control for the Windows socket queries used in windows-subset.txt (2026-10-31, after
+# the subset ran). Counts only, so no other process's addresses are written. Shows that
+# Get-NetUDPEndpoint, Get-NetTCPConnection and netstat -ano return rows for a non-admin user,
+# i.e. the zero counts for the probe PIDs are not an empty-query artefact.
+$ powershell.exe -NoProfile -NonInteractive -Command '"Get-NetUDPEndpoint total rows (all processes, count only)=" + @(Get-NetUDPEndpoint).Count; "Get-NetTCPConnection total rows (count only)=" + @(Get-NetTCPConnection).Count; "netstat -ano total lines=" + @(netstat -ano).Count'
+Get-NetUDPEndpoint total rows (all processes, count only)=118
+Get-NetTCPConnection total rows (count only)=468
+netstat -ano total lines=527
+rc=0
