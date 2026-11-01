@@ -56,6 +56,10 @@
 //!   created or re-armed, and is judged by the lower of that cap and this
 //!   supervisor's (`PendingRemoteRevocation::round_cap`), the same way restart
 //!   recovery judges it before any supervisor exists.
+//!   ⟨r2.16⟩ ADR-0006 §13.19 item 2: every revocation pass also processes the
+//!   recoverable cleanup intents (`heimdall_domain::revocation::CleanupIntent`) that
+//!   operations settled with an applied credential effect left behind
+//!   (`Operations::process_cleanup_intents`), whatever the operation's state.
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
@@ -548,12 +552,21 @@ impl Supervisor {
     /// ⟨r2.15⟩ ADR-0006 §13.18 item 3: the cap a record is judged by is its own
     /// stored cap, or `backoff.max_attempts` when lower
     /// (`PendingRemoteRevocation::round_cap`).
+    ///
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: each pass first processes every cleanup
+    /// intent on record (`Operations::process_cleanup_intents`), whatever the state of
+    /// the operation that wrote it, so an owed call is made, or an obligation the
+    /// intent re-arms is scheduled in this same pass. A failure to read them is
+    /// logged and does not fail the pass.
     pub async fn revocation_pass(&self) -> Result<RevocationReport, heimdall_app::OpError> {
         let mut report = RevocationReport::default();
         let Some((_, clock)) = self.state.clone() else {
             return Ok(report);
         };
         let mut ex = self.revocations.lock().await;
+        if let Err(e) = self.operations.process_cleanup_intents().await {
+            tracing::warn!(code = %e.code, "cleanup intents could not be processed");
+        }
         let pending = self.operations.pending_remote_revocations().await?;
         let now = clock.continuous();
         ex.due

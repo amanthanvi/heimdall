@@ -346,3 +346,49 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - task M01-evidence-250a029d, the final native evidence;
   - task M01-code-review-round7, a Codex review of 6230acf9..250a029d.
 - Also running, in the main checkout: M02-T00-design-fix (docs only).
+- M02 design revision 2 is committed as 8263ee6c (13 units, with U0b for the M01 integration points). The §12.2 rulings are now actually committed: 250a029d's message overstated that.
+  - ADR-0007 §12.4: QR1–QR6, P3, P4 and P6 accepted; P5 is a crate or FFI with pinning.
+  - New blocked owner input B10: Windows Developer Mode or one elevation, for the A22 Windows symlink row only.
+- Running:
+  - M02-T00-design-review-round2 (Codex, worktree);
+  - M01-evidence-250a029d;
+  - M01-code-review-round7.
+- Codex review round 7 at 250a029d (`review-m01-code/round7.md`): fix first.
+  - W01 (HIGH): a first-round claim identity collides after an explicit re-arm, so an old confirmation erases a newer pending obligation.
+  - W02 (HIGH): a durable late confirmation can lose its cleanup across a restart when the operation is already settled.
+  - Both reproduced against production libraries. The r1318 property does not exercise real transitions.
+  - Rulings, ADR-0006 §13.19: a never-reset claim_seq; the cleanup obligation or intent is written in the same transaction as the late effect, and recovery processes intents for settled operations; a real-transition property.
+  - Running: task M01-rulings-13-19.
+  - The M01 native evidence at 250a029d (still running) will be superseded. M01 exit waits on the W01/W02 fix, then fresh evidence and a round-8 check.
+- M02 design review round 2 (`review-m02-design/round2.md`): proceed after fixes.
+  - Resolved: D01, D07, D09. Partial: D02–D06, D08, D10.
+  - New: R01–R07 (major) and R08 (medium).
+  - Rulings in ADR-0007 §12.5, taking the fail-closed option at each choice:
+    - undetermined restores need a new decision;
+    - declarations are revalidated before launch;
+    - fallback identities on the no-interaction path are refused without the opt-in;
+    - --allow-config-commands is required whenever running against the real tree;
+    - new requests fail closed until their drivers land;
+    - recovery follows a state table, and the final unlink either has its assumption enforced or moves the file to quarantine.
+  - Running: task M02-T00-design-fix-2 (docs only), alongside M01-rulings-13-19 (code) and M01-evidence-250a029d (worktree).
+- Native evidence at 250a029d is committed as 5de6c82b.
+  - Test counts: macOS 716/0/2, Linux devbox 651/0/2, Windows 11 610/0/1. Every platform row is verified; blocked only on M04 and the second Windows account.
+  - It is superseded once the W01/W02 fix lands.
+- Removed 14 integrated T3 worktrees (about 5.7 GB). The 12 clean ones were removed normally. The 2 with uncommitted work were removed with --force, after verifying every file was identical to, or contained in, the committed versions.
+- M02 design revision 3 is committed as d96a9b1c.
+  - All §12.5 rulings are applied: a recovery state table, quarantine instead of unlink, fail-closed landing, typed LocalReceipt, per-kind approvals.
+  - My rulings in ADR-0007 §12.7: QR7–QR11 and P7–P9 accepted.
+- Running:
+  - M02-T00-design-review-round3 (Codex, worktree);
+  - M01-rulings-13-19, the W01/W02 fixer, editing the main checkout.
+- M02 design review round 3 (`review-m02-design/round3.md`): proceed after fixes.
+  - R01, R03–R06, R08 and QR3 resolved; R02 and R07 partial.
+  - New: S01–S03 and S05 (major), S04 (medium).
+  - My rulings, ADR-0007 §12.8:
+    - a total recovery function, where an unmatched case is a preserving conflict;
+    - content-checked discard;
+    - a deterministic Git lock is presumed foreign;
+    - honest reporting of config commands;
+    - rendered nonsecret target bytes durable in SetupIntent;
+    - atomic admission.
+  - Running: task M02-T00-design-fix-3 (docs only).

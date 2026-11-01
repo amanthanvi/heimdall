@@ -1,7 +1,7 @@
 //! Revocation tombstones and results (spec §6.7; R-AU-04; plan §6.3 property 3).
 
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{DestinationId, GrantId};
+use heimdall_contract::ids::{DestinationId, GrantId, OperationId};
 use serde::{Deserialize, Serialize};
 
 use crate::operation::AdapterIdentity;
@@ -103,6 +103,14 @@ pub struct Tombstone {
 ///   [`Self::round_cap`]: that cap, or the configured one when lower.
 /// * **Item 4.** `rearmed_effects` is keyed by (grant, adapter, effect token,
 ///   recorded state).
+///
+/// ⟨r2.16⟩ ADR-0006 §13.19 item 1: every claim is identified by
+/// [`Self::claim_seq`], which is persisted, increases with every claim and is never
+/// reset (an explicit revoke's re-arm resets `attempts` only). `claimed_at` is
+/// informational. A recorded effect stores the sequence current when it was recorded
+/// ([`RemoteObligation::effect_seq`]), and only a completion whose claim is still the
+/// current one and was made after it clears the obligation
+/// ([`RemoteObligation::cleared_by_claim`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingRemoteRevocation {
     /// The grant carrying the tombstone.
@@ -114,7 +122,8 @@ pub struct PendingRemoteRevocation {
     /// that called no adapter, because no responsible adapter was configured or
     /// every served obligation was capped, is not counted). ⟨r2.10⟩ The cap applies
     /// per obligation ([`RemoteObligation::attempts`]); this count drives the
-    /// supervisor's back-off and identifies a claim.
+    /// supervisor's back-off. ⟨r2.16⟩ It no longer identifies a claim: an explicit
+    /// revoke's re-arm restarts it ([`Self::claim_seq`] does, ADR-0006 §13.19 item 1).
     pub attempts: u32,
     /// When the last claimed round ran (or the record was created).
     pub last_attempt_at: Timestamp,
@@ -130,6 +139,8 @@ pub struct PendingRemoteRevocation {
     pub obligations: Vec<RemoteObligation>,
     /// ⟨r2.9⟩ The instant of a claimed round whose completion has not been recorded
     /// (ADR-0006 §13.12 item 1); `None` once it completed. Omitted when absent.
+    /// ⟨r2.16⟩ Informational: the claim is identified by [`Self::claim_seq`]
+    /// (ADR-0006 §13.19 item 1); this only tells whether one is still open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<Timestamp>,
     /// ⟨r2.14⟩ ADR-0006 §13.17 item 4: the credential effects that already re-armed
@@ -145,6 +156,16 @@ pub struct PendingRemoteRevocation {
     /// ([`Self::round_cap`]). Omitted when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cap: Option<u32>,
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: the sequence number of the record's latest
+    /// claim (`0` before the first). Every claim raises it; nothing resets it. A
+    /// claim's sequence comes from a store counter shared by every record
+    /// (`heimdall_store::Txn::next_remote_claim_seq`), so it is never assigned twice,
+    /// not even to a record created again for the same root after the previous one
+    /// was removed. Absent in a record written before the field existed, which is read
+    /// with a derived starting sequence ([`Self::migrate_claim_seq`]). Omitted when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_seq: Option<u64>,
 }
 
 /// ⟨r2.15⟩ ADR-0006 §13.18 item 3: the cap of rounds that a record written before
@@ -222,8 +243,20 @@ pub struct RemoteObligation {
     /// the record's current claim) clears the obligation
     /// ([`Self::cleared_by_round`]). An explicit revoke that restarts the record's
     /// count sets it to `0`. Absent when no effect was recorded; omitted then.
+    ///
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: superseded by [`Self::effect_seq`]. Read only
+    /// from a record written before it; [`PendingRemoteRevocation::migrate_claim_seq`]
+    /// turns it into an `effect_seq`, conservatively, and clears it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_round: Option<u32>,
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: the record's
+    /// [`PendingRemoteRevocation::claim_seq`] when a credential effect for this grant
+    /// was last left to this obligation (a cleanup that skipped because it was live,
+    /// or that re-armed or added it). Only a completion whose claim is still the
+    /// record's current one and has a greater sequence clears the obligation
+    /// ([`Self::cleared_by_claim`]). Absent when no effect was recorded; omitted then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_seq: Option<u64>,
 }
 
 impl PendingRemoteRevocation {
@@ -234,6 +267,37 @@ impl PendingRemoteRevocation {
     #[must_use]
     pub fn round_cap(&self, configured: u32) -> u32 {
         self.cap.unwrap_or(DEFAULT_ROUND_CAP).min(configured)
+    }
+
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: the sequence number of the record's latest
+    /// claim: [`Self::claim_seq`], or for a record written before it, the record's
+    /// claimed-round count (`attempts`), the starting sequence such a record is read
+    /// with.
+    #[must_use]
+    pub fn current_claim_seq(&self) -> u64 {
+        self.claim_seq.unwrap_or(u64::from(self.attempts))
+    }
+
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: read a record written before
+    /// [`Self::claim_seq`] existed in the current form, once, when it is loaded.
+    ///
+    /// * Its sequence starts at its claimed-round count ([`Self::current_claim_seq`]).
+    ///   A claim it carries came from a process that is gone, so no completion can
+    ///   name it, and every claim from now on gets a greater sequence.
+    /// * An effect it records ([`RemoteObligation::effect_round`]) becomes an
+    ///   [`RemoteObligation::effect_seq`] at that starting sequence: conservatively,
+    ///   as recorded at the latest claim, so only a claim made after this load clears
+    ///   it. The round is cleared.
+    ///
+    /// A record in the current form is unchanged.
+    pub fn migrate_claim_seq(&mut self) {
+        let seq = self.current_claim_seq();
+        self.claim_seq = Some(seq);
+        for o in &mut self.obligations {
+            if o.effect_round.take().is_some() && o.effect_seq.is_none() {
+                o.effect_seq = Some(seq);
+            }
+        }
     }
 
     /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: the attempts counted for `obligation`: its
@@ -267,6 +331,52 @@ impl PendingRemoteRevocation {
     }
 }
 
+/// ⟨r2.16⟩ ADR-0006 §13.19 item 2: a recoverable **cleanup intent**. A credential
+/// effect was applied (or may have been) for `grant` by the attempt of `operation`,
+/// and the transaction that settled the operation could not leave the revocation
+/// call to a covering obligation: the call must be made later (the immediate call
+/// for a grant no record covers, or a bounded call, §13.18 item 4), or the attempt
+/// may still be in flight, so an obligation that owns the call now could be cleared
+/// by a call made before the effect lands.
+///
+/// It is written in that settling transaction and persisted per (grant, operation)
+/// (`heimdall_store::Txn::{record_cleanup_intent, cleanup_intent,
+/// clear_cleanup_intent, cleanup_intents}`). Restart recovery and every supervisor
+/// pass process it, whatever the operation's state, and it is removed only once a
+/// call was made after the effect or a covering obligation owns the call. It names
+/// the effect itself (its adapter, token and recorded state), so it outlives the
+/// operation's receipts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupIntent {
+    /// The grant the effect was applied for.
+    pub grant: GrantId,
+    /// The operation whose attempt applied it (whose receipts record it).
+    pub operation: OperationId,
+    /// The adapter the attempt asked; `None` when no attempt is on record (the
+    /// grant's responsible adapters apply it). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<AdapterIdentity>,
+    /// The attempt's effect token (`PrepareRequest.effect_token`); empty when unknown.
+    /// Omitted when empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub effect_token: String,
+    /// `true` once a `Confirmed` receipt followed the attempt. Omitted when `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmed: bool,
+    /// The attempt had no answer yet when the intent was written (its last receipt
+    /// is `Attempted`): its preparation may still be in flight. While this process
+    /// still runs that preparation, only its own return path processes the intent.
+    /// Omitted when `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_flight: bool,
+    /// Identifies this write: assigned by the store from a counter that only
+    /// increases, so a processor removes the intent only if it is still the one it
+    /// processed.
+    pub version: u64,
+    /// When it was written.
+    pub recorded_at: Timestamp,
+}
+
 /// ⟨r2.9⟩ Why a remote obligation is still pending (ADR-0006 §13.12 item 2). Wire
 /// form snake_case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -279,19 +389,16 @@ pub enum RemotePendingReason {
 }
 
 impl RemoteObligation {
-    /// ⟨r2.15⟩ ADR-0006 §13.18 item 2: whether a confirmation from a round whose
-    /// claim counted `round` (the record's claimed-round count it set) clears this
-    /// obligation. With no effect recorded, any confirming round does. With one,
-    /// only a round claimed after it does. `None` stands for a round that is no
-    /// longer the record's current claim (an explicit revoke restarted the count
-    /// since), whose order against the effect is unknown: it clears only an
-    /// obligation with no effect recorded.
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1 (replaces the §13.18 item 2 round rule): whether
+    /// a confirmation from the completion of a claim clears this obligation.
+    /// `current` is that claim's [`PendingRemoteRevocation::claim_seq`] when it is
+    /// still the record's current claim, and `None` when it was superseded. Only a
+    /// current claim clears, and only one made after the obligation's recorded
+    /// effect ([`Self::effect_seq`]): a confirmation means "revoked as of the call".
+    /// A superseded completion never clears an obligation.
     #[must_use]
-    pub fn cleared_by_round(&self, round: Option<u32>) -> bool {
-        match self.effect_round {
-            None => true,
-            Some(effect) => round.is_some_and(|n| n > effect),
-        }
+    pub fn cleared_by_claim(&self, current: Option<u64>) -> bool {
+        current.is_some_and(|n| self.effect_seq.is_none_or(|effect| n > effect))
     }
 
     /// Whether a configured adapter with identity `configured` is responsible for
@@ -373,6 +480,7 @@ mod tests {
                 attempts: None,
                 stopped: false,
                 effect_round: None,
+                effect_seq: None,
             }],
             claimed_at: Some("2026-10-02T09:00:01Z".parse().unwrap()),
             ..r
@@ -405,6 +513,7 @@ mod tests {
             attempts: None,
             stopped: false,
             effect_round: None,
+            effect_seq: None,
         };
         let exact = o(id("fake_agent", "fixture-1"));
         assert!(exact.served_by(&id("fake_agent", "fixture-1")));
@@ -463,6 +572,7 @@ mod tests {
                     attempts: Some(0),
                     stopped: false,
                     effect_round: None,
+                    effect_seq: None,
                 },
                 RemoteObligation {
                     grant: g.clone(),
@@ -471,6 +581,7 @@ mod tests {
                     attempts: Some(3),
                     stopped: true,
                     effect_round: None,
+                    effect_seq: None,
                 },
             ],
             ..r
@@ -610,8 +721,10 @@ mod tests {
         assert_eq!(r.round_cap(2), 2, "the configured one when lower");
     }
 
-    /// ⟨r2.15⟩ ADR-0006 §13.18 item 2: with no effect recorded any confirming round
-    /// clears an obligation; with one, only a current round claimed after it.
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 2, ⟨r2.16⟩ as amended by §13.19 item 1 (claims
+    /// identified by their sequence, not their round count): with no effect recorded
+    /// any current confirming claim clears an obligation; with one, only a current
+    /// claim made after it. A superseded claim clears nothing.
     #[test]
     fn r1318_only_a_round_claimed_after_the_effect_clears_it() {
         let mut o = RemoteObligation {
@@ -624,25 +737,117 @@ mod tests {
             attempts: Some(2),
             stopped: false,
             effect_round: None,
+            effect_seq: None,
         };
-        assert!(o.cleared_by_round(Some(1)));
-        assert!(o.cleared_by_round(None), "nothing to order against");
-        o.effect_round = Some(2);
-        assert!(!o.cleared_by_round(Some(1)), "claimed before the effect");
+        assert!(o.cleared_by_claim(Some(1)));
         assert!(
-            !o.cleared_by_round(Some(2)),
+            !o.cleared_by_claim(None),
+            "a superseded claim clears nothing"
+        );
+        o.effect_seq = Some(2);
+        assert!(!o.cleared_by_claim(Some(1)), "claimed before the effect");
+        assert!(
+            !o.cleared_by_claim(Some(2)),
             "in flight when the effect landed"
         );
-        assert!(o.cleared_by_round(Some(3)), "claimed after it");
+        assert!(o.cleared_by_claim(Some(3)), "claimed after it");
         assert!(
-            !o.cleared_by_round(None),
+            !o.cleared_by_claim(None),
             "a superseded claim: order unknown"
         );
-        o.effect_round = Some(0);
-        assert!(
-            o.cleared_by_round(Some(1)),
-            "after an explicit revoke's restart"
+    }
+
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: a record written before claim sequences
+    /// existed is read with its claimed-round count as its sequence, and an effect it
+    /// recorded by round becomes an effect at that sequence (conservatively: only a
+    /// claim made from now on clears it). A record in the current form is unchanged;
+    /// the new fields round-trip and are omitted when absent.
+    #[test]
+    fn r1319_a_record_without_claim_seq_reads_with_a_derived_sequence() {
+        let g = GrantId::from_random_bytes([9; 16]);
+        let adapter = AdapterIdentity {
+            mechanism: "fake_agent".into(),
+            instance: "fixture-1".into(),
+        };
+        let old = serde_json::json!({
+            "root": g,
+            "grants": [g],
+            "attempts": 3,
+            "last_attempt_at": "2026-10-02T09:00:00Z",
+            "stopped": false,
+            "claimed_at": "2026-10-02T09:00:01Z",
+            "obligations": [
+                {"grant": g, "adapter": adapter, "attempts": 3, "effect_round": 1},
+                {"grant": g, "adapter": {"mechanism": "fake_other", "instance": "2"},
+                 "attempts": 3},
+            ],
+        });
+        let mut r: PendingRemoteRevocation = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(r.claim_seq, None);
+        assert_eq!(r.obligations[0].effect_seq, None);
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            old,
+            "omitted when absent"
         );
+        assert_eq!(r.current_claim_seq(), 3, "the derived starting sequence");
+        r.migrate_claim_seq();
+        assert_eq!(r.claim_seq, Some(3));
+        assert_eq!(r.obligations[0].effect_round, None, "the round is cleared");
+        assert_eq!(
+            r.obligations[0].effect_seq,
+            Some(3),
+            "conservatively at the latest claim"
+        );
+        assert_eq!(r.obligations[1].effect_seq, None, "no effect, none made up");
+        assert!(!r.obligations[0].cleared_by_claim(Some(3)));
+        assert!(r.obligations[0].cleared_by_claim(Some(4)));
+        let current = r.clone();
+        r.migrate_claim_seq();
+        assert_eq!(r, current, "a record in the current form is unchanged");
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["claim_seq"], 3);
+        assert_eq!(v["obligations"][0]["effect_seq"], 3);
+        assert!(v["obligations"][0].get("effect_round").is_none());
+        assert_eq!(
+            serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
+            r
+        );
+    }
+
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: a cleanup intent round-trips; its optional
+    /// parts are omitted when absent.
+    #[test]
+    fn r1319_a_cleanup_intent_round_trips() {
+        let intent = CleanupIntent {
+            grant: GrantId::from_random_bytes([10; 16]),
+            operation: OperationId::from_random_bytes([11; 16]),
+            adapter: None,
+            effect_token: String::new(),
+            confirmed: false,
+            in_flight: false,
+            version: 7,
+            recorded_at: "2026-10-02T09:00:00Z".parse().unwrap(),
+        };
+        let v = serde_json::to_value(&intent).unwrap();
+        for absent in ["adapter", "effect_token", "confirmed", "in_flight"] {
+            assert!(v.get(absent).is_none(), "{absent} omitted");
+        }
+        assert_eq!(serde_json::from_value::<CleanupIntent>(v).unwrap(), intent);
+        let full = CleanupIntent {
+            adapter: Some(AdapterIdentity {
+                mechanism: "fake_agent".into(),
+                instance: "fixture-1".into(),
+            }),
+            effect_token: "eff_01".into(),
+            confirmed: true,
+            in_flight: true,
+            ..intent
+        };
+        let v = serde_json::to_value(&full).unwrap();
+        assert_eq!(v["effect_token"], "eff_01");
+        assert_eq!(v["in_flight"], true);
+        assert_eq!(serde_json::from_value::<CleanupIntent>(v).unwrap(), full);
     }
 
     #[test]

@@ -38,7 +38,7 @@ use heimdall_domain::operation::{
 use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::{ProfileDefinition, ProfileSnapshot};
-use heimdall_domain::revocation::{PendingRemoteRevocation, Tombstone};
+use heimdall_domain::revocation::{CleanupIntent, PendingRemoteRevocation, Tombstone};
 use heimdall_domain::time::{AttendedTimeConfirmation, GrantAnchor, TimeAnchor};
 use rusqlite::OptionalExtension as _;
 
@@ -61,6 +61,19 @@ const META_GRANT_DEGRADED_PREFIX: &str = "grant_degraded:";
 /// ⟨r2.7⟩ A revocation whose remote part is still pending (ADR-0006 §13.10 item
 /// 3): `remote_revocation:<tombstoned root grant id>`, value the JSON record.
 const META_REMOTE_REVOCATION_PREFIX: &str = "remote_revocation:";
+/// ⟨r2.16⟩ The last claim sequence assigned to a remote-revocation round (ADR-0006
+/// §13.19 item 1): it only increases, and outlives every record (the key does not
+/// start with [`META_REMOTE_REVOCATION_PREFIX`]).
+const META_REMOTE_CLAIM_SEQ: &str = "remote_revocation_claim_seq";
+/// ⟨r2.16⟩ A recoverable cleanup intent (ADR-0006 §13.19 item 2):
+/// `cleanup_intent:<grant id>:<operation id>`, value the JSON intent.
+const META_CLEANUP_INTENT_PREFIX: &str = "cleanup_intent:";
+/// ⟨r2.16⟩ The last version assigned to a cleanup intent (only increases).
+const META_CLEANUP_INTENT_VERSION: &str = "cleanup_intent_version";
+
+fn cleanup_intent_key(grant: &GrantId, operation: &OperationId) -> String {
+    format!("{META_CLEANUP_INTENT_PREFIX}{grant}:{operation}")
+}
 
 /// The meta key of a grant's degradation reason.
 pub(crate) fn grant_degradation_key(grant: &GrantId) -> String {
@@ -1102,6 +1115,76 @@ impl Txn<'_> {
     /// Every pending remote revocation record, ordered by root ID.
     pub fn remote_revocations(&mut self) -> Result<Vec<PendingRemoteRevocation>> {
         self.meta_with_prefix(META_REMOTE_REVOCATION_PREFIX)?
+            .iter()
+            .map(|s| codec::parse_doc(s))
+            .collect()
+    }
+
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 1: the sequence of a new remote-revocation claim:
+    /// greater than every sequence assigned before, by any record (one removed since
+    /// included), and than `after` (the claiming record's latest, which a record
+    /// written before the counter existed derives from its round count). Recorded, so
+    /// no sequence is ever assigned twice, even to a record created again for the
+    /// same root.
+    pub fn next_remote_claim_seq(&mut self, after: u64) -> Result<u64> {
+        let last = match self.meta(META_REMOTE_CLAIM_SEQ)? {
+            Some(v) => v
+                .parse::<u64>()
+                .map_err(|_| codec::doc_error("the remote claim sequence is unreadable"))?,
+            None => 0,
+        };
+        let next = last
+            .max(after)
+            .checked_add(1)
+            .ok_or_else(|| codec::doc_error("the remote claim sequence overflowed"))?;
+        self.set_meta(META_REMOTE_CLAIM_SEQ, &next.to_string())?;
+        Ok(next)
+    }
+
+    /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: persist `intent` for its (grant, operation),
+    /// replacing an earlier one, with a fresh `version` (the previous greatest one
+    /// assigned plus one, whatever was removed since; `intent.version` is ignored).
+    /// Returns the stored intent.
+    pub fn record_cleanup_intent(&mut self, intent: &CleanupIntent) -> Result<CleanupIntent> {
+        let last = match self.meta(META_CLEANUP_INTENT_VERSION)? {
+            Some(v) => v
+                .parse::<u64>()
+                .map_err(|_| codec::doc_error("the cleanup intent version is unreadable"))?,
+            None => 0,
+        };
+        let stored = CleanupIntent {
+            version: last
+                .checked_add(1)
+                .ok_or_else(|| codec::doc_error("the cleanup intent version overflowed"))?,
+            ..intent.clone()
+        };
+        self.set_meta(META_CLEANUP_INTENT_VERSION, &stored.version.to_string())?;
+        self.set_meta(
+            &cleanup_intent_key(&stored.grant, &stored.operation),
+            &codec::doc(&stored)?,
+        )?;
+        Ok(stored)
+    }
+
+    /// ⟨r2.16⟩ The cleanup intent of (`grant`, `operation`), if any.
+    pub fn cleanup_intent(
+        &mut self,
+        grant: &GrantId,
+        operation: &OperationId,
+    ) -> Result<Option<CleanupIntent>> {
+        self.meta(&cleanup_intent_key(grant, operation))?
+            .map(|s| codec::parse_doc(&s))
+            .transpose()
+    }
+
+    /// ⟨r2.16⟩ Remove the cleanup intent of (`grant`, `operation`); idempotent.
+    pub fn clear_cleanup_intent(&mut self, grant: &GrantId, operation: &OperationId) -> Result<()> {
+        self.delete_meta(&cleanup_intent_key(grant, operation))
+    }
+
+    /// ⟨r2.16⟩ Every cleanup intent, ordered by grant ID, then operation ID.
+    pub fn cleanup_intents(&mut self) -> Result<Vec<CleanupIntent>> {
+        self.meta_with_prefix(META_CLEANUP_INTENT_PREFIX)?
             .iter()
             .map(|s| codec::parse_doc(s))
             .collect()

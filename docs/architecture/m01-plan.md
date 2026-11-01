@@ -532,6 +532,55 @@ integrator with an ADR-0006 revision.
     (three), r1318_the_default_round_cap_is_the_default_backoffs,
     r1318_props::r1318_cleanup_never_leaves_an_applied_effect_unowned_and_uncalled}`,
     `heimdall_domain-unit::revocation::tests::r1318_*` (three) (ADR-0006 §14.5 row).
+* **⟨r2.16⟩ ADR-0006 §13.19 items 1–3 (M01-rulings-13-19; code review round 7, W01
+  and W02).** **Additive** fields
+  `domain::revocation::PendingRemoteRevocation.claim_seq: Option<u64>` and
+  `RemoteObligation.effect_seq: Option<u64>` (serde default, omitted when absent;
+  struct literals need them; `RemoteObligation.effect_round` stays, read only from
+  older records); **new** `PendingRemoteRevocation::{current_claim_seq(&self) -> u64,
+  migrate_claim_seq(&mut self)}` and `RemoteObligation::cleared_by_claim(&self,
+  current: Option<u64>) -> bool`, which **replaces** the removed
+  `RemoteObligation::cleared_by_round`; **new** `domain::revocation::CleanupIntent {
+  grant, operation, adapter: Option<AdapterIdentity>, effect_token: String,
+  confirmed: bool, in_flight: bool, version: u64, recorded_at: Timestamp }`;
+  **additive** `store::Txn::{next_remote_claim_seq(&mut self, after: u64) ->
+  Result<u64>, record_cleanup_intent(&mut self, &CleanupIntent) ->
+  Result<CleanupIntent>, cleanup_intent(&mut self, &GrantId, &OperationId) ->
+  Result<Option<CleanupIntent>>, clear_cleanup_intent(&mut self, &GrantId,
+  &OperationId) -> Result<()>, cleanup_intents(&mut self) ->
+  Result<Vec<CleanupIntent>>}` (meta rows `remote_revocation_claim_seq`,
+  `cleanup_intent:<grant>:<operation>`, `cleanup_intent_version`: no migration,
+  `SCHEMA_VERSION` stays 4); **additive**
+  `app::operations::Operations::process_cleanup_intents(&self) -> Result<(), OpError>`.
+  `runtime::supervisor::Supervisor::revocation_pass` (signature unchanged) calls it
+  first in every pass.
+  * Item 1: every claim takes a new sequence from the store counter, which a
+    re-arm, a record's removal and its re-creation never reset. A completion is the
+    record's current claim only while the record carries an open claim with that
+    sequence. Only a current claim made after an obligation's recorded effect clears
+    it, and a superseded completion clears nothing. A record written before the
+    field reads with its round count as its sequence, and an `effect_round` it holds
+    becomes an `effect_seq` at that sequence (conservative).
+  * Item 2: the late `Confirmed` and `Uncertain` receipts, `Recheck` and `Commit`
+    refusals, and cancellation decide the cleanup in their own transaction (private
+    `settle_effect_in`). An obligation that owns the call is registered or re-armed
+    there. A call owed later (the immediate call for an uncovered grant, a bounded
+    call) is a cleanup intent written there. So is one while the attempt is still
+    unanswered (`Attempted` last), because a call made before the effect lands can
+    clear an owning obligation. An intent is processed right after the commit, when
+    the preparation returns, at restart and in every supervisor pass, whatever its
+    operation's state. While this process still runs the preparation, only that
+    preparation's return path processes the intent. The intent is removed only after
+    a call made after the effect, or when an obligation owns it.
+  * Item 3: `model_operations::r1319_props` drives the production operations and
+    supervisor with generated steps: claims, held and released answers, late effects,
+    re-arms, completions, cancellations, store faults (`BeforeCommit`,
+    `AfterCommit`), restarts and supervisor passes. It runs 1024 cases with a fixed
+    seed, and three shrunk regressions are committed.
+  * Tests `model_operations::r1319_*` (twelve), `heimdall_app-unit::operations::tests::r1319_*`
+    (three), `heimdall_domain-unit::revocation::tests::r1319_*` (two),
+    `integration_store::r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions`
+    (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.

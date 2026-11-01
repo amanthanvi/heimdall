@@ -3423,6 +3423,7 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
         claimed_at: None,
         rearmed_effects: Vec::new(),
         cap: None,
+        claim_seq: None,
     };
     let untombstoned = s
         .transaction(|tx| tx.set_remote_revocation(&record(51, 1, false)))
@@ -3478,7 +3479,8 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
 /// obligations, their reasons and its claim; a record without obligations (the
 /// pre-§13.12 shape) is still accepted and reads back without them. ⟨r2.15⟩ The
 /// stored cap and each obligation's recorded effect round round-trip too
-/// (ADR-0006 §13.18 items 2 and 3).
+/// (ADR-0006 §13.18 items 2 and 3). ⟨r2.16⟩ So do the claim sequence and each
+/// obligation's recorded effect sequence (§13.19 item 1).
 #[test]
 fn remote_revocation_obligations_name_exactly_the_record_grants() {
     use heimdall_domain::revocation::{
@@ -3494,6 +3496,7 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
         attempts: Some(2),
         stopped: false,
         effect_round: Some(1),
+        effect_seq: Some(4),
     };
     let record = PendingRemoteRevocation {
         root: root.clone(),
@@ -3508,6 +3511,7 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
         claimed_at: Some(plus(t0(), 2)),
         rearmed_effects: Vec::new(),
         cap: Some(3),
+        claim_seq: Some(5),
     };
     s.transaction(|tx| {
         tx.insert_tombstone(&tombstone(61))?;
@@ -3691,4 +3695,81 @@ fn grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it(
     assert!(!has(&grants[3]), "not attempted");
     assert!(!has(&grants[4]), "an intent without a receipt");
     assert!(!has(&grants[5]), "a grant nothing pins");
+}
+
+/// ⟨r2.16⟩ ADR-0006 §13.19 item 2: cleanup intents are meta rows kept per (grant,
+/// operation). A later intent for the same pair replaces the earlier one. Every
+/// write gets a version greater than every earlier one, also after a removal, so a
+/// processor can tell the intent it processed from a newer one. They list in key
+/// order, clear idempotently, and survive a reopen of a file store (no migration;
+/// the schema version is unchanged). Neither a tombstone nor the operation's row is
+/// needed: an intent outlives its operation.
+#[test]
+fn r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions() {
+    use heimdall_domain::revocation::CleanupIntent;
+    let dir = tempfile::tempdir().unwrap();
+    let db = file_db(dir.path());
+    let g1 = GrantId::from_random_bytes([81; 16]);
+    let g2 = GrantId::from_random_bytes([82; 16]);
+    let op = OperationId::from_random_bytes([83; 16]);
+    let intent = |g: &GrantId, confirmed: bool| CleanupIntent {
+        grant: g.clone(),
+        operation: op.clone(),
+        adapter: Some(adapter()),
+        effect_token: "eff_1".into(),
+        confirmed,
+        in_flight: !confirmed,
+        version: 0,
+        recorded_at: t0(),
+    };
+    let (a, b, c) = {
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        s.transaction(|tx| {
+            assert!(tx.cleanup_intents()?.is_empty());
+            let a = tx.record_cleanup_intent(&intent(&g1, false))?;
+            let b = tx.record_cleanup_intent(&intent(&g2, true))?;
+            let c = tx.record_cleanup_intent(&intent(&g1, true))?;
+            Ok((a, b, c))
+        })
+        .unwrap()
+    };
+    assert!(
+        a.version < b.version && b.version < c.version,
+        "{a:?} {b:?} {c:?}"
+    );
+    assert_eq!(
+        c,
+        CleanupIntent {
+            version: c.version,
+            ..intent(&g1, true)
+        }
+    );
+    let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+    assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+    assert_eq!(
+        s.transaction(|tx| tx.cleanup_intent(&g1, &op)).unwrap(),
+        Some(c.clone()),
+        "the later intent replaced the earlier one, and survives a reopen"
+    );
+    let all = s.transaction(|tx| tx.cleanup_intents()).unwrap();
+    assert_eq!(all.len(), 2);
+    let mut grants: Vec<GrantId> = all.iter().map(|i| i.grant.clone()).collect();
+    let listed = grants.clone();
+    grants.sort();
+    assert_eq!(listed, grants, "ordered by grant");
+    s.transaction(|tx| {
+        tx.clear_cleanup_intent(&g1, &op)?;
+        tx.clear_cleanup_intent(&g1, &op)?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.cleanup_intent(&g1, &op)).unwrap(),
+        None
+    );
+    assert_eq!(s.transaction(|tx| tx.cleanup_intents()).unwrap(), vec![b]);
+    let d = s
+        .transaction(|tx| tx.record_cleanup_intent(&intent(&g1, false)))
+        .unwrap();
+    assert!(d.version > c.version, "a version is never reused");
 }

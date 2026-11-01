@@ -6,3 +6,6 @@
 # everyone who runs the test benefits from these saved cases.
 cc e5c69a58e74af9a7e3208b98e9dd97c913d13d9f189f1030afe4cc46f0b26b3b # shrinks to cap = 2, steps = [FailCompletion, Round]
 cc 56861fc137fe1038a5e797a72a7d1b623aa9f002d3e7e5d3ed3fe64f6af0add8 # shrinks to cap = 4, steps = [Round, Round, RestoreAdapter, Round]
+cc d8a1887d4efa3f381e438e6e0ef72a879861c2abd878eb8c803934565f6a14b8 # shrinks to steps = [Revoke { hold: true, pending: false }, Revoke { hold: false, pending: true }, Release(0)]
+cc a0fe5c0438040bbf63ffa25b5f7ebcbbf26256f1dba860f7ade9619b6edeec4e # shrinks to steps = [Revoke { hold: true, pending: false }, Cancel, Revoke { hold: false, pending: false }, Fault { after: false, n: 2 }, Cancel, Effect]
+cc 185575b7e6dc225f93335f496b1538d43141f33cc501d4126c47c7b11dd350fe # shrinks to steps = [Revoke { hold: true, pending: false }, Round { hold: false, pending: false }, Revoke { hold: true, pending: true }, Release(0)]

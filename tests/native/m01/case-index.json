@@ -128,7 +128,8 @@
           "grant_origin_gains_its_preparing_adapter_once",
           "remote_revocation_obligations_name_exactly_the_record_grants",
           "grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant",
-          "grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it"
+          "grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it",
+          "r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions"
         ],
         "model_operations": [
           "delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one",
@@ -189,7 +190,20 @@
           "r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with",
           "r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with",
           "r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call",
-          "r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call"
+          "r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call",
+          "r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation",
+          "r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect",
+          "r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation",
+          "r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup",
+          "r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup",
+          "r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup",
+          "r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call",
+          "r1319_2_the_supervisor_makes_the_immediate_call_a_failed_refusal_commit_owes",
+          "r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made",
+          "r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect",
+          "r1319_2_a_late_confirmation_that_fails_to_commit_still_gets_a_call_after_the_effect",
+          "r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call",
+          "r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost"
         ],
         "heimdall_domain-unit": [
           "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
@@ -199,7 +213,9 @@
           "revocation::tests::rearmed_effects_round_trip_and_default_to_none",
           "revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged",
           "revocation::tests::r1318_a_record_is_judged_by_the_lower_of_its_cap_and_the_configured_one",
-          "revocation::tests::r1318_only_a_round_claimed_after_the_effect_clears_it"
+          "revocation::tests::r1318_only_a_round_claimed_after_the_effect_clears_it",
+          "revocation::tests::r1319_a_record_without_claim_seq_reads_with_a_derived_sequence",
+          "revocation::tests::r1319_a_cleanup_intent_round_trips"
         ],
         "heimdall_app-unit": [
           "operations::tests::remote_views_combine_whatever_the_record_order",
@@ -209,7 +225,10 @@
           "operations::tests::r1318_4_an_unknown_or_empty_token_is_never_bounded",
           "operations::tests::r1318_4_a_pending_answer_to_a_bounded_call_is_tracked",
           "operations::tests::r1318_the_default_round_cap_is_the_default_backoffs",
-          "operations::tests::r1318_props::r1318_cleanup_never_leaves_an_applied_effect_unowned_and_uncalled"
+          "operations::tests::r1318_props::r1318_cleanup_never_leaves_an_applied_effect_unowned_and_uncalled",
+          "operations::tests::r1319_1_a_record_written_before_claim_seq_is_claimed_and_completed_by_sequence",
+          "operations::tests::r1319_1_an_explicit_revokes_rearm_never_resets_the_claim_sequence",
+          "operations::tests::r1319_2_the_settlement_records_who_makes_the_call_after_the_effect"
         ]
       },
       "not_modelled": [
@@ -558,7 +577,17 @@
           "r1318_2_a_round_claimed_after_the_late_effect_clears_it",
           "r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round",
           "r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with",
-          "r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call"
+          "r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call",
+          "r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation",
+          "r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect",
+          "r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation",
+          "r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup",
+          "r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup",
+          "r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup",
+          "r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call",
+          "r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect",
+          "r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call",
+          "r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost"
         ],
         "model_revocation": [
           "ended_grants_never_return_and_restart_never_resets_the_clock",
@@ -579,7 +608,8 @@
           "withdrawal_report_is_recorded_once_per_tombstoned_root",
           "remote_revocation_obligations_name_exactly_the_record_grants",
           "grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant",
-          "grant_origin_gains_its_preparing_adapter_once"
+          "grant_origin_gains_its_preparing_adapter_once",
+          "r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versions"
         ],
         "integration_ipc_unix": [
           "dead_socket_of_ours_is_replaced",
@@ -598,7 +628,8 @@
           "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
           "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
           "revocation::tests::rearmed_effects_round_trip_and_default_to_none",
-          "revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged"
+          "revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged",
+          "revocation::tests::r1319_a_record_without_claim_seq_reads_with_a_derived_sequence"
         ]
       },
       "labels": {
@@ -644,7 +675,17 @@
           "model_operations::r1318_2_a_round_claimed_after_the_late_effect_clears_it",
           "model_operations::r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round",
           "model_operations::r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with",
-          "model_operations::r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call"
+          "model_operations::r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call",
+          "model_operations::r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation",
+          "model_operations::r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect",
+          "model_operations::r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation",
+          "model_operations::r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup",
+          "model_operations::r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup",
+          "model_operations::r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup",
+          "model_operations::r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call",
+          "model_operations::r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect",
+          "model_operations::r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call",
+          "model_operations::r1319_props::r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost"
         ]
       },
       "not_modelled": [

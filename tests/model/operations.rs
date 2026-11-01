@@ -5277,6 +5277,17 @@ async fn r1310_2_a_degraded_grant_returns_only_when_revalidation_passes() {
 /// counted and reaches the fake at once (the call goes out), then signals
 /// `revoke_entered` and holds its answer until `revoke_release` (a round's call in
 /// flight while a credential is applied).
+///
+/// ⟨r2.16⟩ ADR-0006 §13.19: `log` records, in order, every applied effect
+/// (`(grant, None)`, written when the fake applied it) and every `revoke` call
+/// (`(grant, Some(pending))`, the answer fixed when the call goes out). While
+/// `hold_queued` is set, the next `revoke` goes out at once (counted, logged, the
+/// fake reached) and then parks on its own release, appended to `held` in call
+/// order and signalled by `held_entered`: several answers can be held at once and
+/// released in any order. A held call whose release is dropped never answers (a
+/// crash). While `hang_after_prepare` is set, the next `prepare` applies its effect
+/// and never returns (the in-process crash point after the effect, before its
+/// receipt).
 struct PendingCounter {
     inner: Arc<FakeCredentialAdapter>,
     pending: AtomicBool,
@@ -5292,6 +5303,11 @@ struct PendingCounter {
     hold_revoke: AtomicBool,
     revoke_entered: tokio::sync::Notify,
     revoke_release: tokio::sync::Notify,
+    log: std::sync::Mutex<Vec<(heimdall_contract::ids::GrantId, Option<bool>)>>,
+    hold_queued: AtomicBool,
+    held: std::sync::Mutex<Vec<tokio::sync::oneshot::Sender<()>>>,
+    held_entered: tokio::sync::Notify,
+    hang_after_prepare: AtomicBool,
 }
 
 impl PendingCounter {
@@ -5311,6 +5327,11 @@ impl PendingCounter {
             hold_revoke: AtomicBool::new(false),
             revoke_entered: tokio::sync::Notify::new(),
             revoke_release: tokio::sync::Notify::new(),
+            log: std::sync::Mutex::new(Vec::new()),
+            hold_queued: AtomicBool::new(false),
+            held: std::sync::Mutex::new(Vec::new()),
+            held_entered: tokio::sync::Notify::new(),
+            hang_after_prepare: AtomicBool::new(false),
         })
     }
     fn calls(&self) -> usize {
@@ -5318,6 +5339,29 @@ impl PendingCounter {
     }
     fn confirmations(&self) -> usize {
         self.confirms.load(Ordering::SeqCst)
+    }
+    /// ⟨r2.16⟩ The `revoke` calls for `grant` made after its latest applied effect
+    /// (`None` when no effect was applied for it).
+    fn calls_after_effect(&self, grant: &heimdall_contract::ids::GrantId) -> Option<usize> {
+        let log = self.log.lock().unwrap();
+        let at = log
+            .iter()
+            .rposition(|(g, call)| g == grant && call.is_none())?;
+        Some(
+            log[at + 1..]
+                .iter()
+                .filter(|(g, call)| g == grant && call.is_some())
+                .count(),
+        )
+    }
+    /// ⟨r2.16⟩ Release the held answer at `index` (call order); `false` when none.
+    fn release_held(&self, index: usize) -> bool {
+        let mut held = self.held.lock().unwrap();
+        if index >= held.len() {
+            return false;
+        }
+        let _ = held.remove(index).send(());
+        true
     }
 }
 
@@ -5334,14 +5378,23 @@ impl CredentialAdapter for PendingCounter {
         'life1: 'async_trait,
         Self: 'async_trait,
     {
-        if !self.hold_prepare.swap(false, Ordering::SeqCst) {
-            return self.inner.prepare(req);
-        }
+        let hold = self.hold_prepare.swap(false, Ordering::SeqCst);
+        let grant = req.grant.id.clone();
         let applied = self.inner.prepare(req);
         Box::pin(async move {
-            self.prepare_entered.notify_one();
-            self.prepare_release.notified().await;
-            applied.await
+            if hold {
+                self.prepare_entered.notify_one();
+                self.prepare_release.notified().await;
+            }
+            let before = self.inner.effect_count();
+            let out = applied.await;
+            if self.inner.effect_count() > before {
+                self.log.lock().unwrap().push((grant, None));
+                if self.hang_after_prepare.swap(false, Ordering::SeqCst) {
+                    std::future::pending::<()>().await;
+                }
+            }
+            out
         })
     }
     fn renew<'life0, 'life1, 'async_trait>(
@@ -5386,17 +5439,33 @@ impl CredentialAdapter for PendingCounter {
         }
         self.revokes.fetch_add(1, Ordering::SeqCst);
         let pending = self.pending.load(Ordering::SeqCst);
+        self.log
+            .lock()
+            .unwrap()
+            .push((grant.clone(), Some(pending)));
         if let Some(f) = self.faults.lock().unwrap().as_ref() {
             f.arm();
         }
         let hang = self.hang.swap(false, Ordering::SeqCst);
         let hold = self.hold_revoke.swap(false, Ordering::SeqCst);
+        let queued = self.hold_queued.swap(false, Ordering::SeqCst).then(|| {
+            let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+            self.held.lock().unwrap().push(tx);
+            rx
+        });
         Box::pin(async move {
             if hang {
                 self.entered.notify_one();
                 std::future::pending::<()>().await;
             }
             let mut out = self.inner.revoke(grant, now).await?;
+            if let Some(rx) = queued {
+                self.held_entered.notify_one();
+                if rx.await.is_err() {
+                    // Its release was dropped: a crash, so this answer never arrives.
+                    std::future::pending::<()>().await;
+                }
+            }
             if hold {
                 self.revoke_entered.notify_one();
                 self.revoke_release.notified().await;
@@ -7698,14 +7767,16 @@ async fn r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extr
 /// ⟨r2.15⟩ `record` with the effect recorded at `round` on every obligation
 /// (ADR-0006 §13.18 item 2). Written through the record's stored form, so the module
 /// also compiles at the base commit, where the field does not exist and this is
-/// the record unchanged.
+/// the record unchanged. ⟨r2.16⟩ ADR-0006 §13.19 item 1: the effect is recorded as
+/// the record's claim sequence (`effect_seq`); in these cases the round's claim is
+/// the record's first, so its sequence equals the round.
 fn r1318_with_effect_at(
     record: &heimdall_domain::revocation::PendingRemoteRevocation,
     round: u32,
 ) -> heimdall_domain::revocation::PendingRemoteRevocation {
     let mut v = serde_json::to_value(record).unwrap();
     for o in v["obligations"].as_array_mut().unwrap() {
-        o["effect_round"] = round.into();
+        o["effect_seq"] = round.into();
     }
     serde_json::from_value(v).unwrap()
 }
@@ -8507,4 +8578,978 @@ async fn r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_wi
             .expect("still pending")
             .stopped
     );
+}
+
+// =================================================================================
+// ⟨r2.16⟩ ADR-0006 §13.19 (code review round 7, W01 and W02).
+//
+// * Item 1 (W01): every claim of a pending remote record is identified by a
+//   persisted `claim_seq` that is never reset, not even by an explicit revoke's
+//   re-arm. A completion clears an obligation only when its claim is still the
+//   record's current claim and was made after the obligation's recorded effect.
+// * Item 2 (W02): the transaction that settles an operation with an applied (or
+//   possibly applied) credential effect also records who makes the call after it: a
+//   covering obligation, registered or re-armed there, or a recoverable cleanup
+//   intent that restart recovery and the supervisor process even once the
+//   operation has settled.
+//
+// Only public APIs are used, so every case also runs against the base commit
+// 8263ee6c (red there). "Crash" and "restart" are in-process (module docs).
+// =================================================================================
+
+/// ⟨r2.16⟩ Store fault hook (production `FaultHook`): fails the `n`-th next `point`
+/// (0 = the next one) once, then is disarmed. Transactions run while `paused` is set
+/// (the test's own reads) neither fire nor count.
+#[derive(Default)]
+struct R1319Countdown {
+    at: std::sync::Mutex<Option<(FaultPoint, u32)>>,
+    paused: AtomicBool,
+    fired: AtomicUsize,
+}
+
+impl R1319Countdown {
+    fn arm(&self, point: FaultPoint, n: u32) {
+        *self.at.lock().unwrap() = Some((point, n));
+    }
+    fn disarm(&self) {
+        *self.at.lock().unwrap() = None;
+    }
+}
+
+impl FaultHook for R1319Countdown {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        if self.paused.load(Ordering::SeqCst) {
+            return FaultAction::Continue;
+        }
+        let mut at = self.at.lock().unwrap();
+        match *at {
+            Some((p, 0)) if p == point => {
+                *at = None;
+                self.fired.fetch_add(1, Ordering::SeqCst);
+                FaultAction::Fail
+            }
+            Some((p, n)) if p == point => {
+                *at = Some((p, n - 1));
+                FaultAction::Continue
+            }
+            _ => FaultAction::Continue,
+        }
+    }
+}
+
+/// An explicit owner revoke of `grant` in its own task (its first round's call may
+/// be held).
+fn r1319_spawn_revoke(
+    w: &World,
+    grant: &heimdall_contract::ids::GrantId,
+    rid: &str,
+) -> tokio::task::JoinHandle<OpResult<heimdall_contract::request::RevokeData>> {
+    let ops = w.ops.clone();
+    let req = RevokeRequest {
+        grant_id: grant.clone(),
+        request_id: RequestId::parse(rid).unwrap(),
+    };
+    tokio::spawn(async move { ops.revoke(&unattended(501), req).await })
+}
+
+/// Whether `grant`'s record holds a live obligation for the fixture adapter: neither
+/// it nor the record stopped, and below `cap` rounds.
+fn r1319_live(w: &World, grant: &heimdall_contract::ids::GrantId, cap: u32) -> bool {
+    r1312_record(w, grant).is_some_and(|r| {
+        !r.stopped
+            && r1317_owed(&r, grant)
+                .is_some_and(|o| !o.stopped && r.obligation_attempts(&o) < r.round_cap(cap))
+    })
+}
+
+/// Run the production supervisor (default back-off, cap 8) until `grant`'s record is
+/// stopped at its cap: every round answered pending, all before any credential
+/// existed.
+async fn r1319_run_to_production_cap(
+    w: &World,
+    adapter: &PendingCounter,
+    grant: &heimdall_contract::ids::GrantId,
+) {
+    let sup = r1310_supervisor(w);
+    for _ in 0..40 {
+        if r1312_record(w, grant).is_some_and(|r| r.stopped) {
+            break;
+        }
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(MINUTE);
+    }
+    let rec = r1312_record(w, grant).expect("still pending");
+    assert!(rec.stopped, "capped: {rec:?}");
+    assert_eq!(adapter.calls(), 8, "the production cap of 8 rounds");
+    assert_eq!(w.effects(), 0, "every call preceded the effect");
+    assert_eq!(adapter.calls_after_effect(grant), None);
+}
+
+/// After an in-process restart: the applied effect has a live owning obligation or a
+/// call made after it, and six supervisor passes (production back-off) make that
+/// call.
+async fn r1319_restart_then_a_call_follows_the_effect(
+    w: &mut World,
+    adapter: &Arc<PendingCounter>,
+    grant: &heimdall_contract::ids::GrantId,
+) {
+    r1310_restart_pending(w, adapter).await;
+    assert!(
+        r1319_live(w, grant, 8) || adapter.calls_after_effect(grant) > Some(0),
+        "the applied effect has neither a live owning obligation nor a call after it: {:?}",
+        r1312_record(w, grant)
+    );
+    let sup = r1310_supervisor(w);
+    for _ in 0..6 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(MINUTE);
+    }
+    assert!(
+        adapter.calls_after_effect(grant) > Some(0),
+        "no call was made after the effect: {:?}",
+        r1312_record(w, grant)
+    );
+}
+
+/// Red at 8263ee6c (§13.19 item 1, W01; the reviewer's ABA on a frozen clock). Revoke
+/// A's first round calls before the credential exists and its confirmation is held.
+/// The late effect is recorded on the live obligation. Revoke B, at the same
+/// timestamp, re-arms the record (its count restarts) and its first round's pending
+/// answer is held: B's claim carries A's timestamp and count. A's confirmation is
+/// superseded and must not clear the obligation; B's pending answer keeps it; it
+/// survives a restart.
+#[tokio::test]
+async fn r1319_1_a_superseded_first_round_confirmation_never_erases_a_newer_pending_obligation() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1319-1").await;
+    // Revoke A: its call confirms the state before the effect; the answer is held.
+    adapter.pending.store(false, Ordering::SeqCst);
+    adapter.hold_queued.store(true, Ordering::SeqCst);
+    let a = r1319_spawn_revoke(&w, &gid, "r1319-1-a");
+    adapter.held_entered.notified().await;
+    let claimed = r1312_record(&w, &gid).expect("A's record");
+    assert_eq!(claimed.attempts, 1, "A's first round");
+    assert!(claimed.claimed_at.is_some());
+    // The late effect lands while A's round is in flight: the live obligation owns it.
+    r1318_apply_late(&w, &adapter, &op, ensure).await;
+    assert_eq!(adapter.calls(), 1, "no immediate call");
+    assert!(r1319_live(&w, &gid, 8));
+    // Revoke B at the same instant: a re-armed first round whose answer is pending.
+    adapter.pending.store(true, Ordering::SeqCst);
+    adapter.hold_queued.store(true, Ordering::SeqCst);
+    let b = r1319_spawn_revoke(&w, &gid, "r1319-1-b");
+    adapter.held_entered.notified().await;
+    assert_eq!(adapter.calls(), 2, "B's call went out after the effect");
+    let rearmed = r1312_record(&w, &gid).expect("B's record");
+    assert_eq!(
+        (rearmed.claimed_at, rearmed.attempts),
+        (claimed.claimed_at, claimed.attempts),
+        "a frozen clock: B's claim has A's timestamp and count"
+    );
+    // A's superseded confirmation arrives.
+    assert!(adapter.release_held(0));
+    let _ = a.await.unwrap();
+    let rec = r1312_record(&w, &gid).expect("the obligation survives A's confirmation");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+    // B's pending answer arrives.
+    assert!(adapter.release_held(0));
+    let done = ok(b.await.unwrap()).data;
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    let rec = r1312_record(&w, &gid).expect("B's pending answer keeps the obligation");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+    r1310_restart_pending(&mut w, &adapter).await;
+    let rec = r1312_record(&w, &gid).expect("the obligation survives a restart");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+}
+
+/// Red at 8263ee6c (§13.19 item 1, W01 without any late effect; the claim identity
+/// alone). An active grant is revoked: revoke A's first round calls and its
+/// confirmation is held. Revoke B, at the same instant, re-arms the record and its
+/// first round's pending answer is held: B's claim has A's timestamp and count. A's
+/// superseded confirmation must clear nothing, since B's later call answered
+/// pending; B's answer keeps the obligation, and it survives a restart. (A re-arm
+/// that reset the sequence would give B A's identity again.)
+#[tokio::test]
+async fn r1319_1_a_superseded_confirmation_never_erases_a_newer_pending_obligation_without_an_effect()
+ {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let g = r136_ready(&w, "r1319-1n", "r1319-1n-work", "h1", "1h").await;
+    let gid = g.grant_id.clone();
+    adapter.pending.store(false, Ordering::SeqCst);
+    adapter.hold_queued.store(true, Ordering::SeqCst);
+    let a = r1319_spawn_revoke(&w, &gid, "r1319-1n-a");
+    adapter.held_entered.notified().await;
+    let claimed = r1312_record(&w, &gid).expect("A's record");
+    adapter.pending.store(true, Ordering::SeqCst);
+    adapter.hold_queued.store(true, Ordering::SeqCst);
+    let b = r1319_spawn_revoke(&w, &gid, "r1319-1n-b");
+    adapter.held_entered.notified().await;
+    assert_eq!(adapter.calls(), 2);
+    let rearmed = r1312_record(&w, &gid).expect("B's record");
+    assert_eq!(
+        (rearmed.claimed_at, rearmed.attempts),
+        (claimed.claimed_at, claimed.attempts),
+        "a frozen clock: B's claim has A's timestamp and count"
+    );
+    assert!(adapter.release_held(0));
+    let _ = a.await.unwrap();
+    let rec = r1312_record(&w, &gid).expect("A's superseded confirmation clears nothing");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+    assert!(adapter.release_held(0));
+    let done = ok(b.await.unwrap()).data;
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    assert_eq!(w.grant(&gid).state, GrantState::Revoking);
+    r1310_restart_pending(&mut w, &adapter).await;
+    let rec = r1312_record(&w, &gid).expect("the obligation survives a restart");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+}
+
+/// Red at 8263ee6c (§13.19 item 1; a claim that outlives its record, found by
+/// [`r1319_props`]). Revoke A's first round calls and its confirmation is held. A
+/// supervisor round then confirms and completes, and the record is removed. Revoke B
+/// creates a new record for the same root, and its first round's pending answer is
+/// held. A's confirmation arrives last: its claim's sequence was never assigned
+/// again, so it is superseded and clears nothing; B's pending answer keeps the new
+/// obligation, also across a restart.
+#[tokio::test]
+async fn r1319_1_a_claim_that_outlives_its_records_removal_never_erases_a_new_records_obligation() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let g = r136_ready(&w, "r1319-1x", "r1319-1x-work", "h1", "1h").await;
+    let gid = g.grant_id.clone();
+    adapter.pending.store(false, Ordering::SeqCst);
+    adapter.hold_queued.store(true, Ordering::SeqCst);
+    let a = r1319_spawn_revoke(&w, &gid, "r1319-1x-a");
+    adapter.held_entered.notified().await;
+    let rounds = w.ops.retry_remote_revocation(&gid, 3).await.unwrap();
+    assert!(
+        rounds.is_none(),
+        "the round confirmed: the record is removed"
+    );
+    assert!(r1312_record(&w, &gid).is_none());
+    assert_eq!(adapter.calls(), 2);
+    adapter.pending.store(true, Ordering::SeqCst);
+    adapter.hold_queued.store(true, Ordering::SeqCst);
+    let b = r1319_spawn_revoke(&w, &gid, "r1319-1x-b");
+    adapter.held_entered.notified().await;
+    assert_eq!(adapter.calls(), 3, "B's call went out last");
+    assert!(r1312_record(&w, &gid).is_some(), "B's new record");
+    assert!(adapter.release_held(0));
+    let _ = a.await.unwrap();
+    let rec = r1312_record(&w, &gid).expect("A's confirmation clears nothing of B's record");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+    assert!(adapter.release_held(0));
+    let done = ok(b.await.unwrap()).data;
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    r1310_restart_pending(&mut w, &adapter).await;
+    let rec = r1312_record(&w, &gid).expect("the obligation survives a restart");
+    assert!(r1317_owed(&rec, &gid).is_some(), "{rec:?}");
+}
+
+/// Red at 8263ee6c (§13.19 item 2, W02; the reviewer's scenario). The preparation is
+/// held, the grant revoked and the ensure cancelled, and the covering record runs to
+/// the production cap of 8, all before the credential exists. The preparation then
+/// applies it, and the commit of its late `Confirmed` receipt fails after it
+/// committed (`AfterCommit`, armed only once the effect applied). After a restart
+/// the applied effect still has a live owning obligation, and a call follows it.
+#[tokio::test]
+async fn r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup() {
+    let faults = Armed::new(FaultPoint::AfterCommit);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let _cap = r1310_supervisor(&w);
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1319-2a").await;
+    let done = r1313_revoke(&w, &gid, "r1319-2a-revoke").await;
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    let c = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(c.data["may_have_external_effect"], true);
+    r1319_run_to_production_cap(&w, &adapter, &gid).await;
+    faults.arm_after_effect(w.fake.clone());
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    assert_eq!(
+        faults.fired.load(Ordering::SeqCst),
+        1,
+        "the post-commit fault"
+    );
+    assert_eq!(w.op(&op).state, OperationState::Cancelled);
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the late `Confirmed` receipt is durable"
+    );
+    r1319_restart_then_a_call_follows_the_effect(&mut w, &adapter, &gid).await;
+}
+
+/// Red at 8263ee6c (§13.19 item 2; the recheck refusal boundary). As in
+/// [`r1319_2_a_restart_after_the_late_confirmation_commit_keeps_the_capped_records_cleanup`],
+/// but the ensure is not cancelled: the late confirmation continues to `Recheck`,
+/// which refuses the revoked grant, and that refusal's commit fails after it
+/// committed. After a restart a call follows the effect.
+#[tokio::test]
+async fn r1319_2_a_restart_after_a_recheck_refusal_commit_keeps_the_capped_records_cleanup() {
+    let faults = Armed::new(FaultPoint::AfterCommit);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        hook: ArmAt::new(EnsureStage::Recheck, faults.clone()),
+        ..Setup::default()
+    })
+    .await;
+    let _cap = r1310_supervisor(&w);
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1319-2r").await;
+    r1313_revoke(&w, &gid, "r1319-2r-revoke").await;
+    r1319_run_to_production_cap(&w, &adapter, &gid).await;
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    assert_eq!(
+        faults.fired.load(Ordering::SeqCst),
+        1,
+        "the refusal's fault"
+    );
+    assert_eq!(
+        w.op(&op).state,
+        OperationState::Failed,
+        "refused at recheck"
+    );
+    r1319_restart_then_a_call_follows_the_effect(&mut w, &adapter, &gid).await;
+}
+
+/// Red at 8263ee6c (§13.19 item 2; the cancellation boundary). The preparation is
+/// held, the grant revoked, and the record runs to the production cap before the
+/// credential exists. The preparation then applies and confirms it, and the drive
+/// stops before `Probe` (the operation still runs). The ensure is then cancelled,
+/// and the cancellation's commit fails after it committed. After a restart (the
+/// operation is settled, so recovery never drives it) a call follows the effect.
+#[tokio::test]
+async fn r1319_2_a_restart_after_a_cancellation_commit_keeps_the_capped_records_cleanup() {
+    let faults = Arc::new(R1319Countdown::default());
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        hook: ScriptedStageHook::new([(EnsureStage::Probe, Code::ServiceUnavailable)], []),
+        ..Setup::default()
+    })
+    .await;
+    let _cap = r1310_supervisor(&w);
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1319-2c").await;
+    r1313_revoke(&w, &gid, "r1319-2c-revoke").await;
+    r1319_run_to_production_cap(&w, &adapter, &gid).await;
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1);
+    assert_eq!(
+        w.op(&op).state,
+        OperationState::Running,
+        "stopped before Probe"
+    );
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect is confirmed"
+    );
+    // The cancellation's own transaction is the second commit: the first is the
+    // time gate's assessment of `now`.
+    faults.arm(FaultPoint::AfterCommit, 1);
+    let e = err(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(e.code, Code::StateUnavailable, "the cancellation's fault");
+    assert_eq!(faults.fired.load(Ordering::SeqCst), 1);
+    assert_eq!(w.op(&op).state, OperationState::Cancelled);
+    r1319_restart_then_a_call_follows_the_effect(&mut w, &adapter, &gid).await;
+}
+
+/// An ensure whose prepared facts miss the caller's offline minimum (the fixture
+/// credential covers 1 h offline, 1.5 h is required), so `Commit` refuses it after
+/// the effect applied and was confirmed. No record covers the grant: its cleanup is
+/// the immediate call. The refusal's commit fails after it committed (`AfterCommit`
+/// armed when `Commit` starts).
+async fn r1319_commit_refused_after_commit(tag: &str) -> (World, Arc<PendingCounter>, OperationId) {
+    let faults = Armed::new(FaultPoint::AfterCommit);
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        hook: ArmAt::new(EnsureStage::Commit, faults.clone()),
+        ..Setup::default()
+    })
+    .await;
+    let mut req = ensure_req(tag, &format!("{tag}-work"), &[("h1", "deploy")]);
+    req.required_capabilities.offline_until = Some(shift(t0(), 5400));
+    let e = err(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(
+        e.code,
+        Code::StateUnavailable,
+        "the refusal's post-commit fault"
+    );
+    assert_eq!(faults.fired.load(Ordering::SeqCst), 1);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Failed, "refused at commit");
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    (w, adapter, op)
+}
+
+/// Red at 8263ee6c (§13.19 item 2; the commit refusal boundary, an uncovered grant).
+/// The immediate call the refusal owes is a cleanup intent written in the refusal's
+/// transaction: restart recovery makes it, although the operation is settled.
+#[tokio::test]
+async fn r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call() {
+    let (mut w, adapter, op) = r1319_commit_refused_after_commit("r1319-2m").await;
+    let gid = r1313_grant_of(&w, &op);
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert!(
+        adapter.calls_after_effect(&gid) > Some(0),
+        "restart recovery made the owed call after the effect"
+    );
+    assert!(
+        r1312_record(&w, &gid).is_none(),
+        "no record covers the grant"
+    );
+}
+
+/// Red at 8263ee6c (§13.19 item 2; the commit refusal boundary, without a restart).
+/// As in [`r1319_2_a_restart_after_a_commit_refusal_commit_makes_the_owed_immediate_call`],
+/// but the process keeps running: the supervisor's next pass makes the owed call,
+/// once, and later passes make no other.
+#[tokio::test]
+async fn r1319_2_the_supervisor_makes_the_immediate_call_a_failed_refusal_commit_owes() {
+    let (w, adapter, op) = r1319_commit_refused_after_commit("r1319-2s").await;
+    let gid = r1313_grant_of(&w, &op);
+    let sup = r1310_supervisor(&w);
+    for _ in 0..3 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(MINUTE);
+    }
+    assert_eq!(
+        adapter.calls_after_effect(&gid),
+        Some(1),
+        "the supervisor made the owed call once"
+    );
+}
+
+/// ADR-0006 §13.20 item 1 (spec §12.3). While a cleanup intent still owes the applied
+/// credential a call, `inspect grants` lists the grant, ended or not, with
+/// `cleanup_pending: true`. Once the supervisor has made the owed call and removed
+/// the intent, the field is gone.
+#[tokio::test]
+async fn r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made() {
+    let (w, adapter, op) = r1319_commit_refused_after_commit("r1320-1").await;
+    let gid = r1313_grant_of(&w, &op);
+    let before = r1310_view(&w, &gid).await;
+    assert_eq!(
+        before["cleanup_pending"],
+        serde_json::json!(true),
+        "an owed cleanup call is visible: {before}"
+    );
+    let sup = r1310_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        adapter.calls_after_effect(&gid),
+        Some(1),
+        "the supervisor made the owed call"
+    );
+    let r = ok(w
+        .ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Grants,
+                preview: None,
+            },
+        )
+        .await);
+    let after = r.data["grants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["grant_id"] == serde_json::json!(gid))
+        .cloned();
+    assert!(
+        after
+            .as_ref()
+            .is_none_or(|v| v.get("cleanup_pending").is_none()),
+        "no cleanup is pending once the call was made: {after:?}"
+    );
+}
+
+/// Red at 8263ee6c (§13.19 item 2; a late `Uncertain` receipt). The ensure is
+/// cancelled while its preparation is in flight and no record covers the grant. The
+/// preparation then applies the credential but loses its reply (`OutcomeUnknown`),
+/// so the cancelled operation records an `Uncertain` receipt: that transaction owes
+/// the possibly applied credential a call after it, and the call is made.
+#[tokio::test]
+async fn r1319_2_a_late_uncertain_receipt_after_a_cancellation_gets_a_call_after_the_effect() {
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        script: vec![FakeStep::ApplyButLoseReply(outcome())],
+        ..Setup::default()
+    })
+    .await;
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1319-2u").await;
+    let c = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(c.data["may_have_external_effect"], true);
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1, "applied, its reply lost");
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Uncertain { .. }
+        )),
+        "the late `Uncertain` receipt"
+    );
+    r1319_restart_then_a_call_follows_the_effect(&mut w, &adapter, &gid).await;
+}
+
+/// Red at 8263ee6c (§13.19 item 2; a late confirmation that never becomes durable).
+/// The ensure is cancelled while its preparation is in flight (no record covers the
+/// grant). The preparation applies the credential, and the commit of its late
+/// `Confirmed` receipt fails before it committed, so no receipt records the
+/// confirmation. The cancellation's transaction already owed the possibly applied
+/// effect a call made after it: that call follows the effect in this process.
+#[tokio::test]
+async fn r1319_2_a_late_confirmation_that_fails_to_commit_still_gets_a_call_after_the_effect() {
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1319-2b").await;
+    ok(w.ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    faults.arm_after_effect(w.fake.clone());
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    assert_eq!(
+        faults.fired.load(Ordering::SeqCst),
+        1,
+        "the failed late commit"
+    );
+    assert!(
+        !r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "no `Confirmed` receipt became durable"
+    );
+    assert!(
+        adapter.calls_after_effect(&gid) > Some(0),
+        "a call followed the effect"
+    );
+}
+
+/// Red at 8263ee6c (§13.19 item 2; a crash after the effect of a cancelled
+/// preparation). The ensure is cancelled while its preparation is in flight (no
+/// record covers the grant); the preparation applies the credential and never
+/// returns. Supervisor passes leave the call to the preparation while it is in
+/// flight. After an in-process restart, recovery makes the call the cancellation
+/// owed, although the operation is settled.
+#[tokio::test]
+async fn r1319_2_a_restart_after_a_cancelled_preparation_applied_its_effect_makes_the_owed_call() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    adapter.hang_after_prepare.store(true, Ordering::SeqCst);
+    let (op, gid, _ensure) = r1318_held_ensure(&w, &adapter, "r1319-2h").await;
+    ok(w.ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    adapter.prepare_release.notify_one();
+    for _ in 0..1000 {
+        if w.effects() > 0 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(w.effects(), 1, "applied; the preparation never returns");
+    let sup = r1310_supervisor(&w);
+    for _ in 0..3 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(MINUTE);
+    }
+    assert_eq!(
+        adapter.calls_after_effect(&gid),
+        Some(0),
+        "left to the preparation while it is in flight"
+    );
+    drop(sup);
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert!(
+        adapter.calls_after_effect(&gid) > Some(0),
+        "restart recovery made the owed call after the effect"
+    );
+}
+
+/// ⟨r2.16⟩ ADR-0006 §13.19 item 3: the cleanup invariant over real transitions
+/// (proptest, 1024 cases, fixed seed unless `PROPTEST_RNG_SEED` is set; failures
+/// persist to `tests/model/operations.proptest-regressions`). 1024 rather than 256
+/// cases: the shortest sequences that defeat a claim sequence reset by a re-arm
+/// first appear after several hundred cases at this seed.
+///
+/// One grant is prepared by an ensure whose preparation is held (no credential
+/// yet), with a [`PendingCounter`] as the only adapter and the supervisor's cap of
+/// [`r1319_props::CAP`] rounds. The generated steps drive the production
+/// `Operations` and `Supervisor`: explicit revokes (a re-arm once a record exists)
+/// and claimed supervisor rounds, each with its call's answer (pending or a
+/// confirmation) held or not; supervisor passes; the late effect (the preparation
+/// released) and the cleanup it reaches; a cancellation; the release of any held
+/// answer, in any order; a store fault (`BeforeCommit` or `AfterCommit`) at one of
+/// the next commits; and an in-process restart, a crash for everything in flight
+/// (held answers never arrive, a held preparation never applies). Every call and
+/// effect is logged in order by the adapter.
+///
+/// * After every step: an obligation disappears only when the latest call to its
+///   adapter for its grant was answered with a confirmation (no obligation is lost
+///   while its adapter's last answer was pending).
+/// * At the end (a final restart, then supervisor passes): the applied effect of a
+///   grant that is not in use has a live owning obligation or a call made after it,
+///   and a call follows it.
+mod r1319_props {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::test_runner::{FileFailurePersistence, RngSeed};
+
+    /// The supervisor's cap of rounds per obligation.
+    pub(super) const CAP: u32 = 3;
+
+    fn config() -> ProptestConfig {
+        let mut c = ProptestConfig {
+            cases: 1024,
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
+            ..ProptestConfig::default()
+        };
+        if matches!(c.rng_seed, RngSeed::Random) {
+            c.rng_seed = RngSeed::Fixed(0x1319_0003);
+        }
+        c
+    }
+
+    fn block<F: std::future::Future<Output = Result<(), TestCaseError>>>(
+        f: F,
+    ) -> Result<(), TestCaseError> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    #[derive(Debug, Clone)]
+    enum Step {
+        /// An explicit revoke; its first round's call answers `pending`, held if
+        /// `hold`.
+        Revoke { hold: bool, pending: bool },
+        /// A supervisor round claimed now (`retry_remote_revocation`), likewise.
+        Round { hold: bool, pending: bool },
+        /// A supervisor pass (its calls answer `pending`), then 10 s.
+        Pass { pending: bool },
+        /// The held preparation applies its credential: the late effect.
+        Effect,
+        /// The ensure is cancelled.
+        Cancel,
+        /// The held answer at this index (modulo those held) arrives.
+        Release(usize),
+        /// A store fault at the `n`-th next `AfterCommit` (or `BeforeCommit`).
+        Fault { after: bool, n: u32 },
+        /// An in-process restart: a crash for everything in flight.
+        Restart,
+    }
+
+    fn step_s() -> impl Strategy<Value = Step> {
+        prop_oneof![
+            3 => (any::<bool>(), any::<bool>())
+                .prop_map(|(hold, pending)| Step::Revoke { hold, pending }),
+            3 => (any::<bool>(), any::<bool>())
+                .prop_map(|(hold, pending)| Step::Round { hold, pending }),
+            2 => any::<bool>().prop_map(|pending| Step::Pass { pending }),
+            2 => Just(Step::Effect),
+            2 => Just(Step::Cancel),
+            3 => (0..3usize).prop_map(Step::Release),
+            1 => (any::<bool>(), 0..3u32).prop_map(|(after, n)| Step::Fault { after, n }),
+            1 => Just(Step::Restart),
+        ]
+    }
+
+    struct Run {
+        w: World,
+        adapter: Arc<PendingCounter>,
+        faults: Arc<R1319Countdown>,
+        sup: heimdall_runtime::supervisor::Supervisor,
+        op: OperationId,
+        gid: heimdall_contract::ids::GrantId,
+        /// The ensure while its preparation is held (alive, not yet applied).
+        ensure: Option<tokio::task::JoinHandle<()>>,
+        /// Tasks parked on a held answer, in the adapter's `held` order.
+        parked: Vec<tokio::task::JoinHandle<()>>,
+        revokes: usize,
+    }
+
+    impl Run {
+        async fn new() -> Self {
+            let faults = Arc::new(R1319Countdown::default());
+            let (w, adapter) = r1312_pending_world_with(Setup {
+                faults: faults.clone(),
+                ..Setup::default()
+            })
+            .await;
+            let sup = r1312_supervisor(&w, CAP);
+            adapter.hold_prepare.store(true, Ordering::SeqCst);
+            let ops = w.ops.clone();
+            let req = ensure_req("r1319-p", "r1319-p-work", &[("h1", "deploy")]);
+            let ensure = tokio::spawn(async move {
+                let _ = ops.ensure(&unattended(501), req).await;
+            });
+            adapter.prepare_entered.notified().await;
+            let op = w
+                .store
+                .transaction(|tx| tx.open_operations())
+                .unwrap()
+                .into_iter()
+                .find(|o| o.state == OperationState::Running)
+                .expect("the running ensure")
+                .id;
+            let gid = r1313_grant_of(&w, &op);
+            Self {
+                w,
+                adapter,
+                faults,
+                sup,
+                op,
+                gid,
+                ensure: Some(ensure),
+                parked: Vec::new(),
+                revokes: 0,
+            }
+        }
+
+        /// Run `fut` in its own task. With `hold`, its next call's answer is held:
+        /// the task parks there (or finishes without a call).
+        async fn spawn(
+            &mut self,
+            hold: bool,
+            fut: impl std::future::Future<Output = ()> + Send + 'static,
+        ) {
+            self.adapter.hold_queued.store(hold, Ordering::SeqCst);
+            let mut task = tokio::spawn(fut);
+            if !hold {
+                let _ = task.await;
+                return;
+            }
+            tokio::select! {
+                biased;
+                () = self.adapter.held_entered.notified() => self.parked.push(task),
+                _ = &mut task => self.adapter.hold_queued.store(false, Ordering::SeqCst),
+            }
+        }
+
+        async fn step(&mut self, step: &Step) {
+            match *step {
+                Step::Revoke { hold, pending } => {
+                    self.adapter.pending.store(pending, Ordering::SeqCst);
+                    self.revokes += 1;
+                    let ops = self.w.ops.clone();
+                    let req = RevokeRequest {
+                        grant_id: self.gid.clone(),
+                        request_id: RequestId::parse(&format!("r1319-p-{}", self.revokes)).unwrap(),
+                    };
+                    self.spawn(hold, async move {
+                        let _ = ops.revoke(&unattended(501), req).await;
+                    })
+                    .await;
+                }
+                Step::Round { hold, pending } => {
+                    self.adapter.pending.store(pending, Ordering::SeqCst);
+                    let ops = self.w.ops.clone();
+                    let g = self.gid.clone();
+                    self.spawn(hold, async move {
+                        let _ = ops.retry_remote_revocation(&g, CAP).await;
+                    })
+                    .await;
+                }
+                Step::Pass { pending } => {
+                    self.adapter.pending.store(pending, Ordering::SeqCst);
+                    let _ = self.sup.scheduler_pass().await;
+                    self.w.clock.advance(10 * Duration::from_secs(1));
+                }
+                Step::Effect => {
+                    if let Some(ensure) = self.ensure.take() {
+                        self.adapter.prepare_release.notify_one();
+                        let _ = ensure.await;
+                    }
+                }
+                Step::Cancel => {
+                    let _ = self
+                        .w
+                        .ops
+                        .cancel(
+                            &unattended(501),
+                            CancelRequest {
+                                operation_id: self.op.clone(),
+                            },
+                        )
+                        .await;
+                }
+                Step::Release(i) => {
+                    if !self.parked.is_empty() {
+                        let i = i % self.parked.len();
+                        assert!(self.adapter.release_held(i));
+                        let _ = self.parked.remove(i).await;
+                    }
+                }
+                Step::Fault { after, n } => {
+                    let point = if after {
+                        FaultPoint::AfterCommit
+                    } else {
+                        FaultPoint::BeforeCommit
+                    };
+                    self.faults.arm(point, n);
+                }
+                Step::Restart => self.restart().await,
+            }
+        }
+
+        async fn restart(&mut self) {
+            self.faults.disarm();
+            // A crash: no held answer ever arrives and a held preparation never
+            // applies (its task stays parked; nothing releases it again).
+            self.adapter.held.lock().unwrap().clear();
+            for t in self.parked.drain(..) {
+                t.abort();
+            }
+            if let Some(t) = self.ensure.take() {
+                t.abort();
+            }
+            self.adapter.hold_queued.store(false, Ordering::SeqCst);
+            r1310_restart_pending(&mut self.w, &self.adapter).await;
+            self.sup = r1312_supervisor(&self.w, CAP);
+        }
+
+        /// The grants that have an obligation in some record.
+        fn owed(&self) -> BTreeSet<heimdall_contract::ids::GrantId> {
+            self.faults.paused.store(true, Ordering::SeqCst);
+            let records = self.w.store.transaction(|tx| tx.remote_revocations());
+            self.faults.paused.store(false, Ordering::SeqCst);
+            records
+                .unwrap()
+                .into_iter()
+                .flat_map(|r| r.obligations.into_iter().map(|o| o.grant))
+                .collect()
+        }
+
+        /// The answer of the latest call for `grant`: `Some(true)` pending,
+        /// `Some(false)` a confirmation, `None` no call.
+        fn last_answer(&self, grant: &heimdall_contract::ids::GrantId) -> Option<bool> {
+            self.adapter
+                .log
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find_map(|(g, call)| if g == grant { *call } else { None })
+        }
+
+        fn check_none_lost(
+            &self,
+            before: &BTreeSet<heimdall_contract::ids::GrantId>,
+            step: &Step,
+        ) -> Result<(), TestCaseError> {
+            let after = self.owed();
+            for g in before.difference(&after) {
+                prop_assert_eq!(
+                    self.last_answer(g),
+                    Some(false),
+                    "an obligation was lost while its adapter's last answer was pending ({:?})",
+                    step
+                );
+            }
+            Ok(())
+        }
+    }
+
+    async fn trace(steps: Vec<Step>) -> Result<(), TestCaseError> {
+        let mut run = Run::new().await;
+        for step in &steps {
+            let before = run.owed();
+            run.step(step).await;
+            run.check_none_lost(&before, step)?;
+        }
+        let before = run.owed();
+        run.restart().await;
+        run.check_none_lost(&before, &Step::Restart)?;
+        let gid = run.gid.clone();
+        let Some(after) = run.adapter.calls_after_effect(&gid) else {
+            return Ok(()); // no credential was ever applied
+        };
+        if run.w.grant(&gid).state.permits_use() {
+            return Ok(()); // the effect is the grant's own, in use
+        }
+        prop_assert!(
+            r1319_live(&run.w, &gid, CAP) || after > 0,
+            "after the restart the applied effect has neither a live owning obligation \
+             nor a call after it: {:?}",
+            r1312_record(&run.w, &gid)
+        );
+        for _ in 0..(2 * CAP + 2) {
+            let before = run.owed();
+            let pass = Step::Pass { pending: true };
+            run.step(&pass).await;
+            run.check_none_lost(&before, &pass)?;
+        }
+        prop_assert!(
+            run.adapter.calls_after_effect(&gid) > Some(0),
+            "no call followed the applied effect: {:?}",
+            r1312_record(&run.w, &gid)
+        );
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(config())]
+
+        #[test]
+        fn r1319_every_applied_effect_ends_owned_or_called_and_no_pending_obligation_is_lost(
+            steps in proptest::collection::vec(step_s(), 1..=14),
+        ) {
+            block(trace(steps))?;
+        }
+    }
 }
