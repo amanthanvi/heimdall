@@ -62,17 +62,42 @@
 //!   an owner denial fails it with `CAPABILITY_UNAVAILABLE`.
 //! * `awaiting_approval → failed` uses the lifecycle's only legal edge,
 //!   `DecisionDenied`, for deadline expiry and authority changes too.
-//! * A waiting added-authority grant whose request the standing policy now covers
-//!   entirely still needs the owner's decision: its replacement record carries the
-//!   recomputed, empty delta (nothing is approved automatically).
+//! * ⟨r2.4⟩ ADR-0006 §13.7 item 2 (replaces the earlier empty-delta replacement
+//!   record): a waiting added-authority request whose recomputed delta is empty is
+//!   covered by the owner's saved standing policy and proceeds as a standing-policy
+//!   activation on its same-key retry, with no decision record: every waiter on
+//!   the shared grant records a `CoveredBasis` and resumes, the grant moves to
+//!   `preparing` (the lifecycle's only edge out of `awaiting_approval` towards
+//!   activation, `Approved`), pending records of the waiters are withdrawn, and the
+//!   normal time, pause, cutoff, generation and revision checks run at the attempt,
+//!   `Recheck` and `Commit`. The grant's source keeps naming the shared request's
+//!   owner (so joiners attach to its result); with no approval recorded with the
+//!   grant it rests on the standing policy alone.
 //! * A request that joined another caller's decision fails with
 //!   `CREDENTIAL_EXPIRED` (`next: new_work`) when that request ends without
-//!   activating; cancelling a request that joined never touches the shared grant,
-//!   cancelling the one that created it ends the shared request for all.
+//!   activating; cancelling a request that joined never touches the shared grant.
+//!   ⟨r2.4⟩ §13.7 item 4: cancelling the request that owns a shared **waiting**
+//!   grant moves the grant and its pending decision to the oldest remaining waiter
+//!   (the decision stays pending); the grant is cancelled, and its decision
+//!   withdrawn, only with its last waiter; a deny settles every waiter. Cancelling
+//!   the owner after approval (preparation under way) still ends the shared
+//!   request for all (no lead transfer mid-effect; escalated).
 //! * Approval re-bases an added-authority intent on the generation and policy
 //!   revision of the decision record it approves (the record was recomputed against
 //!   them); preparation and activation refuse when what the grant needs is no
-//!   longer within the approved delta.
+//!   longer within the approved delta. ⟨r2.4⟩ §13.7 item 3: the basis is also
+//!   persisted with the grant (`Txn::set_grant_approval`, never purged by
+//!   operation retention) and every re-validation of an owner-approved grant
+//!   requires its scope ⊆ (current applicable standing policy ∪ approved delta);
+//!   a narrowing that removes an uncovered part ends continuing use with the
+//!   denial's code (`CREDENTIAL_EXPIRED`), a pause does not.
+//! * ⟨r2.4⟩ §13.7 item 5: an environment write moves the authority generation
+//!   (`Txn::upsert_environment`), so a change in environment permissions
+//!   re-validates; a grant the environment no longer permits ends the same way.
+//! * "Ends" for an active grant whose re-validation fails means every continuing
+//!   use (bind, issuance reserve and publish, delegation from it) is refused with
+//!   the denial's code; the grant row is not moved to a terminal state (as for a
+//!   standing-policy grant after a narrowing).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -114,8 +139,8 @@ use heimdall_domain::lifecycle::{
     GrantEvent, OperationEvent, grant_transition, operation_transition,
 };
 use heimdall_domain::operation::{
-    AdapterIdentity, ApprovalBasis, CancellationRecord, EffectClass, EffectReceipt, OperationKind,
-    OperationRecord, RecoveryIntent, RecoveryMetadata, ResolvedIntent, StageReceipt,
+    AdapterIdentity, ApprovalBasis, CancellationRecord, CoveredBasis, EffectClass, EffectReceipt,
+    OperationKind, OperationRecord, RecoveryIntent, RecoveryMetadata, ResolvedIntent, StageReceipt,
 };
 use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
@@ -712,8 +737,12 @@ fn revalidation_failed(msg: &str) -> OpError {
 ///
 /// Acceptance per authorization source: `StandingPolicy` and `Delegation` grants
 /// need `Allowed` (a narrowed policy that no longer covers the grant's scope or
-/// window denies); an `OwnerDecision` grant needs only "not denied" (the owner
-/// already approved the delta; pause, cutoff, parent and role rules still apply).
+/// window denies); an `OwnerDecision` grant still waiting for its decision needs
+/// only "not denied"; ⟨r2.4⟩ an owner-approved one (ADR-0006 §13.7 item 3) needs
+/// what it requires beyond the current standing policy to stay within the approved
+/// delta persisted with the grant (`Txn::grant_approval`, which operation retention
+/// never purges), so a narrowing that removes a part the approval did not cover
+/// ends it; pause, cutoff, parent and role rules apply to every source.
 fn revalidate_chain(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
@@ -781,10 +810,28 @@ fn revalidate_one(
         Err(e) => return Ok(Err(e)),
     };
     Ok(match (decision, &g.source) {
-        (AuthorityDecision::Allowed(_), _)
-        | (AuthorityDecision::ApprovalRequired { .. }, AuthorizationSource::OwnerDecision { .. }) => {
+        (AuthorityDecision::Allowed(_), _) => Ok(()),
+        // A grant still waiting for the owner's decision: "not denied" is enough
+        // (the pending decision is what would add the delta).
+        (AuthorityDecision::ApprovalRequired { .. }, AuthorizationSource::OwnerDecision { .. })
+            if waiting(g) =>
+        {
             Ok(())
         }
+        // ⟨r2.4⟩ §13.7 item 3: continuing use of an owner-approved grant needs its
+        // scope ⊆ (current applicable standing policy ∪ the approved delta recorded
+        // with the grant), i.e. what it needs beyond the policy stays within that
+        // delta. A grant with no recorded approval (a waiting request the standing
+        // policy came to cover, §13.7 item 2) rests on the policy alone.
+        (
+            AuthorityDecision::ApprovalRequired { delta, .. },
+            AuthorizationSource::OwnerDecision { .. },
+        ) => match tx.grant_approval(&g.id)? {
+            Some(basis) if delta_within(&delta, &basis.delta) => Ok(()),
+            _ => Err(revalidation_failed(
+                "the standing policy and the owner's approval no longer cover the grant",
+            )),
+        },
         (AuthorityDecision::ApprovalRequired { .. }, _) => Err(revalidation_failed(
             "the standing policy no longer covers the grant",
         )),
@@ -1066,6 +1113,57 @@ fn owns_grant(grant: &GrantSnapshot, op: &OperationId) -> bool {
     !matches!(&grant.source, AuthorizationSource::OwnerDecision { operation_id } if operation_id != op)
 }
 
+/// A grant that has not left the decision stage (`requested`, `awaiting_approval`).
+fn waiting(g: &GrantSnapshot) -> bool {
+    matches!(
+        g.state,
+        GrantState::Requested | GrantState::AwaitingApproval
+    )
+}
+
+/// Nothing beyond the standing policy: no pair, capability or window, and the
+/// environment is covered (ADR-0006 §13.7 item 2).
+fn delta_is_empty(d: &AuthorityDelta) -> bool {
+    d.added_scope.pairs.is_empty()
+        && d.added_scope.capabilities.is_empty()
+        && d.extra_window.is_none()
+        && !d.environment_not_covered
+}
+
+/// Every operation still `awaiting_approval` on `grant` (its creator and the
+/// requests that joined its decision, code review A07), oldest first (creation
+/// time, then ID): the order in which ownership of a shared waiting grant passes on
+/// (ADR-0006 §13.7 item 4).
+fn waiters_on(tx: &mut Txn<'_>, grant: &GrantId) -> heimdall_store::Result<Vec<OperationRecord>> {
+    let mut out = Vec::new();
+    for o in tx.open_operations()? {
+        if o.state == OperationState::AwaitingApproval
+            && tx
+                .recovery_intent(&o.id)?
+                .and_then(|i| i.resolved)
+                .and_then(|r| r.grant)
+                .as_ref()
+                == Some(grant)
+        {
+            out.push(o);
+        }
+    }
+    out.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+    Ok(out)
+}
+
+/// Pending `ApproveAuthority` records that name `op` as their waiting operation.
+fn pending_records_of(
+    tx: &mut Txn<'_>,
+    op: &OperationId,
+) -> heimdall_store::Result<Vec<DecisionRecord>> {
+    Ok(tx
+        .pending_decisions()?
+        .into_iter()
+        .filter(|d| matches!(&d.kind, DecisionKind::ApproveAuthority { operation, .. } if operation == op))
+        .collect())
+}
+
 /// Code review A04: the prepared facts against every caller minimum before
 /// activation (spec §4.3, §6.5; ADR-0006 §5): the actual offline coverage
 /// `min(offline_until, deadline, bound)` reaches the requested `offline_until`;
@@ -1215,10 +1313,13 @@ fn activation_refusal(
         )));
     }
     // An approved added-authority request rests on its approval's generation and
-    // policy revision (code review A06), else on its resolution's.
-    let (basis_generation, expected_revision) = match &intent.approval {
-        Some(a) => (a.generation, a.policy_revision),
-        None => (intent.generation, intent.policy_revision),
+    // policy revision (code review A06); ⟨r2.4⟩ a waiting one the standing policy
+    // came to cover entirely rests on the generation and revision at which it did
+    // (ADR-0006 §13.7 item 2); anything else on its resolution's.
+    let (basis_generation, expected_revision) = match (&intent.approval, &intent.covered) {
+        (Some(a), _) => (a.generation, a.policy_revision),
+        (None, Some(c)) => (c.generation, c.policy_revision),
+        (None, None) => (intent.generation, intent.policy_revision),
     };
     // ADR-0006 §13.5 ruling 2: a generation that moved since the request was
     // resolved (or since the grant or an ancestor was last validated) triggers one
@@ -1276,8 +1377,8 @@ fn activation_refusal(
     }
     // Code review A06: the approved record must still describe the authority the
     // grant uses: what it needs beyond current policy now stays within the
-    // approved delta (an environment that lost automatic activation, for one,
-    // moves no generation).
+    // approved delta (checked even when no generation moved; ⟨r2.4⟩ an environment
+    // write now moves it too, ADR-0006 §13.7 item 5).
     if let Some(approval) = &intent.approval
         && matches!(grant.source, AuthorizationSource::OwnerDecision { .. })
     {
@@ -1638,6 +1739,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
             binding: None,
             adapter: r.adapter.map(|a| a.identity),
             approval: None,
+            covered: None,
         }))),
         AuthorityDecision::ApprovalRequired { delta, .. } => {
             // What approval would grant: exactly the requested scope (covered ∪
@@ -1679,6 +1781,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
                 binding: None,
                 adapter: r.adapter.map(|a| a.identity),
                 approval: None,
+                covered: None,
             };
             Ok(Resolution::Approval(Box::new(Approval {
                 intent,
@@ -1766,6 +1869,106 @@ fn equivalent_waiting(
         }
     }
     Ok(None)
+}
+
+/// What a request waiting for an owner decision answers (`awaiting_response`).
+enum Awaiting {
+    /// Still waiting (`decision_ref`), paused, or ended: the answer.
+    Answer(Box<OpError>),
+    /// ⟨r2.4⟩ ADR-0006 §13.7 item 2: the saved standing policy now covers the
+    /// request entirely; these waiters resumed (the shared grant's owner first) and
+    /// are driven through the normal pipeline.
+    Proceed(Vec<OperationId>),
+}
+
+/// The outcome of the waiting check's transaction.
+enum Waiting {
+    /// The operation is no longer `awaiting_approval`.
+    Left,
+    /// The pending record that answers for it.
+    Decision(heimdall_contract::ids::DecisionId),
+    /// See [`Awaiting::Proceed`].
+    Proceed(Vec<OperationId>),
+}
+
+/// ⟨r2.4⟩ ADR-0006 §13.7 item 2, inside the waiting check's transaction (time
+/// already assessed, pause already refused, `grant`'s chain re-validated at
+/// `current` with an empty recomputed delta): the waiting request proceeds as a
+/// standing-policy activation and gets no decision record.
+///
+/// Every waiter on the shared grant (its owner first, then the requests that joined
+/// it, oldest first) records a [`CoveredBasis`] (`current` and the applicable
+/// policy revision) and leaves `awaiting_approval`; the grant moves to `preparing`
+/// (its source keeps naming the owner, so joiners still attach to the owner's
+/// result; with no approval recorded with the grant, re-validation needs the
+/// standing policy alone); every pending record of the waiters is withdrawn. No
+/// effect is attempted here: the attempt, `Recheck` and `Commit` re-check time,
+/// pause, cutoff, generation, revision, bound and admission as for any activation.
+#[allow(clippy::too_many_arguments)]
+fn proceed_covered(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    env: &EnvironmentId,
+    grant: &GrantSnapshot,
+    owner: &OperationId,
+    profile: &ProfileId,
+    current: heimdall_domain::policy::AuthorityGeneration,
+    now: Timestamp,
+) -> heimdall_store::Result<Vec<OperationId>> {
+    let revision = merged_policy(&tx.policies_for(profile, env)?)
+        .filter(|p| &p.profile == profile)
+        .map(|p| p.revision);
+    let basis = CoveredBasis {
+        generation: current,
+        policy_revision: revision,
+    };
+    let mut waiters = waiters_on(tx, &grant.id)?;
+    // The owner leads the preparation; the others attach to its result. An owner
+    // that no longer waits hands the grant to the oldest waiter first (§13.7 item
+    // 4), so no joiner is left attached to a request that will never activate.
+    let previous = owner;
+    let owner = match waiters.first() {
+        Some(first)
+            if waiters.iter().all(|o| o.id != *previous)
+                && matches!(&grant.source, AuthorizationSource::OwnerDecision { operation_id } if operation_id == previous) =>
+        {
+            tx.transfer_waiting_grant(&grant.id, previous, &first.id)?;
+            first.id.clone()
+        }
+        _ => previous.clone(),
+    };
+    let owner = &owner;
+    waiters.sort_by_key(|o| o.id != *owner);
+    // No record is issued for, or left pending on, a request the policy covers.
+    if waiters.iter().all(|o| o.id != *previous) {
+        for d in pending_records_of(tx, previous)? {
+            let withdrawn = tx.withdraw_decision(&d.id)?;
+            emit.decision(tx, &withdrawn, Some(owner))?;
+        }
+    }
+    let mut g = grant.clone();
+    if grant_try(&mut g, GrantEvent::Approved) {
+        put_grant(tx, emit, &g, Some(owner))?;
+    }
+    let mut resumed = Vec::with_capacity(waiters.len());
+    for mut op in waiters {
+        for d in pending_records_of(tx, &op.id)? {
+            let withdrawn = tx.withdraw_decision(&d.id)?;
+            emit.decision(tx, &withdrawn, Some(&op.id))?;
+        }
+        let mut intent = tx
+            .recovery_intent(&op.id)?
+            .ok_or_else(|| conflict("operation has no recovery intent"))?;
+        if let Some(r) = intent.resolved.as_mut() {
+            r.covered = Some(basis.clone());
+        }
+        tx.set_recovery_intent(&op.id, &intent)?;
+        op_to(&mut op, OperationEvent::Approved, now)?;
+        tx.update_operation(&op)?;
+        emit.op(tx, &op)?;
+        resumed.push(op.id);
+    }
+    Ok(resumed)
 }
 
 /// Durable state of one operation.
@@ -3738,9 +3941,32 @@ impl Operations {
 
     /// The caller's view of a work operation's current durable state.
     async fn respond_work(&self, id: &OperationId, caller: &Caller) -> OpResult<EnsureData> {
-        let st = self.load_work(id).await?;
+        let mut st = self.load_work(id).await?;
         if st.op.state == OperationState::AwaitingApproval {
-            return Err(self.awaiting_response(id, caller).await);
+            match self.awaiting_response(id, caller).await {
+                Awaiting::Answer(e) => return Err(*e),
+                Awaiting::Proceed(resumed) => {
+                    // ⟨r2.4⟩ §13.7 item 2: the standing policy now covers the
+                    // request; every waiter resumed (the shared grant's owner first)
+                    // and goes through the normal activation checks. Bounded waits:
+                    // the work continues whatever the caller does.
+                    let interactive = caller.interaction == InteractionMode::Interactive;
+                    for r in &resumed {
+                        let mine = r == id;
+                        let led = self
+                            .lead_bounded(
+                                r,
+                                mine && interactive,
+                                Some(self.inner.config.limits.max_wait),
+                            )
+                            .await;
+                        if mine && let Some(Err(e)) = led {
+                            return Err(e);
+                        }
+                    }
+                    st = self.load_work(id).await?;
+                }
+            }
         }
         let done = render_settled::<EnsureData>(&st.op)?;
         Ok(Completed {
@@ -3761,10 +3987,22 @@ impl Operations {
     /// record's delta is recomputed against current policy, never copied from the
     /// earlier record (code review A06), and time is assessed in the transaction
     /// that issues it (A02).
-    async fn awaiting_response(&self, id: &OperationId, caller: &Caller) -> OpError {
+    ///
+    /// ⟨r2.4⟩ ADR-0006 §13.7 item 2: when the recomputed delta is **empty** the
+    /// owner's saved standing policy covers the request entirely. No decision
+    /// record is issued (the empty-delta replacement record is withdrawn as a
+    /// behaviour): in the same transaction every waiter on the shared grant leaves
+    /// `awaiting_approval` with a [`CoveredBasis`] (the current generation and
+    /// applicable revision), the grant moves to `preparing` (the table's only edge
+    /// out of `awaiting_approval` towards activation), any pending record of the
+    /// waiters is withdrawn, and the waiters are returned to be driven through the
+    /// normal pipeline (time, pause, cutoff, generation, revision, bound and
+    /// admission checks at the attempt, `Recheck` and `Commit`). The pause check
+    /// above still answers `POLICY_PAUSED` first.
+    async fn awaiting_response(&self, id: &OperationId, caller: &Caller) -> Awaiting {
         let decision_id = match crate::ids::new_decision_id() {
             Ok(d) => d,
-            Err(e) => return OpError::from(e),
+            Err(e) => return Awaiting::Answer(Box::new(OpError::from(e))),
         };
         let gate = self.inner.timegate.in_txn();
         let lifetime = self.inner.config.limits.decision_lifetime;
@@ -3779,7 +4017,7 @@ impl Operations {
                     return Ok(Err(OpError::new(Code::NotFound, "unknown operation")));
                 };
                 if op.state != OperationState::AwaitingApproval {
-                    return Ok(Ok(None));
+                    return Ok(Ok(Waiting::Left));
                 }
                 let now = match gate.check(tx)? {
                     Ok(s) => s.wall(),
@@ -3850,6 +4088,12 @@ impl Operations {
                     return Err(conflict("awaiting operation has no decision on record"));
                 };
                 let owner = decision_owner(Some(&g), &id2);
+                // ⟨r2.4⟩ §13.7 item 2: fully covered by the saved standing policy.
+                if delta_is_empty(&needed) {
+                    let resumed =
+                        proceed_covered(tx, emit, &env, &g, &owner, &resolved.profile, current, now)?;
+                    return Ok(Ok(Waiting::Proceed(resumed)));
+                }
                 // R7: compare expiry and generation ourselves; a pending record is
                 // reused only while it still covers what is needed.
                 if let Some(valid) = tx.pending_decisions()?.iter().rev().find(|d| {
@@ -3858,7 +4102,7 @@ impl Operations {
                         && now < d.expires_at
                         && d.generation == current
                 }) {
-                    return Ok(Ok(Some(valid.id.clone())));
+                    return Ok(Ok(Waiting::Decision(valid.id.clone())));
                 }
                 // A06: the replacement carries the delta recomputed against current
                 // policy at the current generation, never the earlier record's.
@@ -3876,25 +4120,26 @@ impl Operations {
                 };
                 tx.insert_decision(&fresh)?;
                 emit.decision(tx, &fresh, Some(&id2))?;
-                Ok(Ok(Some(fresh.id)))
+                Ok(Ok(Waiting::Decision(fresh.id)))
             })
             .await;
-        match r {
+        Awaiting::Answer(Box::new(match r {
             Err(e) => e.with_operation(id.clone()),
             Ok(Err(e)) => e,
-            Ok(Ok(None)) => OpError::new(
+            Ok(Ok(Waiting::Proceed(resumed))) => return Awaiting::Proceed(resumed),
+            Ok(Ok(Waiting::Left)) => OpError::new(
                 Code::Accepted,
                 "the operation is no longer awaiting approval; observe it",
             )
             .with_operation(id.clone()),
-            Ok(Ok(Some(dec))) => approval_needed(
+            Ok(Ok(Waiting::Decision(dec))) => approval_needed(
                 attended,
                 dec.as_str(),
                 "the request needs additional owner authority",
             )
             .with_resource("decision", Some(dec.to_string()))
             .with_operation(id.clone()),
-        }
+        }))
     }
 
     // -----------------------------------------------------------------------------
@@ -4334,6 +4579,7 @@ impl Operations {
                 binding: Some(b.id.clone()),
                 adapter: None,
                 approval: None,
+                covered: None,
             };
             // An existing binding is not a new activation (ADR-0006 §13.6 item 1):
             // a pause does not stop it (nor its re-validation); revocation and
@@ -4590,11 +4836,37 @@ impl Operations {
                     && let Some(mut g) = tx.grant(&gid)?
                     && owns_grant(&g, &id)
                 {
-                    if grant_try(&mut g, GrantEvent::Cancel) {
-                        put_grant(tx, emit, &g, Some(&id))?;
-                    }
-                    if may_have {
-                        cleanup = Some(gid);
+                    // ⟨r2.4⟩ §13.7 item 4: the creator of a shared waiting
+                    // decision hands the shared grant and its pending decision to
+                    // the oldest remaining waiter (the decision stays pending); the
+                    // grant ends only with its last waiter, and then its decision
+                    // is withdrawn.
+                    let shared_waiting = waiting(&g)
+                        && matches!(&g.source, AuthorizationSource::OwnerDecision { operation_id } if *operation_id == id);
+                    let heir = if shared_waiting {
+                        waiters_on(tx, &gid)?.into_iter().find(|o| o.id != id)
+                    } else {
+                        None
+                    };
+                    if let Some(heir) = heir {
+                        tx.transfer_waiting_grant(&gid, &id, &heir.id)?;
+                        for d in pending_records_of(tx, &id)? {
+                            let moved = tx.transfer_decision(&d.id, &id, &heir.id)?;
+                            emit.decision(tx, &moved, Some(&heir.id))?;
+                        }
+                    } else {
+                        if grant_try(&mut g, GrantEvent::Cancel) {
+                            put_grant(tx, emit, &g, Some(&id))?;
+                        }
+                        if shared_waiting {
+                            for d in pending_records_of(tx, &id)? {
+                                let withdrawn = tx.withdraw_decision(&d.id)?;
+                                emit.decision(tx, &withdrawn, Some(&id))?;
+                            }
+                        }
+                        if may_have {
+                            cleanup = Some(gid);
+                        }
                     }
                 }
                 op_to(&mut op, OperationEvent::Cancel, now)?;
@@ -5171,6 +5443,7 @@ impl Operations {
                         {
                             put_grant(tx, emit, &g, op_id.as_ref())?;
                         }
+                        let mut recorded_with_grant = false;
                         for mut op in waiters {
                             let mut intent = tx
                                 .recovery_intent(&op.id)?
@@ -5179,12 +5452,20 @@ impl Operations {
                                 let revision = merged_policy(&tx.policies_for(&r.profile, &env)?)
                                     .filter(|p| p.profile == r.profile)
                                     .map(|p| p.revision);
-                                r.approval = Some(ApprovalBasis {
+                                let basis = ApprovalBasis {
                                     decision: record.id.clone(),
                                     delta: delta.clone(),
                                     generation: record.generation,
                                     policy_revision: revision,
-                                });
+                                };
+                                // ⟨r2.4⟩ §13.7 item 3: the basis is persisted with
+                                // the shared grant in this transaction, so
+                                // operation retention cannot purge it.
+                                if !recorded_with_grant && let Some(g) = &grant {
+                                    tx.set_grant_approval(&g.id, &basis)?;
+                                    recorded_with_grant = true;
+                                }
+                                r.approval = Some(basis);
                             }
                             tx.set_recovery_intent(&op.id, &intent)?;
                             op_to(&mut op, OperationEvent::Approved, now)?;

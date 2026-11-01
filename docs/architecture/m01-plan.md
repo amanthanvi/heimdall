@@ -114,6 +114,13 @@ integrator with an ADR-0006 revision.
   boot, may be replaced in a new boot; high-water never lowers), migration 0001→0002
   on a populated database, newer `user_version` refused; fault points before/after
   commit and `Crash` in a child process (wave 1).
+* **⟨r2.4⟩ ADR-0006 §13.7 (M01-rulings-13-7-G1):** migration `0003_grant_approval`
+  (`grants.approval_json`, backfilled from recovery intents), `SCHEMA_VERSION = 3`;
+  **additive** `Txn::{set_grant_approval, grant_approval, transfer_waiting_grant,
+  transfer_decision, withdraw_decision}`; `upsert_environment` moves the generation
+  on every accepted write. Tests: migration 0002→0003 on a populated database and a
+  failing 0003 step leaves v2 untouched (`heimdall_store::tests`), plus the
+  `integration_store` cases listed in ADR-0006 §14.5.
 
 ### U5 — Application operations (M01-T05 core + T06 part 2) — **wave 2**
 
@@ -260,6 +267,25 @@ integrator with an ADR-0006 revision.
   recomputed; equivalent added-authority requests share one decision; a publish
   voided only by a generation move re-reserves (3 attempts, then
   `SERVICE_UNAVAILABLE`). Tests `model_revocation::review_*` (ADR-0006 §14.5).
+* **⟨r2.4⟩ ADR-0006 §13.7 items 2–5, authority side (M01-rulings-13-7-G1).**
+  **Additive** `domain::decision::DecisionState::Withdrawn`,
+  `domain::operation::{CoveredBasis, ResolvedIntent.covered}`, and store (U4b
+  paths) `Txn::{set_grant_approval, grant_approval, transfer_waiting_grant,
+  transfer_decision, withdraw_decision}`, migration `0003_grant_approval`
+  (`grants.approval_json`, backfilled), `SCHEMA_VERSION = 3`; `upsert_environment`
+  now moves the generation (item 5).
+  * Item 2: a waiting request whose recomputed delta is empty proceeds on its
+    same-key retry as a standing-policy activation (no decision record; waiters
+    resume with a `CoveredBasis`; their pending records are withdrawn; normal
+    time, pause and cutoff checks downstream).
+  * Item 3: the approval basis is written with the grant at approval; re-validation
+    of an owner-approved grant needs scope ⊆ (standing policy ∪ approved delta), so
+    an uncovered narrowing ends continuing use (`CREDENTIAL_EXPIRED`), a pause does
+    not; it survives operation purge.
+  * Item 4: cancelling the owner of a shared waiting decision hands grant and
+    decision to the oldest remaining waiter (decision stays pending); the last
+    cancellation cancels the grant and withdraws the decision; deny settles all.
+  * Tests `model_revocation::r137_*` and two properties (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -493,6 +519,13 @@ integrator with an ADR-0006 revision.
   `failed_commands`); intentionally failing probes go in `negative_probes`
   `{name: {expected_exit, observed_exit}}`. Self-test
   `tests/native/m01/test_m01_evidence.py`.
+* **⟨r2.4⟩ ADR-0006 §13.7 items 6, 8 (M01-rulings-13-7-G2):** a current-build platform
+  that skipped an expected test is `in_progress` (`incomplete_run`); `blocked` only via
+  a platform `unavailable` reason or `missing_capabilities` {target | target::test:
+  reason}; the `blocked_reason` default is removed (self-tests
+  `test_m01_evidence.RowStatus137`). E2e
+  `service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable` (Unix;
+  Windows has no signal fallback by design). No public signature change.
 
 ## 2. Order and parallelism
 

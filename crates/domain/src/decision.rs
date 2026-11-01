@@ -57,6 +57,11 @@ pub enum DecisionState {
     /// Invalidated because the authority generation moved (revocation, pause,
     /// cutoff, narrowing) after issuance.
     Stale,
+    /// ⟨r2.4⟩ Withdrawn by the runtime without a verdict because no request awaits
+    /// it any more: every request sharing it was cancelled, or the owner's saved
+    /// standing policy came to cover the request entirely (ADR-0006 §13.7 items 2
+    /// and 4). Never completable.
+    Withdrawn,
 }
 
 /// The durable record.

@@ -250,5 +250,76 @@ class C03Exits(unittest.TestCase):
         self.assertNotEqual(row["status"], "verified")
 
 
+class RowStatus137(unittest.TestCase):
+    """ADR-0006 §13.7 item 6: an incomplete run is in_progress; blocked only for
+    a platform or capability that is missing (AGENTS.md)."""
+
+    TESTS = [("t", "a"), ("t", "b"), ("u", "c")]
+
+    def row(self, logs, **pconf):
+        base = {"label": "synthetic-host", "logs": [], "exit_codes": {"check.sh": 0}, "artifact_digest": "n/a"}
+        base.update(pconf)
+        return ev.row_for("macos", base, logs, self.TESTS, [], {})
+
+    def test_an_expected_test_absent_from_a_current_build_run_is_in_progress(self):
+        row = self.row({"t": {"a": "ok"}, "u": {"c": "ok"}})
+        self.assertEqual(row["status"], "in_progress")
+        self.assertEqual(row["incomplete_run"], ["t::b"])
+        self.assertNotIn("blocked_on", row)
+
+    def test_a_whole_target_absent_from_a_current_build_run_is_in_progress(self):
+        row = self.row({"t": {"a": "ok", "b": "ok"}})
+        self.assertEqual(row["status"], "in_progress")
+        self.assertEqual(row["incomplete_run"], ["u::c"])
+        self.assertEqual(row["missing_targets"], ["u"])
+        self.assertNotIn("blocked_on", row)
+
+    def test_the_end_to_end_flow_reports_an_incomplete_run_as_in_progress(self):
+        logs = {"explicit_t": FULL["explicit_t"], "wild_t": {"w1": "ok", "w2": "ok"}}
+        rc, summary, err = Scratch(self, logs).run()
+        self.assertEqual(statuses(summary), ["in_progress"], err)
+        self.assertEqual(statuses(summary, "G1"), ["in_progress"])
+        claim = summary["exit_claims"]["claim"]["rows"][0]
+        self.assertEqual(claim["status"], "in_progress")
+
+    def test_a_missing_capability_for_the_absent_tests_is_blocked(self):
+        reason = "a disposable second account (synthetic)"
+        for key in ("t::b", "t"):
+            row = self.row({"t": {"a": "ok"}, "u": {"c": "ok"}}, missing_capabilities={key: reason})
+            self.assertEqual(row["status"], "blocked", key)
+            self.assertEqual(row["blocked_on"], reason, key)
+            self.assertNotIn("incomplete_run", row, key)
+
+    def test_a_missing_capability_does_not_excuse_another_absent_test(self):
+        row = self.row({"t": {"a": "ok"}}, missing_capabilities={"t::b": "synthetic capability"})
+        self.assertEqual(row["status"], "in_progress")
+        self.assertEqual(row["incomplete_run"], ["u::c"])
+
+    def test_a_missing_capability_for_a_whole_target_is_blocked_not_a_missing_target(self):
+        row = self.row({"t": {"a": "ok", "b": "ok"}}, missing_capabilities={"u": "synthetic capability"})
+        self.assertEqual(row["status"], "blocked")
+        self.assertNotIn("missing_targets", row)
+
+    def test_a_missing_platform_is_blocked(self):
+        reason = "no host of this platform is available (synthetic)"
+        row = self.row({}, unavailable=reason, exit_codes={}, artifact_digest=None)
+        self.assertEqual(row["status"], "blocked")
+        self.assertEqual(row["blocked_on"], reason)
+        self.assertEqual(row["passed"], 0)
+
+    def test_a_platform_marked_missing_that_has_results_is_not_blocked(self):
+        row = self.row({"t": {"a": "ok"}}, unavailable="synthetic")
+        self.assertEqual(row["status"], "in_progress")
+
+    def test_failures_still_outrank_a_missing_capability(self):
+        row = self.row({"t": {"a": "FAILED"}, "u": {"c": "ok"}}, missing_capabilities={"t::b": "synthetic"})
+        self.assertEqual(row["status"], "in_progress")
+
+    def test_a_run_from_an_older_build_stays_in_progress(self):
+        row = self.row({"t": {"a": "ok"}}, predates_build="older build (synthetic)",
+                       missing_capabilities={"t::b": "synthetic"})
+        self.assertEqual(row["status"], "in_progress")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

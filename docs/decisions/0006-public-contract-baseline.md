@@ -844,6 +844,69 @@ Source: workflow `wf_886acd0c-ce2` (the fixes for review areas A, B and C).
    `heimdall service stop --json` reports `data.via == "signal"`, exits 0, and removes
    the advertisement.
 
+### 13.8 ⟨r2.5⟩ Rulings on the round-2 code review and the §13.7 escalations (orchestrator, 2026-11-01)
+
+Sources: `tests/evidence/artifacts/review-m01-code/round2.md` (R01–R09) and workflow
+`wf_b2f9242d-155`.
+
+1. **R01: the issuer signs before anything is published.** A publish that has to
+   re-reserve (§13.6 item 11; ADR-0005 §3.5 amendment) returns the fresh reservation
+   **unpublished** to the issuer, as `Rereserved { reservation }`. The issuer signs
+   exactly those bounds and calls publish again. That final publish runs every
+   predicate in its own transaction. The 3-attempt bound counts these round trips.
+   The existing test that expects `Published` after an internal re-reservation is
+   wrong and must be replaced. Its replacement records the order of signing and
+   injects a revoke or an expiry between signing the replacement and publishing it.
+2. **R02: one wait bound per request.** A `decide` that resumes several waiters
+   applies one overall `max_wait` to the request. It resumes all waiters at once and
+   returns the durable decision result when that bound is reached, with every
+   waiter's operation still observable. Waiters never wait one after another.
+3. **R03: retention never hides a gap.**
+   * The catch-up read checks the retained tail against the delivery boundary in the
+     same transaction.
+   * If retention removed an event the subscriber has not received, the subscriber
+     gets `ResyncRequired` carrying the last delivered cursor. Continuity is never
+     claimed.
+   * The event property gains retention steps. Each run must end in either complete
+     delivery or an explicit resync.
+4. **What "ends the grant" means (§13.7 items 3 and 5).** A grant must not look
+   `active` once it can no longer be used. When re-validation of an active or
+   degraded grant fails, the grant moves to a terminal state, either when the failure
+   is detected at use or in the supervisor's scheduler pass:
+   * a deadline or cutoff has passed: `expired`;
+   * authority has been withdrawn (a revoke on the chain, a narrowing outside the
+     approval, or a removed environment permission): `revoking`, with a tombstone
+     whose cause is `authority_withdrawn`, then `revoked` once local denial is
+     applied.
+
+   The residual is reported as for any revocation (`latest_possible_credential_expiry`).
+   A pause and uncertain time never end a grant.
+5. **Cancelling the creator after approval (§13.7 item 4).**
+   * If other waiters remain, the creator's operation settles `cancelled` from the
+     caller's point of view. Because the shared preparation continues for the other
+     waiters, its result reports `may_have_external_effect: true`.
+   * The shared grant's preparation continues, using the creator's existing receipts
+     and effect token, so nothing is handed over in the middle of an effect. The
+     remaining waiters attach as normal, and the creator gets no binding.
+   * When the last attached operation cancels, the grant is cancelled and cleaned up
+     through the usual reconcile path.
+6. **Confirmed as implemented:**
+   * the oldest-waiter tie-break: `created_at`, then operation ID;
+   * migration 0003 checks a v2 owner-approved grant with no basis left to backfill
+     against the standing policy alone. This fails closed, and no released v2
+     database exists;
+   * the additive `DecisionState::Withdrawn`;
+   * the evidence status rules (§13.7 item 6).
+7. **File-descriptor hygiene for the detached runtime.** The intermittent hang in
+   `eight_concurrent_clients_start_exactly_one_runtime` points at a descriptor
+   leaking into the detached runtime.
+   * The launcher must give the detached child only its three standard descriptors,
+     and those must be null on every platform.
+   * On Unix, the runtime closes or marks close-on-exec every inherited descriptor
+     above 2 at startup. Any new unsafe call is added to overview §9.
+   * Tests: a stress variant of the concurrent-start test, and a check that the
+     runtime holds no inherited descriptors of its parent.
+
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
 ### 14.1 Recovery intent and stage receipts (review F05; ruling 5)
@@ -971,6 +1034,9 @@ revision 2 adds `Denial::DeadlinePassed` for it, mapped to `CREDENTIAL_EXPIRED`
 | review B02, B04, B05 (M01-review-fix-R2-runtime-harness) | **additive** in `runtime::supervisor`: field `SupervisorConfig.resume_check_interval: Duration` (default 2 s; exhaustive struct literals need it, none in the workspace), `SupervisorConfig::resume_bound(&self) -> Duration`, consts `MAX_RESUME_CHECK_INTERVAL` (5 s) and `MIN_RESUME_CHECK_INTERVAL` (10 ms): `Supervisor::run` bounds every wait by `resume_bound()` and then compares continuous with monotonic progress, so a resume is detected within at most 5 s of awake time (B04; native suspend/resume evidence is an M04 item). Behaviour: `Supervisor::cleanup_pass` drops retry entries that do not match a current cleanup candidate's generation before computing `next_due_in` (B02). `ipc::windows` (private) passes the UTF-16 capacity to `GetNamedPipeClientComputerNameW` (B05). Tests `integration_runtime::u8b::{cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled, supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound, supervisor_resume_check_interval_is_bounded}`, Windows unit test `heimdall_ipc::windows::tests::client_computer_name_capacity_counts_utf16_units`; harness self-test `tools/validation/native-harness-selftest.sh` (B01, B03) |
 | review A01–A04, A06, A07; §13.6 item 11 (M01-review-fix-R1-operations) | **additive** `domain::operation::ResolvedIntent.approval: Option<ApprovalBasis>` (serde default, omitted when absent; struct literals need it) and `domain::operation::ApprovalBasis { decision, delta, generation, policy_revision }`; `store::Txn::set_recovery_intent` accepts it add-only (never replaced or cleared). Behaviour: the time gate runs inside the transaction that reserves, publishes, authorizes an effect attempt, rechecks, commits, binds, resolves, or creates or completes a decision (crate-private `app::timegate::TxnGate`; A01, A02); a fresh attempt waits for an adapter slot, then validates authority, deadline, cutoff and continuous admission before the `Attempted` receipt, and `PrepareRequest.grant` carries the deadline narrowed to the recorded bound (doc only; A03); `Commit` refuses prepared facts below a caller minimum (actual offline coverage, achieved destination-scope enforcement, capabilities) with `CAPABILITY_UNAVAILABLE` (A04); replacement decisions carry the delta recomputed against current policy, approval records an `ApprovalBasis` that preparation and activation re-validate (A06); equivalent waiting added-authority requests (same caller, kind, environment, work, parent, resolved authority, deadline, policy revision, generation, delta) share one record and grant, each with its own operation (A07); `Operations::publish_issuance` voided only by a generation move re-reserves (same bounds, fresh serial and ID) and publishes within the call, at most 3 attempts, then `SERVICE_UNAVAILABLE` with `next.retry_after`; the returned entry may be the re-reservation (item 11); issuance re-validation is deferred on uncertain time, which answers `TIME_UNCERTAIN`. Tests `model_revocation::review_*`, property `publication_answers_from_the_state_and_time_of_its_own_transaction`, `integration_store::recovery_intent_approval_basis_is_add_only` |
 | review integration (M01-review-fix-integrate) | No public signature change. `runtime::supervisor::Supervisor::run` calls `EventPublisher::retry_held()` on every timed wake (bounded by `resume_bound()`), so an event held back behind a failed catch-up read reaches live subscribers without waiting for another commit (review A05 liveness). `tools/validation/check.sh` gains the `evidence-selftest` step (`tests/native/m01/test_m01_evidence.py`; reviews C02, C03). Test `integration_runtime::u8b::supervisor_delivers_held_back_events_without_a_new_commit` |
+| ⟨r2.4⟩ §13.7 items 2–5, authority side (M01-rulings-13-7-G1) | **additive** `domain::decision::DecisionState::Withdrawn` (wire `"withdrawn"`; never completable); **additive** `domain::operation::CoveredBasis { generation, policy_revision }` and `domain::operation::ResolvedIntent.covered: Option<CoveredBasis>` (serde default, omitted when absent; struct literals need it; `Txn::set_recovery_intent` keeps it add-only); **additive** `store::Txn::{set_grant_approval(&GrantId, &ApprovalBasis) -> Result<()>` (written once; same basis is a no-op, another is `GenerationConflict`), `grant_approval(&GrantId) -> Result<Option<ApprovalBasis>>`, `transfer_waiting_grant(&GrantId, from: &OperationId, to: &OperationId) -> Result<()>` (CAS on a `requested`/`awaiting_approval` grant whose source is `OwnerDecision { from }`), `transfer_decision(&DecisionId, from: &OperationId, to: &OperationId) -> Result<DecisionRecord>` (CAS on a pending `ApproveAuthority { operation: from }`), `withdraw_decision(&DecisionId) -> Result<DecisionRecord>` (CAS pending → `withdrawn`, no `decided_at`)}`; migration `0003_grant_approval.sql` (`grants.approval_json`, backfilled from the recovery intents that pin the grant, lowest operation ID; transactional), `store::migrations::SCHEMA_VERSION = 3`, and opening refuses a v3 file without that column as `Corrupt`. Behaviour: item 5, `Txn::upsert_environment` advances the authority generation on every accepted write (signature unchanged). Item 2, a waiting request whose recomputed delta is empty proceeds on its same-key retry as a standing-policy activation with no decision record: every waiter on the shared grant records a `CoveredBasis` (current generation, applicable revision) and resumes (owner first), the grant moves `awaiting_approval → preparing` (the table's only edge, `Approved`), the waiters' pending records are withdrawn, and the attempt, `Recheck` and `Commit` run the normal time, pause, cutoff, generation, revision, bound and admission checks (activation re-bases on the covered basis as it does on an approval); the empty-delta replacement record is gone. Item 3, approval writes the `ApprovalBasis` with the shared grant in the deciding transaction; re-validation of an `OwnerDecision` grant past the decision stage needs what it requires beyond the current standing policy within the recorded delta (no recorded basis ⇒ the policy alone), so a narrowing that removes an uncovered part refuses every continuing use (bind, issuance, delegation from it) with `CREDENTIAL_EXPIRED` while a pause does not; the grant row is not moved to a terminal state (as for a standing-policy grant). Item 4, cancelling the owner of a shared waiting grant transfers the grant and its pending records to the oldest remaining waiter (creation time, then ID); with no waiter left the grant is cancelled and its records withdrawn; deny settles every waiter (unchanged). Cancelling the owner after approval (preparation under way) still ends the shared request (escalated). Tests `model_revocation::r137_*`, properties `continuing_use_is_allowed_exactly_within_policy_and_approved_delta`, `a_shared_decision_survives_any_cancel_order_until_its_last_waiter`; `integration_store::{upsert_environment_advances_the_authority_generation_on_every_write, grant_approval_is_written_once_and_survives_operation_purge, transfer_waiting_grant_is_a_cas_on_the_owner_while_waiting, decisions_transfer_and_withdraw_by_cas_on_pending, recovery_intent_covered_basis_is_add_only}`; `heimdall_store::tests::{migration_0003_preserves_a_populated_v2_database_and_backfills_the_basis, failing_0003_step_leaves_the_v2_database_untouched}` |
+| ⟨r2.4⟩ §13.7 items 6, 8 (M01-rulings-13-7-G2) | No public signature change. Evidence generator (`tests/native/m01/m01-evidence.py`): a platform that ran on the current build but skipped an expected test is `in_progress` and lists the skipped tests under `incomplete_run`; `blocked` only through a per-platform `unavailable: <reason>` with no results (blocked_on = reason) or `missing_capabilities: {"<target>" \| "<target>::<test>": <reason>}` covering every absent test (blocked_on = the joined reasons; a capability-covered target is not a `missing_targets` entry); failures, failed commands or probes, missing targets and `predates_build` still outrank `blocked`; `unavailable` with results is `in_progress` (fails closed); the `blocked_reason` default is removed. Self-tests `test_m01_evidence.RowStatus137`. E2e `e2e_cli_m01::service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable` (Unix; Windows has no signal fallback by design, §13.6 item 8). Committed evidence records were not regenerated (the macOS A19 row and its dependent claim row become `in_progress` when they are). |
+| ⟨r2.4⟩ §13.7 integration (M01-rulings-13-7-integrate) | No public signature change. G1 and G2 integrated without code changes; `bash tools/validation/check.sh` exit 0 on the combined tree. |
 
 ### 13.1 Orchestrator rulings (2026-10-31)
 

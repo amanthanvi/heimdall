@@ -13,19 +13,23 @@ Lib/bin unit-test binaries are named `<crate>-unit`.
 
 For every case group and platform the row lists each indexed test as passed,
 failed, ignored, or absent (not built for or not run on that platform), and the
-row status follows the evidence rules (AGENTS.md): verified only when every
-applicable indexed test ran and passed on that platform in this run; a test that
-could not run there makes the row blocked (with the platform and reason); a
-failing (or gap-ignored) case makes it in_progress. The record status is its
-lowest row. Nothing here invents results: a test absent from a log is absent.
+row status follows the evidence rules (AGENTS.md; ADR-0006 §13.7 item 6):
+verified only when every applicable indexed test ran and passed on that platform
+in this run; a failing (or gap-ignored) case makes it in_progress. A platform
+that ran on the current build but did not run an expected test is an incomplete
+run: the row is in_progress and the test is listed under `incomplete_run`.
+`blocked` is only for a platform or capability that is missing: the platform's
+`unavailable` reason (no run at all), or a `missing_capabilities` entry
+{"<target>" | "<target>::<test>": "<reason>"} naming the capability the absent
+test needs and the host lacks. The record status is its lowest row. Nothing here
+invents results: a test absent from a log is absent.
 
 A platform whose `predates_build` is set ran an older build of the tree than the
 one this record describes (its log was not re-run after a change): a test absent
 from its log is listed under `not_run_since_build` (not "not run on this
 platform") and the row is in_progress, never blocked or verified, with the note
-attached. `harness_gap` likewise makes absent tests in_progress: the platform was
-available and the harness did not run them (gap G05/G09); `blocked` is only for a
-genuinely missing platform.
+attached. `harness_gap` is a note on the same in_progress reading: the platform
+was available and the harness did not run them (gap G05/G09).
 
 Required inventory (review C02). The tests a row must show are never derived
 from run logs. `required-inventory.json` (next to the case index, or the
@@ -37,8 +41,8 @@ Generation refuses a wildcard target that lists zero tests. A check run refuses
 an inventory that is missing, disagrees with the case index, or has an empty
 wildcard list, and reports a current-build log test outside the inventory
 (regenerate). A required target absent from a platform's log leaves its tests
-absent and is listed under `missing_targets`: the row is in_progress, never
-verified.
+absent and is listed under `missing_targets` (unless a missing capability
+covers it): the row is in_progress, never verified.
 
 Command exits (review C03). `exit_codes` are the platform's required validation
 commands: any value other than the integer 0 (or no recorded command at all)
@@ -273,8 +277,16 @@ def command_failures(pconf):
     return failed, bad_probes
 
 
+def missing_capability(pconf, target, name):
+    """The configured reason a host lacks what `target::name` needs, or None."""
+    caps = pconf.get("missing_capabilities") or {}
+    reason = caps.get(f"{target}::{name}", caps.get(target))
+    return reason if isinstance(reason, str) and reason else None
+
+
 def row_for(platform, pconf, logs, tests, gaps, group):
     passed, failed, ignored, absent, neutral = [], [], [], [], []
+    incomplete, capability_reasons = [], set()
     missing_targets = set()
     skipped_neutral = set(pconf.get("platform_neutral_not_run", []))
     for target, name in tests:
@@ -292,6 +304,12 @@ def row_for(platform, pconf, logs, tests, gaps, group):
             neutral.append(qual)
         else:
             absent.append(qual)
+            reason = missing_capability(pconf, target, name)
+            if reason:
+                # The host lacks a capability this test needs (blocked).
+                capability_reasons.add(reason)
+                continue
+            incomplete.append(qual)
             if not logs.get(target):
                 # The whole target is missing from this platform's run.
                 missing_targets.add(target)
@@ -305,17 +323,25 @@ def row_for(platform, pconf, logs, tests, gaps, group):
         return None
     stale = pconf.get("predates_build")
     harness_gap = pconf.get("harness_gap")
+    unavailable = pconf.get("unavailable")
+    ran_here = bool(passed or failed or ignored)
     failed_commands, failed_probes = command_failures(pconf)
-    if failed or ignored or (gaps and platform == "macos"):
+    if unavailable and not ran_here and not stale:
+        # The platform itself is missing: nothing ran there (AGENTS.md).
+        status = "blocked"
+    elif unavailable or failed or ignored or (gaps and platform == "macos"):
+        # A platform marked missing that has results is contradictory.
         status = "in_progress"
     elif failed_commands or failed_probes or missing_targets:
         # A failed required command, a negative probe that did not fail as
         # expected, or a required target that never ran: never verified.
         status = "in_progress"
-    elif stale or (absent and harness_gap):
-        # A row from an older build never verifies this build.
+    elif stale or incomplete:
+        # A row from an older build never verifies this build, and a current
+        # run that skipped an expected test is incomplete (§13.7 item 6).
         status = "in_progress"
-    elif absent:
+    elif capability_reasons:
+        # Every absent test needs a capability this host lacks.
         status = "blocked"
     else:
         status = "verified"
@@ -331,7 +357,9 @@ def row_for(platform, pconf, logs, tests, gaps, group):
         "artifact_digest": pconf["artifact_digest"],
         "logs": pconf["logs"],
     }
-    if failed_commands:
+    if incomplete and not stale and not (unavailable and not ran_here):
+        row["incomplete_run"] = incomplete
+    if failed_commands and not (status == "blocked" and unavailable):
         row["failed_commands"] = failed_commands
     if pconf.get("negative_probes"):
         row["negative_probes"] = pconf["negative_probes"]
@@ -346,8 +374,14 @@ def row_for(platform, pconf, logs, tests, gaps, group):
         row["predates_build"] = stale
     elif absent and harness_gap:
         row["harness_gap"] = harness_gap
-    elif absent and status == "blocked":
-        row["blocked_on"] = pconf.get("blocked_reason", "listed tests did not run on this platform")
+    if status == "blocked":
+        if unavailable and not ran_here:
+            row["blocked_on"] = unavailable
+            row.pop("missing_targets", None)
+        else:
+            row["blocked_on"] = "; ".join(sorted(capability_reasons))
+    elif capability_reasons and not stale:
+        row["missing_capabilities"] = sorted(capability_reasons)
     return row
 
 

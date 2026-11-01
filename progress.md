@@ -90,7 +90,21 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - The reviewers confirmed sound: the idempotency, decision-completion, recovery, IPC permission, framing and exit-code paths.
   - Fixes for all of these start once the §13.6 workflow finishes, because they touch the same files.
 - The §13.6 rulings are implemented (workflow `wf_c0198760-330`) and committed as 452fcbd4. My check.sh run: exit 0, 541 passed, 0 failed, 1 ignored. The native Windows run 2 exited 0 on an uncommitted tree; run 1 found that inherited stdio handles hung the detached runtime, and that is fixed. ADR-0006 §13.6 items 10–11 are recorded.
-- Running: workflow `wf_886acd0c-ce2`, the code-review fixes. Four fixers with disjoint paths: R1-operations (A01–A04, A06, A07, §13.6 item 11), R1-events (A05), R2-runtime-harness (B01–B05 plus the SIGTERM fallback test) and R3-cli-evidence (C01–C03). An integrator follows.
+- The code-review fixes (workflow `wf_886acd0c-ce2`) are committed as 10414f10. My check.sh run: exit 0, 576 passed, 0 failed, 1 ignored.
+  - Every finding has a red-at-base test.
+  - B05's Windows unit test and the B01/B03 harness changes are not yet run natively.
+  - ADR-0006 §13.7 records my rulings on the fixers' escalations. ADR-0005 §3.5 has an amendment for the re-reservation ordering.
+- Running:
+- Codex fix-delta re-review at 10414f10 (`tests/evidence/artifacts/review-m01-code/round2.md`): fix first.
+  - A01–A04, A06, A08, B01–B08 and C01–C03 are fixed. A05, A07 and B09 are partial.
+  - New findings:
+    - R01 (major): a re-reservation is published before the issuer signs it.
+    - R02 (minor): a shared-approval wait is multiplied by the number of waiters.
+    - R03 (major): retention can silently drop a held-back event.
+  - R04–R09 are the §13.7 items now being implemented.
+  - Next: fix R01–R03, then a targeted round-3 re-check.
+  - Workflow `wf_b2f9242d-155`, implementing §13.7 items 2–6 and 8: G1 authority (items 2–5, maybe a store migration 0003) and G2 evidence/CLI (items 6 and 8), then an integrator.
+- After that: native reruns on devbox and the Windows PC from one commit, regenerated m01 records (G14), and the M01 exit record.
 - Next:
   - native reruns on Linux and Windows and regenerated records against a commit;
   - fixes for the review findings;

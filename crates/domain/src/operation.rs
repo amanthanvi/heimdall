@@ -155,6 +155,30 @@ pub struct ResolvedIntent {
     /// Absent for authority the standing policy covers. Add-only: never replaced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval: Option<ApprovalBasis>,
+    /// ⟨r2.4⟩ ADR-0006 §13.7 item 2: the standing policy this waiting added-authority
+    /// intent came to rest on when the owner's saved policy covered it entirely
+    /// (its recomputed delta was empty), recorded once when it left
+    /// `awaiting_approval` without a decision. Absent otherwise. Add-only: never
+    /// replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covered: Option<CoveredBasis>,
+}
+
+/// ⟨r2.4⟩ What re-based a waiting added-authority intent when the owner's saved
+/// standing policy came to cover it entirely (ADR-0006 §13.7 item 2; spec §5.5 "no
+/// prompt for authority the owner already saved").
+///
+/// The request then proceeds as a standing-policy activation, with its unchanged
+/// scope and deadline, through the normal time, pause and cutoff checks; no
+/// decision record is issued. Like [`ApprovalBasis`], it re-bases the pinned
+/// generation and policy revision without rewriting them: activation re-validates
+/// against `generation` and requires the applicable policy at `policy_revision`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoveredBasis {
+    /// Authority generation at which the standing policy covered the request.
+    pub generation: crate::policy::AuthorityGeneration,
+    /// Applicable standing-policy revision at that generation, if any.
+    pub policy_revision: Option<crate::policy::PolicyRevision>,
 }
 
 /// What an attended approval of added authority established (code review A06).
@@ -165,6 +189,11 @@ pub struct ResolvedIntent {
 /// preparation and activation the application re-validates the grant and refuses
 /// when the authority it needs is no longer within `delta`, or the applicable
 /// policy moved past `policy_revision`.
+///
+/// ⟨r2.4⟩ ADR-0006 §13.7 item 3: the basis is also persisted **with the grant**
+/// (`heimdall_store::Txn::set_grant_approval`), so operation retention cannot
+/// remove it; re-validation of an owner-approved grant then requires the grant's
+/// scope ⊆ (current applicable standing policy ∪ `delta`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApprovalBasis {
     /// The approved decision record.

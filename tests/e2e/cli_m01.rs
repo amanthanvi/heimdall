@@ -28,7 +28,9 @@
 //!
 //! **Service stop.** `heimdall service stop` sends `Request::Shutdown` over the
 //! control endpoint on every platform (`via: "control"`); Unix signals are only
-//! its fallback.
+//! its fallback, exercised (Unix only) by replacing the control socket of a
+//! running test service with a dead one while `instance.json` stays valid
+//! (`via: "signal"`; ADR-0006 §13.7 item 8).
 //!
 //! **Canaries.** The fake adapter's credential reference carries a synthetic
 //! `HEIMDALL_CANARY_*` value built at runtime by the service. Every byte of
@@ -1421,6 +1423,126 @@ fn service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent() {
     assert_eq!(again.json()["data"]["running"], false);
     assert_eq!(again.json()["data"]["stopped"], false);
     assert_eq!(home.run(&["service", "status", "--json"]).code, 5);
+}
+
+/// An owner-only socket this test binds at the runtime's control endpoint path
+/// in place of the runtime's own: it accepts and immediately closes every
+/// connection, so `instance.json` still validates (same PID and start time, an
+/// owned connectable socket at the advertised path) while no hello can complete.
+#[cfg(unix)]
+struct DeadControlEndpoint {
+    path: PathBuf,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<usize>>,
+}
+
+#[cfg(unix)]
+impl DeadControlEndpoint {
+    fn replace(path: PathBuf) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        std::fs::remove_file(&path).expect("remove the runtime's control socket");
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind replacement");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let thread = std::thread::spawn(move || {
+            let mut accepted = 0;
+            while !flag.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    // Dropped at once: the client's hello sees end of stream.
+                    Ok((stream, _)) => {
+                        accepted += 1;
+                        drop(stream);
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(5)),
+                }
+            }
+            accepted
+        });
+        Self {
+            path,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    /// Stop accepting; the number of connections that were accepted.
+    fn close(mut self) -> usize {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        let n = self.thread.take().unwrap().join().unwrap();
+        // The runtime unlinks only its own socket (same device and inode).
+        let _ = std::fs::remove_file(&self.path);
+        n
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DeadControlEndpoint {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+/// ADR-0006 §13.7 item 8 (the §13.6 item 8 fallback): when the control endpoint
+/// cannot be used while the advertisement stays valid, `heimdall service stop`
+/// falls back to SIGTERM to the validated advertised PID (`via: "signal"`); the
+/// runtime drains, removes its advertisement and exits.
+///
+/// Unix only. On Windows there is no signal fallback by design (§13.6 item 8,
+/// `service_cmd::fallback`): an unusable endpoint is reported, or a runtime that
+/// is already stopping is awaited (`via: "exited"`), so this case does not apply.
+#[cfg(unix)]
+#[test]
+fn service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable() {
+    let home = Home::new(&[SYNCED]);
+    let mut svc = home.start_service(&[]);
+    let pid = svc.pid();
+    let dead = DeadControlEndpoint::replace(home.path().join("run").join("control.sock"));
+    // The advertisement is still valid: status finds the live PID but no hello
+    // completes over the replaced endpoint.
+    let st = home.run(&["service", "status", "--json"]);
+    assert_eq!(st.code, 5, "{st:?}");
+    assert_eq!(st.code_str(), "SERVICE_UNAVAILABLE", "{st:?}");
+    assert_eq!(
+        home.instance_pid(),
+        Some(pid),
+        "advertisement names the live PID"
+    );
+
+    let out = home.run(&["service", "stop", "--json"]);
+    assert_eq!(out.code, 0, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "OK", "{env}");
+    assert_eq!(env["data"]["stopped"], true, "{env}");
+    assert_eq!(env["data"]["via"], "signal", "{env}");
+    assert_eq!(env["data"]["pid"], pid, "{env}");
+
+    let mut child = svc.child.take().unwrap();
+    let code = wait_timeout(&mut child, Duration::from_secs(30));
+    if code.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert_eq!(
+        code,
+        Some(0),
+        "the runtime drains and exits 0 after SIGTERM"
+    );
+    svc.scan();
+    assert_eq!(home.instance_pid(), None, "advertisement removed");
+    assert!(
+        dead.close() >= 2,
+        "both the status and the stop client reached the replaced endpoint"
+    );
+    // Nothing is running any more.
+    let again = home.run(&["service", "stop", "--json"]);
+    assert_eq!(again.code, 0, "{again:?}");
+    assert_eq!(again.json()["data"]["stopped"], false);
 }
 
 /// ADR-0006 §13.6 item 4 (verify) through the real binary: a caller's

@@ -355,6 +355,7 @@ fn resolved_intent() -> ResolvedIntent {
         binding: None,
         adapter: None,
         approval: None,
+        covered: None,
     }
 }
 
@@ -998,12 +999,14 @@ fn before_commit_failure_leaves_no_row() {
         .transaction(|tx| Ok((tx.operation(&op.id)?, tx.idempotency_record(&idem.key)?)))
         .unwrap();
     assert_eq!((o, i), (None, None));
-    // Opening a fresh store visits the migration points of both steps (0001,
-    // 0002) first; then the failed transaction (before transaction, before
+    // Opening a fresh store visits the migration points of every step (0001,
+    // 0002, 0003) first; then the failed transaction (before transaction, before
     // commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
@@ -1281,7 +1284,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(SCHEMA_VERSION, 3);
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -1295,7 +1298,7 @@ fn newer_schema_is_refused_and_untouched() {
             }
         )
     });
-    // The next version (3) is just as foreign.
+    // The next version (4) is just as foreign.
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
@@ -1304,8 +1307,8 @@ fn newer_schema_is_refused_and_untouched() {
         matches!(
             e,
             StoreError::NewerSchema {
-                found: 3,
-                supported: 2
+                found: 4,
+                supported: 3
             }
         )
     });
@@ -2790,4 +2793,308 @@ proptest! {
         // Every meta key is checked at the SQL level by the crate's unit property
         // `purge_never_touches_tombstones_policies_or_meta`.
     }
+}
+
+// --- ADR-0006 §13.7 (M01-rulings-13-7-G1) ----------------------------------------
+
+/// §13.7 item 5: every accepted environment write advances the authority generation
+/// in its own transaction (as policy writes do, §13.6 item 5), so a change in
+/// environment permissions triggers re-validation; a failed write moves nothing.
+#[test]
+fn upsert_environment_advances_the_authority_generation_on_every_write() {
+    let s = mem();
+    let e7 = environment(7, "laptop");
+    let g0 = s.transaction(|tx| tx.authority_generation()).unwrap();
+    s.transaction(|tx| tx.upsert_environment(&e7)).unwrap();
+    let g1 = s.transaction(|tx| tx.authority_generation()).unwrap();
+    assert_eq!(g1, g0.next(), "insert");
+    let mut changed = e7.clone();
+    changed.permissions.automatic_activation = true;
+    s.transaction(|tx| tx.upsert_environment(&changed)).unwrap();
+    let g2 = s.transaction(|tx| tx.authority_generation()).unwrap();
+    assert_eq!(g2, g1.next(), "a permission change");
+    s.transaction(|tx| tx.upsert_environment(&changed)).unwrap();
+    let g3 = s.transaction(|tx| tx.authority_generation()).unwrap();
+    assert_eq!(g3, g2.next(), "every accepted write, even an identical one");
+    // A write rolled back with its transaction moves nothing.
+    let r: Result<(), StoreError> = s.transaction(|tx| {
+        tx.upsert_environment(&e7)?;
+        Err(StoreError::GenerationConflict("rolled back".into()))
+    });
+    assert!(r.is_err());
+    assert_eq!(s.transaction(|tx| tx.authority_generation()).unwrap(), g3);
+    assert_eq!(
+        s.transaction(|tx| tx.environment(&e7.id)).unwrap(),
+        Some(changed)
+    );
+}
+
+fn approval_basis(n: u8) -> heimdall_domain::operation::ApprovalBasis {
+    heimdall_domain::operation::ApprovalBasis {
+        decision: DecisionId::from_random_bytes([n; 16]),
+        delta: heimdall_domain::authority::AuthorityDelta {
+            added_scope: scope(&[("h3", "u1")], &[]),
+            extra_window: None,
+            environment_not_covered: false,
+        },
+        generation: AuthorityGeneration(2),
+        policy_revision: Some(PolicyRevision(3)),
+    }
+}
+
+/// §13.7 item 3: the approval basis is persisted with the grant, written once, and
+/// survives the retention purge of the approving operation and its recovery intent;
+/// state updates of the grant leave it alone.
+#[test]
+fn grant_approval_is_written_once_and_survives_operation_purge() {
+    let s = mem();
+    let g = GrantSnapshot {
+        source: AuthorizationSource::OwnerDecision {
+            operation_id: op_id(3),
+        },
+        ..grant(1, None, plus(t0(), 7200), GrantState::Preparing)
+    };
+    let (mut op, idem) = simple_op(3);
+    s.transaction(|tx| {
+        tx.insert_grant(&g)?;
+        tx.insert_operation(&op, &idem)?;
+        let mut intent = RecoveryIntent {
+            request: request_doc(3),
+            resolved: Some(ResolvedIntent {
+                grant: Some(g.id.clone()),
+                ..resolved_intent()
+            }),
+        };
+        if let Some(r) = intent.resolved.as_mut() {
+            r.approval = Some(approval_basis(1));
+        }
+        tx.set_recovery_intent(&op.id, &intent)?;
+        assert_eq!(tx.grant_approval(&g.id)?, None);
+        tx.set_grant_approval(&g.id, &approval_basis(1))?;
+        tx.set_grant_approval(&g.id, &approval_basis(1)) // repeat: no-op
+    })
+    .unwrap();
+    let e = s
+        .transaction(|tx| tx.set_grant_approval(&g.id, &approval_basis(2)))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::GenerationConflict(_)));
+    let e = s
+        .transaction(|tx| {
+            tx.set_grant_approval(&GrantId::from_random_bytes([77; 16]), &approval_basis(1))
+        })
+        .unwrap_err();
+    assert!(matches!(e, StoreError::Sqlite(_)));
+    // A state update keeps the basis; the grant record itself is unchanged.
+    let mut active = g.clone();
+    active.state = GrantState::Active;
+    s.transaction(|tx| tx.update_grant_state(&active)).unwrap();
+    // Settle and purge the approving operation (its intent goes with it).
+    succeed(&mut op, plus(t0(), 10));
+    s.transaction(|tx| {
+        tx.update_operation(&op)?;
+        tx.settle_idempotency(&op.key, retention_expiry(plus(t0(), 10), DEFAULT_RETENTION))
+    })
+    .unwrap();
+    let purged = s
+        .transaction(|tx| tx.purge_operations_before(plus(t0(), 400 * 86_400)))
+        .unwrap();
+    assert_eq!(purged, 1);
+    let (intent, basis, stored) = s
+        .transaction(|tx| {
+            Ok((
+                tx.recovery_intent(&op.id)?,
+                tx.grant_approval(&g.id)?,
+                tx.grant(&g.id)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(intent, None, "the recovery intent went with its operation");
+    assert_eq!(
+        basis,
+        Some(approval_basis(1)),
+        "the basis stays with the grant"
+    );
+    assert_eq!(stored, Some(active));
+}
+
+/// §13.7 item 4: ownership of a waiting owner-decision grant moves by
+/// compare-and-swap on the expected owner, only while the grant waits.
+#[test]
+fn transfer_waiting_grant_is_a_cas_on_the_owner_while_waiting() {
+    let s = mem();
+    let waiting = GrantSnapshot {
+        source: AuthorizationSource::OwnerDecision {
+            operation_id: op_id(1),
+        },
+        ..grant(1, None, plus(t0(), 7200), GrantState::AwaitingApproval)
+    };
+    let standing = grant(2, None, plus(t0(), 7200), GrantState::AwaitingApproval);
+    s.transaction(|tx| {
+        tx.insert_grant(&waiting)?;
+        tx.insert_grant(&standing)
+    })
+    .unwrap();
+    s.transaction(|tx| tx.transfer_waiting_grant(&waiting.id, &op_id(1), &op_id(2)))
+        .unwrap();
+    let moved = s.transaction(|tx| tx.grant(&waiting.id)).unwrap().unwrap();
+    assert_eq!(
+        moved.source,
+        AuthorizationSource::OwnerDecision {
+            operation_id: op_id(2)
+        }
+    );
+    assert_eq!(
+        GrantSnapshot {
+            source: waiting.source.clone(),
+            ..moved.clone()
+        },
+        waiting,
+        "only the owner changed"
+    );
+    // A stale expectation, a non-owner-decision source, and a grant that left
+    // the decision stage are refused and change nothing.
+    for (gid, from) in [(&waiting.id, op_id(1)), (&standing.id, op_id(1))] {
+        let e = s
+            .transaction(|tx| tx.transfer_waiting_grant(gid, &from, &op_id(9)))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)));
+    }
+    let mut preparing = moved.clone();
+    preparing.state = GrantState::Preparing;
+    s.transaction(|tx| tx.update_grant_state(&preparing))
+        .unwrap();
+    let e = s
+        .transaction(|tx| tx.transfer_waiting_grant(&waiting.id, &op_id(2), &op_id(3)))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::GenerationConflict(_)));
+    assert_eq!(
+        s.transaction(|tx| tx.grant(&waiting.id)).unwrap(),
+        Some(preparing)
+    );
+    let e = s
+        .transaction(|tx| {
+            tx.transfer_waiting_grant(&GrantId::from_random_bytes([77; 16]), &op_id(1), &op_id(2))
+        })
+        .unwrap_err();
+    assert!(matches!(e, StoreError::Sqlite(_)));
+}
+
+/// §13.7 items 2 and 4: a pending approval record moves to another waiting
+/// operation (same ID, delta, generation and expiry; still pending) by CAS, and a
+/// withdrawn record is no longer pending and can never be completed.
+#[test]
+fn decisions_transfer_and_withdraw_by_cas_on_pending() {
+    let s = mem();
+    let approval = |b: u8, op: u64| DecisionRecord {
+        kind: DecisionKind::ApproveAuthority {
+            operation: op_id(op),
+            delta: approval_basis(b).delta,
+        },
+        ..decision(b, 0)
+    };
+    let a = approval(1, 1);
+    let widen = decision(2, 0);
+    s.transaction(|tx| {
+        tx.insert_decision(&a)?;
+        tx.insert_decision(&widen)
+    })
+    .unwrap();
+    let moved = s
+        .transaction(|tx| tx.transfer_decision(&a.id, &op_id(1), &op_id(2)))
+        .unwrap();
+    assert_eq!(
+        moved,
+        DecisionRecord {
+            kind: DecisionKind::ApproveAuthority {
+                operation: op_id(2),
+                delta: approval_basis(1).delta,
+            },
+            ..a.clone()
+        }
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.decision(&a.id)).unwrap(),
+        Some(moved.clone())
+    );
+    for (id, from) in [(&a.id, op_id(1)), (&widen.id, op_id(1))] {
+        let e = s
+            .transaction(|tx| tx.transfer_decision(id, &from, &op_id(3)))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)));
+    }
+    let withdrawn = s.transaction(|tx| tx.withdraw_decision(&a.id)).unwrap();
+    assert_eq!(withdrawn.state, DecisionState::Withdrawn);
+    assert_eq!(withdrawn.decided_at, None, "no verdict");
+    let (pending, stored) = s
+        .transaction(|tx| Ok((tx.pending_decisions()?, tx.decision(&a.id)?)))
+        .unwrap();
+    assert_eq!(pending, vec![widen.clone()]);
+    assert_eq!(stored, Some(withdrawn.clone()));
+    // Never completable, never withdrawn or moved again.
+    let done = s
+        .transaction(|tx| tx.complete_decision(&a.id, Verdict::Approve, plus(t0(), 1)))
+        .unwrap();
+    assert!(matches!(done, DecisionCompletion::Refused { .. }));
+    for r in [
+        s.transaction(|tx| tx.withdraw_decision(&a.id).map(|_| ())),
+        s.transaction(|tx| {
+            tx.transfer_decision(&a.id, &op_id(2), &op_id(3))
+                .map(|_| ())
+        }),
+    ] {
+        assert!(matches!(r, Err(StoreError::GenerationConflict(_))));
+    }
+    assert_eq!(
+        s.transaction(|tx| tx.decision(&a.id)).unwrap(),
+        Some(withdrawn)
+    );
+    let e = s
+        .transaction(|tx| tx.withdraw_decision(&DecisionId::from_random_bytes([77; 16])))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::Sqlite(_)));
+}
+
+/// §13.7 item 2: the covered basis of a recovery intent is add-only, like the
+/// approval basis, and absent (not null) when unset.
+#[test]
+fn recovery_intent_covered_basis_is_add_only() {
+    use heimdall_domain::operation::CoveredBasis;
+    let s = mem();
+    let (op, idem) = simple_op(5);
+    s.transaction(|tx| tx.insert_operation(&op, &idem)).unwrap();
+    let waiting = RecoveryIntent {
+        request: request_doc(5),
+        resolved: Some(ResolvedIntent {
+            grant: Some(GrantId::from_random_bytes([4; 16])),
+            ..resolved_intent()
+        }),
+    };
+    let with = |g: u64| {
+        let mut i = waiting.clone();
+        if let Some(r) = i.resolved.as_mut() {
+            r.covered = Some(CoveredBasis {
+                generation: AuthorityGeneration(g),
+                policy_revision: Some(PolicyRevision(2)),
+            });
+        }
+        i
+    };
+    s.transaction(|tx| {
+        tx.set_recovery_intent(&op.id, &waiting)?;
+        tx.set_recovery_intent(&op.id, &with(4))?;
+        tx.set_recovery_intent(&op.id, &with(4))
+    })
+    .unwrap();
+    for bad in [with(5), waiting.clone()] {
+        let e = s
+            .transaction(|tx| tx.set_recovery_intent(&op.id, &bad))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)));
+    }
+    assert_eq!(
+        s.transaction(|tx| tx.recovery_intent(&op.id)).unwrap(),
+        Some(with(4))
+    );
+    let doc = serde_json::to_value(resolved_intent()).unwrap();
+    assert!(doc.get("covered").is_none(), "absent, not null, when unset");
 }

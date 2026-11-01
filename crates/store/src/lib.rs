@@ -185,6 +185,11 @@ const REQUIRED_TABLES: &[&str] = &[
     "credential_instances",
 ];
 
+/// Columns added to existing tables that the current schema must contain
+/// (schema version 3: the approval basis persisted with the grant, ADR-0006 §13.7
+/// item 3).
+const REQUIRED_COLUMNS: &[(&str, &str)] = &[("grants", "approval_json")];
+
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
 /// Per-environment retention boundary: `event_tail:<environment id>`.
@@ -385,6 +390,20 @@ fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
         if !present {
             return Err(StoreError::Corrupt(format!(
                 "required table {table} is missing"
+            )));
+        }
+    }
+    for (table, column) in REQUIRED_COLUMNS {
+        let present: bool = conn
+            .query_row(
+                "SELECT count(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2",
+                [table, column],
+                |r| r.get(0),
+            )
+            .map_err(codec::classify)?;
+        if !present {
+            return Err(StoreError::Corrupt(format!(
+                "required column {table}.{column} is missing"
             )));
         }
     }
@@ -1651,7 +1670,8 @@ mod tests {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
-        assert_eq!(migrations::SCHEMA_VERSION, 2);
+        // 0001 → 0002 → 0003 in one open (0003: the approval basis column).
+        assert_eq!(migrations::SCHEMA_VERSION, 3);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -1719,10 +1739,11 @@ mod tests {
         })
         .unwrap();
         drop(s);
-        // Reopening at v2 neither migrates nor backs up again.
+        // Reopening at the current version neither migrates nor backs up again.
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 2);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         assert!(!backup_path(&db, ".v1.backup.1").exists());
+        assert!(!backup_path(&db, ".v2.backup").exists());
     }
 
     #[test]
@@ -1772,6 +1793,276 @@ mod tests {
         drop(c);
         // The good migration still applies afterwards.
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
+    }
+
+    // --- migration 0002 -> 0003 on a populated v2 database (ADR-0006 §13.7 item 3) ---
+
+    fn v2_grant(b: u8, source: heimdall_domain::grant::AuthorizationSource) -> GrantSnapshot {
+        GrantSnapshot {
+            id: GrantId::from_random_bytes([b; 16]),
+            source,
+            ..v1_grant()
+        }
+    }
+
+    fn v2_basis(decision: u8) -> heimdall_domain::operation::ApprovalBasis {
+        use heimdall_domain::policy::PolicyRevision;
+        heimdall_domain::operation::ApprovalBasis {
+            decision: heimdall_contract::ids::DecisionId::from_random_bytes([decision; 16]),
+            delta: heimdall_domain::authority::AuthorityDelta {
+                added_scope: heimdall_domain::scope::Scope::empty(),
+                extra_window: Some(std::time::Duration::from_secs(600)),
+                environment_not_covered: false,
+            },
+            generation: AuthorityGeneration(3),
+            policy_revision: Some(PolicyRevision(2)),
+        }
+    }
+
+    fn v2_intent(
+        grant: &GrantId,
+        approval: Option<heimdall_domain::operation::ApprovalBasis>,
+    ) -> heimdall_domain::operation::RecoveryIntent {
+        let g = v1_grant();
+        heimdall_domain::operation::RecoveryIntent {
+            request: serde_json::json!({"op": "ensure", "request_id": "r"}),
+            resolved: Some(heimdall_domain::operation::ResolvedIntent {
+                profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
+                profile_revision: 1,
+                scope: g.scope,
+                deadline: g.deadline,
+                policy_revision: None,
+                generation: AuthorityGeneration(2),
+                grant: Some(grant.clone()),
+                binding: None,
+                adapter: None,
+                approval,
+                covered: None,
+            }),
+        }
+    }
+
+    /// A v2 database as a v2 build leaves it (migrations 0001 and 0002 only): an
+    /// owner-approved grant whose basis lives in the recovery intents of its creator
+    /// and of a request that joined it, a standing-policy grant, an approved grant
+    /// whose operations were already purged, a malformed recovery intent, a pending
+    /// decision and a tombstone. Returns (approved, standing, purged) grant IDs.
+    fn populated_v2(db: &Path) -> (GrantId, GrantId, GrantId) {
+        use heimdall_domain::grant::AuthorizationSource;
+        use heimdall_domain::policy::PolicyRevision;
+        let s = Store::open_with_steps(db, Arc::new(NoFaults), &migrations::MIGRATIONS[..2], false)
+            .unwrap();
         assert_eq!(s.schema_version().unwrap(), 2);
+        let creator = v1_op(11, OperationState::Succeeded);
+        let joiner = v1_op(12, OperationState::Succeeded);
+        let standing_op = v1_op(13, OperationState::Succeeded);
+        let malformed_op = v1_op(14, OperationState::Queued);
+        let approved = v2_grant(
+            21,
+            AuthorizationSource::OwnerDecision {
+                operation_id: creator.0.id.clone(),
+            },
+        );
+        let standing = v2_grant(
+            22,
+            AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(1),
+            },
+        );
+        let purged = v2_grant(
+            23,
+            AuthorizationSource::OwnerDecision {
+                operation_id: OperationId::from_random_bytes([99; 16]),
+            },
+        );
+        let env = EnvironmentId::from_random_bytes([7; 16]);
+        s.transaction(|tx| {
+            tx.init_self_environment(&env)?;
+            for (op, idem) in [&creator, &joiner, &standing_op, &malformed_op] {
+                tx.insert_operation(op, idem)?;
+            }
+            for g in [&approved, &standing, &purged] {
+                tx.insert_grant(g)?;
+            }
+            tx.set_recovery_intent(&creator.0.id, &v2_intent(&approved.id, Some(v2_basis(31))))?;
+            tx.set_recovery_intent(&joiner.0.id, &v2_intent(&approved.id, Some(v2_basis(31))))?;
+            tx.set_recovery_intent(&standing_op.0.id, &v2_intent(&standing.id, None))?;
+            tx.insert_decision(&heimdall_domain::decision::DecisionRecord {
+                id: heimdall_contract::ids::DecisionId::from_random_bytes([32; 16]),
+                kind: heimdall_domain::decision::DecisionKind::ApproveAuthority {
+                    operation: malformed_op.0.id.clone(),
+                    delta: v2_basis(32).delta,
+                },
+                generation: AuthorityGeneration(1),
+                created_at: ts("2026-10-01T00:00:00Z"),
+                expires_at: ts("2026-10-01T00:15:00Z"),
+                state: heimdall_domain::decision::DecisionState::Pending,
+                decided_at: None,
+            })?;
+            tx.insert_tombstone(&Tombstone {
+                grant: GrantId::from_random_bytes([6; 16]),
+                cascade: Vec::new(),
+                generation: AuthorityGeneration(0),
+                revoked_at: ts("2026-10-01T00:00:00Z"),
+                remote_pending: Vec::new(),
+            })?;
+            Ok(())
+        })
+        .unwrap();
+        // Written past the API: a recovery intent that is not JSON at all.
+        s.lock()
+            .execute(
+                "INSERT INTO recovery_intents (operation_id, record_json) VALUES (?1, 'not json')",
+                [malformed_op.0.id.as_str()],
+            )
+            .unwrap();
+        (approved.id, standing.id, purged.id)
+    }
+
+    #[test]
+    fn migration_0003_preserves_a_populated_v2_database_and_backfills_the_basis() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        let (approved, standing, purged) = populated_v2(&db);
+        let tables = [
+            "operations",
+            "idempotency",
+            "grants",
+            "recovery_intents",
+            "decisions",
+            "tombstones",
+            "meta",
+        ];
+        let before: Vec<(String, i64)> = {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            tables
+                .iter()
+                .map(|t| ((*t).to_owned(), table_count(&c, t)))
+                .collect()
+        };
+        assert!(
+            before.iter().all(|(_, n)| *n > 0),
+            "fixture populated every table"
+        );
+        let grants_before: Vec<GrantSnapshot> = {
+            let s = Store::open_with_steps(
+                &db,
+                Arc::new(NoFaults),
+                &migrations::MIGRATIONS[..2],
+                false,
+            )
+            .unwrap();
+            s.transaction(|tx| {
+                let mut out = Vec::new();
+                for g in [&approved, &standing, &purged] {
+                    out.push(tx.grant(g)?.unwrap());
+                }
+                Ok(out)
+            })
+            .unwrap()
+        };
+
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 3);
+        assert!(
+            backup_path(&db, ".v2.backup").exists(),
+            "v2 file backed up first"
+        );
+        {
+            let c = s.lock();
+            for (table, n) in &before {
+                assert_eq!(table_count(&c, table), *n, "{table} rows preserved");
+            }
+            let fk_violation = c
+                .prepare("PRAGMA foreign_key_check")
+                .and_then(|mut st| st.exists([]))
+                .unwrap();
+            assert!(!fk_violation);
+        }
+        s.transaction(|tx| {
+            for g in &grants_before {
+                assert_eq!(tx.grant(&g.id)?.as_ref(), Some(g), "grant record unchanged");
+            }
+            // The basis moved to the grant row; the recovery intents keep theirs.
+            assert_eq!(tx.grant_approval(&approved)?, Some(v2_basis(31)));
+            assert_eq!(tx.grant_approval(&standing)?, None);
+            assert_eq!(
+                tx.grant_approval(&purged)?,
+                None,
+                "no basis left to backfill: re-validated against the policy alone"
+            );
+            assert_eq!(tx.pending_decisions()?.len(), 1);
+            assert_eq!(tx.authority_generation()?, AuthorityGeneration(1));
+            // Retention purges the approving operations; the basis stays.
+            assert!(tx.purge_operations_before(ts("2026-12-01T00:00:00Z"))? >= 2);
+            assert_eq!(tx.grant_approval(&approved)?, Some(v2_basis(31)));
+            // Written once afterwards too.
+            tx.set_grant_approval(&approved, &v2_basis(31))?;
+            assert!(matches!(
+                tx.set_grant_approval(&approved, &v2_basis(33)),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            tx.set_grant_approval(&purged, &v2_basis(34))?;
+            assert_eq!(tx.grant_approval(&purged)?, Some(v2_basis(34)));
+            Ok(())
+        })
+        .unwrap();
+        drop(s);
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 3);
+        assert!(
+            !backup_path(&db, ".v2.backup.1").exists(),
+            "no second migration"
+        );
+    }
+
+    #[test]
+    fn failing_0003_step_leaves_the_v2_database_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        let (approved, ..) = populated_v2(&db);
+        // Migration 0003 with a statement that fails after the column and backfill.
+        let broken: &'static str =
+            Box::leak(format!("{}\nNOT SQL;", migrations::MIGRATIONS[2].sql).into_boxed_str());
+        let steps: &'static [Migration] = Box::leak(Box::new([
+            migrations::MIGRATIONS[0],
+            migrations::MIGRATIONS[1],
+            Migration {
+                version: 3,
+                name: "grant_approval_broken",
+                sql: broken,
+            },
+        ]));
+        assert!(Store::open_with_steps(&db, Arc::new(NoFaults), steps, true).is_err());
+        let c = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(migrations::user_version(&c).unwrap(), 2);
+        let column: i64 = c
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('grants') WHERE name = 'approval_json'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(column, 0, "no half-applied 0003 column");
+        assert_eq!(table_count(&c, "grants"), 3);
+        drop(c);
+        // A v3 file missing the column is refused as corrupt, never used.
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 3);
+        s.transaction(|tx| {
+            assert_eq!(tx.grant_approval(&approved)?, Some(v2_basis(31)));
+            Ok(())
+        })
+        .unwrap();
+        drop(s);
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch("ALTER TABLE grants DROP COLUMN approval_json;")
+            .unwrap();
+        drop(c);
+        assert!(matches!(
+            Store::open(&db, Arc::new(NoFaults)),
+            Err(StoreError::Corrupt(_))
+        ));
     }
 }

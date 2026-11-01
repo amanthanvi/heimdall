@@ -22,16 +22,16 @@ use heimdall_contract::ids::{
     ProfileId, WorkId,
 };
 use heimdall_contract::request::Verdict;
-use heimdall_contract::{OperationState, Timestamp};
+use heimdall_contract::{GrantState, OperationState, Timestamp};
 use heimdall_domain::binding::{BindingRecord, BindingState, ReleaseOutcome};
-use heimdall_domain::decision::{DecisionRecord, DecisionRefusal, DecisionState};
+use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionRefusal, DecisionState};
 use heimdall_domain::environment::EnvironmentRecord;
-use heimdall_domain::grant::GrantReference;
+use heimdall_domain::grant::{AuthorizationSource, GrantReference};
 use heimdall_domain::idempotency::{ExpiredKeyMarker, IdempotencyKey, KeyHash};
 use heimdall_domain::issuance::{
     CredentialInstance, CredentialState, IssuanceEntry, IssuanceRefusal, IssuanceState,
 };
-use heimdall_domain::operation::{OperationRecord, RecoveryIntent, StageReceipt};
+use heimdall_domain::operation::{ApprovalBasis, OperationRecord, RecoveryIntent, StageReceipt};
 use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::{ProfileDefinition, ProfileSnapshot};
@@ -127,6 +127,7 @@ fn intent_update_allowed(old: &RecoveryIntent, new: &RecoveryIntent) -> bool {
                 && kept(&a.binding, &b.binding)
                 && kept(&a.adapter, &b.adapter)
                 && kept(&a.approval, &b.approval)
+                && kept(&a.covered, &b.covered)
         }
     }
 }
@@ -419,6 +420,65 @@ impl Txn<'_> {
         )
     }
 
+    /// ⟨r2.4⟩ Move a pending `ApproveAuthority` record from the waiting operation
+    /// `from` to the waiting operation `to` (ADR-0006 §13.7 item 4: the shared
+    /// decision follows its shared grant to the oldest remaining waiter and stays
+    /// pending). Compare-and-swap on `Pending` and on the recorded operation; the
+    /// ID, delta, generation, creation and expiry are unchanged. Anything else is
+    /// a [`StoreError::GenerationConflict`]; a missing decision is
+    /// `Sqlite(QueryReturnedNoRows)`. Returns the record after the move.
+    pub fn transfer_decision(
+        &mut self,
+        id: &DecisionId,
+        from: &OperationId,
+        to: &OperationId,
+    ) -> Result<DecisionRecord> {
+        let Some(mut record) = self.decision(id)? else {
+            return Err(missing());
+        };
+        if record.state != DecisionState::Pending {
+            return Err(conflict(format!("decision {id} is not pending")));
+        }
+        match &mut record.kind {
+            DecisionKind::ApproveAuthority { operation, .. } if operation == from => {
+                *operation = to.clone();
+            }
+            _ => {
+                return Err(conflict(format!(
+                    "decision {id} does not belong to the expected operation"
+                )));
+            }
+        }
+        let n = self.tx.execute(
+            "UPDATE decisions SET kind_json = ?2, record_json = ?3 WHERE id = ?1 AND state = ?4",
+            rusqlite::params![
+                id.as_str(),
+                codec::doc(&record.kind)?,
+                codec::doc(&record)?,
+                codec::enum_str(&DecisionState::Pending)?,
+            ],
+        )?;
+        if n == 0 {
+            return Err(conflict(format!("decision {id} is not pending")));
+        }
+        Ok(record)
+    }
+
+    /// ⟨r2.4⟩ Withdraw a pending decision without a verdict (ADR-0006 §13.7 items 2
+    /// and 4): it moves to [`DecisionState::Withdrawn`], `decided_at` stays empty,
+    /// and it can never be completed. Compare-and-swap on `Pending`: any other
+    /// state is a [`StoreError::GenerationConflict`] and leaves the record
+    /// unchanged; a missing decision is `Sqlite(QueryReturnedNoRows)`. Returns the
+    /// record after the change.
+    pub fn withdraw_decision(&mut self, id: &DecisionId) -> Result<DecisionRecord> {
+        let Some(mut record) = self.decision(id)? else {
+            return Err(missing());
+        };
+        record.state = DecisionState::Withdrawn;
+        self.write_decision(&record)?;
+        Ok(record)
+    }
+
     // --- R4: bindings, profiles, environments, policy lookup, denial reads ---------
 
     /// Insert a binding and its grant reference atomically.
@@ -620,14 +680,22 @@ impl Txn<'_> {
         )
     }
 
-    /// Upsert an environment record.
+    /// Upsert an environment record and advance the authority generation in the
+    /// same transaction.
+    ///
+    /// ⟨r2.4⟩ ADR-0006 §13.7 item 5: **every** accepted write moves the generation,
+    /// as policy writes do (§13.6 item 5), so a change in enrolled environment
+    /// permissions (spec §6.2: they bound the effective set) triggers re-validation
+    /// (§13.5 ruling 2) and voids a reservation made before it. A write rolled back
+    /// with its transaction moves nothing.
     pub fn upsert_environment(&mut self, environment: &EnvironmentRecord) -> Result<()> {
         self.tx.execute(
             "INSERT INTO environments (id, record_json, updated_at) VALUES (?1, ?2, '')
              ON CONFLICT(id) DO UPDATE SET record_json = excluded.record_json",
             rusqlite::params![environment.id.as_str(), codec::doc(environment)?],
         )?;
-        Ok(())
+        let next = self.authority_generation()?.next();
+        self.set_meta(crate::META_AUTHORITY_GENERATION, &next.0.to_string())
     }
 
     /// Load an environment record.
@@ -744,6 +812,91 @@ impl Txn<'_> {
         )
     }
 
+    // --- ⟨r2.4⟩ ADR-0006 §13.7 items 3 and 4: approval basis and waiting owner ---
+
+    /// Persist the approval basis of an owner-approved grant **with the grant**
+    /// (schema version 3, `grants.approval_json`), in the transaction that records
+    /// the approval (ADR-0006 §13.7 item 3).
+    ///
+    /// Operation retention never touches it: it outlives the purge of the approving
+    /// operation and its recovery intent. Written once: recording the same basis
+    /// again is a no-op; a different basis is a [`StoreError::GenerationConflict`]
+    /// and leaves the stored one unchanged. A missing grant is
+    /// `Sqlite(QueryReturnedNoRows)`.
+    pub fn set_grant_approval(&mut self, grant: &GrantId, basis: &ApprovalBasis) -> Result<()> {
+        if let Some(existing) = self.grant_approval(grant)? {
+            if existing == *basis {
+                return Ok(());
+            }
+            return Err(conflict(format!(
+                "grant {grant} already records its approval basis"
+            )));
+        }
+        let n = self.tx.execute(
+            "UPDATE grants SET approval_json = ?2 WHERE id = ?1 AND approval_json IS NULL",
+            rusqlite::params![grant.as_str(), codec::doc(basis)?],
+        )?;
+        if n == 0 {
+            return Err(missing());
+        }
+        Ok(())
+    }
+
+    /// The approval basis recorded with `grant`, if it was approved by the owner
+    /// (`None` for standing-policy and delegated grants, for a grant approved
+    /// before schema version 3 whose operation was already purged, and for a
+    /// missing grant).
+    pub fn grant_approval(&mut self, grant: &GrantId) -> Result<Option<ApprovalBasis>> {
+        let doc: Option<Option<String>> = self
+            .tx
+            .query_row(
+                "SELECT approval_json FROM grants WHERE id = ?1",
+                [grant.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        doc.flatten().as_deref().map(codec::parse_doc).transpose()
+    }
+
+    /// Move the ownership of a **waiting** owner-decision grant from operation
+    /// `from` to operation `to` (ADR-0006 §13.7 item 4: cancelling the request that
+    /// created a shared decision hands the shared grant to the oldest remaining
+    /// waiter). Compare-and-swap: the grant must be `requested` or
+    /// `awaiting_approval` and its source must be `OwnerDecision { from }`;
+    /// otherwise [`StoreError::GenerationConflict`] and nothing changes. Only the
+    /// source's operation changes; scope, deadline, state and every other field
+    /// keep their stored values. A missing grant is `Sqlite(QueryReturnedNoRows)`.
+    pub fn transfer_waiting_grant(
+        &mut self,
+        grant: &GrantId,
+        from: &OperationId,
+        to: &OperationId,
+    ) -> Result<()> {
+        let Some(mut stored) = self.grant(grant)? else {
+            return Err(missing());
+        };
+        if !matches!(
+            stored.state,
+            GrantState::Requested | GrantState::AwaitingApproval
+        ) {
+            return Err(conflict(format!("grant {grant} is no longer waiting")));
+        }
+        if !matches!(&stored.source, AuthorizationSource::OwnerDecision { operation_id } if operation_id == from)
+        {
+            return Err(conflict(format!(
+                "grant {grant} is not owned by the expected operation"
+            )));
+        }
+        stored.source = AuthorizationSource::OwnerDecision {
+            operation_id: to.clone(),
+        };
+        self.tx.execute(
+            "UPDATE grants SET record_json = ?2 WHERE id = ?1",
+            rusqlite::params![grant.as_str(), codec::doc(&stored)?],
+        )?;
+        Ok(())
+    }
+
     // --- R5: recovery intent and stage receipts ----------------------------------------
 
     /// Persist the redacted recovery intent (written before any effect).
@@ -751,8 +904,8 @@ impl Txn<'_> {
     /// The operation must exist (foreign key). An update may only add facts: the
     /// request is immutable; once `resolved` is set it cannot be cleared, its
     /// pinned profile revision, scope, deadline, policy revision and generation
-    /// never change, and an assigned grant, binding, adapter or approval basis is
-    /// never replaced.
+    /// never change, and an assigned grant, binding, adapter, approval basis or
+    /// covered basis (⟨r2.4⟩ ADR-0006 §13.7 item 2) is never replaced.
     /// Anything else is a [`StoreError::GenerationConflict`]. Key armor is refused.
     pub fn set_recovery_intent(
         &mut self,

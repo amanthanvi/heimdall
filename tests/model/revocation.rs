@@ -1554,7 +1554,8 @@ fn set_policy_hosts(store: &Store, names: &[&str]) {
         .unwrap();
 }
 
-/// Turn the environment's automatic activation on or off (no generation move).
+/// Turn the environment's automatic activation on or off (an environment write:
+/// it moves the authority generation, ADR-0006 §13.7 item 5).
 fn set_automatic_activation(store: &Store, on: bool) {
     store
         .transaction(|tx| {
@@ -2991,6 +2992,737 @@ proptest! {
                     }
                 }
             }
+            Ok(())
+        })?;
+    }
+}
+
+// =================================================================================
+// ADR-0006 §13.7 rulings, authority side (M01-rulings-13-7-G1): items 2–5. Each case
+// was first run against the base commit and failed there (red); it passes with the
+// change. Only production hooks and public APIs are used.
+// =================================================================================
+
+/// Every decision ID announced on the event log so far (any state): a record that
+/// was ever inserted is announced in the inserting transaction.
+fn decision_ids_announced(w: &World) -> BTreeSet<String> {
+    let page = w
+        .store
+        .transaction(|tx| {
+            tx.stored_events_after(
+                &env_id(),
+                0,
+                &heimdall_contract::event::EventFilter::default(),
+                10_000,
+            )
+        })
+        .unwrap();
+    page.events
+        .into_iter()
+        .filter(|e| e.event.event_type == heimdall_contract::event::EventType::Decision)
+        .filter_map(|e| e.event.payload["decision_id"].as_str().map(str::to_owned))
+        .collect()
+}
+
+fn decision_state(w: &World, d: &DecisionId) -> DecisionState {
+    w.store
+        .transaction(|tx| tx.decision(d))
+        .unwrap()
+        .unwrap()
+        .state
+}
+
+fn decision_operation(w: &World, d: &DecisionId) -> OperationId {
+    match w
+        .store
+        .transaction(|tx| tx.decision(d))
+        .unwrap()
+        .unwrap()
+        .kind
+    {
+        DecisionKind::ApproveAuthority { operation, .. } => operation,
+        other => panic!("not an approval record: {other:?}"),
+    }
+}
+
+async fn cancel_op(w: &World, id: &OperationId) {
+    let r = w
+        .ops
+        .cancel(
+            &owner(501),
+            heimdall_contract::request::CancelRequest {
+                operation_id: id.clone(),
+            },
+        )
+        .await;
+    scan(&r);
+    r.unwrap();
+}
+
+/// §13.7 item 2: a request waiting for h3 whose recomputed delta is empty after the
+/// owner widened the standing policy to cover h3 proceeds as a standing-policy
+/// activation on the same-key retry: no decision record is issued (the earlier
+/// one is no longer pending and cannot be approved), exactly one effect, and the
+/// grant rests on standing policy alone (no approval basis).
+#[tokio::test]
+async fn r137_2_a_fully_covered_waiting_request_activates_without_a_decision() {
+    let w = World::new().await;
+    let first = w
+        .ensure("req-r137-2", "work-r137-2", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(first.code, Code::InteractionRequired);
+    let op = first.operation_id.clone().unwrap();
+    let d1 = dec_of(&first);
+    assert_eq!(delta_of(&w, &d1).added_scope.pairs, hosts(&["h3"]));
+    // The owner widens the saved standing policy to cover h3 as well.
+    set_policy_hosts(&w.store, &["h1", "h2", "h3"]);
+    let announced = decision_ids_announced(&w);
+    let ready = w
+        .ensure("req-r137-2", "work-r137-2", &["h1", "h3"], None)
+        .await;
+    let ready = match ready {
+        Ok(r) => r,
+        Err(e) => panic!(
+            "a fully covered waiting request must activate: {} {}",
+            e.code, e.message
+        ),
+    };
+    assert_eq!(ready.code, Code::AccessReady);
+    assert_eq!(ready.operation_id, Some(op.clone()), "the same operation");
+    assert_eq!(w.fake.effect_count(), 1, "one effect");
+    assert_eq!(
+        w.grant(&ready.data.grant_id).scope.pairs,
+        hosts(&["h1", "h3"])
+    );
+    assert_eq!(
+        decision_ids_announced(&w),
+        announced,
+        "no decision record was issued for the covered request"
+    );
+    assert!(
+        pending_approvals(&w).is_empty(),
+        "the earlier record is withdrawn"
+    );
+    assert_ne!(decision_state(&w, &d1), DecisionState::Approved);
+    assert_eq!(
+        code_of(&decide_as(&w, &d1, Verdict::Approve).await),
+        Code::DecisionStale
+    );
+    let intent = w
+        .store
+        .transaction(|tx| tx.recovery_intent(&op))
+        .unwrap()
+        .unwrap()
+        .resolved
+        .unwrap();
+    assert!(intent.approval.is_none(), "no owner approval was recorded");
+    // Standing-policy semantics afterwards: a narrowing that removes h3 from the
+    // policy ends continuing use (nothing approved h3).
+    set_policy_hosts(&w.store, &["h1", "h2"]);
+    let after = w.bind(&ready.data.binding_id, "req-r137-2-b").await;
+    assert_eq!(code_of(&after), Code::CredentialExpired);
+    // A same-key replay returns the recorded result.
+    let replay = w
+        .ensure("req-r137-2", "work-r137-2", &["h1", "h3"], None)
+        .await
+        .unwrap();
+    assert_eq!(replay.data.binding_id, ready.data.binding_id);
+    assert_eq!(w.fake.effect_count(), 1);
+}
+
+/// §13.7 item 2 with a shared (coalesced) waiting request: the retry of the request
+/// that joined activates both waiters, with one grant, one effect and separate
+/// references; the normal pause check still applies first.
+#[tokio::test]
+async fn r137_2_a_fully_covered_shared_request_activates_every_waiter_once() {
+    let w = World::new().await;
+    let a = w
+        .ensure("req-r137-2s1", "work-r137-2s", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let b = w
+        .ensure("req-r137-2s2", "work-r137-2s", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(dec_of(&a), dec_of(&b), "one shared record");
+    set_policy_hosts(&w.store, &["h1", "h2", "h3"]);
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap();
+    let paused = w
+        .ensure("req-r137-2s2", "work-r137-2s", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        paused.code,
+        Code::PolicyPaused,
+        "the pause check still applies"
+    );
+    assert_eq!(w.fake.effect_count(), 0);
+    let resume = w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Resume {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap_err();
+    decide_as(&w, &dec_of(&resume), Verdict::Approve)
+        .await
+        .unwrap();
+    let rb = w
+        .ensure("req-r137-2s2", "work-r137-2s", &["h1", "h3"], None)
+        .await;
+    let rb = match rb {
+        Ok(r) => r,
+        Err(e) => panic!("the joined request must activate: {} {}", e.code, e.message),
+    };
+    let ra = w
+        .ensure("req-r137-2s1", "work-r137-2s", &["h1", "h3"], None)
+        .await
+        .unwrap();
+    assert_eq!(ra.code, Code::AccessReady);
+    assert_eq!(rb.code, Code::AccessReady);
+    assert_eq!(ra.operation_id, a.operation_id);
+    assert_eq!(rb.operation_id, b.operation_id);
+    assert_eq!(ra.data.grant_id, rb.data.grant_id, "one grant");
+    assert_ne!(
+        ra.data.binding_id, rb.data.binding_id,
+        "separate references"
+    );
+    assert_eq!(w.fake.effect_count(), 1, "one effect");
+    assert!(pending_approvals(&w).is_empty());
+}
+
+/// An approved h1+h3 grant (policy h1,h2; approved delta h3), activated, whose
+/// settled operation (with its recovery intent) has been purged by retention.
+async fn approved_then_purged(w: &World, rid: &str, work: &str) -> EnsureData {
+    let pending = w.ensure(rid, work, &["h1", "h3"], None).await.unwrap_err();
+    let op = pending.operation_id.clone().unwrap();
+    assert_eq!(
+        delta_of(w, &dec_of(&pending)).added_scope.pairs,
+        hosts(&["h3"])
+    );
+    decide_as(w, &dec_of(&pending), Verdict::Approve)
+        .await
+        .unwrap();
+    let ready = w.ready(rid, work, &["h1", "h3"], None).await;
+    let purged = w
+        .store
+        .transaction(|tx| tx.purge_operations_before(at(30 * 24 * 3600)))
+        .unwrap();
+    assert!(purged >= 1, "retention purged the settled operation");
+    assert!(
+        w.store
+            .transaction(|tx| tx.recovery_intent(&op))
+            .unwrap()
+            .is_none(),
+        "the operation's recovery intent went with it"
+    );
+    ready
+}
+
+/// §13.7 item 3: the approval basis survives operation retention: after the purge,
+/// an unrelated generation move re-validates the owner-approved grant against
+/// (standing policy ∪ approved delta), and binding and issuance continue.
+#[tokio::test]
+async fn r137_3_an_approved_grant_survives_purge_of_its_operation_and_revalidates() {
+    let w = World::new().await;
+    let g = approved_then_purged(&w, "req-r137-3a", "work-r137-3a").await;
+    bump_unrelated(&w.store, 1);
+    let bound = w.bind(&g.binding_id, "req-r137-3a-b1").await;
+    assert_eq!(code_of(&bound), Code::AccessReady);
+    bump_unrelated(&w.store, 2);
+    w.ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap_or_else(|e| panic!("continuing issuance refused: {} {}", e.code, e.message));
+}
+
+/// §13.7 item 3: a narrowing that removes a policy-covered part the approval did
+/// not cover (h1) ends the owner-approved grant with the denial's code; binding
+/// and issuance are refused. Also after the operation was purged.
+#[tokio::test]
+async fn r137_3_a_narrowing_outside_the_approved_delta_ends_the_grant() {
+    let w = World::new().await;
+    let g = approved_then_purged(&w, "req-r137-3b", "work-r137-3b").await;
+    set_policy_hosts(&w.store, &["h2"]);
+    let bound = w.bind(&g.binding_id, "req-r137-3b-b1").await;
+    assert_eq!(code_of(&bound), Code::CredentialExpired);
+    let e = w
+        .ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&e.message);
+    assert_eq!(e.code, Code::CredentialExpired);
+    // Without the purge (the recovery intent still present) the same holds.
+    let w = World::new().await;
+    let pending = w
+        .ensure("req-r137-3c", "work-r137-3c", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    decide_as(&w, &dec_of(&pending), Verdict::Approve)
+        .await
+        .unwrap();
+    let g = w
+        .ready("req-r137-3c", "work-r137-3c", &["h1", "h3"], None)
+        .await;
+    set_policy_hosts(&w.store, &["h2"]);
+    let bound = w.bind(&g.binding_id, "req-r137-3c-b1").await;
+    assert_eq!(code_of(&bound), Code::CredentialExpired);
+}
+
+/// §13.7 item 3: a narrowing that removes only parts the approval covers keeps the
+/// grant (policy h2 only, approved delta h1+h3; the policy then gains h1 and loses
+/// it again), and a pause never ends continuing work.
+#[tokio::test]
+async fn r137_3_a_narrowing_inside_the_approved_delta_and_a_pause_keep_the_grant() {
+    let w = World::new().await;
+    set_policy_hosts(&w.store, &["h2"]);
+    let pending = w
+        .ensure("req-r137-3d", "work-r137-3d", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        delta_of(&w, &dec_of(&pending)).added_scope.pairs,
+        hosts(&["h1", "h3"])
+    );
+    decide_as(&w, &dec_of(&pending), Verdict::Approve)
+        .await
+        .unwrap();
+    let g = w
+        .ready("req-r137-3d", "work-r137-3d", &["h1", "h3"], None)
+        .await;
+    w.store
+        .transaction(|tx| tx.purge_operations_before(at(30 * 24 * 3600)))
+        .unwrap();
+    set_policy_hosts(&w.store, &["h1", "h2"]);
+    assert_eq!(
+        code_of(&w.bind(&g.binding_id, "req-r137-3d-b1").await),
+        Code::AccessReady
+    );
+    set_policy_hosts(&w.store, &["h2"]);
+    assert_eq!(
+        code_of(&w.bind(&g.binding_id, "req-r137-3d-b2").await),
+        Code::AccessReady,
+        "the narrowing removed only h1, which the approval covers"
+    );
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        code_of(&w.bind(&g.binding_id, "req-r137-3d-b3").await),
+        Code::AccessReady,
+        "a pause never ends continuing work"
+    );
+    w.ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap_or_else(|e| panic!("continuing issuance refused: {} {}", e.code, e.message));
+}
+
+/// The absolute deadline every shared waiter asks for: exact deadline equality is
+/// the coalescing key (§13.7 item 4), so admissions a virtual second apart still
+/// share one decision while their creation times order them.
+fn shared_until() -> Option<DeadlineIntent> {
+    Some(DeadlineIntent::Absolute(at(3600).to_string()))
+}
+
+/// Three equivalent waiting requests share one decision and one grant (a creates,
+/// b then c join, each one virtual second after the previous).
+async fn shared_three(w: &World, tag: &str) -> (OpError, OpError, OpError, GrantId) {
+    let work = format!("work-{tag}");
+    let mut admitted = Vec::new();
+    for i in 1..=3 {
+        w.clock.advance(Duration::from_secs(1));
+        admitted.push(
+            w.ensure(
+                &format!("req-{tag}{i}"),
+                &work,
+                &["h1", "h3"],
+                shared_until(),
+            )
+            .await
+            .unwrap_err(),
+        );
+    }
+    let c = admitted.pop().unwrap();
+    let b = admitted.pop().unwrap();
+    let a = admitted.pop().unwrap();
+    assert_eq!(dec_of(&b), dec_of(&a));
+    assert_eq!(dec_of(&c), dec_of(&a));
+    let gid = grant_of_op(w, a.operation_id.as_ref().unwrap());
+    assert_eq!(grant_of_op(w, b.operation_id.as_ref().unwrap()), gid);
+    (a, b, c, gid)
+}
+
+/// §13.7 item 4: cancelling the creator of a shared decision does not fail the
+/// requests that joined it: the shared grant and the decision move to the oldest
+/// remaining waiter, the decision stays pending, and approving it completes the
+/// remaining waiters with one effect.
+#[tokio::test]
+async fn r137_4_cancelling_the_creator_moves_the_shared_decision_to_the_oldest_waiter() {
+    let w = World::new().await;
+    let (a, b, c, gid) = shared_three(&w, "r137-4a").await;
+    let d = dec_of(&a);
+    let (aop, bop) = (
+        a.operation_id.clone().unwrap(),
+        b.operation_id.clone().unwrap(),
+    );
+    cancel_op(&w, &aop).await;
+    assert_eq!(
+        op_of(&w, &aop).state,
+        heimdall_contract::OperationState::Cancelled
+    );
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::AwaitingApproval,
+        "the shared grant keeps waiting"
+    );
+    assert_eq!(decision_state(&w, &d), DecisionState::Pending);
+    assert_eq!(
+        w.grant(&gid).source,
+        heimdall_domain::grant::AuthorizationSource::OwnerDecision {
+            operation_id: bop.clone()
+        },
+        "the oldest remaining waiter owns the shared grant"
+    );
+    assert_eq!(decision_operation(&w, &d), bop, "and the decision");
+    let still = w
+        .ensure(
+            "req-r137-4a3",
+            "work-r137-4a",
+            &["h1", "h3"],
+            shared_until(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(still.code, Code::InteractionRequired);
+    assert_eq!(dec_of(&still), d, "the same pending decision");
+    let done = decide_as(&w, &d, Verdict::Approve).await.unwrap();
+    assert_eq!(done.data["operation_state"], "succeeded");
+    let rb = w
+        .ensure(
+            "req-r137-4a2",
+            "work-r137-4a",
+            &["h1", "h3"],
+            shared_until(),
+        )
+        .await
+        .unwrap();
+    let rc = w
+        .ensure(
+            "req-r137-4a3",
+            "work-r137-4a",
+            &["h1", "h3"],
+            shared_until(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rb.operation_id, b.operation_id);
+    assert_eq!(rc.operation_id, c.operation_id);
+    assert_eq!(rb.data.grant_id, gid);
+    assert_eq!(rc.data.grant_id, gid);
+    assert_eq!(w.fake.effect_count(), 1, "one effect");
+    let ra = w
+        .ensure(
+            "req-r137-4a1",
+            "work-r137-4a",
+            &["h1", "h3"],
+            shared_until(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ra.code,
+        Code::OperationCancelled,
+        "the creator stays cancelled"
+    );
+}
+
+/// §13.7 item 4: the shared grant ends only when every waiter has cancelled; then
+/// it is cancelled and its decision withdrawn (no longer pending, never
+/// completable).
+#[tokio::test]
+async fn r137_4_the_shared_grant_ends_only_when_every_waiter_cancelled() {
+    let w = World::new().await;
+    let (a, b, c, gid) = shared_three(&w, "r137-4b").await;
+    let d = dec_of(&a);
+    for (i, e) in [&a, &c].into_iter().enumerate() {
+        cancel_op(&w, e.operation_id.as_ref().unwrap()).await;
+        assert_eq!(
+            w.grant(&gid).state,
+            GrantState::AwaitingApproval,
+            "after {i}"
+        );
+        assert_eq!(decision_state(&w, &d), DecisionState::Pending, "after {i}");
+    }
+    cancel_op(&w, b.operation_id.as_ref().unwrap()).await;
+    assert_eq!(w.grant(&gid).state, GrantState::Cancelled);
+    assert!(
+        pending_approvals(&w).is_empty(),
+        "the decision is withdrawn"
+    );
+    assert_ne!(decision_state(&w, &d), DecisionState::Approved);
+    assert_eq!(
+        code_of(&decide_as(&w, &d, Verdict::Approve).await),
+        Code::DecisionStale
+    );
+    assert_eq!(w.fake.effect_count(), 0);
+}
+
+/// §13.7 item 4: a deny settles every waiter, also after the creator cancelled and
+/// ownership moved.
+#[tokio::test]
+async fn r137_4_a_deny_after_a_transfer_settles_every_waiter() {
+    let w = World::new().await;
+    let (a, b, c, gid) = shared_three(&w, "r137-4c").await;
+    let d = dec_of(&a);
+    cancel_op(&w, a.operation_id.as_ref().unwrap()).await;
+    decide_as(&w, &d, Verdict::Deny).await.unwrap();
+    assert_eq!(w.grant(&gid).state, GrantState::Denied);
+    for (rid, e) in [("req-r137-4c2", &b), ("req-r137-4c3", &c)] {
+        let r = w
+            .ensure(rid, "work-r137-4c", &["h1", "h3"], shared_until())
+            .await
+            .unwrap_err();
+        assert_eq!(r.code, Code::CapabilityUnavailable, "{rid}");
+        assert_eq!(r.operation_id, e.operation_id);
+    }
+    assert_eq!(w.fake.effect_count(), 0);
+}
+
+/// §13.7 item 5: an accepted environment write moves the authority generation, so
+/// a change in environment permissions triggers re-validation, and a grant the
+/// environment no longer permits (automatic activation withdrawn) ends: binding
+/// and issuance are refused with the denial's code.
+#[tokio::test]
+async fn r137_5_an_environment_permission_change_revalidates_and_ends_the_grant() {
+    let w = World::new().await;
+    let g = w.ready("req-r137-5", "work-r137-5", &["h1"], None).await;
+    assert_eq!(
+        code_of(&w.bind(&g.binding_id, "req-r137-5-b0").await),
+        Code::AccessReady
+    );
+    let before = generation(&w);
+    set_automatic_activation(&w.store, false);
+    assert!(
+        generation(&w) > before,
+        "an environment write moves the authority generation"
+    );
+    let bound = w.bind(&g.binding_id, "req-r137-5-b1").await;
+    assert_eq!(code_of(&bound), Code::CredentialExpired);
+    let e = w
+        .ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::CredentialExpired);
+}
+
+/// Steps applied to an activated grant in the §13.7 item 3 property.
+#[derive(Debug, Clone)]
+enum PolicyStep {
+    /// The standing policy's pairs become this subset of h1..h3 (a new revision).
+    SetPolicy(u8),
+    /// The owner pauses the policy (continuing work is unaffected).
+    Pause,
+    /// Retention purges every settled operation (and its recovery intent).
+    Purge,
+    /// A policy write elsewhere moves the authority generation.
+    Unrelated,
+}
+
+fn policy_step() -> impl Strategy<Value = PolicyStep> {
+    prop_oneof![
+        4 => (0u8..8).prop_map(PolicyStep::SetPolicy),
+        1 => Just(PolicyStep::Pause),
+        1 => Just(PolicyStep::Purge),
+        1 => Just(PolicyStep::Unrelated),
+    ]
+}
+
+fn mask_hosts(mask: u8) -> Vec<&'static str> {
+    ["h1", "h2", "h3"]
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| mask & (1 << i) != 0)
+        .map(|(_, h)| h)
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(prop_config(0x5233_3743_4f56_4552))]
+
+    /// ADR-0006 §13.7 item 3: for any initial policy, request and sequence of
+    /// policy changes, pauses, purges and unrelated generation moves, continuing
+    /// use of the grant (a bind of its binding) succeeds exactly when its scope ⊆
+    /// (current standing policy ∪ the approved delta): the approved delta is empty
+    /// for a standing-policy grant and `request − initial policy` for an
+    /// owner-approved one, and it is never lost to a purge; a pause never matters.
+    #[test]
+    fn continuing_use_is_allowed_exactly_within_policy_and_approved_delta(
+        initial in 0u8..8,
+        request in 1u8..8,
+        steps in prop::collection::vec(policy_step(), 1..10)
+    ) {
+        block(async move {
+            let w = World::new().await;
+            set_policy_hosts(&w.store, &mask_hosts(initial));
+            let hosts_req = mask_hosts(request);
+            let approved = request & !initial;
+            let g = match w.ensure("req-p3", "work-p3", &hosts_req, None).await {
+                Ok(c) => {
+                    prop_assert_eq!(approved, 0, "allowed only when the policy covers it");
+                    c.data
+                }
+                Err(e) => {
+                    prop_assert_ne!(approved, 0, "approval only for added authority");
+                    prop_assert_eq!(&e.code, &Code::InteractionRequired);
+                    decide_as(&w, &dec_of(&e), Verdict::Approve).await.unwrap();
+                    w.ready("req-p3", "work-p3", &hosts_req, None).await
+                }
+            };
+            let mut policy = initial;
+            for (i, step) in steps.iter().enumerate() {
+                match step {
+                    PolicyStep::SetPolicy(m) => {
+                        set_policy_hosts(&w.store, &mask_hosts(*m));
+                        policy = *m;
+                    }
+                    PolicyStep::Pause => {
+                        // Pausing an already paused policy is refused; either way
+                        // nothing changes for continuing work.
+                        let _ = w
+                            .ops
+                            .policy(&owner(501), PolicyAction::Pause { policy_id: policy_id() })
+                            .await;
+                    }
+                    PolicyStep::Purge => {
+                        w.store
+                            .transaction(|tx| tx.purge_operations_before(at(30 * 24 * 3600)))
+                            .unwrap();
+                    }
+                    PolicyStep::Unrelated => bump_unrelated(&w.store, i as u64 + 1),
+                }
+                let covered = request & !(policy | approved) == 0;
+                let r = w.bind(&g.binding_id, &format!("req-p3-b{i}")).await;
+                let want = if covered { Code::AccessReady } else { Code::CredentialExpired };
+                prop_assert_eq!(
+                    code_of(&r),
+                    want,
+                    "step {} {:?}: request {:03b} policy {:03b} approved {:03b}",
+                    i, step, request, policy, approved
+                );
+            }
+            prop_assert_eq!(w.fake.effect_count(), 1);
+            Ok(())
+        })?;
+    }
+}
+
+proptest! {
+    #![proptest_config(prop_config(0x5233_3743_4f41_4c53))]
+
+    /// ADR-0006 §13.7 item 4: for any number of equivalent waiters, any order and
+    /// number of cancellations and a final verdict: while a waiter remains, the
+    /// shared grant keeps waiting and its one decision stays pending, both owned by
+    /// the oldest remaining waiter; the last cancellation cancels the grant and
+    /// withdraws the decision; an approval completes every remaining waiter with
+    /// one effect and one grant, a deny settles every remaining waiter.
+    #[test]
+    fn a_shared_decision_survives_any_cancel_order_until_its_last_waiter(
+        order in (2usize..=4).prop_flat_map(|n| Just((0..n).collect::<Vec<_>>()).prop_shuffle()),
+        cancels in 0usize..=4,
+        approve in any::<bool>()
+    ) {
+        block(async move {
+            let w = World::new().await;
+            let n = order.len();
+            let cancels = cancels.min(n);
+            let mut ops = Vec::new();
+            let mut first: Option<DecisionId> = None;
+            for i in 0..n {
+                // Each waiter is admitted one virtual second after the previous.
+                w.clock.advance(Duration::from_secs(1));
+                let e = w
+                    .ensure(&format!("req-p4-{i}"), "work-p4", &["h1", "h3"], shared_until())
+                    .await
+                    .unwrap_err();
+                let d = dec_of(&e);
+                prop_assert_eq!(first.get_or_insert(d.clone()), &d, "one shared decision");
+                ops.push(e.operation_id.clone().unwrap());
+            }
+            let d = first.unwrap();
+            let gid = grant_of_op(&w, &ops[0]);
+            let mut remaining: Vec<usize> = (0..n).collect();
+            for &c in order.iter().take(cancels) {
+                cancel_op(&w, &ops[c]).await;
+                remaining.retain(|&r| r != c);
+                match remaining.first() {
+                    Some(&oldest) => {
+                        prop_assert_eq!(w.grant(&gid).state, GrantState::AwaitingApproval);
+                        prop_assert_eq!(decision_state(&w, &d), DecisionState::Pending);
+                        prop_assert_eq!(
+                            w.grant(&gid).source,
+                            heimdall_domain::grant::AuthorizationSource::OwnerDecision {
+                                operation_id: ops[oldest].clone()
+                            }
+                        );
+                        prop_assert_eq!(decision_operation(&w, &d), ops[oldest].clone());
+                    }
+                    None => {
+                        prop_assert_eq!(w.grant(&gid).state, GrantState::Cancelled);
+                        prop_assert!(pending_approvals(&w).is_empty());
+                        prop_assert_eq!(
+                            code_of(&decide_as(&w, &d, Verdict::Approve).await),
+                            Code::DecisionStale
+                        );
+                    }
+                }
+            }
+            if !remaining.is_empty() {
+                let verdict = if approve { Verdict::Approve } else { Verdict::Deny };
+                decide_as(&w, &d, verdict).await.unwrap();
+            }
+            for (i, op) in ops.iter().enumerate() {
+                let r = w
+                    .ensure(&format!("req-p4-{i}"), "work-p4", &["h1", "h3"], shared_until())
+                    .await;
+                let want = if !remaining.contains(&i) {
+                    Code::OperationCancelled
+                } else if approve {
+                    Code::AccessReady
+                } else {
+                    Code::CapabilityUnavailable
+                };
+                prop_assert_eq!(code_of(&r), want, "waiter {}", i);
+                match &r {
+                    Ok(c) => {
+                        prop_assert_eq!(c.operation_id.as_ref(), Some(op));
+                        prop_assert_eq!(&c.data.grant_id, &gid);
+                    }
+                    Err(e) => prop_assert_eq!(e.operation_id.as_ref(), Some(op)),
+                }
+            }
+            let effects = usize::from(approve && !remaining.is_empty());
+            prop_assert_eq!(w.fake.effect_count(), effects);
             Ok(())
         })?;
     }
