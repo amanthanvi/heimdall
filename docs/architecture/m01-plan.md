@@ -500,6 +500,38 @@ integrator with an ADR-0006 revision.
     an_applied_effect_rearms_a_covering_record_at_most_once_per_effect}`,
     `heimdall_domain-unit::revocation::tests::rearmed_effects_round_trip_and_default_to_none`
     (ADR-0006 §14.5 row).
+* **⟨r2.15⟩ ADR-0006 §13.18 items 2–4 (M01-rulings-13-18; automated security review
+  of 8d17ace9).** **Additive** fields
+  `domain::revocation::RemoteObligation.effect_round: Option<u32>`,
+  `PendingRemoteRevocation.cap: Option<u32>` and
+  `RearmedEffect.{grant: Option<GrantId>, adapter: Option<AdapterIdentity>}` (serde
+  default, omitted when absent: older records read unchanged; meta row, no
+  migration, `SCHEMA_VERSION` stays 4); **new**
+  `domain::revocation::DEFAULT_ROUND_CAP: u32 = 8`,
+  `PendingRemoteRevocation::round_cap(&self, configured: u32) -> u32` and
+  `RemoteObligation::cleared_by_round(&self, round: Option<u32>) -> bool`.
+  `Operations::set_revocation_cap` (signature unchanged): no cap is configured until
+  the supervisor sets one.
+  * Item 2: every obligation that `cleanup` leaves the call to (a live skip, a
+    re-arm, an added obligation, a tracked pending answer) records the effect as
+    the record's claimed-round count. On every confirming path, a confirmation
+    clears it only when it comes from the record's current claim with a greater
+    count. Otherwise the obligation stays and the next round calls. An explicit
+    revoke's re-arm restarts the count and records such effects as round 0.
+  * Item 3: a record stores the cap in force when it is created or re-armed (with
+    none configured, during restart recovery, its stored cap, or the default for a
+    new record). Recovery, `cleanup`, the round claim and completion, and the
+    supervisor all judge a record by `round_cap`: the lower of its own cap and the
+    configured one.
+  * Item 4: the re-arm bound is keyed by (grant, adapter, effect token, recorded
+    state). An empty or unknown token is never bounded. A bounded effect with no
+    live covering obligation for its adapter gets the immediate best-effort call.
+    A pending answer is tracked as an obligation, and when no call is possible
+    (the adapter is not configured), the obligation is re-armed.
+  * Tests `model_operations::r1318_*` (eleven), `heimdall_app-unit::operations::tests::{r1318_4_*
+    (three), r1318_the_default_round_cap_is_the_default_backoffs,
+    r1318_props::r1318_cleanup_never_leaves_an_applied_effect_unowned_and_uncalled}`,
+    `heimdall_domain-unit::revocation::tests::r1318_*` (three) (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.

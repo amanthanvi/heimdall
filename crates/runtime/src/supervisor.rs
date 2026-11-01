@@ -52,6 +52,10 @@
 //!   own cap of rounds. The supervisor gives the operations its cap
 //!   (`Operations::set_revocation_cap`), so they can tell whether a covering
 //!   obligation is still live.
+//!   ⟨r2.15⟩ ADR-0006 §13.18 item 3: each record stores the cap in force when it was
+//!   created or re-armed, and is judged by the lower of that cap and this
+//!   supervisor's (`PendingRemoteRevocation::round_cap`), the same way restart
+//!   recovery judges it before any supervisor exists.
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
@@ -540,6 +544,10 @@ impl Supervisor {
     /// `waiting` round like any other. A record first seen carrying a round that a
     /// previous run claimed and never completed (`Operations::round_interrupted`;
     /// item 4) gets that round in this pass, not after a back-off.
+    ///
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 3: the cap a record is judged by is its own
+    /// stored cap, or `backoff.max_attempts` when lower
+    /// (`PendingRemoteRevocation::round_cap`).
     pub async fn revocation_pass(&self) -> Result<RevocationReport, heimdall_app::OpError> {
         let mut report = RevocationReport::default();
         let Some((_, clock)) = self.state.clone() else {
@@ -563,7 +571,9 @@ impl Supervisor {
                 .copied();
             let slot = match scheduled {
                 Some(slot) => slot,
-                None if p.capped(cap) => {
+                // ⟨r2.15⟩ ADR-0006 §13.18 item 3: judged by the record's own cap, or
+                // this supervisor's when lower, as restart recovery judges it.
+                None if p.capped(p.round_cap(cap)) => {
                     // ⟨r2.10⟩ Every obligation reached its own cap already (by the
                     // first local denial, a lower cap, or a claimed round whose
                     // completion failed; ADR-0006 §13.13 item 3): stop without

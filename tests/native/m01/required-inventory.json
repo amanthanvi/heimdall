@@ -238,6 +238,11 @@
         "heimdall_app-unit": [
           "operations::tests::an_applied_effect_rearms_a_covering_record_at_most_once_per_effect",
           "operations::tests::applied_effect_is_the_latest_attempt_and_whether_it_was_confirmed",
+          "operations::tests::r1318_4_a_pending_answer_to_a_bounded_call_is_tracked",
+          "operations::tests::r1318_4_an_unknown_or_empty_token_is_never_bounded",
+          "operations::tests::r1318_4_one_grants_rearm_never_bounds_another_grants_effect",
+          "operations::tests::r1318_props::r1318_cleanup_never_leaves_an_applied_effect_unowned_and_uncalled",
+          "operations::tests::r1318_the_default_round_cap_is_the_default_backoffs",
           "operations::tests::remote_views_combine_whatever_the_record_order"
         ],
         "heimdall_domain-unit": [
@@ -245,6 +250,9 @@
           "revocation::tests::a_pending_record_without_obligations_reads_unchanged",
           "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
           "revocation::tests::only_the_responsible_adapter_serves_an_obligation",
+          "revocation::tests::r1318_a_record_is_judged_by_the_lower_of_its_cap_and_the_configured_one",
+          "revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged",
+          "revocation::tests::r1318_only_a_round_claimed_after_the_effect_clears_it",
           "revocation::tests::rearmed_effects_round_trip_and_default_to_none"
         ],
         "integration_store": [
@@ -311,6 +319,17 @@
           "r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it",
           "r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed",
           "r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once",
+          "r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round",
+          "r1318_2_a_round_claimed_after_the_late_effect_clears_it",
+          "r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it",
+          "r1318_2_a_round_superseded_by_an_explicit_revoke_does_not_clear_a_late_effect",
+          "r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round",
+          "r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late_effect",
+          "r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call",
+          "r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with",
+          "r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with",
+          "r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with",
+          "r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call",
           "r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline",
           "r136_3_a_child_entering_revoking_releases_its_parent_reference",
           "r136_3_an_expired_child_releases_its_parent_reference",
@@ -475,6 +494,7 @@
           "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
           "revocation::tests::a_pending_record_without_obligations_reads_unchanged",
           "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
+          "revocation::tests::r1318_a_record_without_the_new_fields_reads_unchanged",
           "revocation::tests::rearmed_effects_round_trip_and_default_to_none"
         ],
         "integration_ipc_unix": [
@@ -533,6 +553,11 @@
           "r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it",
           "r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call",
           "r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it",
+          "r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round",
+          "r1318_2_a_round_claimed_after_the_late_effect_clears_it",
+          "r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round",
+          "r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with",
+          "r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call",
           "r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart",
           "r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report",
           "r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once",

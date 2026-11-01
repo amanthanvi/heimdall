@@ -94,6 +94,15 @@ pub struct Tombstone {
 /// its obligation stopped (or with no obligation for the applying adapter) re-arms
 /// that obligation, or adds one, and clears `stopped`. `rearmed_effects` records
 /// the effects that did so, which bounds the re-arms.
+///
+/// ⟨r2.15⟩ ADR-0006 §13.18:
+/// * **Item 2.** A credential effect left to an obligation is recorded on it
+///   ([`RemoteObligation::effect_round`]); only a round claimed after it clears it.
+/// * **Item 3.** `cap` is the per-obligation cap of rounds in force when the record
+///   was created or last re-armed. Recovery and the supervisor judge the record by
+///   [`Self::round_cap`]: that cap, or the configured one when lower.
+/// * **Item 4.** `rearmed_effects` is keyed by (grant, adapter, effect token,
+///   recorded state).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingRemoteRevocation {
     /// The grant carrying the tombstone.
@@ -130,7 +139,19 @@ pub struct PendingRemoteRevocation {
     /// unchanged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rearmed_effects: Vec<RearmedEffect>,
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 3: the per-obligation cap of rounds in force when
+    /// the record was created or last re-armed. Absent in a record written before
+    /// the field existed, which is judged by [`DEFAULT_ROUND_CAP`]
+    /// ([`Self::round_cap`]). Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap: Option<u32>,
 }
+
+/// ⟨r2.15⟩ ADR-0006 §13.18 item 3: the cap of rounds that a record written before
+/// [`PendingRemoteRevocation::cap`] existed is judged by. It equals the default
+/// back-off's `max_attempts` (`heimdall_app::reconcile::Backoff::default()`), the cap
+/// such a record was written under in production.
+pub const DEFAULT_ROUND_CAP: u32 = 8;
 
 /// ⟨r2.14⟩ ADR-0006 §13.17 item 4: one credential effect that re-armed (or added) an
 /// obligation of a pending remote record, keyed by its effect token from the stage
@@ -143,8 +164,21 @@ pub struct PendingRemoteRevocation {
 /// after rounds that the first state re-armed have already been called, so it
 /// re-arms once more. Each state re-arms at most once. An empty token stands for an
 /// effect whose receipts are no longer on record.
+///
+/// ⟨r2.15⟩ ADR-0006 §13.18 item 4: the key also names the grant and the adapter the
+/// effect re-armed an obligation for, so one grant's (or one adapter's) re-arm never
+/// bounds another's effect. An entry written before those fields existed names
+/// neither and matches no effect (it bounds nothing). An empty or unknown token is
+/// never recorded and never bounds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RearmedEffect {
+    /// ⟨r2.15⟩ The grant the effect was applied for. Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<GrantId>,
+    /// ⟨r2.15⟩ The applying adapter whose obligation the effect re-armed or added.
+    /// Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<AdapterIdentity>,
     /// The effect token of the attempt (`PrepareRequest.effect_token`).
     pub effect_token: String,
     /// `true` once a `Confirmed` receipt followed the attempt.
@@ -180,9 +214,28 @@ pub struct RemoteObligation {
     /// re-arms this obligation (ADR-0006 §13.17). Omitted when `false`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 2: the record's claimed-round count
+    /// ([`PendingRemoteRevocation::attempts`]) when a credential effect for this grant
+    /// was last left to this obligation: by a cleanup that skipped because it was
+    /// live, or that re-armed or added it. A confirmation means "revoked as of the
+    /// call", so only a round claimed after the effect (a greater count, and still
+    /// the record's current claim) clears the obligation
+    /// ([`Self::cleared_by_round`]). An explicit revoke that restarts the record's
+    /// count sets it to `0`. Absent when no effect was recorded; omitted then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_round: Option<u32>,
 }
 
 impl PendingRemoteRevocation {
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 3: the cap of rounds this record is judged by:
+    /// its own [`Self::cap`] ([`DEFAULT_ROUND_CAP`] for a record written before the
+    /// field), or `configured` when that is lower (fail closed). Pass `u32::MAX` when
+    /// no cap is configured.
+    #[must_use]
+    pub fn round_cap(&self, configured: u32) -> u32 {
+        self.cap.unwrap_or(DEFAULT_ROUND_CAP).min(configured)
+    }
+
     /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: the attempts counted for `obligation`: its
     /// own count, or for an obligation recorded before per-obligation counts
     /// existed, the record's `attempts` (conservative: every earlier round of the
@@ -226,6 +279,21 @@ pub enum RemotePendingReason {
 }
 
 impl RemoteObligation {
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 2: whether a confirmation from a round whose
+    /// claim counted `round` (the record's claimed-round count it set) clears this
+    /// obligation. With no effect recorded, any confirming round does. With one,
+    /// only a round claimed after it does. `None` stands for a round that is no
+    /// longer the record's current claim (an explicit revoke restarted the count
+    /// since), whose order against the effect is unknown: it clears only an
+    /// obligation with no effect recorded.
+    #[must_use]
+    pub fn cleared_by_round(&self, round: Option<u32>) -> bool {
+        match self.effect_round {
+            None => true,
+            Some(effect) => round.is_some_and(|n| n > effect),
+        }
+    }
+
     /// Whether a configured adapter with identity `configured` is responsible for
     /// this obligation: the recorded identity exactly, or, for an obligation whose
     /// instance (or whole identity) could not be recorded, any instance of its
@@ -304,6 +372,7 @@ mod tests {
                 reason: Some(RemotePendingReason::AdapterUnavailable),
                 attempts: None,
                 stopped: false,
+                effect_round: None,
             }],
             claimed_at: Some("2026-10-02T09:00:01Z".parse().unwrap()),
             ..r
@@ -335,6 +404,7 @@ mod tests {
             reason: None,
             attempts: None,
             stopped: false,
+            effect_round: None,
         };
         let exact = o(id("fake_agent", "fixture-1"));
         assert!(exact.served_by(&id("fake_agent", "fixture-1")));
@@ -392,6 +462,7 @@ mod tests {
                     reason: Some(RemotePendingReason::AdapterUnavailable),
                     attempts: Some(0),
                     stopped: false,
+                    effect_round: None,
                 },
                 RemoteObligation {
                     grant: g.clone(),
@@ -399,6 +470,7 @@ mod tests {
                     reason: None,
                     attempts: Some(3),
                     stopped: true,
+                    effect_round: None,
                 },
             ],
             ..r
@@ -438,10 +510,14 @@ mod tests {
         let with = PendingRemoteRevocation {
             rearmed_effects: vec![
                 RearmedEffect {
+                    grant: None,
+                    adapter: None,
                     effect_token: "eff_01".into(),
                     confirmed: false,
                 },
                 RearmedEffect {
+                    grant: None,
+                    adapter: None,
                     effect_token: "eff_01".into(),
                     confirmed: true,
                 },
@@ -459,6 +535,113 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
             with
+        );
+    }
+
+    /// ⟨r2.15⟩ ADR-0006 §13.18: a record written at 8d17ace9 (no cap, no effect
+    /// round, re-armed effects keyed by token and state alone) reads unchanged with
+    /// none of the new fields, and serializes back to the same form; the new fields
+    /// round-trip and are omitted when absent.
+    #[test]
+    fn r1318_a_record_without_the_new_fields_reads_unchanged() {
+        let g = GrantId::from_random_bytes([6; 16]);
+        let adapter = AdapterIdentity {
+            mechanism: "fake_agent".into(),
+            instance: "fixture-1".into(),
+        };
+        let old = serde_json::json!({
+            "root": g,
+            "grants": [g],
+            "attempts": 2,
+            "last_attempt_at": "2026-10-02T09:00:00Z",
+            "stopped": false,
+            "obligations": [{"grant": g, "adapter": adapter, "attempts": 2}],
+            "rearmed_effects": [{"effect_token": "eff_01", "confirmed": true}],
+        });
+        let r: PendingRemoteRevocation = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(r.cap, None);
+        assert_eq!(r.obligations[0].effect_round, None);
+        assert_eq!(r.rearmed_effects[0].grant, None);
+        assert_eq!(r.rearmed_effects[0].adapter, None);
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            old,
+            "omitted when absent"
+        );
+        let mut with = r;
+        with.cap = Some(3);
+        with.obligations[0].effect_round = Some(2);
+        with.rearmed_effects[0].grant = Some(g.clone());
+        with.rearmed_effects[0].adapter = Some(adapter.clone());
+        let v = serde_json::to_value(&with).unwrap();
+        assert_eq!(v["cap"], 3);
+        assert_eq!(v["obligations"][0]["effect_round"], 2);
+        assert_eq!(v["rearmed_effects"][0]["grant"], serde_json::json!(g));
+        assert_eq!(v["rearmed_effects"][0]["adapter"]["instance"], "fixture-1");
+        assert_eq!(
+            serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
+            with
+        );
+    }
+
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 3: a record is judged by its own cap, or by the
+    /// configured cap when that is lower; a record without one by the default cap.
+    #[test]
+    fn r1318_a_record_is_judged_by_the_lower_of_its_cap_and_the_configured_one() {
+        let g = GrantId::from_random_bytes([7; 16]);
+        let mut r: PendingRemoteRevocation = serde_json::from_value(serde_json::json!({
+            "root": g,
+            "grants": [g],
+            "attempts": 0,
+            "last_attempt_at": "2026-10-02T09:00:00Z",
+            "stopped": false,
+        }))
+        .unwrap();
+        assert_eq!(
+            r.round_cap(u32::MAX),
+            DEFAULT_ROUND_CAP,
+            "no cap: the default"
+        );
+        assert_eq!(r.round_cap(3), 3);
+        assert_eq!(r.round_cap(20), DEFAULT_ROUND_CAP);
+        r.cap = Some(3);
+        assert_eq!(r.round_cap(u32::MAX), 3, "none configured: its own");
+        assert_eq!(r.round_cap(8), 3, "its own when lower");
+        assert_eq!(r.round_cap(2), 2, "the configured one when lower");
+    }
+
+    /// ⟨r2.15⟩ ADR-0006 §13.18 item 2: with no effect recorded any confirming round
+    /// clears an obligation; with one, only a current round claimed after it.
+    #[test]
+    fn r1318_only_a_round_claimed_after_the_effect_clears_it() {
+        let mut o = RemoteObligation {
+            grant: GrantId::from_random_bytes([8; 16]),
+            adapter: AdapterIdentity {
+                mechanism: "fake_agent".into(),
+                instance: "fixture-1".into(),
+            },
+            reason: None,
+            attempts: Some(2),
+            stopped: false,
+            effect_round: None,
+        };
+        assert!(o.cleared_by_round(Some(1)));
+        assert!(o.cleared_by_round(None), "nothing to order against");
+        o.effect_round = Some(2);
+        assert!(!o.cleared_by_round(Some(1)), "claimed before the effect");
+        assert!(
+            !o.cleared_by_round(Some(2)),
+            "in flight when the effect landed"
+        );
+        assert!(o.cleared_by_round(Some(3)), "claimed after it");
+        assert!(
+            !o.cleared_by_round(None),
+            "a superseded claim: order unknown"
+        );
+        o.effect_round = Some(0);
+        assert!(
+            o.cleared_by_round(Some(1)),
+            "after an explicit revoke's restart"
         );
     }
 

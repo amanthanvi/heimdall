@@ -3422,6 +3422,7 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
         obligations: Vec::new(),
         claimed_at: None,
         rearmed_effects: Vec::new(),
+        cap: None,
     };
     let untombstoned = s
         .transaction(|tx| tx.set_remote_revocation(&record(51, 1, false)))
@@ -3475,7 +3476,9 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
 /// ⟨r2.9⟩ ADR-0006 §13.12 item 2: a pending remote record carrying per-adapter
 /// obligations must name exactly their grants in `grants`; it round-trips with its
 /// obligations, their reasons and its claim; a record without obligations (the
-/// pre-§13.12 shape) is still accepted and reads back without them.
+/// pre-§13.12 shape) is still accepted and reads back without them. ⟨r2.15⟩ The
+/// stored cap and each obligation's recorded effect round round-trip too
+/// (ADR-0006 §13.18 items 2 and 3).
 #[test]
 fn remote_revocation_obligations_name_exactly_the_record_grants() {
     use heimdall_domain::revocation::{
@@ -3490,6 +3493,7 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
         reason,
         attempts: Some(2),
         stopped: false,
+        effect_round: Some(1),
     };
     let record = PendingRemoteRevocation {
         root: root.clone(),
@@ -3503,6 +3507,7 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
         ],
         claimed_at: Some(plus(t0(), 2)),
         rearmed_effects: Vec::new(),
+        cap: Some(3),
     };
     s.transaction(|tx| {
         tx.insert_tombstone(&tombstone(61))?;

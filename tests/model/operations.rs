@@ -5272,6 +5272,11 @@ async fn r1310_2_a_degraded_grant_returns_only_when_revalidation_passes() {
 /// `prepare_entered` and waits for `prepare_release` before the fake applies its
 /// effect (a preparation still in flight while the grant is revoked and its
 /// operation cancelled).
+///
+/// ⟨r2.15⟩ ADR-0006 §13.18 item 2: while `hold_revoke` is set, the next `revoke` is
+/// counted and reaches the fake at once (the call goes out), then signals
+/// `revoke_entered` and holds its answer until `revoke_release` (a round's call in
+/// flight while a credential is applied).
 struct PendingCounter {
     inner: Arc<FakeCredentialAdapter>,
     pending: AtomicBool,
@@ -5284,6 +5289,9 @@ struct PendingCounter {
     hold_prepare: AtomicBool,
     prepare_entered: tokio::sync::Notify,
     prepare_release: tokio::sync::Notify,
+    hold_revoke: AtomicBool,
+    revoke_entered: tokio::sync::Notify,
+    revoke_release: tokio::sync::Notify,
 }
 
 impl PendingCounter {
@@ -5300,6 +5308,9 @@ impl PendingCounter {
             hold_prepare: AtomicBool::new(false),
             prepare_entered: tokio::sync::Notify::new(),
             prepare_release: tokio::sync::Notify::new(),
+            hold_revoke: AtomicBool::new(false),
+            revoke_entered: tokio::sync::Notify::new(),
+            revoke_release: tokio::sync::Notify::new(),
         })
     }
     fn calls(&self) -> usize {
@@ -5379,12 +5390,17 @@ impl CredentialAdapter for PendingCounter {
             f.arm();
         }
         let hang = self.hang.swap(false, Ordering::SeqCst);
+        let hold = self.hold_revoke.swap(false, Ordering::SeqCst);
         Box::pin(async move {
             if hang {
                 self.entered.notify_one();
                 std::future::pending::<()>().await;
             }
             let mut out = self.inner.revoke(grant, now).await?;
+            if hold {
+                self.revoke_entered.notify_one();
+                self.revoke_release.notified().await;
+            }
             if pending {
                 out.remote_pending = vec![DestinationId::parse("h1").unwrap()];
             } else {
@@ -7662,7 +7678,9 @@ async fn r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one() {
 /// Guard (§13.17 item 1; green at d0c8cb7c). The covering record's obligation for
 /// the applying adapter is live (round 1 of 3, not stopped) when the effect's late
 /// confirmation arrives: `cleanup` skips, the record is unchanged, and the rounds
-/// continue on their schedule within the cap: no extra call.
+/// continue on their schedule within the cap: no extra call. ⟨r2.15⟩ ADR-0006
+/// §13.18 item 2 amends "unchanged": the skip records the effect on the live
+/// obligation, at the record's round count (1), and nothing else changes.
 #[tokio::test]
 async fn r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call() {
     let cap = 3u32;
@@ -7671,10 +7689,25 @@ async fn r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extr
     r1317_late_confirmation(&mut w, &adapter, &op).await;
     assert_eq!(
         r1312_record(&w, &gid).unwrap(),
-        before,
-        "a live obligation owns the call: the record is unchanged"
+        r1318_with_effect_at(&before, 1),
+        "a live obligation owns the call: only the effect is recorded on it"
     );
     r1317_run_to_cap(&w, &adapter, &gid, cap).await;
+}
+
+/// ⟨r2.15⟩ `record` with the effect recorded at `round` on every obligation
+/// (ADR-0006 §13.18 item 2). Written through the record's stored form, so the module
+/// also compiles at the base commit, where the field does not exist and this is
+/// the record unchanged.
+fn r1318_with_effect_at(
+    record: &heimdall_domain::revocation::PendingRemoteRevocation,
+    round: u32,
+) -> heimdall_domain::revocation::PendingRemoteRevocation {
+    let mut v = serde_json::to_value(record).unwrap();
+    for o in v["obligations"].as_array_mut().unwrap() {
+        o["effect_round"] = round.into();
+    }
+    serde_json::from_value(v).unwrap()
 }
 
 /// Red at d0c8cb7c (§13.17 items 1, 2; restart). As in
@@ -7739,8 +7772,9 @@ async fn r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it() {
 
 /// Guard (§13.17 item 1; restart; green at d0c8cb7c). As in
 /// [`r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call`],
-/// then another in-process restart: the live obligation is unchanged and is
-/// scheduled and called by its next round.
+/// then another in-process restart: the live obligation is unchanged (⟨r2.15⟩ but for
+/// the effect recorded on it, §13.18 item 2) and is scheduled and called by its next
+/// round.
 #[tokio::test]
 async fn r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it() {
     let cap = 3u32;
@@ -7749,7 +7783,11 @@ async fn r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it() {
     r1317_late_confirmation(&mut w, &adapter, &op).await;
     r1310_restart_pending(&mut w, &adapter).await;
     assert_eq!(adapter.calls(), 1, "neither restart made a call");
-    assert_eq!(r1312_record(&w, &gid).unwrap(), before, "unchanged");
+    assert_eq!(
+        r1312_record(&w, &gid).unwrap(),
+        r1318_with_effect_at(&before, 1),
+        "unchanged but for the recorded effect"
+    );
     r1317_next_round_calls(&w, &adapter, &gid, cap).await;
 }
 
@@ -7902,4 +7940,571 @@ async fn r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once() {
         .map_or(0, Vec::len);
     assert_eq!(rearmed, 2, "one re-arm per state: {rec:?}");
     r1317_next_round_calls(&w, &adapter, &gid, cap).await;
+}
+
+// =================================================================================
+// ⟨r2.15⟩ ADR-0006 §13.18 (rulings on the §13.17 implementation, and the automated
+// security review of 8d17ace9).
+//
+// * Item 2: when `cleanup` skips because a covering obligation is live, it records
+//   the effect on that obligation as the record's claimed-round count at that
+//   moment. Only a round claimed after it may clear the obligation. A confirmation
+//   means "revoked as of the call", never "revoked as of now".
+// * Item 3: each record carries the cap in force when it was created or re-armed.
+//   Restart recovery, before any supervisor exists, and the supervisor judge it by
+//   the lower of that cap and the configured one.
+// * Item 4: the re-arm bound limits re-arms only, never the call.
+//
+// The race used below: a grant is revoked while its preparation is still in flight
+// (held in `prepare`, no credential yet). A round's call then goes out with its
+// answer held, the preparation applies its credential, and the late confirmation
+// reaches `cleanup` while that round is in flight. Only public APIs are used, so
+// every case also runs against the base commit 8d17ace9.
+// =================================================================================
+
+/// An ensure whose preparation is held in flight (no credential applied yet), and
+/// its grant. The ensure resumes once `prepare_release` is notified.
+async fn r1318_held_ensure(
+    w: &World,
+    adapter: &Arc<PendingCounter>,
+    tag: &str,
+) -> (
+    OperationId,
+    heimdall_contract::ids::GrantId,
+    tokio::task::JoinHandle<impl Sized + use<>>,
+) {
+    adapter.hold_prepare.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let req = ensure_req(tag, &format!("{tag}-work"), &[("h1", "deploy")]);
+    let ensure = tokio::spawn(async move { ops.ensure(&unattended(501), req).await });
+    adapter.prepare_entered.notified().await;
+    assert_eq!(w.effects(), 0, "the preparation is still in flight");
+    let op = w
+        .store
+        .transaction(|tx| tx.open_operations())
+        .unwrap()
+        .into_iter()
+        .find(|o| o.state == OperationState::Running)
+        .expect("the running ensure")
+        .id;
+    let gid = r1313_grant_of(w, &op);
+    (op, gid, ensure)
+}
+
+/// Release the held preparation: it applies its credential, and the ensure's late
+/// confirmation reaches `cleanup` (its grant is revoked, so activation is refused).
+async fn r1318_apply_late(
+    w: &World,
+    adapter: &PendingCounter,
+    op: &OperationId,
+    ensure: tokio::task::JoinHandle<impl Sized>,
+) {
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    assert_eq!(w.op(op).state, OperationState::Failed);
+    assert!(
+        r1314_effects(w, op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect was confirmed late"
+    );
+}
+
+/// The next due round of `grant`'s record calls the adapter once and, the adapter
+/// now confirming, clears the record: the first pass schedules it (no call), and the
+/// pass after its delay runs it.
+async fn r1318_next_round_clears(
+    w: &World,
+    adapter: &PendingCounter,
+    grant: &heimdall_contract::ids::GrantId,
+    cap: u32,
+) {
+    assert!(r1312_record(w, grant).is_some(), "still pending");
+    let calls = adapter.calls();
+    let sup = r1312_supervisor(w, cap);
+    let report = sup.revocation_pass().await.unwrap();
+    assert!(
+        report.scheduled.iter().any(|(r, ..)| r == grant),
+        "the record is scheduled: {report:?}"
+    );
+    assert_eq!(adapter.calls(), calls, "the first pass only schedules");
+    w.clock.advance(10 * Duration::from_secs(1));
+    let report = sup.revocation_pass().await.unwrap();
+    assert_eq!(
+        adapter.calls(),
+        calls + 1,
+        "the next round calls the adapter"
+    );
+    assert!(
+        report.completed.contains(grant),
+        "its confirmation clears the record: {report:?}"
+    );
+    assert!(r1312_record(w, grant).is_none());
+}
+
+/// The race of §13.18 item 2 through a supervisor round. The first local denial
+/// leaves the remote effect pending (round 1 of `cap`). Round 2 is claimed and its
+/// call goes out before any credential exists, and its answer, a confirmation, is
+/// held. Then the credential is applied and its late confirmation reaches `cleanup`,
+/// which makes no immediate call: the obligation is live. Then round 2's answer
+/// arrives. Returns what that round left: the record, if any.
+async fn r1318_round_in_flight_when_the_effect_lands(
+    tag: &str,
+    cap: u32,
+) -> (
+    World,
+    Arc<PendingCounter>,
+    heimdall_contract::ids::GrantId,
+    Option<heimdall_domain::revocation::PendingRemoteRevocation>,
+) {
+    let (w, adapter) = r1310_pending_world().await;
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, tag).await;
+    let done = r1313_revoke(&w, &gid, &format!("{tag}-revoke")).await;
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    assert_eq!(adapter.calls(), 1, "the first local denial");
+    // Round 2: claimed, its call goes out, its confirmation is held.
+    adapter.pending.store(false, Ordering::SeqCst);
+    adapter.hold_revoke.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let g = gid.clone();
+    let round = tokio::spawn(async move { ops.retry_remote_revocation(&g, cap).await });
+    adapter.revoke_entered.notified().await;
+    assert_eq!(adapter.calls(), 2, "round 2's call went out");
+    assert_eq!(w.effects(), 0, "before the credential existed");
+    assert_eq!(r1312_record(&w, &gid).unwrap().attempts, 2, "claimed");
+    // The credential is applied after the call; `cleanup` skips (live obligation).
+    r1318_apply_late(&w, &adapter, &op, ensure).await;
+    assert_eq!(
+        adapter.calls(),
+        2,
+        "no immediate call: the live obligation owns it"
+    );
+    let owed = r1317_owed(&r1312_record(&w, &gid).unwrap(), &gid).expect("the obligation");
+    assert!(!owed.stopped, "live: round 2 of {cap}");
+    // Round 2's confirmation arrives.
+    adapter.revoke_release.notify_one();
+    let left = round.await.unwrap().unwrap();
+    (w, adapter, gid, left)
+}
+
+/// Red at 8d17ace9 (§13.18 items 2 and 4, [HIGH]). A supervisor round claimed
+/// before a late credential effect confirms after it. Its confirmation answers a
+/// call made before the credential existed, so it must not clear the obligation.
+/// The obligation stays, and the next round calls the adapter and clears it.
+#[tokio::test]
+async fn r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it() {
+    let cap = 3u32;
+    let (w, adapter, gid, left) =
+        r1318_round_in_flight_when_the_effect_lands("r1318-2a", cap).await;
+    let rec = left.expect("still pending: that round's call preceded the effect");
+    let owed = r1317_owed(&rec, &gid).expect("the obligation stays");
+    assert!(!owed.stopped && !rec.stopped, "{rec:?}");
+    assert_eq!(rec.claimed_at, None, "the round completed");
+    r1318_next_round_clears(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at 8d17ace9 (§13.18 item 2; restart). As in
+/// [`r1318_2_a_round_in_flight_when_a_late_effect_lands_does_not_clear_it`], then an
+/// in-process restart between that round and the next one: the kept obligation is
+/// durable, the restart makes no call, and the next round calls and clears it.
+#[tokio::test]
+async fn r1318_2_a_restart_after_the_racing_round_keeps_the_obligation_for_the_next_round() {
+    let cap = 3u32;
+    let (mut w, adapter, gid, left) =
+        r1318_round_in_flight_when_the_effect_lands("r1318-2r", cap).await;
+    let kept = left.expect("still pending: that round's call preceded the effect");
+    let calls = adapter.calls();
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(adapter.calls(), calls, "the restart makes no call");
+    assert_eq!(
+        r1312_record(&w, &gid).expect("durable"),
+        kept,
+        "the kept obligation survives the restart unchanged"
+    );
+    r1318_next_round_clears(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at 8d17ace9 (§13.18 items 2 and 4, [HIGH]; the explicit revoke's own first
+/// round). The revoke claims its first round in its tombstone's transaction and
+/// calls the preparing adapter. While that call is in flight (answer held), the
+/// preparation applies its credential and the late confirmation reaches `cleanup`,
+/// which skips: the obligation is live. The revoke's confirmation then arrives: it
+/// must not clear the obligation, and the revoke reports the grant as still pending.
+/// The next round calls the adapter and clears it.
+#[tokio::test]
+async fn r1318_2_an_explicit_revokes_first_round_in_flight_does_not_clear_a_late_effect() {
+    let cap = 3u32;
+    let (w, adapter) = r1310_pending_world().await;
+    // The supervisor gives the operations its cap before anything is revoked.
+    let _sup = r1312_supervisor(&w, cap);
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1318-2e").await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    adapter.hold_revoke.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let g = gid.clone();
+    let revoke = tokio::spawn(async move {
+        ops.revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: g,
+                request_id: RequestId::parse("r1318-2e-revoke").unwrap(),
+            },
+        )
+        .await
+    });
+    adapter.revoke_entered.notified().await;
+    assert_eq!(adapter.calls(), 1, "the first local denial's call went out");
+    assert_eq!(w.effects(), 0, "before the credential existed");
+    r1318_apply_late(&w, &adapter, &op, ensure).await;
+    assert_eq!(
+        adapter.calls(),
+        1,
+        "no immediate call: the live obligation owns it"
+    );
+    adapter.revoke_release.notify_one();
+    let done = ok(revoke.await.unwrap()).data;
+    assert_eq!(
+        done.remote_pending,
+        vec![gid.clone()],
+        "the revoke's call preceded the effect: still pending"
+    );
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    assert!(
+        r1317_owed(&rec, &gid).is_some(),
+        "the obligation stays: {rec:?}"
+    );
+    r1318_next_round_clears(&w, &adapter, &gid, cap).await;
+}
+
+/// Guard (§13.18 item 2; green at 8d17ace9). The late confirmation reaches
+/// `cleanup` while the covering obligation is live and no round is in flight. The
+/// effect is recorded at round 1, and round 2 is claimed after it, so round 2's
+/// confirmation clears the obligation as before.
+#[tokio::test]
+async fn r1318_2_a_round_claimed_after_the_late_effect_clears_it() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1318-2g").await;
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    r1318_next_round_clears(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at 8d17ace9 (§13.18 item 3). The supervisor's cap (3) is in force when the
+/// grant is revoked, so the record is created with it. Its obligation reaches that
+/// cap in a round whose completion commit fails, so it is not yet marked `stopped`.
+/// Then an in-process restart: recovery confirms the effect late and reaches
+/// `cleanup` before any supervisor exists. Judged by its own cap, the obligation is
+/// not live, so it is re-armed and the next round calls the adapter. Judged by the
+/// default cap (8), it would be skipped as live, and the supervisor's next pass would
+/// stop the record without a call.
+#[tokio::test]
+async fn r1318_3_restart_recovery_judges_a_record_by_the_lower_cap_it_was_created_with() {
+    let cap = 3u32;
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    faults.arm_after_effect(w.fake.clone());
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1318-3", "r1318-3-work", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(e.code, Code::StateUnavailable);
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    *faults.after_effect_of.lock().unwrap() = None;
+    let sup = r1312_supervisor(&w, cap);
+    r1313_revoke(&w, &gid, "r1318-3-revoke").await;
+    assert_eq!(adapter.calls(), 1);
+    while adapter.calls() < cap as usize - 1 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    // The round that reaches the cap: its completion commit fails.
+    *adapter.faults.lock().unwrap() = Some(faults.clone());
+    while adapter.calls() < cap as usize {
+        let _ = sup.scheduler_pass().await;
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    *adapter.faults.lock().unwrap() = None;
+    faults.armed.store(false, Ordering::SeqCst);
+    drop(sup);
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    let owed = r1317_owed(&rec, &gid).expect("the obligation");
+    assert_eq!(owed.attempts, Some(cap), "at its cap");
+    assert!(
+        !owed.stopped && !rec.stopped,
+        "not yet marked stopped: {rec:?}"
+    );
+    // Restart: the late confirmation, in recovery, before any supervisor exists.
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(
+        w.op(&op).state,
+        OperationState::Failed,
+        "recovery settled it"
+    );
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect was confirmed late"
+    );
+    assert_eq!(adapter.calls(), cap as usize, "no immediate call");
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    let owed = r1317_owed(&rec, &gid).expect("the obligation");
+    assert_eq!(
+        owed.attempts,
+        Some(0),
+        "not live at its own cap: re-armed: {rec:?}"
+    );
+    assert!(!owed.stopped && !rec.stopped);
+    // The next round (due at once: the restart found the failed completion's claim
+    // uncompleted, §13.13 item 4) calls the adapter.
+    let calls = adapter.calls();
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..3 {
+        if adapter.calls() > calls {
+            break;
+        }
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(
+        adapter.calls(),
+        calls + 1,
+        "the next round calls the adapter"
+    );
+}
+
+/// Red at 8d17ace9 (§13.18 item 4, [MEDIUM] "the bound skips a real late effect").
+/// The covering record ran to its cap (stopped), and the bound is reached: the very
+/// effect whose late confirmation arrives next already re-armed this record once
+/// (written here as the record would hold it). The bound allows no second re-arm,
+/// but it never suppresses the call: `cleanup` makes exactly one immediate call
+/// after the late effect. Its pending answer stays tracked as the grant's
+/// obligation (stopped, still visible), and nothing else calls.
+#[tokio::test]
+async fn r1318_4_a_bounded_late_effect_with_every_obligation_stopped_makes_one_immediate_call() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1318-4c").await;
+    r1317_run_to_cap(&w, &adapter, &gid, cap).await;
+    let (effect_adapter, token) = match r1314_effects(&w, &op).last() {
+        Some(heimdall_domain::operation::EffectReceipt::Attempted {
+            adapter,
+            effect_token,
+        }) => (adapter.clone(), effect_token.clone()),
+        other => panic!("the attempt: {other:?}"),
+    };
+    w.store
+        .transaction(|tx| {
+            let r = tx.remote_revocation(&gid)?.unwrap();
+            let mut v = serde_json::to_value(&r).unwrap();
+            v["rearmed_effects"] = serde_json::json!([{
+                "grant": gid,
+                "adapter": effect_adapter,
+                "effect_token": token,
+                "confirmed": true,
+            }]);
+            tx.set_remote_revocation(&serde_json::from_value(v).unwrap())
+        })
+        .unwrap();
+    let bounded = r1312_record(&w, &gid).unwrap();
+    assert!(bounded.stopped && bounded.obligations.iter().all(|o| o.stopped));
+    // The late confirmation (restart recovery).
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(
+        w.op(&op).state,
+        OperationState::Failed,
+        "recovery settled it"
+    );
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect was confirmed late"
+    );
+    assert_eq!(
+        adapter.calls(),
+        cap as usize + 1,
+        "exactly one immediate call after the late effect"
+    );
+    let rec = r1312_record(&w, &gid).expect("its pending answer stays tracked");
+    let owed = r1317_owed(&rec, &gid).expect("the grant's obligation");
+    assert!(
+        owed.stopped && rec.stopped,
+        "the bound allows no re-arm: {rec:?}"
+    );
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..4 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(adapter.calls(), cap as usize + 1, "and nothing else calls");
+}
+
+/// Guard (§13.18 item 2; green at 8d17ace9). The effect is recorded at round 1 by
+/// the late confirmation's skip. Then the owner revokes the grant again, which
+/// re-arms the record and restarts its round count. The effect now precedes every
+/// round claimed after that, so the re-armed first round (round 1 again) clears
+/// the obligation with its confirmation. If the recorded round were kept, the
+/// restarted count would not pass it for several rounds.
+#[tokio::test]
+async fn r1318_2_an_explicit_revoke_after_a_recorded_effect_clears_it_with_its_own_round() {
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1318-2x").await;
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    let done = r1313_revoke(&w, &gid, "r1318-2x-again").await;
+    assert_eq!(adapter.calls(), 2, "the re-armed first round");
+    assert!(done.remote_pending.is_empty(), "{done:?}");
+    assert!(r1312_record(&w, &gid).is_none(), "cleared");
+}
+
+/// Red at 8d17ace9 (§13.18 item 2; a round superseded by an explicit revoke). A
+/// supervisor round is in flight (answer held: a confirmation) when the late
+/// credential effect lands; `cleanup` skips and records it. The owner then revokes
+/// the grant again: the record is re-armed, its count restarts, and its first round
+/// calls the adapter after the effect and gets a pending answer. The superseded
+/// round's confirmation then arrives. It answers a call made before the credential
+/// existed, and its claim is no longer the record's, so it is not ordered against
+/// the effect: it must not clear the obligation.
+#[tokio::test]
+async fn r1318_2_a_round_superseded_by_an_explicit_revoke_does_not_clear_a_late_effect() {
+    let cap = 3u32;
+    let (w, adapter) = r1310_pending_world().await;
+    let (op, gid, ensure) = r1318_held_ensure(&w, &adapter, "r1318-2s").await;
+    r1313_revoke(&w, &gid, "r1318-2s-revoke").await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    adapter.hold_revoke.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let g = gid.clone();
+    let round = tokio::spawn(async move { ops.retry_remote_revocation(&g, cap).await });
+    adapter.revoke_entered.notified().await;
+    assert_eq!(adapter.calls(), 2, "round 2's call went out");
+    r1318_apply_late(&w, &adapter, &op, ensure).await;
+    assert_eq!(adapter.calls(), 2, "no immediate call");
+    // The owner revokes again: a re-armed first round, after the effect, pending.
+    adapter.pending.store(true, Ordering::SeqCst);
+    let done = r1313_revoke(&w, &gid, "r1318-2s-again").await;
+    assert_eq!(adapter.calls(), 3);
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    assert_eq!(
+        r1312_record(&w, &gid).unwrap().attempts,
+        1,
+        "the count restarted"
+    );
+    // The superseded round's confirmation arrives.
+    adapter.revoke_release.notify_one();
+    let left = round.await.unwrap().unwrap();
+    let rec = left.expect("still pending: the superseded round preceded the effect");
+    assert!(
+        r1317_owed(&rec, &gid).is_some(),
+        "the obligation stays: {rec:?}"
+    );
+    adapter.pending.store(false, Ordering::SeqCst);
+    r1318_next_round_clears(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at 8d17ace9 (§13.18 item 3; the supervisor). The supervisor's cap (3) is in
+/// force when the grant is revoked, so the record is created with it. A later
+/// supervisor configured with a higher cap (5) judges the record by the lower of
+/// the two: rounds stop at 3 in all, the first local denial included, as restart
+/// recovery would judge it.
+#[tokio::test]
+async fn r1318_3_the_supervisor_judges_a_record_by_the_lower_cap_it_was_created_with() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r136_ready(&w, "r1318-3s", "r1318-3s-work", "h1", "1h").await;
+    let _created_with = r1312_supervisor(&w, 3);
+    let done = r1313_revoke(&w, &g.grant_id, "r1318-3s-revoke").await;
+    assert_eq!(done.remote_pending, vec![g.grant_id.clone()]);
+    assert_eq!(adapter.calls(), 1);
+    let sup = r1312_supervisor(&w, 5);
+    for _ in 0..10 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    assert!(rec.stopped, "stopped at its own cap: {rec:?}");
+    assert_eq!(adapter.calls(), 3, "3 rounds in all, not 5");
+}
+
+/// Red at 8d17ace9 (§13.18 item 3; a withdrawal's record). The supervisor's cap (3)
+/// is in force when the grant's authority is withdrawn at use, so the withdrawal's
+/// record is created with it. A later supervisor configured with a higher cap (5)
+/// judges it by the lower of the two: 3 rounds in all, the local denial included.
+#[tokio::test]
+async fn r1318_3_a_withdrawals_record_keeps_the_cap_it_was_created_with() {
+    let (w, adapter) = r1310_pending_world().await;
+    let _created_with = r1312_supervisor(&w, 3);
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1318-3w").await;
+    assert!(
+        r1312_record(&w, &g.grant_id).is_some(),
+        "the withdrawal's record"
+    );
+    let sup = r1312_supervisor(&w, 5);
+    for _ in 0..10 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    assert!(rec.stopped, "stopped at its own cap: {rec:?}");
+    assert_eq!(adapter.calls(), 3, "3 rounds in all, not 5");
+}
+
+/// Red at 8d17ace9 (§13.18 item 3; a claim after a failed completion). The record
+/// is created with the supervisor's cap (3). The round that reaches that cap has
+/// its completion commit fail, so its obligation is not marked stopped. A
+/// supervisor configured with a higher cap (5) then judges the record by the lower
+/// of the two and stops it without another call.
+#[tokio::test]
+async fn r1318_3_a_record_at_its_own_cap_after_a_failed_completion_is_stopped_without_a_call() {
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let g = r136_ready(&w, "r1318-3f", "r1318-3f-work", "h1", "1h").await;
+    let sup = r1312_supervisor(&w, 3);
+    r1313_revoke(&w, &g.grant_id, "r1318-3f-revoke").await;
+    assert_eq!(adapter.calls(), 1);
+    while adapter.calls() < 2 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    // The round that reaches the cap: its completion commit fails.
+    *adapter.faults.lock().unwrap() = Some(faults.clone());
+    while adapter.calls() < 3 {
+        let _ = sup.scheduler_pass().await;
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    *adapter.faults.lock().unwrap() = None;
+    faults.armed.store(false, Ordering::SeqCst);
+    drop(sup);
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    let owed = r1317_owed(&rec, &g.grant_id).expect("the obligation");
+    assert_eq!(owed.attempts, Some(3), "at its own cap");
+    assert!(
+        !owed.stopped && !rec.stopped,
+        "not yet marked stopped: {rec:?}"
+    );
+    let sup = r1312_supervisor(&w, 5);
+    for _ in 0..6 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(adapter.calls(), 3, "no call past its own cap");
+    assert!(
+        r1312_record(&w, &g.grant_id)
+            .expect("still pending")
+            .stopped
+    );
 }

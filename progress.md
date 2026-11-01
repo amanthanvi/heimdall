@@ -323,3 +323,19 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 - Running:
   - task M02-T00-design-review, Codex, in a worktree at f217bb28;
   - task M01-rulings-13-17, the cleanup guard fix.
+- The §13.17 fix is committed as 8d17ace9 (checkpoint). Fixer-reported validation: check.sh 0 twice, 697 passed. 11 mutations caught.
+- ADR-0006 §13.18 rulings (on the fixer's questions):
+  - the re-arm bound is per (token, state);
+  - only a round claimed after an effect can clear it (inferred race, fail-open);
+  - each record stores its cap, and recovery uses min(stored, configured).
+- Running:
+  - task M01-rulings-13-18;
+  - M02-T00-design-review (Codex).
+- The automated security review of 8d17ace9 found 3 issues in cleanup():
+  - HIGH: an in-flight round;
+  - MEDIUM: the re-arm bound key collides;
+  - MEDIUM: the bound skips a late effect.
+  Rulings are in ADR-0006 §13.18 item 4. They were steered into the running M01-rulings-13-18 task.
+- M02 independent design review (`tests/evidence/artifacts/review-m02-design/review.md`): proceed after fixes. 1 blocker (M2-D01, inherited IdentityFile fallback) and 9 majors (D02–D10).
+  - Rulings are in ADR-0007 §12.2; every fix is accepted.
+  - Running: task M02-T00-design-fix (docs only).
