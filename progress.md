@@ -13,7 +13,7 @@
 | M00-T05 G02 language/TUI + ADR | verified | ADR-0002 revision 3 (re-scored, reviewed twice) and its 2026-10-31 recorded decision: Rust + Ratatui (ADR-0004 §1) |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 | M01-T01..T06 deterministic core | verified (M01 exit 2026-11-01, b89743ae) | `docs/architecture/m01-exit.md`; records A06, A07, A17-local and A19 are verified. A08 and A29-local are blocked only on M04 native sleep/logout/reboot and the second Windows account. 8 independent code-review rounds; the last one says ship |
-| M02-T00 design | in_progress | m02-plan.md and ADR-0007 rev 3 → rev 4 (design-fix-3 running); 3 design reviews so far |
+| M02-T00 design | in_progress | m02-plan.md and ADR-0007 rev 4 (99e6fc9f); 3 design reviews done, focused round 4 running |
 
 ## Owner decisions under delegation (2026-10-31)
 
@@ -405,3 +405,7 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Every platform row is verified. Code review round 8 says ship, with no findings.
   - Exit record: docs/architecture/m01-exit.md, including the limits carried forward.
 - Running: M02-T00-design-fix-3. Then a focused design check, then M02 wave 0.
+- M02 design revision 4 is committed as 99e6fc9f.
+  - Total recovery function with hold outcome H; content-checked discard; Git lock claimed by a no-replace rename; honest config-command reporting; durable StepContent; atomic admission.
+  - ADR-0007 §12.10: QR12–QR15 and P10–P11 accepted.
+- Running: M02-T00-design-review-round4. It is focused: S01–S05, totality, and U0b against the current M01 code.
