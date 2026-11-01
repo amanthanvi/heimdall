@@ -24,8 +24,11 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 ## Worklog (current)
 
 - Goal: release-ready V1 candidate (plan §10), all open items done; publishing stays a separate action (plan §10.3).
-- Running 2026-10-31: M01-T00 design (architecture, ADR-0006 G08 baseline, Cargo workspace skeleton); ADR-0005 managed-recipe ADR; X4 Windows secure-store run (authorized by ADR-0004 §3); G03 WSL Mode B probes P-B08/09/10 on a disposable distribution.
-- Next: adversarial review of the M01 design; parallel M01 implementation; then M02.
+- Done 2026-10-31: ADR-0004 (delegated decisions), ADR-0005 (recipe B1; three Codex review rounds, accept), ADR-0006 (G08 baseline) + Rust workspace skeleton f5616784; X4 Windows stores verified; G03 P-B08/09/10 verified.
+- Running: M01 design review (Codex, `tests/evidence/artifacts/review-m01-design/`); workflow `wf_244d841f-7b7` = M01 wave 1 (U1 contract tests, U2 authority, U3 time, U4 store, U6+U7 Unix IPC + signing framer, U6w Windows pipe tested on the PC) + integrator.
+- Design review done (Codex, `tests/evidence/artifacts/review-m01-design/`): proceed after fixes, 1 blocker (time model: boot-scoped continuous budgets, high-water, reboot sync) + 8 major (expired-key markers, attended confirmation decisions, binding/snapshot store APIs, recovery intent/receipts, issuance substrate, OutcomeUnknown settled-vs-final, event snapshot/replay/live, test harness wiring) + 1 minor (hello required ⊆ negotiated). Orchestrator rulings as summarized in the 2026-10-31 thread; applied by a design-fix round after wave 1, before U5.
+- Next: design-fix round (architect agent) adapting wave-1 code; wave 2 (U5), U8, U9, U10; independent review; M01 exit; then M02.
+- If interrupted: resume the workflow with its script under the session's workflows/scripts dir and resumeFromRunId; units write only their owner paths (docs/architecture/m01-plan.md).
 
 ## Owner decisions and inputs (2026-10-06)
 
