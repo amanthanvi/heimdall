@@ -170,16 +170,27 @@
           "r1315_2_inspect_combines_every_pending_record_that_covers_a_grant",
           "r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record",
           "r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record",
-          "r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record"
+          "r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record",
+          "r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round",
+          "r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it",
+          "r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one",
+          "r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it",
+          "r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call",
+          "r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it",
+          "r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed",
+          "r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once"
         ],
         "heimdall_domain-unit": [
           "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
           "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
           "revocation::tests::a_pending_record_without_obligations_reads_unchanged",
-          "revocation::tests::only_the_responsible_adapter_serves_an_obligation"
+          "revocation::tests::only_the_responsible_adapter_serves_an_obligation",
+          "revocation::tests::rearmed_effects_round_trip_and_default_to_none"
         ],
         "heimdall_app-unit": [
-          "operations::tests::remote_views_combine_whatever_the_record_order"
+          "operations::tests::remote_views_combine_whatever_the_record_order",
+          "operations::tests::applied_effect_is_the_latest_attempt_and_whether_it_was_confirmed",
+          "operations::tests::an_applied_effect_rearms_a_covering_record_at_most_once_per_effect"
         ]
       },
       "not_modelled": [
@@ -517,7 +528,13 @@
           "r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke",
           "r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record",
           "r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record",
-          "r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record"
+          "r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record",
+          "r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round",
+          "r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it",
+          "r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one",
+          "r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it",
+          "r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call",
+          "r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it"
         ],
         "model_revocation": [
           "ended_grants_never_return_and_restart_never_resets_the_clock",
@@ -555,7 +572,8 @@
         "heimdall_domain-unit": [
           "revocation::tests::a_pending_record_without_obligations_reads_unchanged",
           "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
-          "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged"
+          "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
+          "revocation::tests::rearmed_effects_round_trip_and_default_to_none"
         ]
       },
       "labels": {
@@ -590,7 +608,13 @@
           "model_operations::r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke",
           "model_operations::r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record",
           "model_operations::r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record",
-          "model_operations::r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record"
+          "model_operations::r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record",
+          "model_operations::r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round",
+          "model_operations::r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it",
+          "model_operations::r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one",
+          "model_operations::r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it",
+          "model_operations::r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call",
+          "model_operations::r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it"
         ]
       },
       "not_modelled": [

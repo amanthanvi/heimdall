@@ -46,6 +46,12 @@
 //!   record stops only when every obligation has cleared or reached its cap; at
 //!   startup a round a previous run claimed and never completed is due at once (it
 //!   still counts).
+//!   ⟨r2.14⟩ ADR-0006 §13.17: a stopped record can be re-armed by a credential
+//!   effect applied late for a grant it covers. The re-armed record is scheduled
+//!   from its count like any record seen again, and its re-armed obligation gets its
+//!   own cap of rounds. The supervisor gives the operations its cap
+//!   (`Operations::set_revocation_cap`), so they can tell whether a covering
+//!   obligation is still live.
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
@@ -307,6 +313,9 @@ impl Supervisor {
     /// and wakes every `max_idle_sleep` (and on every committed change).
     #[must_use]
     pub fn new(operations: Operations, config: SupervisorConfig) -> Self {
+        // ⟨r2.14⟩ ADR-0006 §13.17 item 1: the operations judge a covering
+        // obligation live against this supervisor's cap.
+        operations.set_revocation_cap(Backoff::default().max_attempts);
         Self {
             operations,
             config,
@@ -326,6 +335,7 @@ impl Supervisor {
     /// denial included.
     #[must_use]
     pub fn with_revocation_backoff(self, backoff: Backoff) -> Self {
+        self.operations.set_revocation_cap(backoff.max_attempts);
         Self {
             revocations: tokio::sync::Mutex::new(RevocationRetries {
                 backoff,

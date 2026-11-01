@@ -89,6 +89,11 @@ pub struct Tombstone {
 ///   rounds never consume another's attempts. `attempts` here counts the rounds
 ///   claimed for the record as a whole (the schedule's round count). `stopped` is
 ///   set only when every obligation has reached its cap ([`Self::capped`]).
+///
+/// ⟨r2.14⟩ ADR-0006 §13.17: a credential effect applied for a covered grant after
+/// its obligation stopped (or with no obligation for the applying adapter) re-arms
+/// that obligation, or adds one, and clears `stopped`. `rearmed_effects` records
+/// the effects that did so, which bounds the re-arms.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingRemoteRevocation {
     /// The grant carrying the tombstone.
@@ -106,7 +111,8 @@ pub struct PendingRemoteRevocation {
     pub last_attempt_at: Timestamp,
     /// The capped retries are exhausted: no further round until an explicit owner
     /// action or a new completion signal. ⟨r2.10⟩ Set only when every obligation
-    /// left has reached its own cap.
+    /// left has reached its own cap. ⟨r2.14⟩ A credential effect applied late for a
+    /// covered grant clears it too (ADR-0006 §13.17).
     pub stopped: bool,
     /// ⟨r2.9⟩ The unresolved obligations, one per grant and responsible adapter
     /// (ADR-0006 §13.12 item 2). Empty in a record written before §13.12 (read as
@@ -117,6 +123,33 @@ pub struct PendingRemoteRevocation {
     /// (ADR-0006 §13.12 item 1); `None` once it completed. Omitted when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<Timestamp>,
+    /// ⟨r2.14⟩ ADR-0006 §13.17 item 4: the credential effects that already re-armed
+    /// (or added) an obligation of this record, so replaying one never re-arms
+    /// again. Kept while the record exists, also after the obligation it re-armed
+    /// cleared. Omitted when empty, so a record written before the field reads
+    /// unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rearmed_effects: Vec<RearmedEffect>,
+}
+
+/// ⟨r2.14⟩ ADR-0006 §13.17 item 4: one credential effect that re-armed (or added) an
+/// obligation of a pending remote record, keyed by its effect token from the stage
+/// receipts.
+///
+/// An effect counts once in each of the two states its receipts can record: possibly
+/// applied (an `Attempted` or `Uncertain` receipt and no confirmation yet; for
+/// example an operation cancelled while its preparation was still in flight) and
+/// confirmed applied (a `Confirmed` receipt after it). The second state can arrive
+/// after rounds that the first state re-armed have already been called, so it
+/// re-arms once more. Each state re-arms at most once. An empty token stands for an
+/// effect whose receipts are no longer on record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RearmedEffect {
+    /// The effect token of the attempt (`PrepareRequest.effect_token`).
+    pub effect_token: String,
+    /// `true` once a `Confirmed` receipt followed the attempt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmed: bool,
 }
 
 /// ⟨r2.9⟩ One unresolved remote obligation of a pending revocation (ADR-0006
@@ -142,8 +175,9 @@ pub struct RemoteObligation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempts: Option<u32>,
     /// ⟨r2.10⟩ This obligation reached its cap without a confirmation: no round
-    /// calls its adapter again until an explicit owner action re-arms the record.
-    /// Omitted when `false`.
+    /// calls its adapter again until an explicit owner action re-arms the record,
+    /// or ⟨r2.14⟩ a credential effect its adapter applied late for the grant
+    /// re-arms this obligation (ADR-0006 §13.17). Omitted when `false`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
 }
@@ -274,10 +308,12 @@ mod tests {
             claimed_at: Some("2026-10-02T09:00:01Z".parse().unwrap()),
             ..r
         };
+        assert!(with.rearmed_effects.is_empty());
         let v = serde_json::to_value(&with).unwrap();
         assert_eq!(v["obligations"][0]["reason"], "adapter_unavailable");
         assert_eq!(v["obligations"][0]["adapter"]["instance"], "fixture-1");
         assert_eq!(v["claimed_at"], "2026-10-02T09:00:01Z");
+        assert!(v.get("rearmed_effects").is_none(), "omitted when empty");
         assert_eq!(
             serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
             with
@@ -382,6 +418,48 @@ mod tests {
             "stopped stays stopped"
         );
         assert!(!two.obligation_capped(&two.obligations[0], 1));
+    }
+
+    /// ⟨r2.14⟩ ADR-0006 §13.17 item 4: the effects that re-armed a record round-trip
+    /// (a possibly applied one without `confirmed`, a confirmed one with it); a
+    /// record without the field reads with none.
+    #[test]
+    fn rearmed_effects_round_trip_and_default_to_none() {
+        let g = GrantId::from_random_bytes([5; 16]);
+        let old = serde_json::json!({
+            "root": g,
+            "grants": [g],
+            "attempts": 1,
+            "last_attempt_at": "2026-10-02T09:00:00Z",
+            "stopped": true,
+        });
+        let r: PendingRemoteRevocation = serde_json::from_value(old).unwrap();
+        assert!(r.rearmed_effects.is_empty());
+        let with = PendingRemoteRevocation {
+            rearmed_effects: vec![
+                RearmedEffect {
+                    effect_token: "eff_01".into(),
+                    confirmed: false,
+                },
+                RearmedEffect {
+                    effect_token: "eff_01".into(),
+                    confirmed: true,
+                },
+            ],
+            ..r
+        };
+        let v = serde_json::to_value(&with).unwrap();
+        assert_eq!(
+            v["rearmed_effects"],
+            serde_json::json!([
+                {"effect_token": "eff_01"},
+                {"effect_token": "eff_01", "confirmed": true},
+            ])
+        );
+        assert_eq!(
+            serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
+            with
+        );
     }
 
     #[test]

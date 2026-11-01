@@ -5267,6 +5267,11 @@ async fn r1310_2_a_degraded_grant_returns_only_when_revalidation_passes() {
 /// `entered` and never returns **without** being counted or reaching the fake (the
 /// in-process crash point after the round's claim committed and before the adapter
 /// acted on the call).
+///
+/// ⟨r2.14⟩ ADR-0006 §13.17: while `hold_prepare` is set, the next `prepare` signals
+/// `prepare_entered` and waits for `prepare_release` before the fake applies its
+/// effect (a preparation still in flight while the grant is revoked and its
+/// operation cancelled).
 struct PendingCounter {
     inner: Arc<FakeCredentialAdapter>,
     pending: AtomicBool,
@@ -5276,6 +5281,9 @@ struct PendingCounter {
     hang: AtomicBool,
     stall: AtomicBool,
     entered: tokio::sync::Notify,
+    hold_prepare: AtomicBool,
+    prepare_entered: tokio::sync::Notify,
+    prepare_release: tokio::sync::Notify,
 }
 
 impl PendingCounter {
@@ -5289,6 +5297,9 @@ impl PendingCounter {
             hang: AtomicBool::new(false),
             stall: AtomicBool::new(false),
             entered: tokio::sync::Notify::new(),
+            hold_prepare: AtomicBool::new(false),
+            prepare_entered: tokio::sync::Notify::new(),
+            prepare_release: tokio::sync::Notify::new(),
         })
     }
     fn calls(&self) -> usize {
@@ -5312,7 +5323,15 @@ impl CredentialAdapter for PendingCounter {
         'life1: 'async_trait,
         Self: 'async_trait,
     {
-        self.inner.prepare(req)
+        if !self.hold_prepare.swap(false, Ordering::SeqCst) {
+            return self.inner.prepare(req);
+        }
+        let applied = self.inner.prepare(req);
+        Box::pin(async move {
+            self.prepare_entered.notify_one();
+            self.prepare_release.notified().await;
+            applied.await
+        })
     }
     fn renew<'life0, 'life1, 'async_trait>(
         &'life0 self,
@@ -7415,4 +7434,472 @@ async fn r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents
         calls,
         "recovery made no call for the child"
     );
+}
+
+// =================================================================================
+// ⟨r2.14⟩ ADR-0006 §13.17 (automated security review of 6230acf9, "fail-open
+// revocation"). A credential effect applied for a grant that a pending remote record
+// covers is skipped by `cleanup` only while a covering record holds a live
+// obligation for (that grant, the applying adapter); otherwise the record's
+// obligation is re-armed, or one is added, in the cleanup decision's transaction,
+// and the supervisor's rounds make the call. A grant no record covers is cleaned up
+// with the immediate call as before (`r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record`).
+//
+// The late confirmation used throughout: the preparation applied its effect but the
+// commit of its `Confirmed` receipt failed, so the ensure still runs with only the
+// `Attempted` receipt; the owner revokes the grant; a later in-process restart's
+// recovery reconciles the effect token (`Applied`), records `Confirmed` and refuses
+// activation of the revoked grant at `Recheck`, which reaches `cleanup`. Only public
+// APIs are used, so every case also runs against the base commit d0c8cb7c.
+// =================================================================================
+
+/// The grant's obligation to the fixture adapter (its preparing adapter) in `record`.
+fn r1317_owed(
+    record: &heimdall_domain::revocation::PendingRemoteRevocation,
+    grant: &heimdall_contract::ids::GrantId,
+) -> Option<heimdall_domain::revocation::RemoteObligation> {
+    record
+        .obligations
+        .iter()
+        .find(|o| &o.grant == grant && o.adapter == descriptor().identity)
+        .cloned()
+}
+
+/// A grant revoked after its preparation applied its credential effect and before
+/// that effect's confirmation became durable (see the section comment). The first
+/// local denial calls the preparing adapter, which reports the remote effect
+/// pending: the record holds one live obligation, round 1.
+async fn r1317_revoked_before_its_confirmation(
+    tag: &str,
+) -> (
+    World,
+    Arc<PendingCounter>,
+    OperationId,
+    heimdall_contract::ids::GrantId,
+) {
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    faults.arm_after_effect(w.fake.clone());
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req(tag, &format!("{tag}-work"), &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(e.code, Code::StateUnavailable);
+    assert_eq!(faults.fired.load(Ordering::SeqCst), 1);
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    assert!(
+        matches!(
+            r1314_effects(&w, &op).last(),
+            Some(heimdall_domain::operation::EffectReceipt::Attempted { .. })
+        ),
+        "only the `Attempted` receipt is durable"
+    );
+    let gid = r1313_grant_of(&w, &op);
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    let done = r1313_revoke(&w, &gid, &format!("{tag}-revoke")).await;
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    assert_eq!(adapter.calls(), 1, "the first local denial");
+    let rec = r1312_record(&w, &gid).expect("the pending record");
+    let owed = r1317_owed(&rec, &gid).expect("the preparing adapter's obligation");
+    assert_eq!(owed.attempts, Some(1));
+    assert!(!owed.stopped && !rec.stopped);
+    (w, adapter, op, gid)
+}
+
+/// Run the supervisor (revocation cap `cap`) until the record of `grant` is stopped
+/// at its cap: the adapter was called `cap` times in all.
+async fn r1317_run_to_cap(
+    w: &World,
+    adapter: &PendingCounter,
+    grant: &heimdall_contract::ids::GrantId,
+    cap: u32,
+) {
+    let sup = r1312_supervisor(w, cap);
+    for _ in 0..(cap + 3) {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    let rec = r1312_record(w, grant).expect("still pending");
+    assert!(rec.stopped, "capped: {rec:?}");
+    assert!(rec.obligations.iter().all(|o| o.stopped), "{rec:?}");
+    assert_eq!(adapter.calls(), cap as usize, "every round of the cap ran");
+}
+
+/// The late confirmation of the effect (restart recovery; section comment): the
+/// ensure settles failed with its `Confirmed` receipt recorded, and `cleanup` makes
+/// no immediate call for a grant a record covers.
+async fn r1317_late_confirmation(w: &mut World, adapter: &Arc<PendingCounter>, op: &OperationId) {
+    let calls = adapter.calls();
+    r1310_restart_pending(w, adapter).await;
+    assert_eq!(
+        w.op(op).state,
+        OperationState::Failed,
+        "recovery settled it"
+    );
+    assert!(
+        r1314_effects(w, op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect was confirmed late"
+    );
+    assert_eq!(
+        adapter.calls(),
+        calls,
+        "no immediate call: the record's rounds own it"
+    );
+}
+
+/// The next due round of `grant`'s record calls the adapter once: the first pass
+/// schedules it (no call), the pass after its delay runs it.
+async fn r1317_next_round_calls(
+    w: &World,
+    adapter: &PendingCounter,
+    grant: &heimdall_contract::ids::GrantId,
+    cap: u32,
+) {
+    let calls = adapter.calls();
+    let sup = r1312_supervisor(w, cap);
+    let report = sup.revocation_pass().await.unwrap();
+    assert!(
+        report.scheduled.iter().any(|(r, ..)| r == grant),
+        "the record is scheduled: {report:?}"
+    );
+    assert_eq!(adapter.calls(), calls, "the first pass only schedules");
+    w.clock.advance(10 * Duration::from_secs(1));
+    let report = sup.revocation_pass().await.unwrap();
+    assert!(
+        report.retried.iter().any(|(r, _)| r == grant),
+        "the due round ran: {report:?}"
+    );
+    assert_eq!(
+        adapter.calls(),
+        calls + 1,
+        "the next round calls the adapter"
+    );
+}
+
+/// Red at d0c8cb7c (§13.17 items 1, 2). The covering record ran to its cap (3
+/// rounds, stopped) before the effect's late confirmation. `cleanup` re-arms the
+/// stopped obligation of the applying adapter (attempts reset, `stopped` cleared, the
+/// record no longer stopped) in its decision's transaction, with no immediate call,
+/// and the next round calls the adapter. The re-armed obligation gets its own cap of
+/// rounds again, and no more.
+#[tokio::test]
+async fn r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1317-1").await;
+    r1317_run_to_cap(&w, &adapter, &gid, cap).await;
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    assert!(!rec.stopped, "re-armed: {rec:?}");
+    let owed = r1317_owed(&rec, &gid).expect("the obligation");
+    assert_eq!(owed.attempts, Some(0), "attempts reset");
+    assert!(!owed.stopped, "stopped cleared");
+    r1317_next_round_calls(&w, &adapter, &gid, cap).await;
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..(cap + 3) {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(
+        adapter.calls(),
+        2 * cap as usize,
+        "one more cap of rounds, and no more"
+    );
+    assert!(r1312_record(&w, &gid).expect("still pending").stopped);
+}
+
+/// Red at d0c8cb7c (§13.17 items 1, 2). The covering record owes the grant's remote
+/// effect to another adapter only (here rewritten to name another mechanism's
+/// adapter, which is not configured). `cleanup` adds an obligation for the applying
+/// adapter in its decision's transaction, with no immediate call; the next round
+/// calls it. The other obligation stays as it was.
+#[tokio::test]
+async fn r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1317-2").await;
+    let other = AdapterIdentity {
+        mechanism: "fake_other".into(),
+        instance: "fixture-2".into(),
+    };
+    w.store
+        .transaction(|tx| {
+            let mut r = tx.remote_revocation(&gid)?.unwrap();
+            for o in &mut r.obligations {
+                o.adapter = other.clone();
+            }
+            tx.set_remote_revocation(&r)
+        })
+        .unwrap();
+    let before = r1312_record(&w, &gid).unwrap();
+    assert!(r1317_owed(&before, &gid).is_none(), "nothing owed to it");
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    let owed = r1317_owed(&rec, &gid).expect("an obligation was added");
+    assert_eq!(owed.attempts, Some(0));
+    assert!(!owed.stopped && !rec.stopped);
+    assert!(
+        rec.obligations
+            .iter()
+            .any(|o| o.grant == gid && o.adapter == other),
+        "the other adapter's obligation is kept: {rec:?}"
+    );
+    assert_eq!(rec.grants, vec![gid.clone()]);
+    r1317_next_round_calls(&w, &adapter, &gid, cap).await;
+}
+
+/// Guard (§13.17 item 1; green at d0c8cb7c). The covering record's obligation for
+/// the applying adapter is live (round 1 of 3, not stopped) when the effect's late
+/// confirmation arrives: `cleanup` skips, the record is unchanged, and the rounds
+/// continue on their schedule within the cap: no extra call.
+#[tokio::test]
+async fn r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1317-3").await;
+    let before = r1312_record(&w, &gid).unwrap();
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    assert_eq!(
+        r1312_record(&w, &gid).unwrap(),
+        before,
+        "a live obligation owns the call: the record is unchanged"
+    );
+    r1317_run_to_cap(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at d0c8cb7c (§13.17 items 1, 2; restart). As in
+/// [`r1317_1_a_late_effect_on_a_capped_record_rearms_it_for_the_next_round`], then
+/// another in-process restart: the re-armed obligation is durable, the restart makes
+/// no call and does not re-arm it again, and the supervisor schedules it and calls.
+#[tokio::test]
+async fn r1317_1_a_restart_keeps_the_rearmed_obligation_and_schedules_it() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1317-1r").await;
+    r1317_run_to_cap(&w, &adapter, &gid, cap).await;
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    let rearmed = r1312_record(&w, &gid).expect("still pending");
+    assert!(!rearmed.stopped);
+    let calls = adapter.calls();
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(adapter.calls(), calls, "the restart makes no call");
+    assert_eq!(
+        r1312_record(&w, &gid).unwrap(),
+        rearmed,
+        "the re-armed obligation survives the restart unchanged"
+    );
+    r1317_next_round_calls(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at d0c8cb7c (§13.17 items 1, 2; restart). As in
+/// [`r1317_2_a_late_effect_with_no_obligation_for_its_adapter_adds_one`], then another
+/// in-process restart: the added obligation is durable and the supervisor schedules
+/// it and calls.
+#[tokio::test]
+async fn r1317_2_a_restart_keeps_the_added_obligation_and_schedules_it() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1317-2r").await;
+    w.store
+        .transaction(|tx| {
+            let mut r = tx.remote_revocation(&gid)?.unwrap();
+            for o in &mut r.obligations {
+                o.adapter = AdapterIdentity {
+                    mechanism: "fake_other".into(),
+                    instance: "fixture-2".into(),
+                };
+            }
+            tx.set_remote_revocation(&r)
+        })
+        .unwrap();
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    let added = r1312_record(&w, &gid).expect("still pending");
+    assert!(
+        r1317_owed(&added, &gid).is_some(),
+        "an obligation was added"
+    );
+    let calls = adapter.calls();
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(adapter.calls(), calls, "the restart makes no call");
+    assert_eq!(
+        r1312_record(&w, &gid).unwrap(),
+        added,
+        "the added obligation survives the restart unchanged"
+    );
+    r1317_next_round_calls(&w, &adapter, &gid, cap).await;
+}
+
+/// Guard (§13.17 item 1; restart; green at d0c8cb7c). As in
+/// [`r1317_3_a_late_effect_with_a_live_obligation_is_skipped_without_an_extra_call`],
+/// then another in-process restart: the live obligation is unchanged and is
+/// scheduled and called by its next round.
+#[tokio::test]
+async fn r1317_3_a_restart_keeps_the_live_obligation_and_schedules_it() {
+    let cap = 3u32;
+    let (mut w, adapter, op, gid) = r1317_revoked_before_its_confirmation("r1317-3r").await;
+    let before = r1312_record(&w, &gid).unwrap();
+    r1317_late_confirmation(&mut w, &adapter, &op).await;
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(adapter.calls(), 1, "neither restart made a call");
+    assert_eq!(r1312_record(&w, &gid).unwrap(), before, "unchanged");
+    r1317_next_round_calls(&w, &adapter, &gid, cap).await;
+}
+
+/// Red at d0c8cb7c (§13.17 item 1: "below its cap"). The covering obligation
+/// reached its cap (3) in a round whose completion commit failed, so it is not yet
+/// marked `stopped`. The effect's late confirmation then arrives in the same
+/// process, through a same-key retry of the ensure, after the supervisor gave the
+/// operations its cap. At its cap the obligation is not live, so `cleanup`
+/// re-arms it and the next round calls the adapter. If it were judged live, the
+/// next pass would stop the record without a call.
+#[tokio::test]
+async fn r1317_4_an_obligation_at_its_cap_but_not_yet_stopped_is_rearmed() {
+    let cap = 3u32;
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    faults.arm_after_effect(w.fake.clone());
+    let req = ensure_req("r1317-4", "r1317-4-work", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::StateUnavailable);
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    *faults.after_effect_of.lock().unwrap() = None;
+    r1313_revoke(&w, &gid, "r1317-4-revoke").await;
+    assert_eq!(adapter.calls(), 1);
+    let sup = r1312_supervisor(&w, cap);
+    while adapter.calls() < cap as usize - 1 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    // The round that reaches the cap: its completion commit fails.
+    *adapter.faults.lock().unwrap() = Some(faults.clone());
+    while adapter.calls() < cap as usize {
+        let _ = sup.scheduler_pass().await;
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    *adapter.faults.lock().unwrap() = None;
+    faults.armed.store(false, Ordering::SeqCst);
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    let owed = r1317_owed(&rec, &gid).expect("the obligation");
+    assert_eq!(owed.attempts, Some(cap), "at its cap");
+    assert!(
+        !owed.stopped && !rec.stopped,
+        "not yet marked stopped: {rec:?}"
+    );
+    // The late confirmation, in this process.
+    let _ = w.ops.ensure(&unattended(501), req).await;
+    assert_eq!(w.op(&op).state, OperationState::Failed);
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect was confirmed late"
+    );
+    assert_eq!(adapter.calls(), cap as usize, "no immediate call");
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    let owed = r1317_owed(&rec, &gid).expect("the obligation");
+    assert_eq!(owed.attempts, Some(0), "re-armed: {rec:?}");
+    let calls = adapter.calls();
+    for _ in 0..2 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(
+        adapter.calls(),
+        calls + 1,
+        "the next round calls the adapter"
+    );
+}
+
+/// Red at d0c8cb7c (§13.17 items 2, 4; the finding's own path). The grant is revoked
+/// while its preparation is still in flight, and its record runs to its cap (3).
+/// The ensure is then cancelled: its receipts show an attempted, possibly applied
+/// effect, so `cleanup` re-arms the stopped obligation (the effect's first state),
+/// and the re-armed rounds run to the cap again before the effect is applied.
+/// Then the preparation applies its credential and the late confirmation reaches
+/// `cleanup` again. The same effect token, now confirmed, is a new state of the
+/// effect: it re-arms once more, and the next round, after the credential exists,
+/// calls the adapter. Neither state re-arms twice, and nothing is called
+/// immediately.
+#[tokio::test]
+async fn r1317_5_a_cancel_then_a_late_confirmation_each_rearm_once() {
+    let cap = 3u32;
+    let (w, adapter) = r1310_pending_world().await;
+    adapter.hold_prepare.store(true, Ordering::SeqCst);
+    let ops = w.ops.clone();
+    let req = ensure_req("r1317-5", "r1317-5-work", &[("h1", "deploy")]);
+    let ensure = tokio::spawn(async move { ops.ensure(&unattended(501), req).await });
+    adapter.prepare_entered.notified().await;
+    assert_eq!(w.effects(), 0, "the preparation is still in flight");
+    let op = w
+        .store
+        .transaction(|tx| tx.open_operations())
+        .unwrap()
+        .into_iter()
+        .find(|o| o.state == OperationState::Running)
+        .expect("the running ensure")
+        .id;
+    let gid = r1313_grant_of(&w, &op);
+    r1313_revoke(&w, &gid, "r1317-5-revoke").await;
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+    r1317_run_to_cap(&w, &adapter, &gid, cap).await;
+    // Cancelled while the preparation is in flight: a possibly applied effect.
+    let c = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(c.data["may_have_external_effect"], true);
+    assert_eq!(adapter.calls(), cap as usize, "no immediate call");
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    assert!(!rec.stopped, "re-armed by the possible effect: {rec:?}");
+    assert_eq!(r1317_owed(&rec, &gid).unwrap().attempts, Some(0));
+    // Its rounds run to the cap again, all before the credential exists.
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..(cap + 3) {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(adapter.calls(), 2 * cap as usize);
+    assert!(r1312_record(&w, &gid).expect("still pending").stopped);
+    assert_eq!(w.effects(), 0, "every call so far preceded the effect");
+    // The preparation applies its credential; the late confirmation follows.
+    adapter.prepare_release.notify_one();
+    let _ = ensure.await.unwrap();
+    assert_eq!(w.effects(), 1, "the credential effect was applied");
+    assert!(
+        r1314_effects(&w, &op).iter().any(|e| matches!(
+            e,
+            heimdall_domain::operation::EffectReceipt::Confirmed { .. }
+        )),
+        "the effect was confirmed late"
+    );
+    assert_eq!(adapter.calls(), 2 * cap as usize, "no immediate call");
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    assert!(!rec.stopped, "re-armed by the confirmed effect: {rec:?}");
+    assert_eq!(r1317_owed(&rec, &gid).unwrap().attempts, Some(0));
+    // Read through the record's stored form, so the case also compiles (red) at
+    // the base commit, before the field existed.
+    let rearmed = serde_json::to_value(&rec).unwrap()["rearmed_effects"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert_eq!(rearmed, 2, "one re-arm per state: {rec:?}");
+    r1317_next_round_calls(&w, &adapter, &gid, cap).await;
 }

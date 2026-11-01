@@ -3421,6 +3421,7 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
         stopped,
         obligations: Vec::new(),
         claimed_at: None,
+        rearmed_effects: Vec::new(),
     };
     let untombstoned = s
         .transaction(|tx| tx.set_remote_revocation(&record(51, 1, false)))
@@ -3501,6 +3502,7 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
             owe(&child, Some(RemotePendingReason::AdapterUnavailable)),
         ],
         claimed_at: Some(plus(t0(), 2)),
+        rearmed_effects: Vec::new(),
     };
     s.transaction(|tx| {
         tx.insert_tombstone(&tombstone(61))?;

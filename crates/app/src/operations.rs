@@ -149,7 +149,7 @@
 //!   until every obligation has cleared.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -195,7 +195,8 @@ use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, Standing
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::ProfileSnapshot;
 use heimdall_domain::revocation::{
-    PendingRemoteRevocation, RemoteObligation, RemotePendingReason, RevocationCause, Tombstone,
+    PendingRemoteRevocation, RearmedEffect, RemoteObligation, RemotePendingReason, RevocationCause,
+    Tombstone,
 };
 use heimdall_domain::scope::{AccessPair, Capability, Scope};
 use heimdall_domain::time::{self as dtime, Admission, Clock, Deadline, TimePolicy, TimeSync};
@@ -334,6 +335,13 @@ struct Inner {
     /// runs; a root leaves the set in the transaction of the next round this process
     /// claims for it, so a claim of this process is never mistaken for one.
     interrupted_rounds: Arc<Mutex<BTreeSet<GrantId>>>,
+    /// ⟨r2.14⟩ ADR-0006 §13.17 item 1: the supervisor's per-obligation cap of
+    /// revocation rounds, which decides whether a covering obligation is still live
+    /// ([`Operations::set_revocation_cap`]; also every
+    /// [`Operations::retry_remote_revocation`] call). Until the supervisor sets it
+    /// (restart recovery runs first), the default back-off's cap, which production
+    /// uses.
+    revocation_cap: AtomicU32,
 }
 
 impl std::fmt::Debug for Operations {
@@ -1412,15 +1420,15 @@ fn drivable(
 /// whose owner was cancelled post-approval settled (`me`), the grant ends when no
 /// attached operation is left to use it: `preparing ⇒ cancelled`, or, if the
 /// owner's continued preparation already activated it and no binding references it,
-/// `released` (release is never revoke). Returns the grant when its prepared
-/// credential needs the usual cleanup (the owner's receipts show a possible
-/// effect).
+/// `released` (release is never revoke). Returns the owner operation when the
+/// grant's prepared credential needs the usual cleanup (the owner's receipts show
+/// a possible effect; ⟨r2.14⟩ they also key that effect, ADR-0006 §13.17).
 fn end_orphaned_in(
     tx: &mut Txn<'_>,
     emit: &mut Emit,
     grant: &GrantId,
     me: &OperationId,
-) -> heimdall_store::Result<Option<GrantId>> {
+) -> heimdall_store::Result<Option<OperationId>> {
     let Some(mut g) = tx.grant(grant)? else {
         return Ok(None);
     };
@@ -1447,7 +1455,7 @@ fn end_orphaned_in(
     }
     put_grant(tx, emit, &g, Some(&owner))?;
     let effect = may_have_external_effect(&tx.stage_receipts(&owner)?);
-    Ok(effect.then(|| grant.clone()))
+    Ok(effect.then_some(owner))
 }
 
 /// Pending `ApproveAuthority` records that name `op` as their waiting operation.
@@ -2328,6 +2336,7 @@ fn claim_first_round_in(
         stopped: false,
         obligations: Vec::new(),
         claimed_at: None,
+        rearmed_effects: Vec::new(),
     });
     if rearm {
         record.attempts = 0;
@@ -2522,6 +2531,166 @@ fn complete_round_in(
         }
     }
     complete_revocation_in(tx, emit, grants, &pending, answers.adapter_expiry, op)
+}
+
+/// ⟨r2.14⟩ ADR-0006 §13.17: a credential effect that was applied, or may have been,
+/// for a grant: the adapter its attempt asked and the attempt's key (its effect
+/// token and whether a confirmation followed), taken from the stage receipts of
+/// the operation that made the attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AppliedEffect {
+    adapter: AdapterIdentity,
+    key: RearmedEffect,
+}
+
+/// ⟨r2.14⟩ The latest effect attempt in `receipts` (its `Attempted` or `Uncertain`
+/// receipt), confirmed when a `Confirmed` receipt follows it. `None` when no
+/// attempt is on record (never attempted, or purged with a settled operation).
+fn applied_effect(receipts: &[StageReceipt]) -> Option<AppliedEffect> {
+    let (at, adapter, token) =
+        receipts
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, r)| match &r.effect {
+                EffectReceipt::Attempted {
+                    adapter,
+                    effect_token,
+                }
+                | EffectReceipt::Uncertain {
+                    adapter,
+                    effect_token,
+                } => Some((i, adapter, effect_token)),
+                _ => None,
+            })?;
+    let confirmed = receipts[at + 1..]
+        .iter()
+        .any(|r| matches!(r.effect, EffectReceipt::Confirmed { .. }));
+    Some(AppliedEffect {
+        adapter: adapter.clone(),
+        key: RearmedEffect {
+            effect_token: token.clone(),
+            confirmed,
+        },
+    })
+}
+
+/// ⟨r2.14⟩ Who makes the revocation call for an applied effect
+/// ([`own_applied_effect_in`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EffectOwner {
+    /// No pending remote record covers the grant: the cleanup makes its immediate
+    /// best-effort call, as before (ADR-0006 §13.17 item 3).
+    Immediate,
+    /// A covering record holds a live obligation for (the grant, every applying
+    /// adapter): its rounds make the call; nothing changed (item 1).
+    Live,
+    /// A stopped or capped obligation for an applying adapter was re-armed, or one
+    /// was added, in this transaction; the supervisor's rounds make the call
+    /// (item 2).
+    Rearmed,
+    /// This effect already re-armed a covering record once: no second re-arm
+    /// (item 4).
+    Bounded,
+}
+
+/// ⟨r2.14⟩ ADR-0006 §13.17, inside the transaction of the cleanup decision for a
+/// credential effect applied (or possibly applied) for `grant`.
+///
+/// * **Item 3.** When no pending remote record covers the grant (lists it in
+///   `grants`), the answer is [`EffectOwner::Immediate`] and nothing is written.
+/// * **Item 1.** The applying adapters are the effect's adapter (from its receipts)
+///   or, with no attempt on record, the grant's responsible adapters
+///   ([`responsible_adapters`]). When a covering record that is not stopped holds,
+///   for every one of them, an obligation of this grant served by it that is not
+///   stopped and is below `cap` counted rounds (the supervisor's cap), the call is
+///   still owned: [`EffectOwner::Live`], nothing written.
+/// * **Item 2.** Otherwise each applying adapter without such an obligation gets
+///   one: the first covering record with an obligation of this grant served by it
+///   has that obligation re-armed (attempts `0`, `stopped` cleared); with none, an
+///   obligation is added to the first covering record. Each changed record is no
+///   longer `stopped`, records the effect in `rearmed_effects` and is written here,
+///   so the supervisor's rounds own the call from this commit on.
+/// * **Item 4.** An effect that a covering record already lists in
+///   `rearmed_effects` re-arms nothing ([`EffectOwner::Bounded`]). A grant under
+///   revocation gets no new preparation (activation refuses it), so only the
+///   attempts already on record can re-arm it: at most one re-arm per effect token
+///   and recorded state (possibly applied, then confirmed applied;
+///   [`RearmedEffect`]). An effect with no attempt on record counts as one effect
+///   with an empty token.
+fn own_applied_effect_in(
+    tx: &mut Txn<'_>,
+    grant: &GrantId,
+    effect: Option<&AppliedEffect>,
+    cap: u32,
+) -> heimdall_store::Result<EffectOwner> {
+    let mut covering: Vec<PendingRemoteRevocation> = Vec::new();
+    for r in tx.remote_revocations()? {
+        if r.grants.contains(grant)
+            && let Some(loaded) = load_remote_record(tx, &r.root)?
+        {
+            covering.push(loaded);
+        }
+    }
+    if covering.is_empty() {
+        return Ok(EffectOwner::Immediate);
+    }
+    let applying = match effect {
+        Some(e) => vec![e.adapter.clone()],
+        None => responsible_adapters(tx, grant)?,
+    };
+    let owes = |o: &RemoteObligation, a: &AdapterIdentity| &o.grant == grant && o.served_by(a);
+    let unowned: Vec<AdapterIdentity> = applying
+        .into_iter()
+        .filter(|a| {
+            !covering.iter().any(|r| {
+                !r.stopped
+                    && r.obligations
+                        .iter()
+                        .any(|o| owes(o, a) && !o.stopped && r.obligation_attempts(o) < cap)
+            })
+        })
+        .collect();
+    if unowned.is_empty() {
+        return Ok(EffectOwner::Live);
+    }
+    let key = effect.map_or_else(
+        || RearmedEffect {
+            effect_token: String::new(),
+            confirmed: false,
+        },
+        |e| e.key.clone(),
+    );
+    if covering.iter().any(|r| r.rearmed_effects.contains(&key)) {
+        return Ok(EffectOwner::Bounded);
+    }
+    let mut changed: BTreeSet<usize> = BTreeSet::new();
+    for a in &unowned {
+        match covering
+            .iter()
+            .position(|r| r.obligations.iter().any(|o| owes(o, a)))
+        {
+            Some(i) => {
+                for o in covering[i].obligations.iter_mut().filter(|o| owes(o, a)) {
+                    o.attempts = Some(0);
+                    o.stopped = false;
+                }
+                changed.insert(i);
+            }
+            None => {
+                covering[0].obligations.push(obligation(grant, a.clone()));
+                changed.insert(0);
+            }
+        }
+    }
+    for i in changed {
+        let r = &mut covering[i];
+        r.stopped = false;
+        r.rearmed_effects.push(key.clone());
+        sync_obligation_grants(r);
+        tx.set_remote_revocation(r)?;
+    }
+    Ok(EffectOwner::Rearmed)
 }
 
 /// Earliest deadline among grants already bound to `work_id` (a continuing work
@@ -3153,8 +3322,9 @@ enum Checked {
     Unanchored,
     /// Refused and settled; the grant's prepared credential may need cleanup, and
     /// a shared grant left without attached operations (ADR-0006 §13.8 item 5)
-    /// may need the usual cleanup of its owner's credential.
-    Refused(GrantId, Option<GrantId>),
+    /// may need the usual cleanup of its owner's credential (⟨r2.14⟩ the owner
+    /// operation whose receipts record that effect).
+    Refused(GrantId, Option<OperationId>),
     /// The operation is no longer in the expected state.
     Stop,
 }
@@ -3355,6 +3525,7 @@ impl Operations {
             changed: tokio::sync::Notify::new(),
             reserved_here: Mutex::new(HashMap::new()),
             interrupted_rounds: Arc::new(Mutex::new(BTreeSet::new())),
+            revocation_cap: AtomicU32::new(crate::reconcile::Backoff::default().max_attempts),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -4853,7 +5024,7 @@ impl Operations {
             })
             .await?;
         if !still_running {
-            self.cleanup(grant).await;
+            self.cleanup(grant, id).await;
             return Ok(Flow::Stop);
         }
         local.prepared = Some(o);
@@ -4862,25 +5033,34 @@ impl Operations {
 
     /// Best-effort local revocation of a credential prepared for an activation
     /// that did not happen (cancelled, revoked, expired or refused at commit).
+    /// `effect_of` is the operation whose stage receipts record the credential
+    /// effect (the grant's owner for a shared grant left without attached
+    /// operations, ADR-0006 §13.8 item 5).
     ///
     /// ⟨r2.12⟩ ADR-0006 §13.15 item 3 (one owner for revocation calls): nothing is
     /// called for a grant that a pending remote revocation record covers; that
     /// record's supervisor-owned rounds own its calls (§13.6 item 4, §13.13 item 2:
     /// no untracked call). A grant with no record is cleaned up as before, and so
     /// is one whose records cannot be read (best effort, as before).
-    async fn cleanup(&self, grant: &GrantId) {
+    ///
+    /// ⟨r2.14⟩ ADR-0006 §13.17: a covering record owns the call only while it holds
+    /// a live obligation for (the grant, the applying adapter); otherwise that
+    /// obligation is re-armed, or one is added, in the transaction of this decision
+    /// ([`own_applied_effect_in`]), at most once per effect, and the supervisor's
+    /// rounds make the call. Nothing is called here in either case.
+    async fn cleanup(&self, grant: &GrantId, effect_of: &OperationId) {
         let g = grant.clone();
+        let op = effect_of.clone();
+        let cap = self.inner.revocation_cap.load(Ordering::SeqCst);
         match self
             .write(move |tx, _| {
-                Ok(tx
-                    .remote_revocations()?
-                    .iter()
-                    .any(|r| r.grants.contains(&g)))
+                let effect = applied_effect(&tx.stage_receipts(&op)?);
+                own_applied_effect_in(tx, &g, effect.as_ref(), cap)
             })
             .await
         {
-            Ok(true) => return,
-            Ok(false) => {}
+            Ok(EffectOwner::Immediate) => {}
+            Ok(EffectOwner::Live | EffectOwner::Rearmed | EffectOwner::Bounded) => return,
             Err(e) => {
                 tracing::warn!(code = %e.code, "pending remote revocations could not be read before cleanup");
             }
@@ -4979,8 +5159,12 @@ impl Operations {
             Checked::Uncertain(u) => Err(uncertain(&u).with_effect(effect)),
             Checked::Unanchored => Err(unanchored().with_effect(effect)),
             Checked::Refused(gid, orphan) => {
-                if (!attached && effect != EffectStatus::None) || orphan.is_some() {
-                    self.cleanup(&gid).await;
+                let effect_of = match orphan {
+                    Some(owner) => Some(owner),
+                    None => (!attached && effect != EffectStatus::None).then(|| st.op.id.clone()),
+                };
+                if let Some(op) = effect_of {
+                    self.cleanup(&gid, &op).await;
                 }
                 // ⟨r2.5⟩ ADR-0006 §13.8 item 4: detected at use (an attached
                 // binding's live grant, or an ancestor), a grant that can no
@@ -5237,8 +5421,12 @@ impl Operations {
             Checked::Uncertain(u) => Err(uncertain(&u).with_effect(effect)),
             Checked::Unanchored => Err(unanchored().with_effect(effect)),
             Checked::Refused(gid, orphan) => {
-                if !attached || orphan.is_some() {
-                    self.cleanup(&gid).await;
+                let effect_of = match orphan {
+                    Some(owner) => Some(owner),
+                    None => (!attached).then(|| st.op.id.clone()),
+                };
+                if let Some(op) = effect_of {
+                    self.cleanup(&gid, &op).await;
                 }
                 // ⟨r2.5⟩ ADR-0006 §13.8 item 4 (as at `Recheck`).
                 self.end_if_invalid(&gid).await;
@@ -6478,7 +6666,7 @@ impl Operations {
                             }
                         }
                         if may_have {
-                            cleanup = Some(gid);
+                            cleanup = Some((gid, id.clone()));
                         }
                     }
                 }
@@ -6506,9 +6694,9 @@ impl Operations {
                 // preparation already activated it) and its prepared credential is
                 // cleaned up through the usual path.
                 if let Some(gid) = &pinned
-                    && let Some(orphan) = end_orphaned_in(tx, emit, gid, &id)?
+                    && let Some(owner) = end_orphaned_in(tx, emit, gid, &id)?
                 {
-                    cleanup = Some(orphan);
+                    cleanup = Some((gid.clone(), owner));
                 }
                 Ok(Some((op, cleanup)))
             })
@@ -6516,8 +6704,8 @@ impl Operations {
             .ok_or_else(|| {
                 OpError::new(Code::NotFound, "unknown operation").with_resource("operation", None)
             })?;
-        if let Some(gid) = cleanup {
-            self.cleanup(&gid).await;
+        if let Some((gid, effect_of)) = cleanup {
+            self.cleanup(&gid, &effect_of).await;
         }
         let may_have = op
             .cancellation
@@ -6989,6 +7177,19 @@ impl Operations {
         self.write(|tx, _| tx.remote_revocations()).await
     }
 
+    /// ⟨r2.14⟩ ADR-0006 §13.17 item 1: the per-obligation cap of revocation rounds
+    /// the supervisor's single retry owner applies (`Backoff::max_attempts`). A
+    /// covering obligation below it and not stopped is live, so a cleanup leaves the
+    /// call to the rounds; one at it is re-armed. The supervisor sets it when it is
+    /// built, and every [`Self::retry_remote_revocation`] call sets it again. Until
+    /// then (restart recovery runs inside [`Self::start`]) it is the default
+    /// back-off's cap, which is the one production uses.
+    pub fn set_revocation_cap(&self, max_attempts: u32) {
+        self.inner
+            .revocation_cap
+            .store(max_attempts, Ordering::SeqCst);
+    }
+
     /// ⟨r2.10⟩ ADR-0006 §13.13 item 4: whether `record` carries a claimed but
     /// uncompleted round that a previous run of the runtime left behind (found when
     /// this runtime started, and not claimed again by it since). The supervisor runs
@@ -7042,6 +7243,9 @@ impl Operations {
         root: &GrantId,
         max_attempts: u32,
     ) -> Result<Option<PendingRemoteRevocation>, OpError> {
+        // ⟨r2.14⟩ ADR-0006 §13.17 item 1: the cap the rounds apply is the one that
+        // decides whether a covering obligation is still live.
+        self.set_revocation_cap(max_attempts);
         let now = self.narrowing_now().await;
         let configured = self.adapter_identities();
         let r = root.clone();
@@ -8379,5 +8583,201 @@ mod tests {
         assert!(both.stopped, "every obligation stopped");
         let twice = retryable().combine(retryable());
         assert_eq!(twice.reasons, vec![unavailable], "each reason once");
+    }
+
+    /// ⟨r2.14⟩ ADR-0006 §13.17: the effect of an operation is its latest attempt
+    /// (`Attempted` or `Uncertain`), with its adapter and token, confirmed only when
+    /// a `Confirmed` receipt follows that attempt; none without an attempt.
+    #[test]
+    fn applied_effect_is_the_latest_attempt_and_whether_it_was_confirmed() {
+        use EnsureStage as S;
+        let attempted = |token: &str| {
+            r(
+                S::Reconcile,
+                EffectReceipt::Attempted {
+                    adapter: ident(),
+                    effect_token: token.into(),
+                },
+            )
+        };
+        let confirmed = || {
+            r(
+                S::Reconcile,
+                EffectReceipt::Confirmed {
+                    adapter: ident(),
+                    credential_ref: "c".into(),
+                },
+            )
+        };
+        let key = |token: &str, confirmed| AppliedEffect {
+            adapter: ident(),
+            key: RearmedEffect {
+                effect_token: token.into(),
+                confirmed,
+            },
+        };
+        let mut rs = vec![r(S::Authenticate, EffectReceipt::NotAttempted)];
+        assert_eq!(applied_effect(&rs), None);
+        rs.push(attempted("eff_1"));
+        assert_eq!(applied_effect(&rs), Some(key("eff_1", false)));
+        rs.push(r(
+            S::Reconcile,
+            EffectReceipt::Uncertain {
+                adapter: ident(),
+                effect_token: "eff_1".into(),
+            },
+        ));
+        assert_eq!(applied_effect(&rs), Some(key("eff_1", false)));
+        rs.push(confirmed());
+        assert_eq!(applied_effect(&rs), Some(key("eff_1", true)));
+        rs.push(attempted("eff_2"));
+        assert_eq!(
+            applied_effect(&rs),
+            Some(key("eff_2", false)),
+            "an earlier confirmation is not this attempt's"
+        );
+    }
+
+    /// ⟨r2.14⟩ ADR-0006 §13.17 items 1–4 on the cleanup decision's transaction (a
+    /// replay of the same effect cannot be produced through the public operations,
+    /// whose cleanup paths settle the operation first, so the bound is checked
+    /// here):
+    /// * no covering record: the immediate call, nothing written;
+    /// * a live obligation (not stopped, below the cap): skipped, nothing written;
+    /// * a capped obligation (at the cap, or stopped): re-armed, the record no
+    ///   longer stopped, the effect recorded;
+    /// * the same effect again after its re-armed obligation was capped again: no
+    ///   second re-arm; the same token's other recorded state (possibly applied,
+    ///   then confirmed) and another token each re-arm once;
+    /// * no obligation for the applying adapter: one is added.
+    #[test]
+    fn an_applied_effect_rearms_a_covering_record_at_most_once_per_effect() {
+        use heimdall_domain::operation::AdapterIdentity as Id;
+        let store = Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap();
+        let at: Timestamp = "2026-10-02T00:00:00Z".parse().unwrap();
+        let root = GrantId::from_random_bytes([7; 16]);
+        let uncovered = GrantId::from_random_bytes([8; 16]);
+        let cap = 3;
+        let effect = |token: &str, confirmed| AppliedEffect {
+            adapter: ident(),
+            key: RearmedEffect {
+                effect_token: token.into(),
+                confirmed,
+            },
+        };
+        let owed = |attempts, stopped| RemoteObligation {
+            grant: root.clone(),
+            adapter: ident(),
+            reason: None,
+            attempts: Some(attempts),
+            stopped,
+        };
+        let record = |o: RemoteObligation| PendingRemoteRevocation {
+            root: root.clone(),
+            grants: vec![root.clone()],
+            attempts: 3,
+            last_attempt_at: at,
+            stopped: o.stopped,
+            obligations: vec![o],
+            claimed_at: None,
+            rearmed_effects: Vec::new(),
+        };
+        store
+            .transaction(|tx| {
+                tx.insert_tombstone(&Tombstone {
+                    grant: root.clone(),
+                    cascade: Vec::new(),
+                    generation: heimdall_domain::policy::AuthorityGeneration(0),
+                    revoked_at: at,
+                    remote_pending: Vec::new(),
+                    cause: RevocationCause::Revoke,
+                })?;
+                tx.set_remote_revocation(&record(owed(1, false)))
+            })
+            .unwrap();
+        let decide = |e: &AppliedEffect| {
+            store
+                .transaction(|tx| own_applied_effect_in(tx, &root, Some(e), cap))
+                .unwrap()
+        };
+        let stored = || {
+            store
+                .transaction(|tx| tx.remote_revocation(&root))
+                .unwrap()
+                .unwrap()
+        };
+        // The rounds capped the record's obligation again (stopped at the cap).
+        let cap_again = || {
+            let mut r = stored();
+            r.obligations[0].attempts = Some(cap);
+            r.obligations[0].stopped = true;
+            r.stopped = true;
+            store
+                .transaction(|tx| tx.set_remote_revocation(&r))
+                .unwrap();
+        };
+        let assert_rearmed = |keys: &[RearmedEffect]| {
+            let r = stored();
+            assert!(!r.stopped);
+            assert_eq!(r.obligations, vec![owed(0, false)]);
+            assert_eq!(r.rearmed_effects, keys);
+        };
+        let uncovered_owner = store
+            .transaction(|tx| {
+                own_applied_effect_in(tx, &uncovered, Some(&effect("eff_0", true)), cap)
+            })
+            .unwrap();
+        assert_eq!(uncovered_owner, EffectOwner::Immediate);
+        let live = stored();
+        assert_eq!(decide(&effect("eff_1", false)), EffectOwner::Live);
+        assert_eq!(stored(), live, "a live obligation: nothing written");
+        // At the cap but not yet marked stopped (e.g. a failed completion).
+        store
+            .transaction(|tx| tx.set_remote_revocation(&record(owed(cap, false))))
+            .unwrap();
+        assert_eq!(decide(&effect("eff_1", false)), EffectOwner::Rearmed);
+        let k1 = effect("eff_1", false).key;
+        assert_rearmed(std::slice::from_ref(&k1));
+        cap_again();
+        let capped = stored();
+        assert_eq!(decide(&effect("eff_1", false)), EffectOwner::Bounded);
+        assert_eq!(stored(), capped, "a replay never re-arms twice");
+        assert_eq!(decide(&effect("eff_1", true)), EffectOwner::Rearmed);
+        let k1c = effect("eff_1", true).key;
+        assert_rearmed(&[k1.clone(), k1c.clone()]);
+        cap_again();
+        let capped = stored();
+        assert_eq!(decide(&effect("eff_1", true)), EffectOwner::Bounded);
+        assert_eq!(decide(&effect("eff_1", false)), EffectOwner::Bounded);
+        assert_eq!(stored(), capped, "neither state re-arms twice");
+        assert_eq!(decide(&effect("eff_2", true)), EffectOwner::Rearmed);
+        assert_rearmed(&[k1, k1c, effect("eff_2", true).key]);
+        // The record owes the grant to another adapter only: one is added.
+        let other = Id {
+            mechanism: "fake_other".into(),
+            instance: "2".into(),
+        };
+        store
+            .transaction(|tx| {
+                tx.set_remote_revocation(&record(RemoteObligation {
+                    adapter: other.clone(),
+                    ..owed(1, false)
+                }))
+            })
+            .unwrap();
+        assert_eq!(decide(&effect("eff_3", true)), EffectOwner::Rearmed);
+        let r = stored();
+        assert_eq!(r.grants, vec![root.clone()]);
+        assert_eq!(
+            r.obligations,
+            vec![
+                RemoteObligation {
+                    adapter: other,
+                    ..owed(1, false)
+                },
+                owed(0, false),
+            ]
+        );
+        assert_eq!(decide(&effect("eff_3", true)), EffectOwner::Live);
     }
 }

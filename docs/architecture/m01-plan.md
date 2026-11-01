@@ -470,6 +470,36 @@ integrator with an ADR-0006 revision.
     `model_time::props_rev2::{regression_synchronized_reboot_at_the_true_bound_is_not_admitted,
     a_clock_lying_by_d_while_reporting_synchronized_admits_at_most_d_past_the_true_bound}`
     (ADR-0006 §14.5 row).
+* **⟨r2.14⟩ ADR-0006 §13.17 (M01-rulings-13-17; automated security review of
+  6230acf9, fail-open revocation).** **Additive** field
+  `domain::revocation::PendingRemoteRevocation.rearmed_effects: Vec<RearmedEffect>`
+  (serde default, omitted when empty; struct literals need it; meta row, no
+  migration, `SCHEMA_VERSION` stays 4) and **new**
+  `domain::revocation::RearmedEffect { effect_token: String, confirmed: bool }`
+  (`confirmed` omitted when `false`); **additive**
+  `app::operations::Operations::set_revocation_cap(&self, max_attempts: u32)`, which
+  `runtime::supervisor::Supervisor::{new, with_revocation_backoff}` call (signatures
+  unchanged). `Operations::retry_remote_revocation` (signature unchanged) also
+  records its `max_attempts`.
+  * Items 1–3: `cleanup` (late confirmation, `Recheck` and `Commit` refusal,
+    cancellation) decides in one transaction. It reads the credential effect from
+    the stage receipts of the operation that made it (the owner's for an orphaned
+    shared grant): the applying adapter, the effect token, and whether it was
+    confirmed. A covering record (one that lists the grant in `grants`) with a
+    live obligation for (grant, applying adapter), meaning not stopped and below
+    the supervisor's cap, means a skip. Otherwise the record's stopped or capped
+    obligation is re-armed (attempts 0, `stopped` cleared, the record no longer
+    stopped), or one is added, and the supervisor's rounds make the call. With no
+    covering record, the immediate call is made as before. No immediate call is
+    made when a record covers the grant.
+  * Item 4: each re-arm records its effect in `rearmed_effects`; the same effect in
+    the same recorded state never re-arms again. Possibly applied (`Attempted` or
+    `Uncertain`) and confirmed are separate states: a cancellation while the
+    preparation is in flight, then its late confirmation, re-arm once each.
+  * Tests `model_operations::r1317_*` (eight), `heimdall_app-unit::operations::tests::{applied_effect_is_the_latest_attempt_and_whether_it_was_confirmed,
+    an_applied_effect_rearms_a_covering_record_at_most_once_per_effect}`,
+    `heimdall_domain-unit::revocation::tests::rearmed_effects_round_trip_and_default_to_none`
+    (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.

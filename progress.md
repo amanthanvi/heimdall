@@ -301,3 +301,25 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
    - Incident to disclose: the P5 agent ran a bare `ssh-agent` once. It created a socket in `~/.ssh/agent`, and without `-U` it may have removed stale sockets there. The agent was killed by exact PID and its socket removed. It held no keys, and the owner's agent was untouched.
 6. M00-T02 is verified (3622c56; fix3/fix4 2026-10-31, see item 0). The recheck2 minors are closed.
    - The record-wording escalations were applied: `g04-windows-*` and `g03-wsl-b-other-windows-user` `blocked_on`; `g03-win-stale-squat-pipe` is now `blocked` under the lowest-row rule. The status order is now written down in `tests/evidence/README.md`.
+- Native exit evidence at 6230acf9 is committed as d0c8cb7c (`tests/evidence/artifacts/m01/exit-6230acf9/`).
+  - Test counts: macOS 686/0/2, Linux devbox 621/0/2, Windows 11 580/0/1, all exits 0.
+  - Every platform row is verified.
+  - A06, A07, A17-local and A19 are verified.
+  - A08, A29-local and the exit claims are blocked only on M04 native sleep/logout/reboot and the second Windows account.
+- Code review round 6: ship M01, no new findings.
+- The automated security review of 6230acf9 found a fail-open edge in the cleanup() guard. Ruling ADR-0006 §13.17: skip only for a live obligation; a late effect re-arms or adds one.
+- Running:
+  - task M01-rulings-13-17, the fix;
+  - task M02-T00-design, the M02 architect: docs/architecture/m02-plan.md plus ADR-0007, docs only.
+- Next:
+  - integrate the fix;
+  - native evidence at the fix commit;
+  - the M01 exit record;
+  - an independent review of the M02 design;
+  - the M02 waves.
+- The M02 design is committed as f217bb28: docs/architecture/m02-plan.md (U0–U11) and ADR-0007 (D1–D8, proposed).
+  - Orchestrator rulings in ADR-0007 §12.1: Q1–Q8 and P1–P2 accepted as recommended.
+  - New owner-only input: a disposable macOS user account.
+- Running:
+  - task M02-T00-design-review, Codex, in a worktree at f217bb28;
+  - task M01-rulings-13-17, the cleanup guard fix.
