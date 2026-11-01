@@ -335,6 +335,36 @@ integrator with an ADR-0006 revision.
   * Tests `model_operations::{r139_*, r139_props::*}`,
     `model_revocation::r139_4_*`, `integration_store::{grant_origin_*,
     withdrawal_report_*}`, store and domain unit tests (ADR-0006 §14.5 row).
+* **⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (M01-rulings-13-10-K1).** **Additive**
+  `domain::grant::DegradedReason { MechanismUnavailable }` (`#[non_exhaustive]`,
+  wire `"mechanism_unavailable"`), `domain::revocation::PendingRemoteRevocation
+  { root, grants, attempts, last_attempt_at, stopped }`,
+  `domain::issuance::IssuanceRefusal::MechanismUnavailable` (⇒
+  `CAPABILITY_UNAVAILABLE`); store (U4b paths, meta rows, no migration)
+  `Txn::{set_grant_degradation, grant_degradation, set_remote_revocation,
+  remote_revocation, clear_remote_revocation, remote_revocations}`, and
+  `update_grant_state` removes the degradation reason whenever the grant leaves
+  `degraded`; `Operations::{pending_remote_revocations, retry_remote_revocation}`.
+  No contract or code-table change.
+  * Item 2: re-validation judges authority only (a missing mechanism no longer makes
+    it undetermined); every use (bind, issuance reserve/publish, delegation from the
+    grant, an attached binding's `Recheck`/`Commit`, and a new grant's activation)
+    refuses a grant whose recorded mechanism is not configured with
+    `CAPABILITY_UNAVAILABLE` and ends nothing. The use's transaction (on safe time)
+    and `tick` move such an `active` grant to `degraded` (reason
+    `mechanism_unavailable`, in the `grant_state_changed` payload and the
+    `inspect grants` view) and a `degraded` one back to `active` once the mechanism
+    is configured and re-validation passes (chain plus the grant's own authority
+    re-resolved now); expiry and withdrawal apply while degraded.
+  * Item 3: the first local denial of a revocation records what it left pending
+    (attempt 1; an explicit revoke always starts afresh); the start-up and per-pass
+    sweep skips recorded roots; further rounds come only from
+    `retry_remote_revocation`, called by the supervisor (U8), capped, with no event
+    but a grant's own `revoking → revoked`.
+  * Tests `model_operations::{r1310_2_*, r1310_3_*, r1310_props::*}` (and
+    `r139_3_a_pending_remote_effect_*` now waits for the due round),
+    `integration_store::{grant_degradation_*, remote_revocation_*}`,
+    `heimdall_domain::grant::tests::*` (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -492,6 +522,17 @@ integrator with an ADR-0006 revision.
   event held back by a failed catch-up read (A05) is delivered without another
   commit. Test `u8b::supervisor_delivers_held_back_events_without_a_new_commit`.
 
+* **⟨r2.7⟩ ADR-0006 §13.10 item 3, U8 side (M01-rulings-13-10-K1):** **additive**
+  `Supervisor::{with_revocation_backoff(Backoff) -> Self, revocation_pass(&self) ->
+  Result<RevocationReport, OpError>}` and `supervisor::RevocationReport { scheduled,
+  retried, completed, stopped, next_due_in }`. The supervisor is the single owner of
+  the repeated adapter `revoke()` rounds for a pending remote revocation: round
+  `n + 1` is due `retry_delay(backoff, n, jitter)` after the pass that saw round `n`
+  (continuous clock, the injected `Jitter`; default `Backoff::default()`), capped by
+  `max_attempts` (durable count, so a restart never resets it), then `stopped`.
+  `scheduler_pass` (signature unchanged) runs it after `tick` and its next wake
+  covers the earliest scheduled round.
+
 ### U9 — CLI client, test adapter wiring, schema export — **wave 2**
 
 * **Owner paths:** `crates/heimdall/src/**`, `tests/e2e/cli_m01.rs` (host:
@@ -587,6 +628,12 @@ integrator with an ADR-0006 revision.
   `test_m01_evidence.RowStatus137`). E2e
   `service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable` (Unix;
   Windows has no signal fallback by design). No public signature change.
+* **⟨r2.7⟩ ADR-0006 §13.10 item 5 (M01-rulings-13-10-K1):** the case index lists
+  every `r136_*`–`r139_*` test, the new `r1310_*` tests and the review regressions
+  named in `tests/evidence/artifacts/review-m01-code/*.md` that exist as Cargo tests,
+  under A06, A07, A08, A17-local, A19 and A29 (the Unix-only signal-fallback e2e
+  test is `platform_only` macOS/Linux; in-process restarts are labelled as such);
+  `required-inventory.json` regenerated with `--generate-inventory` (additions only).
 
 ## 2. Order and parallelism
 

@@ -4837,8 +4837,10 @@ impl CredentialAdapter for TogglePending {
 
 /// Red. §13.9 item 3: a withdrawal whose remote effect is still pending is
 /// reported once (`remote_pending` names the grant) and the grant stays
-/// `revoking`; once nothing is pending remotely, the next scheduler pass moves it
-/// to `revoked` without a second report.
+/// `revoking`; once nothing is pending remotely, the next retry round moves it to
+/// `revoked` without a second report. ⟨r2.7⟩ §13.10 item 3: that round is due on
+/// the supervisor's bounded, jittered schedule (default backoff: at most 500 ms
+/// after the pass that first saw the pending record), not in every pass.
 #[tokio::test]
 async fn r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report() {
     let mut w = World::new().await;
@@ -4871,6 +4873,7 @@ async fn r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_seco
         "still pending remotely"
     );
     adapter.pending.store(false, Ordering::SeqCst);
+    w.clock.advance(Duration::from_secs(1));
     sup.scheduler_pass().await.unwrap();
     assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
     assert_eq!(r139_withdrawals(&w, &g.grant_id).len(), 1, "reported once");
@@ -4941,6 +4944,690 @@ mod r139_props {
                 };
                 prop_assert_eq!(w.grant(&g.grant_id).state, expected);
                 prop_assert!(r138_tombstone(&w, &g.grant_id).is_none());
+                Ok(())
+            })?;
+        }
+    }
+}
+
+// =================================================================================
+// ⟨r2.7⟩ ADR-0006 §13.10 item 2 (M01-rulings-13-10-K1): a grant whose credential
+// mechanism is no longer configured. Every use is refused and nothing ends; the
+// grant moves `active → degraded` with reason `mechanism_unavailable` (at use and in
+// the scheduler pass), returns to `active` when the mechanism is configured again
+// and re-validation passes, and still expires (or is withdrawn) as usual while
+// degraded. Only public APIs are used, so each case also runs against the base
+// commit 2142c81a (red there). "Restart" is in-process: a new `Operations` over the
+// same store with another adapter set.
+// =================================================================================
+
+/// A fake adapter for another mechanism (`fake_other`): with only it configured,
+/// the fixture grants' mechanism (`fake_agent`) is no longer configured.
+fn r1310_other_adapter() -> Arc<dyn CredentialAdapter> {
+    let mut d = descriptor();
+    d.identity = AdapterIdentity {
+        mechanism: "fake_other".into(),
+        instance: "fixture-2".into(),
+    };
+    FakeCredentialAdapter::new(d, vec![FakeStep::Prepare(outcome())])
+}
+
+/// In-process restart with only `fake_other` configured.
+async fn r1310_restart_without_mechanism(w: &mut World) {
+    w.ops = Operations::start(OperationsConfig {
+        adapters: vec![r1310_other_adapter()],
+        ..w.config()
+    })
+    .await
+    .unwrap();
+}
+
+/// The `grant_state_changed` payloads of `grant` in order.
+fn r1310_states(w: &World, grant: &heimdall_contract::ids::GrantId) -> Vec<serde_json::Value> {
+    w.events()
+        .into_iter()
+        .filter(|e| e.event.event_type == EventType::GrantStateChanged)
+        .map(|e| e.event.payload)
+        .filter(|p| p["grant_id"] == serde_json::json!(grant))
+        .collect()
+}
+
+/// The `degraded` state changes of `grant`.
+fn r1310_degraded(w: &World, grant: &heimdall_contract::ids::GrantId) -> Vec<serde_json::Value> {
+    r1310_states(w, grant)
+        .into_iter()
+        .filter(|p| p["state"] == "degraded")
+        .collect()
+}
+
+/// The owner's inspect view of `grant` (listed while it is not terminal).
+async fn r1310_view(w: &World, grant: &heimdall_contract::ids::GrantId) -> serde_json::Value {
+    let r = ok(w
+        .ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Grants,
+                preview: None,
+            },
+        )
+        .await);
+    r.data["grants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["grant_id"] == serde_json::json!(grant))
+        .cloned()
+        .expect("the grant is listed")
+}
+
+/// `degraded` with reason `mechanism_unavailable` (one state change carrying it,
+/// the inspect view showing it), no tombstone, and its binding still active.
+async fn r1310_assert_degraded(w: &World, g: &EnsureData, work: &str) {
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Degraded);
+    let degraded = r1310_degraded(w, &g.grant_id);
+    assert_eq!(degraded.len(), 1, "one degraded state change: {degraded:?}");
+    assert_eq!(degraded[0]["reason"], "mechanism_unavailable");
+    assert_eq!(
+        r1310_view(w, &g.grant_id).await["degraded_reason"],
+        "mechanism_unavailable"
+    );
+    assert!(r138_tombstone(w, &g.grant_id).is_none(), "nothing ends");
+    assert!(
+        w.bindings_for(work)
+            .iter()
+            .all(|b| b.state == heimdall_domain::binding::BindingState::Active),
+        "its binding is untouched"
+    );
+}
+
+/// Red. Detected at use: with the grant's mechanism no longer configured, a bind
+/// is refused (`CAPABILITY_UNAVAILABLE`, exit 4) and moves the grant to `degraded`
+/// with reason `mechanism_unavailable`; nothing ends. Every further use (bind,
+/// issuance reserve, delegation from it) is refused the same way, and a scheduler
+/// pass neither ends it nor reports it again.
+#[tokio::test]
+async fn r1310_2_a_use_with_the_mechanism_gone_is_refused_and_degrades_the_grant() {
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2a", "r1310-2a-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    let e = err(r136_bind(&w, &g.binding_id, "r1310-2a-b1").await);
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    assert_eq!(e.code.exit_code(), ExitCode::Denied);
+    r1310_assert_degraded(&w, &g, "r1310-2a-work").await;
+    let again = err(r136_bind(&w, &g.binding_id, "r1310-2a-b2").await);
+    assert_eq!(again.code, Code::CapabilityUnavailable);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&refused.message);
+    assert_eq!(refused.code, Code::CapabilityUnavailable);
+    let child = err(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&g, "r1310-2a-c", "30m"))
+        .await);
+    assert_eq!(child.code, Code::CapabilityUnavailable);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2a-work").await;
+}
+
+/// Red. Detected by the scheduler pass with no use at all: the grant whose
+/// mechanism is gone moves to `degraded` (once; later passes add nothing).
+#[tokio::test]
+async fn r1310_2_the_scheduler_pass_degrades_a_grant_whose_mechanism_is_gone() {
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2b", "r1310-2b-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    let sup = r138_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2b-work").await;
+    sup.scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2b-work").await;
+}
+
+/// Red. Back at use: once the mechanism is configured again (restart with the
+/// fixture adapter), the next use re-validates the degraded grant, moves it to
+/// `active` (the reason is gone) and succeeds.
+#[tokio::test]
+async fn r1310_2_a_use_repairs_a_degraded_grant_once_its_mechanism_is_configured_again() {
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2c", "r1310-2c-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2c-work").await;
+    w.restart().await;
+    let bound = ok(r136_bind(&w, &g.binding_id, "r1310-2c-b1").await);
+    assert_eq!(bound.code, Code::AccessReady);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Active);
+    let states = r1310_states(&w, &g.grant_id);
+    assert_eq!(states.last().unwrap()["state"], "active", "{states:?}");
+    assert!(
+        r1310_view(&w, &g.grant_id)
+            .await
+            .get("degraded_reason")
+            .is_none()
+    );
+    let reserved = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_or_else(|e| panic!("issuance refused: {} {}", e.code, e.message));
+    assert_eq!(reserved.grant, g.grant_id);
+}
+
+/// Red. Back in the scheduler pass: with the mechanism configured again, the pass
+/// re-validates the degraded grant and moves it to `active`; it binds.
+#[tokio::test]
+async fn r1310_2_the_scheduler_pass_repairs_a_degraded_grant_once_its_mechanism_is_back() {
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2d", "r1310-2d-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2d-work").await;
+    w.restart().await;
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Active);
+    let bound = ok(r136_bind(&w, &g.binding_id, "r1310-2d-b1").await);
+    assert_eq!(bound.code, Code::AccessReady);
+    w.events();
+}
+
+/// Red. A restart while degraded (the mechanism still missing): the grant stays
+/// `degraded` with its reason (persisted), every use is still refused, a pass adds
+/// no second report; after a restart with the mechanism configured again the pass
+/// returns it to `active`.
+#[tokio::test]
+async fn r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused() {
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2e", "r1310-2e-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    let e = err(r136_bind(&w, &g.binding_id, "r1310-2e-b1").await);
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    r1310_assert_degraded(&w, &g, "r1310-2e-work").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    r1310_assert_degraded(&w, &g, "r1310-2e-work").await;
+    let again = err(r136_bind(&w, &g.binding_id, "r1310-2e-b2").await);
+    assert_eq!(again.code, Code::CapabilityUnavailable);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2e-work").await;
+    w.restart().await;
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Active);
+    let bound = ok(r136_bind(&w, &g.binding_id, "r1310-2e-b3").await);
+    assert_eq!(bound.code, Code::AccessReady);
+}
+
+/// Red. A deadline passing while degraded expires the grant as usual (`expired`,
+/// no tombstone), even though its mechanism is still missing.
+#[tokio::test]
+async fn r1310_2_a_deadline_passing_while_degraded_expires_the_grant() {
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2f", "r1310-2f-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    let sup = r138_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2f-work").await;
+    w.clock.advance(61 * MINUTE);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Expired);
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+    let e = err(r136_bind(&w, &g.binding_id, "r1310-2f-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+}
+
+/// Red. Authority is judged apart from the mechanism: a narrowing that removes the
+/// degraded grant's pair is still a withdrawal (`revoked`, `authority_withdrawn`),
+/// and with the mechanism configured again the grant is not repaired, because its
+/// re-validation fails.
+#[tokio::test]
+async fn r1310_2_a_degraded_grant_returns_only_when_revalidation_passes() {
+    // Withdrawn while degraded (the mechanism still missing).
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2g", "r1310-2g-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    let sup = r138_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2g-work").await;
+    r138_set_policy_hosts(&w, &["h2"]);
+    sup.scheduler_pass().await.unwrap();
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+    // The mechanism comes back together with a narrowing: no return to `active`.
+    let mut w = World::new().await;
+    let g = r136_ready(&w, "r1310-2h", "r1310-2h-work", "h1", "1h").await;
+    r1310_restart_without_mechanism(&mut w).await;
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r1310_assert_degraded(&w, &g, "r1310-2h-work").await;
+    r138_set_policy_hosts(&w, &["h2"]);
+    w.restart().await;
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    let states: Vec<String> = r1310_states(&w, &g.grant_id)
+        .iter()
+        .map(|p| p["state"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        !states
+            .iter()
+            .skip_while(|s| *s != "degraded")
+            .any(|s| s == "active"),
+        "never active again: {states:?}"
+    );
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+}
+
+// =================================================================================
+// ⟨r2.7⟩ ADR-0006 §13.10 item 3 (M01-rulings-13-10-K1): repeated adapter `revoke()`
+// calls for a pending remote effect follow the supervisor's bounded, jittered
+// backoff (the default `Backoff`: 500 ms doubling to at most 60 s, 8 rounds; the
+// jitter injected as `FixedJitter(0.5)`, i.e. 75 % of each delay); attempts are
+// capped, after which the grant stays `revoking` with its remote part visible and
+// nothing calls or reports again until an explicit owner action or a round that
+// finds nothing pending. Only public APIs are used (red at the base commit).
+// =================================================================================
+
+/// Delegates to the fake; counts `revoke` calls, and while `pending` is set every
+/// `revoke` leaves a remote effect pending.
+struct PendingCounter {
+    inner: Arc<FakeCredentialAdapter>,
+    pending: AtomicBool,
+    revokes: AtomicUsize,
+}
+
+impl PendingCounter {
+    fn calls(&self) -> usize {
+        self.revokes.load(Ordering::SeqCst)
+    }
+}
+
+impl CredentialAdapter for PendingCounter {
+    fn descriptor(&self) -> &AdapterDescriptor {
+        self.inner.descriptor()
+    }
+    fn prepare<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.prepare(req)
+    }
+    fn renew<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.renew(req)
+    }
+    fn reconcile<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        effect_token: &'life2 str,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::ReconcileOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.reconcile(grant, effect_token)
+    }
+    fn revoke<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        now: Timestamp,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::RevokeOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.revokes.fetch_add(1, Ordering::SeqCst);
+        let pending = self.pending.load(Ordering::SeqCst);
+        Box::pin(async move {
+            let mut out = self.inner.revoke(grant, now).await?;
+            if pending {
+                out.remote_pending = vec![DestinationId::parse("h1").unwrap()];
+            }
+            Ok(out)
+        })
+    }
+}
+
+/// A world whose only adapter is a [`PendingCounter`] (pending on).
+async fn r1310_pending_world() -> (World, Arc<PendingCounter>) {
+    let mut w = World::new().await;
+    let adapter = Arc::new(PendingCounter {
+        inner: w.fake.clone(),
+        pending: AtomicBool::new(true),
+        revokes: AtomicUsize::new(0),
+    });
+    w.ops = Operations::start(OperationsConfig {
+        adapters: vec![adapter.clone() as Arc<dyn CredentialAdapter>],
+        ..w.config()
+    })
+    .await
+    .unwrap();
+    (w, adapter)
+}
+
+/// In-process restart keeping the [`PendingCounter`] as the only adapter.
+async fn r1310_restart_pending(w: &mut World, adapter: &Arc<PendingCounter>) {
+    w.ops = Operations::start(OperationsConfig {
+        adapters: vec![adapter.clone() as Arc<dyn CredentialAdapter>],
+        ..w.config()
+    })
+    .await
+    .unwrap();
+}
+
+/// The supervisor over this world with the deterministic jitter unit 0.5 (each
+/// retry delay is 75 % of the bounded backoff delay).
+fn r1310_supervisor(w: &World) -> heimdall_runtime::supervisor::Supervisor {
+    r138_supervisor(w).with_jitter(Arc::new(heimdall_runtime::supervisor::FixedJitter(0.5)))
+}
+
+/// The jittered delay before round `n + 1` after round `n` (default backoff,
+/// unit 0.5), computed independently of the production helper.
+fn r1310_delay(n: u32) -> Duration {
+    let base = Duration::from_millis(500) * (1u32 << (n - 1));
+    base.min(Duration::from_secs(60)).mul_f64(0.75)
+}
+
+/// A grant withdrawn at use (the environment no longer permits automatic
+/// activation) whose local denial leaves a remote effect pending: round 1.
+async fn r1310_withdrawn_pending(w: &World, adapter: &PendingCounter, tag: &str) -> EnsureData {
+    let g = r136_ready(w, tag, &format!("{tag}-work"), "h1", "1h").await;
+    r138_set_automatic_activation(w, false);
+    let e = err(r136_bind(w, &g.binding_id, &format!("{tag}-b1")).await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    assert_eq!(adapter.calls(), 1, "local denial is round 1");
+    let reported = r139_withdrawals(w, &g.grant_id);
+    assert_eq!(reported.len(), 1);
+    assert_eq!(
+        reported[0]["remote_pending"],
+        serde_json::json!([g.grant_id.clone()])
+    );
+    g
+}
+
+/// Red. A pending remote effect gets its `revoke()` rounds exactly at the jittered
+/// bounded schedule: never in the pass that first sees it, never before a round is
+/// due, one round when it is due; it stops at the cap (8 rounds, the first local
+/// denial included), after which no pass and no restart calls the adapter again,
+/// and no round adds an event. The grant stays `revoking` with its remote part
+/// visible. An explicit owner `revoke` then calls again (here the adapter reports
+/// done) and completes it.
+#[tokio::test]
+async fn r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_to_the_cap() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1310-3a").await;
+    let events_after_report = w.events().len();
+    let sup = r1310_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 1, "the first pass only schedules round 2");
+    for n in 1..8u32 {
+        let delay = r1310_delay(n);
+        w.clock.advance(delay - Duration::from_millis(1));
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(
+            adapter.calls(),
+            n as usize,
+            "round {} is not due yet",
+            n + 1
+        );
+        w.clock.advance(Duration::from_millis(1));
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(adapter.calls(), n as usize + 1, "round {} is due", n + 1);
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(adapter.calls(), n as usize + 1, "one round per due instant");
+    }
+    for _ in 0..4 {
+        w.clock.advance(10 * MINUTE);
+        sup.scheduler_pass().await.unwrap();
+    }
+    assert_eq!(adapter.calls(), 8, "capped at 8 rounds");
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    let view = r1310_view(&w, &g.grant_id).await;
+    assert_eq!(view["state"], "revoking");
+    assert_eq!(
+        view["remote_pending"], true,
+        "the pending remote part stays visible"
+    );
+    assert_eq!(view["remote_retries"]["attempts"], 8);
+    assert_eq!(view["remote_retries"]["stopped"], true);
+    assert_eq!(
+        w.events().len(),
+        events_after_report,
+        "no round, cap or pass emitted a notification"
+    );
+    // A restart is no owner action: startup and later passes call nothing.
+    r1310_restart_pending(&mut w, &adapter).await;
+    let sup = r1310_supervisor(&w);
+    for _ in 0..3 {
+        w.clock.advance(10 * MINUTE);
+        sup.scheduler_pass().await.unwrap();
+    }
+    assert_eq!(adapter.calls(), 8, "a restart never resets the cap");
+    // An explicit owner action calls again; the adapter now reports done.
+    adapter.pending.store(false, Ordering::SeqCst);
+    let done = ok(w
+        .ops
+        .revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: g.grant_id.clone(),
+                request_id: RequestId::parse("r1310-3a-revoke").unwrap(),
+            },
+        )
+        .await);
+    assert!(done.data.remote_pending.is_empty());
+    assert_eq!(adapter.calls(), 9);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
+    assert_eq!(r139_withdrawals(&w, &g.grant_id).len(), 1, "reported once");
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 9);
+}
+
+/// Red. Completion when the adapter later reports done: the round that is due
+/// after the remote effect cleared moves the grant to `revoked` (one state change,
+/// no second report), and nothing is called afterwards.
+#[tokio::test]
+async fn r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1310-3b").await;
+    let sup = r1310_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    w.clock.advance(r1310_delay(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2, "round 2, still pending");
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    adapter.pending.store(false, Ordering::SeqCst);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2, "round 3 is not due yet");
+    w.clock.advance(r1310_delay(2));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 3);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
+    assert_eq!(r139_withdrawals(&w, &g.grant_id).len(), 1, "reported once");
+    let revoked: Vec<_> = r1310_states(&w, &g.grant_id)
+        .into_iter()
+        .filter(|p| p["state"] == "revoked")
+        .collect();
+    assert_eq!(revoked.len(), 1);
+    for _ in 0..3 {
+        w.clock.advance(10 * MINUTE);
+        sup.scheduler_pass().await.unwrap();
+    }
+    assert_eq!(adapter.calls(), 3);
+}
+
+/// Red. An explicit revoke whose operation settled with a remote effect pending
+/// (its result names it) is retried on the same bounded schedule: an immediate
+/// pass calls nothing; the due round does.
+#[tokio::test]
+async fn r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r136_ready(&w, "r1310-3c", "r1310-3c-work", "h1", "1h").await;
+    let done = ok(w
+        .ops
+        .revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: g.grant_id.clone(),
+                request_id: RequestId::parse("r1310-3c-revoke").unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(done.data.remote_pending, vec![g.grant_id.clone()]);
+    assert_eq!(adapter.calls(), 1);
+    let sup = r1310_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 1, "no round in every pass");
+    w.clock.advance(r1310_delay(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+}
+
+/// The revocation backoff is injectable (`Supervisor::with_revocation_backoff`):
+/// with base 10 s, cap 15 s and 3 rounds (unit 0.5), round 2 is scheduled 7.5 s
+/// after the pass that first saw round 1 (and the scheduler pass's next wake is
+/// that instant), round 3 11.25 s after round 2, and the record then stops: no
+/// further round is scheduled or run. (Uses the new API, so it cannot run at the
+/// base commit; its red evidence is the mutation check recorded with the task.)
+#[tokio::test]
+async fn r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1310-3d").await;
+    let sup = r1310_supervisor(&w).with_revocation_backoff(heimdall_app::reconcile::Backoff {
+        base: Duration::from_secs(10),
+        max: Duration::from_secs(15),
+        max_attempts: 3,
+    });
+    let at = |d: Duration| {
+        w.clock
+            .wall()
+            .checked_add(jiff::SignedDuration::try_from(d).unwrap())
+            .unwrap()
+    };
+    let expected_wake = at(Duration::from_millis(7_500));
+    assert_eq!(
+        sup.scheduler_pass().await.unwrap(),
+        Some(expected_wake),
+        "the next wake is the scheduled round"
+    );
+    assert_eq!(adapter.calls(), 1);
+    w.clock.advance(Duration::from_millis(7_500));
+    let report = sup.revocation_pass().await.unwrap();
+    assert_eq!(report.retried, vec![(g.grant_id.clone(), 2)]);
+    assert_eq!(
+        report.scheduled,
+        vec![(g.grant_id.clone(), 2, Duration::from_millis(11_250))]
+    );
+    assert_eq!(report.next_due_in, Some(Duration::from_millis(11_250)));
+    w.clock.advance(Duration::from_millis(11_250));
+    let report = sup.revocation_pass().await.unwrap();
+    assert_eq!(report.retried, vec![(g.grant_id.clone(), 3)]);
+    assert_eq!(report.stopped, vec![g.grant_id.clone()]);
+    assert!(report.scheduled.is_empty());
+    assert_eq!(report.next_due_in, None);
+    assert_eq!(adapter.calls(), 3);
+    for _ in 0..3 {
+        w.clock.advance(10 * MINUTE);
+        let r = sup.revocation_pass().await.unwrap();
+        assert!(r.retried.is_empty() && r.scheduled.is_empty());
+    }
+    assert_eq!(adapter.calls(), 3);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+}
+
+/// ⟨r2.7⟩ ADR-0006 §13.10 item 3 as a property (proptest, 256 cases, fixed seed
+/// unless `PROPTEST_RNG_SEED` is set; failures persist to
+/// `tests/model/operations.proptest-regressions`).
+mod r1310_props {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::test_runner::{FileFailurePersistence, RngSeed};
+
+    fn config(seed: u64) -> ProptestConfig {
+        let mut c = ProptestConfig {
+            cases: 256,
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
+            ..ProptestConfig::default()
+        };
+        if matches!(c.rng_seed, RngSeed::Random) {
+            c.rng_seed = RngSeed::Fixed(seed);
+        }
+        c
+    }
+
+    fn block<F: std::future::Future<Output = Result<(), TestCaseError>>>(
+        f: F,
+    ) -> Result<(), TestCaseError> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    proptest! {
+        #![proptest_config(config(0x1310_0003))]
+
+        /// For any jitter unit, base delay and cap, a pending remote effect gets
+        /// round `n + 1` exactly `min(base·2^(n-1), max)·(0.5 + 0.5·unit)` after
+        /// round `n` was scheduled (never a millisecond earlier), exactly `cap`
+        /// rounds in all (the first local denial included), and no round or pass
+        /// adds an event.
+        #[test]
+        fn r1310_3_rounds_follow_the_jittered_capped_schedule(
+            unit in 0.0f64..=1.0,
+            base_ms in 10u64..20_000,
+            cap in 1u32..6,
+        ) {
+            block(async move {
+                let (w, adapter) = r1310_pending_world().await;
+                let _g = r1310_withdrawn_pending(&w, &adapter, "r1310-p").await;
+                let events = w.events().len();
+                let base = Duration::from_millis(base_ms);
+                let max = base * 8;
+                let sup = r138_supervisor(&w)
+                    .with_jitter(Arc::new(heimdall_runtime::supervisor::FixedJitter(unit)))
+                    .with_revocation_backoff(heimdall_app::reconcile::Backoff {
+                        base,
+                        max,
+                        max_attempts: cap,
+                    });
+                sup.scheduler_pass().await.unwrap();
+                prop_assert_eq!(adapter.calls(), 1);
+                for n in 1..cap {
+                    let full = (base * (1u32 << (n - 1))).min(max);
+                    let delay = full.mul_f64(0.5 + 0.5 * unit);
+                    w.clock.advance(delay - Duration::from_millis(1));
+                    sup.scheduler_pass().await.unwrap();
+                    prop_assert_eq!(adapter.calls(), n as usize, "early");
+                    w.clock.advance(Duration::from_millis(1));
+                    sup.scheduler_pass().await.unwrap();
+                    prop_assert_eq!(adapter.calls(), n as usize + 1, "due");
+                }
+                for _ in 0..3 {
+                    w.clock.advance(5 * MINUTE);
+                    sup.scheduler_pass().await.unwrap();
+                }
+                prop_assert_eq!(adapter.calls(), cap as usize, "capped");
+                prop_assert_eq!(w.events().len(), events, "no notification");
                 Ok(())
             })?;
         }

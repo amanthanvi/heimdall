@@ -114,8 +114,28 @@
 //!   revocation. The use itself is refused with the denial's code. A pause never
 //!   ends a grant (continuing work does not see it), nothing is ended without
 //!   safe time, and a re-validation that cannot be determined (the grant's
-//!   context, profile revision or mechanism cannot be found) refuses the use but
-//!   ends nothing (fail closed for the use, never a fabricated withdrawal).
+//!   context or profile revision cannot be found, or it is pinned to another
+//!   environment) refuses the use but ends nothing (fail closed for the use, never
+//!   a fabricated withdrawal).
+//! * ⟨r2.7⟩ ADR-0006 §13.10 item 2: a credential mechanism that is no longer
+//!   configured is not an authority question. Re-validation judges authority
+//!   alone (so withdrawal and expiry are still found), and every use checks the
+//!   grant's own recorded mechanism: when it is not configured the use is refused
+//!   with `CAPABILITY_UNAVAILABLE` and nothing ends, and the grant moves `active →
+//!   degraded` with reason `mechanism_unavailable` (in the use's transaction and in
+//!   `tick`). Once the mechanism is configured again and re-validation passes
+//!   (the chain, plus the grant's own authority re-resolved now), the grant returns
+//!   to `active`; a deadline passing or a withdrawal while degraded ends it as
+//!   usual.
+//! * ⟨r2.7⟩ ADR-0006 §13.10 item 3: what local denial of a revocation leaves
+//!   pending remotely is recorded per tombstoned root
+//!   (`PendingRemoteRevocation`); the start-up and per-pass sweep never calls the
+//!   adapters again for it. Further rounds come only from the supervisor's single
+//!   retry owner on its bounded, jittered schedule
+//!   ([`Operations::retry_remote_revocation`]), capped, after which the grant stays
+//!   `revoking` with the record visible and nothing is called or reported until an
+//!   explicit `revoke` (which starts a fresh record) or a round that finds nothing
+//!   pending.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -145,7 +165,7 @@ use heimdall_domain::environment::{
     DestinationCapability, EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
 };
 use heimdall_domain::evidence::EnforcementEvidence;
-use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantSnapshot};
+use heimdall_domain::grant::{AuthorizationSource, DegradedReason, GrantOrigin, GrantSnapshot};
 use heimdall_domain::idempotency::{
     HashInput, IdempotencyKey, IdempotencyOutcome, IdempotencyRecord, classify, compute_hash,
     retention_expiry,
@@ -163,7 +183,7 @@ use heimdall_domain::operation::{
 use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::ProfileSnapshot;
-use heimdall_domain::revocation::{RevocationCause, Tombstone};
+use heimdall_domain::revocation::{PendingRemoteRevocation, RevocationCause, Tombstone};
 use heimdall_domain::scope::{AccessPair, Capability, Scope};
 use heimdall_domain::time::{self as dtime, Admission, Clock, Deadline, TimePolicy, TimeSync};
 use heimdall_store::{DecisionCompletion, Store, StoreError, Txn};
@@ -559,6 +579,24 @@ impl Emit {
         )
     }
 
+    /// ⟨r2.7⟩ A grant that moved to `degraded` for `reason` (ADR-0006 §13.10 item
+    /// 2): the state change with its reason.
+    fn grant_degraded(
+        &mut self,
+        tx: &mut Txn<'_>,
+        g: &GrantSnapshot,
+        reason: DegradedReason,
+        op: Option<&OperationId>,
+    ) -> heimdall_store::Result<()> {
+        self.event(
+            tx,
+            EventType::GrantStateChanged,
+            op.cloned(),
+            Some(resource("grant", &g.id)),
+            serde_json::json!({ "grant_id": g.id, "state": g.state, "reason": reason }),
+        )
+    }
+
     fn decision(
         &mut self,
         tx: &mut Txn<'_>,
@@ -733,6 +771,44 @@ fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> 
     })
 }
 
+/// ⟨r2.7⟩ ADR-0006 §13.10 item 2: whether the credential mechanism recorded in
+/// `grant`'s origin is not configured in this runtime. `false` for a grant without
+/// a recorded origin (its re-validation is undetermined instead, which refuses the
+/// use on its own).
+fn mechanism_unavailable(
+    tx: &mut Txn<'_>,
+    adapters: &[AdapterInfo],
+    grant: &GrantId,
+) -> heimdall_store::Result<bool> {
+    Ok(tx
+        .grant_origin(grant)?
+        .is_some_and(|o| !adapters.iter().any(|a| a.identity.mechanism == o.mechanism)))
+}
+
+/// ⟨r2.7⟩ ADR-0006 §13.10 item 2: whether a use of `grant` is refused for its
+/// mechanism: the mechanism is not configured, or the grant is still `degraded`
+/// for that reason (the use's own transaction repairs it first when it can,
+/// [`track_mechanism_in`]; a grant still degraded then is refused, fail closed).
+fn mechanism_refuses(
+    tx: &mut Txn<'_>,
+    adapters: &[AdapterInfo],
+    grant: &GrantSnapshot,
+) -> heimdall_store::Result<bool> {
+    Ok(mechanism_unavailable(tx, adapters, &grant.id)?
+        || (grant.state == GrantState::Degraded
+            && tx.grant_degradation(&grant.id)? == Some(DegradedReason::MechanismUnavailable)))
+}
+
+/// The refusal of a use whose grant's credential mechanism is unavailable
+/// (ADR-0006 §13.10 item 2): `CAPABILITY_UNAVAILABLE`, nothing ended.
+fn mechanism_refusal(grant: &GrantId) -> OpError {
+    OpError::new(
+        Code::CapabilityUnavailable,
+        "the grant's credential mechanism is unavailable",
+    )
+    .with_resource("grant", Some(grant.to_string()))
+}
+
 /// The generation at which `grant` was last validated: its authorization
 /// generation, or a later re-validation (ADR-0006 §13.5 ruling 2).
 fn validated_generation(
@@ -792,8 +868,9 @@ fn revalidate_chain(
 /// (ADR-0006 §13.8 item 4: a tombstone on the chain, an ended or missing ancestor,
 /// a resolution that now denies or needs authority beyond the standing policy and
 /// the recorded approval) or only that it could not be determined (the grant's
-/// context, profile revision or mechanism cannot be found, or its deadline passed,
-/// which the caller classifies as expiry).
+/// context or profile revision cannot be found, or its deadline passed, which the
+/// caller classifies as expiry). ⟨r2.7⟩ The credential mechanism plays no part
+/// (ADR-0006 §13.10 item 2: [`mechanism_refuses`] judges it at every use).
 struct RevalidationFailure {
     error: OpError,
     withdrawn: bool,
@@ -971,15 +1048,20 @@ fn resolve_existing(
             "the grant's profile revision is unknown",
         )));
     };
-    let Some(adapter) = ctx
-        .mechanism
-        .as_deref()
-        .and_then(|m| adapters.iter().find(|a| a.identity.mechanism == m))
-    else {
-        return Ok(Err(revalidation_failed(
-            "the grant's credential mechanism is no longer configured",
-        )));
-    };
+    // ⟨r2.7⟩ ADR-0006 §13.10 item 2: authority does not depend on whether the
+    // grant's credential mechanism is configured right now. Re-validation judges
+    // authority alone (so a withdrawal or an expiry is still found for a grant whose
+    // mechanism is gone); the mechanism is judged separately at every use
+    // ([`mechanism_unavailable`]), which refuses it and degrades the grant. Without
+    // caller minimums the destination record only has to exist, so a mechanism
+    // that is not configured is described with `Unknown` enforcement.
+    let mechanism = ctx.mechanism.unwrap_or_default();
+    let scope_enforcement = adapters
+        .iter()
+        .find(|a| a.identity.mechanism == mechanism)
+        .map_or(DestinationScopeEnforcement::Unknown, |a| {
+            a.scope_enforcement
+        });
     // ⟨r2.6⟩ §13.9 item 2: the environment is the grant's own (its snapshot); a
     // grant pinned to an environment this runtime does not manage is undetermined.
     if g.environment != *environment {
@@ -1004,8 +1086,8 @@ fn resolve_existing(
                 DestinationCapability {
                     destination: p.destination.clone(),
                     enrollment_level: 1,
-                    scope_enforcement: adapter.scope_enforcement,
-                    mechanisms: [adapter.identity.mechanism.clone()].into_iter().collect(),
+                    scope_enforcement,
+                    mechanisms: [mechanism.clone()].into_iter().collect(),
                 },
             )
         })
@@ -1596,6 +1678,15 @@ fn activation_refusal(
             )));
         }
     }
+    // ⟨r2.7⟩ ADR-0006 §13.10 item 2: a grant whose credential mechanism is not
+    // configured is refused (`CAPABILITY_UNAVAILABLE`) after every authority check,
+    // so a withdrawal or an expiry is still reported as such. A new grant fails its
+    // preparation; a live one ends nothing (its use's transaction degrades it,
+    // [`track_mechanism_in`]).
+    if mechanism_refuses(tx, adapters, grant)? {
+        let event = (!activation.attached()).then_some(GrantEvent::PreparationFailed);
+        return Ok(Some(Refusal::new(mechanism_refusal(&grant.id), event)));
+    }
     Ok(None)
 }
 
@@ -1654,8 +1745,9 @@ fn grant_end(
         return Ok(Some(GrantEnd::Withdrawn));
     }
     // A failure that only shows the authority could not be determined (no context,
-    // unknown profile revision, mechanism no longer configured) refuses the use but
-    // ends nothing: only withdrawn authority does.
+    // unknown profile revision) refuses the use but ends nothing: only withdrawn
+    // authority does. (⟨r2.7⟩ A mechanism no longer configured degrades the grant
+    // instead, `track_mechanism_in`.)
     Ok(match revalidate_chain_verdict(tx, env, adapters, g, now)? {
         Err(f) if f.withdrawn => Some(GrantEnd::Withdrawn),
         _ => None,
@@ -1751,6 +1843,91 @@ fn end_in(
     Ok(ended)
 }
 
+/// ⟨r2.7⟩ ADR-0006 §13.10 item 2: keep the state of `grant` truthful about its
+/// credential mechanism, judged on the gate's accepted observation `safe` inside
+/// the caller's transaction (a use of the grant before its checks run, and the
+/// scheduler pass).
+///
+/// * `active` and its recorded mechanism is not configured ⇒ `degraded` with
+///   reason `mechanism_unavailable` ([`Txn::set_grant_degradation`]). Nothing ends:
+///   an owner's configuration change can be undone before the deadline, so ending
+///   the grant would be irreversible over a reversible cause. Every use is refused
+///   meanwhile ([`mechanism_refuses`]).
+/// * `degraded` for that reason and the mechanism is configured again ⇒ `active`,
+///   but only when re-validation passes: the chain re-validates (§13.5 ruling 2)
+///   **and** the grant's own authority is re-resolved now whatever the generation
+///   ([`repair_revalidates`]). Otherwise it stays `degraded` and refused.
+///
+/// A grant that must end ([`grant_end`]: a passed bound or budget, withdrawn
+/// authority) is left to [`end_in`]; a grant without a recorded origin is left
+/// alone (undetermined). Both directions are reversible; neither touches
+/// bindings, references or tombstones.
+#[allow(clippy::too_many_arguments)]
+fn track_mechanism_in(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    env: &EnvironmentId,
+    adapters: &[AdapterInfo],
+    gate: &TxnGate,
+    grant: &GrantId,
+    safe: &SafeNow,
+    op: Option<&OperationId>,
+) -> heimdall_store::Result<()> {
+    let Some(mut g) = tx.grant(grant)? else {
+        return Ok(());
+    };
+    if !g.state.permits_use() || tx.grant_origin(grant)?.is_none() {
+        return Ok(());
+    }
+    let unavailable = mechanism_unavailable(tx, adapters, grant)?;
+    let degraded_here = g.state == GrantState::Degraded
+        && tx.grant_degradation(grant)? == Some(DegradedReason::MechanismUnavailable);
+    let event = match (g.state, unavailable) {
+        (GrantState::Active, true) => GrantEvent::Degrade,
+        (GrantState::Degraded, false) if degraded_here => GrantEvent::Repaired,
+        _ => return Ok(()),
+    };
+    if grant_end(tx, env, adapters, gate, &g, safe)?.is_some() {
+        return Ok(());
+    }
+    if event == GrantEvent::Repaired && !repair_revalidates(tx, env, adapters, &g, safe.wall())? {
+        return Ok(());
+    }
+    grant_to(&mut g, event)?;
+    if event == GrantEvent::Degrade {
+        let reason = DegradedReason::MechanismUnavailable;
+        tx.update_grant_state(&g)?;
+        tx.set_grant_degradation(&g.id, reason)?;
+        emit.grant_degraded(tx, &g, reason, op)
+    } else {
+        // `update_grant_state` removes the degradation reason with the state.
+        put_grant(tx, emit, &g, op)
+    }
+}
+
+/// ⟨r2.7⟩ ADR-0006 §13.10 item 2: re-validation for a repair, stricter than the
+/// generation-driven one: the chain re-validates as for any use (§13.5 ruling 2),
+/// then the grant's own authority is re-resolved against current policy at the
+/// current generation even if nothing moved, with the acceptance rules of its
+/// authorization source ([`revalidate_one_verdict`]). Records the validation.
+fn repair_revalidates(
+    tx: &mut Txn<'_>,
+    env: &EnvironmentId,
+    adapters: &[AdapterInfo],
+    g: &GrantSnapshot,
+    now: Timestamp,
+) -> heimdall_store::Result<bool> {
+    let Ok(v) = revalidate_chain_verdict(tx, env, adapters, g, now)? else {
+        return Ok(false);
+    };
+    let current = tx.authority_generation()?;
+    if revalidate_one_verdict(tx, env, adapters, g, v.ancestors.first(), current, now)?.is_err() {
+        return Ok(false);
+    }
+    tx.record_grant_validation(&g.id, current)?;
+    Ok(true)
+}
+
 /// Local denial written with a tombstone (spec §6.7; ADR-0006 §13.8 item 4), in
 /// the tombstone's transaction: every grant in `grants` leaves usable states (a
 /// waiting one is denied, any other `revoking`, or `revoked` from `preparing`), and
@@ -1833,6 +2010,29 @@ fn complete_revocation_in(
         local_applied: true,
         remote_pending: pending.iter().cloned().collect(),
         latest_possible_credential_expiry: latest,
+    })
+}
+
+/// ⟨r2.7⟩ ADR-0006 §13.10 item 3: what the first local denial of the revocation
+/// rooted at `root` left pending remotely, recorded in the transaction that
+/// completes it (an explicit `revoke`, which always starts afresh, or a
+/// withdrawal's completion): attempt 1 of the supervisor's bounded, jittered
+/// retries, or no record when nothing is pending.
+fn record_remote_pending_in(
+    tx: &mut Txn<'_>,
+    root: &GrantId,
+    pending: &BTreeSet<GrantId>,
+    now: Timestamp,
+) -> heimdall_store::Result<()> {
+    if pending.is_empty() {
+        return tx.clear_remote_revocation(root);
+    }
+    tx.set_remote_revocation(&PendingRemoteRevocation {
+        root: root.clone(),
+        grants: pending.iter().cloned().collect(),
+        attempts: 1,
+        last_attempt_at: now,
+        stopped: false,
     })
 }
 
@@ -2130,6 +2330,15 @@ fn resolve_in(
         requested_deadline: &deadline,
         now: inp.now,
     });
+    // ⟨r2.7⟩ ADR-0006 §13.10 item 2: delegation is a use of the parent; a parent
+    // whose credential mechanism is unavailable is refused (after the authority
+    // decision, so a denial keeps its own code) and ends nothing.
+    if let Some(p) = &parent
+        && !matches!(decision, AuthorityDecision::Denied(_))
+        && mechanism_refuses(tx, &inp.adapters, p)?
+    {
+        refuse!(mechanism_refusal(&p.id));
+    }
     Ok(Ok(Resolved {
         decision,
         requested,
@@ -3210,6 +3419,23 @@ impl Operations {
                 let Some(mut intent) = tx.recovery_intent(&id)? else {
                     return Err(conflict("operation has no recovery intent"));
                 };
+                // ⟨r2.7⟩ ADR-0006 §13.10 item 2: delegation uses the parent, whose
+                // state reflects its mechanism before resolution judges it.
+                if inp.spec.kind == OperationKind::Delegate
+                    && let Some(pb) = &inp.spec.parent_binding
+                    && let Some(b) = tx.binding(pb)?.filter(|b| may_act_on(b, &inp.caller))
+                {
+                    track_mechanism_in(
+                        tx,
+                        emit,
+                        &inp.environment,
+                        &inp.adapters,
+                        &gate,
+                        &b.grant,
+                        &safe,
+                        Some(&id),
+                    )?;
+                }
                 let resolution = match resolve_in(tx, &inp)? {
                     Ok(r) => pin(&inp, r),
                     Err(e) => Err(e),
@@ -4148,6 +4374,11 @@ impl Operations {
                 let Some(gid) = resolved.grant.clone() else {
                     return Err(conflict("operation has no grant"));
                 };
+                // ⟨r2.7⟩ ADR-0006 §13.10 item 2: an attached binding uses a live
+                // grant, whose state reflects its mechanism before it is judged.
+                if attached {
+                    track_mechanism_in(tx, emit, &env, &adapters, &gate, &gid, &safe, Some(&id))?;
+                }
                 let Some(mut g) = tx.grant(&gid)? else {
                     return Err(conflict("grant missing"));
                 };
@@ -4320,6 +4551,10 @@ impl Operations {
                     Err(u) => return Ok(Checked::Uncertain(u)),
                 };
                 let now = safe.wall();
+                // ⟨r2.7⟩ ADR-0006 §13.10 item 2 (as at `Recheck`).
+                if attached {
+                    track_mechanism_in(tx, emit, &env, &adapters, &gate, &gid, &safe, Some(&id))?;
+                }
                 let Some(mut g) = tx.grant(&gid)? else {
                     return Err(conflict("grant missing"));
                 };
@@ -4907,6 +5142,14 @@ impl Operations {
                 self.write(move |tx, _| {
                     let mut grants = Vec::new();
                     let mut bindings = Vec::new();
+                    // ⟨r2.7⟩ ADR-0006 §13.10 item 3: a pending remote revocation stays
+                    // visible on each grant it covers.
+                    let mut remote: BTreeMap<GrantId, PendingRemoteRevocation> = BTreeMap::new();
+                    for r in tx.remote_revocations()? {
+                        for g in &r.grants {
+                            remote.insert(g.clone(), r.clone());
+                        }
+                    }
                     for g in tx.grants_due(Timestamp::MAX)? {
                         let refs = tx.grant_references(&g.id)?;
                         let mut visible = ctx.is_owner();
@@ -4930,13 +5173,41 @@ impl Operations {
                             }
                         }
                         if visible {
-                            grants.push(serde_json::json!({
+                            let mut view = serde_json::json!({
                                 "grant_id": g.id,
                                 "state": g.state,
                                 "expires_at": g.deadline.effective,
                                 "parent": g.parent,
                                 "scope": g.scope,
-                            }));
+                            });
+                            // ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (added fields only).
+                            if let serde_json::Value::Object(map) = &mut view {
+                                if g.state == GrantState::Degraded
+                                    && let Some(reason) = tx.grant_degradation(&g.id)?
+                                {
+                                    map.insert(
+                                        "degraded_reason".to_owned(),
+                                        serde_json::to_value(reason)?,
+                                    );
+                                }
+                                if g.state == GrantState::Revoking
+                                    && let Some(r) = remote.get(&g.id)
+                                {
+                                    map.insert(
+                                        "remote_pending".to_owned(),
+                                        serde_json::json!(true),
+                                    );
+                                    map.insert(
+                                        "remote_retries".to_owned(),
+                                        serde_json::json!({
+                                            "attempts": r.attempts,
+                                            "last_attempt_at": r.last_attempt_at,
+                                            "stopped": r.stopped,
+                                        }),
+                                    );
+                                }
+                            }
+                            grants.push(view);
                         }
                     }
                     Ok(if subject == InspectSubject::Grants {
@@ -5217,6 +5488,23 @@ impl Operations {
                     if g.state.permits_use() && !dtime::is_expired(now, bound) {
                         gate.anchor_grant(tx, &g.id, &safe, bound)?;
                     }
+                }
+                // ⟨r2.7⟩ ADR-0006 §13.10 item 2: the grant's state reflects its
+                // mechanism before the use is judged.
+                if let Some(b) = tx
+                    .binding(&req.binding_id)?
+                    .filter(|b| may_act_on(b, &op.key.caller))
+                {
+                    track_mechanism_in(
+                        tx,
+                        emit,
+                        &env,
+                        &adapters,
+                        &gate,
+                        &b.grant,
+                        &safe,
+                        Some(&id2),
+                    )?;
                 }
                 if op.state == OperationState::Queued {
                     op_to(&mut op, OperationEvent::Start, now)?;
@@ -5861,6 +6149,9 @@ impl Operations {
             }
             let data =
                 complete_revocation_in(tx, emit, &grants, &pending, adapter_expiry, Some(&id3))?;
+            // ⟨r2.7⟩ §13.10 item 3: an explicit revoke is an owner action; what it
+            // left pending starts a fresh bounded retry schedule.
+            record_remote_pending_in(tx, &grants[0], &pending, now)?;
             let value = serde_json::to_value(&data)?;
             settle_succeeded(tx, emit, &mut op, Code::Ok, value, now, retention)
         })
@@ -5937,6 +6228,9 @@ impl Operations {
             .write(move |tx, emit| {
                 let data =
                     complete_revocation_in(tx, emit, &grants, &pending, adapter_expiry, None)?;
+                // ⟨r2.7⟩ §13.10 item 3: anything still pending is retried by the
+                // supervisor only, on its bounded, jittered schedule.
+                record_remote_pending_in(tx, &root, &pending, now)?;
                 if cause == RevocationCause::AuthorityWithdrawn && tx.record_withdrawal_report(&root)? {
                     emit.event(
                         tx,
@@ -6008,6 +6302,13 @@ impl Operations {
                     if t.cause == RevocationCause::Revoke && driven.contains(&root) {
                         continue;
                     }
+                    // ⟨r2.7⟩ ADR-0006 §13.10 item 3: local denial already ran and left
+                    // a remote effect pending. Repeated adapter calls for it follow
+                    // the supervisor's bounded, jittered backoff
+                    // (`Operations::retry_remote_revocation`), never every pass.
+                    if tx.remote_revocation(&root)?.is_some() {
+                        continue;
+                    }
                     let mut all = vec![root.clone()];
                     all.extend(t.cascade.iter().filter(|c| **c != root).cloned());
                     roots.insert(root, (all, t.cause));
@@ -6025,6 +6326,102 @@ impl Operations {
         for (root, (grants, cause)) in roots {
             self.complete_withdrawal(root, grants, cause).await;
         }
+    }
+
+    /// ⟨r2.7⟩ ADR-0006 §13.10 item 3: every revocation whose remote part local
+    /// denial left pending (one record per tombstoned root, ordered by root),
+    /// stopped ones included. The supervisor's revocation retry executor reads this.
+    pub async fn pending_remote_revocations(
+        &self,
+    ) -> Result<Vec<PendingRemoteRevocation>, OpError> {
+        self.write(|tx, _| tx.remote_revocations()).await
+    }
+
+    /// ⟨r2.7⟩ ADR-0006 §13.10 item 3: one round of the bounded retries of the
+    /// pending remote part of the revocation rooted at `root`, called by the
+    /// supervisor's single retry owner when the round is due on its jittered
+    /// schedule (spec §13.5; §13.6 item 4). Narrowing, so it runs whatever the
+    /// time status.
+    ///
+    /// * No record, or none of its grants still `revoking`: nothing to do; the
+    ///   record (if any) is removed and the answer is `None`.
+    /// * A `stopped` record: no adapter call, the record is returned unchanged.
+    /// * `attempts >= max_attempts`: the record is marked `stopped` and returned;
+    ///   no adapter call.
+    /// * Otherwise local denial through every adapter for the grants still
+    ///   `revoking`; each with nothing pending moves to `revoked`; the record
+    ///   counts the round (`stopped` once it reaches `max_attempts` with something
+    ///   still pending) or is removed when nothing is pending (`None`).
+    ///
+    /// No event other than a grant's own `revoking → revoked` change is emitted
+    /// (spec §12.3: no repeated nuisance notifications); the withdrawal report and
+    /// the explicit revoke's result stay the only reports. A record rewritten
+    /// meanwhile (an explicit revoke starts afresh) is kept as it is and returned.
+    pub async fn retry_remote_revocation(
+        &self,
+        root: &GrantId,
+        max_attempts: u32,
+    ) -> Result<Option<PendingRemoteRevocation>, OpError> {
+        let r = root.clone();
+        let read = self
+            .write(move |tx, _| {
+                let Some(record) = tx.remote_revocation(&r)? else {
+                    return Ok(None);
+                };
+                let mut live = Vec::new();
+                for g in &record.grants {
+                    if tx
+                        .grant(g)?
+                        .is_some_and(|g| g.state == GrantState::Revoking)
+                    {
+                        live.push(g.clone());
+                    }
+                }
+                if live.is_empty() {
+                    tx.clear_remote_revocation(&r)?;
+                    return Ok(None);
+                }
+                if !record.stopped && record.attempts >= max_attempts {
+                    let stopped = PendingRemoteRevocation {
+                        stopped: true,
+                        ..record
+                    };
+                    tx.set_remote_revocation(&stopped)?;
+                    return Ok(Some((stopped, Vec::new())));
+                }
+                Ok(Some((record, live)))
+            })
+            .await?;
+        let Some((record, live)) = read else {
+            return Ok(None);
+        };
+        if record.stopped {
+            return Ok(Some(record));
+        }
+        let now = self.narrowing_now().await;
+        let (pending, adapter_expiry) = self.local_denial(&live, now).await;
+        self.write(move |tx, emit| {
+            complete_revocation_in(tx, emit, &live, &pending, adapter_expiry, None)?;
+            let current = tx.remote_revocation(&record.root)?;
+            if current.as_ref() != Some(&record) {
+                return Ok(current);
+            }
+            if pending.is_empty() {
+                tx.clear_remote_revocation(&record.root)?;
+                return Ok(None);
+            }
+            let attempts = record.attempts.saturating_add(1);
+            let next = PendingRemoteRevocation {
+                root: record.root.clone(),
+                grants: pending.iter().cloned().collect(),
+                attempts,
+                last_attempt_at: now,
+                stopped: attempts >= max_attempts,
+            };
+            tx.set_remote_revocation(&next)?;
+            Ok(Some(next))
+        })
+        .await
     }
 
     /// ADR-0006 §13.8 item 4 at use, after a refused use of `grant` that the
@@ -6569,6 +6966,12 @@ impl Operations {
                             ended.extend(end_in(
                                 tx, emit, &env, &adapters, &gate, &g.id, &safe, None, retention,
                             )?);
+                            // ⟨r2.7⟩ §13.10 item 2: a live grant whose mechanism went
+                            // away degrades; one whose mechanism is back is repaired
+                            // when re-validation passes.
+                            track_mechanism_in(
+                                tx, emit, &env, &adapters, &gate, &g.id, &safe, None,
+                            )?;
                         }
                     }
                     Ok(ended)
@@ -6659,6 +7062,10 @@ impl Operations {
         let (r, ended) = self
             .write(move |tx, emit| {
                 let (safe, time, now) = issuance_time(&gate, tx)?;
+                // ⟨r2.7⟩ ADR-0006 §13.10 item 2 (before the use is judged).
+                if let Some(s) = &safe {
+                    track_mechanism_in(tx, emit, &env, &adapters, &gate, &req.grant, s, None)?;
+                }
                 let Some(grant) = tx.grant(&req.grant)? else {
                     return Ok((
                         Err(OpError::new(Code::NotFound, "unknown grant")
@@ -6793,6 +7200,10 @@ impl Operations {
                         )),
                         Ended::default(),
                     ));
+                }
+                // ⟨r2.7⟩ ADR-0006 §13.10 item 2 (before the use is judged).
+                if let Some(s) = &safe {
+                    track_mechanism_in(tx, emit, &env, &adapters, &gate, &gid, s, None)?;
                 }
                 let check = match tx.grant(&gid)? {
                     None => Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)),
@@ -7111,8 +7522,12 @@ fn run_issuance_check(
         admission,
         now,
     };
+    // ⟨r2.7⟩ ADR-0006 §13.10 item 2: after every predicate held, a grant whose
+    // credential mechanism is unavailable is still refused (nothing ends).
+    let mechanism = mechanism_refuses(tx, adapters, grant)?;
     Ok(match heimdall_domain::issuance::check(&check) {
         Ok(()) if revalidation_failed => Err(IssuanceRefusal::StaleGeneration),
+        Ok(()) if mechanism => Err(IssuanceRefusal::MechanismUnavailable),
         r => r,
     })
 }

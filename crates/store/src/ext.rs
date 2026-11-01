@@ -26,7 +26,7 @@ use heimdall_contract::{GrantState, OperationState, Timestamp};
 use heimdall_domain::binding::{BindingRecord, BindingState, ReleaseOutcome};
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionRefusal, DecisionState};
 use heimdall_domain::environment::EnvironmentRecord;
-use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantReference};
+use heimdall_domain::grant::{AuthorizationSource, DegradedReason, GrantOrigin, GrantReference};
 use heimdall_domain::idempotency::{ExpiredKeyMarker, IdempotencyKey, KeyHash};
 use heimdall_domain::issuance::{
     CredentialInstance, CredentialState, IssuanceEntry, IssuanceRefusal, IssuanceState,
@@ -37,7 +37,7 @@ use heimdall_domain::operation::{
 use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::{ProfileDefinition, ProfileSnapshot};
-use heimdall_domain::revocation::Tombstone;
+use heimdall_domain::revocation::{PendingRemoteRevocation, Tombstone};
 use heimdall_domain::time::{AttendedTimeConfirmation, GrantAnchor, TimeAnchor};
 use rusqlite::OptionalExtension as _;
 
@@ -53,6 +53,18 @@ const META_GRANT_VALIDATION_PREFIX: &str = "grant_validation:";
 /// ⟨r2.6⟩ A withdrawal whose completion was reported (ADR-0006 §13.9 item 3):
 /// `withdrawal_reported:<tombstoned root grant id>`, value `1`.
 const META_WITHDRAWAL_REPORTED_PREFIX: &str = "withdrawal_reported:";
+/// ⟨r2.7⟩ Why a `degraded` grant is degraded (ADR-0006 §13.10 item 2):
+/// `grant_degraded:<grant id>`, value the reason's wire name. Removed by
+/// `update_grant_state` whenever the grant leaves `degraded`.
+const META_GRANT_DEGRADED_PREFIX: &str = "grant_degraded:";
+/// ⟨r2.7⟩ A revocation whose remote part is still pending (ADR-0006 §13.10 item
+/// 3): `remote_revocation:<tombstoned root grant id>`, value the JSON record.
+const META_REMOTE_REVOCATION_PREFIX: &str = "remote_revocation:";
+
+/// The meta key of a grant's degradation reason.
+pub(crate) fn grant_degradation_key(grant: &GrantId) -> String {
+    format!("{META_GRANT_DEGRADED_PREFIX}{grant}")
+}
 
 /// A persisted event with its neutral sequence number (review F08: the store keeps
 /// sequences; the application builds reader-scoped cursors at delivery).
@@ -1004,6 +1016,75 @@ impl Txn<'_> {
         Ok(self
             .meta(&format!("{META_WITHDRAWAL_REPORTED_PREFIX}{root}"))?
             .is_some())
+    }
+
+    // --- ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3: degradation and pending remote revocation
+
+    /// Record why `grant` is `degraded` (ADR-0006 §13.10 item 2), in the
+    /// transaction that degrades it. The reason exists only while the grant is
+    /// `degraded`: [`Txn::update_grant_state`] removes it when the grant leaves that
+    /// state. A missing grant is `Sqlite(QueryReturnedNoRows)`; a grant in any other
+    /// state is a [`StoreError::GenerationConflict`] and nothing is written.
+    pub fn set_grant_degradation(&mut self, grant: &GrantId, reason: DegradedReason) -> Result<()> {
+        let Some(g) = self.grant(grant)? else {
+            return Err(missing());
+        };
+        if g.state != GrantState::Degraded {
+            return Err(conflict(format!(
+                "grant {grant} is not degraded; no degradation reason can be recorded"
+            )));
+        }
+        self.set_meta(&grant_degradation_key(grant), &codec::enum_str(&reason)?)
+    }
+
+    /// Why `grant` is `degraded`, if a reason was recorded (never for a grant in
+    /// another state).
+    pub fn grant_degradation(&mut self, grant: &GrantId) -> Result<Option<DegradedReason>> {
+        self.meta(&grant_degradation_key(grant))?
+            .map(|s| codec::enum_parse(&s))
+            .transpose()
+    }
+
+    /// Persist the pending remote part of the revocation rooted at `record.root`
+    /// (ADR-0006 §13.10 item 3), replacing an earlier record for that root. The root
+    /// must carry a tombstone (`Sqlite(QueryReturnedNoRows)` otherwise) and the
+    /// record must name at least one grant (else [`StoreError::GenerationConflict`]:
+    /// nothing pending is [`Txn::clear_remote_revocation`]).
+    pub fn set_remote_revocation(&mut self, record: &PendingRemoteRevocation) -> Result<()> {
+        if self.tombstone(&record.root)?.is_none() {
+            return Err(missing());
+        }
+        if record.grants.is_empty() {
+            return Err(conflict(format!(
+                "a pending remote revocation for {} names no grant",
+                record.root
+            )));
+        }
+        self.set_meta(
+            &format!("{META_REMOTE_REVOCATION_PREFIX}{}", record.root),
+            &codec::doc(record)?,
+        )
+    }
+
+    /// The pending remote part of the revocation rooted at `root`, if any.
+    pub fn remote_revocation(&mut self, root: &GrantId) -> Result<Option<PendingRemoteRevocation>> {
+        self.meta(&format!("{META_REMOTE_REVOCATION_PREFIX}{root}"))?
+            .map(|s| codec::parse_doc(&s))
+            .transpose()
+    }
+
+    /// Remove the pending remote record of `root` (nothing pending any more);
+    /// idempotent.
+    pub fn clear_remote_revocation(&mut self, root: &GrantId) -> Result<()> {
+        self.delete_meta(&format!("{META_REMOTE_REVOCATION_PREFIX}{root}"))
+    }
+
+    /// Every pending remote revocation record, ordered by root ID.
+    pub fn remote_revocations(&mut self) -> Result<Vec<PendingRemoteRevocation>> {
+        self.meta_with_prefix(META_REMOTE_REVOCATION_PREFIX)?
+            .iter()
+            .map(|s| codec::parse_doc(s))
+            .collect()
     }
 
     // --- R5: recovery intent and stage receipts ----------------------------------------

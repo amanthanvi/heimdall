@@ -142,6 +142,12 @@ pub enum IssuanceRefusal {
     /// An ancestor's authority generation is not the current one.
     #[error("an ancestor's authority generation is stale")]
     StaleAncestor,
+    /// ⟨r2.7⟩ The credential mechanism recorded with the grant is not configured in
+    /// this runtime (ADR-0006 §13.10 item 2): the use is refused and nothing ends
+    /// (the grant is `degraded` with reason `mechanism_unavailable`). Applied by the
+    /// application around [`check`], which knows no mechanisms.
+    #[error("the grant's credential mechanism is unavailable")]
+    MechanismUnavailable,
 }
 
 /// One issuance-log entry.

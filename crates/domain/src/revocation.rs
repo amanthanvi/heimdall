@@ -51,6 +51,35 @@ pub struct Tombstone {
     pub cause: RevocationCause,
 }
 
+/// ⟨r2.7⟩ The remote part of a revocation that local denial left pending (spec
+/// §6.7, §12.3; ADR-0006 §13.10 item 3), persisted per tombstoned root
+/// (`heimdall_store::Txn::{set_remote_revocation, remote_revocation,
+/// clear_remote_revocation, remote_revocations}`).
+///
+/// The record is the explicit evidence that keeps a `revoking` grant visibly
+/// pending. Repeated adapter `revoke()` rounds for it follow the supervisor's
+/// bounded, jittered backoff; `attempts` counts every round (the first local denial
+/// included) and survives a restart, so the cap is never reset by one. Once
+/// `stopped`, nothing calls the adapters for it again and nothing is reported again
+/// until an explicit `revoke` covering the root (which starts a fresh record) or a
+/// round that finds nothing pending (which clears it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingRemoteRevocation {
+    /// The grant carrying the tombstone.
+    pub root: GrantId,
+    /// The root and the descendants its tombstone covers whose remote effect an
+    /// adapter still reports pending (or failed to confirm).
+    pub grants: Vec<GrantId>,
+    /// Adapter `revoke()` rounds made so far (each round asks every configured
+    /// adapter about every grant in `grants`).
+    pub attempts: u32,
+    /// When the last round ran.
+    pub last_attempt_at: Timestamp,
+    /// The capped retries are exhausted: no further round until an explicit owner
+    /// action or a new completion signal.
+    pub stopped: bool,
+}
+
 /// Whether an action authorized at `authorized_generation` may still proceed
 /// against the current generation. Stale callbacks fail closed.
 #[must_use]

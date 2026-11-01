@@ -520,6 +520,24 @@ impl Txn<'_> {
         Ok(())
     }
 
+    pub(crate) fn delete_meta(&self, key: &str) -> Result<()> {
+        self.tx.execute("DELETE FROM meta WHERE key = ?1", [key])?;
+        Ok(())
+    }
+
+    /// Values of every meta row whose key starts with `prefix`, in key order.
+    pub(crate) fn meta_with_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+        let mut stmt = self.tx.prepare_cached(
+            "SELECT value FROM meta WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key",
+        )?;
+        let rows = stmt.query_map([prefix], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     fn docs<T: serde::de::DeserializeOwned>(
         &self,
         sql: &str,
@@ -806,6 +824,10 @@ impl Txn<'_> {
     /// stored value even if the caller's copy differs. Terminal grant states are
     /// absorbing: changing one is [`StoreError::GenerationConflict`]. The
     /// `updated_at` column is not maintained (the store reads no clock).
+    ///
+    /// ⟨r2.7⟩ A degradation reason ([`Txn::set_grant_degradation`]) exists only
+    /// while the grant is `degraded`: any other state written here removes it in the
+    /// same transaction (ADR-0006 §13.10 item 2).
     pub fn update_grant_state(&mut self, grant: &GrantSnapshot) -> Result<()> {
         let Some(mut stored) = self.grant(&grant.id)? else {
             return Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
@@ -826,6 +848,9 @@ impl Txn<'_> {
                 codec::doc(&stored)?,
             ],
         )?;
+        if stored.state != heimdall_contract::GrantState::Degraded {
+            self.delete_meta(&ext::grant_degradation_key(&grant.id))?;
+        }
         Ok(())
     }
 

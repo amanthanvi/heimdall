@@ -82,13 +82,30 @@ pub struct GrantOrigin {
     /// The caller the authority was resolved for (its role bounds what
     /// re-resolution may accept).
     pub caller: CallerContext,
-    /// Credential mechanism selected at resolution.
+    /// Credential mechanism selected at resolution. ⟨r2.7⟩ Every use of the grant
+    /// checks that it is still configured; while it is not, the use is refused and
+    /// the grant is `degraded` ([`DegradedReason::MechanismUnavailable`]; ADR-0006
+    /// §13.10 item 2). Re-validation of authority does not depend on it.
     pub mechanism: String,
     /// ADR-0006 §13.7 item 2: the standing policy this waiting owner-decision grant
     /// came to rest on when the saved policy covered it entirely. Absent otherwise;
     /// add-only (recorded once, never replaced or cleared).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covered: Option<CoveredBasis>,
+}
+
+/// ⟨r2.7⟩ Why a `degraded` grant is degraded (spec §6.3 "some capability
+/// unavailable"; ADR-0006 §13.10 item 2; `heimdall_store::Txn::{set_grant_degradation,
+/// grant_degradation}`). Additive: new reasons may follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DegradedReason {
+    /// The credential mechanism recorded in the grant's origin is not configured in
+    /// this runtime. Every use is refused and nothing ends (an owner's configuration
+    /// change can be undone before the deadline); the grant returns to `active` once
+    /// the mechanism is configured again and re-validation passes.
+    MechanismUnavailable,
 }
 
 /// A consumer reference to a grant (spec §6.3 "ownership-aware reference counts").
@@ -108,5 +125,21 @@ impl GrantSnapshot {
     #[must_use]
     pub fn permits_child(&self, child_scope: &Scope, child_deadline: Timestamp) -> bool {
         child_scope.is_subset_of(&self.scope) && child_deadline <= self.deadline.effective
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn degraded_reason_wire_form_is_snake_case() {
+        let v = serde_json::to_value(DegradedReason::MechanismUnavailable).unwrap();
+        assert_eq!(v, serde_json::json!("mechanism_unavailable"));
+        assert_eq!(
+            serde_json::from_value::<DegradedReason>(v).unwrap(),
+            DegradedReason::MechanismUnavailable
+        );
     }
 }

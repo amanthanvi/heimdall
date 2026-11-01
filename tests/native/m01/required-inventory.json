@@ -203,6 +203,7 @@
           "duplicate_idempotency_key_is_refused_by_the_store",
           "idempotency_replays_and_conflicts_through_txn",
           "pending_keys_never_expire_and_are_never_purged",
+          "recovery_intent_approval_basis_is_add_only",
           "recovery_intent_round_trips_and_only_gains_facts",
           "settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge",
           "stage_receipts_are_append_only_and_ordered"
@@ -237,10 +238,13 @@
         "integration_store": [
           "decisions_complete_once_and_go_stale_when_the_generation_moves",
           "denied_ancestor_walks_through_a_revoked_grandparent",
+          "grant_approval_is_written_once_and_survives_operation_purge",
           "grant_origin_is_written_once_and_gains_only_a_covered_basis",
           "issuance_reserve_publish_void_cas_and_residual",
           "issuance_residual_counts_reserved_and_published_only",
-          "tombstones_bump_the_authority_generation_atomically"
+          "remote_revocation_records_need_a_tombstone_and_round_trip",
+          "tombstones_bump_the_authority_generation_atomically",
+          "upsert_environment_advances_the_authority_generation_on_every_write"
         ],
         "model_authority": [
           "a05_fresh_work_after_cutoff_is_denied",
@@ -260,6 +264,22 @@
           "delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one",
           "g02_a_revoked_child_frees_its_parent_without_revoking_it",
           "g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant",
+          "r1310_2_a_degraded_grant_returns_only_when_revalidation_passes",
+          "r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done",
+          "r1310_3_a_pending_remote_effect_is_retried_on_the_jittered_schedule_up_to_the_cap",
+          "r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due",
+          "r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds",
+          "r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule",
+          "r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline",
+          "r136_3_a_child_entering_revoking_releases_its_parent_reference",
+          "r136_3_an_expired_child_releases_its_parent_reference",
+          "r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publish_voids_the_publish",
+          "r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish",
+          "r138_4_a_narrowing_outside_the_approval_ends_the_grant_at_use",
+          "r138_4_a_removed_environment_permission_ends_the_grant_at_use",
+          "r138_4_a_revoke_on_the_chain_ends_the_grant_at_use",
+          "r138_4_an_undetermined_revalidation_ends_nothing",
+          "r138_4_the_scheduler_pass_ends_grants_whose_authority_was_withdrawn",
           "r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move",
           "u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends",
           "u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does"
@@ -275,7 +295,17 @@
           "a07_revoking_an_awaiting_grant_ends_its_operation_at_once",
           "ended_grants_never_return_and_restart_never_resets_the_clock",
           "equivalent_work_is_single_flight_with_separate_references",
+          "r137_3_a_narrowing_inside_the_approved_delta_and_a_pause_keep_the_grant",
+          "r137_3_a_narrowing_outside_the_approved_delta_ends_the_grant",
+          "r137_3_an_approved_grant_survives_purge_of_its_operation_and_revalidates",
+          "r137_5_an_environment_permission_change_revalidates_and_ends_the_grant",
+          "r138_1_a_rereservation_returns_to_the_issuer_unpublished",
+          "r138_1_a_revoke_between_signing_the_replacement_and_publishing_it_voids_it",
+          "r138_1_an_expiry_between_signing_the_replacement_and_publishing_it_voids_it",
           "r139_4_an_activated_shared_grant_is_released_when_every_attached_operation_cancels",
+          "review_13_6_11_a_generation_still_racing_after_three_attempts_is_service_unavailable",
+          "review_a03_authority_is_rechecked_after_waiting_for_an_adapter_slot",
+          "review_a03_earlier_attempts_are_reconciled_after_authority_ended",
           "sharing_never_merges_unrelated_scopes_or_outlives_the_deadline",
           "tombstones_and_cutoffs_are_never_defeated_by_stale_callbacks_or_new_ids"
         ]
@@ -293,6 +323,8 @@
           "u8b::scheduler_expires_at_the_continuous_budget_end_with_the_wall_clock_lagging",
           "u8b::scheduler_expires_at_the_same_bound_after_a_reboot_with_sync",
           "u8b::scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart",
+          "u8b::supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound",
+          "u8b::supervisor_resume_check_interval_is_bounded",
           "u8b::supervisor_run_loop_expires_due_grants_on_its_own",
           "u8b::time_guard_refuses_a_rollback_and_ensure_is_time_uncertain",
           "u8b::time_guard_refuses_an_unsynchronized_reboot_and_ensure_is_time_uncertain"
@@ -309,12 +341,27 @@
           "a06_restart_never_resets_a_resolved_deadline",
           "a19_time_confirmation_needs_attendance_and_never_moves_a_deadline",
           "a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning",
+          "r1310_2_a_deadline_passing_while_degraded_expires_the_grant",
+          "r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it",
+          "r136_6_cutoff_direction_and_narrowing_under_uncertain_time",
+          "r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use",
+          "r138_4_a_pause_or_uncertain_time_never_ends_a_grant",
+          "r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff",
           "r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant",
           "r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal",
           "r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing",
           "r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry",
           "r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant",
           "tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound"
+        ],
+        "model_revocation": [
+          "review_a01_publish_assesses_time_inside_its_own_transaction",
+          "review_a01_reserve_assesses_time_inside_its_own_transaction",
+          "review_a02_a_widening_record_reassesses_time_in_its_transaction",
+          "review_a02_an_approval_reassesses_time_in_the_deciding_transaction",
+          "review_a02_bind_reassesses_time_in_the_admitting_transaction",
+          "review_a02_commit_reassesses_time_with_the_gate",
+          "review_a03_no_preparation_after_the_deadline_or_a_cutoff"
         ],
         "model_time": [
           "backward_jump_is_time_uncertain_and_budget_still_runs_out",
@@ -377,7 +424,9 @@
         "e2e_cli_m01": [
           "a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
           "a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays",
-          "eight_concurrent_clients_start_exactly_one_runtime"
+          "eight_concurrent_clients_start_exactly_one_runtime",
+          "service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable",
+          "service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent"
         ],
         "integration_ipc_unix": [
           "dead_socket_of_ours_is_replaced",
@@ -386,12 +435,18 @@
         ],
         "integration_runtime": [
           "instance_stale_records_are_ignored",
+          "jitter_props::fixed_unit_one_is_the_unjittered_schedule",
+          "jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff",
+          "u8b::cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled",
+          "u8b::cleanup_retries_use_bounded_backoff_with_injected_jitter",
           "u8b::environment_identity_is_created_once_and_never_changes",
           "u8b::launcher_eight_concurrent_clients_start_exactly_one_child",
           "u8b::restart_never_revives_a_paused_policy_or_changes_identity",
           "u8b::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again",
           "u8b::service_ignores_and_replaces_a_stale_instance_json",
-          "u8b::service_second_start_is_already_running"
+          "u8b::service_second_start_is_already_running",
+          "u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints",
+          "u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit"
         ],
         "integration_store": [
           "crash_at_each_migration_point_reopens_cleanly",
@@ -409,6 +464,7 @@
           "g03_cleanup_executor_deletes_generation_n_once",
           "g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
           "g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff",
+          "r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused",
           "r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart",
           "r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report",
           "r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once",
@@ -419,7 +475,9 @@
         ],
         "model_revocation": [
           "a07_a_reservation_found_after_a_restart_stays_counted_and_is_never_published",
-          "ended_grants_never_return_and_restart_never_resets_the_clock"
+          "ended_grants_never_return_and_restart_never_resets_the_clock",
+          "r138_5_a_restart_after_the_creators_cancellation_completes_the_shared_preparation",
+          "review_a04_minimums_survive_recovery"
         ]
       }
     },
@@ -497,10 +555,15 @@
           "human_output_goes_to_stdout_and_messages_to_stderr",
           "inspect_preview_and_require_capability_have_no_effect",
           "interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready",
+          "json_usage_failures_render_exactly_one_usage_error_envelope",
           "non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt",
           "operation_events_follow_resumes_from_cursor",
           "owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once",
+          "usage_failures_keep_human_help_version_and_errors",
           "widening_resume_needs_an_owner_decision_completed_on_a_pty"
+        ],
+        "heimdall_contract-unit": [
+          "request::tests::shutdown_wire_form_and_predicates"
         ],
         "integration_ipc_unix": [
           "fifth_subscription_gets_backpressure_and_events_flow",
@@ -519,7 +582,11 @@
         ],
         "integration_runtime": [
           "u8b::control_socket_round_trip_against_a_real_service",
-          "u8b::dispatcher_rechecks_attendance_and_renders_application_results"
+          "u8b::dispatcher_rechecks_attendance_and_renders_application_results",
+          "u8b::supervisor_delivers_held_back_events_without_a_new_commit"
+        ],
+        "integration_store": [
+          "grant_degradation_exists_only_while_the_grant_is_degraded"
         ],
         "model_events": [
           "a_mutation_during_the_snapshot_is_not_lost_and_not_duplicated",
@@ -567,7 +634,32 @@
           "a19_widening_policy_actions_always_create_a_decision_record",
           "bind_materializes_an_existing_binding_without_a_new_effect",
           "g10_widening_under_uncertain_time_creates_no_decision",
+          "r1310_2_a_use_repairs_a_degraded_grant_once_its_mechanism_is_configured_again",
+          "r1310_2_a_use_with_the_mechanism_gone_is_refused_and_degrades_the_grant",
+          "r1310_2_the_scheduler_pass_degrades_a_grant_whose_mechanism_is_gone",
+          "r1310_2_the_scheduler_pass_repairs_a_degraded_grant_once_its_mechanism_is_back",
+          "r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_waiting",
+          "r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_results",
           "release_is_idempotent_and_the_last_reference_releases_without_revoking"
+        ],
+        "model_revocation": [
+          "r137_2_a_fully_covered_shared_request_activates_every_waiter_once",
+          "r137_2_a_fully_covered_waiting_request_activates_without_a_decision",
+          "r137_4_a_deny_after_a_transfer_settles_every_waiter",
+          "r137_4_cancelling_the_creator_moves_the_shared_decision_to_the_oldest_waiter",
+          "r137_4_the_shared_grant_ends_only_when_every_waiter_cancelled",
+          "r138_2_a_decision_resuming_five_waiters_waits_one_bound_in_total",
+          "r138_5_cancelling_the_creator_after_approval_leaves_the_preparation_to_the_waiters",
+          "r138_5_the_last_attached_cancellation_cancels_and_cleans_up_the_grant",
+          "review_a04_achieved_enforcement_below_the_minimum_is_capability_unavailable",
+          "review_a04_an_unmet_offline_minimum_is_capability_unavailable",
+          "review_a04_minimums_survive_coalescing",
+          "review_a06_a_fresh_decision_after_a_lifted_pause_completes",
+          "review_a06_a_fresh_decision_recomputes_the_delta_against_current_policy",
+          "review_a06_an_approval_is_revalidated_before_preparation",
+          "review_a07_a_broader_request_never_joins_a_narrower_decision",
+          "review_a07_cancel_and_deny_of_a_shared_decision",
+          "review_a07_equivalent_added_authority_requests_share_one_decision"
         ]
       }
     },
@@ -635,7 +727,8 @@
           "paths_tighten_existing_permissive_dirs_and_refuse_symlinks",
           "redact_removes_canaries_wherever_they_appear",
           "redact_removes_private_key_blocks",
-          "u8b::caller_is_built_from_the_session_only"
+          "u8b::caller_is_built_from_the_session_only",
+          "u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner"
         ],
         "integration_store": [
           "binding_release_is_idempotent_and_authorized_by_ownership",

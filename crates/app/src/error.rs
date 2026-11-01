@@ -336,6 +336,10 @@ impl OpError {
                 Code::StateUnavailable,
                 "the grant's ancestor chain is incomplete in the state store",
             ),
+            R::MechanismUnavailable => (
+                Code::CapabilityUnavailable,
+                "the grant's credential mechanism is unavailable",
+            ),
             R::PairOutsideSnapshot
             | R::ChildExceedsParent
             | R::BoundTooLate

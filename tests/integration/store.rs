@@ -3253,3 +3253,136 @@ fn withdrawal_report_is_recorded_once_per_tombstoned_root() {
             .unwrap()
     );
 }
+
+// --- ⟨r2.7⟩ ADR-0006 §13.10 items 2 and 3 (M01-rulings-13-10-K1) -----------------
+
+/// §13.10 item 2: a degradation reason is recorded only for a `degraded` grant and
+/// exists only while it stays `degraded` (any other state written removes it in
+/// the same transaction; returning to `degraded` does not bring it back).
+#[test]
+fn grant_degradation_exists_only_while_the_grant_is_degraded() {
+    use heimdall_domain::grant::DegradedReason;
+    let s = mem();
+    let mut g = grant(41, None, plus(t0(), 3600), GrantState::Active);
+    let reason = DegradedReason::MechanismUnavailable;
+    s.transaction(|tx| {
+        tx.insert_grant(&g)?;
+        assert!(matches!(
+            tx.set_grant_degradation(&g.id, reason),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        assert_eq!(tx.grant_degradation(&g.id)?, None);
+        Ok(())
+    })
+    .unwrap();
+    let missing = s
+        .transaction(|tx| tx.set_grant_degradation(&GrantId::from_random_bytes([42; 16]), reason))
+        .unwrap_err();
+    assert!(matches!(missing, StoreError::Sqlite(_)));
+    g.state = GrantState::Degraded;
+    s.transaction(|tx| {
+        tx.update_grant_state(&g)?;
+        tx.set_grant_degradation(&g.id, reason)?;
+        tx.set_grant_degradation(&g.id, reason)?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.grant_degradation(&g.id)).unwrap(),
+        Some(reason)
+    );
+    // A failed transaction removes nothing.
+    let mut active = g.clone();
+    active.state = GrantState::Active;
+    let _ = s.transaction(|tx| {
+        tx.update_grant_state(&active)?;
+        Err::<(), _>(StoreError::Corrupt("abort".into()))
+    });
+    assert_eq!(
+        s.transaction(|tx| tx.grant_degradation(&g.id)).unwrap(),
+        Some(reason)
+    );
+    s.transaction(|tx| tx.update_grant_state(&active)).unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.grant_degradation(&g.id)).unwrap(),
+        None
+    );
+    s.transaction(|tx| tx.update_grant_state(&g)).unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.grant_degradation(&g.id)).unwrap(),
+        None,
+        "re-entering degraded needs a fresh reason"
+    );
+    s.transaction(|tx| tx.set_grant_degradation(&g.id, reason))
+        .unwrap();
+    let mut expired = g.clone();
+    expired.state = GrantState::Expired;
+    s.transaction(|tx| tx.update_grant_state(&expired)).unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.grant_degradation(&g.id)).unwrap(),
+        None
+    );
+}
+
+/// §13.10 item 3: a pending remote revocation is recorded per tombstoned root,
+/// replaced by a later record for that root, listed in root order, cleared
+/// idempotently; a root without a tombstone or a record naming no grant is refused.
+#[test]
+fn remote_revocation_records_need_a_tombstone_and_round_trip() {
+    use heimdall_domain::revocation::PendingRemoteRevocation;
+    let s = mem();
+    let record = |b: u8, attempts: u32, stopped: bool| PendingRemoteRevocation {
+        root: GrantId::from_random_bytes([b; 16]),
+        grants: vec![GrantId::from_random_bytes([b; 16])],
+        attempts,
+        last_attempt_at: plus(t0(), i64::from(attempts)),
+        stopped,
+    };
+    let untombstoned = s
+        .transaction(|tx| tx.set_remote_revocation(&record(51, 1, false)))
+        .unwrap_err();
+    assert!(matches!(untombstoned, StoreError::Sqlite(_)));
+    s.transaction(|tx| {
+        tx.insert_tombstone(&tombstone(51))?;
+        tx.insert_tombstone(&tombstone(52))?;
+        let empty = PendingRemoteRevocation {
+            grants: Vec::new(),
+            ..record(51, 1, false)
+        };
+        assert!(matches!(
+            tx.set_remote_revocation(&empty),
+            Err(StoreError::GenerationConflict(_))
+        ));
+        assert!(tx.remote_revocations()?.is_empty());
+        tx.set_remote_revocation(&record(52, 1, false))?;
+        tx.set_remote_revocation(&record(51, 1, false))?;
+        tx.set_remote_revocation(&record(51, 3, true))?;
+        Ok(())
+    })
+    .unwrap();
+    let r51 = GrantId::from_random_bytes([51; 16]);
+    assert_eq!(
+        s.transaction(|tx| tx.remote_revocation(&r51)).unwrap(),
+        Some(record(51, 3, true))
+    );
+    let all = s.transaction(|tx| tx.remote_revocations()).unwrap();
+    let mut roots: Vec<GrantId> = all.iter().map(|r| r.root.clone()).collect();
+    assert_eq!(all.len(), 2);
+    let listed = roots.clone();
+    roots.sort();
+    assert_eq!(listed, roots, "ordered by root");
+    s.transaction(|tx| {
+        tx.clear_remote_revocation(&r51)?;
+        tx.clear_remote_revocation(&r51)?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.remote_revocation(&r51)).unwrap(),
+        None
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.remote_revocations()).unwrap().len(),
+        1
+    );
+}

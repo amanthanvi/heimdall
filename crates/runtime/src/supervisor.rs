@@ -22,6 +22,20 @@
 //!   port exists before the M02 adapters); when it arrives it uses the same
 //!   [`retry_delay`]. A failed scheduler pass is retried by the loop after a
 //!   jittered delay too.
+//! * **Pending remote revocations** (⟨r2.7⟩ ADR-0006 §13.10 item 3; spec §12.3,
+//!   §13.5): when local denial left a revocation's remote effect pending
+//!   (`heimdall_domain::revocation::PendingRemoteRevocation`, one durable record
+//!   per tombstoned root), this supervisor is the only caller of the repeated
+//!   adapter `revoke()` rounds for it ([`Supervisor::revocation_pass`], run by every
+//!   scheduler pass). Round `n + 1` is due [`retry_delay`]`(backoff, n, jitter)`
+//!   after the pass that saw round `n` (continuous clock; the same injectable
+//!   [`Jitter`]; the backoff is [`Supervisor::with_revocation_backoff`], default
+//!   `Backoff::default()`), rounds are capped by `Backoff::max_attempts` (the
+//!   first local denial counts; the count is durable, so a restart never resets
+//!   it), and once capped the record is `stopped`: the grant stays `revoking` with
+//!   its remote part visible, and nothing calls the adapters or reports again until
+//!   an explicit `revoke` (a fresh record) or a round that finds nothing pending.
+//!   A round emits no event except a grant's own `revoking → revoked` change.
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
@@ -68,7 +82,7 @@ use heimdall_app::reconcile::{
     Action, Backoff, CleanupHook, CleanupPoint, guard_cleanup, plan, should_retry,
 };
 use heimdall_contract::event::EventType;
-use heimdall_contract::ids::ResourceId;
+use heimdall_contract::ids::{GrantId, ResourceId};
 use heimdall_contract::{Code, Timestamp};
 use heimdall_domain::resource::{
     CleanupDecision, ManagedResource, ResourceGeneration, ResourceState,
@@ -186,7 +200,34 @@ pub struct Supervisor {
     config: SupervisorConfig,
     state: Option<(Arc<Store>, Arc<dyn Clock>)>,
     cleanup: Option<tokio::sync::Mutex<CleanupExecutor>>,
+    revocations: tokio::sync::Mutex<RevocationRetries>,
     jitter: Arc<dyn Jitter>,
+}
+
+/// ⟨r2.7⟩ The single owner of the repeated adapter `revoke()` rounds for pending
+/// remote revocations (ADR-0006 §13.10 item 3): its backoff and, per tombstoned
+/// root, the attempt count the next round was scheduled for and that round's
+/// continuous-clock instant (in memory; the attempt count itself is durable).
+struct RevocationRetries {
+    backoff: Backoff,
+    due: HashMap<GrantId, (u32, Duration)>,
+}
+
+/// ⟨r2.7⟩ What one revocation retry pass did (tests and telemetry; ADR-0006
+/// §13.10 item 3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RevocationReport {
+    /// Rounds scheduled in this pass: `(root, attempts so far, delay until the
+    /// next round)`.
+    pub scheduled: Vec<(GrantId, u32, Duration)>,
+    /// Rounds run in this pass: `(root, attempts after the round)`.
+    pub retried: Vec<(GrantId, u32)>,
+    /// Roots whose remote part completed in this pass (nothing pending any more).
+    pub completed: Vec<GrantId>,
+    /// Roots whose capped retries stopped in this pass.
+    pub stopped: Vec<GrantId>,
+    /// Continuous-clock delay until the earliest scheduled round, if any.
+    pub next_due_in: Option<Duration>,
 }
 
 /// The single cleanup executor's port, hook, backoff and per-resource retry state.
@@ -246,7 +287,26 @@ impl Supervisor {
             config,
             state: None,
             cleanup: None,
+            revocations: tokio::sync::Mutex::new(RevocationRetries {
+                backoff: Backoff::default(),
+                due: HashMap::new(),
+            }),
             jitter: Arc::new(RandomJitter),
+        }
+    }
+
+    /// ⟨r2.7⟩ Bound the repeated adapter `revoke()` rounds of pending remote
+    /// revocations by `backoff` (default `Backoff::default()`; ADR-0006 §13.10
+    /// item 3). `max_attempts` caps every round of a record, the first local
+    /// denial included.
+    #[must_use]
+    pub fn with_revocation_backoff(self, backoff: Backoff) -> Self {
+        Self {
+            revocations: tokio::sync::Mutex::new(RevocationRetries {
+                backoff,
+                due: HashMap::new(),
+            }),
+            ..self
         }
     }
 
@@ -392,11 +452,120 @@ impl Supervisor {
     /// continuous budget runs out; instants not in the future are skipped (a grant
     /// whose budget ran out while time was uncertain is retried after the time
     /// guard returns to `Safe`). `None` when nothing is due or no state was given.
+    ///
+    /// ⟨r2.7⟩ After `tick` it runs [`Self::revocation_pass`] (ADR-0006 §13.10 item
+    /// 3); the next wake also covers the earliest scheduled revocation round. A
+    /// failed revocation pass is logged and does not fail the scheduler pass.
     pub async fn scheduler_pass(
         &self,
     ) -> Result<Option<heimdall_contract::Timestamp>, heimdall_app::OpError> {
         self.operations.tick().await?;
-        self.next_wake().await
+        let retry_in = match self.revocation_pass().await {
+            Ok(report) => report.next_due_in,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "revocation retry pass failed");
+                None
+            }
+        };
+        let next = self.next_wake().await?;
+        let retry_at = match (retry_in, &self.state) {
+            (Some(d), Some((_, clock))) => jiff::SignedDuration::try_from(d)
+                .ok()
+                .and_then(|span| clock.wall().checked_add(span).ok()),
+            _ => None,
+        };
+        Ok(match (next, retry_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        })
+    }
+
+    /// ⟨r2.7⟩ One pass of the single retry owner for pending remote revocations
+    /// (exposed for virtual-clock tests; ADR-0006 §13.10 item 3, see the module
+    /// docs). Without state (no clock) it does nothing.
+    ///
+    /// For each record that is not `stopped`: a record first seen at `n` attempts
+    /// (or seen again at another count, e.g. after an explicit revoke started
+    /// afresh) gets its next round scheduled `retry_delay(backoff, n, jitter)`
+    /// later and is not called in this pass; a due round calls
+    /// `Operations::retry_remote_revocation`, then the next one is scheduled from
+    /// the new count. A record at or past the cap is stopped without a call. A
+    /// round that fails is rescheduled at the same count (never a tight loop).
+    pub async fn revocation_pass(&self) -> Result<RevocationReport, heimdall_app::OpError> {
+        let mut report = RevocationReport::default();
+        let Some((_, clock)) = self.state.clone() else {
+            return Ok(report);
+        };
+        let mut ex = self.revocations.lock().await;
+        let pending = self.operations.pending_remote_revocations().await?;
+        let now = clock.continuous();
+        ex.due
+            .retain(|root, _| pending.iter().any(|p| &p.root == root && !p.stopped));
+        let backoff = ex.backoff;
+        let cap = backoff.max_attempts;
+        for p in pending {
+            if p.stopped {
+                continue;
+            }
+            let scheduled = ex
+                .due
+                .get(&p.root)
+                .filter(|(attempts, _)| *attempts == p.attempts)
+                .map(|(_, due)| *due);
+            let Some(due) = scheduled else {
+                if p.attempts >= cap {
+                    // Capped already (by the first local denial, or a lower cap):
+                    // stop without another call.
+                    if self
+                        .operations
+                        .retry_remote_revocation(&p.root, cap)
+                        .await?
+                        .is_some_and(|r| r.stopped)
+                    {
+                        report.stopped.push(p.root.clone());
+                    }
+                    ex.due.remove(&p.root);
+                    continue;
+                }
+                let delay = retry_delay(&backoff, p.attempts, self.jitter.as_ref());
+                ex.due.insert(p.root.clone(), (p.attempts, now + delay));
+                report.scheduled.push((p.root.clone(), p.attempts, delay));
+                continue;
+            };
+            if due > now {
+                continue;
+            }
+            match self.operations.retry_remote_revocation(&p.root, cap).await {
+                Ok(None) => {
+                    ex.due.remove(&p.root);
+                    report.completed.push(p.root.clone());
+                }
+                Ok(Some(next)) => {
+                    report.retried.push((p.root.clone(), next.attempts));
+                    if next.stopped {
+                        ex.due.remove(&p.root);
+                        report.stopped.push(p.root.clone());
+                    } else {
+                        let delay = retry_delay(&backoff, next.attempts, self.jitter.as_ref());
+                        ex.due.insert(p.root.clone(), (next.attempts, now + delay));
+                        report
+                            .scheduled
+                            .push((p.root.clone(), next.attempts, delay));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(code = %e.code, "a pending remote revocation round failed");
+                    let delay = retry_delay(&backoff, p.attempts, self.jitter.as_ref());
+                    ex.due.insert(p.root.clone(), (p.attempts, now + delay));
+                }
+            }
+        }
+        report.next_due_in = ex
+            .due
+            .values()
+            .map(|(_, due)| due.saturating_sub(now))
+            .min();
+        Ok(report)
     }
 
     async fn next_wake(&self) -> Result<Option<Timestamp>, heimdall_app::OpError> {

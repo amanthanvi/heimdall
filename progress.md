@@ -127,6 +127,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - S04 is new (minor): the descriptor-hygiene fallback scan is partial but still reports success.
   - My S04 ruling: scan up to the hard limit if it is finite and at most 1,048,576; otherwise return an error, so spawn and startup refuse.
   - Delegated as M01-review3-S04 (Claude Opus 5.5, shared checkout, platform.rs scope).
+- §13.9 items 1–4 (workflow `wf_0b82e5b5-9e6`, migration 0004, SCHEMA_VERSION 4) and S04 are committed as 2142c81a. My check.sh run: exit 0, 637 passed, 0 failed, 2 ignored. The ADR-0006 §13.10 rulings are recorded:
+  - the grant origin is a column;
+  - a missing mechanism makes the grant degraded instead of ending it;
+  - revoke-sweep retries use bounded jittered backoff;
+  - the case index covers r136–r139.
+- Running: workflow `wf_e4d70f86-2c6`, for §13.10 items 2, 3 and 5.
+- After that, at one commit and in parallel:
+  - native evidence runs (devbox, the Windows PC) and regenerated m01 records;
+  - a final Codex check of 01747a6b..HEAD.
+  - Then the M01 exit record.
   - Workflow `wf_b2f9242d-155`, implementing §13.7 items 2–6 and 8: G1 authority (items 2–5, maybe a store migration 0003) and G2 evidence/CLI (items 6 and 8), then an integrator.
 - After that: native reruns on devbox and the Windows PC from one commit, regenerated m01 records (G14), and the M01 exit record.
 - Next:
