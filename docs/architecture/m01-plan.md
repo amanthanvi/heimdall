@@ -309,6 +309,32 @@ integrator with an ADR-0006 revision.
     cancels and cleans up the grant.
   * Tests `model_revocation::r138_*`, `model_operations::r138_4_*` (ADR-0006 §14.5
     row).
+* **⟨r2.6⟩ ADR-0006 §13.9 items 1–4 (M01-rulings-13-9-J1).** **Additive**
+  `domain::time::budget_exhausted(&GrantAnchor, &TimeAnchor) -> bool`,
+  `domain::grant::GrantOrigin { profile, profile_revision, policy_revision, caller,
+  mechanism, covered }`, and store (U4b paths) `Txn::{set_grant_origin,
+  set_grant_covered, grant_origin, record_withdrawal_report, withdrawal_reported}`,
+  migration `0004_grant_origin` (`grants.origin_json`, backfilled),
+  `SCHEMA_VERSION = 4`. No contract change; `runtime::{supervisor, service}`
+  unchanged (they already call `Operations::start` and `tick`).
+  * Item 1: while time is uncertain, `tick` expires a grant only when its
+    continuous budget ran out; a wall bound that appears passed on an uncertain or
+    forward-jumped reading ends nothing. On safe time, ending (`tick`, `grant_end`)
+    looks at the accepted wall time and the continuous budget, never at a later
+    unassessed wall reading.
+  * Item 2: the re-validation context comes from the grant's own record
+    (`GrantOrigin` written at creation, source, environment, approval or covered
+    basis); a parent kept alive only by its child re-validates normally;
+    undetermined only for a grant without a recorded origin (or an unknown profile
+    revision, or a mechanism no longer configured).
+  * Item 3: at the end of restart recovery and in every `tick`, every grant left in
+    `revoking` completes idempotently (local denial, `revoked` once nothing is
+    pending remotely, one `authority_withdrawn` report with the residual per
+    tombstoned root); an explicit revoke with an open operation is left to it.
+  * Item 4: test only (the `active → released` branch existed).
+  * Tests `model_operations::{r139_*, r139_props::*}`,
+    `model_revocation::r139_4_*`, `integration_store::{grant_origin_*,
+    withdrawal_report_*}`, store and domain unit tests (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.

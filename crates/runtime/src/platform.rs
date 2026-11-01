@@ -52,7 +52,8 @@
 //! | Linux (x86_64, aarch64) | `syscall(SYS_close_range, 3, ~0, 0 \| CLOSE_RANGE_CLOEXEC)` | integers only, this process's descriptors above 2; result checked, failure selects the fallback; `0` (close) only under the precondition below |
 //! | Unix | `fcntl(fd, F_GETFD)` / `fcntl(fd, F_SETFD, flags \| FD_CLOEXEC)` | integers only; a number that is not open returns -1 (checked); only the close-on-exec flag is added |
 //! | Unix | `close(fd)` (fd > 2) | only from `close_inherited_descriptors`, called by `service run` before it opens anything, so no live object owns the descriptor; EBADF for gaps ignored |
-//! | Unix | `getrlimit(RLIMIT_NOFILE, &mut rl)` | valid, aligned, writable out-pointer; return code checked |
+//! | Unix | `getrlimit(RLIMIT_NOFILE, &mut rl)` | valid, aligned, writable out-pointer; return code checked; only the hard limit bounds the last-resort loop, and an infinite or over-cap one is an error, not a partial scan |
+//! | Unix (unit tests only) | `fcntl(fd, F_DUPFD, n)` / `OwnedFd::from_raw_fd` | integers only; result checked; the duplicate is owned once and closed when the S04 fallback test ends; never in a release build |
 //!
 //! **Inherited descriptors** ([`disinherit_descriptors_above_stdio`],
 //! [`close_inherited_descriptors`]; ADR-0006 §13.8 item 7): the launcher marks
@@ -206,11 +207,21 @@ pub fn disinherit_standard_handles() {
 /// Linux (x86_64, aarch64) uses `close_range(3, ~0, CLOSE_RANGE_CLOEXEC)`; when
 /// that fails (kernel before 5.11) and elsewhere, the open descriptors are listed
 /// from `/proc/self/fd` (Linux) or `/dev/fd`, and when that fails every number
-/// below the `RLIMIT_NOFILE` soft limit (at most 65 536) is visited. Windows: a
-/// no-op (see [`disinherit_standard_handles`]).
-pub fn disinherit_descriptors_above_stdio() {
+/// below the `RLIMIT_NOFILE` **hard** limit is visited, if it is finite and at
+/// most 1 048 576.
+///
+/// # Errors
+///
+/// When none of the three covers every descriptor (no `close_range`, no listing,
+/// and a hard limit that is unreadable, infinite or above the cap), a fixed
+/// `Unsupported` error; nothing is claimed after a partial scan, and the
+/// launcher then spawns nothing. Windows: a no-op that always succeeds (see
+/// [`disinherit_standard_handles`]).
+pub fn disinherit_descriptors_above_stdio() -> std::io::Result<()> {
     #[cfg(unix)]
-    fds::above_stdio(fds::Action::CloseOnExec);
+    return fds::above_stdio(fds::Action::CloseOnExec);
+    #[cfg(not(unix))]
+    Ok(())
 }
 
 /// Unix: close every descriptor above 2 (ADR-0006 §13.8 item 7). The runtime
@@ -223,10 +234,18 @@ pub fn disinherit_descriptors_above_stdio() {
 /// **Precondition:** no live object of this process owns a descriptor above 2
 /// (it is called before anything is opened); never call it from a process that
 /// has opened files, sockets or pipes, such as a test harness. Windows: a no-op
-/// (the launcher passes no handle beyond the null standard handles).
-pub fn close_inherited_descriptors() {
+/// that always succeeds (the launcher passes no handle beyond the null standard
+/// handles).
+///
+/// # Errors
+///
+/// As [`disinherit_descriptors_above_stdio`]: when no mechanism covers every
+/// descriptor, a fixed `Unsupported` error, and the runtime refuses to start.
+pub fn close_inherited_descriptors() -> std::io::Result<()> {
     #[cfg(unix)]
-    fds::above_stdio(fds::Action::Close);
+    return fds::above_stdio(fds::Action::Close);
+    #[cfg(not(unix))]
+    Ok(())
 }
 
 /// Opaque OS start time of process `pid`, or `None` when the process does not
@@ -244,10 +263,12 @@ pub fn process_start_time(pid: u32) -> Option<String> {
 /// [`disinherit_descriptors_above_stdio`] and [`close_inherited_descriptors`]).
 #[cfg(unix)]
 mod fds {
+    use std::io;
+
     use libc::c_int;
 
-    /// Upper bound of the last-resort loop over descriptor numbers.
-    const FALLBACK_CAP: c_int = 1 << 16;
+    /// Largest `RLIMIT_NOFILE` hard limit the last-resort loop visits up to.
+    const HARD_LIMIT_CAP: libc::rlim_t = 1 << 20;
 
     /// What to do with each descriptor above 2.
     #[derive(Debug, Clone, Copy)]
@@ -258,19 +279,66 @@ mod fds {
         CloseOnExec,
     }
 
-    pub(super) fn above_stdio(action: Action) {
-        if close_range(action) {
-            return;
+    /// The mechanisms [`above_stdio_with`] uses, injectable so unit tests can
+    /// force the fallbacks; production always uses [`SYSTEM`].
+    #[derive(Clone, Copy)]
+    pub(super) struct Strategy {
+        /// One call covering every descriptor above 2; `true` on success.
+        pub(super) close_range: fn(Action) -> bool,
+        /// The open descriptors above 2; `None` when they cannot be listed.
+        pub(super) listed: fn() -> Option<Vec<c_int>>,
+        /// `RLIMIT_NOFILE`; `None` when it cannot be read.
+        pub(super) nofile_limit: fn() -> Option<libc::rlimit>,
+        /// Act on one descriptor.
+        pub(super) apply: fn(c_int, Action),
+    }
+
+    /// The operating system's mechanisms.
+    pub(super) const SYSTEM: Strategy = Strategy {
+        close_range,
+        listed,
+        nofile_limit,
+        apply,
+    };
+
+    pub(super) fn above_stdio(action: Action) -> io::Result<()> {
+        above_stdio_with(action, &SYSTEM)
+    }
+
+    pub(super) fn above_stdio_with(action: Action, strategy: &Strategy) -> io::Result<()> {
+        if (strategy.close_range)(action) {
+            return Ok(());
         }
-        if let Some(listed) = listed() {
+        if let Some(listed) = (strategy.listed)() {
             for fd in listed {
-                apply(fd, action);
+                (strategy.apply)(fd, action);
             }
-            return;
+            return Ok(());
         }
-        for fd in 3..rlimit_bound() {
-            apply(fd, action);
+        let bound = scan_bound((strategy.nofile_limit)())?;
+        for fd in 3..bound {
+            (strategy.apply)(fd, action);
         }
+        Ok(())
+    }
+
+    /// Exclusive bound of the last-resort loop: the `RLIMIT_NOFILE` **hard**
+    /// limit, which no open descriptor can reach (a soft limit may have been
+    /// lowered after descriptors were opened), when it is finite and at most
+    /// [`HARD_LIMIT_CAP`]. Otherwise (unreadable, infinite or larger) no scan
+    /// is complete, and an error is returned instead of a partial scan (review
+    /// round 3, S04).
+    fn scan_bound(limit: Option<libc::rlimit>) -> io::Result<c_int> {
+        limit
+            .map(|l| l.rlim_max)
+            .filter(|&hard| hard != libc::RLIM_INFINITY && hard <= HARD_LIMIT_CAP)
+            .and_then(|hard| c_int::try_from(hard).ok())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "inherited descriptors cannot be enumerated or bounded",
+                )
+            })
     }
 
     /// Linux 5.11+: one `close_range` call covers every descriptor above 2.
@@ -329,9 +397,8 @@ mod fds {
         Some(out)
     }
 
-    /// Exclusive bound of the last-resort loop: the `RLIMIT_NOFILE` soft limit,
-    /// at most [`FALLBACK_CAP`].
-    fn rlimit_bound() -> c_int {
+    /// This process's `RLIMIT_NOFILE`, or `None` when it cannot be read.
+    pub(super) fn nofile_limit() -> Option<libc::rlimit> {
         let mut limit = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -339,10 +406,7 @@ mod fds {
         // SAFETY: `limit` is a valid, aligned, writable `rlimit`; the call only
         // writes it and its return code is checked before the value is used.
         let rc = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) };
-        if rc != 0 {
-            return FALLBACK_CAP;
-        }
-        c_int::try_from(limit.rlim_cur).map_or(FALLBACK_CAP, |n| n.min(FALLBACK_CAP))
+        (rc == 0).then_some(limit)
     }
 
     fn apply(fd: c_int, action: Action) {
@@ -364,6 +428,128 @@ mod fds {
                     unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
+    mod tests {
+        //! Fallback tests (review round 3, S04). `close_range` and the listing
+        //! are forced to fail, and `RLIMIT_NOFILE` is read, through
+        //! [`Strategy`]; nothing here is reachable from a release build. The
+        //! limit is lowered through the seam, not with `setrlimit`: lowering a
+        //! real (on macOS infinite) hard limit is irreversible for the shared
+        //! test process, and doing it in a spawned child races with the
+        //! `flock` test in `instance` (a spawn briefly shares every open file
+        //! description; observed 17 failures in 150 runs).
+
+        use std::os::fd::AsRawFd as _;
+        use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+
+        use super::*;
+
+        fn no_close_range(_: Action) -> bool {
+            false
+        }
+
+        fn no_listing() -> Option<Vec<c_int>> {
+            None
+        }
+
+        /// No `close_range`, no listing; real `RLIMIT_NOFILE` and `fcntl`.
+        const NO_ENUMERATION: Strategy = Strategy {
+            close_range: no_close_range,
+            listed: no_listing,
+            ..SYSTEM
+        };
+
+        fn descriptor_flags(fd: c_int) -> c_int {
+            // SAFETY: integer arguments; -1 (not open) is asserted against.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            assert!(flags >= 0, "descriptor {fd} is not open");
+            flags
+        }
+
+        /// The open descriptor of the test below (only that test sets it).
+        static HIGH: AtomicI32 = AtomicI32::new(0);
+
+        /// Soft limit lowered to 64, below [`HIGH`]; finite hard limit above it.
+        fn lowered_soft_limit() -> Option<libc::rlimit> {
+            let high = HIGH.load(Ordering::SeqCst);
+            Some(libc::rlimit {
+                rlim_cur: 64,
+                rlim_max: libc::rlim_t::try_from(high).unwrap() + 1,
+            })
+        }
+
+        #[test]
+        fn hard_limit_scan_reaches_a_descriptor_above_a_lowered_soft_limit() {
+            let real = nofile_limit().expect("getrlimit");
+            let target = c_int::try_from(real.rlim_cur.min(1024)).unwrap() - 16;
+            assert!(
+                target > 64,
+                "soft limit {} too low for this test",
+                real.rlim_cur
+            );
+            let file = std::fs::File::open("/dev/null").unwrap();
+            // SAFETY (test only): integer arguments; F_DUPFD duplicates into the
+            // lowest free number >= `target` without FD_CLOEXEC; checked below.
+            let high = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, target) };
+            assert!(high >= target, "F_DUPFD returned {high}");
+            // SAFETY: `high` was just returned by F_DUPFD and nothing else owns
+            // it; the OwnedFd closes it exactly once when the test ends.
+            let _owned =
+                unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(high) };
+            assert_eq!(descriptor_flags(high) & libc::FD_CLOEXEC, 0);
+            HIGH.store(high, Ordering::SeqCst);
+            let strategy = Strategy {
+                nofile_limit: lowered_soft_limit,
+                ..NO_ENUMERATION
+            };
+
+            above_stdio_with(Action::CloseOnExec, &strategy).expect("finite hard limit");
+
+            assert_ne!(
+                descriptor_flags(high) & libc::FD_CLOEXEC,
+                0,
+                "descriptor {high} above the lowered soft limit 64 was not reached"
+            );
+        }
+
+        static APPLIED: AtomicUsize = AtomicUsize::new(0);
+
+        fn count(_: c_int, _: Action) {
+            APPLIED.fetch_add(1, Ordering::SeqCst);
+        }
+
+        #[test]
+        fn unbounded_or_over_cap_hard_limit_without_enumeration_is_an_error() {
+            fn infinite() -> Option<libc::rlimit> {
+                Some(libc::rlimit {
+                    rlim_cur: 256,
+                    rlim_max: libc::RLIM_INFINITY,
+                })
+            }
+            fn over_cap() -> Option<libc::rlimit> {
+                Some(libc::rlimit {
+                    rlim_cur: 256,
+                    rlim_max: 1_048_577,
+                })
+            }
+            fn unreadable() -> Option<libc::rlimit> {
+                None
+            }
+            for nofile_limit in [infinite as fn() -> _, over_cap, unreadable] {
+                let strategy = Strategy {
+                    nofile_limit,
+                    apply: count,
+                    ..NO_ENUMERATION
+                };
+                for action in [Action::Close, Action::CloseOnExec] {
+                    assert!(above_stdio_with(action, &strategy).is_err(), "{action:?}");
+                }
+            }
+            assert_eq!(APPLIED.load(Ordering::SeqCst), 0, "nothing is acted on");
         }
     }
 }

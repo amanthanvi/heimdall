@@ -166,8 +166,10 @@ pub async fn ensure_running_with(
 /// and, before it, every descriptor above 2 of this process is marked
 /// close-on-exec ([`crate::platform::disinherit_descriptors_above_stdio`]), so
 /// one this client inherited without the flag (a caller's pipe) never reaches
-/// the long-lived runtime; this process keeps using its descriptors. The runtime
-/// also closes every descriptor above 2 at start-up
+/// the long-lived runtime; this process keeps using its descriptors. When that
+/// marking cannot cover every descriptor, its error is returned and nothing is
+/// spawned (`SERVICE_UNAVAILABLE`; review round 3, S04). The runtime also closes
+/// every descriptor above 2 at start-up
 /// ([`crate::platform::close_inherited_descriptors`]).
 ///
 /// **Windows** (ADR-0006 §13.6 item 8): `DETACHED_PROCESS` (no console and no
@@ -194,8 +196,9 @@ pub fn spawn_detached(program: &Path, args: &[&OsStr]) -> std::io::Result<std::p
     {
         use std::os::unix::process::CommandExt as _;
         cmd.process_group(0);
-        // Only the three null standard descriptors reach the child (see below).
-        crate::platform::disinherit_descriptors_above_stdio();
+        // Only the three null standard descriptors reach the child (see below);
+        // when that cannot be established nothing is spawned.
+        crate::platform::disinherit_descriptors_above_stdio()?;
     }
     #[cfg(windows)]
     {

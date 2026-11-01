@@ -109,6 +109,24 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - H2, events: R03 retention-gap resync;
   - H3, runtime: descriptor hygiene for the intermittent concurrent-start hang.
   - The integrator runs check.sh twice, to catch flakiness.
+- The §13.8 work is committed as 01747a6b.
+  - The integrator's two check.sh runs were identical: 620 passed, 2 ignored.
+  - I pruned target/ from 19G to 0 and ran check.sh from a clean build: exit 0, 620 passed. target is now 3.2G.
+  - The macOS descriptor leak was reproduced at the base (7 hangs in 60 runs) and is fixed.
+  - The ADR-0006 §13.9 rulings are recorded:
+    - under uncertain time, only the continuous budget expires a grant;
+    - re-validation takes its context from the grant;
+    - interrupted withdrawals complete;
+    - the Windows handle-list residual moves to M04.
+- Running:
+  - the Codex code review round 3 at 01747a6b, writing to `review-m01-code/round3.md`;
+  - workflow `wf_0b82e5b5-9e6` for §13.9 items 1–4.
+- Codex code review round 3 at 01747a6b (`review-m01-code/round3.md`): fix first.
+  - R01–R09 are all fixed.
+  - S01, S02, S03 and S05 are the §13.9 items 1, 2, 3 and 4. S01 and S02 were reproduced with probes.
+  - S04 is new (minor): the descriptor-hygiene fallback scan is partial but still reports success.
+  - My S04 ruling: scan up to the hard limit if it is finite and at most 1,048,576; otherwise return an error, so spawn and startup refuse.
+  - Delegated as M01-review3-S04 (Claude Opus 5.5, shared checkout, platform.rs scope).
   - Workflow `wf_b2f9242d-155`, implementing §13.7 items 2–6 and 8: G1 authority (items 2–5, maybe a store migration 0003) and G2 evidence/CLI (items 6 and 8), then an integrator.
 - After that: native reruns on devbox and the Windows PC from one commit, regenerated m01 records (G14), and the M01 exit record.
 - Next:

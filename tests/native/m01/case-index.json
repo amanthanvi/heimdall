@@ -88,7 +88,8 @@
           "tombstones_and_cutoffs_are_never_defeated_by_stale_callbacks_or_new_ids",
           "ended_grants_never_return_and_restart_never_resets_the_clock",
           "sharing_never_merges_unrelated_scopes_or_outlives_the_deadline",
-          "a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller"
+          "a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller",
+          "r139_4_an_activated_shared_grant_is_released_when_every_attached_operation_cancels"
         ],
         "model_lifecycle": [
           "props::stale_generations_fail_closed",
@@ -108,7 +109,8 @@
           "denied_ancestor_walks_through_a_revoked_grandparent",
           "issuance_reserve_publish_void_cas_and_residual",
           "issuance_residual_counts_reserved_and_published_only",
-          "decisions_complete_once_and_go_stale_when_the_generation_moves"
+          "decisions_complete_once_and_go_stale_when_the_generation_moves",
+          "grant_origin_is_written_once_and_gains_only_a_covered_basis"
         ],
         "model_operations": [
           "delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one",
@@ -116,7 +118,8 @@
           "u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does",
           "u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends",
           "g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant",
-          "g02_a_revoked_child_frees_its_parent_without_revoking_it"
+          "g02_a_revoked_child_frees_its_parent_without_revoking_it",
+          "r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move"
         ]
       },
       "not_modelled": [
@@ -155,7 +158,12 @@
           "a19_time_confirmation_needs_attendance_and_never_moves_a_deadline",
           "a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning",
           "tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound",
-          "a06_restart_never_resets_a_resolved_deadline"
+          "a06_restart_never_resets_a_resolved_deadline",
+          "r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal",
+          "r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant",
+          "r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing",
+          "r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry",
+          "r139_props::r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant"
         ],
         "e2e_cli_m01": [
           "time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines"
@@ -332,7 +340,10 @@
           "u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1",
           "g03_cleanup_executor_deletes_generation_n_once",
           "g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
-          "g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff"
+          "g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff",
+          "r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart",
+          "r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once",
+          "r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report"
         ],
         "model_revocation": [
           "ended_grants_never_return_and_restart_never_resets_the_clock",
@@ -347,7 +358,8 @@
           "garbage_header_is_corrupt_not_fresh",
           "damaged_page_is_corrupt_not_fresh",
           "truncated_file_is_corrupt_not_fresh",
-          "newer_schema_is_refused_and_untouched"
+          "newer_schema_is_refused_and_untouched",
+          "withdrawal_report_is_recorded_once_per_tombstoned_root"
         ],
         "integration_ipc_unix": [
           "dead_socket_of_ours_is_replaced",

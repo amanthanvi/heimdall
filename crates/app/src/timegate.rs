@@ -252,6 +252,41 @@ impl TxnGate {
         let at_fresh = dtime::admission(&anchor, &self.clock.observe());
         Ok(stricter(at_safe, at_fresh))
     }
+
+    /// ⟨r2.6⟩ ADR-0006 §13.9 item 1: whether `grant` must **end** by expiry, judged
+    /// on trusted evidence only: the wall branch at the accepted observation `now`,
+    /// and the continuous branch at `now` and at a fresh reading (the continuous
+    /// clock counts sleep and is trusted within a boot). Unlike
+    /// [`TxnGate::admission`], which refuses a use on any reading, a fresh wall
+    /// reading that the gate has not assessed (it may have jumped forward) never
+    /// ends anything here. `false` without a persisted anchor.
+    pub(crate) fn expired(
+        &self,
+        txn: &mut Txn<'_>,
+        grant: &GrantId,
+        now: &SafeNow,
+    ) -> heimdall_store::Result<bool> {
+        let Some(anchor) = txn.grant_anchor(grant)? else {
+            return Ok(false);
+        };
+        Ok(dtime::admission(&anchor, &now.anchor) == Admission::Expired
+            || dtime::budget_exhausted(&anchor, &self.clock.observe()))
+    }
+
+    /// ⟨r2.6⟩ ADR-0006 §13.9 item 1: while time is uncertain, the only evidence
+    /// that ends `grant`: its persisted continuous budget has run out at a fresh
+    /// reading in the anchor's boot (`heimdall_domain::time::budget_exhausted`).
+    /// The wall clock is not looked at. `false` without a persisted anchor.
+    pub(crate) fn budget_exhausted(
+        &self,
+        txn: &mut Txn<'_>,
+        grant: &GrantId,
+    ) -> heimdall_store::Result<bool> {
+        let Some(anchor) = txn.grant_anchor(grant)? else {
+            return Ok(false);
+        };
+        Ok(dtime::budget_exhausted(&anchor, &self.clock.observe()))
+    }
 }
 
 fn signed(d: Duration) -> jiff::SignedDuration {
@@ -446,6 +481,29 @@ impl TimeGate {
                 }
                 Ok(Some(txn.set_grant_anchor(&shortened)?))
             })?)
+        })
+        .await
+    }
+
+    /// [`TxnGate::expired`] in its own transaction (the scheduler pass, ADR-0006
+    /// §13.9 item 1).
+    pub(crate) async fn expired(&self, grant: &GrantId, now: &SafeNow) -> Result<bool, OpError> {
+        let grant = grant.clone();
+        let now = now.clone();
+        self.blocking(move |p| {
+            Ok(p.store
+                .transaction(|txn| p.gate.expired(txn, &grant, &now))?)
+        })
+        .await
+    }
+
+    /// [`TxnGate::budget_exhausted`] in its own transaction (the scheduler pass
+    /// while time is uncertain, ADR-0006 §13.9 item 1).
+    pub(crate) async fn budget_exhausted(&self, grant: &GrantId) -> Result<bool, OpError> {
+        let grant = grant.clone();
+        self.blocking(move |p| {
+            Ok(p.store
+                .transaction(|txn| p.gate.budget_exhausted(txn, &grant))?)
         })
         .await
     }

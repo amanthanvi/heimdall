@@ -187,8 +187,8 @@ const REQUIRED_TABLES: &[&str] = &[
 
 /// Columns added to existing tables that the current schema must contain
 /// (schema version 3: the approval basis persisted with the grant, ADR-0006 §13.7
-/// item 3).
-const REQUIRED_COLUMNS: &[(&str, &str)] = &[("grants", "approval_json")];
+/// item 3; schema version 4: the grant's origin, ADR-0006 §13.9 item 2).
+const REQUIRED_COLUMNS: &[(&str, &str)] = &[("grants", "approval_json"), ("grants", "origin_json")];
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
@@ -1672,8 +1672,9 @@ mod tests {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
-        // 0001 → 0002 → 0003 in one open (0003: the approval basis column).
-        assert_eq!(migrations::SCHEMA_VERSION, 3);
+        // 0001 → 0002 → 0003 → 0004 in one open (0003: the approval basis column;
+        // 0004: the grant origin column).
+        assert_eq!(migrations::SCHEMA_VERSION, 4);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -1967,7 +1968,7 @@ mod tests {
         };
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 3);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         assert!(
             backup_path(&db, ".v2.backup").exists(),
             "v2 file backed up first"
@@ -2013,7 +2014,7 @@ mod tests {
         .unwrap();
         drop(s);
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 3);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         assert!(
             !backup_path(&db, ".v2.backup.1").exists(),
             "no second migration"
@@ -2050,9 +2051,9 @@ mod tests {
         assert_eq!(column, 0, "no half-applied 0003 column");
         assert_eq!(table_count(&c, "grants"), 3);
         drop(c);
-        // A v3 file missing the column is refused as corrupt, never used.
+        // A current-version file missing the column is refused as corrupt, never used.
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 3);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         s.transaction(|tx| {
             assert_eq!(tx.grant_approval(&approved)?, Some(v2_basis(31)));
             Ok(())
@@ -2061,6 +2062,283 @@ mod tests {
         drop(s);
         let c = rusqlite::Connection::open(&db).unwrap();
         c.execute_batch("ALTER TABLE grants DROP COLUMN approval_json;")
+            .unwrap();
+        drop(c);
+        assert!(matches!(
+            Store::open(&db, Arc::new(NoFaults)),
+            Err(StoreError::Corrupt(_))
+        ));
+    }
+
+    // --- migration 0003 -> 0004 on a populated v3 database (ADR-0006 §13.9 item 2) ---
+
+    fn v3_origin_intent(
+        grant: &GrantId,
+        covered: Option<heimdall_domain::operation::CoveredBasis>,
+    ) -> heimdall_domain::operation::RecoveryIntent {
+        let mut intent = v2_intent(grant, None);
+        if let Some(r) = intent.resolved.as_mut() {
+            r.profile_revision = 4;
+            r.policy_revision = Some(heimdall_domain::policy::PolicyRevision(6));
+            r.adapter = Some(heimdall_domain::operation::AdapterIdentity {
+                mechanism: "fake_agent".into(),
+                instance: "fixture-1".into(),
+            });
+            r.covered = covered;
+        }
+        intent
+    }
+
+    fn v3_binding(b: u8, grant: &GrantId, uid: u32) -> heimdall_domain::binding::BindingRecord {
+        use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+        heimdall_domain::binding::BindingRecord {
+            id: heimdall_contract::ids::BindingId::from_random_bytes([b; 16]),
+            environment: EnvironmentId::from_random_bytes([7; 16]),
+            grant: grant.clone(),
+            work_id: heimdall_contract::ids::WorkId::parse(&format!("work-{b}")).unwrap(),
+            owner: CallerContext {
+                principal: PrincipalRef::UnixUser { uid },
+                role: ClientRole::LimitedConsumer,
+            },
+            profile: heimdall_contract::ids::ProfileId::parse("ops").unwrap(),
+            profile_revision: 9,
+            scope: v1_grant().scope,
+            mechanism: "fake_agent".into(),
+            parent: None,
+            created_at: ts("2026-10-01T00:00:00Z"),
+            released_at: None,
+            state: heimdall_domain::binding::BindingState::Active,
+        }
+    }
+
+    /// A v3 database (migrations 0001–0003 only): a grant pinned by an operation's
+    /// recovery intent (with a covered basis), a standing-policy grant realized only
+    /// by a binding, a delegated child's binding that names the child (never its
+    /// parent), a parent with no record to backfill from, and a malformed intent.
+    /// Returns (pinned, bound, parent, child) grant IDs.
+    fn populated_v3(db: &Path) -> (GrantId, GrantId, GrantId, GrantId) {
+        use heimdall_domain::grant::AuthorizationSource;
+        use heimdall_domain::policy::PolicyRevision;
+        let s = Store::open_with_steps(db, Arc::new(NoFaults), &migrations::MIGRATIONS[..3], false)
+            .unwrap();
+        assert_eq!(s.schema_version().unwrap(), 3);
+        let creator = v1_op(41, OperationState::Succeeded);
+        let malformed_op = v1_op(42, OperationState::Queued);
+        let pinned = v2_grant(
+            51,
+            AuthorizationSource::OwnerDecision {
+                operation_id: creator.0.id.clone(),
+            },
+        );
+        let bound = v2_grant(
+            52,
+            AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(3),
+            },
+        );
+        let parent = v2_grant(
+            53,
+            AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(3),
+            },
+        );
+        let child = GrantSnapshot {
+            parent: Some(parent.id.clone()),
+            ..v2_grant(
+                54,
+                AuthorizationSource::Delegation {
+                    parent: parent.id.clone(),
+                },
+            )
+        };
+        let env = EnvironmentId::from_random_bytes([7; 16]);
+        s.transaction(|tx| {
+            tx.init_self_environment(&env)?;
+            for (op, idem) in [&creator, &malformed_op] {
+                tx.insert_operation(op, idem)?;
+            }
+            for g in [&pinned, &bound, &parent, &child] {
+                tx.insert_grant(g)?;
+            }
+            tx.set_recovery_intent(
+                &creator.0.id,
+                &v3_origin_intent(
+                    &pinned.id,
+                    Some(heimdall_domain::operation::CoveredBasis {
+                        generation: AuthorityGeneration(5),
+                        policy_revision: Some(PolicyRevision(7)),
+                    }),
+                ),
+            )?;
+            tx.insert_binding(&v3_binding(61, &bound.id, 777))?;
+            // The child's binding (with its reference on the parent) names the child.
+            tx.insert_binding(&v3_binding(62, &child.id, 778))?;
+            tx.add_grant_reference(&GrantReference {
+                binding: heimdall_contract::ids::BindingId::from_random_bytes([62; 16]),
+                grant: parent.id.clone(),
+                acquired_at: ts("2026-10-01T00:00:00Z"),
+            })?;
+            Ok(())
+        })
+        .unwrap();
+        s.lock()
+            .execute(
+                "INSERT INTO recovery_intents (operation_id, record_json) VALUES (?1, 'not json')",
+                [malformed_op.0.id.as_str()],
+            )
+            .unwrap();
+        (pinned.id, bound.id, parent.id, child.id)
+    }
+
+    #[test]
+    fn migration_0004_preserves_a_populated_v3_database_and_backfills_the_origin() {
+        use heimdall_domain::grant::GrantOrigin;
+        use heimdall_domain::policy::PolicyRevision;
+        use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        let (pinned, bound, parent, child) = populated_v3(&db);
+        let tables = [
+            "operations",
+            "grants",
+            "grant_references",
+            "bindings",
+            "recovery_intents",
+            "meta",
+        ];
+        let before: Vec<(String, i64)> = {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            tables
+                .iter()
+                .map(|t| ((*t).to_owned(), table_count(&c, t)))
+                .collect()
+        };
+        let grants_before: Vec<GrantSnapshot> = {
+            let s = Store::open_with_steps(
+                &db,
+                Arc::new(NoFaults),
+                &migrations::MIGRATIONS[..3],
+                false,
+            )
+            .unwrap();
+            s.transaction(|tx| {
+                let mut out = Vec::new();
+                for g in [&pinned, &bound, &parent, &child] {
+                    out.push(tx.grant(g)?.unwrap());
+                }
+                Ok(out)
+            })
+            .unwrap()
+        };
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 4);
+        assert!(
+            backup_path(&db, ".v3.backup").exists(),
+            "v3 file backed up first"
+        );
+        {
+            let c = s.lock();
+            for (table, n) in &before {
+                assert_eq!(table_count(&c, table), *n, "{table} rows preserved");
+            }
+        }
+        let owner = CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+        };
+        s.transaction(|tx| {
+            for g in &grants_before {
+                assert_eq!(tx.grant(&g.id)?.as_ref(), Some(g), "grant record unchanged");
+            }
+            let from_intent = GrantOrigin {
+                profile: heimdall_contract::ids::ProfileId::parse("dev").unwrap(),
+                profile_revision: 4,
+                policy_revision: Some(PolicyRevision(6)),
+                caller: owner.clone(),
+                mechanism: "fake_agent".into(),
+                covered: Some(heimdall_domain::operation::CoveredBasis {
+                    generation: AuthorityGeneration(5),
+                    policy_revision: Some(PolicyRevision(7)),
+                }),
+            };
+            assert_eq!(tx.grant_origin(&pinned)?, Some(from_intent.clone()));
+            let from_binding = GrantOrigin {
+                profile: heimdall_contract::ids::ProfileId::parse("ops").unwrap(),
+                profile_revision: 9,
+                policy_revision: Some(PolicyRevision(3)),
+                caller: CallerContext {
+                    principal: PrincipalRef::UnixUser { uid: 777 },
+                    role: ClientRole::LimitedConsumer,
+                },
+                mechanism: "fake_agent".into(),
+                covered: None,
+            };
+            assert_eq!(tx.grant_origin(&bound)?, Some(from_binding));
+            assert_eq!(
+                tx.grant_origin(&parent)?,
+                None,
+                "a child's binding is never the parent's origin"
+            );
+            assert_eq!(
+                tx.grant_origin(&child)?.map(|o| o.policy_revision),
+                Some(None),
+                "a delegated grant's binding gives no standing-policy revision"
+            );
+            // Retention purges the operation; the origin stays with the grant.
+            assert!(tx.purge_operations_before(ts("2026-12-01T00:00:00Z"))? >= 1);
+            assert_eq!(tx.grant_origin(&pinned)?, Some(from_intent));
+            Ok(())
+        })
+        .unwrap();
+        drop(s);
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 4);
+        assert!(
+            !backup_path(&db, ".v3.backup.1").exists(),
+            "no second migration"
+        );
+    }
+
+    #[test]
+    fn failing_0004_step_leaves_the_v3_database_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        let (pinned, ..) = populated_v3(&db);
+        let broken: &'static str =
+            Box::leak(format!("{}\nNOT SQL;", migrations::MIGRATIONS[3].sql).into_boxed_str());
+        let steps: &'static [Migration] = Box::leak(Box::new([
+            migrations::MIGRATIONS[0],
+            migrations::MIGRATIONS[1],
+            migrations::MIGRATIONS[2],
+            Migration {
+                version: 4,
+                name: "grant_origin_broken",
+                sql: broken,
+            },
+        ]));
+        assert!(Store::open_with_steps(&db, Arc::new(NoFaults), steps, true).is_err());
+        let c = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(migrations::user_version(&c).unwrap(), 3);
+        let column: i64 = c
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('grants') WHERE name = 'origin_json'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(column, 0, "no half-applied 0004 column");
+        drop(c);
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 4);
+        s.transaction(|tx| {
+            assert!(tx.grant_origin(&pinned)?.is_some());
+            Ok(())
+        })
+        .unwrap();
+        drop(s);
+        // A v4 file missing the column is refused as corrupt, never used.
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch("ALTER TABLE grants DROP COLUMN origin_json;")
             .unwrap();
         drop(c);
         assert!(matches!(

@@ -4323,3 +4323,137 @@ async fn r138_5_the_last_attached_cancellation_cancels_and_cleans_up_the_grant()
     }
     assert_eq!(w.fake.effect_count(), 1);
 }
+
+// =================================================================================
+// ⟨r2.6⟩ ADR-0006 §13.9 item 4 (M01-rulings-13-9-J1): the §13.8 item 5 ending from
+// `active`. Production hooks and public APIs only; restarts are in-process.
+// =================================================================================
+
+/// Pipeline hook (production `StageHook`): while `probe` is set every drive stops
+/// right before `Probe` (after `Reconcile` confirmed the effect); while `commits`
+/// is set, the first `Commit` passes and every later one is interrupted
+/// (`SERVICE_UNAVAILABLE`, the operation stays running).
+#[derive(Default)]
+struct ActivateOwnerOnly {
+    probe: AtomicBool,
+    commits: AtomicBool,
+    seen: AtomicUsize,
+}
+
+impl StageHook for ActivateOwnerOnly {
+    fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+        if stage == EnsureStage::Probe && self.probe.load(Ordering::SeqCst) {
+            return Err(Code::ServiceUnavailable);
+        }
+        if stage == EnsureStage::Commit
+            && self.commits.load(Ordering::SeqCst)
+            && self.seen.fetch_add(1, Ordering::SeqCst) > 0
+        {
+            return Err(Code::ServiceUnavailable);
+        }
+        Ok(())
+    }
+    fn after(&self, _stage: EnsureStage) -> Result<(), Code> {
+        Ok(())
+    }
+}
+
+/// §13.9 item 4 (§13.8 item 5 from `active`): the creator of a shared owner-decision
+/// grant is cancelled after approval; its continued preparation then activates the
+/// grant (the creator gets no binding), while both attached operations are
+/// interrupted before their own `Commit`. When every attached operation then
+/// cancels, the grant goes `active → released`: release is never revoke (§13.1
+/// item 2), so there is no tombstone, no cascade and no generation move; the
+/// prepared credential is cleaned up through the usual path, and a restart
+/// resurrects nothing.
+#[tokio::test]
+async fn r139_4_an_activated_shared_grant_is_released_when_every_attached_operation_cancels() {
+    let hook = Arc::new(ActivateOwnerOnly::default());
+    let mut w = World::with_hook(hook.clone()).await;
+    let (ops, d, gid) = shared_n(&w, "r139-4", 3).await;
+    hook.probe.store(true, Ordering::SeqCst);
+    decide_as(&w, &d, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.fake.effect_count(),
+        1,
+        "the creator's effect is confirmed"
+    );
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    assert_eq!(
+        cancel_data(&w, &ops[0]).await["may_have_external_effect"],
+        true
+    );
+    // The creator's continued preparation activates the shared grant; the
+    // attached operations stop before their own Commit.
+    hook.probe.store(false, Ordering::SeqCst);
+    hook.commits.store(true, Ordering::SeqCst);
+    for i in 2..=3 {
+        let r = w
+            .ensure(
+                &format!("req-r139-4-{i}"),
+                "work-r139-4",
+                &["h1", "h3"],
+                shared_until(),
+            )
+            .await;
+        assert!(r.is_err(), "attached operation {i} stops before its Commit");
+    }
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Active,
+        "the owner's continued preparation activated the shared grant"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.grant_references(&gid))
+            .unwrap()
+            .is_empty(),
+        "nobody holds a binding on it yet"
+    );
+    for op in &ops[1..] {
+        assert_eq!(
+            op_of(&w, op).state,
+            heimdall_contract::OperationState::Running
+        );
+    }
+    let gen_before = generation(&w);
+    cancel_data(&w, &ops[2]).await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Active,
+        "one attached operation remains"
+    );
+    cancel_data(&w, &ops[1]).await;
+    assert_eq!(w.grant(&gid).state, GrantState::Released);
+    assert!(
+        w.store
+            .transaction(|tx| tx.tombstone(&gid))
+            .unwrap()
+            .is_none(),
+        "release is never revoke"
+    );
+    assert_eq!(
+        generation(&w),
+        gen_before,
+        "no tombstone moved the generation"
+    );
+    assert!(
+        w.gated.revoked(&gid) >= 1,
+        "the prepared credential is cleaned up"
+    );
+    hook.commits.store(false, Ordering::SeqCst);
+    w.restart().await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Released,
+        "nothing resurrects it"
+    );
+    for (i, op) in ops.iter().enumerate() {
+        assert_eq!(
+            op_of(&w, op).state,
+            heimdall_contract::OperationState::Cancelled,
+            "op {i}"
+        );
+    }
+    assert_eq!(w.fake.effect_count(), 1);
+}

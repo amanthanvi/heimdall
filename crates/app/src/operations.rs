@@ -145,7 +145,7 @@ use heimdall_domain::environment::{
     DestinationCapability, EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
 };
 use heimdall_domain::evidence::EnforcementEvidence;
-use heimdall_domain::grant::{AuthorizationSource, GrantSnapshot};
+use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantSnapshot};
 use heimdall_domain::idempotency::{
     HashInput, IdempotencyKey, IdempotencyOutcome, IdempotencyRecord, classify, compute_hash,
     retention_expiry,
@@ -665,10 +665,16 @@ fn ancestry(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Result<V
 }
 
 /// Where a grant's authority comes from: profile (and revision), the policy
-/// revision it was resolved under, the caller it was resolved for and its
-/// mechanism. The store has no grant → operation index (escalated), so this looks
-/// at open/unresolved operations that pin the grant, then at the bindings
-/// realizing it (never at a delegated child's binding that only holds a reference).
+/// revision it rests on, the caller it was resolved for and its mechanism.
+///
+/// ⟨r2.6⟩ ADR-0006 §13.9 item 2: derived from the grant's own persisted record
+/// only: its origin (`Txn::grant_origin`, written when the grant was created), its
+/// source, and the approval basis persisted with it (or the covered basis in its
+/// origin). No consumer binding and no operation record plays a part, so a parent
+/// kept alive only by its delegated child's reference re-validates like any other
+/// grant. Every field is `None` only for a grant whose record truly lacks the data
+/// (it predates schema version 4 with nothing to backfill from): its re-validation
+/// is undetermined (refuse the use, end nothing).
 struct GrantContext {
     profile: Option<ProfileId>,
     profile_revision: Option<u64>,
@@ -678,45 +684,52 @@ struct GrantContext {
 }
 
 fn grant_context(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Result<GrantContext> {
-    let recorded = match &grant.source {
+    let origin = tx.grant_origin(&grant.id)?;
+    // The policy revision the authority rests on: a standing-policy grant's own
+    // source revision; an owner-approved grant's approval basis (it re-bases the
+    // intent, §13.7 item 1), else the covered basis of a request the saved policy
+    // came to cover (§13.7 item 2), else the revision applicable at resolution; a
+    // delegated grant's revision at resolution.
+    let expected_policy_revision = match &grant.source {
         AuthorizationSource::StandingPolicy { revision } => Some(*revision),
-        _ => None,
+        AuthorizationSource::OwnerDecision { .. } => match tx.grant_approval(&grant.id)? {
+            Some(basis) => basis.policy_revision,
+            None => origin.as_ref().and_then(|o| match &o.covered {
+                Some(c) => c.policy_revision,
+                None => o.policy_revision,
+            }),
+        },
+        AuthorizationSource::Delegation { .. } => origin.as_ref().and_then(|o| o.policy_revision),
     };
-    let mut ops = tx.open_operations()?;
-    ops.extend(tx.unresolved_operations()?);
-    for op in ops {
-        if let Some(intent) = tx.recovery_intent(&op.id)?
-            && let Some(resolved) = intent.resolved
-            && resolved.grant.as_ref() == Some(&grant.id)
-        {
-            return Ok(GrantContext {
-                profile: Some(resolved.profile),
-                profile_revision: Some(resolved.profile_revision),
-                expected_policy_revision: resolved.policy_revision.or(recorded),
-                caller: Some(op.key.caller.clone()),
-                mechanism: resolved.adapter.map(|a| a.mechanism),
-            });
-        }
-    }
-    for r in tx.grant_references(&grant.id)? {
-        if let Some(b) = tx.binding(&r.binding)?
-            && b.grant == grant.id
-        {
-            return Ok(GrantContext {
-                profile: Some(b.profile),
-                profile_revision: Some(b.profile_revision),
-                expected_policy_revision: recorded,
-                caller: Some(b.owner),
-                mechanism: Some(b.mechanism),
-            });
-        }
-    }
-    Ok(GrantContext {
-        profile: None,
-        profile_revision: None,
-        expected_policy_revision: recorded,
-        caller: None,
-        mechanism: None,
+    Ok(match origin {
+        Some(o) => GrantContext {
+            profile: Some(o.profile),
+            profile_revision: Some(o.profile_revision),
+            expected_policy_revision,
+            caller: Some(o.caller),
+            mechanism: Some(o.mechanism),
+        },
+        None => GrantContext {
+            profile: None,
+            profile_revision: None,
+            expected_policy_revision,
+            caller: None,
+            mechanism: None,
+        },
+    })
+}
+
+/// ⟨r2.6⟩ ADR-0006 §13.9 item 2: the origin recorded with a grant created for an
+/// operation of `caller` resolved as `r` (`None` without a selected mechanism,
+/// which resolution never pins).
+fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> {
+    Some(GrantOrigin {
+        profile: r.profile.clone(),
+        profile_revision: r.profile_revision,
+        policy_revision: r.policy_revision,
+        caller: caller.clone(),
+        mechanism: r.adapter.as_ref()?.mechanism.clone(),
+        covered: None,
     })
 }
 
@@ -967,12 +980,19 @@ fn resolve_existing(
             "the grant's credential mechanism is no longer configured",
         )));
     };
+    // ⟨r2.6⟩ §13.9 item 2: the environment is the grant's own (its snapshot); a
+    // grant pinned to an environment this runtime does not manage is undetermined.
+    if g.environment != *environment {
+        return Ok(Err(revalidation_failed(
+            "the grant's environment is not managed by this runtime",
+        )));
+    }
     let env_record = tx
-        .environment(environment)?
-        .unwrap_or_else(|| unenrolled(environment));
+        .environment(&g.environment)?
+        .unwrap_or_else(|| unenrolled(&g.environment));
     // Re-validation is for continuing work: the pause does not apply (ADR-0006
     // §13.6 item 1), every applicable cutoff does.
-    let policies = tx.policies_for(&profile_id, environment)?;
+    let policies = tx.policies_for(&profile_id, &g.environment)?;
     let policy = continuing_policy(&policies);
     let destinations: BTreeMap<DestinationId, DestinationCapability> = g
         .scope
@@ -1619,7 +1639,9 @@ fn grant_end(
     let now = safe.wall();
     let ctx = grant_context(tx, g)?;
     let bound = bound_of(tx, env, g, ctx.profile.as_ref())?;
-    if dtime::is_expired(now, bound) || gate.admission(tx, &g.id, safe)? == Admission::Expired {
+    // ⟨r2.6⟩ §13.9 item 1: only trusted evidence ends a grant: the accepted wall
+    // time and the continuous budget, never an unassessed fresh wall reading.
+    if dtime::is_expired(now, bound) || gate.expired(tx, &g.id, safe)? {
         return Ok(Some(GrantEnd::Expired));
     }
     if tx.denied_ancestor(&g.id)?.is_some() {
@@ -2360,6 +2382,8 @@ fn proceed_covered(
     if grant_try(&mut g, GrantEvent::Approved) {
         put_grant(tx, emit, &g, Some(owner))?;
     }
+    // ⟨r2.6⟩ §13.9 item 2: the covered basis is part of the grant's own record.
+    tx.set_grant_covered(&grant.id, &basis)?;
     let mut resumed = Vec::with_capacity(waiters.len());
     for mut op in waiters {
         for d in pending_records_of(tx, &op.id)? {
@@ -2851,6 +2875,10 @@ impl Operations {
                 tracing::warn!(code = %e.code, "restart recovery left an operation unfinished");
             }
         }
+        // ⟨r2.6⟩ ADR-0006 §13.9 item 3: withdrawals interrupted between their
+        // tombstone and their completion complete now (after the open revoke
+        // operations above completed their own).
+        self.complete_interrupted_withdrawals().await;
         Ok(())
     }
 
@@ -3256,6 +3284,11 @@ impl Operations {
                             None => {
                                 grant_to(&mut grant, GrantEvent::ApprovalNeeded)?;
                                 tx.insert_grant(&grant)?;
+                                // ⟨r2.6⟩ §13.9 item 2: the context re-validation
+                                // needs is persisted with the grant.
+                                if let Some(origin) = origin_of(&resolved, &op.key.caller) {
+                                    tx.set_grant_origin(&grant.id, &origin)?;
+                                }
                                 let decision = DecisionRecord {
                                     id: decision_id,
                                     kind: DecisionKind::ApproveAuthority {
@@ -3811,6 +3844,11 @@ impl Operations {
                         };
                         grant_to(&mut g, GrantEvent::Authorized)?;
                         tx.insert_grant(&g)?;
+                        // ⟨r2.6⟩ §13.9 item 2: the context re-validation needs is
+                        // persisted with the grant.
+                        if let Some(origin) = origin_of(&r, &op.key.caller) {
+                            tx.set_grant_origin(&gid, &origin)?;
+                        }
                         if let Some(rr) = intent.resolved.as_mut() {
                             rr.grant = Some(gid.clone());
                         }
@@ -5866,18 +5904,40 @@ impl Operations {
     /// credential-lifecycle event reporting the result as for any revocation
     /// (`local_applied`, `remote_pending`, `latest_possible_credential_expiry`).
     /// Best effort after the tombstone committed: a failure leaves the grants
-    /// `revoking`, which already refuses every use.
+    /// `revoking`, which already refuses every use, and the next scheduler pass or
+    /// the next start completes them ([`Operations::complete_interrupted_withdrawals`],
+    /// ADR-0006 §13.9 item 3).
     async fn complete_withdrawals(&self, ended: Ended) {
         if ended.is_empty() {
             return;
         }
-        let now = self.narrowing_now().await;
         for (root, grants) in ended.withdrawn {
-            let (pending, adapter_expiry) = self.local_denial(&grants, now).await;
-            let done = self
-                .write(move |tx, emit| {
-                    let data =
-                        complete_revocation_in(tx, emit, &grants, &pending, adapter_expiry, None)?;
+            self.complete_withdrawal(root, grants, RevocationCause::AuthorityWithdrawn)
+                .await;
+        }
+    }
+
+    /// Complete one revocation rooted at `root` (`grants`: the root, then the
+    /// descendants its tombstone covers), idempotently: local denial through every
+    /// adapter, `revoking → revoked` for every grant with nothing pending remotely,
+    /// and, for a withdrawal (`AuthorityWithdrawn`), the `authority_withdrawn`
+    /// credential-lifecycle event with the residual, reported **once** per root
+    /// (`Txn::record_withdrawal_report` in the same transaction; ⟨r2.6⟩ ADR-0006
+    /// §13.9 item 3). An explicit revoke reports through its own operation's result,
+    /// so it emits no such event here.
+    async fn complete_withdrawal(
+        &self,
+        root: GrantId,
+        grants: Vec<GrantId>,
+        cause: RevocationCause,
+    ) {
+        let now = self.narrowing_now().await;
+        let (pending, adapter_expiry) = self.local_denial(&grants, now).await;
+        let done = self
+            .write(move |tx, emit| {
+                let data =
+                    complete_revocation_in(tx, emit, &grants, &pending, adapter_expiry, None)?;
+                if cause == RevocationCause::AuthorityWithdrawn && tx.record_withdrawal_report(&root)? {
                     emit.event(
                         tx,
                         EventType::CredentialLifecycle,
@@ -5892,12 +5952,78 @@ impl Operations {
                             "remote_pending": data.remote_pending,
                             "latest_possible_credential_expiry": data.latest_possible_credential_expiry,
                         }),
-                    )
-                })
-                .await;
-            if let Err(e) = done {
-                tracing::warn!(code = %e.code, "a withdrawn grant was left revoking");
+                    )?;
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(e) = done {
+            tracing::warn!(code = %e.code, "a withdrawn grant was left revoking");
+        }
+    }
+
+    /// ⟨r2.6⟩ ADR-0006 §13.9 item 3: at startup and in every scheduler pass,
+    /// idempotently complete every grant left in `revoking` (a crash or a failure
+    /// between a tombstone and its completion): local denial, the residual, the
+    /// move to `revoked` once nothing is pending remotely, and, for a withdrawal,
+    /// its one `credential_lifecycle` report ([`Operations::complete_withdrawal`]).
+    /// Grants are grouped by the tombstoned root that covers them (the grant itself
+    /// or its nearest tombstoned ancestor). An explicit revoke whose operation is
+    /// still open is left to that operation (restart recovery drives it). A grant in
+    /// `revoking` without any tombstone on its chain is left as it is (it refuses
+    /// every use). Narrowing only, so it runs whatever the time status.
+    async fn complete_interrupted_withdrawals(&self) {
+        let found = self
+            .write(move |tx, _| {
+                let revoking: Vec<GrantSnapshot> = tx
+                    .grants_due(Timestamp::MAX)?
+                    .into_iter()
+                    .filter(|g| g.state == GrantState::Revoking)
+                    .collect();
+                let mut roots: BTreeMap<GrantId, (Vec<GrantId>, RevocationCause)> = BTreeMap::new();
+                if revoking.is_empty() {
+                    return Ok(roots);
+                }
+                let mut driven: BTreeSet<GrantId> = BTreeSet::new();
+                for op in tx.open_operations()? {
+                    if op.kind != OperationKind::Revoke {
+                        continue;
+                    }
+                    if let Some(intent) = tx.recovery_intent(&op.id)?
+                        && let Ok(Request::Revoke(r)) = serde_json::from_value(intent.request)
+                    {
+                        driven.insert(r.grant_id);
+                    }
+                }
+                for g in revoking {
+                    let Some(root) = tx.denied_ancestor(&g.id)? else {
+                        continue;
+                    };
+                    if roots.contains_key(&root) {
+                        continue;
+                    }
+                    let Some(t) = tx.tombstone(&root)? else {
+                        continue;
+                    };
+                    if t.cause == RevocationCause::Revoke && driven.contains(&root) {
+                        continue;
+                    }
+                    let mut all = vec![root.clone()];
+                    all.extend(t.cascade.iter().filter(|c| **c != root).cloned());
+                    roots.insert(root, (all, t.cause));
+                }
+                Ok(roots)
+            })
+            .await;
+        let roots = match found {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "interrupted withdrawals could not be read");
+                return;
             }
+        };
+        for (root, (grants, cause)) in roots {
+            self.complete_withdrawal(root, grants, cause).await;
         }
     }
 
@@ -6358,13 +6484,11 @@ impl Operations {
     /// if nothing uses it (`expired`, or `revoking`/`revoked` with an
     /// `authority_withdrawn` tombstone).
     pub async fn tick(&self) -> Result<(), crate::OpError> {
-        let (safe, wall) = match self.inner.timegate.check().await {
-            Ok(s) => {
-                let w = s.wall();
-                (Some(s), w)
-            }
-            // While uncertain only the wall branch applies (it can only deny).
-            Err(e) if e.code == Code::TimeUncertain => (None, self.inner.config.clock.wall()),
+        let safe = match self.inner.timegate.check().await {
+            Ok(s) => Some(s),
+            // ⟨r2.6⟩ ADR-0006 §13.9 item 1: while uncertain, only the continuous
+            // budget can end a grant (below); the wall clock ends nothing.
+            Err(e) if e.code == Code::TimeUncertain => None,
             Err(e) => return Err(e),
         };
         let env = self.inner.config.environment.clone();
@@ -6390,25 +6514,38 @@ impl Operations {
             })
             .await?;
         for (g, bound, anchor) in candidates {
-            let mut expired = dtime::is_expired(wall, bound);
-            if !expired
-                && let Some(safe) = &safe
-                && g.state.permits_use()
-            {
-                // First validation in this boot anchors; a later earlier bound
-                // (cutoff) shortens; nothing lengthens.
-                let fresh_boot = anchor
-                    .as_ref()
-                    .is_none_or(|a| a.anchor.boot_id != safe.anchor.boot_id);
-                if fresh_boot {
-                    self.inner.timegate.anchor_grant(&g.id, safe, bound).await?;
-                } else if anchor.as_ref().is_some_and(|a| a.bound > bound) {
-                    self.inner.timegate.shorten_grant(&g.id, bound).await?;
+            let expired = match &safe {
+                Some(safe) => {
+                    let mut expired = dtime::is_expired(safe.wall(), bound);
+                    if !expired && g.state.permits_use() {
+                        // First validation in this boot anchors; a later earlier
+                        // bound (cutoff) shortens; nothing lengthens.
+                        let fresh_boot = anchor
+                            .as_ref()
+                            .is_none_or(|a| a.anchor.boot_id != safe.anchor.boot_id);
+                        if fresh_boot {
+                            self.inner.timegate.anchor_grant(&g.id, safe, bound).await?;
+                        } else if anchor.as_ref().is_some_and(|a| a.bound > bound) {
+                            self.inner.timegate.shorten_grant(&g.id, bound).await?;
+                        }
+                        // Trusted evidence only (§13.9 item 1): the accepted wall
+                        // time and the continuous budget.
+                        expired = self.inner.timegate.expired(&g.id, safe).await?;
+                    }
+                    expired
                 }
-                expired = self.inner.timegate.admission(&g.id, safe).await? == Admission::Expired;
-            }
+                // §13.9 item 1: a wall bound that appears passed on an uncertain or
+                // forward-jumped reading ends nothing (use is refused with
+                // `TIME_UNCERTAIN` until time is safe, and the grant is judged
+                // then); a continuous budget that ran out (a real sleep across the
+                // deadline included) still expires it.
+                None => anchor.is_some() && self.inner.timegate.budget_exhausted(&g.id).await?,
+            };
             if expired {
-                self.expire_grant(&g.id, wall).await?;
+                let at = safe
+                    .as_ref()
+                    .map_or_else(|| self.inner.config.clock.wall(), SafeNow::wall);
+                self.expire_grant(&g.id, at).await?;
             }
         }
         // ⟨r2.5⟩ ADR-0006 §13.8 item 4, in the scheduler pass: every active or
@@ -6439,6 +6576,9 @@ impl Operations {
                 .await?;
             self.complete_withdrawals(ended).await;
         }
+        // ⟨r2.6⟩ ADR-0006 §13.9 item 3: every pass completes any grant left in
+        // `revoking` (idempotent; narrowing, so whatever the time status).
+        self.complete_interrupted_withdrawals().await;
         if let Some(safe) = safe {
             let now = safe.wall();
             let env = self.inner.config.environment.clone();

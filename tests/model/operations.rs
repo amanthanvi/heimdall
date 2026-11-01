@@ -4359,31 +4359,73 @@ async fn r138_4_a_pause_or_uncertain_time_never_ends_a_grant() {
     r138_assert_withdrawn(&w, &g.grant_id, None);
 }
 
-/// Re-validation that cannot be determined is no withdrawal: a delegated parent
-/// whose consumer released its binding lives on through its child's reference
-/// (ADR-0006 §13.5 ruling 1) and has no consumer context of its own; an unrelated
-/// generation move and a scheduler pass leave both `active` (nothing was
-/// withdrawn, so nothing is ended or tombstoned).
+/// Re-validation that cannot be determined is no withdrawal. ⟨r2.6⟩ ADR-0006
+/// §13.9 item 2 leaves "undetermined" only for a record that truly lacks the data:
+/// here a grant recorded without its origin (as a grant that predates schema
+/// version 4 with nothing to backfill from is). After an unrelated generation move
+/// its use is refused, and neither that refusal nor a scheduler pass ends or
+/// tombstones it; a healthy grant beside it re-validates and stays usable. (A
+/// parent kept alive only by its delegated child re-validates normally:
+/// `r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move`.)
 #[tokio::test]
 async fn r138_4_an_undetermined_revalidation_ends_nothing() {
     let w = World::new().await;
-    let (parent, child) = r138_parent_and_child(&w, "r138-4l").await;
-    ok(w.ops
-        .release(
-            &unattended(501),
-            ReleaseRequest {
-                binding_id: parent.binding_id.clone(),
-            },
-        )
-        .await);
-    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
-    // An unrelated policy (another profile) moves the global generation.
+    let live = r136_ready(&w, "r138-4l", "r138-4l-work", "h1", "1h").await;
+    let bare = heimdall_domain::grant::GrantSnapshot {
+        id: heimdall_contract::ids::GrantId::from_random_bytes([0x5c; 16]),
+        ..w.grant(&live.grant_id)
+    };
+    w.store.transaction(|tx| tx.insert_grant(&bare)).unwrap();
+    assert_eq!(
+        w.store.transaction(|tx| tx.grant_origin(&bare.id)).unwrap(),
+        None,
+        "a record without its origin"
+    );
+    r139_unrelated_policy(&w, 1);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&bare.id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&refused.message);
+    assert_eq!(refused.code, Code::CredentialExpired, "the use is refused");
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&bare.id).state, GrantState::Active);
+    assert!(r138_tombstone(&w, &bare.id).is_none());
+    assert_eq!(w.grant(&live.grant_id).state, GrantState::Active);
+    let bound = ok(r136_bind(&w, &live.binding_id, "r138-4l-b1").await);
+    assert_eq!(bound.code, Code::AccessReady);
+}
+
+// =================================================================================
+// ⟨r2.6⟩ ADR-0006 §13.9 rulings (M01-rulings-13-9-J1): item 1 (uncertain time and
+// expiry), item 2 (re-validation context from the grant's own record) and item 3
+// (interrupted withdrawals complete). Each case was first run against the base
+// commit 01747a6b and failed there (red); it passes with the change. Only
+// production hooks and public APIs are used; restarts are in-process.
+// =================================================================================
+
+/// The `authority_withdrawn` credential-lifecycle events reported for `grant`.
+fn r139_withdrawals(w: &World, grant: &heimdall_contract::ids::GrantId) -> Vec<serde_json::Value> {
+    w.events()
+        .into_iter()
+        .filter(|e| e.event.event_type == EventType::CredentialLifecycle)
+        .map(|e| e.event.payload)
+        .filter(|p| {
+            p["grant_id"] == serde_json::json!(grant) && p["event"] == "authority_withdrawn"
+        })
+        .collect()
+}
+
+/// A policy for another profile: moves the global authority generation without
+/// touching anything the `dev` grants rest on.
+fn r139_unrelated_policy(w: &World, revision: u64) {
     w.store
         .transaction(|tx| {
             tx.upsert_policy(
                 &StandingPolicy {
                     id: PolicyId::parse("pol-other").unwrap(),
-                    revision: PolicyRevision(1),
+                    revision: PolicyRevision(revision),
                     profile: ProfileId::parse("other").unwrap(),
                     workspace: None,
                     scope: Scope {
@@ -4401,9 +4443,506 @@ async fn r138_4_an_undetermined_revalidation_ends_nothing() {
             .map(|_| ())
         })
         .unwrap();
+}
+
+/// Red. §13.9 item 1: a wall clock that jumps forward past the grant's bound while
+/// the continuous clock says only 10 minutes passed is untrusted (`TIME_UNCERTAIN`,
+/// skew). The scheduler pass ends nothing on that reading, a use answers
+/// `TIME_UNCERTAIN`, and the grant stays `active` with no tombstone. Once the wall
+/// clock agrees again, time is safe and the grant is judged: its continuous budget
+/// is not spent, so it binds.
+#[tokio::test]
+async fn r139_1_a_forward_wall_jump_under_uncertainty_leaves_the_grant_non_terminal() {
+    let w = World::new().await;
+    let g = r136_ready(&w, "r139-1a", "r139-1a-work", "h1", "1h").await;
+    let sup = r138_supervisor(&w);
+    w.clock.advance(10 * MINUTE);
+    w.clock.set_wall(shift(w.clock.wall(), 2 * 3600));
+    sup.scheduler_pass().await.unwrap();
+    w.ops.tick().await.unwrap();
+    assert_eq!(
+        w.grant(&g.grant_id).state,
+        GrantState::Active,
+        "a wall bound that appears passed only on an uncertain reading ends nothing"
+    );
+    let e = err(r136_bind(&w, &g.binding_id, "r139-1a-b1").await);
+    assert_eq!(e.code, Code::TimeUncertain);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Active);
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+    // The wall clock is back where the continuous clock predicts it: safe again.
+    w.clock.set_wall(shift(w.clock.wall(), -2 * 3600));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Active);
+    let bound = ok(r136_bind(&w, &g.binding_id, "r139-1a-b2").await);
+    assert_eq!(bound.code, Code::AccessReady);
+    w.events();
+}
+
+/// Red. §13.9 item 1: the boot-scoped continuous clock counts sleep and is trusted
+/// within a boot, so a budget that runs out while time is uncertain (here the wall
+/// clock lags 30 minutes behind the continuous prediction) still expires the grant
+/// in the scheduler pass: `expired`, no tombstone, and later use is refused.
+#[tokio::test]
+async fn r139_1_a_continuous_budget_running_out_under_uncertainty_expires_the_grant() {
+    let w = World::new().await;
+    let g = r136_ready(&w, "r139-1b", "r139-1b-work", "h1", "1h").await;
+    w.clock.advance(61 * MINUTE);
+    w.clock.set_wall(shift(w.clock.wall(), -30 * 60));
+    assert!(
+        dtime_uncertain(&w).await,
+        "the lagging wall clock makes time uncertain"
+    );
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(
+        w.grant(&g.grant_id).state,
+        GrantState::Expired,
+        "the continuous budget ran out"
+    );
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+    let e = err(r136_bind(&w, &g.binding_id, "r139-1b-b1").await);
+    assert!(
+        matches!(e.code, Code::CredentialExpired | Code::TimeUncertain),
+        "no use of an expired grant: {}",
+        e.code
+    );
+    w.events();
+}
+
+/// Whether the shared gate currently assesses time as uncertain.
+async fn dtime_uncertain(w: &World) -> bool {
+    matches!(
+        w.ops.timegate().peek().await.unwrap(),
+        heimdall_domain::time::TimeStatus::Uncertain(_)
+    )
+}
+
+/// A clock over the virtual clock whose wall reading, while armed, is `jump`
+/// seconds ahead on every reading after the first: the gate assesses the first
+/// reading of a pass; a later one in the same pass is unassessed.
+struct JumpAfterFirst {
+    inner: Arc<VirtualClock>,
+    armed: AtomicBool,
+    reads: AtomicUsize,
+    jump: i64,
+}
+
+impl Clock for JumpAfterFirst {
+    fn wall(&self) -> Timestamp {
+        let w = self.inner.wall();
+        if self.armed.load(Ordering::SeqCst) && self.reads.fetch_add(1, Ordering::SeqCst) > 0 {
+            shift(w, self.jump)
+        } else {
+            w
+        }
+    }
+    fn continuous(&self) -> Duration {
+        self.inner.continuous()
+    }
+    fn boot_id(&self) -> heimdall_domain::time::BootId {
+        self.inner.boot_id()
+    }
+}
+
+/// Red. §13.9 item 1 on safe time: the scheduler pass judges expiry on the
+/// observation the gate accepted and on the continuous budget only. A wall reading
+/// taken after that acceptance in the same pass (here 2 h ahead, past the grant's
+/// 1 h bound, with 10 minutes on the continuous clock) is unassessed and ends
+/// nothing; the grant stays usable.
+#[tokio::test]
+async fn r139_1_an_unassessed_wall_reading_after_the_gate_accepted_time_ends_nothing() {
+    let mut w = World::new().await;
+    let clock = Arc::new(JumpAfterFirst {
+        inner: w.clock.clone(),
+        armed: AtomicBool::new(false),
+        reads: AtomicUsize::new(0),
+        jump: 2 * 3600,
+    });
+    w.ops = Operations::start(OperationsConfig {
+        clock: clock.clone(),
+        ..w.config()
+    })
+    .await
+    .unwrap();
+    let g = r136_ready(&w, "r139-1c", "r139-1c-work", "h1", "1h").await;
+    w.clock.advance(10 * MINUTE);
+    clock.armed.store(true, Ordering::SeqCst);
+    w.ops.tick().await.unwrap();
+    clock.armed.store(false, Ordering::SeqCst);
+    assert!(
+        clock.reads.load(Ordering::SeqCst) >= 2,
+        "the pass read the wall clock again after the gate"
+    );
+    assert_eq!(
+        w.grant(&g.grant_id).state,
+        GrantState::Active,
+        "an unassessed wall reading ends nothing"
+    );
+    let bound = ok(r136_bind(&w, &g.binding_id, "r139-1c-b1").await);
+    assert_eq!(bound.code, Code::AccessReady);
+}
+
+/// Red. §13.9 item 1 at use: a use that finds the grant's authority withdrawn
+/// classifies its end on trusted evidence only. A wall reading taken after the gate
+/// accepted the use's observation (2 h ahead, past the 1 h bound; the continuous
+/// clock says 10 minutes) does not turn the withdrawal into an expiry: the grant is
+/// `revoked` with an `authority_withdrawn` tombstone and report, never `expired`.
+#[tokio::test]
+async fn r139_1_an_unassessed_wall_reading_never_turns_a_withdrawal_into_an_expiry() {
+    let mut w = World::new().await;
+    let clock = Arc::new(JumpAfterFirst {
+        inner: w.clock.clone(),
+        armed: AtomicBool::new(false),
+        reads: AtomicUsize::new(0),
+        jump: 2 * 3600,
+    });
+    w.ops = Operations::start(OperationsConfig {
+        clock: clock.clone(),
+        ..w.config()
+    })
+    .await
+    .unwrap();
+    let g = r136_ready(&w, "r139-1d", "r139-1d-work", "h1", "1h").await;
+    w.clock.advance(10 * MINUTE);
+    r138_set_automatic_activation(&w, false);
+    clock.armed.store(true, Ordering::SeqCst);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 1800)))
+        .await
+        .unwrap_err();
+    clock.armed.store(false, Ordering::SeqCst);
+    assert_no_canary(&refused.message);
+    assert_eq!(refused.code, Code::CredentialExpired);
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+}
+
+/// Red. §13.9 item 2: a parent kept alive only by its delegated child's reference
+/// (its consumer released its binding) re-validates from its own persisted record
+/// after an unrelated generation move, like any other grant: the child's issuance
+/// reserves and publishes, the child's binding binds, the parent's re-validation is
+/// recorded at the current generation, and the scheduler pass ends nothing.
+#[tokio::test]
+async fn r139_2_a_parent_kept_alive_by_its_child_revalidates_after_an_unrelated_generation_move() {
+    let w = World::new().await;
+    let (parent, child) = r138_parent_and_child(&w, "r139-2").await;
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: parent.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
+    r139_unrelated_policy(&w, 1);
+    let reserved = w
+        .ops
+        .reserve_issuance(u10_issuance(&child.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_or_else(|e| panic!("child issuance refused: {} {}", e.code, e.message));
+    let published = issue(&w, &reserved.id, &u10_issuance(&child.grant_id, t0()).facts)
+        .await
+        .unwrap_or_else(|e| panic!("child publish refused: {} {}", e.code, e.message));
+    assert_eq!(
+        published.state,
+        heimdall_domain::issuance::IssuanceState::Published
+    );
+    let current = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.grant_validation(&parent.grant_id))
+            .unwrap(),
+        Some(current),
+        "the parent re-validated at the current generation"
+    );
+    // Another unrelated move: the child's binding binds (its chain re-validates).
+    r139_unrelated_policy(&w, 2);
+    let bound = ok(r136_bind(&w, &child.binding_id, "r139-2-b1").await);
+    assert_eq!(bound.code, Code::AccessReady);
     r138_supervisor(&w).scheduler_pass().await.unwrap();
     assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
     assert_eq!(w.grant(&child.grant_id).state, GrantState::Active);
     assert!(r138_tombstone(&w, &parent.grant_id).is_none());
     assert!(r138_tombstone(&w, &child.grant_id).is_none());
+    w.events();
+}
+
+/// Red. §13.9 item 3: a crash between the withdrawal tombstone and its completion.
+/// A use detects withdrawn authority (the environment no longer permits automatic
+/// activation); its transaction writes the `authority_withdrawn` tombstone and
+/// moves the grant to `revoking`, and the store fails right after that commit, so
+/// the completion never runs. The in-process restart completes it: local denial,
+/// `revoked`, exactly one `authority_withdrawn` event whose residual counts the
+/// certificate published before the withdrawal. Further passes and restarts add
+/// nothing.
+#[tokio::test]
+async fn r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart() {
+    let faults = Armed::new(FaultPoint::AfterCommit);
+    let mut w = World::with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let g = r136_ready(&w, "r139-3a", "r139-3a-work", "h1", "1h").await;
+    let reserved = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 1800)))
+        .await
+        .unwrap();
+    issue(&w, &reserved.id, &u10_issuance(&g.grant_id, t0()).facts)
+        .await
+        .unwrap();
+    r138_set_automatic_activation(&w, false);
+    faults.arm();
+    let crashed = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&crashed.message);
+    assert_eq!(
+        faults.fired.load(Ordering::SeqCst),
+        1,
+        "the crash point fired"
+    );
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    assert_eq!(
+        r138_tombstone(&w, &g.grant_id).expect("tombstone")["cause"],
+        "authority_withdrawn"
+    );
+    assert!(
+        r139_withdrawals(&w, &g.grant_id).is_empty(),
+        "not completed yet"
+    );
+    w.restart().await;
+    r138_assert_withdrawn(&w, &g.grant_id, Some(shift(t0(), 1800)));
+    assert_eq!(
+        r139_withdrawals(&w, &g.grant_id).len(),
+        1,
+        "exactly one event"
+    );
+    w.ops.tick().await.unwrap();
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    w.restart().await;
+    assert_eq!(
+        r139_withdrawals(&w, &g.grant_id).len(),
+        1,
+        "completion is idempotent"
+    );
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
+}
+
+/// Red. §13.9 item 3 in the scheduler pass (no restart): the same interrupted
+/// withdrawal is completed by the next pass, once.
+#[tokio::test]
+async fn r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once() {
+    let faults = Armed::new(FaultPoint::AfterCommit);
+    let w = World::with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let g = r136_ready(&w, "r139-3b", "r139-3b-work", "h1", "1h").await;
+    r138_set_policy_hosts(&w, &["h2"]);
+    // The use is an issuance reservation: one transaction detects the withdrawal,
+    // writes the tombstone and moves the grant to `revoking`; the crash point is
+    // right after its commit.
+    faults.arm();
+    let crashed = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&crashed.message);
+    assert_eq!(
+        faults.fired.load(Ordering::SeqCst),
+        1,
+        "the crash point fired"
+    );
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    assert!(r139_withdrawals(&w, &g.grant_id).is_empty());
+    let sup = r138_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(r139_withdrawals(&w, &g.grant_id).len(), 1);
+}
+
+/// Delegates to the fake, except that while `pending` is set `revoke` leaves a
+/// remote effect pending (the grant stays `revoking`).
+struct TogglePending {
+    inner: Arc<FakeCredentialAdapter>,
+    pending: AtomicBool,
+}
+
+impl CredentialAdapter for TogglePending {
+    fn descriptor(&self) -> &AdapterDescriptor {
+        self.inner.descriptor()
+    }
+    fn prepare<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.prepare(req)
+    }
+    fn renew<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.renew(req)
+    }
+    fn reconcile<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        effect_token: &'life2 str,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::ReconcileOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.reconcile(grant, effect_token)
+    }
+    fn revoke<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        now: Timestamp,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::RevokeOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        let pending = self.pending.load(Ordering::SeqCst);
+        Box::pin(async move {
+            let mut out = self.inner.revoke(grant, now).await?;
+            if pending {
+                out.remote_pending = vec![DestinationId::parse("h1").unwrap()];
+            }
+            Ok(out)
+        })
+    }
+}
+
+/// Red. §13.9 item 3: a withdrawal whose remote effect is still pending is
+/// reported once (`remote_pending` names the grant) and the grant stays
+/// `revoking`; once nothing is pending remotely, the next scheduler pass moves it
+/// to `revoked` without a second report.
+#[tokio::test]
+async fn r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report() {
+    let mut w = World::new().await;
+    let adapter = Arc::new(TogglePending {
+        inner: w.fake.clone(),
+        pending: AtomicBool::new(true),
+    });
+    w.ops = Operations::start(OperationsConfig {
+        adapters: vec![adapter.clone() as Arc<dyn CredentialAdapter>],
+        ..w.config()
+    })
+    .await
+    .unwrap();
+    let g = r136_ready(&w, "r139-3c", "r139-3c-work", "h1", "1h").await;
+    r138_set_automatic_activation(&w, false);
+    let e = err(r136_bind(&w, &g.binding_id, "r139-3c-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    let reported = r139_withdrawals(&w, &g.grant_id);
+    assert_eq!(reported.len(), 1);
+    assert_eq!(
+        reported[0]["remote_pending"],
+        serde_json::json!([g.grant_id.clone()])
+    );
+    let sup = r138_supervisor(&w);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        w.grant(&g.grant_id).state,
+        GrantState::Revoking,
+        "still pending remotely"
+    );
+    adapter.pending.store(false, Ordering::SeqCst);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
+    assert_eq!(r139_withdrawals(&w, &g.grant_id).len(), 1, "reported once");
+}
+
+/// ⟨r2.6⟩ ADR-0006 §13.9 item 1 as a property (proptest, 256 cases, fixed seed
+/// unless `PROPTEST_RNG_SEED` is set; failures persist to
+/// `tests/model/operations.proptest-regressions`).
+mod r139_props {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::test_runner::{FileFailurePersistence, RngSeed};
+
+    fn config(seed: u64) -> ProptestConfig {
+        let mut c = ProptestConfig {
+            cases: 256,
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
+            ..ProptestConfig::default()
+        };
+        if matches!(c.rng_seed, RngSeed::Random) {
+            c.rng_seed = RngSeed::Fixed(seed);
+        }
+        c
+    }
+
+    fn block<F: std::future::Future<Output = Result<(), TestCaseError>>>(
+        f: F,
+    ) -> Result<(), TestCaseError> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    proptest! {
+        #![proptest_config(config(0x0139_0001))]
+
+        /// While time is uncertain (the wall clock disagrees with the continuous
+        /// prediction by more than the skew tolerance, ahead or behind), the
+        /// scheduler pass ends a 1 h grant exactly when its persisted continuous
+        /// budget has run out, whether or not the wall reading is past the bound;
+        /// an expiry writes no tombstone.
+        #[test]
+        fn r139_1_under_uncertain_time_only_the_continuous_budget_ends_a_grant(
+            elapsed_s in 0u64..7200,
+            skew_s in prop_oneof![-5400i64..-61, 61i64..10_800],
+        ) {
+            block(async move {
+                let w = World::new().await;
+                let g = r136_ready(&w, "r139-p", "r139-p-work", "h1", "1h").await;
+                let anchor = w
+                    .store
+                    .transaction(|tx| tx.grant_anchor(&g.grant_id))
+                    .unwrap()
+                    .unwrap();
+                w.clock.advance(Duration::from_secs(elapsed_s));
+                w.clock.set_wall(shift(w.clock.wall(), skew_s));
+                prop_assert!(dtime_uncertain(&w).await, "time is uncertain");
+                r138_supervisor(&w).scheduler_pass().await.unwrap();
+                let exhausted = w.clock.continuous() >= anchor.budget_end;
+                let expected = if exhausted {
+                    GrantState::Expired
+                } else {
+                    GrantState::Active
+                };
+                prop_assert_eq!(w.grant(&g.grant_id).state, expected);
+                prop_assert!(r138_tombstone(&w, &g.grant_id).is_none());
+                Ok(())
+            })?;
+        }
+    }
 }

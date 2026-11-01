@@ -614,6 +614,20 @@ pub fn admission(grant: &GrantAnchor, now: &TimeAnchor) -> Admission {
     Admission::Open
 }
 
+/// ⟨r2.6⟩ ADR-0006 §13.9 item 1: whether the grant's boot-scoped continuous budget
+/// has run out at `now`, looking at the continuous branch of [`admission`] only.
+///
+/// This is the only expiry evidence that holds while time is uncertain: the
+/// continuous clock counts sleep and is trusted within a boot, so a real sleep
+/// across a deadline still ends the grant, whereas a wall bound that appears
+/// passed only on an uncertain or forward-jumped wall reading ends nothing. An
+/// anchor from another boot cannot be evaluated here and is never exhausted (its
+/// grant is judged once time is safe and it is re-anchored).
+#[must_use]
+pub fn budget_exhausted(grant: &GrantAnchor, now: &TimeAnchor) -> bool {
+    grant.anchor.boot_id == now.boot_id && now.continuous >= grant.budget_end
+}
+
 fn signed(d: Duration) -> jiff::SignedDuration {
     jiff::SignedDuration::try_from(d).unwrap_or(jiff::SignedDuration::MAX)
 }
@@ -641,6 +655,42 @@ mod tests {
     fn expiry_is_inclusive_at_the_instant() {
         let t: Timestamp = "2026-10-02T06:00:00Z".parse().unwrap();
         assert!(is_expired(t, t));
+    }
+
+    /// ⟨r2.6⟩ ADR-0006 §13.9 item 1: only the continuous branch counts; a wall
+    /// reading past the bound (forward jump) is not exhaustion, another boot never is.
+    #[test]
+    fn budget_exhaustion_looks_at_the_continuous_clock_of_the_same_boot_only() {
+        let wall: Timestamp = "2026-10-02T06:00:00Z".parse().unwrap();
+        let start = TimeAnchor {
+            boot_id: BootId("boot-1".into()),
+            continuous: Duration::from_secs(100),
+            wall,
+        };
+        let g = anchor_grant(
+            GrantId::from_random_bytes([1; 16]),
+            start.clone(),
+            wall.checked_add(jiff::SignedDuration::from_secs(3600))
+                .unwrap(),
+        );
+        let at = |continuous: u64, wall_shift: i64, boot: &str| TimeAnchor {
+            boot_id: BootId(boot.into()),
+            continuous: Duration::from_secs(continuous),
+            wall: wall
+                .checked_add(jiff::SignedDuration::from_secs(wall_shift))
+                .unwrap(),
+        };
+        assert!(!budget_exhausted(&g, &at(700, 7200, "boot-1")), "wall jump");
+        assert_eq!(admission(&g, &at(700, 7200, "boot-1")), Admission::Expired);
+        assert!(!budget_exhausted(&g, &at(3699, 0, "boot-1")));
+        assert!(
+            budget_exhausted(&g, &at(3700, -1800, "boot-1")),
+            "lagging wall"
+        );
+        assert!(
+            !budget_exhausted(&g, &at(99_999, 0, "boot-2")),
+            "another boot"
+        );
     }
 
     const H12: Duration = Duration::from_secs(12 * 3600);

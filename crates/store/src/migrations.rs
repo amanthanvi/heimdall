@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -43,6 +43,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 3,
         name: "grant_approval",
         sql: include_str!("../migrations/0003_grant_approval.sql"),
+    },
+    Migration {
+        version: 4,
+        name: "grant_origin",
+        sql: include_str!("../migrations/0004_grant_origin.sql"),
     },
 ];
 

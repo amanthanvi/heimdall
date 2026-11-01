@@ -26,12 +26,14 @@ use heimdall_contract::{GrantState, OperationState, Timestamp};
 use heimdall_domain::binding::{BindingRecord, BindingState, ReleaseOutcome};
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionRefusal, DecisionState};
 use heimdall_domain::environment::EnvironmentRecord;
-use heimdall_domain::grant::{AuthorizationSource, GrantReference};
+use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantReference};
 use heimdall_domain::idempotency::{ExpiredKeyMarker, IdempotencyKey, KeyHash};
 use heimdall_domain::issuance::{
     CredentialInstance, CredentialState, IssuanceEntry, IssuanceRefusal, IssuanceState,
 };
-use heimdall_domain::operation::{ApprovalBasis, OperationRecord, RecoveryIntent, StageReceipt};
+use heimdall_domain::operation::{
+    ApprovalBasis, CoveredBasis, OperationRecord, RecoveryIntent, StageReceipt,
+};
 use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::{ProfileDefinition, ProfileSnapshot};
@@ -48,6 +50,9 @@ const META_RUNTIME_ANCHOR: &str = "runtime_anchor";
 const META_TIME_CONFIRMATION: &str = "time_confirmation";
 /// Per-grant last re-validated generation: `grant_validation:<grant id>`.
 const META_GRANT_VALIDATION_PREFIX: &str = "grant_validation:";
+/// ⟨r2.6⟩ A withdrawal whose completion was reported (ADR-0006 §13.9 item 3):
+/// `withdrawal_reported:<tombstoned root grant id>`, value `1`.
+const META_WITHDRAWAL_REPORTED_PREFIX: &str = "withdrawal_reported:";
 
 /// A persisted event with its neutral sequence number (review F08: the store keeps
 /// sequences; the application builds reader-scoped cursors at delivery).
@@ -895,6 +900,110 @@ impl Txn<'_> {
             rusqlite::params![grant.as_str(), codec::doc(&stored)?],
         )?;
         Ok(())
+    }
+
+    // --- ⟨r2.6⟩ ADR-0006 §13.9 items 2 and 3: grant origin, withdrawal report ---
+
+    /// Persist where `grant`'s authority was resolved **with the grant** (schema
+    /// version 4, `grants.origin_json`), in the transaction that creates it
+    /// (ADR-0006 §13.9 item 2: re-validation derives its context from the grant's
+    /// own record, never from a consumer binding or an operation record).
+    ///
+    /// Written once: recording the same origin again is a no-op. The only change
+    /// accepted afterwards is add-only: a stored origin without a `covered` basis
+    /// may gain one (§13.7 item 2), every other field unchanged. Anything else is a
+    /// [`StoreError::GenerationConflict`] and leaves the stored origin unchanged. A
+    /// missing grant is `Sqlite(QueryReturnedNoRows)`.
+    pub fn set_grant_origin(&mut self, grant: &GrantId, origin: &GrantOrigin) -> Result<()> {
+        if self.grant(grant)?.is_none() {
+            return Err(missing());
+        }
+        if let Some(existing) = self.grant_origin(grant)? {
+            if existing == *origin {
+                return Ok(());
+            }
+            let gains_covered = existing.covered.is_none()
+                && origin.covered.is_some()
+                && GrantOrigin {
+                    covered: None,
+                    ..origin.clone()
+                } == existing;
+            if !gains_covered {
+                return Err(conflict(format!(
+                    "grant {grant} already records its origin"
+                )));
+            }
+        }
+        self.tx.execute(
+            "UPDATE grants SET origin_json = ?2 WHERE id = ?1",
+            rusqlite::params![grant.as_str(), codec::doc(origin)?],
+        )?;
+        Ok(())
+    }
+
+    /// Record, add-only, the covered basis of a waiting owner-decision grant the
+    /// saved standing policy came to cover entirely (ADR-0006 §13.7 item 2) in its
+    /// origin. `Ok(false)` when the grant records no origin (nothing to add to);
+    /// the same basis again is a no-op; another basis is a
+    /// [`StoreError::GenerationConflict`].
+    pub fn set_grant_covered(&mut self, grant: &GrantId, basis: &CoveredBasis) -> Result<bool> {
+        let Some(origin) = self.grant_origin(grant)? else {
+            return Ok(false);
+        };
+        match &origin.covered {
+            Some(existing) if existing == basis => Ok(true),
+            Some(_) => Err(conflict(format!(
+                "grant {grant} already records its covered basis"
+            ))),
+            None => {
+                self.set_grant_origin(
+                    grant,
+                    &GrantOrigin {
+                        covered: Some(basis.clone()),
+                        ..origin
+                    },
+                )?;
+                Ok(true)
+            }
+        }
+    }
+
+    /// The origin recorded with `grant` (`None` for a grant that predates schema
+    /// version 4 with nothing to backfill from, and for a missing grant).
+    pub fn grant_origin(&mut self, grant: &GrantId) -> Result<Option<GrantOrigin>> {
+        let doc: Option<Option<String>> = self
+            .tx
+            .query_row(
+                "SELECT origin_json FROM grants WHERE id = ?1",
+                [grant.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        doc.flatten().as_deref().map(codec::parse_doc).transpose()
+    }
+
+    /// Record that the completion of the withdrawal rooted at `root` (the grant
+    /// carrying the `authority_withdrawn` tombstone) was reported (ADR-0006 §13.9
+    /// item 3), so an interrupted withdrawal completed again after a restart or in
+    /// a later scheduler pass reports it exactly once. `true` when this call
+    /// recorded it, `false` when it was already recorded. A root without a
+    /// tombstone is `Sqlite(QueryReturnedNoRows)`.
+    pub fn record_withdrawal_report(&mut self, root: &GrantId) -> Result<bool> {
+        if self.tombstone(root)?.is_none() {
+            return Err(missing());
+        }
+        if self.withdrawal_reported(root)? {
+            return Ok(false);
+        }
+        self.set_meta(&format!("{META_WITHDRAWAL_REPORTED_PREFIX}{root}"), "1")?;
+        Ok(true)
+    }
+
+    /// Whether the completion of the withdrawal rooted at `root` was reported.
+    pub fn withdrawal_reported(&mut self, root: &GrantId) -> Result<bool> {
+        Ok(self
+            .meta(&format!("{META_WITHDRAWAL_REPORTED_PREFIX}{root}"))?
+            .is_some())
     }
 
     // --- R5: recovery intent and stage receipts ----------------------------------------

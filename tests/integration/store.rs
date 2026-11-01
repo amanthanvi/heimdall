@@ -1033,11 +1033,13 @@ fn before_commit_failure_leaves_no_row() {
         .unwrap();
     assert_eq!((o, i), (None, None));
     // Opening a fresh store visits the migration points of every step (0001,
-    // 0002, 0003) first; then the failed transaction (before transaction, before
-    // commit) and the verifying one.
+    // 0002, 0003, 0004) first; then the failed transaction (before transaction,
+    // before commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
@@ -1317,7 +1319,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 3);
+    assert_eq!(SCHEMA_VERSION, 4);
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -1331,7 +1333,7 @@ fn newer_schema_is_refused_and_untouched() {
             }
         )
     });
-    // The next version (4) is just as foreign.
+    // The next version (5) is just as foreign.
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
@@ -1340,8 +1342,8 @@ fn newer_schema_is_refused_and_untouched() {
         matches!(
             e,
             StoreError::NewerSchema {
-                found: 4,
-                supported: 3
+                found: 5,
+                supported: 4
             }
         )
     });
@@ -3130,4 +3132,124 @@ fn recovery_intent_covered_basis_is_add_only() {
     );
     let doc = serde_json::to_value(resolved_intent()).unwrap();
     assert!(doc.get("covered").is_none(), "absent, not null, when unset");
+}
+
+// --- ⟨r2.6⟩ ADR-0006 §13.9 items 2 and 3 (M01-rulings-13-9-J1) ---------------------
+
+fn grant_origin(revision: u64) -> heimdall_domain::grant::GrantOrigin {
+    heimdall_domain::grant::GrantOrigin {
+        profile: ProfileId::parse("dev").unwrap(),
+        profile_revision: revision,
+        policy_revision: Some(PolicyRevision(2)),
+        caller: caller(501),
+        mechanism: "fake_agent".into(),
+        covered: None,
+    }
+}
+
+/// §13.9 item 2: the origin is persisted with the grant row, written once (the same
+/// origin again is a no-op, another one conflicts), gains a covered basis only
+/// add-only, survives state updates, and a grant without one reads `None`.
+#[test]
+fn grant_origin_is_written_once_and_gains_only_a_covered_basis() {
+    let s = mem();
+    let g = grant(1, None, plus(t0(), 7200), GrantState::Preparing);
+    let bare = grant(2, None, plus(t0(), 7200), GrantState::Active);
+    let covered = heimdall_domain::operation::CoveredBasis {
+        generation: AuthorityGeneration(4),
+        policy_revision: Some(PolicyRevision(3)),
+    };
+    s.transaction(|tx| {
+        tx.insert_grant(&g)?;
+        tx.insert_grant(&bare)?;
+        assert_eq!(tx.grant_origin(&g.id)?, None);
+        tx.set_grant_origin(&g.id, &grant_origin(1))?;
+        tx.set_grant_origin(&g.id, &grant_origin(1)) // repeat: no-op
+    })
+    .unwrap();
+    let e = s
+        .transaction(|tx| tx.set_grant_origin(&g.id, &grant_origin(2)))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::GenerationConflict(_)));
+    let e = s
+        .transaction(|tx| {
+            tx.set_grant_origin(&GrantId::from_random_bytes([77; 16]), &grant_origin(1))
+        })
+        .unwrap_err();
+    assert!(matches!(e, StoreError::Sqlite(_)));
+    // Add-only: the covered basis may be added once, never replaced or cleared.
+    s.transaction(|tx| {
+        assert!(tx.set_grant_covered(&g.id, &covered)?);
+        assert!(tx.set_grant_covered(&g.id, &covered)?, "same basis: no-op");
+        assert!(
+            !tx.set_grant_covered(&bare.id, &covered)?,
+            "no origin to add to"
+        );
+        Ok(())
+    })
+    .unwrap();
+    let other = heimdall_domain::operation::CoveredBasis {
+        generation: AuthorityGeneration(5),
+        ..covered.clone()
+    };
+    let e = s
+        .transaction(|tx| tx.set_grant_covered(&g.id, &other))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::GenerationConflict(_)));
+    let e = s
+        .transaction(|tx| tx.set_grant_origin(&g.id, &grant_origin(1)))
+        .unwrap_err();
+    assert!(
+        matches!(e, StoreError::GenerationConflict(_)),
+        "clearing the covered basis is refused"
+    );
+    let mut active = g.clone();
+    active.state = GrantState::Active;
+    s.transaction(|tx| tx.update_grant_state(&active)).unwrap();
+    let (origin, none, stored) = s
+        .transaction(|tx| {
+            Ok((
+                tx.grant_origin(&g.id)?,
+                tx.grant_origin(&bare.id)?,
+                tx.grant(&g.id)?,
+            ))
+        })
+        .unwrap();
+    let mut expected = grant_origin(1);
+    expected.covered = Some(covered);
+    assert_eq!(origin, Some(expected));
+    assert_eq!(none, None);
+    assert_eq!(stored.map(|g| g.state), Some(GrantState::Active));
+}
+
+/// §13.9 item 3: the completion report of a withdrawal is recorded once per
+/// tombstoned root (`true` the first time only) and needs the root's tombstone.
+#[test]
+fn withdrawal_report_is_recorded_once_per_tombstoned_root() {
+    let s = mem();
+    let t = tombstone(9);
+    s.transaction(|tx| {
+        tx.insert_tombstone(&t)?;
+        assert!(!tx.withdrawal_reported(&t.grant)?);
+        assert!(tx.record_withdrawal_report(&t.grant)?);
+        assert!(!tx.record_withdrawal_report(&t.grant)?);
+        assert!(tx.withdrawal_reported(&t.grant)?);
+        Ok(())
+    })
+    .unwrap();
+    let e = s
+        .transaction(|tx| tx.record_withdrawal_report(&GrantId::from_random_bytes([8; 16])))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::Sqlite(_)));
+    // A failed transaction records nothing.
+    let other = tombstone(10);
+    let _ = s.transaction(|tx| {
+        tx.insert_tombstone(&other)?;
+        tx.record_withdrawal_report(&other.grant)?;
+        Err::<(), _>(StoreError::Corrupt("abort".into()))
+    });
+    assert!(
+        !s.transaction(|tx| tx.withdrawal_reported(&other.grant))
+            .unwrap()
+    );
 }
