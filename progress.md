@@ -339,3 +339,10 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 - M02 independent design review (`tests/evidence/artifacts/review-m02-design/review.md`): proceed after fixes. 1 blocker (M2-D01, inherited IdentityFile fallback) and 9 majors (D02–D10).
   - Rulings are in ADR-0007 §12.2; every fix is accepted.
   - Running: task M02-T00-design-fix (docs only).
+- The §13.18 fixes (round-claim ordering, stored cap, and the 3 automated security findings) are committed as 250a029d.
+  - My clean-build check.sh: exit 0, 716 passed, 0 failed, 2 ignored; 86 records valid.
+  - §13.18 item 5: the cap is not configurable in M01 production. If it becomes configurable, it must go through OperationsConfig.
+- Running, each in its own worktree at 250a029d:
+  - task M01-evidence-250a029d, the final native evidence;
+  - task M01-code-review-round7, a Codex review of 6230acf9..250a029d.
+- Also running, in the main checkout: M02-T00-design-fix (docs only).
