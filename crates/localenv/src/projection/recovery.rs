@@ -1,10 +1,10 @@
 //! The total recovery function (m02-plan U4; ADR-0007 §5.7; M2-S01, M2-T04, M2-T05).
 //!
-//! **Frozen in wave 0** (m02-plan U0): [`decide`], [`decide_item`], [`StepDecision`]
-//! and its step types, and the effect alphabet [`Effect`]. The inputs `StepShape`,
-//! `RecoveryState`, `StepObservation`, `EntryObs` and `HoldReason` live in
-//! `heimdall-domain` because they cross the `ProjectionWriter` port (wave-0 verifier
-//! E8).
+//! **Frozen in wave 0** (m02-plan U0): [`decide`], [`decide_item`] and the effect
+//! alphabet [`Effect`]. The inputs `StepShape`, `RecoveryState`, `StepObservation`,
+//! `EntryObs` and `HoldReason`, and the result [`StepDecision`] with its step types,
+//! live in `heimdall-domain` because they cross the `ProjectionWriter` port (wave-0
+//! verifier E8; ADR-0007 §12.14 item 2); they are re-exported here.
 //!
 //! [`decide`] is pure: no I/O and no clock. It is ADR-0007 §5.7's rows, with a final
 //! `_ => Hold(Unmatched)` in every block; every `Unobservable` input is `Hold` before
@@ -15,85 +15,9 @@ use heimdall_contract::setup::ConflictKind;
 use heimdall_domain::operation::HoldReason;
 use heimdall_domain::projection::{RecoveryState, StepObservation, StepShape};
 
-/// A forward action (continues the approved plan; ends in `applied`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ForwardStep {
-    /// F0/T0: stage the step (from the intent's content).
-    Stage,
-    /// F0x/K0x: record `file.staged` for the entry found at the random staged name.
-    RecordStaged,
-    /// Resume at validation (T0): revalidate the path, then continue.
-    Revalidate,
-    /// F2b/C2: write the lost `file.exchanged`.
-    RecordExchanged,
-    /// F3/C6: post-validate.
-    PostValidate,
-    /// T1: re-run the item's transaction check.
-    TransactionCheck,
-    /// K1: claim the Git lock with K (no-replace).
-    ClaimLock,
-    /// K2 before the release is due: keep the lock; no effect.
-    KeepLock,
-    /// C5/C5b: write `file.settled{nothing_displaced}`.
-    NothingDisplaced,
-}
-
-/// A restore action (ends in `restored`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RestoreStep {
-    /// F5: write `file.restore_started` (unless it is the effective phase), exchange
-    /// back, verify, write `file.restored`.
-    Exchange,
-    /// F5b/F5c: the restore exchange already happened; write `file.restored` only.
-    RecognizeRestored,
-    /// C7: settle the created entry from the path, then `file.restored`.
-    CreateRollback,
-    /// F2c/F3a: record `file.post_validated{mismatch}`, then restore.
-    RecordMismatch,
-}
-
-/// An abort action (the commit step was never exchanged; ends in `not_applied`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AbortStep {
-    /// Settle Heimdall's own staged entry, then hand inactive files to the cleaner.
-    SettleStaged,
-    /// Nothing of the step is left (F1a, F2g, C4, K0z …); report and continue.
-    NothingToSettle,
-}
-
-/// A settlement action (the settlement block F8–F9d, and K's release).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SettleStep {
-    /// Write `file.settling`, then move into the slot.
-    Begin,
-    /// F8a: move the source into the slot.
-    Move,
-    /// F8b: moved, receipt lost; write `file.settled`.
-    RecordSettled,
-    /// F9: remove from the slot after re-checking.
-    Remove,
-    /// F8d/R5: put a foreign entry back, or keep it as a conflict.
-    PutBackForeign,
-    /// F4e/F6a/F8c/F8e/F8f/F9a/K3/K4: write `file.settle_conflict`; nothing moves.
-    RecordConflict,
-    /// F9b/F9d: final for the step.
-    Done,
-}
-
-/// `decide`'s result: exactly one action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StepDecision {
-    /// Continue forward.
-    Forward(ForwardStep),
-    /// Restore.
-    Restore(RestoreStep),
-    /// Abort.
-    Abort(AbortStep),
-    /// Settle.
-    Settle(SettleStep),
-    /// Outcome H: move nothing, write `file.held` when the observation changed.
-    Hold(HoldReason),
-}
+pub use heimdall_domain::projection::{
+    AbortStep, ForwardStep, RestoreStep, SettleStep, StepDecision,
+};
 
 /// The concrete effects an action is made of; the generated tests assert over these,
 /// never over the action's name (ADR-0007 §5.7, M2-T05).
@@ -194,4 +118,20 @@ pub enum ItemDecision {
 pub fn decide_item(steps: &[StepState], receipts: &ItemReceipts) -> ItemDecision {
     let _ = (steps, receipts);
     todo!("M02-U4 recovery::decide_item")
+}
+
+#[cfg(test)]
+mod wave0_review {
+    /// Wave-0 review Z03: localenv's `StepDecision` is the domain type, re-exported,
+    /// not a copy (compile-checked identity of the two paths).
+    #[test]
+    fn wave0_z03_localenv_reexports_the_domain_step_decision() {
+        fn same(d: heimdall_domain::projection::StepDecision) -> super::StepDecision {
+            d
+        }
+        let d = same(super::StepDecision::Abort(
+            super::AbortStep::NothingToSettle,
+        ));
+        assert!(matches!(d, super::StepDecision::Abort(_)));
+    }
 }
